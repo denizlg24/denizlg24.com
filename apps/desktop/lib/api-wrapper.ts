@@ -1,4 +1,5 @@
 import { fetch } from "@tauri-apps/plugin-http";
+import type { ZodType } from "zod";
 
 const BASE_URL =
   /*"http://localhost:3001/api/admin"*/ "https://denizlg24.com/api/admin";
@@ -20,6 +21,22 @@ export class denizApi {
     this.apiKey = apiKey;
   }
 
+  private async parseJson<T>(
+    res: Response,
+  ): Promise<{ data: T } | { error: ApiError }> {
+    const text = await res.text();
+    try {
+      return { data: JSON.parse(text) as T };
+    } catch {
+      return {
+        error: {
+          message: `Non-JSON response (status ${res.status})`,
+          code: res.status,
+        },
+      };
+    }
+  }
+
   private async errorFromResponse(res: Response): Promise<ApiError> {
     const fallback = `Request failed with HTTP ${res.status}`;
 
@@ -27,12 +44,20 @@ export class denizApi {
       const contentType = res.headers.get("content-type") ?? "";
 
       if (contentType.includes("application/json")) {
-        const errorData = await res.json();
-        return {
-          message:
-            errorData.message ?? errorData.error ?? errorData.title ?? fallback,
-          code: res.status,
-        };
+        const parsed = await this.parseJson<Record<string, unknown>>(res);
+        if ("error" in parsed) {
+          return { message: fallback, code: res.status };
+        }
+        const errorData = parsed.data;
+        const message =
+          typeof errorData.message === "string"
+            ? errorData.message
+            : typeof errorData.error === "string"
+              ? errorData.error
+              : typeof errorData.title === "string"
+                ? errorData.title
+                : fallback;
+        return { message, code: res.status };
       }
 
       const text = (await res.text()).trim();
@@ -45,10 +70,22 @@ export class denizApi {
     }
   }
 
+  private errorFromException(error: unknown): ApiError {
+    return {
+      message:
+        error instanceof Error
+          ? error.message
+          : "An unexpected error occurred.",
+      code: 500,
+    };
+  }
+
   public async GET<T>({
     endpoint,
+    schema,
   }: {
     endpoint: string;
+    schema?: ZodType<T>;
   }): Promise<T | AuthError | ApiError> {
     try {
       const res = await fetch(`${BASE_URL}/${endpoint}`, {
@@ -64,13 +101,23 @@ export class denizApi {
           return this.errorFromResponse(res);
         }
       }
-      const data = await res.json();
-      return data as T;
+      const parsed = await this.parseJson<T>(res);
+      if ("error" in parsed) {
+        return parsed.error;
+      }
+      if (schema) {
+        const result = schema.safeParse(parsed.data);
+        if (!result.success) {
+          return {
+            message: `Response validation failed: ${result.error.issues[0]?.path.join(".")}`,
+            code: 500,
+          };
+        }
+        return result.data;
+      }
+      return parsed.data;
     } catch (error) {
-      return {
-        message: (error as Error).message ?? "An unexpected error occurred.",
-        code: 500,
-      };
+      return this.errorFromException(error);
     }
   }
 
@@ -95,10 +142,7 @@ export class denizApi {
       }
       return res;
     } catch (error) {
-      return {
-        message: (error as Error).message ?? "An unexpected error occurred.",
-        code: 500,
-      };
+      return this.errorFromException(error);
     }
   }
 
@@ -130,10 +174,7 @@ export class denizApi {
       }
       return res;
     } catch (error) {
-      return {
-        message: (error as Error).message ?? "An unexpected error occurred.",
-        code: 500,
-      };
+      return this.errorFromException(error);
     }
   }
 
@@ -142,7 +183,7 @@ export class denizApi {
     body,
   }: {
     endpoint: string;
-    body: any;
+    body: unknown;
   }): Promise<T | AuthError | ApiError> {
     try {
       const res = await fetch(`${BASE_URL}/${endpoint}`, {
@@ -160,13 +201,13 @@ export class denizApi {
           return this.errorFromResponse(res);
         }
       }
-      const data = await res.json();
-      return data as T;
+      const parsed = await this.parseJson<T>(res);
+      if ("error" in parsed) {
+        return parsed.error;
+      }
+      return parsed.data;
     } catch (error) {
-      return {
-        message: (error as Error).message ?? "An unexpected error occurred.",
-        code: 500,
-      };
+      return this.errorFromException(error);
     }
   }
 
@@ -175,7 +216,7 @@ export class denizApi {
     body,
   }: {
     endpoint: string;
-    body: any;
+    body: unknown;
   }): Promise<T | AuthError | ApiError> {
     try {
       const res = await fetch(`${BASE_URL}/${endpoint}`, {
@@ -193,13 +234,13 @@ export class denizApi {
           return this.errorFromResponse(res);
         }
       }
-      const data = await res.json();
-      return data as T;
+      const parsed = await this.parseJson<T>(res);
+      if ("error" in parsed) {
+        return parsed.error;
+      }
+      return parsed.data;
     } catch (error) {
-      return {
-        message: (error as Error).message ?? "An unexpected error occurred.",
-        code: 500,
-      };
+      return this.errorFromException(error);
     }
   }
 
@@ -208,7 +249,7 @@ export class denizApi {
     body,
   }: {
     endpoint: string;
-    body: any;
+    body: unknown;
   }): Promise<T | AuthError | ApiError> {
     try {
       const res = await fetch(`${BASE_URL}/${endpoint}`, {
@@ -226,13 +267,13 @@ export class denizApi {
           return this.errorFromResponse(res);
         }
       }
-      const data = await res.json();
-      return data as T;
+      const parsed = await this.parseJson<T>(res);
+      if ("error" in parsed) {
+        return parsed.error;
+      }
+      return parsed.data;
     } catch (error) {
-      return {
-        message: (error as Error).message ?? "An unexpected error occurred.",
-        code: 500,
-      };
+      return this.errorFromException(error);
     }
   }
 
@@ -258,13 +299,13 @@ export class denizApi {
           return this.errorFromResponse(res);
         }
       }
-      const data = await res.json();
-      return data as T;
+      const parsed = await this.parseJson<T>(res);
+      if ("error" in parsed) {
+        return parsed.error;
+      }
+      return parsed.data;
     } catch (error) {
-      return {
-        message: (error as Error).message ?? "An unexpected error occurred.",
-        code: 500,
-      };
+      return this.errorFromException(error);
     }
   }
 
@@ -287,13 +328,13 @@ export class denizApi {
           return this.errorFromResponse(res);
         }
       }
-      const data = await res.json();
-      return data as T;
+      const parsed = await this.parseJson<T>(res);
+      if ("error" in parsed) {
+        return parsed.error;
+      }
+      return parsed.data;
     } catch (error) {
-      return {
-        message: (error as Error).message ?? "An unexpected error occurred.",
-        code: 500,
-      };
+      return this.errorFromException(error);
     }
   }
 }

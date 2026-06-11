@@ -1,15 +1,9 @@
+import { contactInputSchema } from "@repo/schemas";
 import { ipAddress } from "@vercel/functions";
 import { type NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { createContact } from "@/lib/contacts";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { sendContactConfirmation } from "@/lib/resend";
-
-const contactSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
-  email: z.string().email("Please enter a valid email address"),
-  message: z.string().min(10, "Message must be at least 10 characters"),
-});
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,7 +24,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const validationResult = contactSchema.safeParse(body);
+    const validationResult = contactInputSchema.safeParse(body);
     if (!validationResult.success) {
       return NextResponse.json(
         { error: "Please provide a valid name, email and message." },

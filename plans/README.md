@@ -38,7 +38,7 @@ These are settled — executors and future advisors do not re-litigate:
 | 001 | Verification baseline (typecheck + test scripts) | P1 | S | — | DONE (2026-06-11: zero pre-existing failures — see `baseline.md`; portfolio-2026 had 4 test files, not 2, all passing) |
 | 002 | Harden public endpoints (rate limits, pagination, mass assignment) | P1 | M | 001 | DONE (2026-06-11: all 4 fixes landed; smoke test confirmed 429 after 5 contact POSTs — 5 test contacts left in local DB) |
 | 003 | Turborepo conversion (scaffold-first, apps/web + apps/desktop) | P1 | L | 001, 002 | DONE (2026-06-11: all gates pass incl. FULL TURBO cache + tauri dev; major bumps lucide-react 0.556→1.17, react-day-picker 9→10, recharts 2.15→3.8 required documented migrations — see commit messages; phantom deps mongodb/katex/pdfjs-dist/@radix-ui/react-dialog declared explicitly) |
-| 004 | Shared zod schema package (`@repo/schemas` + `@repo/utils`) | P1 | L | 003 | TODO |
+| 004 | Shared zod schema package (`@repo/schemas` + `@repo/utils`) | P1 | L | 003 | DONE (2026-06-11: all gates green; zero desktop call sites broken by shim; sourceRepository drift fix includes `url` field the plan excerpt omitted; package tsconfigs need `module: Preserve`/`moduleResolution: Bundler` + explicit `types: ["bun"]` under TS 6; blog-update-schema.test.ts import also relocated) |
 | 005 | Spike: responsive admin design + shared UI direction | P2 | M | 003 (004 ideally) | TODO |
 | 006 | GitHub Actions CI + Dependabot + lockfile auto-repair | P2 | S | 003 | TODO |
 

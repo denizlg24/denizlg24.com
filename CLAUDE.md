@@ -51,7 +51,7 @@ All in `components/ui/`: accordion, alert, alert-dialog, avatar, badge, button, 
 Sidebar groups defined in `components/navigation/navigation-menu.tsx`. Routes registered in `context/user-context.tsx` `KNOWN_ROUTES` set.
 
 ### Type Definitions
-All interfaces in `lib/data-types.ts`: IContact, IEmail, IBlog, IProject, ICalendarEvent, ITimetableEntry, IWhiteboard, IKanbanBoard, IKanbanCard, IConversation, IResource, etc.
+Canonical API contract lives in `packages/schemas` (zod schemas; all TS types are `z.infer`): IContact, IEmail, IBlog, IProject, ICalendarEvent, ITimetableEntry, IWhiteboard, IKanbanBoard, IKanbanCard, IConversation, IResource, etc. Desktop's `lib/data-types.ts` is a re-export shim (plus desktop-only UI-state types). Change schemas FIRST; `turbo typecheck` surfaces both apps' breakages. Don't reintroduce local wire types or hand-written response interfaces.
 
 ## apps/web API Endpoints (consumed by apps/desktop)
 
@@ -99,7 +99,7 @@ When porting features to apps/desktop:
 1. Use apps/desktop's existing patterns (api wrapper, loading skeletons, page structure)
 2. Keep minimalist/editorial styling — small text, muted colors, clean spacing
 3. Improve over apps/web's design (better skeletons, sheets instead of page navigations, relative dates)
-4. Types already exist in `lib/data-types.ts` — check before adding new ones
+4. Types already exist in `packages/schemas` (re-exported via desktop `lib/data-types.ts`) — check before adding new ones
 5. Navigation entry already exists in sidebar for most features — verify in `KNOWN_ROUTES`
 
 # context-mode — MANDATORY routing rules

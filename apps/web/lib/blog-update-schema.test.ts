@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { blogUpdateSchema } from "./blog-update-schema";
+import { blogUpdateSchema } from "@repo/schemas";
 
 describe("blogUpdateSchema", () => {
   test("accepts a full valid update body", () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { contactSchema } from "@repo/schemas";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Archive,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,13 +38,19 @@ import { ContactDetailSheet } from "./_components/contact-detail-sheet";
 type ContactStatus = IContact["status"];
 type StatusFilter = ContactStatus | "all";
 
-interface ContactStats {
-  pending: number;
-  read: number;
-  responded: number;
-  archived: number;
-  total: number;
-}
+const contactStatsSchema = z.object({
+  pending: z.number(),
+  read: z.number(),
+  responded: z.number(),
+  archived: z.number(),
+  total: z.number(),
+});
+type ContactStats = z.infer<typeof contactStatsSchema>;
+
+const contactsResponseSchema = z.object({
+  contacts: z.array(contactSchema),
+  stats: contactStatsSchema,
+});
 
 const STATUS_CONFIG: Record<
   ContactStatus,
@@ -170,11 +178,10 @@ export default function ContactsPage() {
 
   const fetchContacts = useCallback(async () => {
     if (!api) return;
-    const result = await api.GET<{ contacts: IContact[]; stats: ContactStats }>(
-      {
-        endpoint: "contacts",
-      },
-    );
+    const result = await api.GET({
+      endpoint: "contacts",
+      schema: contactsResponseSchema,
+    });
     if (!("code" in result)) {
       setContacts(result.contacts);
       setStats(result.stats);
