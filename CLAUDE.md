@@ -1,0 +1,159 @@
+# denizlg24.com Monorepo
+
+## Structure
+- `portfolio-2026/` — Next.js admin dashboard + API (backend). Manages portfolio content, contacts, blog, projects, email, calendar, etc. Uses MongoDB, shadcn/ui, Tailwind.
+- `denizlg24-app/` — Tauri + Next.js desktop app (client). Consumes portfolio-2026 API. Minimalist/editorial design.
+
+## denizlg24-app Architecture
+
+### Stack
+- Next.js 16 + React 19 + TypeScript (strict)
+- Tauri desktop wrapper (uses `@tauri-apps/plugin-http` for fetch)
+- Tailwind CSS v4 + shadcn/ui (Radix primitives) + lucide-react icons
+- TanStack react-table for data tables
+- Zustand for state, sonner for toasts
+- Package manager: **bun** (never npm)
+
+### Key Patterns
+
+**API calls**: `denizApi` class in `lib/api-wrapper.ts`. Base URL: `https://denizlg24.com/api/admin`. Auth via Bearer token.
+```ts
+const api = useMemo(() => {
+  if (loadingSettings) return null;
+  return new denizApi(settings.apiKey);
+}, [settings, loadingSettings]);
+
+const result = await api.GET<T>({ endpoint: "..." });
+if (!("code" in result)) { /* success */ }
+```
+
+**Page structure**: `"use client"` pages in `app/dashboard/{feature}/page.tsx`. Sub-components in `_components/`. Header bar pattern: icon + title + actions in `h-12 border-b` container.
+
+**Loading**: Content-shaped `<Skeleton>` components matching final layout. See `ContactsLoadingSkeleton` or `UsageLoadingSkeleton` for reference.
+
+**Data tables**: Inline `DataTable` component using TanStack react-table with `SortHeader` helper. Pattern in `llm-usage/page.tsx` and `contacts/page.tsx`.
+
+**Error handling**: Union return `T | AuthError | ApiError`. Check `"code" in result` for errors. Optimistic updates with rollback on failure.
+
+**Styling**: Minimalist/editorial. Small text (`text-xs`, `text-sm`). Muted foreground for secondary info. `tabular-nums` for numeric data. Badge variants for status. Line-variant tabs for filters.
+
+### UI Components Available
+All in `components/ui/`: accordion, alert, alert-dialog, avatar, badge, button, card, carousel, chart, checkbox, collapsible, combobox, command, context-menu, dialog, drawer, dropdown-menu, form, input, label, popover, progress, scroll-area, select, separator, sheet, skeleton, slider, table, tabs, textarea, toggle, tooltip, sidebar, sonner (toasts).
+
+### Navigation
+Sidebar groups defined in `components/navigation/navigation-menu.tsx`. Routes registered in `context/user-context.tsx` `KNOWN_ROUTES` set.
+
+### Type Definitions
+All interfaces in `lib/data-types.ts`: IContact, IEmail, IBlog, IProject, ICalendarEvent, ITimetableEntry, IWhiteboard, IKanbanBoard, IKanbanCard, IConversation, IResource, etc.
+
+## portfolio-2026 API Endpoints (consumed by denizlg24-app)
+
+### Contacts
+- `GET /contacts` → `{ contacts: IContact[], stats: { pending, read, responded, archived, total } }`
+- `GET /contacts/{ticketId}` → `IContact`
+- `PATCH /contacts/{ticketId}` → `{ status }` or `{ emailSent }` body
+- `DELETE /contacts/{ticketId}` → `{ success: true }`
+
+### Email
+- `GET /email-accounts` → `{ accounts: IEmailAccount[] }`
+- `POST /email-accounts/{id}/sync` → sync inbox
+- `GET /email-accounts/{id}/emails` → email list
+- `GET /email-accounts/{accountId}/emails/{emailId}` → full email
+- `GET /email-accounts/{accountId}/emails/{emailId}/attachments` → attachment list
+
+### Blog
+- `GET /blogs` → `{ blogs: IBlog[] }`
+- `POST /blogs` → `{ title, excerpt, content, tags?, media?, isActive? }` → `{ message, blog }`
+- `GET /blogs/{id}` → `{ blog: IBlog }`
+- `PATCH /blogs/{id}` → `{ toggleActive: true }` or full update body → `{ blog }`
+- `DELETE /blogs/{id}` → `{ message }`
+
+### Comments
+- `GET /comments` → `{ comments: CommentWithBlogTitle[], stats: { total, pending, approved, deleted } }`
+- `PATCH /comments/{id}` → `{ action: "approve" | "reject" }` → `{ success, comment }`
+- `DELETE /comments/{id}` → `{ success, softDeleted }` (soft-deletes if has replies)
+
+### Sub-resources (services tracked under a resource, e.g. mongodb/redis on pi-cloud)
+- `GET /resources/{id}/sub-resources` → `{ subResources: (ISubResource & { uptime })[] }`
+- `POST /resources/{id}/sub-resources` → `{ name, description?, isActive?, isPublic?, check }` where check is `{ type: "http", url, expectStatus?, expectJsonPath?, expectEquals? }` or `{ type: "tcp", host, port }` → `{ subResource }`
+- `PATCH /resources/{id}/sub-resources/{subId}` → partial update → `{ subResource }`
+- `DELETE /resources/{id}/sub-resources/{subId}` → `{ status: "deleted" }` (also deletes health logs)
+- Checks run from the backend in the health-check cron (`runAllSubResourceChecks` in `lib/resource-agent.ts`); logs share `HealthCheckLog` keyed by sub-resource id; public `/api/public/resource-status` nests `subResources` per parent
+
+### Upload
+- `POST /upload` → FormData with "file" field → `{ url, hash }` (Pinata, images only, max 5MB)
+
+### LLM Usage
+- `GET /llm/usage` → usage stats, breakdowns, recent requests
+
+## Porting Features from portfolio-2026
+
+When porting features to denizlg24-app:
+1. Use denizlg24-app's existing patterns (api wrapper, loading skeletons, page structure)
+2. Keep minimalist/editorial styling — small text, muted colors, clean spacing
+3. Improve over portfolio-2026's design (better skeletons, sheets instead of page navigations, relative dates)
+4. Types already exist in `lib/data-types.ts` — check before adding new ones
+5. Navigation entry already exists in sidebar for most features — verify in `KNOWN_ROUTES`
+
+# context-mode — MANDATORY routing rules
+
+You have context-mode MCP tools available. These rules are NOT optional — they protect your context window from flooding. A single unrouted command can dump 56 KB into context and waste the entire session.
+
+## BLOCKED commands — do NOT attempt these
+
+### curl / wget — BLOCKED
+Any Bash command containing `curl` or `wget` is intercepted and replaced with an error message. Do NOT retry.
+Instead use:
+- `ctx_fetch_and_index(url, source)` to fetch and index web pages
+- `ctx_execute(language: "javascript", code: "const r = await fetch(...)")` to run HTTP calls in sandbox
+
+### Inline HTTP — BLOCKED
+Any Bash command containing `fetch('http`, `requests.get(`, `requests.post(`, `http.get(`, or `http.request(` is intercepted and replaced with an error message. Do NOT retry with Bash.
+Instead use:
+- `ctx_execute(language, code)` to run HTTP calls in sandbox — only stdout enters context
+
+### WebFetch — BLOCKED
+WebFetch calls are denied entirely. The URL is extracted and you are told to use `ctx_fetch_and_index` instead.
+Instead use:
+- `ctx_fetch_and_index(url, source)` then `ctx_search(queries)` to query the indexed content
+
+## REDIRECTED tools — use sandbox equivalents
+
+### Bash (>20 lines output)
+Bash is ONLY for: `git`, `mkdir`, `rm`, `mv`, `cd`, `ls`, `npm install`, `pip install`, and other short-output commands.
+For everything else, use:
+- `ctx_batch_execute(commands, queries)` — run multiple commands + search in ONE call
+- `ctx_execute(language: "shell", code: "...")` — run in sandbox, only stdout enters context
+
+### Read (for analysis)
+If you are reading a file to **Edit** it → Read is correct (Edit needs content in context).
+If you are reading to **analyze, explore, or summarize** → use `ctx_execute_file(path, language, code)` instead. Only your printed summary enters context. The raw file content stays in the sandbox.
+
+### Grep (large results)
+Grep results can flood context. Use `ctx_execute(language: "shell", code: "grep ...")` to run searches in sandbox. Only your printed summary enters context.
+
+## Tool selection hierarchy
+
+1. **GATHER**: `ctx_batch_execute(commands, queries)` — Primary tool. Runs all commands, auto-indexes output, returns search results. ONE call replaces 30+ individual calls.
+2. **FOLLOW-UP**: `ctx_search(queries: ["q1", "q2", ...])` — Query indexed content. Pass ALL questions as array in ONE call.
+3. **PROCESSING**: `ctx_execute(language, code)` | `ctx_execute_file(path, language, code)` — Sandbox execution. Only stdout enters context.
+4. **WEB**: `ctx_fetch_and_index(url, source)` then `ctx_search(queries)` — Fetch, chunk, index, query. Raw HTML never enters context.
+5. **INDEX**: `ctx_index(content, source)` — Store content in FTS5 knowledge base for later search.
+
+## Subagent routing
+
+When spawning subagents (Agent/Task tool), the routing block is automatically injected into their prompt. Bash-type subagents are upgraded to general-purpose so they have access to MCP tools. You do NOT need to manually instruct subagents about context-mode.
+
+## Output constraints
+
+- Keep responses under 500 words.
+- Write artifacts (code, configs, PRDs) to FILES — never return them as inline text. Return only: file path + 1-line description.
+- When indexing content, use descriptive source labels so others can `ctx_search(source: "label")` later.
+
+## ctx commands
+
+| Command | Action |
+|---------|--------|
+| `ctx stats` | Call the `ctx_stats` MCP tool and display the full output verbatim |
+| `ctx doctor` | Call the `ctx_doctor` MCP tool, run the returned shell command, display as checklist |
+| `ctx upgrade` | Call the `ctx_upgrade` MCP tool, run the returned shell command, display as checklist |

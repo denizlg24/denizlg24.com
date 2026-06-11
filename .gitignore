@@ -36,3 +36,17 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# local secrets
+.env
+.env.*
+!.env.example
+# not part of this monorepo
+bookmark-extension/
+deniz-nutrition-api/
+macros/
+_archive/
+# local agent tooling state
+.conclave/
+# tauri
+apps/desktop/src-tauri/target/
