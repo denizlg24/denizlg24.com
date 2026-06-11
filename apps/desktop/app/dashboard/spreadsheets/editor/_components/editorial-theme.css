@@ -1,0 +1,191 @@
+/*
+ * Fortune-sheet editorial overrides.
+ * Scoped under .fortune-editorial so global fortune-sheet uses elsewhere
+ * (if ever added) remain unaffected.
+ */
+
+.fortune-editorial {
+  /* Workbook container */
+  --fs-border: var(--border);
+  --fs-bg: var(--background);
+  --fs-fg: var(--foreground);
+  --fs-muted: var(--muted);
+  --fs-muted-fg: var(--muted-foreground);
+  --fs-accent: var(--accent);
+  --fs-accent-fg: var(--accent-foreground);
+
+  background: var(--fs-bg);
+  color: var(--fs-fg);
+  font-size: 12px;
+}
+
+.fortune-editorial .fortune-container,
+.fortune-editorial .luckysheet {
+  background: var(--fs-bg);
+  color: var(--fs-fg);
+  border-color: var(--fs-border);
+}
+
+/* Toolbar */
+.fortune-editorial .fortune-toolbar,
+.fortune-editorial .luckysheet-wa-editor,
+.fortune-editorial .luckysheet-toolbar {
+  background: var(--fs-bg);
+  border-bottom: 1px solid var(--fs-border);
+  color: var(--fs-fg);
+  height: 36px;
+  padding: 2px 6px;
+}
+
+.fortune-editorial .fortune-toolbar-divider,
+.fortune-editorial .luckysheet-toolbar-divider {
+  background: var(--fs-border);
+}
+
+/* Toolbar buttons */
+.fortune-editorial .fortune-toolbar-button,
+.fortune-editorial .luckysheet-toolbar-button,
+.fortune-editorial .luckysheet-toolbar-combo-button,
+.fortune-editorial .fortune-toolbar-combo-button {
+  color: var(--fs-fg);
+  background: transparent;
+  border-radius: 4px;
+  transition: background-color 120ms ease;
+}
+
+.fortune-editorial .fortune-toolbar-button:hover,
+.fortune-editorial .luckysheet-toolbar-button:hover,
+.fortune-editorial .luckysheet-toolbar-combo-button:hover,
+.fortune-editorial .fortune-toolbar-combo-button:hover,
+.fortune-editorial .fortune-toolbar-button.fortune-toolbar-button-active,
+.fortune-editorial .luckysheet-toolbar-button.luckysheet-toolbar-button-active {
+  background: var(--fs-muted);
+  color: var(--fs-fg);
+}
+
+.fortune-editorial .fortune-toolbar-button svg,
+.fortune-editorial .luckysheet-toolbar-button svg,
+.fortune-editorial .fortune-toolbar-combo-button svg {
+  fill: var(--fs-fg);
+  color: var(--fs-fg);
+}
+
+.fortune-editorial .fortune-toolbar-select,
+.fortune-editorial .luckysheet-toolbar-select {
+  background: transparent;
+  border: 1px solid var(--fs-border);
+  color: var(--fs-fg);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+/* Formula bar */
+.fortune-editorial .fortune-sheet-formula-bar,
+.fortune-editorial .luckysheet-wa-functionbox {
+  background: var(--fs-bg);
+  border-bottom: 1px solid var(--fs-border);
+  color: var(--fs-fg);
+}
+
+.fortune-editorial .fortune-sheet-formula-bar input,
+.fortune-editorial .luckysheet-functionbox-cell,
+.fortune-editorial .fortune-name-box {
+  background: var(--fs-bg);
+  border: 1px solid var(--fs-border);
+  color: var(--fs-fg);
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+.fortune-editorial .fortune-name-box {
+  min-width: 100px;
+}
+
+/* Column / row headers */
+.fortune-editorial .luckysheet-cols-menu,
+.fortune-editorial .luckysheet-rows-h,
+.fortune-editorial .fortune-col-header,
+.fortune-editorial .fortune-row-header {
+  background: var(--fs-muted);
+  color: var(--fs-muted-fg);
+  border-color: var(--fs-border);
+}
+
+/* Sheet tabs (bottom) */
+.fortune-editorial .fortune-sheet-tab,
+.fortune-editorial .luckysheet-sheets-item {
+  background: var(--fs-bg);
+  color: var(--fs-muted-fg);
+  border-color: var(--fs-border);
+  font-size: 11px;
+  padding: 4px 10px;
+}
+
+.fortune-editorial .fortune-sheet-tab-active,
+.fortune-editorial .luckysheet-sheets-item-active {
+  background: var(--fs-muted);
+  color: var(--fs-fg);
+  border-bottom: 2px solid var(--fs-fg);
+}
+
+.fortune-editorial .fortune-sheet-tabs-container,
+.fortune-editorial .luckysheet-sheet-container-c {
+  background: var(--fs-bg);
+  border-top: 1px solid var(--fs-border);
+}
+
+/* Status bar / bottom bar */
+.fortune-editorial .luckysheet-stat-area,
+.fortune-editorial .fortune-sheet-stat-area {
+  background: var(--fs-bg);
+  color: var(--fs-muted-fg);
+  border-top: 1px solid var(--fs-border);
+}
+
+/* Scrollbars */
+.fortune-editorial ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.fortune-editorial ::-webkit-scrollbar-track {
+  background: var(--fs-bg);
+}
+.fortune-editorial ::-webkit-scrollbar-thumb {
+  background: var(--fs-border);
+  border-radius: 4px;
+}
+.fortune-editorial ::-webkit-scrollbar-thumb:hover {
+  background: var(--fs-muted-fg);
+}
+
+/* Context menus + dropdowns */
+.fortune-editorial .fortune-context-menu,
+.fortune-editorial .luckysheet-cols-menu,
+.fortune-editorial .luckysheet-cols-menu-inline {
+  background: var(--fs-bg);
+  border: 1px solid var(--fs-border);
+  color: var(--fs-fg);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.fortune-editorial .fortune-context-menu-item:hover,
+.fortune-editorial .luckysheet-cols-menu-item:hover {
+  background: var(--fs-muted);
+  color: var(--fs-fg);
+}
+
+/* Selection outline — use accent */
+.fortune-editorial .luckysheet-cell-selected,
+.fortune-editorial .fortune-cell-selected {
+  border: 2px solid var(--fs-fg);
+}
+
+/* Tooltips */
+.fortune-editorial .fortune-tooltip,
+.fortune-editorial .luckysheet-tooltip {
+  background: var(--fs-fg);
+  color: var(--fs-bg);
+  font-size: 11px;
+  border-radius: 4px;
+}
