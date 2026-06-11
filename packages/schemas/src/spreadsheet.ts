@@ -21,7 +21,9 @@ export type ISpreadsheet = z.infer<typeof spreadsheetSchema>;
 export const fortuneSheetCellValueSchema = z.object({
   v: z.union([z.string(), z.number(), z.boolean()]).nullable().optional(),
   m: z.string().optional(),
-  ct: z.object({ fa: z.string().optional(), t: z.string().optional() }).optional(),
+  ct: z
+    .object({ fa: z.string().optional(), t: z.string().optional() })
+    .optional(),
   bg: z.string().optional(),
   fc: z.string().optional(),
   ff: z.union([z.string(), z.number()]).optional(),

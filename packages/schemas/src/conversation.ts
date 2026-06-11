@@ -12,7 +12,10 @@ export type IChatToolCall = z.infer<typeof chatToolCallSchema>;
 
 export const chatContentSegmentSchema = z.union([
   z.object({ type: z.literal("text"), text: z.string() }),
-  z.object({ type: z.literal("tool_group"), calls: z.array(chatToolCallSchema) }),
+  z.object({
+    type: z.literal("tool_group"),
+    calls: z.array(chatToolCallSchema),
+  }),
 ]);
 export type IChatContentSegment = z.infer<typeof chatContentSegmentSchema>;
 
@@ -21,7 +24,9 @@ export const chatMessageAttachmentSchema = z.object({
   url: z.string(),
   name: z.string(),
 });
-export type IChatMessageAttachment = z.infer<typeof chatMessageAttachmentSchema>;
+export type IChatMessageAttachment = z.infer<
+  typeof chatMessageAttachmentSchema
+>;
 
 export const chatClientToolResultSchema = z.object({
   toolUseId: z.string(),

@@ -3,6 +3,7 @@
   "compilerOptions": {
     "module": "Preserve",
     "moduleResolution": "Bundler",
+    "types": ["bun"],
     "outDir": "dist"
   },
   "include": ["src"],
