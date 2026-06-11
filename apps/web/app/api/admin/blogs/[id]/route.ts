@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getBlogById, toggleBlogActive } from "@/lib/blog";
-import { blogUpdateSchema } from "@/lib/blog-update-schema";
+import { blogUpdateSchema } from "@repo/schemas";
 import { connectDB } from "@/lib/mongodb";
 import { revalidateBlogContent } from "@/lib/public-content-revalidation";
 import { requireAdmin } from "@/lib/require-admin";
