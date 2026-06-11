@@ -1,0 +1,74 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.2.0/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": ["**", "!node_modules", "!.next", "!dist", "!build"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "a11y": {
+        "noStaticElementInteractions": "off",
+        "noSvgWithoutTitle": "off",
+        "useAltText": "off",
+        "useButtonType": "off",
+        "useFocusableInteractive": "off",
+        "useKeyWithClickEvents": "off",
+        "useSemanticElements": "off",
+        "useValidAnchor": "off"
+      },
+      "complexity": {
+        "noCommaOperator": "off"
+      },
+      "correctness": {
+        "noChildrenProp": "off",
+        "noInnerDeclarations": "off",
+        "noUnknownFunction": "off",
+        "noUnusedFunctionParameters": "off",
+        "noUnusedVariables": "off",
+        "useExhaustiveDependencies": "off"
+      },
+      "performance": {
+        "noImgElement": "off"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "off"
+      },
+      "style": {
+        "noDescendingSpecificity": "off",
+        "noNonNullAssertion": "off"
+      },
+      "suspicious": {
+        "noArrayIndexKey": "off",
+        "noDocumentCookie": "off",
+        "noExplicitAny": "off",
+        "noShadowRestrictedNames": "off",
+        "noTemplateCurlyInString": "off",
+        "useIterableCallbackReturn": "off",
+        "noUnknownAtRules": "off"
+      }
+    },
+    "domains": {
+      "next": "recommended",
+      "react": "recommended"
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
+}
