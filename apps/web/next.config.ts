@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   /* config options here */
   crossOrigin: "anonymous",
   reactCompiler: true,
+  transpilePackages: ["@repo/schemas", "@repo/utils"],
   experimental: {
     authInterrupts: true,
   },
