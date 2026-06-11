@@ -28,6 +28,8 @@ import { PaginatedDataTable } from "@/components/ui/paginated-data-table";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { contactSchema } from "@repo/schemas";
+import { z } from "zod";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IContact } from "@/lib/data-types";
@@ -36,13 +38,19 @@ import { ContactDetailSheet } from "./_components/contact-detail-sheet";
 type ContactStatus = IContact["status"];
 type StatusFilter = ContactStatus | "all";
 
-interface ContactStats {
-  pending: number;
-  read: number;
-  responded: number;
-  archived: number;
-  total: number;
-}
+const contactStatsSchema = z.object({
+  pending: z.number(),
+  read: z.number(),
+  responded: z.number(),
+  archived: z.number(),
+  total: z.number(),
+});
+type ContactStats = z.infer<typeof contactStatsSchema>;
+
+const contactsResponseSchema = z.object({
+  contacts: z.array(contactSchema),
+  stats: contactStatsSchema,
+});
 
 const STATUS_CONFIG: Record<
   ContactStatus,
@@ -170,11 +178,10 @@ export default function ContactsPage() {
 
   const fetchContacts = useCallback(async () => {
     if (!api) return;
-    const result = await api.GET<{ contacts: IContact[]; stats: ContactStats }>(
-      {
-        endpoint: "contacts",
-      },
-    );
+    const result = await api.GET({
+      endpoint: "contacts",
+      schema: contactsResponseSchema,
+    });
     if (!("code" in result)) {
       setContacts(result.contacts);
       setStats(result.stats);
