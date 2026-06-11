@@ -1,10 +1,17 @@
 # denizlg24.com Monorepo
 
 ## Structure
-- `portfolio-2026/` — Next.js admin dashboard + API (backend). Manages portfolio content, contacts, blog, projects, email, calendar, etc. Uses MongoDB, shadcn/ui, Tailwind.
-- `denizlg24-app/` — Tauri + Next.js desktop app (client). Consumes portfolio-2026 API. Minimalist/editorial design.
 
-## denizlg24-app Architecture
+Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at root).
+
+- `apps/web/` (formerly `portfolio-2026/`) — Next.js admin dashboard + API (backend). Manages portfolio content, contacts, blog, projects, email, calendar, etc. Uses MongoDB, shadcn/ui, Tailwind.
+- `apps/desktop/` (formerly `denizlg24-app/`) — Tauri + Next.js desktop app (client). Consumes the web app's API. Minimalist/editorial design.
+- `packages/typescript-config/` — shared tsconfig presets.
+- `_archive/` — the original standalone repos with full git history (gitignored; read-only rollback material).
+
+Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=web|desktop]`; `bun run format-and-lint` at root.
+
+## apps/desktop Architecture
 
 ### Stack
 - Next.js 16 + React 19 + TypeScript (strict)
@@ -46,7 +53,7 @@ Sidebar groups defined in `components/navigation/navigation-menu.tsx`. Routes re
 ### Type Definitions
 All interfaces in `lib/data-types.ts`: IContact, IEmail, IBlog, IProject, ICalendarEvent, ITimetableEntry, IWhiteboard, IKanbanBoard, IKanbanCard, IConversation, IResource, etc.
 
-## portfolio-2026 API Endpoints (consumed by denizlg24-app)
+## apps/web API Endpoints (consumed by apps/desktop)
 
 ### Contacts
 - `GET /contacts` → `{ contacts: IContact[], stats: { pending, read, responded, archived, total } }`
@@ -86,12 +93,12 @@ All interfaces in `lib/data-types.ts`: IContact, IEmail, IBlog, IProject, ICalen
 ### LLM Usage
 - `GET /llm/usage` → usage stats, breakdowns, recent requests
 
-## Porting Features from portfolio-2026
+## Porting Features from apps/web
 
-When porting features to denizlg24-app:
-1. Use denizlg24-app's existing patterns (api wrapper, loading skeletons, page structure)
+When porting features to apps/desktop:
+1. Use apps/desktop's existing patterns (api wrapper, loading skeletons, page structure)
 2. Keep minimalist/editorial styling — small text, muted colors, clean spacing
-3. Improve over portfolio-2026's design (better skeletons, sheets instead of page navigations, relative dates)
+3. Improve over apps/web's design (better skeletons, sheets instead of page navigations, relative dates)
 4. Types already exist in `lib/data-types.ts` — check before adding new ones
 5. Navigation entry already exists in sidebar for most features — verify in `KNOWN_ROUTES`
 
