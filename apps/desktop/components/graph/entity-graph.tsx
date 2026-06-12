@@ -26,6 +26,49 @@ export interface EntityGraphEdge {
   strength: number;
 }
 
+// Shared page-level plumbing: restrict groups/edges to what the (filtered)
+// item set can actually reach, so notes and people graphs cannot diverge.
+export function useEntityGraphData<
+  TItem extends { _id: string },
+  TGroup extends EntityGraphGroup,
+  TEdge extends EntityGraphEdge,
+>({
+  items,
+  groups,
+  edges,
+  getItemGroupIds,
+}: {
+  items: TItem[];
+  groups: TGroup[];
+  edges: TEdge[];
+  getItemGroupIds: (item: TItem) => string[];
+}): { visibleGroups: TGroup[]; visibleEdges: TEdge[] } {
+  const visibleGroups = useMemo(() => {
+    const byId = new Map(groups.map((group) => [group._id, group]));
+    const visible = new Set<string>();
+    for (const item of items) {
+      for (const groupId of getItemGroupIds(item)) {
+        let currentId: string | null | undefined = groupId;
+        while (currentId) {
+          if (visible.has(currentId)) break;
+          visible.add(currentId);
+          currentId = byId.get(currentId)?.parentId ?? null;
+        }
+      }
+    }
+    return groups.filter((group) => visible.has(group._id));
+  }, [items, groups, getItemGroupIds]);
+
+  const visibleEdges = useMemo(() => {
+    const visibleIds = new Set(items.map((item) => item._id));
+    return edges.filter(
+      (edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to),
+    );
+  }, [items, edges]);
+
+  return { visibleGroups, visibleEdges };
+}
+
 interface Props<
   TItem extends { _id: string },
   TGroup extends EntityGraphGroup,

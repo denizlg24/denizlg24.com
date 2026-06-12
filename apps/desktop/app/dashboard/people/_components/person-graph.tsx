@@ -12,6 +12,13 @@ interface Props {
   onSelectGroup: (group: IPersonGroup) => void;
 }
 
+// Module-level so their identity is stable: EntityGraph keys its node/link
+// memo on these, and a fresh lambda per render replays the force layout.
+const getPersonLabel = (person: IPerson) => person.name;
+export const getPersonGroupIds = (person: IPerson) => person.groupIds;
+const getPersonColor = (person: IPerson, scheme: "dark" | "light") =>
+  classColor(person.placeMet ?? person.name, scheme);
+
 export function PersonGraph({
   people,
   groups,
@@ -24,11 +31,9 @@ export function PersonGraph({
       items={people}
       groups={groups}
       edges={edges}
-      getItemLabel={(person) => person.name}
-      getItemGroupIds={(person) => person.groupIds}
-      getItemColor={(person, scheme) =>
-        classColor(person.placeMet ?? person.name, scheme)
-      }
+      getItemLabel={getPersonLabel}
+      getItemGroupIds={getPersonGroupIds}
+      getItemColor={getPersonColor}
       onSelectItem={onSelectPerson}
       onSelectGroup={onSelectGroup}
     />

@@ -12,6 +12,15 @@ interface Props {
   onSelectGroup: (group: INoteGroup) => void;
 }
 
+// Module-level so their identity is stable: EntityGraph keys its node/link
+// memo on these, and a fresh lambda per render replays the force layout.
+const getNoteLabel = (note: INote) => note.title;
+export const getNoteGroupIds = (note: INote) => note.groupIds ?? [];
+const getNoteColor = (note: INote, scheme: "dark" | "light") =>
+  note.class
+    ? classColor(note.class, scheme)
+    : classColor(note.siteName ?? note.title, scheme);
+
 export function NoteGraph({
   notes,
   groups,
@@ -24,13 +33,9 @@ export function NoteGraph({
       items={notes}
       groups={groups}
       edges={edges}
-      getItemLabel={(note) => note.title}
-      getItemGroupIds={(note) => note.groupIds ?? []}
-      getItemColor={(note, scheme) =>
-        note.class
-          ? classColor(note.class, scheme)
-          : classColor(note.siteName ?? note.title, scheme)
-      }
+      getItemLabel={getNoteLabel}
+      getItemGroupIds={getNoteGroupIds}
+      getItemColor={getNoteColor}
       onSelectItem={onSelectNote}
       onSelectGroup={onSelectGroup}
     />
