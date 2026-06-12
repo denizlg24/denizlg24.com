@@ -1,7 +1,10 @@
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/require-admin";
-import { parseSubResourceCheck, serializeSubResource } from "@/lib/sub-resource-payload";
+import {
+  parseSubResourceCheck,
+  serializeSubResource,
+} from "@/lib/sub-resource-payload";
 import { getHealthCheckLogModel } from "@/models/resource-db/HealthCheckLog";
 import { getSubResourceModel } from "@/models/resource-db/SubResource";
 

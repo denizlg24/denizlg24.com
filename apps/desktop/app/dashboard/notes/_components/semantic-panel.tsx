@@ -5,9 +5,6 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { denizApi } from "@/lib/api-wrapper";
-import type { ISemanticSuggestion } from "@/lib/data-types";
-import { runSemanticSync } from "@/lib/semantic/sync";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -16,6 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { denizApi } from "@/lib/api-wrapper";
+import type { ISemanticSuggestion } from "@/lib/data-types";
+import { runSemanticSync } from "@/lib/semantic/sync";
 
 interface Props {
   api: denizApi;

@@ -13,11 +13,11 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { FaGithub } from "react-icons/fa6";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
+import { FaGithub } from "react-icons/fa6";
 import * as z from "zod";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { Badge } from "@/components/ui/badge";

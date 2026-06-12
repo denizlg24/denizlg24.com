@@ -11,8 +11,7 @@ async function getConnection(resourceId: string, capId: string) {
   if (!resource) throw new Error("Resource not found");
 
   const cap = resource.capabilities.id(capId);
-  if (!cap || cap.type !== "picron")
-    throw new Error("PiCron capability not found");
+  if (cap?.type !== "picron") throw new Error("PiCron capability not found");
 
   const { username, password } = getPiCronCredentials(cap);
   return { baseUrl: cap.baseUrl, username, password, cacheKey: capId };

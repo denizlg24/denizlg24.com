@@ -108,7 +108,7 @@ export default function TimetableManager({
   const handleCreate = async (values: TimetableFormValues) => {
     setIsLoading(true);
     try {
-      const result = await API.POST<{}>({
+      const result = await API.POST<{ entry: ITimetableEntry }>({
         endpoint: "timetable",
         body: values,
       });
@@ -140,7 +140,7 @@ export default function TimetableManager({
     if (!editingEntry) return;
     setIsLoading(true);
     try {
-      const result = await API.PATCH<{}>({
+      const result = await API.PATCH<{ entry: ITimetableEntry }>({
         endpoint: `timetable/${editingEntry._id}`,
         body: values,
       });
@@ -172,7 +172,7 @@ export default function TimetableManager({
     if (!deleteTarget) return;
     setIsLoading(true);
     try {
-      const result = await API.DELETE<{}>({
+      const result = await API.DELETE<{ success: true }>({
         endpoint: `timetable/${deleteTarget._id}`,
       });
       if ("code" in result) {

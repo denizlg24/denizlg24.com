@@ -116,7 +116,7 @@ export default async function ProjectPage({
                 key={`${link}-${linkIdx}`}
                 variant={"default"}
               >
-                <a href={link.url} target="_blank">
+                <a href={link.url} target="_blank" rel="noopener">
                   {link.label} <Icon className="w-3 h-3" />
                 </a>
               </Button>

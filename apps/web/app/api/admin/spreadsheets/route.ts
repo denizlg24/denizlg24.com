@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       content?: FortuneSheetBook;
     } = body;
 
-    if (!title || !title.trim()) {
+    if (!title?.trim()) {
       return NextResponse.json({ error: "Title is required" }, { status: 400 });
     }
 

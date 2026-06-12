@@ -10,8 +10,8 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { FaGithub } from "react-icons/fa6";
 import { useRef, useState } from "react";
+import { FaGithub } from "react-icons/fa6";
 import { toast } from "sonner";
 import { MarkdownRenderer } from "@/components/markdown/markdown-renderer";
 import { Badge } from "@/components/ui/badge";

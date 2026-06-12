@@ -98,7 +98,8 @@ export function EntityGraph<
     const undirectedEdges: EntityGraphEdge[] = [];
     const seenPairs = new Set<string>();
     for (const edge of edges) {
-      if (!visibleItemIds.has(edge.from) || !visibleItemIds.has(edge.to)) continue;
+      if (!visibleItemIds.has(edge.from) || !visibleItemIds.has(edge.to))
+        continue;
       if (edge.from === edge.to) continue;
       const key =
         edge.from < edge.to

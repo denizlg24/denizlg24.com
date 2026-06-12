@@ -39,7 +39,7 @@ export const metadata: Metadata = {
 async function NowPageContent() {
   const doc = await getNowPageContent();
 
-  if (!doc || !doc.content) {
+  if (!doc?.content) {
     return null;
   }
 

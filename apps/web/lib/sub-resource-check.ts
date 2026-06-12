@@ -54,7 +54,8 @@ async function runHttpCheck(
 
     if (check.expectJsonPath && check.expectEquals != null) {
       const body = (await res.json().catch(() => null)) as unknown;
-      const value = body != null ? readJsonPath(body, check.expectJsonPath) : undefined;
+      const value =
+        body != null ? readJsonPath(body, check.expectJsonPath) : undefined;
       if (String(value) !== check.expectEquals) {
         return {
           isHealthy: false,

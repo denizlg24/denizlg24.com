@@ -184,14 +184,11 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
   const save = async () => {
     setSaving(true);
     try {
-      const res = await fetch(
-        editing ? `${baseUrl}/${editing._id}` : baseUrl,
-        {
-          method: editing ? "PATCH" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formToPayload(form)),
-        },
-      );
+      const res = await fetch(editing ? `${baseUrl}/${editing._id}` : baseUrl, {
+        method: editing ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formToPayload(form)),
+      });
       const data = await res.json();
       if (!res.ok) {
         toast.error(data.error ?? "Failed to save sub-resource");
@@ -254,8 +251,8 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
         <div>
           <h2 className="text-lg font-semibold">Sub-resources</h2>
           <p className="text-xs text-muted-foreground">
-            Services monitored under this resource (HTTP health endpoints or
-            TCP ports).
+            Services monitored under this resource (HTTP health endpoints or TCP
+            ports).
           </p>
         </div>
         <div className="flex items-center gap-2">

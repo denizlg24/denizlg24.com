@@ -9,10 +9,10 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
-import { FaGithub } from "react-icons/fa6";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { FaGithub } from "react-icons/fa6";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

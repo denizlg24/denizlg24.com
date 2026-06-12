@@ -4,8 +4,8 @@ import { requireAdmin } from "@/lib/require-admin";
 import { getUptimeData } from "@/lib/resource-agent";
 import { encryptPassword } from "@/lib/safe-email-password";
 import { upsertPingResource } from "@/lib/sync-ping-resource";
-import { getPingResourceModel } from "@/models/resource-db/PingResource";
 import { Resource } from "@/models/Resource";
+import { getPingResourceModel } from "@/models/resource-db/PingResource";
 
 export async function GET(request: NextRequest) {
   const authError = await requireAdmin(request);
@@ -19,7 +19,9 @@ export async function GET(request: NextRequest) {
     getUptimeData(resourceIds),
     getPingResourceModel(),
   ]);
-  const pingDocs = await PingResource.find({ _id: { $in: resourceIds } }).lean();
+  const pingDocs = await PingResource.find({
+    _id: { $in: resourceIds },
+  }).lean();
   const pingMap = new Map(pingDocs.map((p) => [p._id.toString(), p]));
 
   return NextResponse.json({

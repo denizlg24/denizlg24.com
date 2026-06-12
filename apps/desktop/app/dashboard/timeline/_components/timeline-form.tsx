@@ -8,8 +8,8 @@ import {
   Plus,
   X,
 } from "lucide-react";
-import { FaGithub } from "react-icons/fa6";
 import { useRef, useState } from "react";
+import { FaGithub } from "react-icons/fa6";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

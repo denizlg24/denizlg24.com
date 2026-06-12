@@ -211,7 +211,8 @@ export const POST = async (req: NextRequest) => {
         const isLastAssistant = i === msgs.length - 1 && m.role === "assistant";
 
         return {
-          role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+          role:
+            m.role === "assistant" ? ("assistant" as const) : ("user" as const),
           content: messageContentToStored(m.content),
           ...(isLastAssistant && tokenUsage
             ? { tokenUsage }

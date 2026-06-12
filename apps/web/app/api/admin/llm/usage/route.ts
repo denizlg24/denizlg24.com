@@ -81,14 +81,8 @@ export async function GET(request: NextRequest) {
             { $match: { createdAt: { $gte: thirtyDaysAgo } } },
             sumGroup,
           ],
-          last7d: [
-            { $match: { createdAt: { $gte: sevenDaysAgo } } },
-            sumGroup,
-          ],
-          last24h: [
-            { $match: { createdAt: { $gte: oneDayAgo } } },
-            sumGroup,
-          ],
+          last7d: [{ $match: { createdAt: { $gte: sevenDaysAgo } } }, sumGroup],
+          last24h: [{ $match: { createdAt: { $gte: oneDayAgo } } }, sumGroup],
           byModel: [groupBy("$llmModel"), { $sort: { cost: -1 } }],
           bySource: [groupBy("$source"), { $sort: { cost: -1 } }],
           dailyBreakdown: [
