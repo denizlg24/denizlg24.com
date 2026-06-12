@@ -350,7 +350,13 @@ export const NoteEditor = ({
   return (
     <div className="w-full relative flex-1 min-h-0 flex flex-col">
       <div
-        className={`fixed left-1/2 -translate-x-1/2 bottom-4 z-90 flex flex-row items-center rounded-full transition-[background-color,border-color,box-shadow] duration-300 ease-out ${
+        className={`fixed left-1/2 -translate-x-1/2 ${
+          findReplaceOpen
+            ? findReplaceShowReplace
+              ? "bottom-24"
+              : "bottom-14"
+            : "bottom-4"
+        } z-90 flex flex-row items-center rounded-full transition-[background-color,border-color,box-shadow,bottom] duration-300 ease-out ${
           toolbarOpen
             ? "px-2 py-1 border shadow bg-surface"
             : "p-0 border-transparent bg-transparent shadow-none"
@@ -631,6 +637,9 @@ export const NoteEditor = ({
                         <mark
                           key={`m-${i}`}
                           className={`${bgClass} text-transparent rounded-sm`}
+                          data-find-current={
+                            region.type === "findCurrent" ? "" : undefined
+                          }
                         >
                           {content.slice(region.start, region.end) || "\u200B"}
                         </mark>,
