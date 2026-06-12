@@ -1,10 +1,10 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
+import { Separator } from "@repo/ui/separator";
 import { format } from "date-fns";
 import { Edit3, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import type { denizApi } from "@/lib/api-wrapper";
 import type {
   IWhiteboard,

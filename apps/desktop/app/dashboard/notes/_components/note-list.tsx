@@ -1,9 +1,9 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
+import { ScrollArea } from "@repo/ui/scroll-area";
 import { ExternalLink, FileText, Globe } from "lucide-react";
 import Image from "next/image";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import type { INote, INoteGroup } from "@/lib/data-types";
 
 function safeHostname(url: string) {

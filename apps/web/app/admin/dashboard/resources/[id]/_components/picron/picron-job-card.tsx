@@ -1,12 +1,12 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
+import { Card } from "@repo/ui/card";
 import { formatDistanceToNow } from "date-fns";
 import { Clock, Eye, EyeOff, Pencil, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,

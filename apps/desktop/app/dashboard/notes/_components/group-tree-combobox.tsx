@@ -1,15 +1,15 @@
 "use client";
 
-import { Check, ChevronDown, ChevronRight, Plus, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@repo/ui/button";
 import {
   Popover,
   PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
+} from "@repo/ui/popover";
+import { ScrollArea } from "@repo/ui/scroll-area";
+import { Check, ChevronDown, ChevronRight, Plus, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { INoteGroup, IPersonGroup } from "@/lib/data-types";
 import {
   buildChildrenByParent,

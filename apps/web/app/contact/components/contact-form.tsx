@@ -1,6 +1,9 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Field, FieldError, FieldLabel } from "@repo/ui/field";
+import { Input } from "@repo/ui/input";
+import { Textarea } from "@repo/ui/textarea";
 import {
   CheckCircle2,
   Loader2Icon,
@@ -12,9 +15,6 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { StyledLink } from "@/components/styled-link";
 import { Button } from "@/components/ui/button";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { sendToSlack } from "@/lib/send-contact-to-slack";
 
 const contactFormSchema = z.object({

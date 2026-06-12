@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
 import {
   ExternalLink,
   Eye,
@@ -13,7 +14,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { FaGithub } from "react-icons/fa6";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

@@ -1,12 +1,12 @@
 "use client";
 
-import { Activity, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@repo/ui/dropdown-menu";
+import { Activity, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import type { IResource } from "@/lib/data-types";
 import { UptimeBar } from "./uptime-bar";
 

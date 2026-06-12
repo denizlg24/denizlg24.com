@@ -1,6 +1,6 @@
+import { Button } from "@repo/ui/button";
 import { CalendarDays, Plus } from "lucide-react";
 import { TimetableGrid } from "@/app/dashboard/timetable/_components/timetable-grid";
-import { Button } from "@/components/ui/button";
 
 export default function Loading() {
   return (

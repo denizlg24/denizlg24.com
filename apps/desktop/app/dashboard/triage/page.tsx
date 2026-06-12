@@ -1,12 +1,12 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
+import { PaginatedDataTable } from "@repo/ui/paginated-data-table";
+import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Archive, Brain, Loader2, Play } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { PaginatedDataTable } from "@/components/ui/paginated-data-table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IEmailTriage, TriageCategory } from "@/lib/data-types";

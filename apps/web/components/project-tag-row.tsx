@@ -1,7 +1,7 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Badge } from "./ui/badge";
 
 export function ProjectTagRow({ tags }: { tags: string[] }) {
   const containerRef = useRef<HTMLDivElement>(null);

@@ -1,5 +1,7 @@
 "use client";
 
+import { Input } from "@repo/ui/input";
+import { ScrollArea } from "@repo/ui/scroll-area";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertCircle,
@@ -40,8 +42,6 @@ import {
   Zap,
 } from "lucide-react";
 import { useState } from "react";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 export const COLUMN_ICON_MAP: Record<string, LucideIcon> = {
   circle: Circle,

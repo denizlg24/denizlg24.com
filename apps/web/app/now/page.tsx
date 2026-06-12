@@ -1,8 +1,8 @@
+import { Skeleton } from "@repo/ui/skeleton";
 import { formatDistanceToNow } from "date-fns";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
-import { Skeleton } from "@/components/ui/skeleton";
 import { getNowPageContent } from "@/lib/now-page";
 import {
   GitHubContributions,

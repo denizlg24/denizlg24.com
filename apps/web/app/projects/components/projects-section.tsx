@@ -1,10 +1,4 @@
 "use client";
-import { FolderGit2, RefreshCcwIcon, Trash2 } from "lucide-react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useMemo } from "react";
-import { ProjectCard } from "@/components/project-card";
-import { Button } from "@/components/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -12,7 +6,13 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty";
+} from "@repo/ui/empty";
+import { FolderGit2, RefreshCcwIcon, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useMemo } from "react";
+import { ProjectCard } from "@/components/project-card";
+import { Button } from "@/components/ui/button";
 import type { ILeanProject } from "@/models/Project";
 
 export const ProjectsSection = ({

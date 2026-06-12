@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
+import { Separator } from "@repo/ui/separator";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { format } from "date-fns";
@@ -14,8 +16,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { IEmail, IEmailAttachment, IFullEmail } from "@/lib/data-types";
 import { EmailIframe } from "./email-iframe";

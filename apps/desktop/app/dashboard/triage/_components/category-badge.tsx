@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@repo/ui/badge";
 import type { TriageCategory } from "@/lib/data-types";
 
 const CATEGORY_LABELS: Record<TriageCategory, string> = {

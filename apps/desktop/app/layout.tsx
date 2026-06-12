@@ -1,5 +1,5 @@
+import { Toaster } from "@repo/ui/sonner";
 import { Calistoga, Inter } from "next/font/google";
-import { Toaster } from "@/components/ui/sonner";
 import { ExternalLinkInterceptor } from "@/components/window/external-link-interceptor";
 import { TitleBar } from "@/components/window/title-bar";
 import { UpdateNotifier } from "@/components/window/update-notifier";

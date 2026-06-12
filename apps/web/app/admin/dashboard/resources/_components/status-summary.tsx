@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@repo/ui/badge";
 import type { LeanResource } from "./resources-manager";
 
 function getResourceStatus(

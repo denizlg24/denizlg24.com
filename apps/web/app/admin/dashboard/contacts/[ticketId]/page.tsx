@@ -1,10 +1,10 @@
+import { Badge } from "@repo/ui/badge";
+import { Card } from "@repo/ui/card";
 import { ArrowLeft, Clock, Mail, MapPin, User } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { getContactByTicketId } from "@/lib/contacts";
 import { DeleteContactButton } from "./delete-contact-button";
 import { MarkAsRead } from "./mark-as-read";

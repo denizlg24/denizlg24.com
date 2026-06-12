@@ -1,11 +1,11 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
 import { format } from "date-fns";
 import { Loader2, Mail, MailOpen, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,

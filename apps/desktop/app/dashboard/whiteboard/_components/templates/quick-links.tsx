@@ -1,9 +1,9 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
 import { ExternalLink, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import type { TemplateProps } from ".";
 
 interface QuickLink {

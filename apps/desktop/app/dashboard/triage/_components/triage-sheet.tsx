@@ -1,5 +1,21 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@repo/ui/collapsible";
+import { Progress } from "@repo/ui/progress";
+import { Separator } from "@repo/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@repo/ui/sheet";
 import {
   Archive,
   Calendar,
@@ -11,22 +27,6 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { IEmailTriage } from "@/lib/data-types";
 import { CategoryBadge } from "./category-badge";

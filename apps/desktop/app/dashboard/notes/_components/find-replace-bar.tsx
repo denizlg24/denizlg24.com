@@ -1,4 +1,12 @@
 "use client";
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@repo/ui/tooltip";
 import {
   ArrowDown,
   ArrowUp,
@@ -16,14 +24,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface FindReplaceBarProps {

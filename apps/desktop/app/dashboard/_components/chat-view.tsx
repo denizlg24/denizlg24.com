@@ -1,5 +1,10 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
+import { ScrollArea } from "@repo/ui/scroll-area";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@repo/ui/sheet";
+import { Skeleton } from "@repo/ui/skeleton";
 import {
   ArrowLeft,
   Menu,
@@ -11,16 +16,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useUserSettings } from "@/context/user-context";
 import {
   type StreamError,

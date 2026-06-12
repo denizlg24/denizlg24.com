@@ -5,7 +5,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@repo/ui/tooltip";
 import type { DailyUptimeEntry } from "@/lib/data-types";
 
 const STATUS_COLORS: Record<DailyUptimeEntry["status"], string> = {

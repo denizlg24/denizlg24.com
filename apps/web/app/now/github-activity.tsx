@@ -1,7 +1,7 @@
+import { Badge } from "@repo/ui/badge";
+import { Skeleton } from "@repo/ui/skeleton";
 import { formatDistanceToNow } from "date-fns";
 import { GitMerge, GitPullRequest } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 
 async function fetchGitHub(query: string, variables: Record<string, unknown>) {
   const result = await fetch("https://api.github.com/graphql", {

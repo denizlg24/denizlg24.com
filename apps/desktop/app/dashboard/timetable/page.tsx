@@ -1,5 +1,14 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@repo/ui/dialog";
 import {
   CalendarDays,
   Clock,
@@ -15,15 +24,6 @@ import {
   type TimetableFormValues,
 } from "@/app/dashboard/timetable/_components/timetable-form";
 import { TimetableGrid } from "@/app/dashboard/timetable/_components/timetable-grid";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { ITimetableEntry } from "@/lib/data-types";

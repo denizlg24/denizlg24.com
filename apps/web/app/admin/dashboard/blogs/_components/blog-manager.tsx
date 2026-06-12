@@ -1,10 +1,10 @@
 "use client";
 
+import { Label } from "@repo/ui/label";
 import { Eye, EyeOff, Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import type { ILeanBlog } from "@/models/Blog";
 import { BlogList } from "./blog-list";
 

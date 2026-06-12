@@ -1,5 +1,11 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
+import { useTextareaEditor } from "@repo/ui/hooks/use-textarea-editor";
+import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
+import { Separator } from "@repo/ui/separator";
+import { Textarea } from "@repo/ui/textarea";
 import { format } from "date-fns";
 import {
   ArrowLeft,
@@ -16,12 +22,6 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
-import { MarkdownRenderer } from "@/components/markdown/markdown-renderer";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { Textarea } from "@/components/ui/textarea";
-import { useTextareaEditor } from "@/hooks/use-textarea-editor";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { ICalendarEvent, IJournalLog } from "@/lib/data-types";
 import { WhiteboardViewer } from "./whiteboard-viewer";

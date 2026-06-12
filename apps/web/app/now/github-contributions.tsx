@@ -1,5 +1,5 @@
+import { Skeleton } from "@repo/ui/skeleton";
 import React from "react";
-import { Skeleton } from "@/components/ui/skeleton";
 
 interface ContributionDay {
   date: string;

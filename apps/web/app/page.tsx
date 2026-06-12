@@ -1,5 +1,6 @@
 export const revalidate = 604800; // Revalidate every 30 days
 
+import { Skeleton } from "@repo/ui/skeleton";
 import { FileDown, Loader2Icon, Mail, MoveRight } from "lucide-react";
 import type { Metadata } from "next";
 import Image from "next/image";
@@ -13,7 +14,6 @@ import { StyledLink } from "@/components/styled-link";
 import { Timeline } from "@/components/timeline";
 import TimelineTabsContent from "@/components/timeline-tabs-content";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const metadata: Metadata = {

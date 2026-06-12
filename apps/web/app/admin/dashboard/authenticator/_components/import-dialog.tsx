@@ -1,5 +1,6 @@
 "use client";
 
+import { Textarea } from "@repo/ui/textarea";
 import { FileUp, Loader2, QrCode, ScanLine } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 
 interface ImportDialogProps {
   open: boolean;

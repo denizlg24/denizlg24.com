@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import {
   addMonths,
   eachDayOfInterval,
@@ -13,7 +14,6 @@ import {
 } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo } from "react";
-import { Button } from "@/components/ui/button";
 import type { IJournalLog } from "@/lib/data-types";
 import { cn } from "@/lib/utils";
 

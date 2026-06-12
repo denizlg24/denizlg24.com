@@ -1,13 +1,13 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@repo/ui/dialog";
+import { Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { PiCronHistoryEntry } from "@/lib/data-types";
 

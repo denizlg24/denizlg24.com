@@ -1,11 +1,11 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
 import { format, isToday, isYesterday } from "date-fns";
 import { Loader2, Mail, RefreshCw, Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { IEmail } from "@/lib/data-types";
 import { cn } from "@/lib/utils";

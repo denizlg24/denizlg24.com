@@ -1,8 +1,8 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import type { ICalendarEvent } from "@/lib/data-types";
 import { cn } from "@/lib/utils";
 

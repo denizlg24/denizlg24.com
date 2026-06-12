@@ -1,9 +1,6 @@
 "use client";
 
-import { Loader2, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button } from "@repo/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +8,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@repo/ui/dialog";
+import { Loader2, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { ICapability, PiCronJob, PiCronStats } from "@/lib/data-types";
 import { JobFormDialog } from "./job-form-dialog";

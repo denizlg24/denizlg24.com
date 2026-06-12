@@ -1,9 +1,6 @@
 "use client";
 
-import { ExternalLink, Loader2, Power, RefreshCw } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button } from "@repo/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +8,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@repo/ui/dialog";
+import { ExternalLink, Loader2, Power, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { ICapability, IResource } from "@/lib/data-types";
 import { AddCapabilityDialog } from "./add-capability-dialog";

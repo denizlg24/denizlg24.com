@@ -1,10 +1,10 @@
 export const revalidate = 2592000; // Revalidate every 30 days
 
+import { Input } from "@repo/ui/input";
 import { ChevronsUpDown, Loader2 } from "lucide-react";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { getActiveBlogs } from "@/lib/blog";
 import { FilterWrapper } from "../projects/components/filter-wrapper";
 import { BlogSection } from "./components/blog-section";

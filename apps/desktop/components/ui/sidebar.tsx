@@ -1,28 +1,28 @@
 "use client";
 
-import { cva, type VariantProps } from "class-variance-authority";
-import { PanelLeftIcon } from "lucide-react";
-import { Slot } from "radix-ui";
-import * as React from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
+import { Button } from "@repo/ui/button";
+import { useIsMobile } from "@repo/ui/hooks/use-mobile";
+import { Input } from "@repo/ui/input";
+import { Separator } from "@repo/ui/separator";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "@repo/ui/sheet";
+import { Skeleton } from "@repo/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@repo/ui/tooltip";
+import { cva, type VariantProps } from "class-variance-authority";
+import { PanelLeftIcon } from "lucide-react";
+import { Slot } from "radix-ui";
+import * as React from "react";
 import { useUserSettings } from "@/context/user-context";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { updateSettings } from "@/lib/user-settings";
 import { cn } from "@/lib/utils";
 

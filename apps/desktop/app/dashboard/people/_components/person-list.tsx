@@ -1,9 +1,9 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
+import { ScrollArea } from "@repo/ui/scroll-area";
 import { CalendarDays, MapPin, UserRound } from "lucide-react";
 import Image from "next/image";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import type { BirthdayParts, IPerson, IPersonGroup } from "@/lib/data-types";
 
 function formatBirthday(birthday?: BirthdayParts | null) {

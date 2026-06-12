@@ -1,8 +1,8 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import { Palette } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import type { TemplateProps } from ".";
 
 interface StickyColor {

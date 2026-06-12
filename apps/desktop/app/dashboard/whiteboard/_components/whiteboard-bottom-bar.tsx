@@ -1,5 +1,8 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
+import { Slider } from "@repo/ui/slider";
 import {
   ArrowUpRight,
   Circle,
@@ -17,13 +20,6 @@ import {
   Undo,
 } from "lucide-react";
 import { useRef } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import type { WhiteboardTool } from "@/lib/whiteboard-types";
 import { templateRegistry } from "./templates";

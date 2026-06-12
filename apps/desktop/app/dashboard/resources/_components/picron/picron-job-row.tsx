@@ -1,12 +1,12 @@
 "use client";
 
-import { History, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@repo/ui/dropdown-menu";
+import { History, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
 import type { PiCronJob } from "@/lib/data-types";
 
 function JobStatusDot({ job }: { job: PiCronJob }) {
