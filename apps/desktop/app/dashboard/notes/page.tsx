@@ -18,6 +18,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { TagAutocomplete } from "@/app/dashboard/notes/_components/tag-autocomplete";
+import { useEntityGraphData } from "@/components/graph/entity-graph";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,7 +43,7 @@ import { classifyNoteLocally } from "@/lib/semantic/classify-note";
 import { GroupDetail } from "./_components/group-detail";
 import { GroupTreeCombobox } from "./_components/group-tree-combobox";
 import { NoteDetail } from "./_components/note-detail";
-import { NoteGraph } from "./_components/note-graph";
+import { getNoteGroupIds, NoteGraph } from "./_components/note-graph";
 import { NoteList } from "./_components/note-list";
 import { SemanticPanel } from "./_components/semantic-panel";
 
@@ -149,24 +150,6 @@ function matchesQuery(note: INote, query: string, groupSearchLabels: string[]) {
   ]
     .filter((value): value is string => Boolean(value))
     .some((value) => value.toLowerCase().includes(normalized));
-}
-
-function collectVisibleGroups(notes: INote[], groups: INoteGroup[]) {
-  const byId = new Map(groups.map((group) => [group._id, group]));
-  const visible = new Set<string>();
-
-  for (const note of notes) {
-    for (const groupId of note.groupIds ?? []) {
-      let currentId: string | null | undefined = groupId;
-      while (currentId) {
-        if (visible.has(currentId)) break;
-        visible.add(currentId);
-        currentId = byId.get(currentId)?.parentId ?? null;
-      }
-    }
-  }
-
-  return groups.filter((group) => visible.has(group._id));
 }
 
 export default function NotesPage() {
@@ -571,17 +554,13 @@ export default function NotesPage() {
     [filteredNotes, sort],
   );
 
-  const graphGroups = useMemo(
-    () => collectVisibleGroups(sortedNotes, groups),
-    [groups, sortedNotes],
-  );
-
-  const graphEdges = useMemo(() => {
-    const visibleIds = new Set(sortedNotes.map((note) => note._id));
-    return edges.filter(
-      (edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to),
-    );
-  }, [edges, sortedNotes]);
+  const { visibleGroups: graphGroups, visibleEdges: graphEdges } =
+    useEntityGraphData({
+      items: sortedNotes,
+      groups,
+      edges,
+      getItemGroupIds: getNoteGroupIds,
+    });
 
   const selectedNote = useMemo(
     () => notes.find((note) => note._id === selectedId) ?? null,

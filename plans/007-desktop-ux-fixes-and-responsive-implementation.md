@@ -24,7 +24,7 @@
 | Phase | Title | Effort | Status |
 |-------|-------|--------|--------|
 | F1 | Note editor: find bar position + scroll-to-occurrence | M | DONE (2026-06-12: root cause differed from plan — page is an intentional document-scroll, not a broken height chain; maintainer chose sticky find bar + scrolling the actual ancestor scroller via mirror-div measurement; verified with puppeteer harness, all matches land 3 lines below viewport top incl. soft-wrapped) |
-| F2 | Graph: double force explosion + notes/people alignment | M | TODO |
+| F2 | Graph: double force explosion + notes/people alignment | M | DONE (2026-06-12: engine now paused (cooldownTicks 0) until custom forces install, then single reheat; getters hoisted to module scope; page plumbing was already near-identical → extracted `useEntityGraphData`; prod-export verified 1 settle burst on notes+people, filter re-settles once) |
 | F3 | Skeleton fidelity sweep | M | TODO |
 | F4 | Upcoming tasks: port web presentation to desktop | M | TODO |
 | F5 | Shared table filtering + LLM usage page upgrade | M | TODO |

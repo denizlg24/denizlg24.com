@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { GroupTreeCombobox } from "@/app/dashboard/notes/_components/group-tree-combobox";
+import { useEntityGraphData } from "@/components/graph/entity-graph";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -37,7 +38,7 @@ import type {
 } from "@/lib/data-types";
 import { buildDescendantIdMap, buildPathLabelMap } from "@/lib/note-group-tree";
 import { PersonDetail } from "./_components/person-detail";
-import { PersonGraph } from "./_components/person-graph";
+import { getPersonGroupIds, PersonGraph } from "./_components/person-graph";
 import { PersonGroupDetail } from "./_components/person-group-detail";
 import { PersonList } from "./_components/person-list";
 
@@ -49,24 +50,6 @@ function matchesQuery(person: IPerson, query: string, groupLabels: string[]) {
   return [person.name, person.placeMet, person.notes, ...groupLabels]
     .filter((value): value is string => Boolean(value))
     .some((value) => value.toLowerCase().includes(normalized));
-}
-
-function collectVisibleGroups(people: IPerson[], groups: IPersonGroup[]) {
-  const byId = new Map(groups.map((group) => [group._id, group]));
-  const visible = new Set<string>();
-
-  for (const person of people) {
-    for (const groupId of person.groupIds) {
-      let currentId: string | null | undefined = groupId;
-      while (currentId) {
-        if (visible.has(currentId)) break;
-        visible.add(currentId);
-        currentId = byId.get(currentId)?.parentId ?? null;
-      }
-    }
-  }
-
-  return groups.filter((group) => visible.has(group._id));
 }
 
 export default function PeoplePage() {
@@ -160,16 +143,13 @@ export default function PeoplePage() {
       ),
     [filteredPeople],
   );
-  const graphGroups = useMemo(
-    () => collectVisibleGroups(sortedPeople, groups),
-    [groups, sortedPeople],
-  );
-  const graphEdges = useMemo(() => {
-    const visibleIds = new Set(sortedPeople.map((person) => person._id));
-    return edges.filter(
-      (edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to),
-    );
-  }, [edges, sortedPeople]);
+  const { visibleGroups: graphGroups, visibleEdges: graphEdges } =
+    useEntityGraphData({
+      items: sortedPeople,
+      groups,
+      edges,
+      getItemGroupIds: getPersonGroupIds,
+    });
   const selectedPerson = useMemo(
     () => people.find((person) => person._id === selectedId) ?? null,
     [people, selectedId],

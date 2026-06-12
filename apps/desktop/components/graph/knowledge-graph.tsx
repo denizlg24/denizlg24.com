@@ -107,6 +107,11 @@ export function KnowledgeGraph<TItem, TGroup>({
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [theme, setTheme] = useState<Theme | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // The engine starts with default forces before the ref is available to
+  // install the custom ones; cooldownTicks stays 0 (engine paused) until they
+  // are applied, so the layout visibly settles exactly once.
+  const [forcesReady, setForcesReady] = useState(false);
+  const forcesAppliedRef = useRef(false);
   const graphData = useMemo(() => ({ nodes, links }), [nodes, links]);
 
   useEffect(() => {
@@ -154,16 +159,21 @@ export function KnowledgeGraph<TItem, TGroup>({
 
     let raf = 0;
     let cancelled = false;
-    let attempts = 0;
     const tick = () => {
       if (cancelled) return;
-      attempts += 1;
-      const ok = apply();
-      if (ok && attempts >= 2) {
-        graphRef.current?.d3ReheatSimulation();
+      if (!apply()) {
+        raf = requestAnimationFrame(tick);
         return;
       }
-      raf = requestAnimationFrame(tick);
+      if (forcesAppliedRef.current) {
+        // Already running with custom forces: this is a data change, restart
+        // the settle now. First time: the forcesReady effect restarts it
+        // after cooldownTicks has flipped to its running value.
+        graphRef.current?.d3ReheatSimulation();
+      } else {
+        forcesAppliedRef.current = true;
+        setForcesReady(true);
+      }
     };
     raf = requestAnimationFrame(tick);
     return () => {
@@ -171,6 +181,10 @@ export function KnowledgeGraph<TItem, TGroup>({
       cancelAnimationFrame(raf);
     };
   }, [nodes, links]);
+
+  useEffect(() => {
+    if (forcesReady) graphRef.current?.d3ReheatSimulation();
+  }, [forcesReady]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -217,7 +231,7 @@ export function KnowledgeGraph<TItem, TGroup>({
               : `${theme.mutedForeground}22`
           }
           linkWidth={(link) => (link.type === "membership" ? 0.5 : 0.3)}
-          cooldownTicks={180}
+          cooldownTicks={forcesReady ? 180 : 0}
           onNodeHover={(node) => {
             setHoveredId(node ? node.id : null);
             if (containerRef.current) {
