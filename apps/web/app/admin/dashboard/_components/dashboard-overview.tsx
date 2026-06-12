@@ -1,5 +1,6 @@
 "use client";
 
+import type { UpcomingCard, UpcomingKanbanResult } from "@repo/schemas";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   AlertCircle,
@@ -19,32 +20,6 @@ import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-
-interface UpcomingCard {
-  _id: string;
-  title: string;
-  dueDate?: string;
-  columnTitle: string;
-  daysUntilDue: number;
-  overdue: boolean;
-}
-
-interface UpcomingBoardGroup {
-  boardId: string;
-  boardTitle: string;
-  boardColor?: string;
-  cards: UpcomingCard[];
-}
-
-interface UpcomingKanbanResult {
-  boards: UpcomingBoardGroup[];
-  stats: {
-    total: number;
-    overdue: number;
-    dueToday: number;
-    dueThisWeek: number;
-  };
-}
 
 function formatDueLabel(card: UpcomingCard) {
   if (card.overdue) return "overdue";
