@@ -87,7 +87,7 @@ export default function PomodoroPage() {
         </Button>
       </div>
 
-      <div className="w-full h-full flex flex-col items-center pt-12 px-4 max-w-xl mx-auto z-10">
+      <div className="w-full min-h-0 flex-1 overflow-y-auto flex flex-col items-center pt-12 px-4 max-w-xl mx-auto z-10">
         <div className="flex items-center gap-6 mb-2">
           <span
             className={cn(
