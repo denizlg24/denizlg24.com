@@ -144,7 +144,7 @@ export function ContactDetailSheet({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="sm:max-w-md overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
           <SheetHeader>
             <div className="flex items-center gap-2">
               <SheetTitle className="text-sm">{contact.ticketId}</SheetTitle>

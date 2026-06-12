@@ -7,6 +7,7 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   type PaginationState,
+  type RowData,
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
@@ -28,6 +29,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
+
+declare module "@tanstack/react-table" {
+  interface ColumnMeta<TData extends RowData, TValue> {
+    className?: string;
+  }
+}
 
 const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -193,7 +201,10 @@ function PaginatedDataTable<TData>({
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    className="bg-background sticky top-0 z-10 text-xs"
+                    className={cn(
+                      "bg-background sticky top-0 z-10 text-xs",
+                      header.column.columnDef.meta?.className,
+                    )}
                   >
                     {header.isPlaceholder
                       ? null
@@ -217,7 +228,13 @@ function PaginatedDataTable<TData>({
                   }
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="text-xs">
+                    <TableCell
+                      key={cell.id}
+                      className={cn(
+                        "text-xs",
+                        cell.column.columnDef.meta?.className,
+                      )}
+                    >
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),
