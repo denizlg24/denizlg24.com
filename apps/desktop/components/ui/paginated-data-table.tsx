@@ -142,7 +142,7 @@ function PaginatedDataTable<TData>({
       : Math.min(totalRows, rangeStart + currentRows.length - 1);
 
   return (
-    <div className="flex min-h-0 flex-col gap-3">
+    <div className="flex h-full min-h-0 flex-col gap-3">
       {hasToolbar && (
         <div className="flex flex-wrap items-center gap-2">
           {searchPlaceholder !== undefined && (
