@@ -85,6 +85,61 @@ function computeMatches(
   return matches;
 }
 
+function findScrollContainer(el: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = el;
+  while (node) {
+    if (node.scrollHeight > node.clientHeight) {
+      const { overflowY } = getComputedStyle(node);
+      if (overflowY === "auto" || overflowY === "scroll") return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+// Measures the rendered y-offset of a content position by replicating the
+// textarea's text layout (font, width, padding, wrapping) in a hidden mirror
+// element — accurate for soft-wrapped lines, unlike counting "\n".
+function measureMatchTop(
+  textarea: HTMLTextAreaElement,
+  content: string,
+  position: number,
+): number {
+  const cs = getComputedStyle(textarea);
+  const mirror = document.createElement("div");
+  for (const prop of [
+    "fontFamily",
+    "fontSize",
+    "fontWeight",
+    "lineHeight",
+    "letterSpacing",
+    "textTransform",
+    "tabSize",
+    "paddingTop",
+    "paddingLeft",
+    "paddingRight",
+    "borderLeftWidth",
+    "borderRightWidth",
+  ] as const) {
+    mirror.style[prop] = cs[prop];
+  }
+  mirror.style.position = "absolute";
+  mirror.style.visibility = "hidden";
+  mirror.style.boxSizing = "border-box";
+  mirror.style.width = `${textarea.clientWidth}px`;
+  mirror.style.whiteSpace = "pre-wrap";
+  mirror.style.overflowWrap = cs.overflowWrap;
+  mirror.style.wordBreak = cs.wordBreak;
+  mirror.append(content.slice(0, position));
+  const marker = document.createElement("span");
+  marker.textContent = "​";
+  mirror.appendChild(marker);
+  document.body.appendChild(mirror);
+  const top = marker.offsetTop;
+  mirror.remove();
+  return top;
+}
+
 function applyEdit(
   textarea: HTMLTextAreaElement,
   newValue: string,
@@ -144,17 +199,26 @@ export function FindReplaceBar({
       const textarea = textareaRef.current;
       if (!textarea || matches.length === 0) return;
       const match = matches[index];
-      textarea.focus();
+      textarea.focus({ preventScroll: true });
       textarea.setSelectionRange(match.start, match.end);
       textarea.blur();
-      findInputRef.current?.focus();
+      findInputRef.current?.focus({ preventScroll: true });
 
+      // The textarea auto-grows (field-sizing-content), so the element that
+      // actually scrolls is usually an ancestor of the textarea.
+      const scroller = findScrollContainer(textarea);
+      if (!scroller) return;
       const lineHeight =
-        parseInt(getComputedStyle(textarea).lineHeight, 10) || 20;
-      const textBefore = content.slice(0, match.start);
-      const lineNumber = textBefore.split("\n").length;
-      const scrollTarget = (lineNumber - 3) * lineHeight;
-      textarea.scrollTop = Math.max(0, scrollTarget);
+        Number.parseFloat(getComputedStyle(textarea).lineHeight) || 20;
+      const matchTop = measureMatchTop(textarea, content, match.start);
+      const targetTop =
+        scroller === textarea
+          ? matchTop
+          : textarea.getBoundingClientRect().top -
+            scroller.getBoundingClientRect().top +
+            scroller.scrollTop +
+            matchTop;
+      scroller.scrollTo({ top: Math.max(0, targetTop - 3 * lineHeight) });
     },
     [textareaRef, matches, content],
   );
@@ -300,7 +364,7 @@ export function FindReplaceBar({
 
   return (
     <TooltipProvider>
-      <div className="border-t bg-surface px-3 py-2 flex flex-col gap-1.5 shrink-0">
+      <div className="sticky bottom-0 z-10 border-t bg-surface px-3 py-2 flex flex-col gap-1.5 shrink-0">
         <div className="flex items-center gap-1.5">
           <div className="relative flex-1">
             <Input

@@ -23,7 +23,7 @@
 
 | Phase | Title | Effort | Status |
 |-------|-------|--------|--------|
-| F1 | Note editor: find bar position + scroll-to-occurrence | M | TODO |
+| F1 | Note editor: find bar position + scroll-to-occurrence | M | DONE (2026-06-12: root cause differed from plan — page is an intentional document-scroll, not a broken height chain; maintainer chose sticky find bar + scrolling the actual ancestor scroller via mirror-div measurement; verified with puppeteer harness, all matches land 3 lines below viewport top incl. soft-wrapped) |
 | F2 | Graph: double force explosion + notes/people alignment | M | TODO |
 | F3 | Skeleton fidelity sweep | M | TODO |
 | F4 | Upcoming tasks: port web presentation to desktop | M | TODO |
