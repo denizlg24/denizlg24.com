@@ -267,6 +267,7 @@ export default function ContactsPage() {
     {
       accessorKey: "ticketId",
       header: "Ticket",
+      meta: { className: "hidden md:table-cell" },
       cell: ({ row }) => (
         <span className="font-mono text-muted-foreground">
           {row.getValue("ticketId")}
@@ -277,19 +278,25 @@ export default function ContactsPage() {
       accessorKey: "name",
       header: "Name",
       cell: ({ row }) => (
-        <span className="font-medium">{row.getValue("name")}</span>
+        <span className="block max-w-36 truncate font-medium lg:max-w-none">
+          {row.getValue("name")}
+        </span>
       ),
     },
     {
       accessorKey: "email",
       header: "Email",
+      meta: { className: "hidden md:table-cell" },
       cell: ({ row }) => (
-        <span className="text-muted-foreground">{row.getValue("email")}</span>
+        <span className="block max-w-52 truncate text-muted-foreground xl:max-w-none">
+          {row.getValue("email")}
+        </span>
       ),
     },
     {
       accessorKey: "message",
       header: "Message",
+      meta: { className: "hidden lg:table-cell" },
       cell: ({ row }) => {
         const msg = row.getValue("message") as string;
         return (
@@ -424,7 +431,7 @@ export default function ContactsPage() {
       </div>
 
       <div className="px-4 flex flex-1 min-h-0 flex-col gap-4 overflow-hidden pt-3 pb-8">
-        <div className="flex items-baseline gap-8 flex-wrap">
+        <div className="grid grid-cols-3 gap-x-8 gap-y-3 md:flex md:flex-wrap md:items-baseline">
           <Stat label="Total" value={stats.total} />
           <Stat
             label="Pending"
@@ -447,12 +454,12 @@ export default function ContactsPage() {
               <TabsTrigger key={opt.value} value={opt.value}>
                 {opt.label}
                 {opt.value !== "all" && stats[opt.value] > 0 && (
-                  <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
+                  <span className="ml-1 hidden text-[10px] text-muted-foreground tabular-nums md:inline">
                     {stats[opt.value]}
                   </span>
                 )}
                 {opt.value === "all" && (
-                  <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
+                  <span className="ml-1 hidden text-[10px] text-muted-foreground tabular-nums md:inline">
                     {stats.total}
                   </span>
                 )}

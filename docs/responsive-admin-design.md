@@ -255,18 +255,23 @@ self-contained.
 
 ## Appendix: contacts prototype verification
 
-Prototype scope: `app/dashboard/contacts/page.tsx` +
-`_components/contact-detail-sheet.tsx` only. Desktop (≥1280px) rendering
-unchanged by design.
+Prototype scope: `app/dashboard/contacts/page.tsx`,
+`_components/contact-detail-sheet.tsx`, plus one additive change to
+`components/ui/paginated-data-table.tsx` (it now applies an optional
+`meta.className` from the TanStack column def to both `TableHead` and
+`TableCell` — the mechanism §2's recommendation depends on, and a no-op for
+the four other consumer pages until they opt in).
 
 | Width | Result |
 |-------|--------|
-| 375px | _filled in by the prototype step_ |
-| 768px | _filled in by the prototype step_ |
-| 1280px | _filled in by the prototype step_ |
+| 375px | Stats render as a 3-column grid (two rows, all five visible); all five tabs fit with count chips hidden; table shows Name (clamped to 9rem) / Status / Date / row actions; measured zero elements wider than the viewport; row click opens the detail sheet full-width and fully readable |
+| 768px | Ticket and Email columns restored (Email clamped to 13rem below `xl:`); tab counts and single-row stats return; zero overflow elements |
+| 1280px | All columns including Message; Name and Email unclamped; the only elements reporting `scrollWidth` > viewport are the pre-existing by-design `max-w-[200px]` Message truncate spans — the same signature the unmodified page produced; screenshots before/after visually identical |
 
-(Measured with the same puppeteer harness. The "1 Issue" pill visible in raw
-screenshots is the Console Ninja dev overlay, not the app.)
+(Measured with the same puppeteer harness — `scrollWidth` per element plus
+reviewed screenshots at every width, including a scripted row-click for the
+sheet. The "1 Issue" pill visible in raw screenshots is the Console Ninja
+dev overlay, not the app.)
 
 Observation recorded for the backlog, outside this spike's scope:
 `llm-usage/page.tsx` defines local wire interfaces (`UsageResponse` etc.)
