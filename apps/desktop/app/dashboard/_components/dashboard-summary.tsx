@@ -6,39 +6,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
-import type { IDashboardStats } from "@/lib/data-types";
-
-interface UpcomingCard {
-  _id: string;
-  title: string;
-  dueDate?: string;
-  columnTitle: string;
-  daysUntilDue: number;
-  overdue: boolean;
-}
-
-interface UpcomingBoardGroup {
-  boardId: string;
-  boardTitle: string;
-  boardColor?: string;
-  cards: UpcomingCard[];
-}
-
-interface UpcomingKanbanResult {
-  boards: UpcomingBoardGroup[];
-  stats: {
-    total: number;
-    overdue: number;
-    dueToday: number;
-    dueThisWeek: number;
-  };
-}
+import {
+  type IDashboardStats,
+  type UpcomingCard,
+  type UpcomingKanbanResult,
+  upcomingKanbanResultSchema,
+} from "@/lib/data-types";
 
 function formatDueLabel(card: UpcomingCard) {
   if (card.overdue) return "overdue";
   if (card.daysUntilDue <= 0) return "today";
   if (card.daysUntilDue === 1) return "tomorrow";
-  return `${card.daysUntilDue}d`;
+  return `in ${card.daysUntilDue}d`;
 }
 
 const SUMMARY_SKELETON_ITEMS = [
@@ -220,30 +199,69 @@ function ScheduleTasksSwitcher({
       )}
 
       {tab === "tasks" && hasTasks && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+            {upcoming.stats.overdue > 0 && (
+              <span className="text-destructive">
+                {upcoming.stats.overdue} overdue
+              </span>
+            )}
+            {upcoming.stats.dueToday > 0 && (
+              <span>{upcoming.stats.dueToday} today</span>
+            )}
+            <span>{upcoming.stats.dueThisWeek} this week</span>
+          </div>
+
           {upcoming.boards.slice(0, 3).map((board) => (
             <div key={board.boardId} className="flex flex-col">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
-                {board.boardTitle}
-              </span>
-              {board.cards.slice(0, 3).map((card) => (
-                <div key={card._id} className="flex items-center gap-3 py-0.5">
-                  <span
-                    className={`text-xs font-mono w-14 shrink-0 tabular-nums ${
-                      card.overdue
-                        ? "text-destructive"
-                        : "text-muted-foreground"
-                    }`}
+              <div className="mb-1 flex items-center gap-1.5">
+                <span
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{
+                    backgroundColor:
+                      board.boardColor ?? "var(--muted-foreground)",
+                  }}
+                />
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {board.boardTitle}
+                </span>
+              </div>
+              <div className="ml-[2.5px] flex flex-col border-l border-foreground/10 pl-3">
+                {board.cards.slice(0, 3).map((card) => (
+                  <div
+                    key={card._id}
+                    className="flex items-baseline gap-3 py-1"
                   >
-                    {formatDueLabel(card)}
-                  </span>
-                  <span className="text-sm text-accent-strong truncate flex-1">
-                    {card.title}
-                  </span>
-                </div>
-              ))}
+                    <span
+                      className={`w-16 shrink-0 font-mono text-xs tabular-nums ${
+                        card.overdue
+                          ? "text-destructive"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {formatDueLabel(card)}
+                    </span>
+                    <span className="flex-1 truncate text-sm text-accent-strong">
+                      {card.title}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {card.columnTitle}
+                    </span>
+                  </div>
+                ))}
+                {board.cards.length > 3 && (
+                  <p className="py-0.5 text-[10px] text-muted-foreground">
+                    +{board.cards.length - 3} more
+                  </p>
+                )}
+              </div>
             </div>
           ))}
+          {upcoming.boards.length > 3 && (
+            <p className="text-center text-[10px] text-muted-foreground">
+              +{upcoming.boards.length - 3} more boards
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -252,12 +270,24 @@ function ScheduleTasksSwitcher({
 
 function LoadingSkeleton() {
   return (
-    <div className="w-full flex flex-col items-center gap-6 animate-in fade-in duration-300">
+    <div className="w-full flex flex-col items-center gap-8 animate-in fade-in duration-300">
       <div className="flex justify-center gap-6">
         {SUMMARY_SKELETON_ITEMS.map((item) => (
           <div key={item} className="flex flex-col items-center gap-1.5">
             <Skeleton className="h-7 w-7" />
             <Skeleton className="h-2 w-12" />
+          </div>
+        ))}
+      </div>
+      <div className="flex w-full max-w-md flex-col gap-3">
+        <div className="flex justify-center gap-5">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-3 w-12" />
+        </div>
+        {["r1", "r2", "r3", "r4"].map((row) => (
+          <div key={row} className="flex items-center gap-3">
+            <Skeleton className="h-3 w-10" />
+            <Skeleton className="h-3 flex-1" />
           </div>
         ))}
       </div>
@@ -285,7 +315,10 @@ export function DashboardSummary() {
     setLoading(true);
     const [statsResult, upcomingResult] = await Promise.all([
       API.GET<IDashboardStats>({ endpoint: "dashboard/stats" }),
-      API.GET<UpcomingKanbanResult>({ endpoint: "kanban/upcoming?days=7" }),
+      API.GET({
+        endpoint: "kanban/upcoming?days=7",
+        schema: upcomingKanbanResultSchema,
+      }),
     ]);
     if (!("code" in statsResult)) setStats(statsResult);
     if (!("code" in upcomingResult)) setUpcoming(upcomingResult);
