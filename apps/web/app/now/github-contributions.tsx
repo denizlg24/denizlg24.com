@@ -26,12 +26,13 @@ const LEVEL_COLORS: Record<ContributionDay["contributionLevel"], string> = {
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const WEEK_COUNT = 53;
+const CONTRIBUTION_WEEK_LIMIT = 53;
+const GRID_WRAPPER_CLASSES = "overflow-x-auto pb-2 md:overflow-x-visible";
 
 function ContributionGrid({ data }: { data: ContributionData }) {
   const { weeks, totalContributions } = data;
 
-  const normalizedWeeks = weeks.map((week) => {
+  const normalizedWeeks = weeks.slice(-CONTRIBUTION_WEEK_LIMIT).map((week) => {
     const days: (ContributionDay | null)[] = Array(7).fill(null);
     for (const day of week.contributionDays) {
       const dow = new Date(`${day.date}T00:00:00`).getDay();
@@ -60,8 +61,8 @@ function ContributionGrid({ data }: { data: ContributionData }) {
   const weekCount = normalizedWeeks.length;
 
   return (
-    <div className="w-full max-w-fit mx-auto">
-      <div className="overflow-x-auto pb-2">
+    <div className="w-full md:w-fit mx-auto">
+      <div className={GRID_WRAPPER_CLASSES}>
         <div
           className="grid gap-px w-max"
           style={{
@@ -108,17 +109,17 @@ function ContributionGrid({ data }: { data: ContributionData }) {
 
 export function GitHubContributionsSkeleton() {
   return (
-    <div className="w-full max-w-fit mx-auto">
-      <div className="overflow-x-auto">
+    <div className="w-full md:w-fit mx-auto">
+      <div className={GRID_WRAPPER_CLASSES}>
         <div
-          className="grid gap-px w-max pb-2"
+          className="grid gap-px w-max"
           style={{
-            gridTemplateColumns: `2rem repeat(${WEEK_COUNT}, 12px)`,
+            gridTemplateColumns: `2rem repeat(${CONTRIBUTION_WEEK_LIMIT}, 12px)`,
             gridTemplateRows: `auto repeat(7, 12px)`,
           }}
         >
           <div className="sticky left-0 z-10 bg-background" />
-          {Array.from({ length: WEEK_COUNT }, (_, i) => (
+          {Array.from({ length: CONTRIBUTION_WEEK_LIMIT }, (_, i) => (
             <div key={i} className="h-4" />
           ))}
           {Array.from({ length: 7 }, (_, dayIndex) => (
@@ -126,9 +127,15 @@ export function GitHubContributionsSkeleton() {
               <div className="sticky left-0 z-10 bg-background text-xs text-muted-foreground flex items-center justify-end pr-1">
                 {dayIndex % 2 === 1 ? DAY_LABELS[dayIndex] : ""}
               </div>
-              {Array.from({ length: WEEK_COUNT }, (_, weekIndex) => (
-                <Skeleton className="rounded-none bg-surface" key={weekIndex} />
-              ))}
+              {Array.from(
+                { length: CONTRIBUTION_WEEK_LIMIT },
+                (_, weekIndex) => (
+                  <Skeleton
+                    className="rounded-none bg-surface"
+                    key={weekIndex}
+                  />
+                ),
+              )}
             </React.Fragment>
           ))}
         </div>

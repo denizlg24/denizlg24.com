@@ -24,8 +24,14 @@ interface InstagramApiResponse {
     message: string;
     type: string;
     code: number;
+    is_transient?: boolean;
   };
 }
+
+const MAX_TRANSIENT_RETRIES = 2;
+
+const wait = (milliseconds: number) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export async function getAllInstagramPosts(): Promise<InstagramPost[]> {
   const fields =
@@ -40,11 +46,24 @@ export async function getAllInstagramPosts(): Promise<InstagramPost[]> {
 
   try {
     while (url) {
-      const response = await fetch(url);
-      const data: InstagramApiResponse = await response.json();
+      let response: Response;
+      let data: InstagramApiResponse;
+
+      for (let attempt = 0; ; attempt++) {
+        response = await fetch(url);
+        data = (await response.json()) as InstagramApiResponse;
+
+        if (!data.error?.is_transient || attempt >= MAX_TRANSIENT_RETRIES) {
+          break;
+        }
+
+        await wait(500 * 2 ** attempt);
+      }
 
       if (data.error) {
-        throw new Error(`Instagram API Error: ${data.error.message}`);
+        throw new Error(
+          `Instagram API Error (${response.status}, ${data.error.type}, code ${data.error.code}): ${data.error.message}`,
+        );
       }
 
       if (data.data && data.data.length > 0) {

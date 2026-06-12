@@ -1,8 +1,7 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import type { ZodType } from "zod";
 
-const BASE_URL =
-  /*"http://localhost:3001/api/admin"*/ "https://denizlg24.com/api/admin";
+const BASE_URL = process.env.NEXT_PUBLIC_DESKTOP_API_BASE_URL;
 
 export interface AuthError {
   message: "API key is invalid";

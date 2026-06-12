@@ -5,6 +5,7 @@ import { GitCommit } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RECENT_COMMIT_LIMIT } from "@/lib/github";
 
 interface Commit {
   oid: string;
@@ -17,10 +18,10 @@ interface Commit {
 function GitHubRecentCommitsSkeleton() {
   return (
     <div className="flex flex-col gap-3 w-full">
-      {Array.from({ length: 5 }, (_, i) => (
+      {Array.from({ length: RECENT_COMMIT_LIMIT }, (_, i) => (
         <div key={i} className="flex items-start gap-3 rounded-lg border p-3">
           <Skeleton className="mt-0.5 size-4 shrink-0 rounded-full" />
-          <div className="flex flex-col gap-2 flex-1">
+          <div className="flex flex-col gap-1 flex-1">
             <Skeleton className="h-4 w-3/4" />
             <div className="flex items-center gap-2">
               <Skeleton className="h-5 w-20 rounded-full" />

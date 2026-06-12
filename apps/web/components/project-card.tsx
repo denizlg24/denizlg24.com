@@ -4,8 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { cn, iconMap } from "@/lib/utils";
 import type { ILeanProject } from "@/models/Project";
+import { ProjectTagRow } from "./project-tag-row";
 import { StyledLink } from "./styled-link";
-import { Badge } from "./ui/badge";
 
 export const ProjectCard = ({
   project,
@@ -34,18 +34,7 @@ export const ProjectCard = ({
             {project.subtitle}
           </h2>
 
-          <div className="flex flex-row items-center justify-start gap-1 flex-wrap w-full">
-            {project.tags.map((tag, indx) =>
-              indx > 3 ? null : (
-                <Badge key={tag} className="text-xs">
-                  {tag}
-                </Badge>
-              ),
-            )}
-            {project.tags.length > 4 && (
-              <Badge className="text-xs">{`+${project.tags.length - 4}`}</Badge>
-            )}
-          </div>
+          <ProjectTagRow tags={project.tags} />
         </div>
       </Link>
       <div className="flex flex-row items-center justify-start gap-1 flex-wrap w-full mt-auto">

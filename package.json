@@ -2,10 +2,10 @@
   "name": "denizlg24.com",
   "private": true,
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev",
-    "lint": "turbo run lint",
-    "check-types": "turbo run check-types",
+    "build": "bun --env-file=.env turbo run build",
+    "dev": "bun --env-file=.env turbo run dev",
+    "lint": "bun --env-file=.env turbo run lint",
+    "check-types": "bun --env-file=.env turbo run check-types",
     "format-and-lint": "biome check .",
     "format-and-lint:fix": "biome check . --write"
   },

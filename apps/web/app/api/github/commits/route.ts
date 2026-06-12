@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { RECENT_COMMIT_LIMIT } from "@/lib/github";
 
 export const dynamic = "force-dynamic";
 
@@ -80,7 +81,7 @@ export async function GET() {
         new Date(a.committedDate).getTime(),
     );
 
-    return NextResponse.json(commits.slice(0, 10));
+    return NextResponse.json(commits.slice(0, RECENT_COMMIT_LIMIT));
   } catch {
     return NextResponse.json(
       { error: "Failed to fetch commits" },

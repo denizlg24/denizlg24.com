@@ -8,7 +8,7 @@ import { FaGithub, FaInstagram, FaLinkedin } from "react-icons/fa6";
 import CurrentAge from "@/components/current-age";
 import { FadeInImage } from "@/components/fade-in-image";
 import { FeaturedProjectsSection } from "@/components/featured-projects-section";
-import { InstagramGridServer } from "@/components/instagram-grid-server";
+import { InstagramGridClient } from "@/components/instagram-grid-client";
 import { StyledLink } from "@/components/styled-link";
 import { Timeline } from "@/components/timeline";
 import TimelineTabsContent from "@/components/timeline-tabs-content";
@@ -229,16 +229,7 @@ export default function Home() {
         </div>
 
         <div className="grid grid-cols-4 xs:gap-3 gap-1 auto-rows-[120px] sm:auto-rows-[140px]">
-          <Suspense
-            fallback={Array.from({ length: 7 }).map((_, i) => (
-              <Skeleton
-                key={i}
-                className="sm:rounded-xl xs:rounded-lg rounded"
-              />
-            ))}
-          >
-            <InstagramGridServer count={7} />
-          </Suspense>
+          <InstagramGridClient count={7} />
         </div>
       </section>
     </main>

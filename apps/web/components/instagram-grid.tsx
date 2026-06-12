@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { FaInstagram } from "react-icons/fa6";
 import type { InstagramPost } from "@/lib/instagram_posts";
 import { cn } from "@/lib/utils";
+import { INSTAGRAM_GRID_CLASSES } from "./instagram-grid-layout";
 
 function BentoItem({
   post,
@@ -60,25 +61,14 @@ export function InstagramGrid({ posts }: { posts: InstagramPost[] }) {
     return null;
   }
 
-  const gridClasses = [
-    "col-span-2 row-span-2",
-    "col-span-1 row-span-1",
-    "col-span-1 row-span-1",
-    "col-span-1 row-span-2",
-    "col-span-1 row-span-1",
-    "col-span-2 row-span-1",
-    "col-span-1 row-span-1",
-    "col-span-1 row-span-1",
-  ];
-
   return posts
-    .slice(0, 8)
+    .slice(0, INSTAGRAM_GRID_CLASSES.length)
     .map((post, index) => (
       <BentoItem
         key={post.id}
         post={post}
         index={index}
-        className={gridClasses[index]}
+        className={INSTAGRAM_GRID_CLASSES[index]}
       />
     ));
 }
