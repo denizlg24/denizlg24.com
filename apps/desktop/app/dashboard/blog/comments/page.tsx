@@ -511,6 +511,7 @@ export default function CommentsPage() {
             data={filteredComments}
             emptyMessage="No comments found"
             initialSorting={[{ id: "createdAt", desc: true }]}
+            searchPlaceholder="Search author, content..."
           />
         </div>
       </div>

@@ -2,8 +2,12 @@
 
 import {
   type ColumnDef,
+  type ColumnFiltersState,
   flexRender,
   getCoreRowModel,
+  getFacetedRowModel,
+  getFacetedUniqueValues,
+  getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   type PaginationState,
@@ -11,9 +15,11 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
+import { Search } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -42,6 +48,11 @@ const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50];
 
 type PageItem = number | "start-ellipsis" | "end-ellipsis";
 
+interface FacetFilter {
+  columnId: string;
+  label: string;
+}
+
 interface PaginatedDataTableProps<TData> {
   columns: ColumnDef<TData, unknown>[];
   data: TData[];
@@ -50,6 +61,10 @@ interface PaginatedDataTableProps<TData> {
   defaultPageSize?: number;
   pageSizeOptions?: number[];
   onRowClick?: (row: TData) => void;
+  /** Opt-in toolbar: text search over all columns. */
+  searchPlaceholder?: string;
+  /** Opt-in toolbar: per-column selects over the column's distinct values. */
+  facetFilters?: FacetFilter[];
 }
 
 function getPageItems(pageIndex: number, pageCount: number): PageItem[] {
@@ -76,12 +91,18 @@ function PaginatedDataTable<TData>({
   defaultPageSize = DEFAULT_PAGE_SIZE,
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   onRowClick,
+  searchPlaceholder,
+  facetFilters,
 }: PaginatedDataTableProps<TData>) {
   const resolvedPageSizeOptions = Array.from(
     new Set([...pageSizeOptions, defaultPageSize]),
   ).sort((left, right) => left - right);
 
   const [sorting, setSorting] = React.useState<SortingState>(initialSorting);
+  const [globalFilter, setGlobalFilter] = React.useState("");
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
+    [],
+  );
   const [pagination, setPagination] = React.useState<PaginationState>({
     pageIndex: 0,
     pageSize: defaultPageSize,
@@ -90,16 +111,26 @@ function PaginatedDataTable<TData>({
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, pagination },
+    state: { sorting, pagination, globalFilter, columnFilters },
     onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
+    onColumnFiltersChange: setColumnFilters,
     onPaginationChange: setPagination,
+    autoResetPageIndex: true,
+    globalFilterFn: "includesString",
     getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getFacetedRowModel: getFacetedRowModel(),
+    getFacetedUniqueValues: getFacetedUniqueValues(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
   });
 
+  const hasToolbar =
+    searchPlaceholder !== undefined || (facetFilters?.length ?? 0) > 0;
+
   const pageCount = table.getPageCount();
-  const totalRows = data.length;
+  const totalRows = table.getFilteredRowModel().rows.length;
   const currentRows = table.getRowModel().rows;
   const currentPage = table.getState().pagination.pageIndex;
   const currentPageSize = table.getState().pagination.pageSize;
@@ -112,6 +143,52 @@ function PaginatedDataTable<TData>({
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
+      {hasToolbar && (
+        <div className="flex flex-wrap items-center gap-2">
+          {searchPlaceholder !== undefined && (
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={globalFilter}
+                onChange={(event) => setGlobalFilter(event.target.value)}
+                placeholder={searchPlaceholder}
+                className="h-8 w-64 pl-7 text-xs"
+              />
+            </div>
+          )}
+          {facetFilters?.map((facet) => {
+            const column = table.getColumn(facet.columnId);
+            if (!column) return null;
+            const values = Array.from(column.getFacetedUniqueValues().keys())
+              .filter((value): value is string => typeof value === "string")
+              .sort();
+            const current = (column.getFilterValue() as string) ?? "all";
+            return (
+              <Select
+                key={facet.columnId}
+                value={current}
+                onValueChange={(value) =>
+                  column.setFilterValue(value === "all" ? undefined : value)
+                }
+              >
+                <SelectTrigger size="sm" className="w-36 text-xs">
+                  <SelectValue placeholder={facet.label} />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="all" className="text-xs">
+                    All {facet.label}
+                  </SelectItem>
+                  {values.map((value) => (
+                    <SelectItem key={value} value={value} className="text-xs">
+                      {value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            );
+          })}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
         <p className="text-xs text-muted-foreground">
           Showing {rangeStart}-{rangeEnd} of {totalRows}

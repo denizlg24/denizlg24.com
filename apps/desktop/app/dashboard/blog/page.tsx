@@ -443,6 +443,7 @@ export default function BlogPage() {
             emptyMessage="No posts found"
             initialSorting={[{ id: "createdAt", desc: true }]}
             onRowClick={handleRowClick}
+            searchPlaceholder="Search title, tags..."
           />
         </div>
       </div>
