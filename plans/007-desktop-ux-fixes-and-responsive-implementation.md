@@ -29,7 +29,7 @@
 | F4 | Upcoming tasks: port web presentation to desktop | M | DONE (2026-06-12: upcoming-kanban wire schemas in `@repo/schemas` kanban.ts, both local interface sets deleted, desktop fetch zod-validated; tasks tab gained stats line, board color dots, left rail, column titles, web's due wording; caps kept at 3 boards × 3 cards with explicit +N indicators (glance widget); verified empty/overdue-only/4-board fixtures; dashboard skeleton gained switcher block) |
 | F5 | Shared table filtering + LLM usage page upgrade | M | DONE (2026-06-12: PaginatedDataTable gained getFilteredRowModel + opt-in toolbar (global search Input + faceted Selects from getFacetedUniqueValues), zero change for non-opted pages; contacts/blog/comments opted into search; llm-usage: `llmUsageResponseSchema` in @repo/schemas, BOTH apps' local interface sets deleted (web's llm dashboard had the same duplicate set), desktop fetch validated, recent-requests got search + model/source facets (equalsString), By Model/By Source searchable; server shape matched desktop interfaces exactly — no drift, no STOP; harness-verified filter→page-reset, facet, sort compose) |
 | F6 | Overflow audit (kill the clipping traps) | S/M | DONE (2026-06-12: harness audit (clipped overflow with no descendant scroller) over 14 routes × 1280×800 + 700×500 with oversized fixtures; fixed: PaginatedDataTable root now `h-full` so its internal scroller engages in bounded wrappers (contacts/blog/comments were clipping rows), timetable page owns `overflow-y-auto` region (was relying on clipped shell, 543px unreachable), pomodoro content column scrolls at short heights; all combos re-audited clean; not covered for lack of fixtures: inbox/journal/kanban/calendar/whiteboard/resources/triage/sheet-editor — kanban/calendar/whiteboard are R4 per-page calls, rest folded into F7) |
-| F7 | Issue discovery audit | S | TODO |
+| F7 | Issue discovery audit | S | DONE (2026-06-12: 22 routes swept; no new defects — see "F7 findings" section below for artifacts ruled out and coverage gaps) |
 | R1 | Mobile navigation (doc §1 option B) | M | TODO |
 | R2 | `packages/ui` extraction (doc §4, DEBT-07) | L | TODO |
 | R3 | Platform seam: browser-runnable desktop app (doc §6 #009) | M | TODO |
@@ -321,6 +321,25 @@ The maintainer flagged "there may be more issues". Timebox: one session.
    relevant phase or as follow-ups. Known backlog items (kanban rollback
    BUG-03, listeners BUG-06, bundle PERF-04) stay in the backlog — do not
    re-report them.
+
+### F7 findings (2026-06-12, one-session timebox)
+
+Swept all 22 dashboard routes at 1280×800 with fixtures (or empty states
+where no fixture exists), collecting page errors, console errors, text
+snapshots and screenshots:
+
+- **No new defects found.** Two initial hits were harness artifacts: the
+  fixture id generator produced colliding 24-char ids (`pr1`/`pr10` pad to
+  the same string → React duplicate-key warning), and whiteboard's console
+  error was the app correctly logging the mock's 404.
+- Known, already-tracked: `platform()` TypeError on every route outside
+  Tauri (R3 fixes it); kanban/calendar/whiteboard layout calls deferred to
+  R4 (per plan).
+- Coverage gaps, not defects: inbox/journal/kanban/calendar/whiteboard/
+  resources/triage were swept in empty/error states only (no fixtures for
+  their endpoints yet), and dead-interaction testing (buttons that no-op)
+  was not systematically scripted — both can ride along when R3's browser
+  harness makes interactive testing cheap.
 
 ## Phase R1 — Mobile navigation (doc §1, option B)
 
