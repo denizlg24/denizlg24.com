@@ -1,5 +1,12 @@
 "use client";
 
+import type {
+  LlmDailyBreakdown,
+  LlmModelBreakdown,
+  LlmRecentRequest,
+  LlmSourceBreakdown,
+  LlmUsageResponse,
+} from "@repo/schemas";
 import {
   type ColumnDef,
   flexRender,
@@ -28,58 +35,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-interface UsageStats {
-  totalRequests: number;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalCost: number;
-}
-
-interface ModelBreakdown {
-  model: string;
-  requests: number;
-  inputTokens: number;
-  outputTokens: number;
-  cost: number;
-}
-
-interface SourceBreakdown {
-  source: string;
-  requests: number;
-  inputTokens: number;
-  outputTokens: number;
-  cost: number;
-}
-
-interface DailyBreakdown {
-  date: string;
-  requests: number;
-  inputTokens: number;
-  outputTokens: number;
-  cost: number;
-}
-
-interface RecentRequest {
-  _id: string;
-  llmModel: string;
-  inputTokens: number;
-  outputTokens: number;
-  costUsd: number;
-  source: string;
-  createdAt: string;
-}
-
-interface UsageResponse {
-  allTime: UsageStats;
-  last30d: UsageStats;
-  last7d: UsageStats;
-  last24h: UsageStats;
-  byModel: ModelBreakdown[];
-  bySource: SourceBreakdown[];
-  dailyBreakdown: DailyBreakdown[];
-  recentRequests: RecentRequest[];
-}
 
 type TimePeriod = "allTime" | "last30d" | "last7d" | "last24h";
 
@@ -144,7 +99,7 @@ function SortHeader({ label, column }: { label: string; column: any }) {
   );
 }
 
-const requestColumns: ColumnDef<RecentRequest>[] = [
+const requestColumns: ColumnDef<LlmRecentRequest>[] = [
   {
     accessorKey: "llmModel",
     header: "Model",
@@ -215,7 +170,7 @@ const requestColumns: ColumnDef<RecentRequest>[] = [
   },
 ];
 
-const modelColumns: ColumnDef<ModelBreakdown>[] = [
+const modelColumns: ColumnDef<LlmModelBreakdown>[] = [
   {
     accessorKey: "model",
     header: "Model",
@@ -277,7 +232,7 @@ const modelColumns: ColumnDef<ModelBreakdown>[] = [
   },
 ];
 
-const sourceColumns: ColumnDef<SourceBreakdown>[] = [
+const sourceColumns: ColumnDef<LlmSourceBreakdown>[] = [
   {
     accessorKey: "source",
     header: "Source",
@@ -422,7 +377,7 @@ function UsageLoadingSkeleton() {
 }
 
 export function LlmUsageDashboard() {
-  const [data, setData] = useState<UsageResponse | null>(null);
+  const [data, setData] = useState<LlmUsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<TimePeriod>("last30d");
 
@@ -523,7 +478,7 @@ export function LlmUsageDashboard() {
                 <ChartTooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
-                    const d = payload[0].payload as DailyBreakdown;
+                    const d = payload[0].payload as LlmDailyBreakdown;
                     return (
                       <div className="rounded-lg border bg-background px-3 py-2 text-xs shadow-xl">
                         <p className="font-medium mb-1.5">

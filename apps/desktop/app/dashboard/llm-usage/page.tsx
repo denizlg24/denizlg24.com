@@ -21,58 +21,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
-
-interface UsageStats {
-  totalRequests: number;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalCost: number;
-}
-
-interface ModelBreakdown {
-  model: string;
-  requests: number;
-  inputTokens: number;
-  outputTokens: number;
-  cost: number;
-}
-
-interface SourceBreakdown {
-  source: string;
-  requests: number;
-  inputTokens: number;
-  outputTokens: number;
-  cost: number;
-}
-
-interface DailyBreakdown {
-  date: string;
-  requests: number;
-  inputTokens: number;
-  outputTokens: number;
-  cost: number;
-}
-
-interface RecentRequest {
-  _id: string;
-  llmModel: string;
-  inputTokens: number;
-  outputTokens: number;
-  costUsd: number;
-  source: string;
-  createdAt: string;
-}
-
-interface UsageResponse {
-  allTime: UsageStats;
-  last30d: UsageStats;
-  last7d: UsageStats;
-  last24h: UsageStats;
-  byModel: ModelBreakdown[];
-  bySource: SourceBreakdown[];
-  dailyBreakdown: DailyBreakdown[];
-  recentRequests: RecentRequest[];
-}
+import {
+  type LlmDailyBreakdown,
+  type LlmModelBreakdown,
+  type LlmRecentRequest,
+  type LlmSourceBreakdown,
+  type LlmUsageResponse,
+  llmUsageResponseSchema,
+} from "@/lib/data-types";
 
 type TimePeriod = "allTime" | "last30d" | "last7d" | "last24h";
 
@@ -147,10 +103,11 @@ function SortHeader({
   );
 }
 
-const requestColumns: ColumnDef<RecentRequest>[] = [
+const requestColumns: ColumnDef<LlmRecentRequest>[] = [
   {
     accessorKey: "llmModel",
     header: "Model",
+    filterFn: "equalsString",
     cell: ({ row }) => (
       <span className="font-mono">{row.getValue("llmModel")}</span>
     ),
@@ -158,6 +115,7 @@ const requestColumns: ColumnDef<RecentRequest>[] = [
   {
     accessorKey: "source",
     header: "Source",
+    filterFn: "equalsString",
     cell: ({ row }) => (
       <Badge variant="outline" className="font-mono text-xs">
         {row.getValue("source")}
@@ -218,7 +176,7 @@ const requestColumns: ColumnDef<RecentRequest>[] = [
   },
 ];
 
-const modelColumns: ColumnDef<ModelBreakdown>[] = [
+const modelColumns: ColumnDef<LlmModelBreakdown>[] = [
   {
     accessorKey: "model",
     header: "Model",
@@ -280,7 +238,7 @@ const modelColumns: ColumnDef<ModelBreakdown>[] = [
   },
 ];
 
-const sourceColumns: ColumnDef<SourceBreakdown>[] = [
+const sourceColumns: ColumnDef<LlmSourceBreakdown>[] = [
   {
     accessorKey: "source",
     header: "Source",
@@ -384,15 +342,16 @@ export default function LlmUsagePage() {
     return new denizApi(settings.apiKey);
   }, [settings, loadingSettings]);
 
-  const [data, setData] = useState<UsageResponse | null>(null);
+  const [data, setData] = useState<LlmUsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<TimePeriod>("last30d");
 
   useEffect(() => {
     if (!API) return;
     (async () => {
-      const result = await API.GET<UsageResponse>({
+      const result = await API.GET({
         endpoint: "llm/usage",
+        schema: llmUsageResponseSchema,
       });
       if (!("code" in result)) {
         setData(result);
@@ -494,7 +453,7 @@ export default function LlmUsagePage() {
                   <ChartTooltip
                     content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null;
-                      const d = payload[0].payload as DailyBreakdown;
+                      const d = payload[0].payload as LlmDailyBreakdown;
                       return (
                         <div className="rounded-lg border bg-background px-3 py-2 text-xs shadow-xl">
                           <p className="font-medium mb-1.5">
@@ -550,6 +509,11 @@ export default function LlmUsagePage() {
               columns={requestColumns}
               data={data.recentRequests}
               emptyMessage="No recent requests"
+              searchPlaceholder="Search requests..."
+              facetFilters={[
+                { columnId: "llmModel", label: "models" },
+                { columnId: "source", label: "sources" },
+              ]}
             />
           </TabsContent>
           <TabsContent value="models" className="mt-0">
@@ -557,6 +521,7 @@ export default function LlmUsagePage() {
               columns={modelColumns}
               data={data.byModel}
               emptyMessage="No model usage yet"
+              searchPlaceholder="Search models..."
             />
           </TabsContent>
           <TabsContent value="sources" className="mt-0">
@@ -564,6 +529,7 @@ export default function LlmUsagePage() {
               columns={sourceColumns}
               data={data.bySource}
               emptyMessage="No source usage yet"
+              searchPlaceholder="Search sources..."
             />
           </TabsContent>
         </Tabs>

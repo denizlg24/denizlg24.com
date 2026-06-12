@@ -469,6 +469,7 @@ export default function ContactsPage() {
             emptyMessage="No contacts found"
             initialSorting={[{ id: "createdAt", desc: true }]}
             onRowClick={handleRowClick}
+            searchPlaceholder="Search name, email, message..."
           />
         </div>
       </div>
