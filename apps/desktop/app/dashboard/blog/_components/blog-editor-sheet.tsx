@@ -1,13 +1,13 @@
 "use client";
 
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollArea } from "@repo/ui/scroll-area";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@/components/ui/sheet";
+} from "@repo/ui/sheet";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { IBlog } from "@/lib/data-types";
 import { BlogForm } from "./blog-form";

@@ -1,6 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Field, FieldError, FieldLabel } from "@repo/ui/field";
+import { Textarea } from "@repo/ui/textarea";
 import { Eye, PenLine } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -15,8 +17,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
-import { Textarea } from "@/components/ui/textarea";
 
 const nowPageSchema = z.object({
   content: z.string().min(1, "Content is required"),

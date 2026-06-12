@@ -1,5 +1,6 @@
 "use client";
 
+import { Input } from "@repo/ui/input";
 import { Download, KeyRound, Loader2, Plus, Search } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -12,7 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { AddAccountDialog } from "./_components/add-account-dialog";
 import { AuthenticatorAccountRow } from "./_components/authenticator-account";
 import { ImportDialog } from "./_components/import-dialog";

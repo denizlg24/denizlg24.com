@@ -1,7 +1,3 @@
-import { Notebook, Plus } from "lucide-react";
-import Link from "next/link";
-import { redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -9,7 +5,11 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty";
+} from "@repo/ui/empty";
+import { Notebook, Plus } from "lucide-react";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { getAllBlogs } from "@/lib/blog";
 import { getAdminSession } from "@/lib/require-admin";
 import { BlogManager } from "./_components/blog-manager";

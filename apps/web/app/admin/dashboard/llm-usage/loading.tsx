@@ -1,5 +1,5 @@
+import { Skeleton } from "@repo/ui/skeleton";
 import { Brain } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Loading() {
   return (

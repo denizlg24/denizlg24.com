@@ -1,24 +1,21 @@
 "use client";
 
-import type { ColumnDef } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ArrowUpDown, Brain } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { Badge } from "@/components/ui/badge";
-import {
-  type ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-} from "@/components/ui/chart";
-import { PaginatedDataTable } from "@/components/ui/paginated-data-table";
-import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@repo/ui/badge";
+import { type ChartConfig, ChartContainer, ChartTooltip } from "@repo/ui/chart";
+import { SortHeader } from "@repo/ui/data-table";
+import { PaginatedDataTable } from "@repo/ui/paginated-data-table";
+import { Separator } from "@repo/ui/separator";
+import { Skeleton } from "@repo/ui/skeleton";
 import {
   HeaderBarSkeleton,
   TableSkeleton,
   TabStripSkeleton,
-} from "@/components/ui/skeleton-blocks";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+} from "@repo/ui/skeleton-blocks";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Brain } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import {
@@ -73,35 +70,6 @@ const PERIOD_LABELS: Record<TimePeriod, string> = {
   last7d: "7 Days",
   last24h: "24 Hours",
 };
-
-function SortHeader({
-  label,
-  column,
-}: {
-  label: string;
-  column: {
-    getIsSorted: () => false | "asc" | "desc";
-    toggleSorting: (desc: boolean) => void;
-  };
-}) {
-  const sorted = column.getIsSorted();
-  return (
-    <button
-      type="button"
-      className="flex items-center gap-1 hover:text-foreground transition-colors"
-      onClick={() => column.toggleSorting(sorted === "asc")}
-    >
-      {label}
-      {sorted === "asc" ? (
-        <ArrowUp className="size-3" />
-      ) : sorted === "desc" ? (
-        <ArrowDown className="size-3" />
-      ) : (
-        <ArrowUpDown className="size-3 opacity-40" />
-      )}
-    </button>
-  );
-}
 
 const requestColumns: ColumnDef<LlmRecentRequest>[] = [
   {

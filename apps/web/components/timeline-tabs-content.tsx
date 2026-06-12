@@ -1,8 +1,8 @@
+import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/avatar";
 import { getTimelineItemsByCategory } from "@/lib/timeline";
 import { iconMap } from "@/lib/utils";
 import { StyledLink } from "./styled-link";
 import { TimelineCard } from "./timeline-card";
-import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 
 export default async function TimelineTabsContent({
   category,

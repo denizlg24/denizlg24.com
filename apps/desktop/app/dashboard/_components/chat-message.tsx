@@ -1,5 +1,6 @@
 "use client";
 
+import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
 import {
   Check,
   ChevronDown,
@@ -13,7 +14,6 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
-import { MarkdownRenderer } from "@/components/markdown/markdown-renderer";
 import type {
   IChatContentSegment,
   IChatMessage,

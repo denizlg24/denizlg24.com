@@ -1,5 +1,6 @@
 "use client";
 
+import { Avatar, AvatarFallback } from "@repo/ui/avatar";
 import Cookies from "js-cookie";
 import {
   Calendar,
@@ -11,7 +12,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";

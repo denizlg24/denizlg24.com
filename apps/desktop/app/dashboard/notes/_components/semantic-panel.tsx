@@ -1,18 +1,18 @@
 "use client";
 
-import { BrainCircuit, Check, Loader2, RefreshCcw, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
+import { Label } from "@repo/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@repo/ui/select";
+import { BrainCircuit, Check, Loader2, RefreshCcw, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { ISemanticSuggestion } from "@/lib/data-types";
 import { runSemanticSync } from "@/lib/semantic/sync";

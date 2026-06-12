@@ -1,10 +1,10 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
+import { Card, CardContent } from "@repo/ui/card";
 import { ArrowDownToLine, X } from "lucide-react";
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import type { GitHubRelease } from "@/lib/update-checker";
 import { fetchLatestRelease, isNewerVersion } from "@/lib/update-checker";
 

@@ -1,7 +1,3 @@
-import { FolderGit2, Plus } from "lucide-react";
-import Link from "next/link";
-import { redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -9,7 +5,11 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty";
+} from "@repo/ui/empty";
+import { FolderGit2, Plus } from "lucide-react";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { getAllProjects } from "@/lib/projects";
 import { getAdminSession } from "@/lib/require-admin";
 import { ProjectManager } from "./_components/project-manager";

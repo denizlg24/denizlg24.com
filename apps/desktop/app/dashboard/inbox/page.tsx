@@ -1,9 +1,9 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import { Inbox, Loader2, Mail, Pencil, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type {

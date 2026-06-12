@@ -1,8 +1,8 @@
 "use client";
 
+import { Input } from "@repo/ui/input";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Input } from "@/components/ui/input";
 
 export const SearchInput = ({
   query,

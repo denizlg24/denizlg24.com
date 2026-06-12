@@ -1,8 +1,8 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
 import { Ban, Check, Clock, ExternalLink, Loader2, MapPin } from "lucide-react";
 import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ILeanCalendarEvent } from "@/models/CalendarEvent";

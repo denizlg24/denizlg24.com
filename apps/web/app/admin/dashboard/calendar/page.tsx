@@ -1,7 +1,7 @@
 "use client";
 
+import { Skeleton } from "@repo/ui/skeleton";
 import { Suspense } from "react";
-import { Skeleton } from "@/components/ui/skeleton";
 import { AddEventDialog } from "./_components/add-event-dialog";
 import { Calendar } from "./_components/calendar";
 import { CalendarProvider, useCalendar } from "./_components/calendar-context";

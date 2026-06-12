@@ -1,10 +1,10 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
+import { Skeleton } from "@repo/ui/skeleton";
 import { formatDistanceToNow } from "date-fns";
 import { GitCommit } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { RECENT_COMMIT_LIMIT } from "@/lib/github";
 
 interface Commit {

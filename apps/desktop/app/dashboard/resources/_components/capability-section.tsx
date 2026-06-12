@@ -1,8 +1,8 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import type { LucideIcon } from "lucide-react";
 import { Clock, Plus, Power, PowerOff, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import type { ICapability } from "@/lib/data-types";
 
 const CAPABILITY_ICONS: Record<string, LucideIcon> = {

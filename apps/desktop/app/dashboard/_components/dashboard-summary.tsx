@@ -1,9 +1,9 @@
 "use client";
 
+import { Skeleton } from "@repo/ui/skeleton";
 import { format } from "date-fns";
 import { Brain, MapPin } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import {

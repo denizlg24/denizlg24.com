@@ -1,10 +1,10 @@
 export const revalidate = 2592000;
 
+import { Input } from "@repo/ui/input";
 import { ChevronsUpDown, Loader2 } from "lucide-react";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { getActiveProjects } from "@/lib/projects";
 import { FilterWrapper } from "./components/filter-wrapper";
 import { ProjectsSection } from "./components/projects-section";

@@ -1,5 +1,16 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/select";
+import { Skeleton } from "@repo/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import {
   BrainCircuit,
   FilePlus2,
@@ -19,17 +30,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { TagAutocomplete } from "@/app/dashboard/notes/_components/tag-autocomplete";
 import { useEntityGraphData } from "@/components/graph/entity-graph";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type {

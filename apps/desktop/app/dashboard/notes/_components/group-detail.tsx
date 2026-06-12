@@ -1,8 +1,5 @@
 "use client";
 
-import { ArrowLeft, FolderTree, Trash2 } from "lucide-react";
-import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,11 +10,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+} from "@repo/ui/alert-dialog";
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
+import { Label } from "@repo/ui/label";
+import { Textarea } from "@repo/ui/textarea";
+import { ArrowLeft, FolderTree, Trash2 } from "lucide-react";
+import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 import type { INote, INoteGroup } from "@/lib/data-types";
 import { GroupTreeCombobox } from "./group-tree-combobox";
 

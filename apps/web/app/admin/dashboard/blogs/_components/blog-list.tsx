@@ -1,5 +1,7 @@
 "use client";
 
+import { Badge } from "@repo/ui/badge";
+import { Card } from "@repo/ui/card";
 import {
   Clock,
   Eye,
@@ -10,9 +12,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ShareButton } from "@/app/blog/[slug]/components/share-button";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import type { ILeanBlog } from "@/models/Blog";
 
 interface BlogListProps {

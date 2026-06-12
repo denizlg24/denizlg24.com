@@ -1,6 +1,10 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Checkbox } from "@repo/ui/checkbox";
+import { Field, FieldError, FieldLabel } from "@repo/ui/field";
+import { Input } from "@repo/ui/input";
+import { Textarea } from "@repo/ui/textarea";
 import {
   ExternalLink,
   NotepadText,
@@ -16,7 +20,6 @@ import { Controller, useForm } from "react-hook-form";
 import { FaGithub } from "react-icons/fa6";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -24,8 +27,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -33,7 +34,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 
 const timelineSchema = z.object({
   title: z.string().min(2, "Title must be at least 2 characters"),

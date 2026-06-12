@@ -1,6 +1,7 @@
 "use client";
 
 import type { UpcomingCard, UpcomingKanbanResult } from "@repo/schemas";
+import { Skeleton } from "@repo/ui/skeleton";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   AlertCircle,
@@ -19,7 +20,6 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Skeleton } from "@/components/ui/skeleton";
 
 function formatDueLabel(card: UpcomingCard) {
   if (card.overdue) return "overdue";

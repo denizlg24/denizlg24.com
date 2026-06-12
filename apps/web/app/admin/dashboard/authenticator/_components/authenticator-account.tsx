@@ -1,14 +1,14 @@
 "use client";
 
-import { Check, Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@repo/ui/dropdown-menu";
+import { Check, Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import type { IAuthenticatorAccount, IAuthenticatorCode } from "../types";
 import { CountdownRing } from "./countdown-ring";
 

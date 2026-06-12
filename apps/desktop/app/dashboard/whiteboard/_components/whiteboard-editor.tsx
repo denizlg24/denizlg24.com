@@ -1,9 +1,9 @@
 "use client";
 
+import { Spinner } from "@repo/ui/spinner";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Spinner } from "@/components/ui/spinner";
 import { useUserSettings } from "@/context/user-context";
 import { useWhiteboardCanvas } from "@/hooks/use-whiteboard-canvas";
 import { useWhiteboardHistory } from "@/hooks/use-whiteboard-history";

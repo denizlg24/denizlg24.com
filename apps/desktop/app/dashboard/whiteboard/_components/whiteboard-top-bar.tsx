@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import {
   ArrowLeft,
   Download,
@@ -13,7 +14,6 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import type { ViewState } from "@/lib/whiteboard-types";
 
 export interface WhiteboardTopBarProps {

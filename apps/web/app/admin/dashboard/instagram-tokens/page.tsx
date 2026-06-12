@@ -1,9 +1,4 @@
-import { Clock, RefreshCw, Trash2 } from "lucide-react";
-import Link from "next/link";
-import { forbidden } from "next/navigation";
-import { FaInstagram } from "react-icons/fa6";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge } from "@repo/ui/badge";
 import {
   Empty,
   EmptyContent,
@@ -11,7 +6,12 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty";
+} from "@repo/ui/empty";
+import { Clock, RefreshCw, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { forbidden } from "next/navigation";
+import { FaInstagram } from "react-icons/fa6";
+import { Button } from "@/components/ui/button";
 import { getInstagramToken } from "@/lib/instagram-token";
 import { getAdminSession } from "@/lib/require-admin";
 

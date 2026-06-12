@@ -1,8 +1,6 @@
 "use client";
 
-import { FileUp, Loader2, QrCode, ScanLine } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@repo/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -10,9 +8,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+} from "@repo/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { Textarea } from "@repo/ui/textarea";
+import { FileUp, Loader2, QrCode, ScanLine } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 interface ImportDialogProps {
   open: boolean;

@@ -1,7 +1,7 @@
+import { Kbd, KbdGroup } from "@repo/ui/kbd";
 import type { Metadata } from "next";
 import { forbidden } from "next/navigation";
 import { AppSidebar } from "@/components/app-sidebar";
-import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { getAdminSession } from "@/lib/require-admin";
 

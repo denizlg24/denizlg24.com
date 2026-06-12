@@ -1,15 +1,15 @@
 "use client";
 
-import { Inbox, Loader2, Plus, RefreshCw } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button } from "@repo/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@repo/ui/tooltip";
+import { Inbox, Loader2, Plus, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { IEmailAccount } from "@/lib/data-types";
 import { cn } from "@/lib/utils";

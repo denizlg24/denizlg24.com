@@ -1,11 +1,11 @@
 export const revalidate = 2592000; // Revalidate every 30 days
 
+import { Badge } from "@repo/ui/badge";
+import { Separator } from "@repo/ui/separator";
 import { ArrowLeft, Calendar, Clock } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { getActiveBlogs, getBlogBySlug } from "@/lib/blog";
 import { BlogViewCounter } from "./components/blog-view-counter";
 import { CommentsSection } from "./components/comments-section";

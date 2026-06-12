@@ -1,5 +1,8 @@
 "use client";
 
+import { Label } from "@repo/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
+import { Switch } from "@repo/ui/switch";
 import {
   ArrowUp,
   FileText,
@@ -11,14 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Label } from "@/components/ui/label";
 import { ModelSelector } from "@/components/ui/model-selector";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Switch } from "@/components/ui/switch";
 import type { IChatAttachment } from "@/lib/data-types";
 
 const ACCEPTED_TYPES =

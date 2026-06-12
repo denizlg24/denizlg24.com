@@ -1,5 +1,5 @@
+import { Separator } from "@repo/ui/separator";
 import { PDFMarkdownRenderer } from "@/components/pdf-markdown-renderer";
-import { Separator } from "@/components/ui/separator";
 export default async function AdminNotesPdfPreviewPage({
   searchParams,
 }: {

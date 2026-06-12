@@ -1,5 +1,12 @@
 "use client";
 
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@repo/ui/command";
 import { Command as CommandPrimitive } from "cmdk";
 import { HomeIcon, SearchIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -10,13 +17,6 @@ import {
   GROUPS,
   type NavGroup,
 } from "@/components/navigation/navigation-menu";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 
 type CommandEntry = {
   label: string;

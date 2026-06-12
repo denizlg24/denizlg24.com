@@ -1,5 +1,6 @@
 "use client";
 
+import { Input } from "@repo/ui/input";
 import Cookies from "js-cookie";
 import { Send } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -12,7 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 
 const COMMENTER_COOKIE = "blog_commenter";
 

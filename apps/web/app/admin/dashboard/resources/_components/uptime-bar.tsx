@@ -1,12 +1,12 @@
 "use client";
 
-import { formatDistanceToNow } from "date-fns";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@repo/ui/tooltip";
+import { formatDistanceToNow } from "date-fns";
 import type { DailyUptimeEntry } from "@/lib/resource-agent";
 
 const STATUS_COLORS: Record<DailyUptimeEntry["status"], string> = {

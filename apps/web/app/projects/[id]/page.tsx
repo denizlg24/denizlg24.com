@@ -1,10 +1,11 @@
 export const revalidate = 2592000; // Revalidate every 30 days
 
+import { Badge } from "@repo/ui/badge";
+import { Separator } from "@repo/ui/separator";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { ImageZoomButton } from "@/components/image-zoom-button";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Carousel,
@@ -13,7 +14,6 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "@/components/ui/carousel";
-import { Separator } from "@/components/ui/separator";
 import { getActiveProjects, getProjectById } from "@/lib/projects";
 import { iconMap } from "@/lib/utils";
 

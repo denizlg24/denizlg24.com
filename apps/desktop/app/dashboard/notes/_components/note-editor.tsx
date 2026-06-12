@@ -1,6 +1,22 @@
 "use client";
 import { DialogClose } from "@radix-ui/react-dialog";
 import { pdf } from "@react-pdf/renderer";
+import { Button } from "@repo/ui/button";
+import { Checkbox } from "@repo/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@repo/ui/dialog";
+import { useTextareaEditor } from "@repo/ui/hooks/use-textarea-editor";
+import { Label } from "@repo/ui/label";
+import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
+import { Separator } from "@repo/ui/separator";
+import { Textarea } from "@repo/ui/textarea";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import {
@@ -26,24 +42,8 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { MarkdownPdfDocument } from "@/components/markdown/markdown-pdf-renderer";
-import { MarkdownRenderer } from "@/components/markdown/markdown-renderer";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { ModelSelector } from "@/components/ui/model-selector";
-import { Separator } from "@/components/ui/separator";
-import { Textarea } from "@/components/ui/textarea";
 import { useUserSettings } from "@/context/user-context";
-import { useTextareaEditor } from "@/hooks/use-textarea-editor";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { INote } from "@/lib/data-types";
 import { extractDirectory } from "@/lib/user-settings";

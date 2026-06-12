@@ -1,8 +1,6 @@
 "use client";
 
-import { Check, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@repo/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -10,13 +8,15 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command";
+} from "@repo/ui/command";
 import {
   Popover,
   PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
+} from "@repo/ui/popover";
+import { Check, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
 
 interface Props {
   value: string[];

@@ -1,5 +1,4 @@
-import { Brain } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Skeleton } from "@repo/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -7,7 +6,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from "@repo/ui/table";
+import { Brain } from "lucide-react";
 
 const FILTER_SKELETON_IDS = [
   "filter-all",

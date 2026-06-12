@@ -1,6 +1,29 @@
 "use client";
 
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@repo/ui/alert-dialog";
+import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
+import { Calendar } from "@repo/ui/calendar";
+import { Input } from "@repo/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/select";
+import {
   ArrowLeft,
   Calendar as CalendarIcon,
   ExternalLink,
@@ -16,33 +39,6 @@ import {
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TagAutocomplete } from "@/app/dashboard/notes/_components/tag-autocomplete";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
-import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { INote, INoteEdge, INoteGroup } from "@/lib/data-types";
 import { buildPathLabelMap } from "@/lib/note-group-tree";
