@@ -54,7 +54,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  StatStripSkeleton,
+  TableSkeleton,
+} from "@/components/ui/skeleton-blocks";
 import {
   Table,
   TableBody,
@@ -128,26 +131,12 @@ function LoadingSkeleton() {
         <span className="text-sm font-semibold flex-1">Spreadsheets</span>
       </div>
       <div className="px-4 flex flex-col gap-6 pt-3">
-        <div className="flex items-baseline gap-8">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="flex flex-col gap-1">
-              <Skeleton className="h-3 w-14" />
-              <Skeleton className="h-6 w-8" />
-            </div>
-          ))}
-        </div>
-        <div className="flex flex-col gap-0">
-          <Skeleton className="h-10 w-full" />
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex items-center gap-3 py-3 border-b">
-              <Skeleton className="h-4 w-40 flex-1" />
-              <Skeleton className="h-4 w-16" />
-              <Skeleton className="h-4 w-16" />
-              <Skeleton className="h-4 w-16" />
-              <Skeleton className="h-6 w-6 rounded" />
-            </div>
-          ))}
-        </div>
+        <StatStripSkeleton count={3} />
+        <TableSkeleton
+          rows={4}
+          withMeta={false}
+          widths={["w-32", "w-16", "w-16", "w-16", "w-24", "w-8"]}
+        />
       </div>
     </div>
   );

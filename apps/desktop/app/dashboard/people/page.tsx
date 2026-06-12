@@ -454,6 +454,10 @@ function PeopleLoadingSkeleton() {
           <Skeleton className="h-7 w-20" />
         </div>
       </div>
+      <div className="flex items-center gap-2 border-b px-4 py-1">
+        <Skeleton className="h-7 w-44" />
+        <Skeleton className="ml-auto h-7 w-24" />
+      </div>
       <div className="flex flex-1 items-center justify-center">
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
       </div>

@@ -909,15 +909,15 @@ function NotesLoadingSkeleton() {
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 w-full">
         <div className="flex items-center gap-2">
           <FolderTree className="size-3.5 text-muted-foreground" />
-          <Skeleton className="h-7 w-44" />
+          <Skeleton className="h-8 w-44" />
         </div>
         <div className="flex items-center gap-2">
           <Tags className="size-3.5 text-muted-foreground" />
-          <Skeleton className="h-7 w-44" />
+          <Skeleton className="h-8 w-44" />
         </div>
-        <Skeleton className="ml-auto h-7 w-32" />
-        <Skeleton className="h-7 w-32" />
-        <Skeleton className="h-7 w-40" />
+        <Skeleton className="ml-auto h-8 w-32" />
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-8 w-40" />
       </div>
 
       <div className="flex flex-1 items-center justify-center">

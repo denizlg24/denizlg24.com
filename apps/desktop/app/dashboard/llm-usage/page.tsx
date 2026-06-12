@@ -13,6 +13,11 @@ import {
 import { PaginatedDataTable } from "@/components/ui/paginated-data-table";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  HeaderBarSkeleton,
+  TableSkeleton,
+  TabStripSkeleton,
+} from "@/components/ui/skeleton-blocks";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
@@ -342,12 +347,12 @@ const sourceColumns: ColumnDef<SourceBreakdown>[] = [
 function UsageLoadingSkeleton() {
   return (
     <div className="flex flex-col gap-2 pb-8">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Brain className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Token Usage</span>
-      </div>
+      <HeaderBarSkeleton
+        icon={<Brain className="size-4 text-muted-foreground" />}
+        title="Token Usage"
+      />
       <div className="px-4 flex flex-col gap-6 pt-3">
-        <Skeleton className="h-9 w-72 rounded-lg" />
+        <TabStripSkeleton widths={["w-14", "w-14", "w-12", "w-16"]} />
         <div className="flex gap-8">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="flex flex-col gap-1">
@@ -356,8 +361,16 @@ function UsageLoadingSkeleton() {
             </div>
           ))}
         </div>
-        <Skeleton className="h-48 w-full rounded-md" />
-        <Skeleton className="h-64 w-full rounded-md" />
+        <div className="flex flex-col gap-2 border-t pt-4">
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-[230px] w-full" />
+        </div>
+        <TabStripSkeleton widths={["w-28", "w-16", "w-20"]} />
+        <TableSkeleton
+          rows={6}
+          widths={["w-40", "w-16", "w-16", "w-16", "w-16", "w-24"]}
+        />
       </div>
     </div>
   );
