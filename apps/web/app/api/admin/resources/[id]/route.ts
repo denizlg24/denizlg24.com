@@ -6,8 +6,8 @@ import {
   deletePingResource,
   upsertPingResource,
 } from "@/lib/sync-ping-resource";
-import { getPingResourceModel } from "@/models/resource-db/PingResource";
 import { Resource } from "@/models/Resource";
+import { getPingResourceModel } from "@/models/resource-db/PingResource";
 
 async function mergeLivePingState<T extends { _id: any; agentService: any }>(
   r: T,

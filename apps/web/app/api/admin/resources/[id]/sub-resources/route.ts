@@ -2,7 +2,10 @@ import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/require-admin";
 import { getUptimeData } from "@/lib/resource-agent";
-import { parseSubResourceCheck, serializeSubResource } from "@/lib/sub-resource-payload";
+import {
+  parseSubResourceCheck,
+  serializeSubResource,
+} from "@/lib/sub-resource-payload";
 import { getSubResourceModel } from "@/models/resource-db/SubResource";
 
 export async function GET(

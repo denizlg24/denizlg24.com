@@ -58,13 +58,17 @@ function computeMatches(
     } catch {
       return [];
     }
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(content)) !== null) {
+    let match: RegExpExecArray | null = re.exec(content);
+    while (match !== null) {
       if (match[0].length === 0) {
         re.lastIndex++;
-        continue;
+      } else {
+        matches.push({
+          start: match.index,
+          end: match.index + match[0].length,
+        });
       }
-      matches.push({ start: match.index, end: match.index + match[0].length });
+      match = re.exec(content);
     }
   } else {
     const searchIn = caseSensitive ? content : content.toLowerCase();

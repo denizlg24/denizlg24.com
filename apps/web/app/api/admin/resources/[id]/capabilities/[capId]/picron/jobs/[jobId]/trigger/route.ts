@@ -23,7 +23,7 @@ export async function POST(
       );
 
     const cap = resource.capabilities.id(capId);
-    if (!cap || cap.type !== "picron")
+    if (cap?.type !== "picron")
       return NextResponse.json(
         { error: "PiCron capability not found" },
         { status: 400 },

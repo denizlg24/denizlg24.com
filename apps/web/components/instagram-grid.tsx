@@ -1,9 +1,9 @@
 "use client";
 
-import { FaInstagram } from "react-icons/fa6";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { FaInstagram } from "react-icons/fa6";
 import type { InstagramPost } from "@/lib/instagram_posts";
 import { cn } from "@/lib/utils";
 

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  build:
+    name: Build, typecheck, test, lint
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    # To use Turborepo Remote Caching, uncomment:
+    # env:
+    #   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+    #   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bunx turbo build
+
+      - name: Typecheck
+        run: bunx turbo typecheck
+
+      - name: Test
+        run: bunx turbo test
+
+      - name: Lint (Biome)
+        run: bun run format-and-lint

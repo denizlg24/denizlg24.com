@@ -10,9 +10,9 @@ import mongoose from "mongoose";
 import { connectDB } from "@/lib/mongodb";
 import { connectResourceDB } from "@/lib/mongodb-resource";
 import { HealthCheckLog as MainHealthCheckLog } from "@/models/HealthCheckLog";
+import { Resource } from "@/models/Resource";
 import { getHealthCheckLogModel } from "@/models/resource-db/HealthCheckLog";
 import { getPingResourceModel } from "@/models/resource-db/PingResource";
-import { Resource } from "@/models/Resource";
 
 async function migrateResources() {
   console.log("→ Mirroring Resources to PingResource…");
@@ -52,7 +52,7 @@ async function migrateLogs() {
   const BATCH = 1000;
   let copied = 0;
   let skipped = 0;
-  let cursor = MainHealthCheckLog.find().lean().cursor();
+  const cursor = MainHealthCheckLog.find().lean().cursor();
 
   let batch: any[] = [];
   for await (const doc of cursor) {

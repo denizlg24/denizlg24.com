@@ -1,10 +1,10 @@
 export const revalidate = 604800; // Revalidate every 30 days
 
 import { FileDown, Loader2Icon, Mail, MoveRight } from "lucide-react";
-import { FaGithub, FaInstagram, FaLinkedin } from "react-icons/fa6";
 import type { Metadata } from "next";
 import Image from "next/image";
 import { Suspense } from "react";
+import { FaGithub, FaInstagram, FaLinkedin } from "react-icons/fa6";
 import CurrentAge from "@/components/current-age";
 import { FadeInImage } from "@/components/fade-in-image";
 import { FeaturedProjectsSection } from "@/components/featured-projects-section";

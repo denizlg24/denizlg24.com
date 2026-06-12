@@ -1,4 +1,5 @@
-import mongoose, { Schema } from "mongoose";
+import type mongoose from "mongoose";
+import { Schema } from "mongoose";
 import { connectResourceDB } from "@/lib/mongodb-resource";
 
 export interface IPingAgentMetrics {

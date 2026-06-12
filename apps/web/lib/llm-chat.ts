@@ -260,10 +260,7 @@ export function createAgenticSSEStream({
             }
           }
 
-          if (
-            stillPendingClient.length > 0 ||
-            stillPendingWrite.length > 0
-          ) {
+          if (stillPendingClient.length > 0 || stillPendingWrite.length > 0) {
             for (const tu of stillPendingClient) {
               send({
                 type: "tool_call",
@@ -295,8 +292,7 @@ export function createAgenticSSEStream({
             await safePersist(workingMessages);
             send({
               type: "paused",
-              reason:
-                stillPendingWrite.length > 0 ? "approval" : "client_tool",
+              reason: stillPendingWrite.length > 0 ? "approval" : "client_tool",
             });
             controller.close();
             flushUsageLog({ final: false });

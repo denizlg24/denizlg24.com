@@ -120,7 +120,7 @@ export default function Page() {
     if (!API || !deleteTarget) return;
     setIsSubmitting(true);
     try {
-      const result = await API.DELETE<{}>({
+      const result = await API.DELETE<{ success: true }>({
         endpoint: `whiteboard/${deleteTarget._id}`,
       });
       if ("code" in result) {

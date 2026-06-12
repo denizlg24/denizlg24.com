@@ -36,7 +36,12 @@ async function main() {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const perDay = await HealthCheckLog.aggregate([
-      { $match: { resourceId: pings[0]._id, checkedAt: { $gte: thirtyDaysAgo } } },
+      {
+        $match: {
+          resourceId: pings[0]._id,
+          checkedAt: { $gte: thirtyDaysAgo },
+        },
+      },
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$checkedAt" } },

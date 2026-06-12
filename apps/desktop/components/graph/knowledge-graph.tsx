@@ -216,9 +216,7 @@ export function KnowledgeGraph<TItem, TGroup>({
               ? `${theme.mutedForeground}44`
               : `${theme.mutedForeground}22`
           }
-          linkWidth={(link) =>
-            link.type === "membership" ? 0.5 : 0.3
-          }
+          linkWidth={(link) => (link.type === "membership" ? 0.5 : 0.3)}
           cooldownTicks={180}
           onNodeHover={(node) => {
             setHoveredId(node ? node.id : null);

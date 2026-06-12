@@ -12,9 +12,7 @@ declare global {
 const MONGO_RESOURCE_URI = process.env.MONGO_RESOURCE_URI;
 
 if (!MONGO_RESOURCE_URI) {
-  throw new Error(
-    "Please define the MONGO_RESOURCE_URI environment variable",
-  );
+  throw new Error("Please define the MONGO_RESOURCE_URI environment variable");
 }
 
 let cached = global.resourceMongooseCache;

@@ -308,7 +308,7 @@ export default function KanbanPage() {
     if (!API || !deleteTarget) return;
     setIsSubmitting(true);
     try {
-      const result = await API.DELETE<{}>({
+      const result = await API.DELETE<{ success: true }>({
         endpoint: `kanban/boards/${deleteTarget._id}`,
       });
       if ("code" in result) {

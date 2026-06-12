@@ -19,6 +19,8 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import Image from "next/image";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FaGithub,
   FaInstagram,
@@ -26,8 +28,6 @@ import {
   FaTwitter,
   FaYoutube,
 } from "react-icons/fa6";
-import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GroupTreeCombobox } from "@/app/dashboard/notes/_components/group-tree-combobox";
 import { NoteEditor } from "@/app/dashboard/notes/_components/note-editor";
@@ -884,6 +884,7 @@ function ContactIconBar({
       {items.map((item) => {
         const Icon = item.icon;
         const content = (
+          // biome-ignore lint/correctness/useJsxKeyInIterable: rendered inside the keyed <a>/<span> below
           <span
             className="inline-flex size-7 items-center justify-center rounded-full border text-muted-foreground hover:border-foreground hover:text-foreground"
             title={item.title}

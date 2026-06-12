@@ -140,7 +140,7 @@ export async function fetchEmailBody(
       { source: true, uid: true, envelope: true },
       { uid: true },
     );
-    if (!msg || !msg.source) return null;
+    if (msg === false || !msg.source) return null;
 
     const parsed = await simpleParser(msg.source);
     return {

@@ -1,7 +1,7 @@
 import { Clock, RefreshCw, Trash2 } from "lucide-react";
-import { FaInstagram } from "react-icons/fa6";
 import Link from "next/link";
 import { forbidden } from "next/navigation";
+import { FaInstagram } from "react-icons/fa6";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

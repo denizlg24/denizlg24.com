@@ -1,9 +1,9 @@
 "use client";
 import { Mail } from "lucide-react";
-import { FaGithub, FaInstagram, FaLinkedin } from "react-icons/fa6";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
+import { FaGithub, FaInstagram, FaLinkedin } from "react-icons/fa6";
 import CurrentYear from "./current-year";
 
 export const Footer = () => {

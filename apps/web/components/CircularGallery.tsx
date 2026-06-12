@@ -705,7 +705,7 @@ class App {
   }
 
   onCheck() {
-    if (!this.medias || !this.medias[0]) return;
+    if (!this.medias?.[0]) return;
     const width = this.medias[0].width;
     const itemIndex = Math.round(Math.abs(this.scroll.target) / width);
     const item = width * itemIndex;

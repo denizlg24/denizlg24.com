@@ -1,6 +1,6 @@
 import type { Types } from "mongoose";
-import { getPingResourceModel } from "@/models/resource-db/PingResource";
 import type { IAgentService, IResource } from "@/models/Resource";
+import { getPingResourceModel } from "@/models/resource-db/PingResource";
 
 interface SyncableResource {
   _id: Types.ObjectId | string;

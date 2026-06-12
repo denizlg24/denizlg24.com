@@ -4,8 +4,8 @@ import {
   type TimetableColor,
 } from "@/lib/timetable-constants";
 
-export { TIMETABLE_COLORS, type TimetableColor };
 export type { ILeanTimetableEntry } from "@/lib/timetable-constants";
+export { TIMETABLE_COLORS, type TimetableColor };
 
 export interface ITimetableEntry {
   _id: unknown;

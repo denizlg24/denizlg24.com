@@ -22,7 +22,7 @@ export const ApiKeyInput = () => {
           setSettings({ apiKey: input });
           router.push("/dashboard");
         }}
-        disabled={!input || !input.startsWith("dlg24_") || loading}
+        disabled={!input?.startsWith("dlg24_") || loading}
         className="w-full max-w-3xl"
       >
         {loading ? "Loading..." : "Get Started"} <MoveRight />
