@@ -6,6 +6,10 @@ import { toast } from "sonner";
 import { MarkdownRenderer } from "@/components/markdown/markdown-renderer";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  HeaderBarSkeleton,
+  TabStripSkeleton,
+} from "@/components/ui/skeleton-blocks";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useUserSettings } from "@/context/user-context";
@@ -34,15 +38,15 @@ function formatLastUpdated(dateStr: string): string {
 
 function NowPageLoadingSkeleton() {
   return (
-    <div className="flex flex-col gap-2 pb-8">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Clock className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Now Page</span>
-      </div>
-      <div className="px-4 flex flex-col gap-4 pt-3">
-        <Skeleton className="h-3 w-32" />
-        <Skeleton className="h-9 w-48 rounded-lg" />
-        <Skeleton className="h-[300px] w-full rounded-md" />
+    <div className="flex h-full flex-col gap-2">
+      <HeaderBarSkeleton
+        icon={<Clock className="size-4 text-muted-foreground" />}
+        title="Now Page"
+        actions={["w-24", "w-20", "w-16"]}
+      />
+      <div className="px-4 flex min-h-0 flex-1 flex-col gap-4 pt-3 pb-4">
+        <TabStripSkeleton widths={["w-12", "w-16"]} />
+        <Skeleton className="w-full flex-1 rounded-md" />
       </div>
     </div>
   );

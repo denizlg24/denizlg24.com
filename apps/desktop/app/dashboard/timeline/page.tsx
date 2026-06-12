@@ -55,7 +55,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  ListRowsSkeleton,
+  StatStripSkeleton,
+  TabStripSkeleton,
+} from "@/components/ui/skeleton-blocks";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
@@ -96,29 +100,14 @@ function TimelineLoadingSkeleton() {
         <span className="text-sm font-semibold flex-1">Timeline</span>
       </div>
       <div className="px-4 flex flex-col gap-6 pt-3">
-        <div className="flex items-baseline gap-8">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex flex-col gap-1">
-              <Skeleton className="h-3 w-14" />
-              <Skeleton className="h-6 w-8" />
-            </div>
-          ))}
-        </div>
-        <Skeleton className="h-9 w-80 rounded-lg" />
-        <div className="flex flex-col gap-1">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex items-center gap-3 py-3 border-b">
-              <Skeleton className="h-4 w-4" />
-              <Skeleton className="size-10 rounded" />
-              <div className="flex-1 flex flex-col gap-1">
-                <Skeleton className="h-4 w-36" />
-                <Skeleton className="h-3 w-48" />
-              </div>
-              <Skeleton className="h-5 w-20 rounded-full" />
-              <Skeleton className="h-6 w-6 rounded" />
-            </div>
-          ))}
-        </div>
+        <StatStripSkeleton count={4} />
+        <TabStripSkeleton widths={["w-10", "w-14", "w-20", "w-16"]} />
+        <ListRowsSkeleton
+          rows={4}
+          rowHeight="h-[81px]"
+          avatar="size-11"
+          lines={3}
+        />
       </div>
     </div>
   );
