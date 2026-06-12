@@ -41,6 +41,7 @@ These are settled — executors and future advisors do not re-litigate:
 | 004 | Shared zod schema package (`@repo/schemas` + `@repo/utils`) | P1 | L | 003 | DONE (2026-06-11: all gates green; zero desktop call sites broken by shim; sourceRepository drift fix includes `url` field the plan excerpt omitted; package tsconfigs need `module: Preserve`/`moduleResolution: Bundler` + explicit `types: ["bun"]` under TS 6; blog-update-schema.test.ts import also relocated) |
 | 005 | Spike: responsive admin design + shared UI direction | P2 | M | 003 (004 ideally) | DONE (2026-06-12: doc + contacts prototype verified at 375/768/1280 via puppeteer + Tauri-IPC mock; key drift: NavigationMenu sidebar is dead code — nav is ⌘K-only; 1 additive out-of-scope edit to paginated-data-table.tsx (meta.className, within STOP threshold); follow-ups 007–012 proposed in doc) |
 | 006 | GitHub Actions CI + Dependabot + lockfile auto-repair | P2 | S | 003 | DONE (2026-06-12: 3 files under `.github/`; initially BLOCKED on pre-existing Biome failures (CRLF from `core.autocrlf=true` + real lint errors), operator authorized fixing — `.gitattributes` `eol=lf`, biome migrate 2.4.16 + `tailwindDirectives`, 181-file format pass, optional-chain/banned-type/a11y fixes; full chain green) |
+| 007 | Desktop UX fixes + responsive admin implementation (umbrella; phases F1–F7 fixes, R1–R6 = doc's proposed 007–012) | P2 | XL | 005 (006 for CI gates) | TODO (phase statuses tracked inside the plan file) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (reason) | REJECTED (rationale)
 
@@ -55,6 +56,9 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (reason) | REJECTED (rational
   coverage.
 - 005's deliverable is a design doc that spawns follow-up plans (007+),
   including the future `packages/ui`.
+- The doc's proposed plans 007–012 were folded into plan 007 as phases
+  R1–R6 (2026-06-12, maintainer-requested umbrella plan with bug fixes) —
+  do not create separate 008–012 files for those items.
 
 ## Audit findings not planned (backlog)
 
