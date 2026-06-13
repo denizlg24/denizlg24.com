@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - "apps/desktop/src-tauri/tauri.conf.json"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -32,7 +33,16 @@ jobs:
         shell: bash
         run: |
           current_version="$(jq -r '.version' apps/desktop/src-tauri/tauri.conf.json)"
-          previous_version="$(git show "${{ github.event.before }}:apps/desktop/src-tauri/tauri.conf.json" | jq -r '.version')"
+
+          # Manual runs always release the current version; no diff to compare.
+          if [[ "${{ github.event_name }}" != "push" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "tag=v$current_version" >> "$GITHUB_OUTPUT"
+            echo "version=$current_version" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          previous_version="$(git show "${{ github.event.before }}:apps/desktop/src-tauri/tauri.conf.json" 2>/dev/null | jq -r '.version' 2>/dev/null || true)"
 
           if [[ "$current_version" == "$previous_version" ]]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -129,11 +139,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           projectPath: apps/desktop
+          tauriScript: bunx tauri
           tagName: ${{ needs.prepare.outputs.tag }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
-          releaseAssetNamePattern: "[name]_[version]_[platform]_[arch][setup][ext]"
+          assetNamePattern: "[name]_[version]_[platform]_[arch][setup][ext]"
 
   publish:
     name: Publish release
