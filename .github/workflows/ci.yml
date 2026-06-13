@@ -11,8 +11,33 @@ jobs:
     name: Build, typecheck, test, lint
     timeout-minutes: 15
     runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:8
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    # CI uses disposable local services and placeholders. Production secrets
+    # are intentionally not exposed to builds or pull requests.
+    env:
+      ADMIN_SECRET: "ci-admin-secret"
+      ANTHROPIC_API_KEY: "ci-anthropic-key"
+      BETTER_AUTH_SECRET: "ci-better-auth-secret-at-least-32-characters"
+      BETTER_AUTH_URL: "http://localhost:3000"
+      GITHUB_TOKEN: ${{ github.token }}
+      IMAP_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      MONGO_RESOURCE_URI: "mongodb://127.0.0.1:27017/denizlg24_ci_resources"
+      MONGODB_URI: "mongodb://127.0.0.1:27017/denizlg24_ci"
+      NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+      NEXT_PUBLIC_DESKTOP_API_BASE_URL: "http://localhost:3000/api/admin"
+      NEXT_PUBLIC_SITE_URL: "http://localhost:3000"
+      RESEND_API_KEY: "re_ci_placeholder"
+      REVALIDATE_SECRET: "ci-revalidate-secret"
     # To use Turborepo Remote Caching, uncomment:
-    # env:
     #   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
     #   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     steps:
