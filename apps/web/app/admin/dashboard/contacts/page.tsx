@@ -1,5 +1,7 @@
+import { Contact } from "lucide-react";
 import type { Metadata } from "next";
 import { getAllContacts, getContactCountByStatus } from "@/lib/contacts";
+import { AdminPageHeader } from "../_components/admin-page-header";
 import { ContactsWrapper } from "./contacts-wrapper";
 
 export const metadata: Metadata = {
@@ -14,14 +16,11 @@ export default async function ContactsPage() {
   ]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold">Contact Submissions</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">
-          View and manage contact form submissions
-        </p>
-      </div>
-
+    <div className="flex flex-col gap-3">
+      <AdminPageHeader
+        icon={<Contact className="size-4 text-muted-foreground" />}
+        title="Contact Submissions"
+      />
       <ContactsWrapper
         initialContacts={contacts.map((contact) => ({
           ...contact,

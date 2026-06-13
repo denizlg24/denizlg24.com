@@ -1,6 +1,6 @@
+import { Button } from "@repo/ui/button";
 import { Inbox } from "lucide-react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 
 export default function InboxLoading() {
   return (

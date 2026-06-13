@@ -1,3 +1,4 @@
+import { Button } from "@repo/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -9,10 +10,10 @@ import {
 import { format } from "date-fns";
 import { Plus, RefreshCw, Settings, Trash } from "lucide-react";
 import { forbidden } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { connectDB } from "@/lib/mongodb";
 import { getAdminSession } from "@/lib/require-admin";
 import ApiKey from "@/models/ApiKey";
+import { AdminPageHeader } from "../_components/admin-page-header";
 import { CreateKeyDialog } from "./_components/create-key-dialog";
 import { DeleteKeyDialog } from "./_components/delete-key-dialog";
 import { EditKeyDialog } from "./_components/edit-key-dialog";
@@ -29,8 +30,11 @@ export default async function Page() {
 
   if (!tokens || tokens.length === 0) {
     return (
-      <div className="w-full flex flex-col gap-6">
-        <h1 className="text-2xl sm:text-3xl font-bold">Api Keys</h1>
+      <div className="w-full flex flex-col gap-3">
+        <AdminPageHeader
+          icon={<Settings className="size-4 text-muted-foreground" />}
+          title="API Keys"
+        />
         <div>
           <Empty>
             <EmptyHeader>
@@ -56,15 +60,17 @@ export default async function Page() {
   }
 
   return (
-    <div className="w-full flex flex-col gap-6">
-      <div className="w-full flex flex-row items-center justify-between">
-        <h1 className="text-2xl sm:text-3xl font-bold">API Keys</h1>
+    <div className="w-full flex flex-col gap-3">
+      <AdminPageHeader
+        icon={<Settings className="size-4 text-muted-foreground" />}
+        title="API Keys"
+      >
         <CreateKeyDialog>
           <Button variant="outline" size="icon-sm">
             <Plus />
           </Button>
         </CreateKeyDialog>
-      </div>
+      </AdminPageHeader>
 
       <div className="w-full flex flex-col gap-2">
         {tokens.map((token) => (

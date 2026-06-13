@@ -1,8 +1,9 @@
-import { ArrowLeft } from "lucide-react";
+import { Button } from "@repo/ui/button";
+import { ArrowLeft, FolderGit2 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { getAdminSession } from "@/lib/require-admin";
+import { AdminPageHeader } from "../../_components/admin-page-header";
 import { ProjectForm } from "../_components/project-form";
 
 export default async function NewProjectPage() {
@@ -13,24 +14,20 @@ export default async function NewProjectPage() {
   }
 
   return (
-    <>
-      <div className="flex flex-col items-start gap-1">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/admin/dashboard/projects">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold mb-2">
-            Create Project
-          </h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
-            Add a new project to display on your homepage.
-          </p>
-        </div>
-      </div>
+    <div className="flex flex-col gap-3">
+      <AdminPageHeader
+        icon={<FolderGit2 className="size-4 text-muted-foreground" />}
+        title="Create Project"
+        leading={
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/admin/dashboard/projects">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Link>
+          </Button>
+        }
+      />
       <ProjectForm mode="create" />
-    </>
+    </div>
   );
 }

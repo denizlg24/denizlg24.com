@@ -1,9 +1,10 @@
-import { ArrowLeft } from "lucide-react";
+import { Button } from "@repo/ui/button";
+import { ArrowLeft, Notebook } from "lucide-react";
 import Link from "next/link";
 import { forbidden, notFound } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { getBlogById } from "@/lib/blog";
 import { getAdminSession } from "@/lib/require-admin";
+import { AdminPageHeader } from "../../_components/admin-page-header";
 import { BlogForm } from "../_components/blog-form";
 
 export default async function EditBlogPage({
@@ -25,16 +26,18 @@ export default async function EditBlogPage({
   }
 
   return (
-    <div className="w-full flex flex-col gap-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/admin/dashboard/blogs">
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
-        </Button>
-        <h1 className="text-2xl sm:text-3xl font-bold">Edit Blog Post</h1>
-      </div>
-
+    <div className="w-full flex flex-col gap-3">
+      <AdminPageHeader
+        icon={<Notebook className="size-4 text-muted-foreground" />}
+        title="Edit Blog Post"
+        leading={
+          <Button variant="ghost" size="icon" asChild>
+            <Link href="/admin/dashboard/blogs">
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+          </Button>
+        }
+      />
       <BlogForm mode="edit" blog={blog} />
     </div>
   );

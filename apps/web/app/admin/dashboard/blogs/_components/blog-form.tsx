@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
 import { Field, FieldError, FieldLabel } from "@repo/ui/field";
 import { Input } from "@repo/ui/input";
@@ -22,7 +23,6 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as z from "zod";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
-import { Button } from "@/components/ui/button";
 import type { ILeanBlog } from "@/models/Blog";
 
 const blogSchema = z.object({

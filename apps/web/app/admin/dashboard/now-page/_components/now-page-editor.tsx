@@ -1,22 +1,23 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Field, FieldError, FieldLabel } from "@repo/ui/field";
-import { Textarea } from "@repo/ui/textarea";
-import { Eye, PenLine } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import * as z from "zod";
-import { MarkdownRenderer } from "@/components/markdown-renderer";
-import { Button } from "@/components/ui/button";
+import { Button } from "@repo/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@repo/ui/dialog";
+import { Field, FieldError, FieldLabel } from "@repo/ui/field";
+import { Textarea } from "@repo/ui/textarea";
+import { Clock, Eye, PenLine } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import * as z from "zod";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { AdminPageHeader } from "../../_components/admin-page-header";
 
 const nowPageSchema = z.object({
   content: z.string().min(1, "Content is required"),
@@ -81,35 +82,14 @@ export function NowPageEditor({
 
   return (
     <>
-      <div className="flex sm:flex-row flex-col sm:items-center items-start gap-2 justify-between w-full">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold mb-2">
-            Now Page Management
-          </h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
-            Edit the markdown content displayed on your /now page.
-            {lastUpdated && (
-              <>
-                {" "}
-                Last updated:{" "}
-                <span className="font-medium text-foreground">
-                  {new Date(lastUpdated).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              </>
-            )}
-          </p>
-        </div>
-      </div>
+      <AdminPageHeader
+        icon={<Clock className="size-4 text-muted-foreground" />}
+        title="Now Page"
+      />
 
       <form
         onSubmit={handleSubmit(onSubmit)}
-        className="w-full flex flex-col gap-6"
+        className="w-full flex flex-col gap-3 pt-3"
       >
         <Field data-invalid={!!errors.content}>
           <FieldLabel

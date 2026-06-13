@@ -1,4 +1,5 @@
 import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -11,9 +12,9 @@ import { Clock, RefreshCw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { forbidden } from "next/navigation";
 import { FaInstagram } from "react-icons/fa6";
-import { Button } from "@/components/ui/button";
 import { getInstagramToken } from "@/lib/instagram-token";
 import { getAdminSession } from "@/lib/require-admin";
+import { AdminPageHeader } from "../_components/admin-page-header";
 
 const generateInstagramAuthUrl = () => {
   const appId = process.env.INSTAGRAM_APP_ID;
@@ -39,8 +40,11 @@ export default async function TimelinePage() {
 
   if (!token) {
     return (
-      <div className="w-full flex flex-col gap-6">
-        <h1 className="text-2xl sm:text-3xl font-bold">Instagram Tokens</h1>
+      <div className="w-full flex flex-col gap-3">
+        <AdminPageHeader
+          icon={<FaInstagram className="size-4 text-muted-foreground" />}
+          title="Instagram Tokens"
+        />
         <div>
           <Empty>
             <EmptyHeader>
@@ -75,10 +79,12 @@ export default async function TimelinePage() {
   const isExpiringSoon = daysUntilExpiry <= 7 && daysUntilExpiry >= 0;
 
   return (
-    <div className="w-full flex flex-col gap-6">
-      <h1 className="text-2xl sm:text-3xl font-bold">Instagram Tokens</h1>
-
-      <div className="flex items-center gap-4 p-4 border rounded-lg bg-card">
+    <div className="w-full flex flex-col gap-3">
+      <AdminPageHeader
+        icon={<FaInstagram className="size-4 text-muted-foreground" />}
+        title="Instagram Tokens"
+      />
+      <div className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center">
         <div className="flex-1 min-w-0">
           <p className="text-xs sm:text-sm text-muted-foreground mb-1">
             Token ID

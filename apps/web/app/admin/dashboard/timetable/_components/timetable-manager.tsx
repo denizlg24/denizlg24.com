@@ -1,6 +1,16 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@repo/ui/dialog";
+import {
+  CalendarDays,
   Clock,
   ExternalLink,
   MapPin,
@@ -9,16 +19,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import type { ILeanTimetableEntry } from "@/lib/timetable-constants";
+import { AdminPageHeader } from "../../_components/admin-page-header";
 import { TimetableForm, type TimetableFormValues } from "./timetable-form";
 import { TimetableGrid } from "./timetable-grid";
 
@@ -117,18 +119,15 @@ export function TimetableManager({ initialEntries }: TimetableManagerProps) {
 
   return (
     <>
-      <div className="flex sm:flex-row flex-col sm:items-center items-start gap-2 justify-between w-full">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold mb-2">Timetable</h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
-            Manage your weekly recurring schedule.
-          </p>
-        </div>
+      <AdminPageHeader
+        icon={<CalendarDays className="size-4 text-muted-foreground" />}
+        title="Timetable"
+      >
         <Button onClick={() => setFormOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
           Add Entry
         </Button>
-      </div>
+      </AdminPageHeader>
 
       <TimetableGrid
         entries={entries}

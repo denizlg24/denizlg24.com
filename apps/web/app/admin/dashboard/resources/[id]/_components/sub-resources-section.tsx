@@ -1,13 +1,5 @@
 "use client";
 
-import { Badge } from "@repo/ui/badge";
-import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { Skeleton } from "@repo/ui/skeleton";
-import { Switch } from "@repo/ui/switch";
-import { Globe, Network, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,22 +9,30 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+} from "@repo/ui/alert-dialog";
+import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@repo/ui/dialog";
+import { Input } from "@repo/ui/input";
+import { Label } from "@repo/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@repo/ui/select";
+import { Skeleton } from "@repo/ui/skeleton";
+import { Switch } from "@repo/ui/switch";
+import { Globe, Network, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import type { ResourceUptimeData } from "@/lib/resource-agent";
 import type { SubResourceCheck } from "@/models/resource-db/SubResource";
 import { UptimeBar } from "../../_components/uptime-bar";

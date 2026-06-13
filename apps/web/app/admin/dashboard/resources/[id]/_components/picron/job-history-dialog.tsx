@@ -1,17 +1,17 @@
 "use client";
 
 import { Badge } from "@repo/ui/badge";
-import { formatDistanceToNow } from "date-fns";
-import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@repo/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@repo/ui/dialog";
+import { formatDistanceToNow } from "date-fns";
+import { Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { PiCronHistoryEntry } from "@/lib/picron";
 
 interface JobHistoryDialogProps {

@@ -1,11 +1,12 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import { Label } from "@repo/ui/label";
-import { Eye, EyeOff, Plus } from "lucide-react";
+import { Eye, EyeOff, Notebook, Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
 import type { ILeanBlog } from "@/models/Blog";
+import { AdminPageHeader } from "../../_components/admin-page-header";
 import { BlogList } from "./blog-list";
 
 interface BlogManagerProps {
@@ -44,15 +45,10 @@ export function BlogManager({ initialBlogs }: BlogManagerProps) {
 
   return (
     <>
-      <div className="flex sm:flex-row flex-col sm:items-center items-start gap-2 justify-between w-full">
-        <div className="">
-          <h1 className="text-2xl sm:text-3xl font-bold mb-2">
-            Blogs Management
-          </h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
-            Create and manage your blog posts.
-          </p>
-        </div>
+      <AdminPageHeader
+        icon={<Notebook className="size-4 text-muted-foreground" />}
+        title="Blogs"
+      >
         <div className="flex gap-2 sm:w-fit w-full">
           <Button asChild>
             <Link href="/admin/dashboard/blogs/new">
@@ -61,9 +57,9 @@ export function BlogManager({ initialBlogs }: BlogManagerProps) {
             </Link>
           </Button>
         </div>
-      </div>
+      </AdminPageHeader>
 
-      <div className="space-y-2 mt-4">
+      <div className="space-y-2 pt-3">
         <div className="flex items-center gap-2 justify-end">
           <Label className="text-sm">Toggle Hidden:</Label>
           <Button

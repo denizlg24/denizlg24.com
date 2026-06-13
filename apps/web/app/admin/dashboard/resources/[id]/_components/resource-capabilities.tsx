@@ -1,8 +1,8 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import { Plus } from "lucide-react";
 import { useCallback, useState } from "react";
-import { Button } from "@/components/ui/button";
 import type { ILeanCapability } from "@/models/Resource";
 import { AddCapabilityDialog } from "./add-capability-dialog";
 import { CapabilitySection } from "./capability-section";

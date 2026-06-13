@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,7 +9,6 @@ import {
 } from "@repo/ui/dropdown-menu";
 import { Check, Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import type { IAuthenticatorAccount, IAuthenticatorCode } from "../types";
 import { CountdownRing } from "./countdown-ring";
 

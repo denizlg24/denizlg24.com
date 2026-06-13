@@ -1,7 +1,15 @@
 "use client";
 
 import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
 import { Card } from "@repo/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from "@repo/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,14 +31,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import type { DailyUptimeEntry } from "@/lib/resource-agent";
 import { CreateResourceDialog } from "./create-resource-dialog";
 import type { LeanResource } from "./resources-manager";

@@ -1,11 +1,12 @@
 import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
 import { Card } from "@repo/ui/card";
 import { ArrowLeft, Clock, Mail, MapPin, User } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { getContactByTicketId } from "@/lib/contacts";
+import { AdminPageHeader } from "../../_components/admin-page-header";
 import { DeleteContactButton } from "./delete-contact-button";
 import { MarkAsRead } from "./mark-as-read";
 
@@ -28,25 +29,20 @@ export default async function ContactDetailsPage({
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-3">
       <MarkAsRead ticketId={contact.ticketId} currentStatus={contact.status} />
-      <div className="flex flex-col items-start gap-1">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/admin/dashboard/contacts">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back
-          </Link>
-        </Button>
-
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold mb-2">
-            Contact details
-          </h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
-            Ticket #{contact.ticketId}
-          </p>
-        </div>
-      </div>
+      <AdminPageHeader
+        icon={<User className="size-4 text-muted-foreground" />}
+        title={`Contact #${contact.ticketId}`}
+        leading={
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/admin/dashboard/contacts">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Link>
+          </Button>
+        }
+      />
 
       <div className="grid md:grid-cols-3 gap-6">
         <Card className="md:col-span-2 border-0 shadow-none gap-4">

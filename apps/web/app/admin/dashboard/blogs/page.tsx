@@ -1,3 +1,4 @@
+import { Button } from "@repo/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -9,9 +10,9 @@ import {
 import { Notebook, Plus } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { getAllBlogs } from "@/lib/blog";
 import { getAdminSession } from "@/lib/require-admin";
+import { AdminPageHeader } from "../_components/admin-page-header";
 import { BlogManager } from "./_components/blog-manager";
 
 export default async function BlogsPage() {
@@ -24,8 +25,11 @@ export default async function BlogsPage() {
   const blogs = await getAllBlogs();
   if (!blogs || blogs.length === 0) {
     return (
-      <div className="w-full flex flex-col gap-6">
-        <h1 className="text-2xl sm:text-3xl font-bold">Blogs</h1>
+      <div className="w-full flex flex-col gap-3">
+        <AdminPageHeader
+          icon={<Notebook className="size-4 text-muted-foreground" />}
+          title="Blogs"
+        />
         <div>
           <Empty>
             <EmptyHeader className="max-w-lg!">

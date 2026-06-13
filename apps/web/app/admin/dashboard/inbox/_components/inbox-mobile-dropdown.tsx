@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,7 +12,6 @@ import {
 import { ChevronDown, Inbox, Mail } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Button } from "@/components/ui/button";
 
 interface EmailAccount {
   _id: string;

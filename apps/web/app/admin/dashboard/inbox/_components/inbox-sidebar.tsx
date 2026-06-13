@@ -1,10 +1,10 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import { Inbox, Mail } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import useSWR from "swr";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 interface EmailAccount {

@@ -1,21 +1,21 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
+import { DialogClose, DialogFooter } from "@repo/ui/dialog";
 import { Field, FieldError, FieldLabel } from "@repo/ui/field";
 import { Input } from "@repo/ui/input";
-import { Plus, Trash2 } from "lucide-react";
-import { Controller, useForm } from "react-hook-form";
-import * as z from "zod";
-import { Button } from "@/components/ui/button";
-import { DialogClose, DialogFooter } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@repo/ui/select";
+import { Plus, Trash2 } from "lucide-react";
+import { Controller, useForm } from "react-hook-form";
+import * as z from "zod";
 import { TIMETABLE_COLORS } from "@/lib/timetable-constants";
 
 const COLOR_LABELS: Record<string, { label: string; hex: string }> = {

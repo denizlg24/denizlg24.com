@@ -1,7 +1,9 @@
 "use client";
 
 import { Skeleton } from "@repo/ui/skeleton";
+import { CalendarDays } from "lucide-react";
 import { Suspense } from "react";
+import { AdminPageHeader } from "../_components/admin-page-header";
 import { AddEventDialog } from "./_components/add-event-dialog";
 import { Calendar } from "./_components/calendar";
 import { CalendarProvider, useCalendar } from "./_components/calendar-context";
@@ -16,16 +18,11 @@ function AddEventDialogWithContext() {
 export default function CalendarPage() {
   return (
     <CalendarProvider>
-      <div className="flex flex-col gap-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold">Calendar Events</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
-              View and manage calendar events
-            </p>
-          </div>
-        </div>
-
+      <div className="flex flex-col gap-3">
+        <AdminPageHeader
+          icon={<CalendarDays className="size-4 text-muted-foreground" />}
+          title="Calendar Events"
+        />
         <Calendar />
         <AddEventDialogWithContext />
         <div className="p-3 rounded-lg border shadow-xs w-full space-y-4">

@@ -1,14 +1,14 @@
 "use client";
 
-import { Check, Clock, MessageSquare, Trash2 } from "lucide-react";
-import { useState } from "react";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@repo/ui/select";
+import { Check, Clock, MessageSquare, Trash2 } from "lucide-react";
+import { useState } from "react";
 import type { CommentWithBlogTitle } from "@/lib/comments";
 import { CommentsTable } from "./comments-table";
 

@@ -1,4 +1,6 @@
 import { Kbd, KbdGroup } from "@repo/ui/kbd";
+import { PageHeader } from "@repo/ui/page-header";
+import { LayoutDashboard } from "lucide-react";
 import type { Metadata } from "next";
 import { forbidden } from "next/navigation";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -29,16 +31,19 @@ export default async function RootLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      <main className="w-full flex flex-col items-center overflow-hidden -mt-22">
-        <section className="w-full px-4 mx-auto overflow-hidden">
-          <div className="w-full flex flex-row items-center text-xs text-muted-foreground gap-2 pb-4 mb-4 border-b border-b-foreground">
-            <SidebarTrigger />
-            <KbdGroup>
-              <Kbd>Ctrl</Kbd>
-              <span>+</span>
-              <Kbd>B</Kbd>
-            </KbdGroup>
-          </div>
+      <main className="-mt-22 flex min-h-[calc(100dvh-1rem)] min-w-0 w-full flex-col overflow-hidden">
+        <PageHeader
+          icon={<LayoutDashboard className="size-4 text-muted-foreground" />}
+          title="Admin"
+          leading={<SidebarTrigger />}
+        >
+          <KbdGroup className="hidden sm:flex">
+            <Kbd>Ctrl</Kbd>
+            <span>+</span>
+            <Kbd>B</Kbd>
+          </KbdGroup>
+        </PageHeader>
+        <section className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden px-3 pb-6 sm:px-4">
           {children}
         </section>
       </main>

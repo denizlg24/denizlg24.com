@@ -1,11 +1,12 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import { Label } from "@repo/ui/label";
-import { Eye, EyeOff, Plus } from "lucide-react";
+import { Eye, EyeOff, FolderGit2, Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
 import type { ILeanProject } from "@/models/Project";
+import { AdminPageHeader } from "../../_components/admin-page-header";
 import { ProjectList } from "./project-list";
 
 interface ProjectManagerProps {
@@ -80,16 +81,10 @@ export function ProjectManager({ initialProjects }: ProjectManagerProps) {
 
   return (
     <>
-      <div className="flex sm:flex-row flex-col sm:items-center items-start gap-2 justify-between w-full">
-        <div className="">
-          <h1 className="text-2xl sm:text-3xl font-bold mb-2">
-            Projects Management
-          </h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
-            Create and manage your projects displayed on the homepage.
-            {" Drag items to reorder them."}
-          </p>
-        </div>
+      <AdminPageHeader
+        icon={<FolderGit2 className="size-4 text-muted-foreground" />}
+        title="Projects"
+      >
         <div className="flex gap-2 sm:w-fit w-full">
           {hasUnsavedChanges && (
             <Button
@@ -107,9 +102,9 @@ export function ProjectManager({ initialProjects }: ProjectManagerProps) {
             </Link>
           </Button>
         </div>
-      </div>
+      </AdminPageHeader>
 
-      <div className="space-y-6">
+      <div className="space-y-3 pt-3">
         <div className="flex items-center gap-2 justify-end">
           <Label className="text-sm">Toggle Hidden:</Label>
           <Button

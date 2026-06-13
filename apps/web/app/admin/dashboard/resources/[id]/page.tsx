@@ -1,9 +1,10 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Server } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { connectDB } from "@/lib/mongodb";
 import { getAdminSession } from "@/lib/require-admin";
 import { Resource } from "@/models/Resource";
+import { AdminPageHeader } from "../../_components/admin-page-header";
 import { ResourceCapabilities } from "./_components/resource-capabilities";
 import { SubResourcesSection } from "./_components/sub-resources-section";
 
@@ -38,22 +39,20 @@ export default async function ResourceDetailPage({ params }: Props) {
   };
 
   return (
-    <div className="space-y-6 pb-8">
-      <div>
-        <Link
-          href="/admin/dashboard/resources"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Back to Resources
-        </Link>
-        <h1 className="text-2xl sm:text-3xl font-bold">{resource.name}</h1>
-        {resource.description && (
-          <p className="text-sm text-muted-foreground mt-1">
-            {resource.description}
-          </p>
-        )}
-      </div>
+    <div className="space-y-3 pb-8">
+      <AdminPageHeader
+        icon={<Server className="size-4 text-muted-foreground" />}
+        title={resource.name}
+        leading={
+          <Link
+            href="/admin/dashboard/resources"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span className="sr-only">Back to Resources</span>
+          </Link>
+        }
+      />
 
       <ResourceCapabilities resource={resource} />
 

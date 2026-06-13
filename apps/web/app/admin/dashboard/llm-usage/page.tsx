@@ -1,6 +1,7 @@
 import { Brain } from "lucide-react";
 import { forbidden } from "next/navigation";
 import { getAdminSession } from "@/lib/require-admin";
+import { AdminPageHeader } from "../_components/admin-page-header";
 import { LlmUsageDashboard } from "./_components/llm-usage-dashboard";
 
 export default async function Page() {
@@ -12,10 +13,10 @@ export default async function Page() {
 
   return (
     <div className="flex flex-col gap-2 pb-8">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Brain className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Token Usage</span>
-      </div>
+      <AdminPageHeader
+        icon={<Brain className="size-4 text-muted-foreground" />}
+        title="Token Usage"
+      />
       <LlmUsageDashboard />
     </div>
   );

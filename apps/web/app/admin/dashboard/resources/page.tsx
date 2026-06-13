@@ -1,8 +1,10 @@
+import { Server } from "lucide-react";
 import { redirect } from "next/navigation";
 import { connectDB } from "@/lib/mongodb";
 import { getAdminSession } from "@/lib/require-admin";
 import { getUptimeData } from "@/lib/resource-agent";
 import { Resource } from "@/models/Resource";
+import { AdminPageHeader } from "../_components/admin-page-header";
 import {
   type LeanResource,
   ResourcesManager,
@@ -43,14 +45,12 @@ export default async function ResourcesPage() {
   });
 
   return (
-    <>
-      <div className="flex flex-col items-start gap-1 mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold mb-2">Resources</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">
-          Manage your infrastructure, services, and their capabilities.
-        </p>
-      </div>
+    <div className="flex flex-col gap-3">
+      <AdminPageHeader
+        icon={<Server className="size-4 text-muted-foreground" />}
+        title="Resources"
+      />
       <ResourcesManager initialResources={resources} />
-    </>
+    </div>
   );
 }

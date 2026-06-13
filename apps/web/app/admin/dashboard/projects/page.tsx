@@ -1,3 +1,4 @@
+import { Button } from "@repo/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -9,9 +10,9 @@ import {
 import { FolderGit2, Plus } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { getAllProjects } from "@/lib/projects";
 import { getAdminSession } from "@/lib/require-admin";
+import { AdminPageHeader } from "../_components/admin-page-header";
 import { ProjectManager } from "./_components/project-manager";
 export default async function ProjectsPage() {
   const session = await getAdminSession();
@@ -23,8 +24,11 @@ export default async function ProjectsPage() {
   const projects = await getAllProjects();
   if (!projects || projects.length === 0) {
     return (
-      <div className="w-full flex flex-col gap-6">
-        <h1 className="text-2xl sm:text-3xl font-bold">Projects</h1>
+      <div className="w-full flex flex-col gap-3">
+        <AdminPageHeader
+          icon={<FolderGit2 className="size-4 text-muted-foreground" />}
+          title="Projects"
+        />
         <div>
           <Empty>
             <EmptyHeader className="max-w-lg!">

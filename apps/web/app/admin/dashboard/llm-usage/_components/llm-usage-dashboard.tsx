@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import {
   type ColumnDef,
   flexRender,
@@ -30,7 +31,6 @@ import {
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type TimePeriod = "allTime" | "last30d" | "last7d" | "last24h";
 

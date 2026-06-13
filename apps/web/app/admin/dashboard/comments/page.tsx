@@ -1,7 +1,9 @@
+import { MessageSquare } from "lucide-react";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getAllComments, getCommentStats } from "@/lib/comments";
 import { getAdminSession } from "@/lib/require-admin";
+import { AdminPageHeader } from "../_components/admin-page-header";
 import { CommentsWrapper } from "./comments-wrapper";
 
 export const metadata: Metadata = {
@@ -23,14 +25,11 @@ export default async function CommentsPage() {
   ]);
 
   return (
-    <div className="flex flex-col">
-      <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold">Comment Moderation</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">
-          Review and moderate blog comments
-        </p>
-      </div>
-
+    <div className="flex flex-col gap-3">
+      <AdminPageHeader
+        icon={<MessageSquare className="size-4 text-muted-foreground" />}
+        title="Comment Moderation"
+      />
       <CommentsWrapper initialComments={comments} initialStats={stats} />
     </div>
   );

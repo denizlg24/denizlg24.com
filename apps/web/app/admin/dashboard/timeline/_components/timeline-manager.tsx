@@ -1,11 +1,12 @@
 "use client";
 
-import { Eye, EyeOff, Plus } from "lucide-react";
+import { Button } from "@repo/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { Briefcase, Eye, EyeOff, Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ITimelineItemLean } from "@/models/TimelineItem";
+import { AdminPageHeader } from "../../_components/admin-page-header";
 import { TimelineList } from "./timeline-list";
 
 interface TimelineManagerProps {
@@ -86,16 +87,10 @@ export function TimelineManager({ initialItems }: TimelineManagerProps) {
 
   return (
     <>
-      <div className="flex sm:flex-row flex-col sm:items-center items-start gap-2 justify-between w-full">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold mb-2">
-            Timeline Management
-          </h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
-            Create and manage your timeline cards displayed on the homepage.
-            {activeCategory !== "all" && " Drag items to reorder them."}
-          </p>
-        </div>
+      <AdminPageHeader
+        icon={<Briefcase className="size-4 text-muted-foreground" />}
+        title="Timeline"
+      >
         <div className="flex gap-2 sm:w-fit w-full">
           {hasUnsavedChanges && (
             <Button
@@ -113,10 +108,10 @@ export function TimelineManager({ initialItems }: TimelineManagerProps) {
             </Link>
           </Button>
         </div>
-      </div>
+      </AdminPageHeader>
 
-      <div className="space-y-6">
-        <div className="flex items-center gap-2">
+      <div className="space-y-3 pt-3">
+        <div className="flex items-center gap-2 overflow-x-auto">
           <Tabs
             value={activeCategory}
             onValueChange={setActiveCategory}

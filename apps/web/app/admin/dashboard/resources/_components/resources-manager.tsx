@@ -1,10 +1,10 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
 import { Loader2, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
-import { Button } from "@/components/ui/button";
 import type { ResourceUptimeData } from "@/lib/resource-agent";
 import type { IAgentService, ILeanCapability } from "@/models/Resource";
 import { CreateResourceDialog } from "./create-resource-dialog";

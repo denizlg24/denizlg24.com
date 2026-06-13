@@ -1,17 +1,17 @@
 "use client";
 
 import { Badge } from "@repo/ui/badge";
-import { Trash2 } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button } from "@repo/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@repo/ui/dialog";
+import { Trash2 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import type { ILeanCapability } from "@/models/Resource";
 import { PiCronDashboard } from "./picron/picron-dashboard";
 

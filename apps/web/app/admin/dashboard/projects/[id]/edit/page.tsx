@@ -1,9 +1,10 @@
-import { ArrowLeft } from "lucide-react";
+import { Button } from "@repo/ui/button";
+import { ArrowLeft, FolderGit2 } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { getProjectById } from "@/lib/projects";
 import { getAdminSession } from "@/lib/require-admin";
+import { AdminPageHeader } from "../../../_components/admin-page-header";
 import { ProjectForm } from "../../_components/project-form";
 
 export default async function EditProjectPage({
@@ -25,16 +26,18 @@ export default async function EditProjectPage({
   }
 
   return (
-    <div className="w-full flex flex-col gap-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/admin/dashboard/projects">
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
-        </Button>
-        <h1 className="text-2xl sm:text-3xl font-bold">Edit Project</h1>
-      </div>
-
+    <div className="w-full flex flex-col gap-3">
+      <AdminPageHeader
+        icon={<FolderGit2 className="size-4 text-muted-foreground" />}
+        title="Edit Project"
+        leading={
+          <Button variant="ghost" size="icon" asChild>
+            <Link href="/admin/dashboard/projects">
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+          </Button>
+        }
+      />
       <ProjectForm mode="edit" project={project} />
     </div>
   );

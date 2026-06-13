@@ -1,11 +1,11 @@
 "use client";
 
 import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
 import { Card } from "@repo/ui/card";
 import { Eye, EyeOff, GripVertical, Pencil, Star, Trash2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import {
   Sortable,
   SortableContent,

@@ -1,6 +1,8 @@
 "use client";
 
 import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
+import { DataTable } from "@repo/ui/data-table";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,8 +23,6 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { DataTable } from "@/components/ui/data-table";
 import type { ILeanContact } from "@/models/Contact";
 
 interface ContactsTableProps {
@@ -71,6 +71,7 @@ export function ContactsTable({
   const columns: ColumnDef<ILeanContact>[] = [
     {
       accessorKey: "ticketId",
+      meta: { className: "hidden md:table-cell" },
       header: ({ column }) => {
         return (
           <Button
@@ -94,10 +95,12 @@ export function ContactsTable({
     },
     {
       accessorKey: "email",
+      meta: { className: "hidden lg:table-cell" },
       header: "Email",
     },
     {
       accessorKey: "message",
+      meta: { className: "hidden xl:table-cell" },
       header: "Message",
       cell: ({ row }) => (
         <div className="max-w-xs truncate">{row.getValue("message")}</div>
@@ -127,6 +130,7 @@ export function ContactsTable({
     },
     {
       accessorKey: "emailSent",
+      meta: { className: "hidden md:table-cell" },
       header: "Email",
       cell: ({ row }) => (
         <Badge variant={row.getValue("emailSent") ? "default" : "secondary"}>
@@ -136,6 +140,7 @@ export function ContactsTable({
     },
     {
       accessorKey: "createdAt",
+      meta: { className: "hidden sm:table-cell" },
       header: ({ column }) => {
         return (
           <Button
@@ -154,6 +159,7 @@ export function ContactsTable({
     },
     {
       accessorKey: "ipAddress",
+      meta: { className: "hidden xl:table-cell" },
       header: "IP",
       cell: ({ row }) => (
         <div className="text-xs text-muted-foreground">

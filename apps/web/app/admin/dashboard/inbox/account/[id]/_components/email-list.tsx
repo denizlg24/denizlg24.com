@@ -1,12 +1,7 @@
 "use client";
 
 import { Badge } from "@repo/ui/badge";
-import { format } from "date-fns";
-import { Loader2, Mail, MailOpen, RefreshCw } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
-import useSWR from "swr";
-import { Button } from "@/components/ui/button";
+import { Button } from "@repo/ui/button";
 import {
   Drawer,
   DrawerClose,
@@ -14,7 +9,12 @@ import {
   DrawerFooter,
   DrawerHeader,
   DrawerTitle,
-} from "@/components/ui/drawer";
+} from "@repo/ui/drawer";
+import { format } from "date-fns";
+import { Loader2, Mail, MailOpen, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import useSWR from "swr";
 
 interface Email {
   _id: string;

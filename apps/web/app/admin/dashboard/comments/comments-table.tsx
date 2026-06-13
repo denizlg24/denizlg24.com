@@ -1,6 +1,18 @@
 "use client";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
+import { DataTable } from "@repo/ui/data-table";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,18 +33,6 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { DataTable } from "@/components/ui/data-table";
 import type { CommentWithBlogTitle } from "@/lib/comments";
 
 interface CommentsTableProps {
@@ -188,6 +188,7 @@ export function CommentsTable({
     },
     {
       accessorKey: "content",
+      meta: { className: "hidden md:table-cell" },
       header: "Comment",
       cell: ({ row }) => (
         <div className="max-w-xs truncate text-sm text-muted-foreground">
@@ -197,6 +198,7 @@ export function CommentsTable({
     },
     {
       accessorKey: "blogTitle",
+      meta: { className: "hidden lg:table-cell" },
       header: "Blog Post",
       cell: ({ row }) => {
         const comment = row.original;
@@ -230,6 +232,7 @@ export function CommentsTable({
     },
     {
       accessorKey: "createdAt",
+      meta: { className: "hidden sm:table-cell" },
       header: ({ column }) => (
         <Button
           variant="ghost"
