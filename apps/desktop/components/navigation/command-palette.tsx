@@ -6,8 +6,8 @@ import {
   CommandGroup,
   CommandItem,
   CommandList,
+  CommandPrimitive,
 } from "@repo/ui/command";
-import { Command as CommandPrimitive } from "cmdk";
 import { HomeIcon, SearchIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Dialog as DialogPrimitive } from "radix-ui";

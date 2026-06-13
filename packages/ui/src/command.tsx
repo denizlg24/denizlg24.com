@@ -178,6 +178,7 @@ export {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandPrimitive,
   CommandSeparator,
   CommandShortcut,
 };
