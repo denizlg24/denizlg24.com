@@ -43,7 +43,7 @@ export default async function RootLayout({
             <Kbd>B</Kbd>
           </KbdGroup>
         </PageHeader>
-        <section className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden px-3 pt-7 pb-6 sm:px-4">
+        <section className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden px-3 pt-4 pb-6 sm:px-4">
           {children}
         </section>
       </main>

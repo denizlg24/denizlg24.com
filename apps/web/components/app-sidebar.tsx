@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Brain,
   Briefcase,
@@ -26,6 +28,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { SignOutButton } from "./sign-out-button";
 
@@ -108,6 +111,8 @@ const items = [
 ];
 
 export function AppSidebar() {
+  const { setOpenMobile } = useSidebar();
+
   return (
     <Sidebar className="z-60!">
       <SidebarContent>
@@ -118,7 +123,7 @@ export function AppSidebar() {
               {items.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
-                    <Link href={item.url}>
+                    <Link href={item.url} onClick={() => setOpenMobile(false)}>
                       <item.icon />
                       <span>{item.title}</span>
                     </Link>
