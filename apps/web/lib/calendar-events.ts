@@ -212,7 +212,7 @@ export const updateCalendarEvent = async ({
     }
 
     const updatedEvent = await CalendarEvent.findByIdAndUpdate(id, update, {
-      new: true,
+      returnDocument: "after",
     }).lean();
 
     return updatedEvent ? serializeCalendarEvent(updatedEvent) : null;

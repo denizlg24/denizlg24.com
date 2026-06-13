@@ -66,7 +66,7 @@ export async function updateContactStatus(
   const contact = await Contact.findOneAndUpdate(
     { ticketId },
     { status },
-    { new: true },
+    { returnDocument: "after" },
   ).lean();
 
   return contact as ILeanContact | null;

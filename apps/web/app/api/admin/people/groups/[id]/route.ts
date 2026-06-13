@@ -40,7 +40,7 @@ export async function PATCH(
     }
 
     const group = await PersonGroup.findByIdAndUpdate(id, update, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     })
       .lean<ILeanPersonGroup>()

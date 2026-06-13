@@ -62,7 +62,7 @@ export async function updateConversationMessages(
   const conversation = await Conversation.findByIdAndUpdate(
     id,
     { messages, updatedAt: new Date() },
-    { new: true },
+    { returnDocument: "after" },
   ).lean();
   if (!conversation) return null;
 
@@ -81,7 +81,7 @@ export async function appendMessages(
       $push: { messages: { $each: messages } },
       updatedAt: new Date(),
     },
-    { new: true },
+    { returnDocument: "after" },
   ).lean();
   if (!conversation) return null;
 

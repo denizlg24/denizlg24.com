@@ -61,7 +61,7 @@ export async function POST(
         },
       },
       {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       },
     )

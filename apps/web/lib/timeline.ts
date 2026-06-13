@@ -69,7 +69,7 @@ export async function updateTimelineItem(
 ) {
   await connectDB();
   const item = await TimelineItem.findByIdAndUpdate(id, data, {
-    new: true,
+    returnDocument: "after",
     runValidators: true,
   });
   return item;
@@ -99,7 +99,7 @@ export async function toggleTimelineItemActive(id: string) {
   const updatedItem = await TimelineItem.findByIdAndUpdate(
     id,
     { isActive: !item.isActive },
-    { new: true, runValidators: true },
+    { returnDocument: "after", runValidators: true },
   );
 
   return updatedItem;

@@ -47,7 +47,7 @@ export async function PATCH(
     }
 
     const group = await NoteGroup.findByIdAndUpdate(id, update, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     })
       .lean<ILeanNoteGroup>()

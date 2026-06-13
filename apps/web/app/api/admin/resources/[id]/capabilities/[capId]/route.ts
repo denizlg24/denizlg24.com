@@ -67,7 +67,7 @@ export async function DELETE(
   const resource = await Resource.findByIdAndUpdate(
     id,
     { $pull: { capabilities: { _id: capId } } },
-    { new: true },
+    { returnDocument: "after" },
   );
 
   if (!resource) {

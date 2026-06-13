@@ -34,7 +34,7 @@ export async function POST(
           error: typeof body.error === "string" ? body.error : undefined,
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     )
       .lean<ILeanKnowledgeSemanticRun>()
       .exec();

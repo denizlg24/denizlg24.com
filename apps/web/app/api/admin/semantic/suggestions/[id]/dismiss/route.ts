@@ -25,7 +25,7 @@ export async function POST(
     const suggestion = await KnowledgeSemanticSuggestion.findByIdAndUpdate(
       id,
       { $set: { status: "dismissed", decidedAt: new Date() } },
-      { new: true },
+      { returnDocument: "after" },
     )
       .lean<ILeanKnowledgeSemanticSuggestion>()
       .exec();

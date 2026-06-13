@@ -308,7 +308,7 @@ export const resourceTools: ToolDefinition[] = [
       const updatedResource = await Resource.findByIdAndUpdate(
         id,
         { $set: updates },
-        { new: true },
+        { returnDocument: "after" },
       );
       if (!updatedResource) {
         throw new Error("Resource not found");

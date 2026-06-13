@@ -65,7 +65,7 @@ export async function updateTodayBoard(data: {
   try {
     await connectDB();
     const updated = await Whiteboard.findOneAndUpdate({ name: "Today" }, data, {
-      new: true,
+      returnDocument: "after",
     }).lean();
     if (!updated) return null;
     return serializeWhiteboard(updated);
@@ -142,7 +142,7 @@ export async function updateWhiteboard(
   try {
     await connectDB();
     const updated = await Whiteboard.findByIdAndUpdate(id, data, {
-      new: true,
+      returnDocument: "after",
     }).lean();
     if (!updated) return null;
     return serializeWhiteboard(updated);

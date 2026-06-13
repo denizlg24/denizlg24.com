@@ -55,7 +55,7 @@ export async function updateTimetableEntry(
   try {
     await connectDB();
     const entry = await TimetableEntry.findByIdAndUpdate(id, data, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }).lean();
     if (!entry) return null;

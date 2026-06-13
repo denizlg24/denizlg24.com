@@ -149,7 +149,7 @@ export async function updateAccount(
 ) {
   await connectDB();
   const account = await AuthenticatorAccount.findByIdAndUpdate(id, data, {
-    new: true,
+    returnDocument: "after",
     runValidators: true,
   }).lean();
   if (!account) return null;

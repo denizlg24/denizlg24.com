@@ -76,7 +76,7 @@ export async function updateBoard(
 ) {
   await connectDB();
   const board = await KanbanBoard.findByIdAndUpdate(id, data, {
-    new: true,
+    returnDocument: "after",
     runValidators: true,
   }).lean();
   if (!board) return null;
@@ -134,7 +134,7 @@ export async function updateColumn(
 ) {
   await connectDB();
   const column = await KanbanColumn.findByIdAndUpdate(id, data, {
-    new: true,
+    returnDocument: "after",
     runValidators: true,
   }).lean();
   if (!column) return null;
@@ -243,7 +243,7 @@ export async function updateCard(
 ) {
   await connectDB();
   const card = await KanbanCard.findByIdAndUpdate(id, data, {
-    new: true,
+    returnDocument: "after",
     runValidators: true,
   }).lean();
   if (!card) return null;

@@ -20,7 +20,7 @@ export const PUT = async (
     const note = await Note.findByIdAndUpdate(
       noteId,
       { title: name },
-      { new: true },
+      { returnDocument: "after" },
     );
     if (!note) {
       return NextResponse.json({ error: "Note not found" }, { status: 404 });

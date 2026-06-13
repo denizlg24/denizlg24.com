@@ -21,7 +21,7 @@ export const PUT = async (
     const apiKey = await ApiKey.findByIdAndUpdate(
       id,
       { key: hashedKey },
-      { new: true },
+      { returnDocument: "after" },
     );
     if (!apiKey) {
       return NextResponse.json({ error: "API key not found" }, { status: 404 });

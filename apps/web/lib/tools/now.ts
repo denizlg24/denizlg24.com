@@ -50,7 +50,7 @@ export const nowTools: ToolDefinition[] = [
       const now = await NowPage.findOneAndUpdate(
         {},
         { content: input.content },
-        { new: true, upsert: true },
+        { returnDocument: "after", upsert: true },
       );
       if (!now) return { success: false, error: "Now page not found" };
 

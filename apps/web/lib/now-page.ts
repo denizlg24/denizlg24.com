@@ -23,7 +23,7 @@ export async function upsertNowPageContent(content: string) {
     const updated = await NowPage.findByIdAndUpdate(
       existing._id,
       { content },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     );
     return updated;
   }

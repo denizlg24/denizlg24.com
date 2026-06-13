@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   const settings = await CalendarSettings.findByIdAndUpdate(
     "singleton",
     { $setOnInsert: { holidayCountryCode: null } },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
   )
     .lean()
     .exec();
@@ -48,7 +48,7 @@ export async function PATCH(request: NextRequest) {
   const settings = await CalendarSettings.findByIdAndUpdate(
     "singleton",
     { holidayCountryCode },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
   )
     .lean()
     .exec();

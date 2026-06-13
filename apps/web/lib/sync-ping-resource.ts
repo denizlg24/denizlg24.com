@@ -30,7 +30,7 @@ export async function upsertPingResource(
           "agentService.hmacSecret": agent?.hmacSecret ?? null,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
     );
   } catch (err) {
     console.error("upsertPingResource failed", { id: resource._id, err });

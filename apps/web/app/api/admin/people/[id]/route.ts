@@ -131,7 +131,7 @@ export async function PATCH(
     }
 
     const person = await Person.findByIdAndUpdate(id, update, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     })
       .lean<ILeanPerson>()

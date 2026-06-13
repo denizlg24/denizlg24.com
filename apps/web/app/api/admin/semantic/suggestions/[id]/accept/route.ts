@@ -31,7 +31,7 @@ async function acceptSuggestion(suggestion: ILeanKnowledgeSemanticSuggestion) {
       const updated = await Note.findByIdAndUpdate(
         suggestion.noteId,
         { $set: { groupIds, semanticStatus: "stale" } },
-        { new: true },
+        { returnDocument: "after" },
       )
         .lean<ILeanNote>()
         .exec();
@@ -71,7 +71,7 @@ async function acceptSuggestion(suggestion: ILeanKnowledgeSemanticSuggestion) {
             confidence: suggestion.confidence,
           },
         },
-        { new: true },
+        { returnDocument: "after" },
       )
         .lean<ILeanNoteGroup>()
         .exec();
@@ -82,7 +82,7 @@ async function acceptSuggestion(suggestion: ILeanKnowledgeSemanticSuggestion) {
       const group = await NoteGroup.findOneAndUpdate(
         { _id: suggestion.groupId, lockedByUser: { $ne: true } },
         { $set: { parentId: suggestion.proposedParentId ?? null } },
-        { new: true },
+        { returnDocument: "after" },
       )
         .lean<ILeanNoteGroup>()
         .exec();
@@ -100,7 +100,7 @@ async function acceptSuggestion(suggestion: ILeanKnowledgeSemanticSuggestion) {
       const updated = await Note.findByIdAndUpdate(
         suggestion.noteId,
         { $set: { tags, semanticStatus: "stale" } },
-        { new: true },
+        { returnDocument: "after" },
       )
         .lean<ILeanNote>()
         .exec();
@@ -167,7 +167,7 @@ export async function POST(
     const updated = await KnowledgeSemanticSuggestion.findByIdAndUpdate(
       id,
       { $set: { status: "accepted", decidedAt: new Date() } },
-      { new: true },
+      { returnDocument: "after" },
     )
       .lean<ILeanKnowledgeSemanticSuggestion>()
       .exec();

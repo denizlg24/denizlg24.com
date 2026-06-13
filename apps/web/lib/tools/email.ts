@@ -89,7 +89,7 @@ export const emailTools: ToolDefinition[] = [
       const result = await EmailModel.findByIdAndUpdate(
         input.id as string,
         { seen: true },
-        { new: true },
+        { returnDocument: "after" },
       ).lean();
       if (!result) throw new Error("Email not found");
       return {

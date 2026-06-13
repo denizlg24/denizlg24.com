@@ -162,7 +162,7 @@ export const kanbanTools: ToolDefinition[] = [
       const board = await KanbanBoard.findByIdAndUpdate(
         input.id as string,
         data,
-        { new: true },
+        { returnDocument: "after" },
       );
       if (!board) return { success: false, message: "Board not found" };
       return {

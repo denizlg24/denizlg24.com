@@ -106,7 +106,7 @@ export async function PATCH(
     }
 
     const updated = await Spreadsheet.findByIdAndUpdate(id, update, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     })
       .lean()

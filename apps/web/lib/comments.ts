@@ -199,7 +199,7 @@ export async function approveComment(id: string) {
   const comment = await BlogComment.findByIdAndUpdate(
     id,
     { isApproved: true },
-    { new: true },
+    { returnDocument: "after" },
   ).lean();
 
   if (!comment) return null;
@@ -215,7 +215,7 @@ export async function rejectComment(id: string) {
   const comment = await BlogComment.findByIdAndUpdate(
     id,
     { isApproved: false },
-    { new: true },
+    { returnDocument: "after" },
   ).lean();
 
   if (!comment) return null;

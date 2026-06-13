@@ -114,7 +114,7 @@ export async function incrementBlogViewCount(blogId: string) {
   const view = await BlogView.findOneAndUpdate(
     { blogId },
     { $inc: { views: 1 } },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: "after" },
   );
   return view.views;
 }

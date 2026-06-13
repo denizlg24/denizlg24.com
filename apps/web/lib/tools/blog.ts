@@ -201,7 +201,7 @@ export const blogTools: ToolDefinition[] = [
       if (input.isActive !== undefined) updates.isActive = input.isActive;
 
       const blog = await Blog.findByIdAndUpdate(input.id, updates, {
-        new: true,
+        returnDocument: "after",
       }).lean();
       if (!blog) throw new Error("Blog post not found");
 

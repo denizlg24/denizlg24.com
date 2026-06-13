@@ -91,7 +91,7 @@ export async function saveEmail(emailData: {
     },
     {
       upsert: true,
-      new: true,
+      returnDocument: "after",
       setDefaultsOnInsert: true,
       includeResultMetadata: false,
     },

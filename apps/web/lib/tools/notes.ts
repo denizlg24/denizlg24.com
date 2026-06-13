@@ -111,7 +111,7 @@ export const notesTools: ToolDefinition[] = [
         input.id as string,
         data,
         {
-          new: true,
+          returnDocument: "after",
         },
       ).lean();
       if (!group) throw new Error("Group not found");
@@ -429,7 +429,7 @@ export const notesTools: ToolDefinition[] = [
       if (semanticClassificationRequired) data.semanticStatus = "stale";
 
       const note = await Note.findByIdAndUpdate(input.id as string, data, {
-        new: true,
+        returnDocument: "after",
       }).lean();
       if (!note) throw new Error("Note not found");
       return {

@@ -47,7 +47,7 @@ export async function PATCH(
   const subResource = await SubResource.findOneAndUpdate(
     { _id: subId, parentResourceId: id },
     { $set: update },
-    { new: true },
+    { returnDocument: "after" },
   ).lean();
 
   if (!subResource) {

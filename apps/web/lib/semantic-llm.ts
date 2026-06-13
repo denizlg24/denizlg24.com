@@ -653,7 +653,7 @@ export async function classifyNoteWithSemanticLlm(
       },
       $unset: { semanticError: "" },
     },
-    { new: true, runValidators: true },
+    { returnDocument: "after", runValidators: true },
   )
     .lean<ILeanNote>()
     .exec();
@@ -784,7 +784,7 @@ export async function runSemanticKeywordSync({
           clusterCount: suggestions,
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     ).exec();
     const remaining = missingOnly
       ? await Note.countDocuments(noteFilter).exec()

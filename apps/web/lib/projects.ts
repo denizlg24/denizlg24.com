@@ -288,7 +288,7 @@ export async function saveGitHubProjectDraft(
         isFeatured: false,
       },
       {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       },
     )

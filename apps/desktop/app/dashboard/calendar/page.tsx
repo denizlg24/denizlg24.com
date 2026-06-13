@@ -379,7 +379,7 @@ export default function CalendarPage() {
   }, []);
 
   return (
-    <div className="pb-4 w-full flex flex-col gap-4">
+    <div className="flex h-full min-h-0 w-full flex-col gap-4">
       <DashboardPageHeader
         icon={<CalendarIcon className="size-4 text-muted-foreground" />}
         title="Calendar"
@@ -394,12 +394,14 @@ export default function CalendarPage() {
           Add Event
         </Button>
       </DashboardPageHeader>
-      <CalendarGrid
-        events={events}
-        onMonthChange={handleMonthChange}
-        onEventClick={openViewEvent}
-        onDayClick={openDayView}
-      />
+      <div className="min-h-0 flex-1 overflow-y-auto pb-4">
+        <CalendarGrid
+          events={events}
+          onMonthChange={handleMonthChange}
+          onEventClick={openViewEvent}
+          onDayClick={openDayView}
+        />
+      </div>
 
       <Dialog
         open={viewEvent !== null}

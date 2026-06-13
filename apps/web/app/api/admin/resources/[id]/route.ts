@@ -97,7 +97,7 @@ export async function PATCH(
     id,
     { ...body, "agentService.hmacSecret": newSecret },
     {
-      new: true,
+      returnDocument: "after",
     },
   ).lean();
   if (!resource) {

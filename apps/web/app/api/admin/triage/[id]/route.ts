@@ -106,7 +106,7 @@ export async function PATCH(
   }
 
   const triage = await EmailTriageModel.findByIdAndUpdate(id, update, {
-    new: true,
+    returnDocument: "after",
   }).lean();
   if (!triage) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

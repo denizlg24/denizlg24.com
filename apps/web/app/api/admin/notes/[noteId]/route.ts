@@ -75,7 +75,7 @@ async function updateNote(request: NextRequest, noteId: string) {
   if (Object.keys(unset).length > 0) mutation.$unset = unset;
 
   const note = await Note.findByIdAndUpdate(noteId, mutation, {
-    new: true,
+    returnDocument: "after",
     runValidators: true,
   })
     .lean<ILeanNote>()

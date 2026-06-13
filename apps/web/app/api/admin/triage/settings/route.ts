@@ -110,7 +110,7 @@ export async function PATCH(request: NextRequest) {
   const updated = await TriageSettingsModel.findByIdAndUpdate(
     settings._id,
     update,
-    { new: true },
+    { returnDocument: "after" },
   );
 
   const updatedObject = updated?.toObject();

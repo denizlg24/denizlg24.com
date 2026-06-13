@@ -141,7 +141,7 @@ export async function updateJournalContent(
     const updated = await JournalLog.findByIdAndUpdate(
       id,
       { content },
-      { new: true },
+      { returnDocument: "after" },
     );
     if (!updated) return null;
     return serializeJournal(updated);
@@ -195,7 +195,7 @@ export async function upsertJournalDayData(
       if (data.notes) update.notes = data.notes;
 
       const updated = await JournalLog.findByIdAndUpdate(existing._id, update, {
-        new: true,
+        returnDocument: "after",
       });
       if (!updated) return null;
       return serializeJournal(updated);

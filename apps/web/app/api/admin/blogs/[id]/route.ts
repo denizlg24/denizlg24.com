@@ -69,7 +69,7 @@ export async function PATCH(
     }
 
     const blog = await Blog.findByIdAndUpdate(id, updateData, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     })
       .lean()

@@ -68,7 +68,7 @@ export async function PATCH(
       const project = await Project.findByIdAndUpdate(
         id,
         { isFeatured: !existingProject.isFeatured },
-        { new: true, runValidators: true },
+        { returnDocument: "after", runValidators: true },
       )
         .lean()
         .exec();
@@ -81,7 +81,7 @@ export async function PATCH(
 
     await connectDB();
     const project = await Project.findByIdAndUpdate(id, body, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     })
       .lean()
