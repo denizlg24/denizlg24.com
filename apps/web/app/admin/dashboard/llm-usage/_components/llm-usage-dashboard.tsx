@@ -357,8 +357,8 @@ function DataTable<TData>({
 function UsageLoadingSkeleton() {
   return (
     <div className="flex flex-col gap-6 pt-3">
-      <Skeleton className="h-9 w-72 rounded-lg" />
-      <div className="flex gap-8">
+      <Skeleton className="h-9 w-full max-w-72 rounded-lg" />
+      <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-4">
         {[1, 2, 3, 4].map((i) => (
           <div key={i} className="flex flex-col gap-1">
             <Skeleton className="h-3 w-16" />
