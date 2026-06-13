@@ -176,7 +176,9 @@ export function ChatInput({
   return (
     <div
       className={
-        docked ? "w-full max-w-3xl mx-auto px-4 pb-4" : "w-full max-w-2xl"
+        docked
+          ? "w-full max-w-3xl mx-auto px-3 pb-3 sm:px-4 sm:pb-4"
+          : "w-full max-w-2xl"
       }
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -283,11 +285,11 @@ export function ChatInput({
             disabled={disabled}
             placeholder="Ask anything..."
             rows={1}
-            className="flex-1 resize-none bg-transparent px-3 py-3 text-sm outline-none placeholder:text-muted-foreground/60 max-h-50 disabled:opacity-50 scrollbar-none"
+            className="min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-sm outline-none placeholder:text-muted-foreground/60 max-h-50 disabled:opacity-50 scrollbar-none sm:px-3"
             style={{ lineHeight: "1.5" }}
           />
           {docked && modelLabel && (
-            <span className="text-[11px] text-muted-foreground/50 pr-2 pb-3 whitespace-nowrap select-none">
+            <span className="hidden text-[11px] text-muted-foreground/50 pr-2 pb-3 whitespace-nowrap select-none sm:inline">
               {modelLabel}
             </span>
           )}

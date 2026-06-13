@@ -921,7 +921,10 @@ export function ChatView() {
     return (
       <>
         <Sheet open={sidebarOpen} onOpenChange={toggleSidebar}>
-          <SheetContent side="left" className="w-80 p-0 flex flex-col">
+          <SheetContent
+            side="left"
+            className="w-[82vw] max-w-80 p-0 flex flex-col sm:w-80"
+          >
             <SheetHeader className="px-4 py-3 border-b">
               <SheetTitle className="text-sm font-medium">
                 Conversations
@@ -992,7 +995,7 @@ export function ChatView() {
                               <span className="text-sm text-foreground/70 truncate">
                                 {conv.title}
                               </span>
-                              <span className="text-[10px] text-muted-foreground/30 group-hover:hidden">
+                              <span className="hidden text-[10px] text-muted-foreground/30 group-hover:hidden sm:inline">
                                 {MODEL_LABELS[conv.llmModel] ?? conv.llmModel}
                               </span>
                               <button
@@ -1013,7 +1016,7 @@ export function ChatView() {
           </SheetContent>
         </Sheet>
 
-        <div className="flex h-full min-h-0 flex-col items-center justify-center overflow-y-auto px-4 py-8 relative">
+        <div className="relative flex h-full min-h-0 flex-col items-center justify-center overflow-y-auto px-3 py-6 sm:px-4 sm:py-8">
           <Button
             variant="ghost"
             size="icon"
@@ -1023,7 +1026,7 @@ export function ChatView() {
             <Menu className="w-4 h-4" />
           </Button>
           <SidebarTrigger className="absolute left-14 top-4 size-9 md:hidden" />
-          <div className="flex flex-col items-center gap-6 w-full max-w-2xl">
+          <div className="flex w-full max-w-2xl flex-col items-center gap-5 sm:gap-6">
             <div className="flex flex-col items-center gap-1">
               <p className="text-3xl font-light text-foreground/80 tabular-nums tracking-tight">
                 {now.toLocaleTimeString([], {
@@ -1040,7 +1043,7 @@ export function ChatView() {
               </p>
             </div>
             <p
-              className={`text-sm text-muted-foreground/40 italic h-5 transition-opacity duration-300 ${suggestion.visible ? "opacity-100" : "opacity-0"}`}
+              className={`min-h-5 max-w-full px-2 text-center text-sm leading-5 text-muted-foreground/40 italic transition-opacity duration-300 ${suggestion.visible ? "opacity-100" : "opacity-0"}`}
             >
               {suggestion.text}
             </p>
@@ -1060,7 +1063,7 @@ export function ChatView() {
               attachments={attachments}
               onAttachmentsChange={handleAttachmentsChange}
             />
-            <div className="w-full max-w-3xl mt-4">
+            <div className="mt-4 w-full min-w-0 max-w-3xl">
               <DashboardSummary />
             </div>
           </div>
@@ -1072,7 +1075,10 @@ export function ChatView() {
   return (
     <>
       <Sheet open={sidebarOpen} onOpenChange={toggleSidebar}>
-        <SheetContent side="left" className="w-80 p-0 flex flex-col">
+        <SheetContent
+          side="left"
+          className="w-[82vw] max-w-80 p-0 flex flex-col sm:w-80"
+        >
           <SheetHeader className="px-4 py-3 border-b">
             <SheetTitle className="text-sm font-medium">
               Conversations
@@ -1140,7 +1146,7 @@ export function ChatView() {
                             <span className="text-sm text-foreground/70 truncate">
                               {conv.title}
                             </span>
-                            <span className="text-[10px] text-muted-foreground/30 group-hover:hidden">
+                            <span className="hidden text-[10px] text-muted-foreground/30 group-hover:hidden sm:inline">
                               {MODEL_LABELS[conv.llmModel] ?? conv.llmModel}
                             </span>
                             <button
@@ -1162,7 +1168,7 @@ export function ChatView() {
       </Sheet>
 
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-2 border-b">
+        <div className="flex items-center gap-2 border-b px-2 py-2 sm:px-4">
           <SidebarTrigger className="-ml-1 size-7 shrink-0 md:hidden" />
           <Button
             variant="ghost"
@@ -1185,7 +1191,7 @@ export function ChatView() {
 
         <div
           ref={scrollRef}
-          className="flex-1 min-h-0 overflow-y-auto px-4 py-6"
+          className="flex-1 min-h-0 overflow-y-auto px-3 py-6 sm:px-4"
         >
           <div className="max-w-3xl mx-auto">
             {messages.map((msg, i) => {

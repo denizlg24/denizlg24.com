@@ -271,7 +271,7 @@ function ScheduleTasksSwitcher({
 function LoadingSkeleton() {
   return (
     <div className="w-full flex flex-col items-center gap-8 animate-in fade-in duration-300">
-      <div className="flex justify-center gap-6">
+      <div className="flex flex-wrap justify-center gap-x-4 gap-y-3 sm:gap-6">
         {SUMMARY_SKELETON_ITEMS.map((item) => (
           <div key={item} className="flex flex-col items-center gap-1.5">
             <Skeleton className="h-7 w-7" />
@@ -291,7 +291,7 @@ function LoadingSkeleton() {
           </div>
         ))}
       </div>
-      <div className="flex gap-8">
+      <div className="flex flex-wrap justify-center gap-x-8 gap-y-2">
         <Skeleton className="h-3 w-32" />
         <Skeleton className="h-3 w-24" />
       </div>
