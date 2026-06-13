@@ -1,5 +1,3 @@
-"use client";
-
 import {
   Brain,
   Briefcase,
@@ -11,15 +9,11 @@ import {
   Home,
   Inbox,
   KeyRound,
-  LoaderCircle,
   MessageSquare,
   NotebookPen,
   Server,
   Settings,
 } from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 import { FaInstagram } from "react-icons/fa6";
 
 import {
@@ -31,7 +25,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  useSidebar,
 } from "@/components/ui/sidebar";
 import { SignOutButton } from "./sign-out-button";
 
@@ -114,14 +107,6 @@ const items = [
 ];
 
 export function AppSidebar() {
-  const pathname = usePathname();
-  const { setOpenMobile } = useSidebar();
-  const [pendingHref, setPendingHref] = useState<string | null>(null);
-
-  useEffect(() => {
-    setPendingHref(null);
-  }, [pathname]);
-
   return (
     <Sidebar className="z-60!">
       <SidebarContent>
@@ -131,37 +116,11 @@ export function AppSidebar() {
             <SidebarMenu>
               {items.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={
-                      item.url === "/admin/dashboard"
-                        ? pathname === item.url
-                        : pathname.startsWith(item.url)
-                    }
-                  >
-                    <Link
-                      href={item.url}
-                      aria-busy={pendingHref === item.url}
-                      onClick={(event) => {
-                        if (
-                          pathname !== item.url &&
-                          event.button === 0 &&
-                          !event.metaKey &&
-                          !event.ctrlKey &&
-                          !event.shiftKey &&
-                          !event.altKey
-                        ) {
-                          setPendingHref(item.url);
-                        }
-                        setOpenMobile(false);
-                      }}
-                    >
+                  <SidebarMenuButton asChild>
+                    <a href={item.url}>
                       <item.icon />
                       <span>{item.title}</span>
-                      {pendingHref === item.url && (
-                        <LoaderCircle className="ml-auto animate-spin" />
-                      )}
-                    </Link>
+                    </a>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
