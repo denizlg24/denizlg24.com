@@ -3,6 +3,7 @@
 import { endOfMonth, format, startOfDay, startOfMonth } from "date-fns";
 import { BookOpen } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IJournalLog } from "@/lib/data-types";
@@ -130,10 +131,10 @@ export default function JournalPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <BookOpen className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Journal</span>
-      </div>
+      <DashboardPageHeader
+        icon={<BookOpen className="size-4 text-muted-foreground" />}
+        title="Journal"
+      />
       <div className="flex-1 min-h-0 overflow-y-auto flex items-start justify-center px-4 py-8">
         <JournalGrid
           month={month}

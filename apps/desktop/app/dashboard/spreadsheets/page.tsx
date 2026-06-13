@@ -48,8 +48,6 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { open } from "@tauri-apps/plugin-dialog";
-import { readFile } from "@tauri-apps/plugin-fs";
 import {
   Download,
   FileUp,
@@ -62,9 +60,11 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { ISpreadsheet } from "@/lib/data-types";
+import { pickFile } from "@/lib/platform-fs";
 
 function formatRelativeDate(dateStr: string): string {
   const now = new Date();
@@ -93,10 +93,10 @@ function formatBytes(bytes: number): string {
 function LoadingSkeleton() {
   return (
     <div className="flex flex-col gap-2 pb-8">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Sheet className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Spreadsheets</span>
-      </div>
+      <DashboardPageHeader
+        icon={<Sheet className="size-4 text-muted-foreground" />}
+        title="Spreadsheets"
+      />
       <div className="px-4 flex flex-col gap-6 pt-3">
         <StatStripSkeleton count={3} />
         <TableSkeleton
@@ -187,19 +187,17 @@ export default function SpreadsheetsPage() {
   const handleImport = async () => {
     if (!api) return;
     try {
-      const selected = await open({
-        multiple: false,
+      const picked = await pickFile({
+        accept: ".xlsx,.xls,.csv",
         filters: [{ name: "Spreadsheets", extensions: ["xlsx", "xls", "csv"] }],
       });
-      if (!selected || typeof selected !== "string") return;
+      if (!picked) return;
 
       setImporting(true);
-      const bytes = await readFile(selected);
-      const filename = selected.split(/[\\/]/).pop() ?? "import.xlsx";
-      const blob = new Blob([new Uint8Array(bytes)], {
+      const blob = new Blob([picked.data], {
         type: "application/octet-stream",
       });
-      const file = new File([blob], filename);
+      const file = new File([blob], picked.name);
 
       const formData = new FormData();
       formData.append("file", file);
@@ -384,10 +382,10 @@ export default function SpreadsheetsPage() {
   if (!api) {
     return (
       <div className="flex flex-col gap-2 pb-8">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <Sheet className="size-4 text-muted-foreground" />
-          <span className="text-sm font-semibold flex-1">Spreadsheets</span>
-        </div>
+        <DashboardPageHeader
+          icon={<Sheet className="size-4 text-muted-foreground" />}
+          title="Spreadsheets"
+        />
         <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
           Failed to initialize API client.
         </div>
@@ -397,9 +395,10 @@ export default function SpreadsheetsPage() {
 
   return (
     <div className="flex flex-col gap-2 pb-8 h-full">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Sheet className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Spreadsheets</span>
+      <DashboardPageHeader
+        icon={<Sheet className="size-4 text-muted-foreground" />}
+        title="Spreadsheets"
+      >
         <Button
           variant="ghost"
           size="sm"
@@ -431,7 +430,7 @@ export default function SpreadsheetsPage() {
           <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
           Refresh
         </Button>
-      </div>
+      </DashboardPageHeader>
 
       <div className="px-4 flex flex-col gap-4 pt-3 flex-1 min-h-0 overflow-y-auto">
         <div className="flex items-baseline gap-8 flex-wrap">

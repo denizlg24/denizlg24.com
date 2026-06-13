@@ -9,6 +9,7 @@ import { Switch } from "@repo/ui/switch";
 import { Brain, Loader2, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type {
@@ -110,9 +111,10 @@ export default function TriageSettingsPage() {
 
   return (
     <div className="flex flex-col gap-4 pb-8 h-full overflow-y-auto">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Brain className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Triage Settings</span>
+      <DashboardPageHeader
+        icon={<Brain className="size-4 text-muted-foreground" />}
+        title="Triage Settings"
+      >
         <Button
           size="sm"
           className="h-7 gap-1.5 text-xs"
@@ -126,7 +128,7 @@ export default function TriageSettingsPage() {
           )}
           Save
         </Button>
-      </div>
+      </DashboardPageHeader>
 
       <div className="px-4 flex flex-col gap-4">
         <div className="flex items-center justify-between">

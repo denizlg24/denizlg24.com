@@ -9,6 +9,7 @@ import { Textarea } from "@repo/ui/textarea";
 import { Clock, Loader2, RefreshCw, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { INowPage } from "@/lib/data-types";
@@ -110,10 +111,10 @@ export default function NowPage() {
   if (!api) {
     return (
       <div className="flex flex-col gap-2 pb-8">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <Clock className="size-4 text-muted-foreground" />
-          <span className="text-sm font-semibold flex-1">Now Page</span>
-        </div>
+        <DashboardPageHeader
+          icon={<Clock className="size-4 text-muted-foreground" />}
+          title="Now Page"
+        />
         <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
           Failed to initialize API client.
         </div>
@@ -123,10 +124,10 @@ export default function NowPage() {
 
   return (
     <div className="flex flex-col gap-2 pb-8 h-full">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Clock className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Now Page</span>
-
+      <DashboardPageHeader
+        icon={<Clock className="size-4 text-muted-foreground" />}
+        title="Now Page"
+      >
         {updatedAt && (
           <span className="text-[10px] text-muted-foreground">
             Updated {formatLastUpdated(updatedAt)}
@@ -159,7 +160,7 @@ export default function NowPage() {
           )}
           Save
         </Button>
-      </div>
+      </DashboardPageHeader>
 
       <div className="px-4 flex flex-col gap-4 pt-3 flex-1 min-h-0 overflow-y-auto">
         <Tabs defaultValue="write" className="flex flex-col flex-1 min-h-0">

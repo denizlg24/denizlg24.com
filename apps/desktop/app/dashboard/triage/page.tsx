@@ -7,6 +7,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Archive, Brain, Loader2, Play } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IEmailTriage, TriageCategory } from "@/lib/data-types";
@@ -212,9 +213,10 @@ export default function TriagePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Brain className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Triage</span>
+      <DashboardPageHeader
+        icon={<Brain className="size-4 text-muted-foreground" />}
+        title="Triage"
+      >
         <Button
           size="sm"
           variant="outline"
@@ -229,7 +231,7 @@ export default function TriagePage() {
           )}
           Run now
         </Button>
-      </div>
+      </DashboardPageHeader>
 
       <div className="px-4 flex flex-1 min-h-0 flex-col gap-4 overflow-hidden pt-3 pb-8">
         <Tabs

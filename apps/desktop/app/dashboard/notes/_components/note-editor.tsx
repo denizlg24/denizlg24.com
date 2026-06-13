@@ -46,6 +46,8 @@ import { ModelSelector } from "@/components/ui/model-selector";
 import { useUserSettings } from "@/context/user-context";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { INote } from "@/lib/data-types";
+import { isTauri } from "@/lib/platform";
+import { saveFile } from "@/lib/platform-fs";
 import { extractDirectory } from "@/lib/user-settings";
 import { FindReplaceBar, type MatchResult } from "./find-replace-bar";
 
@@ -246,16 +248,18 @@ export const NoteEditor = ({
   const handleExportPdf = async () => {
     setPdfDialogOpen(false);
 
-    const path = await save({
-      filters: [{ name: "PDF Files", extensions: ["pdf"] }],
-      defaultPath: `${settings.defaultNoteDownloadPath}${note.title || "note"}.pdf`,
-    });
+    let savePath: string | null = null;
+    if (isTauri()) {
+      savePath = await save({
+        filters: [{ name: "PDF Files", extensions: ["pdf"] }],
+        defaultPath: `${settings.defaultNoteDownloadPath}${note.title || "note"}.pdf`,
+      });
+      if (!savePath) return;
 
-    if (!path) return;
-
-    const dir = extractDirectory(path);
-    if (dir.trim()) {
-      setSettings({ defaultNoteDownloadPath: dir });
+      const dir = extractDirectory(savePath);
+      if (dir.trim()) {
+        setSettings({ defaultNoteDownloadPath: dir });
+      }
     }
 
     setExportingPdf(true);
@@ -270,8 +274,14 @@ export const NoteEditor = ({
         />,
       ).toBlob();
 
-      const arrayBuffer = await blob.arrayBuffer();
-      await writeFile(path, new Uint8Array(arrayBuffer));
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      if (savePath) {
+        await writeFile(savePath, bytes);
+      } else {
+        await saveFile(`${note.title || "note"}.pdf`, bytes, {
+          mimeType: "application/pdf",
+        });
+      }
 
       toast.success("PDF exported!", { id: toastId });
     } catch (error) {
@@ -459,6 +469,12 @@ export const NoteEditor = ({
             variant={"outline"}
             size={"icon"}
             onClick={async () => {
+              if (!isTauri()) {
+                await saveFile(`${note.title || "note"}.md`, content, {
+                  mimeType: "text/markdown",
+                });
+                return;
+              }
               const path = await save({
                 filters: [
                   {

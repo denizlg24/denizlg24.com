@@ -1,5 +1,5 @@
-import { fetch } from "@tauri-apps/plugin-http";
 import type { ZodType } from "zod";
+import { platformFetch } from "./platform";
 
 const BASE_URL = process.env.NEXT_PUBLIC_DESKTOP_API_BASE_URL;
 
@@ -87,7 +87,7 @@ export class denizApi {
     schema?: ZodType<T>;
   }): Promise<T | AuthError | ApiError> {
     try {
-      const res = await fetch(`${BASE_URL}/${endpoint}`, {
+      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
         method: "GET",
         headers: {
           authorization: `Bearer ${this.apiKey}`,
@@ -126,7 +126,7 @@ export class denizApi {
     endpoint: string;
   }): Promise<Response | AuthError | ApiError> {
     try {
-      const res = await fetch(`${BASE_URL}/${endpoint}`, {
+      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
         method: "GET",
         headers: {
           authorization: `Bearer ${this.apiKey}`,
@@ -155,7 +155,7 @@ export class denizApi {
     signal?: AbortSignal;
   }): Promise<Response | AuthError | ApiError> {
     try {
-      const res = await fetch(`${BASE_URL}/${endpoint}`, {
+      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.apiKey}`,
@@ -185,7 +185,7 @@ export class denizApi {
     body: unknown;
   }): Promise<T | AuthError | ApiError> {
     try {
-      const res = await fetch(`${BASE_URL}/${endpoint}`, {
+      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.apiKey}`,
@@ -218,7 +218,7 @@ export class denizApi {
     body: unknown;
   }): Promise<T | AuthError | ApiError> {
     try {
-      const res = await fetch(`${BASE_URL}/${endpoint}`, {
+      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
         method: "PUT",
         headers: {
           authorization: `Bearer ${this.apiKey}`,
@@ -251,7 +251,7 @@ export class denizApi {
     body: unknown;
   }): Promise<T | AuthError | ApiError> {
     try {
-      const res = await fetch(`${BASE_URL}/${endpoint}`, {
+      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
         method: "PATCH",
         headers: {
           authorization: `Bearer ${this.apiKey}`,
@@ -284,7 +284,7 @@ export class denizApi {
     formData: FormData;
   }): Promise<T | AuthError | ApiError> {
     try {
-      const res = await fetch(`${BASE_URL}/${endpoint}`, {
+      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.apiKey}`,
@@ -314,7 +314,7 @@ export class denizApi {
     endpoint: string;
   }): Promise<T | AuthError | ApiError> {
     try {
-      const res = await fetch(`${BASE_URL}/${endpoint}`, {
+      const res = await platformFetch(`${BASE_URL}/${endpoint}`, {
         method: "DELETE",
         headers: {
           authorization: `Bearer ${this.apiKey}`,

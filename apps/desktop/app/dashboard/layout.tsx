@@ -1,4 +1,4 @@
-import { CommandPalette } from "@/components/navigation/command-palette";
+import { DashboardShell } from "@/components/navigation/dashboard-shell";
 
 export default async function RootLayout({
   children,
@@ -7,8 +7,7 @@ export default async function RootLayout({
 }>) {
   return (
     <main className="pt-8 h-screen flex flex-col overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
-      <CommandPalette />
+      <DashboardShell>{children}</DashboardShell>
     </main>
   );
 }

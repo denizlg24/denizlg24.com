@@ -8,6 +8,7 @@ import { ArrowLeft, FolderPlus, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { INoteGroup } from "@/lib/data-types";
@@ -82,6 +83,7 @@ export default function NewGroupPage() {
     <div className="flex h-full flex-col">
       <div className="flex h-12 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
+          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
           <Button
             variant="ghost"
             size="icon-sm"

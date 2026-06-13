@@ -4,6 +4,7 @@ import { Button } from "@repo/ui/button";
 import { Inbox, Loader2, Mail, Pencil, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type {
@@ -218,11 +219,14 @@ function AccountsOverview({
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-6 py-3 border-b shrink-0">
-        <div>
-          <h1 className="text-sm font-semibold">All Inboxes</h1>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            {accounts.length} account{accounts.length !== 1 && "s"} connected
-          </p>
+        <div className="flex items-center gap-2">
+          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
+          <div>
+            <h1 className="text-sm font-semibold">All Inboxes</h1>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {accounts.length} account{accounts.length !== 1 && "s"} connected
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button

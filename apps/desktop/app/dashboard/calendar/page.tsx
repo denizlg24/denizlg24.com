@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { ICalendarEvent } from "@/lib/data-types";
@@ -379,9 +380,10 @@ export default function CalendarPage() {
 
   return (
     <div className="pb-4 w-full flex flex-col gap-4">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <CalendarIcon className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Calendar</span>
+      <DashboardPageHeader
+        icon={<CalendarIcon className="size-4 text-muted-foreground" />}
+        title="Calendar"
+      >
         <Button
           onClick={() => {
             openAddEvent();
@@ -391,7 +393,7 @@ export default function CalendarPage() {
           <Plus />
           Add Event
         </Button>
-      </div>
+      </DashboardPageHeader>
       <CalendarGrid
         events={events}
         onMonthChange={handleMonthChange}

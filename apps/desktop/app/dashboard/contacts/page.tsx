@@ -29,6 +29,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IContact } from "@/lib/data-types";
@@ -92,10 +93,10 @@ function formatRelativeDate(dateStr: string): string {
 function ContactsLoadingSkeleton() {
   return (
     <div className="flex flex-col gap-2 pb-8">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <UserSquare className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Contacts</span>
-      </div>
+      <DashboardPageHeader
+        icon={<UserSquare className="size-4 text-muted-foreground" />}
+        title="Contacts"
+      />
       <div className="px-4 flex flex-col gap-6 pt-3">
         <div className="flex items-baseline gap-8">
           {[1, 2, 3, 4, 5].map((i) => (
@@ -360,10 +361,10 @@ export default function ContactsPage() {
   if (!api) {
     return (
       <div className="flex flex-col gap-2 pb-8">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <UserSquare className="size-4 text-muted-foreground" />
-          <span className="text-sm font-semibold flex-1">Contacts</span>
-        </div>
+        <DashboardPageHeader
+          icon={<UserSquare className="size-4 text-muted-foreground" />}
+          title="Contacts"
+        />
         <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
           Failed to initialize API client.
         </div>
@@ -373,9 +374,10 @@ export default function ContactsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <UserSquare className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Contacts</span>
+      <DashboardPageHeader
+        icon={<UserSquare className="size-4 text-muted-foreground" />}
+        title="Contacts"
+      >
         <Button
           variant="ghost"
           size="sm"
@@ -388,7 +390,7 @@ export default function ContactsPage() {
           <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
           Refresh
         </Button>
-      </div>
+      </DashboardPageHeader>
 
       <div className="px-4 flex flex-1 min-h-0 flex-col gap-4 overflow-hidden pt-3 pb-8">
         <div className="grid grid-cols-3 gap-x-8 gap-y-3 md:flex md:flex-wrap md:items-baseline">

@@ -35,6 +35,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IKanbanBoard } from "@/lib/data-types";
@@ -342,10 +344,11 @@ export default function KanbanPage() {
   if (loadingSettings || !API || initialLoading) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <div className="h-4 w-32 bg-muted rounded animate-pulse flex-1" />
+        <DashboardPageHeader
+          title={<div className="h-4 w-32 bg-muted rounded animate-pulse" />}
+        >
           <div className="h-7 w-24 bg-muted rounded animate-pulse" />
-        </div>
+        </DashboardPageHeader>
         <div className="flex-1 overflow-auto p-6">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -370,6 +373,7 @@ export default function KanbanPage() {
   return (
     <div className="flex flex-col h-full w-full max-w-screen">
       <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
+        <SidebarTrigger className="-ml-1 size-7 md:hidden" />
         {selectedBoard ? (
           <>
             <Button

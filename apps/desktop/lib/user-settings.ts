@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { loadKeyValueStore } from "./platform-store";
 
 const STORE_FILENAME = "settings.json";
 
@@ -153,8 +154,7 @@ const buildDefaultSettings = (current: unknown): UserSettings => {
 };
 
 async function getStore() {
-  const { load } = await import("@tauri-apps/plugin-store");
-  return load(STORE_FILENAME, { defaults: defaultSettings, autoSave: true });
+  return loadKeyValueStore(STORE_FILENAME, defaultSettings);
 }
 
 export async function loadSettings(): Promise<UserSettings> {

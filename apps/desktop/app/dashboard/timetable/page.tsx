@@ -24,6 +24,7 @@ import {
   type TimetableFormValues,
 } from "@/app/dashboard/timetable/_components/timetable-form";
 import { TimetableGrid } from "@/app/dashboard/timetable/_components/timetable-grid";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { ITimetableEntry } from "@/lib/data-types";
@@ -92,14 +93,15 @@ export default function TimetableManager({
   if (loadingSettings || !API || initialLoading) {
     return (
       <div className="flex h-full min-h-0 flex-col gap-2">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <CalendarDays className="size-4 text-muted-foreground" />
-          <span className="text-sm font-semibold flex-1">Timetable</span>
+        <DashboardPageHeader
+          icon={<CalendarDays className="size-4 text-muted-foreground" />}
+          title="Timetable"
+        >
           <Button size={"sm"}>
             <Plus />
             Add Entry
           </Button>
-        </div>
+        </DashboardPageHeader>
         <div className="min-h-0 flex-1 overflow-y-auto pb-4">
           <TimetableGrid entries={[]} onEntryClick={() => {}} />
         </div>
@@ -191,9 +193,10 @@ export default function TimetableManager({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <CalendarDays className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Timetable</span>
+      <DashboardPageHeader
+        icon={<CalendarDays className="size-4 text-muted-foreground" />}
+        title="Timetable"
+      >
         <Button
           size={"sm"}
           onClick={() => {
@@ -203,7 +206,7 @@ export default function TimetableManager({
           <Plus />
           Add Entry
         </Button>
-      </div>
+      </DashboardPageHeader>
       <div className="min-h-0 flex-1 overflow-y-auto pb-4">
         <TimetableGrid
           entries={entries}

@@ -1,4 +1,4 @@
-import { fetch } from "@tauri-apps/plugin-http";
+import { platformFetch } from "./platform";
 
 export interface GitHubRelease {
   tag_name: string;
@@ -24,7 +24,7 @@ export function isNewerVersion(current: string, latest: string): boolean {
 
 export async function fetchLatestRelease(): Promise<GitHubRelease | null> {
   try {
-    const response = await fetch(
+    const response = await platformFetch(
       "https://api.github.com/repos/denizlg24/denizlg24-app/releases/latest",
       {
         method: "GET",

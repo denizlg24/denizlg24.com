@@ -14,6 +14,7 @@ import { Label } from "@repo/ui/label";
 import { PenTool, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IWhiteboardMeta } from "@/lib/data-types";
@@ -151,14 +152,15 @@ export default function Page() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <PenTool className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Whiteboards</span>
+      <DashboardPageHeader
+        icon={<PenTool className="size-4 text-muted-foreground" />}
+        title="Whiteboards"
+      >
         <Button size={"sm"} onClick={() => setCreateOpen(true)}>
           <Plus />
           Add Board
         </Button>
-      </div>
+      </DashboardPageHeader>
       <div className="flex-1 overflow-auto p-6">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {loading &&

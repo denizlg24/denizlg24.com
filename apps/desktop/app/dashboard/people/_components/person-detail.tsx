@@ -53,6 +53,7 @@ import {
 import { toast } from "sonner";
 import { GroupTreeCombobox } from "@/app/dashboard/notes/_components/group-tree-combobox";
 import { NoteEditor } from "@/app/dashboard/notes/_components/note-editor";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import type { denizApi } from "@/lib/api-wrapper";
 import type {
   BirthdayParts,
@@ -431,6 +432,7 @@ export function PersonDetail({
     <div className="flex h-full flex-col">
       <div className="flex h-12 items-center justify-between border-b px-4">
         <div className="flex min-w-0 items-center gap-2">
+          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
           <Button variant="ghost" size="icon-sm" onClick={onBack} title="Back">
             <ArrowLeft className="size-4" />
           </Button>

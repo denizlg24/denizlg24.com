@@ -3,6 +3,7 @@
 import { Copy, Maximize2, Minimize2, Minus, Square, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { isTauri } from "@/lib/platform";
 import { BackgroundTasksIndicator } from "./background-tasks-indicator";
 
 const PATHNAME_TITLE_MAP = {
@@ -53,6 +54,8 @@ export function TitleBar() {
   const [appWindow, setAppWindow] = useState<AppWindow | null>(null);
 
   useEffect(() => {
+    if (!isTauri()) return;
+
     let unlisten: (() => void) | undefined;
 
     (async () => {

@@ -32,6 +32,8 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { FortuneSheetBook, ISpreadsheet } from "@/lib/data-types";
@@ -51,12 +53,12 @@ const SpreadsheetEditor = dynamic(
 function EditorSkeleton() {
   return (
     <div className="flex flex-col gap-2 pb-0 h-full">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Sheet className="size-4 text-muted-foreground" />
-        <Skeleton className="h-4 w-40" />
-        <div className="flex-1" />
+      <DashboardPageHeader
+        icon={<Sheet className="size-4 text-muted-foreground" />}
+        title={<Skeleton className="h-4 w-40" />}
+      >
         <Skeleton className="h-8 w-20" />
-      </div>
+      </DashboardPageHeader>
       <div className="px-4 pt-3 flex-1">
         <Skeleton className="h-full w-full" />
       </div>
@@ -197,18 +199,20 @@ function EditorInner() {
   if (!id) {
     return (
       <div className="flex flex-col gap-2 pb-8">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={() => router.push("/dashboard/spreadsheets")}
-          >
-            <ArrowLeft className="size-3.5" />
-          </Button>
-          <Sheet className="size-4 text-muted-foreground" />
-          <span className="text-sm font-semibold flex-1">Missing id</span>
-        </div>
+        <DashboardPageHeader
+          leading={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={() => router.push("/dashboard/spreadsheets")}
+            >
+              <ArrowLeft className="size-3.5" />
+            </Button>
+          }
+          icon={<Sheet className="size-4 text-muted-foreground" />}
+          title="Missing id"
+        />
         <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
           No spreadsheet id provided.
         </div>
@@ -221,18 +225,20 @@ function EditorInner() {
   if (!meta || !content) {
     return (
       <div className="flex flex-col gap-2 pb-8">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={() => router.push("/dashboard/spreadsheets")}
-          >
-            <ArrowLeft className="size-3.5" />
-          </Button>
-          <Sheet className="size-4 text-muted-foreground" />
-          <span className="text-sm font-semibold flex-1">Not found</span>
-        </div>
+        <DashboardPageHeader
+          leading={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={() => router.push("/dashboard/spreadsheets")}
+            >
+              <ArrowLeft className="size-3.5" />
+            </Button>
+          }
+          icon={<Sheet className="size-4 text-muted-foreground" />}
+          title="Not found"
+        />
         <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
           Spreadsheet not found.
         </div>
@@ -243,6 +249,7 @@ function EditorInner() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
+        <SidebarTrigger className="-ml-1 size-7 md:hidden" />
         <Button
           variant="ghost"
           size="sm"

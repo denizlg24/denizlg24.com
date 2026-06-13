@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { loadKeyValueStore } from "@/lib/platform-store";
 import { useBackgroundTasksStore } from "./background-tasks";
 
 export type TimerMode = "focus" | "break";
@@ -23,8 +24,7 @@ const BREAK_COMPLETE_SOUND = "/assets/Bling.m4a";
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
 async function getPomodoroStore() {
-  const { load } = await import("@tauri-apps/plugin-store");
-  return load(STORE_FILENAME, { defaults: { sessions: [] }, autoSave: true });
+  return loadKeyValueStore(STORE_FILENAME, { sessions: [] });
 }
 
 async function loadSessions(): Promise<Session[]> {

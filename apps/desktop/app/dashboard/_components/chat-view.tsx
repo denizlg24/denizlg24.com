@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import {
   type StreamError,
@@ -1021,6 +1022,7 @@ export function ChatView() {
           >
             <Menu className="w-4 h-4" />
           </Button>
+          <SidebarTrigger className="absolute left-14 top-4 size-9 md:hidden" />
           <div className="flex flex-col items-center gap-6 w-full max-w-2xl">
             <div className="flex flex-col items-center gap-1">
               <p className="text-3xl font-light text-foreground/80 tabular-nums tracking-tight">
@@ -1161,6 +1163,7 @@ export function ChatView() {
 
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2 border-b">
+          <SidebarTrigger className="-ml-1 size-7 shrink-0 md:hidden" />
           <Button
             variant="ghost"
             size="icon"

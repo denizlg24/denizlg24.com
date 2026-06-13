@@ -30,6 +30,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { TagAutocomplete } from "@/app/dashboard/notes/_components/tag-autocomplete";
 import { useEntityGraphData } from "@/components/graph/entity-graph";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type {
@@ -655,6 +656,7 @@ export default function NotesPage() {
     <div className="relative flex h-full flex-col">
       <div className="flex h-12 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
+          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
           <FileText className="size-4" />
           <h1 className="text-sm font-medium">Notes</h1>
           <span className="text-xs text-muted-foreground tabular-nums shrink-0">
@@ -892,6 +894,7 @@ function NotesLoadingSkeleton() {
     <div className="flex h-full flex-col">
       <div className="flex h-12 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
+          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
           <FileText className="size-4" />
           <h1 className="text-sm font-medium">Notes</h1>
           <Skeleton className="h-3 w-28" />

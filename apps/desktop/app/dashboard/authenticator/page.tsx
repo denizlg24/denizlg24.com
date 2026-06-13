@@ -13,6 +13,7 @@ import { Input } from "@repo/ui/input";
 import { Download, KeyRound, Loader2, Plus, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type {
@@ -190,10 +191,11 @@ export default function AuthenticatorPage() {
   if (loadingSettings || !API || initialLoading) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <div className="h-4 w-32 bg-muted rounded animate-pulse flex-1" />
+        <DashboardPageHeader
+          title={<div className="h-4 w-32 bg-muted rounded animate-pulse" />}
+        >
           <div className="h-7 w-24 bg-muted rounded animate-pulse" />
-        </div>
+        </DashboardPageHeader>
         <div className="flex-1 overflow-auto">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
@@ -215,10 +217,10 @@ export default function AuthenticatorPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <KeyRound className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Authenticator</span>
-
+      <DashboardPageHeader
+        icon={<KeyRound className="size-4 text-muted-foreground" />}
+        title="Authenticator"
+      >
         <div className="hidden sm:flex items-center gap-3 mr-3 text-xs">
           <span className="font-mono text-muted-foreground/70 tabular-nums">
             {accounts.length}{" "}
@@ -240,7 +242,7 @@ export default function AuthenticatorPage() {
         <Button size="sm" onClick={() => setAddOpen(true)}>
           <Plus className="size-3" /> Add
         </Button>
-      </div>
+      </DashboardPageHeader>
 
       {accounts.length > 0 && (
         <div className="px-4 py-2 border-b border-border/50">

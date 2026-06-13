@@ -16,6 +16,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Brain } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import {
@@ -335,10 +336,10 @@ export default function LlmUsagePage() {
   if (!data) {
     return (
       <div className="flex flex-col gap-2 pb-8">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <Brain className="size-4 text-muted-foreground" />
-          <span className="text-sm font-semibold flex-1">Token Usage</span>
-        </div>
+        <DashboardPageHeader
+          icon={<Brain className="size-4 text-muted-foreground" />}
+          title="Token Usage"
+        />
         <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
           Failed to load usage data.
         </div>
@@ -350,10 +351,10 @@ export default function LlmUsagePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Brain className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Token Usage</span>
-      </div>
+      <DashboardPageHeader
+        icon={<Brain className="size-4 text-muted-foreground" />}
+        title="Token Usage"
+      />
 
       <div className="flex flex-1 min-h-0 flex-col gap-6 overflow-y-auto px-4 pt-3 pb-8">
         <Tabs value={period} onValueChange={(v) => setPeriod(v as TimePeriod)}>

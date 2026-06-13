@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { GroupTreeCombobox } from "@/app/dashboard/notes/_components/group-tree-combobox";
 import { useEntityGraphData } from "@/components/graph/entity-graph";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type {
@@ -294,6 +295,7 @@ export default function PeoplePage() {
     <div className="flex h-full flex-col">
       <div className="flex h-12 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
+          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
           <UsersRound className="size-4" />
           <h1 className="text-sm font-medium">People</h1>
           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
@@ -444,6 +446,7 @@ function PeopleLoadingSkeleton() {
     <div className="flex h-full flex-col">
       <div className="flex h-12 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
+          <SidebarTrigger className="-ml-1 size-7 md:hidden" />
           <UsersRound className="size-4" />
           <Skeleton className="h-4 w-24" />
         </div>

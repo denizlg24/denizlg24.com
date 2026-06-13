@@ -2,8 +2,6 @@
 
 import { Button } from "@repo/ui/button";
 import { Separator } from "@repo/ui/separator";
-import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
 import { format } from "date-fns";
 import {
   ArrowLeft,
@@ -18,6 +16,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { IEmail, IEmailAttachment, IFullEmail } from "@/lib/data-types";
+import { saveFile } from "@/lib/platform-fs";
 import { EmailIframe } from "./email-iframe";
 
 function formatFileSize(bytes: number): string {
@@ -110,26 +109,23 @@ export function EmailDetail({
 
       if ("code" in result) {
         toast.error("Failed to download attachment");
-        setDownloadingIdx(null);
-        return;
-      }
-
-      const savePath = await save({
-        defaultPath: attachment.filename,
-      });
-
-      if (!savePath) {
-        setDownloadingIdx(null);
         return;
       }
 
       const buffer = await result.arrayBuffer();
-      await writeFile(savePath, new Uint8Array(buffer));
-      toast.success(`Saved ${attachment.filename}`);
+      const saved = await saveFile(
+        attachment.filename,
+        new Uint8Array(buffer),
+        { defaultPath: attachment.filename },
+      );
+      if (saved) {
+        toast.success(`Saved ${attachment.filename}`);
+      }
     } catch {
       toast.error("Download failed");
+    } finally {
+      setDownloadingIdx(null);
     }
-    setDownloadingIdx(null);
   };
 
   const senderName = email.from[0]?.name || email.from[0]?.address || "Unknown";

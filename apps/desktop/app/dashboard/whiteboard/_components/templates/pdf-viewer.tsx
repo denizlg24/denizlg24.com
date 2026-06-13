@@ -14,6 +14,7 @@ import "react-pdf/dist/Page/TextLayer.css";
 import { Button } from "@repo/ui/button";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
+import { pickFile } from "@/lib/platform-fs";
 import type { TemplateProps } from ".";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -106,24 +107,19 @@ export const PdfViewerTemplate = ({
   const handleImportPdf = useCallback(async () => {
     try {
       setLoading(true);
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const { readFile } = await import("@tauri-apps/plugin-fs");
 
-      const selected = await open({
-        multiple: false,
+      const picked = await pickFile({
+        accept: ".pdf,application/pdf",
         filters: [{ name: "PDF Files", extensions: ["pdf"] }],
       });
 
-      if (!selected) {
+      if (!picked) {
         setLoading(false);
         return;
       }
 
-      const filePath = typeof selected === "string" ? selected : selected;
-      const bytes = await readFile(filePath as string);
-      const name = (filePath as string).split(/[/\\]/).pop() || "Untitled.pdf";
-
-      const file = new File([bytes], name, { type: "application/pdf" });
+      const name = picked.name || "Untitled.pdf";
+      const file = new File([picked.data], name, { type: "application/pdf" });
       const formData = new FormData();
       formData.append("file", file);
 

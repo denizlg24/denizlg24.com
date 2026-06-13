@@ -13,7 +13,6 @@ import {
 import { Separator } from "@repo/ui/separator";
 import { Skeleton } from "@repo/ui/skeleton";
 import { Switch } from "@repo/ui/switch";
-import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, Loader2, Settings as SettingsIcon } from "lucide-react";
 import {
   type KeyboardEvent,
@@ -23,9 +22,12 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { ICalendarSettings, ICountryOption } from "@/lib/data-types";
+import { isTauri } from "@/lib/platform";
+import { pickDirectory } from "@/lib/platform-fs";
 import {
   ensureTrailingSeparator,
   type SettingsFieldMeta,
@@ -104,12 +106,8 @@ function SettingsFieldRow({
   }
 
   if (meta.type === "path") {
-    const pickDirectory = async () => {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        defaultPath: localValue || undefined,
-      });
+    const handlePickDirectory = async () => {
+      const selected = await pickDirectory(localValue || undefined);
       if (selected) {
         const withSep = ensureTrailingSeparator(selected);
         setLocalValue(withSep);
@@ -136,14 +134,16 @@ function SettingsFieldRow({
             onKeyDown={handleKeyDown}
             placeholder={`Select a directory...`}
           />
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0"
-            onClick={pickDirectory}
-          >
-            <FolderOpen className="size-4" />
-          </Button>
+          {isTauri() && (
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              onClick={handlePickDirectory}
+            >
+              <FolderOpen className="size-4" />
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -239,8 +239,13 @@ function CalendarSyncSettings({ api }: { api: denizApi | null }) {
 
     async function prefillFromLocale() {
       try {
-        const { locale } = await import("@tauri-apps/plugin-os");
-        const osLocale = await locale();
+        let osLocale: string | null = null;
+        if (isTauri()) {
+          const { locale } = await import("@tauri-apps/plugin-os");
+          osLocale = await locale();
+        } else if (typeof navigator !== "undefined") {
+          osLocale = navigator.language;
+        }
         const region = osLocale ? regionFromLocale(osLocale) : null;
         if (
           region &&
@@ -314,10 +319,10 @@ function CalendarSyncSettings({ api }: { api: denizApi | null }) {
 function SettingsLoadingSkeleton() {
   return (
     <div className="flex flex-col gap-2 pb-4">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <SettingsIcon className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Settings</span>
-      </div>
+      <DashboardPageHeader
+        icon={<SettingsIcon className="size-4 text-muted-foreground" />}
+        title="Settings"
+      />
       <div className="px-4 flex flex-col gap-0">
         {[1, 2].map((i) => (
           <div key={i} className="flex items-center justify-between gap-4 py-4">
@@ -363,10 +368,10 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-2 pb-4">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <SettingsIcon className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Settings</span>
-      </div>
+      <DashboardPageHeader
+        icon={<SettingsIcon className="size-4 text-muted-foreground" />}
+        title="Settings"
+      />
 
       <div className="px-4 flex flex-col gap-0">
         {visibleFields.map(([key, meta], i) => (

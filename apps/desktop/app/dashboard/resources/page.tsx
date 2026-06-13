@@ -12,6 +12,8 @@ import {
 import { Activity, ArrowLeft, Loader2, Plus, Radio } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IResource } from "@/lib/data-types";
@@ -212,10 +214,11 @@ export default function ResourcesPage() {
   if (loadingSettings || !API || initialLoading) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <div className="h-4 w-32 bg-muted rounded animate-pulse flex-1" />
+        <DashboardPageHeader
+          title={<div className="h-4 w-32 bg-muted rounded animate-pulse" />}
+        >
           <div className="h-7 w-24 bg-muted rounded animate-pulse" />
-        </div>
+        </DashboardPageHeader>
         <div className="flex-1 overflow-auto">
           {Array.from({ length: 5 }).map((_, i) => (
             <div
@@ -250,6 +253,7 @@ export default function ResourcesPage() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
+        <SidebarTrigger className="-ml-1 size-7 md:hidden" />
         {selectedResource ? (
           <>
             <Button

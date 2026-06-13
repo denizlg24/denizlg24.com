@@ -39,6 +39,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IBlog } from "@/lib/data-types";
@@ -69,10 +70,10 @@ function formatRelativeDate(dateStr: string): string {
 function BlogLoadingSkeleton() {
   return (
     <div className="flex flex-col gap-2 pb-8">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <NotebookPen className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Blog Posts</span>
-      </div>
+      <DashboardPageHeader
+        icon={<NotebookPen className="size-4 text-muted-foreground" />}
+        title="Blog Posts"
+      />
       <div className="px-4 flex flex-col gap-6 pt-3">
         <div className="flex items-baseline gap-8">
           {[1, 2, 3].map((i) => (
@@ -327,10 +328,10 @@ export default function BlogPage() {
   if (!api) {
     return (
       <div className="flex flex-col gap-2 pb-8">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <NotebookPen className="size-4 text-muted-foreground" />
-          <span className="text-sm font-semibold flex-1">Blog Posts</span>
-        </div>
+        <DashboardPageHeader
+          icon={<NotebookPen className="size-4 text-muted-foreground" />}
+          title="Blog Posts"
+        />
         <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
           Failed to initialize API client.
         </div>
@@ -340,9 +341,10 @@ export default function BlogPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <NotebookPen className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Blog Posts</span>
+      <DashboardPageHeader
+        icon={<NotebookPen className="size-4 text-muted-foreground" />}
+        title="Blog Posts"
+      >
         <Button
           variant="ghost"
           size="sm"
@@ -361,7 +363,7 @@ export default function BlogPage() {
             New Post
           </Link>
         </Button>
-      </div>
+      </DashboardPageHeader>
 
       <div className="px-4 flex flex-1 min-h-0 flex-col gap-4 overflow-hidden pt-3 pb-8">
         <div className="flex items-baseline gap-8 flex-wrap">

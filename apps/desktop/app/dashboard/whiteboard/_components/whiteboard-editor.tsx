@@ -4,11 +4,14 @@ import { Spinner } from "@repo/ui/spinner";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
 import { useWhiteboardCanvas } from "@/hooks/use-whiteboard-canvas";
 import { useWhiteboardHistory } from "@/hooks/use-whiteboard-history";
 import { denizApi } from "@/lib/api-wrapper";
 import type { IWhiteboard, IWhiteboardElement } from "@/lib/data-types";
+import { isTauri } from "@/lib/platform";
+import { saveFile } from "@/lib/platform-fs";
 import { extractDirectory } from "@/lib/user-settings";
 import { cn } from "@/lib/utils";
 import type {
@@ -341,6 +344,13 @@ export function WhiteboardEditor({
       if (!pngBlob) return;
 
       const fileName = `${whiteboard?.name ?? "whiteboard"}.png`;
+      const bytes = new Uint8Array(await pngBlob.arrayBuffer());
+
+      if (!isTauri()) {
+        await saveFile(fileName, bytes, { mimeType: "image/png" });
+        return;
+      }
+
       const defaultDir = settings.defaultWhiteboardDownloadPath;
       const defaultPath = defaultDir ? `${defaultDir}${fileName}` : fileName;
 
@@ -355,8 +365,7 @@ export function WhiteboardEditor({
         setSettings({ defaultWhiteboardDownloadPath: dir });
       }
 
-      const arrayBuffer = await pngBlob.arrayBuffer();
-      await writeFile(path, new Uint8Array(arrayBuffer));
+      await writeFile(path, bytes);
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -568,6 +577,7 @@ export function WhiteboardEditor({
       onDrop={handleDrop}
       onDragOver={handleDragOver}
     >
+      <SidebarTrigger className="absolute left-2 top-2 z-20 size-7 bg-background/80 md:hidden" />
       <WhiteboardCanvas
         elements={history.elements}
         viewState={canvas.viewState}

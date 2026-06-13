@@ -6,6 +6,7 @@ import { ArrowLeft, Briefcase, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import { TimelineForm } from "../_components/timeline-form";
@@ -29,15 +30,17 @@ export default function NewTimelinePage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" asChild>
-          <Link href="/dashboard/timeline">
-            <ArrowLeft className="size-4" />
-          </Link>
-        </Button>
-        <Briefcase className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">New Timeline Item</span>
-      </div>
+      <DashboardPageHeader
+        leading={
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" asChild>
+            <Link href="/dashboard/timeline">
+              <ArrowLeft className="size-4" />
+            </Link>
+          </Button>
+        }
+        icon={<Briefcase className="size-4 text-muted-foreground" />}
+        title="New Timeline Item"
+      />
 
       <ScrollArea className="flex-1 min-h-0">
         <div className="px-4 py-4">

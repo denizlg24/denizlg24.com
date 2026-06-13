@@ -61,6 +61,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type { ITimelineItem } from "@/lib/data-types";
@@ -95,10 +96,10 @@ function formatDateRange(from: string, to?: string): string {
 function TimelineLoadingSkeleton() {
   return (
     <div className="flex flex-col gap-2 pb-8">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Briefcase className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Timeline</span>
-      </div>
+      <DashboardPageHeader
+        icon={<Briefcase className="size-4 text-muted-foreground" />}
+        title="Timeline"
+      />
       <div className="px-4 flex flex-col gap-6 pt-3">
         <StatStripSkeleton count={4} />
         <TabStripSkeleton widths={["w-10", "w-14", "w-20", "w-16"]} />
@@ -275,10 +276,10 @@ export default function TimelinePage() {
   if (!api) {
     return (
       <div className="flex flex-col gap-2 pb-8">
-        <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-          <Briefcase className="size-4 text-muted-foreground" />
-          <span className="text-sm font-semibold flex-1">Timeline</span>
-        </div>
+        <DashboardPageHeader
+          icon={<Briefcase className="size-4 text-muted-foreground" />}
+          title="Timeline"
+        />
         <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
           Failed to initialize API client.
         </div>
@@ -288,10 +289,10 @@ export default function TimelinePage() {
 
   return (
     <div className="flex flex-col gap-2 pb-8 h-full">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Briefcase className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Timeline</span>
-
+      <DashboardPageHeader
+        icon={<Briefcase className="size-4 text-muted-foreground" />}
+        title="Timeline"
+      >
         {hasOrderChanges && (
           <>
             <Button
@@ -338,7 +339,7 @@ export default function TimelinePage() {
             New Item
           </Link>
         </Button>
-      </div>
+      </DashboardPageHeader>
 
       <div className="px-4 flex flex-col gap-4 pt-3 flex-1 min-h-0 overflow-y-auto">
         <div className="flex items-baseline gap-8 flex-wrap">
