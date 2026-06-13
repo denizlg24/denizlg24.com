@@ -170,6 +170,7 @@ export default function TriagePage() {
       },
       {
         id: "suggestions",
+        meta: { className: "hidden md:table-cell" },
         header: "Suggestions",
         cell: ({ row }) => {
           const t = row.original.suggestedTasks.length;
@@ -187,6 +188,7 @@ export default function TriagePage() {
       },
       {
         id: "confidence",
+        meta: { className: "hidden md:table-cell" },
         header: "Confidence",
         cell: ({ row }) => (
           <span className="text-xs tabular-nums">
@@ -196,6 +198,7 @@ export default function TriagePage() {
       },
       {
         id: "triagedAt",
+        meta: { className: "hidden lg:table-cell" },
         header: "Triaged",
         cell: ({ row }) => (
           <span className="text-xs text-muted-foreground tabular-nums">
@@ -235,6 +238,7 @@ export default function TriagePage() {
 
       <div className="px-4 flex flex-1 min-h-0 flex-col gap-4 overflow-hidden pt-3 pb-8">
         <Tabs
+          className="min-w-0"
           value={filter}
           onValueChange={(value) => {
             if (isTriageFilter(value) && value !== filter) {
@@ -243,7 +247,10 @@ export default function TriagePage() {
             }
           }}
         >
-          <TabsList variant="line">
+          <TabsList
+            variant="line"
+            className="max-w-full justify-start overflow-x-auto"
+          >
             {FILTERS.map((f) => (
               <TabsTrigger key={f.value} value={f.value}>
                 {f.label}

@@ -293,16 +293,16 @@ export default function PeoplePage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center justify-between border-b px-4">
-        <div className="flex items-center gap-2">
+      <div className="flex min-h-12 flex-wrap items-center justify-between gap-2 border-b px-4 py-2 md:h-12 md:flex-nowrap md:py-0">
+        <div className="flex w-full items-center gap-2 md:w-auto">
           <SidebarTrigger className="-ml-1 size-7 md:hidden" />
           <UsersRound className="size-4" />
           <h1 className="text-sm font-medium">People</h1>
-          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground md:ml-0">
             {sortedPeople.length} / {people.length} · {groups.length} groups
           </span>
         </div>
-        <div className="ml-2 flex grow items-center gap-2">
+        <div className="flex w-full grow items-center gap-2 md:ml-2 md:w-auto">
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -338,7 +338,7 @@ export default function PeoplePage() {
             onClick={() => setCreatingGroup(true)}
           >
             <FolderPlus className="size-3.5" />
-            Group
+            <span className="hidden lg:inline">Group</span>
           </Button>
           <Button
             size="sm"
@@ -346,7 +346,7 @@ export default function PeoplePage() {
             onClick={() => router.push("/dashboard/people/new")}
           >
             <UserPlus className="size-3.5" />
-            Person
+            <span className="hidden lg:inline">Person</span>
           </Button>
         </div>
       </div>

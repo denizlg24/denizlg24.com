@@ -468,7 +468,7 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
 
   return (
     <>
-      <div className="flex gap-4 p-4 h-full items-start w-full max-w-[calc(100vw-32rem)]">
+      <div className="flex h-full w-max min-w-full items-start gap-4 p-3 sm:p-4">
         {columns.map((col) => (
           <KanbanColumn
             key={col._id}

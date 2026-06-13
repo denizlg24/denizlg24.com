@@ -29,7 +29,7 @@ export function BlogEditorSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="sm:max-w-2xl overflow-hidden p-0">
+      <SheetContent className="w-full sm:max-w-2xl overflow-hidden p-0">
         <SheetHeader className="px-4 pt-4 pb-0">
           <SheetTitle className="text-sm">Edit Post</SheetTitle>
           <SheetDescription className="sr-only">

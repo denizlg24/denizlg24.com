@@ -88,7 +88,7 @@ export function WhiteboardTopBar({
   );
 
   return (
-    <div className="absolute cursor-auto top-2 left-1/2 -translate-x-1/2 z-50 border bg-surface shadow-xs rounded-full py-2 px-3 flex flex-row items-center gap-2">
+    <div className="absolute cursor-auto top-2 left-2 right-2 z-50 mx-auto flex max-w-max flex-row items-center gap-2 overflow-x-auto rounded-full border bg-surface px-3 py-2 shadow-xs sm:left-1/2 sm:right-auto sm:-translate-x-1/2">
       {onBack && (
         <>
           <Button

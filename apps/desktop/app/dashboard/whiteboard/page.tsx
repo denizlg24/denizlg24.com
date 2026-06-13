@@ -162,7 +162,7 @@ export default function Page() {
         </Button>
       </DashboardPageHeader>
       <div className="flex-1 overflow-auto p-6">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {loading &&
             Array.from({ length: 6 }).map((_, i) => (
               <div

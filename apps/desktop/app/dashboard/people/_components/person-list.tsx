@@ -36,13 +36,13 @@ export function PersonList({ people, groups, onSelect, onSelectGroup }: Props) {
 
   return (
     <ScrollArea className="h-full">
-      <div className="min-w-165">
-        <div className="grid grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.5fr)] gap-3 border-b px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="min-w-0 md:min-w-165">
+        <div className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3 border-b px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground md:grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.5fr)]">
           <span />
           <span>Name</span>
-          <span>Birthday</span>
-          <span>Place met</span>
-          <span>Groups</span>
+          <span className="hidden md:block">Birthday</span>
+          <span className="hidden md:block">Place met</span>
+          <span className="hidden md:block">Groups</span>
         </div>
 
         <div className="divide-y">
@@ -56,7 +56,7 @@ export function PersonList({ people, groups, onSelect, onSelectGroup }: Props) {
                 type="button"
                 key={person._id}
                 onClick={() => onSelect(person)}
-                className="grid w-full grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.5fr)] gap-3 px-4 py-3 text-left hover:bg-muted/40"
+                className="grid w-full grid-cols-[2rem_minmax(0,1fr)] gap-3 px-4 py-3 text-left hover:bg-muted/40 md:grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.5fr)]"
               >
                 <div className="pt-0.5">
                   {person.photos[0] ? (
@@ -82,17 +82,17 @@ export function PersonList({ people, groups, onSelect, onSelectGroup }: Props) {
                     {person.notes || "No notes"}
                   </div>
                 </div>
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <div className="hidden items-center gap-1 text-xs text-muted-foreground md:flex">
                   <CalendarDays className="size-3.5" />
                   {formatBirthday(person.birthday)}
                 </div>
-                <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                <div className="hidden min-w-0 items-center gap-1 text-xs text-muted-foreground md:flex">
                   <MapPin className="size-3.5 shrink-0" />
                   <span className="truncate">
                     {person.placeMet || "Unknown"}
                   </span>
                 </div>
-                <div className="flex flex-wrap content-start gap-1">
+                <div className="hidden flex-wrap content-start gap-1 md:flex">
                   {personGroups.length === 0 ? (
                     <span className="text-[10px] text-muted-foreground">
                       None

@@ -58,7 +58,7 @@ export function AccountSidebar({
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="w-56 shrink-0 border-r flex flex-col h-full">
+      <div className="hidden w-56 shrink-0 border-r flex-col h-full md:flex">
         <div className="p-3 pb-2">
           <button
             type="button"

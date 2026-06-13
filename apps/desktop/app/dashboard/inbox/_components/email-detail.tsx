@@ -158,7 +158,7 @@ export function EmailDetail({
           }
         >
           <Reply className="h-3.5 w-3.5" />
-          Reply
+          <span className="hidden sm:inline">Reply</span>
         </Button>
         <Button
           variant="ghost"
@@ -167,13 +167,13 @@ export function EmailDetail({
           onClick={() => onCompose()}
         >
           <Forward className="h-3.5 w-3.5" />
-          Forward
+          <span className="hidden sm:inline">Forward</span>
         </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="w-full mx-auto px-8 py-6">
-          <h1 className="text-xl font-semibold leading-snug">
+        <div className="w-full mx-auto px-4 py-5 sm:px-8 sm:py-6">
+          <h1 className="text-lg font-semibold leading-snug sm:text-xl">
             {email.subject || "(No Subject)"}
           </h1>
 

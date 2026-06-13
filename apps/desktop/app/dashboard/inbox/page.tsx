@@ -133,6 +133,7 @@ export default function InboxPage() {
               selectedEmailId={selectedEmail?._id ?? null}
               refreshTrigger={refreshTrigger}
               emailListCache={emailListCache}
+              onBack={() => setSelectedAccountId(null)}
             />
 
             <div className="absolute bottom-6 right-6">
@@ -218,7 +219,7 @@ function AccountsOverview({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-6 py-3 border-b shrink-0">
+      <div className="flex items-center justify-between gap-2 px-3 py-3 border-b shrink-0 sm:px-6">
         <div className="flex items-center gap-2">
           <SidebarTrigger className="-ml-1 size-7 md:hidden" />
           <div>
@@ -241,11 +242,11 @@ function AccountsOverview({
             ) : (
               <RefreshCw className="h-3.5 w-3.5" />
             )}
-            Sync All
+            <span className="hidden sm:inline">Sync All</span>
           </Button>
           <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={onCompose}>
             <Pencil className="h-3.5 w-3.5" />
-            Compose
+            <span className="hidden sm:inline">Compose</span>
           </Button>
         </div>
       </div>
@@ -269,7 +270,7 @@ function AccountsOverview({
             </div>
           </div>
         ) : (
-          <div className="p-6">
+          <div className="p-3 sm:p-6">
             <div className="space-y-1">
               {accounts.map((account) => (
                 <button

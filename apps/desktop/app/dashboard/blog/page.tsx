@@ -206,6 +206,7 @@ export default function BlogPage() {
     },
     {
       accessorKey: "tags",
+      meta: { className: "hidden lg:table-cell" },
       header: "Tags",
       cell: ({ row }) => {
         const tags = row.original.tags ?? [];
@@ -247,6 +248,7 @@ export default function BlogPage() {
     },
     {
       accessorKey: "timeToRead",
+      meta: { className: "hidden md:table-cell" },
       header: "Read",
       cell: ({ row }) => (
         <span className="text-muted-foreground tabular-nums">
@@ -256,6 +258,7 @@ export default function BlogPage() {
     },
     {
       accessorKey: "createdAt",
+      meta: { className: "hidden md:table-cell" },
       header: ({ column }) => <SortHeader label="Created" column={column} />,
       cell: ({ row }) => (
         <span className="text-muted-foreground">

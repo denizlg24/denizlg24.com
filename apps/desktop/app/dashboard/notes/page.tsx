@@ -654,17 +654,17 @@ export default function NotesPage() {
 
   return (
     <div className="relative flex h-full flex-col">
-      <div className="flex h-12 items-center justify-between border-b px-4">
-        <div className="flex items-center gap-2">
+      <div className="flex min-h-12 flex-wrap items-center justify-between gap-2 border-b px-4 py-2 md:h-12 md:flex-nowrap md:py-0">
+        <div className="flex w-full items-center gap-2 md:w-auto">
           <SidebarTrigger className="-ml-1 size-7 md:hidden" />
           <FileText className="size-4" />
           <h1 className="text-sm font-medium">Notes</h1>
-          <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+          <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground md:ml-0">
             {sortedNotes.length} / {notes.length} · {groups.length} groups
           </span>
         </div>
 
-        <div className="flex items-center gap-2 grow ml-2">
+        <div className="flex w-full grow items-center gap-2 md:ml-2 md:w-auto">
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -691,7 +691,7 @@ export default function NotesPage() {
             title="Semantic notes"
           >
             <BrainCircuit className="size-3.5" />
-            Semantic
+            <span className="hidden lg:inline">Semantic</span>
           </Button>
 
           <Button
@@ -715,7 +715,7 @@ export default function NotesPage() {
             onClick={() => router.push("/dashboard/notes/new-group")}
           >
             <FolderPlus className="size-3.5" />
-            Group
+            <span className="hidden lg:inline">Group</span>
           </Button>
 
           <Button
@@ -724,7 +724,7 @@ export default function NotesPage() {
             onClick={() => router.push("/dashboard/notes/new")}
           >
             <FilePlus2 className="size-3.5" />
-            Note
+            <span className="hidden lg:inline">Note</span>
           </Button>
         </div>
       </div>

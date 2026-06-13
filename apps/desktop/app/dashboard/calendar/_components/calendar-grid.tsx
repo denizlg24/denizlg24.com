@@ -136,14 +136,14 @@ export function CalendarGrid({
     year === today.getFullYear() && month === today.getMonth();
 
   return (
-    <div className="flex flex-col gap-3 max-w-5xl w-full mx-auto px-4">
+    <div className="flex flex-col gap-3 max-w-5xl w-full mx-auto px-2 sm:px-4">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center">
         <div className="justify-self-start" />
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon-xs" onClick={prevMonth}>
             <ChevronLeft />
           </Button>
-          <h2 className="text-lg font-semibold min-w-40 text-center">
+          <h2 className="min-w-32 text-center text-sm font-semibold sm:min-w-40 sm:text-lg">
             {MONTHS[month]} {year}
           </h2>
           <Button variant="ghost" size="icon-xs" onClick={nextMonth}>
@@ -161,14 +161,14 @@ export function CalendarGrid({
 
       <div className="overflow-x-auto border border-b-0 rounded-lg">
         <div
-          className="grid min-w-140"
+          className="grid min-w-0 md:min-w-140"
           style={{ gridTemplateColumns: "repeat(7, 1fr)" }}
         >
           {DAYS.map((day, index) => (
             <div
               key={day}
               className={cn(
-                "border-b border-r p-2 text-center font-medium text-sm",
+                "border-b border-r p-1 text-center text-[10px] font-medium sm:p-2 sm:text-sm",
                 index === 6 && "border-r-0",
               )}
             >
@@ -187,7 +187,7 @@ export function CalendarGrid({
               <div
                 key={cell.key}
                 className={cn(
-                  "relative border-b border-r aspect-square p-1.5 text-left transition-colors overflow-hidden flex flex-col gap-1 pt-8",
+                  "relative border-b border-r aspect-square p-1 text-left transition-colors overflow-hidden flex flex-col gap-1 pt-6 sm:p-1.5 sm:pt-8",
                   "last:border-r-0 nth-[7n]:border-r-0",
                   cell.day === null
                     ? "bg-muted/30 cursor-default"
@@ -214,6 +214,7 @@ export function CalendarGrid({
 
                     {dayEvents.length > 0 && (
                       <div className="flex flex-col gap-0.5 overflow-hidden min-w-0 w-full">
+                        <span className="mx-auto size-1.5 rounded-full bg-accent-strong md:hidden" />
                         {dayEvents.slice(0, 5).map((event) => (
                           <button
                             type="button"
@@ -223,7 +224,7 @@ export function CalendarGrid({
                               onEventClick?.(event);
                             }}
                             className={cn(
-                              "relative z-10 text-[10px] leading-tight text-left rounded px-1 py-0.5 transition-opacity hover:opacity-80 overflow-hidden text-ellipsis whitespace-nowrap min-w-0",
+                              "relative z-10 hidden text-[10px] leading-tight text-left rounded px-1 py-0.5 transition-opacity hover:opacity-80 overflow-hidden text-ellipsis whitespace-nowrap min-w-0 md:block",
                               eventKindClass(event),
                               event.status === "completed" &&
                                 "bg-accent text-accent-strong line-through opacity-60",
@@ -242,7 +243,7 @@ export function CalendarGrid({
                           </button>
                         ))}
                         {dayEvents.length > 5 && (
-                          <span className="text-[10px] text-muted-foreground px-1">
+                          <span className="hidden text-[10px] text-muted-foreground px-1 md:inline">
                             +{dayEvents.length - 5} more
                           </span>
                         )}

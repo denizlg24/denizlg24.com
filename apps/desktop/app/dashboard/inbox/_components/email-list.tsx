@@ -3,9 +3,10 @@
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { format, isToday, isYesterday } from "date-fns";
-import { Loader2, Mail, RefreshCw, Search, X } from "lucide-react";
+import { ArrowLeft, Loader2, Mail, RefreshCw, Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { IEmail } from "@/lib/data-types";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ interface EmailListProps {
   selectedEmailId: string | null;
   refreshTrigger: number;
   emailListCache: React.RefObject<Map<string, IEmail[]>>;
+  onBack: () => void;
 }
 
 const PAGE_SIZE = 50;
@@ -46,6 +48,7 @@ export function EmailList({
   selectedEmailId,
   refreshTrigger,
   emailListCache,
+  onBack,
 }: EmailListProps) {
   const cached = emailListCache.current.get(accountId);
   const [emails, setEmails] = useState<IEmail[]>(cached ?? []);
@@ -173,15 +176,26 @@ export function EmailList({
   return (
     <div className="flex flex-col h-full">
       <div className="px-5 py-3 border-b shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold truncate">{accountName}</h2>
-            {!loading && (
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                {total} messages
-                {unreadCount > 0 && `, ${unreadCount} unread`}
-              </p>
-            )}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1">
+            <SidebarTrigger className="size-7 md:hidden" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 md:hidden"
+              onClick={onBack}
+            >
+              <ArrowLeft className="size-4" />
+            </Button>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold truncate">{accountName}</h2>
+              {!loading && (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {total} messages
+                  {unreadCount > 0 && `, ${unreadCount} unread`}
+                </p>
+              )}
+            </div>
           </div>
           <Button
             variant="ghost"

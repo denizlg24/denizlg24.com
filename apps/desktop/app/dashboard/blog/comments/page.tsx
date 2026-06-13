@@ -279,6 +279,7 @@ export default function CommentsPage() {
     },
     {
       accessorKey: "blogTitle",
+      meta: { className: "hidden md:table-cell" },
       header: "Post",
       cell: ({ row }) => (
         <span className="text-muted-foreground truncate block max-w-[150px]">
@@ -288,6 +289,7 @@ export default function CommentsPage() {
     },
     {
       accessorKey: "content",
+      meta: { className: "hidden lg:table-cell" },
       header: "Content",
       cell: ({ row }) => (
         <span className="text-muted-foreground truncate block max-w-[250px]">
@@ -309,6 +311,7 @@ export default function CommentsPage() {
     },
     {
       accessorKey: "createdAt",
+      meta: { className: "hidden md:table-cell" },
       header: ({ column }) => <SortHeader label="Date" column={column} />,
       cell: ({ row }) => (
         <span className="text-muted-foreground">

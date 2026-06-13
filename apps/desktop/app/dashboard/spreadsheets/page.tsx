@@ -12,14 +12,7 @@ import {
 } from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import { SortHeader } from "@repo/ui/data-table";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/dialog";
+import { DialogFooter } from "@repo/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +22,7 @@ import {
 } from "@repo/ui/dropdown-menu";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
+import { ResponsiveDialog } from "@repo/ui/responsive-dialog";
 import { Separator } from "@repo/ui/separator";
 import { StatStripSkeleton, TableSkeleton } from "@repo/ui/skeleton-blocks";
 import {
@@ -280,6 +274,7 @@ export default function SpreadsheetsPage() {
       },
       {
         accessorKey: "sheetCount",
+        meta: { className: "hidden md:table-cell" },
         header: "Sheets",
         cell: ({ row }) => (
           <span className="text-muted-foreground tabular-nums">
@@ -289,6 +284,7 @@ export default function SpreadsheetsPage() {
       },
       {
         id: "dimensions",
+        meta: { className: "hidden lg:table-cell" },
         header: "Size",
         cell: ({ row }) => (
           <span className="text-muted-foreground tabular-nums">
@@ -298,6 +294,7 @@ export default function SpreadsheetsPage() {
       },
       {
         accessorKey: "sizeBytes",
+        meta: { className: "hidden lg:table-cell" },
         header: ({ column }) => <SortHeader label="Bytes" column={column} />,
         cell: ({ row }) => (
           <span className="text-muted-foreground tabular-nums">
@@ -407,7 +404,7 @@ export default function SpreadsheetsPage() {
           disabled={importing}
         >
           <FileUp className={`size-3.5 ${importing ? "animate-pulse" : ""}`} />
-          Import
+          <span className="hidden sm:inline">Import</span>
         </Button>
         <Button
           variant="ghost"
@@ -416,7 +413,7 @@ export default function SpreadsheetsPage() {
           onClick={() => setCreateOpen(true)}
         >
           <Plus className="size-3.5" />
-          New
+          <span className="hidden sm:inline">New</span>
         </Button>
         <Button
           variant="ghost"
@@ -428,7 +425,7 @@ export default function SpreadsheetsPage() {
           }}
         >
           <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
+          <span className="hidden sm:inline">Refresh</span>
         </Button>
       </DashboardPageHeader>
 
@@ -446,7 +443,10 @@ export default function SpreadsheetsPage() {
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} className="text-xs">
+                  <TableHead
+                    key={header.id}
+                    className={`text-xs ${header.column.columnDef.meta?.className ?? ""}`}
+                  >
                     {header.isPlaceholder
                       ? null
                       : flexRender(
@@ -471,7 +471,10 @@ export default function SpreadsheetsPage() {
                   }
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="text-xs">
+                    <TableCell
+                      key={cell.id}
+                      className={`text-xs ${cell.column.columnDef.meta?.className ?? ""}`}
+                    >
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),
@@ -517,60 +520,57 @@ export default function SpreadsheetsPage() {
         </Table>
       </div>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New spreadsheet</DialogTitle>
-            <DialogDescription>
-              Blank workbook. You can rename and fill it next.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Title</Label>
-              <Input
-                value={createTitle}
-                onChange={(e) => setCreateTitle(e.target.value)}
-                placeholder="Monthly budget"
-                autoFocus
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Description</Label>
-              <Textarea
-                value={createDescription}
-                onChange={(e) => setCreateDescription(e.target.value)}
-                placeholder="Optional"
-                rows={2}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Tags</Label>
-              <Input
-                value={createTags}
-                onChange={(e) => setCreateTags(e.target.value)}
-                placeholder="finance, personal (comma-separated)"
-              />
-            </div>
+      <ResponsiveDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        title="New spreadsheet"
+        description="Blank workbook. You can rename and fill it next."
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs">Title</Label>
+            <Input
+              value={createTitle}
+              onChange={(e) => setCreateTitle(e.target.value)}
+              placeholder="Monthly budget"
+              autoFocus
+            />
           </div>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setCreateOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleCreate}
-              disabled={creating || !createTitle.trim()}
-            >
-              {creating ? "Creating..." : "Create"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs">Description</Label>
+            <Textarea
+              value={createDescription}
+              onChange={(e) => setCreateDescription(e.target.value)}
+              placeholder="Optional"
+              rows={2}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs">Tags</Label>
+            <Input
+              value={createTags}
+              onChange={(e) => setCreateTags(e.target.value)}
+              placeholder="finance, personal (comma-separated)"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCreateOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleCreate}
+            disabled={creating || !createTitle.trim()}
+          >
+            {creating ? "Creating..." : "Create"}
+          </Button>
+        </DialogFooter>
+      </ResponsiveDialog>
 
       <AlertDialog
         open={!!deleteTarget}

@@ -17,6 +17,7 @@ import {
 } from "@repo/ui/dropdown-menu";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
+import { ResponsiveDialog } from "@repo/ui/responsive-dialog";
 import { Textarea } from "@repo/ui/textarea";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -147,7 +148,7 @@ function TemplatePicker({
   onSelect: (id: string) => void;
 }) {
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
       {TEMPLATES.map((t) => (
         <button
           key={t.id}
@@ -350,7 +351,7 @@ export default function KanbanPage() {
           <div className="h-7 w-24 bg-muted rounded animate-pulse" />
         </DashboardPageHeader>
         <div className="flex-1 overflow-auto p-6">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
               <div
                 key={i}
@@ -429,7 +430,7 @@ export default function KanbanPage() {
         </div>
       ) : (
         <div className="flex-1 overflow-auto p-6">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {boards.map((board) => (
               <div
                 key={board._id}
@@ -507,7 +508,7 @@ export default function KanbanPage() {
         </div>
       )}
 
-      <Dialog
+      <ResponsiveDialog
         open={createOpen}
         onOpenChange={(open) => {
           setCreateOpen(open);
@@ -518,131 +519,122 @@ export default function KanbanPage() {
             setNewColor(BOARD_COLORS[0]);
           }
         }}
+        title="New Board"
+        description="Choose a template or start blank."
+        className="sm:max-w-lg"
       >
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>New Board</DialogTitle>
-            <DialogDescription>
-              Choose a template or start blank.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex flex-col gap-5">
-            <div className="flex flex-col gap-2">
-              <Label className="text-xs text-muted-foreground uppercase tracking-wide">
-                Template
-              </Label>
-              <TemplatePicker
-                selected={selectedTemplate}
-                onSelect={handleTemplateSelect}
-              />
-            </div>
-
-            <div className="flex flex-col gap-4 pt-1 border-t">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="create-title">Board name</Label>
-                <Input
-                  id="create-title"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder={
-                    TEMPLATES.find((t) => t.id === selectedTemplate)?.name ??
-                    "e.g. Project Alpha"
-                  }
-                  onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="create-desc">
-                  Description{" "}
-                  <span className="text-muted-foreground font-normal">
-                    (optional)
-                  </span>
-                </Label>
-                <Textarea
-                  id="create-desc"
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  placeholder="What is this board for?"
-                  rows={2}
-                  className="resize-none"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>Color</Label>
-                <ColorPicker value={newColor} onChange={setNewColor} />
-              </div>
-            </div>
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+              Template
+            </Label>
+            <TemplatePicker
+              selected={selectedTemplate}
+              onSelect={handleTemplateSelect}
+            />
           </div>
 
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setCreateOpen(false)}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreate}
-              disabled={isSubmitting || !newTitle.trim()}
-            >
-              {isSubmitting ? "Creating…" : "Create Board"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={!!editingBoard}
-        onOpenChange={(open) => !open && setEditingBoard(null)}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Board</DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 pt-1 border-t">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-title">Title</Label>
+              <Label htmlFor="create-title">Board name</Label>
               <Input
-                id="edit-title"
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
+                id="create-title"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder={
+                  TEMPLATES.find((t) => t.id === selectedTemplate)?.name ??
+                  "e.g. Project Alpha"
+                }
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-desc">Description</Label>
+              <Label htmlFor="create-desc">
+                Description{" "}
+                <span className="text-muted-foreground font-normal">
+                  (optional)
+                </span>
+              </Label>
               <Textarea
-                id="edit-desc"
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
+                id="create-desc"
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                placeholder="What is this board for?"
                 rows={2}
                 className="resize-none"
               />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Color</Label>
-              <ColorPicker value={editColor} onChange={setEditColor} />
+              <ColorPicker value={newColor} onChange={setNewColor} />
             </div>
           </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setEditingBoard(null)}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleUpdate}
-              disabled={isSubmitting || !editTitle.trim()}
-            >
-              {isSubmitting ? "Saving…" : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setCreateOpen(false)}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCreate}
+            disabled={isSubmitting || !newTitle.trim()}
+          >
+            {isSubmitting ? "Creating…" : "Create Board"}
+          </Button>
+        </DialogFooter>
+      </ResponsiveDialog>
+
+      <ResponsiveDialog
+        open={!!editingBoard}
+        onOpenChange={(open) => !open && setEditingBoard(null)}
+        title="Edit Board"
+        className="sm:max-w-md"
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="edit-title">Title</Label>
+            <Input
+              id="edit-title"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="edit-desc">Description</Label>
+            <Textarea
+              id="edit-desc"
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              rows={2}
+              className="resize-none"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Color</Label>
+            <ColorPicker value={editColor} onChange={setEditColor} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setEditingBoard(null)}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleUpdate}
+            disabled={isSubmitting || !editTitle.trim()}
+          >
+            {isSubmitting ? "Saving…" : "Save Changes"}
+          </Button>
+        </DialogFooter>
+      </ResponsiveDialog>
 
       <Dialog
         open={!!deleteTarget}

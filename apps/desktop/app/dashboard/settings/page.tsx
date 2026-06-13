@@ -65,7 +65,7 @@ function SettingsFieldRow({
     return (
       <div
         key={fieldKey}
-        className="flex items-center justify-between gap-4 py-4"
+        className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
       >
         <div className="flex flex-col gap-1">
           <Label className="text-sm font-medium">{meta.label}</Label>
@@ -83,14 +83,14 @@ function SettingsFieldRow({
     return (
       <div
         key={fieldKey}
-        className="flex items-center justify-between gap-4 py-4"
+        className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
       >
         <div className="flex flex-col gap-1 shrink-0">
           <Label className="text-sm font-medium">{meta.label}</Label>
           <p className="text-xs text-muted-foreground">{meta.description}</p>
         </div>
         <Select value={value as string} onValueChange={(val) => onChange(val)}>
-          <SelectTrigger className="w-xs">
+          <SelectTrigger className="w-full sm:w-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent position="popper">
@@ -118,13 +118,13 @@ function SettingsFieldRow({
     return (
       <div
         key={fieldKey}
-        className="flex items-center justify-between gap-4 py-4"
+        className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
       >
         <div className="flex flex-col gap-1 shrink-0">
           <Label className="text-sm font-medium">{meta.label}</Label>
           <p className="text-xs text-muted-foreground">{meta.description}</p>
         </div>
-        <div className="flex items-center gap-1.5 max-w-xs w-full">
+        <div className="flex w-full items-center gap-1.5 sm:max-w-xs">
           <Input
             ref={inputRef}
             type="text"
@@ -152,7 +152,7 @@ function SettingsFieldRow({
   return (
     <div
       key={fieldKey}
-      className="flex items-center justify-between gap-4 py-4"
+      className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
     >
       <div className="flex flex-col gap-1 shrink-0">
         <Label className="text-sm font-medium">{meta.label}</Label>
@@ -165,7 +165,7 @@ function SettingsFieldRow({
         onChange={(e) => setLocalValue(e.target.value)}
         onBlur={commitText}
         onKeyDown={handleKeyDown}
-        className="max-w-xs"
+        className="w-full sm:max-w-xs"
         placeholder={`Enter ${meta.label.toLowerCase()}...`}
       />
     </div>
@@ -280,7 +280,7 @@ function CalendarSyncSettings({ api }: { api: denizApi | null }) {
   };
 
   return (
-    <div className="flex items-center justify-between gap-4 py-4">
+    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="flex flex-col gap-1 shrink-0">
         <Label className="text-sm font-medium">Calendar sync</Label>
         <p className="text-xs text-muted-foreground">
@@ -295,7 +295,7 @@ function CalendarSyncSettings({ api }: { api: denizApi | null }) {
             <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
           )}
           <Select value={selectedCountry} onValueChange={commit}>
-            <SelectTrigger className="w-xs">
+            <SelectTrigger className="w-full sm:w-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent position="popper" className="max-h-72">

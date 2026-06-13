@@ -144,7 +144,7 @@ export default function TriageSettingsPage() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1">
             <Label className="text-xs">Interval (minutes)</Label>
             <Input
@@ -170,7 +170,7 @@ export default function TriageSettingsPage() {
               className="h-8 text-xs"
             />
           </div>
-          <div className="flex flex-col gap-1 col-span-2">
+          <div className="flex flex-col gap-1 sm:col-span-2">
             <Label className="text-xs">Full triage model</Label>
             <Input
               value={data.fullModel}

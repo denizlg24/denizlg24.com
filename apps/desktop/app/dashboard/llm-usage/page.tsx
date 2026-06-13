@@ -83,6 +83,7 @@ const requestColumns: ColumnDef<LlmRecentRequest>[] = [
   },
   {
     accessorKey: "source",
+    meta: { className: "hidden md:table-cell" },
     header: "Source",
     filterFn: "equalsString",
     cell: ({ row }) => (
@@ -93,6 +94,7 @@ const requestColumns: ColumnDef<LlmRecentRequest>[] = [
   },
   {
     accessorKey: "inputTokens",
+    meta: { className: "hidden md:table-cell" },
     header: ({ column }) => (
       <div className="text-right">
         <SortHeader label="Input" column={column} />
@@ -106,6 +108,7 @@ const requestColumns: ColumnDef<LlmRecentRequest>[] = [
   },
   {
     accessorKey: "outputTokens",
+    meta: { className: "hidden md:table-cell" },
     header: ({ column }) => (
       <div className="text-right">
         <SortHeader label="Output" column={column} />
@@ -168,6 +171,7 @@ const modelColumns: ColumnDef<LlmModelBreakdown>[] = [
   },
   {
     accessorKey: "inputTokens",
+    meta: { className: "hidden md:table-cell" },
     header: ({ column }) => (
       <div className="text-right">
         <SortHeader label="Input" column={column} />
@@ -181,6 +185,7 @@ const modelColumns: ColumnDef<LlmModelBreakdown>[] = [
   },
   {
     accessorKey: "outputTokens",
+    meta: { className: "hidden md:table-cell" },
     header: ({ column }) => (
       <div className="text-right">
         <SortHeader label="Output" column={column} />
@@ -232,6 +237,7 @@ const sourceColumns: ColumnDef<LlmSourceBreakdown>[] = [
   },
   {
     accessorKey: "inputTokens",
+    meta: { className: "hidden md:table-cell" },
     header: ({ column }) => (
       <div className="text-right">
         <SortHeader label="Input" column={column} />
@@ -245,6 +251,7 @@ const sourceColumns: ColumnDef<LlmSourceBreakdown>[] = [
   },
   {
     accessorKey: "outputTokens",
+    meta: { className: "hidden md:table-cell" },
     header: ({ column }) => (
       <div className="text-right">
         <SortHeader label="Output" column={column} />
