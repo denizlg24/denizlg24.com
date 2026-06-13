@@ -1,4 +1,5 @@
 import { Button } from "@repo/ui/button";
+import { Skeleton } from "@repo/ui/skeleton";
 import { Inbox } from "lucide-react";
 import Link from "next/link";
 
@@ -21,7 +22,23 @@ export default function InboxLoading() {
         </nav>
       </div>
 
-      <div className="border-t grow w-full lg:pl-64 h-full p-4 sm:p-6"></div>
+      <div className="h-full w-full grow border-t p-4 sm:p-6 lg:pl-70">
+        <div className="space-y-3">
+          <Skeleton className="h-8 w-40" />
+          {[1, 2, 3, 4].map((item) => (
+            <div
+              key={item}
+              className="flex items-center gap-3 rounded-md border p-3"
+            >
+              <Skeleton className="size-9 shrink-0 rounded-full" />
+              <div className="flex flex-1 flex-col gap-2">
+                <Skeleton className="h-4 w-full max-w-48" />
+                <Skeleton className="h-3 w-full max-w-72" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </main>
   );
 }

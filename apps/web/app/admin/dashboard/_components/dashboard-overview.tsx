@@ -1,7 +1,6 @@
 "use client";
 
 import type { UpcomingCard, UpcomingKanbanResult } from "@repo/schemas";
-import { Skeleton } from "@repo/ui/skeleton";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   AlertCircle,
@@ -20,6 +19,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { DashboardOverviewSkeleton } from "./dashboard-overview-skeleton";
 
 function formatDueLabel(card: UpcomingCard) {
   if (card.overdue) return "overdue";
@@ -295,34 +295,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function LoadingSkeleton() {
-  return (
-    <div className="w-full flex flex-col gap-10">
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-4 w-48" />
-      </div>
-      <div className="flex justify-center gap-8">
-        {[...Array(5)].map((_, i) => (
-          <div key={i} className="flex flex-col items-center gap-2">
-            <Skeleton className="h-12 w-12" />
-            <Skeleton className="h-3 w-16" />
-          </div>
-        ))}
-      </div>
-      <Skeleton className="h-px w-full" />
-      <div className="space-y-3">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="flex gap-4">
-            <Skeleton className="h-4 w-12" />
-            <Skeleton className="h-4 flex-1" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export function DashboardOverview() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [upcoming, setUpcoming] = useState<UpcomingKanbanResult | null>(null);
@@ -347,7 +319,7 @@ export function DashboardOverview() {
     fetchStats();
   }, [fetchStats]);
 
-  if (loading) return <LoadingSkeleton />;
+  if (loading) return <DashboardOverviewSkeleton />;
 
   if (!stats) {
     return (

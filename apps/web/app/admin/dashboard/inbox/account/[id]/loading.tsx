@@ -1,4 +1,5 @@
 import { Button } from "@repo/ui/button";
+import { Skeleton } from "@repo/ui/skeleton";
 import { Inbox } from "lucide-react";
 import Link from "next/link";
 
@@ -25,8 +26,17 @@ export default function AccountInboxLoading() {
         <div className="border-b p-3 sm:p-4 flex items-center justify-between gap-2">
           <h1 className="text-xl sm:text-2xl font-semibold">Inbox</h1>
         </div>
-        <div className="flex-1 flex items-center justify-center py-12 text-sm text-muted-foreground animate-pulse">
-          Loading emails...
+        <div className="flex flex-col">
+          {[1, 2, 3, 4, 5].map((item) => (
+            <div key={item} className="flex items-center gap-3 border-b p-4">
+              <Skeleton className="size-8 shrink-0 rounded-full" />
+              <div className="flex flex-1 flex-col gap-2">
+                <Skeleton className="h-4 w-full max-w-52" />
+                <Skeleton className="h-3 w-full max-w-md" />
+              </div>
+              <Skeleton className="h-3 w-16 shrink-0" />
+            </div>
+          ))}
         </div>
       </div>
     </main>
