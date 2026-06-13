@@ -47,7 +47,7 @@
   },
   "productName": "denizlg24 - Life Dashboard",
   "mainBinaryName": "denizlg24-app",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "identifier": "app.denizlg24.com",
   "plugins": {},
   "app": {
