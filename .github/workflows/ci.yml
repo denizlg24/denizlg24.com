@@ -39,6 +39,7 @@ jobs:
       REVALIDATE_SECRET: "ci-revalidate-secret"
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: "denizlg24"
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
     steps:
       - name: Check out code
         uses: actions/checkout@v6
