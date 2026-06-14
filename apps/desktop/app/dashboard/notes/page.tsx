@@ -44,8 +44,8 @@ import { classifyNoteLocally } from "@/lib/semantic/classify-note";
 import { GroupDetail } from "./_components/group-detail";
 import { GroupTreeCombobox } from "./_components/group-tree-combobox";
 import { NoteDetail } from "./_components/note-detail";
+import { NoteFolderView } from "./_components/note-folder-view";
 import { getNoteGroupIds, NoteGraph } from "./_components/note-graph";
-import { NoteList } from "./_components/note-list";
 import { SemanticPanel } from "./_components/semantic-panel";
 
 type View = "graph" | "list";
@@ -864,7 +864,7 @@ export default function NotesPage() {
             }}
           />
         ) : (
-          <NoteList
+          <NoteFolderView
             notes={sortedNotes}
             groups={groups}
             onSelect={(note) => {

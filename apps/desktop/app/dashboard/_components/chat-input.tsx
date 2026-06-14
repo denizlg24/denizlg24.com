@@ -13,7 +13,13 @@ import {
   Square,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { ModelSelector } from "@/components/ui/model-selector";
 import type { IChatAttachment } from "@/lib/data-types";
 
@@ -110,16 +116,20 @@ export function ChatInput({
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
+    const styles = getComputedStyle(ta);
     const singleLineHeight =
-      parseFloat(getComputedStyle(ta).lineHeight) +
-      parseFloat(getComputedStyle(ta).paddingTop) +
-      parseFloat(getComputedStyle(ta).paddingBottom);
-    const clamped = Math.min(ta.scrollHeight, docked ? 120 : 200);
-    ta.style.height = `${clamped}px`;
+      parseFloat(styles.lineHeight) +
+      parseFloat(styles.paddingTop) +
+      parseFloat(styles.paddingBottom);
+    const max = docked ? 120 : 200;
+    ta.style.height = `${Math.min(ta.scrollHeight, max)}px`;
+    ta.style.overflowY = ta.scrollHeight > max ? "auto" : "hidden";
     setMultiLine(ta.scrollHeight > singleLineHeight + 2);
   }, [docked]);
 
-  useEffect(resize, []);
+  useLayoutEffect(() => {
+    resize();
+  }, [resize, value]);
 
   useEffect(() => {
     if (!docked) textareaRef.current?.focus();
@@ -193,7 +203,7 @@ export function ChatInput({
         className="hidden"
       />
       <div
-        className={`relative border bg-popover shadow-lg flex flex-col ${hasAttachments || multiLine ? "rounded-2xl" : "rounded-full"} ${dragging ? "ring-2 ring-foreground/20" : ""}`}
+        className={`relative border bg-popover shadow-lg flex flex-col ${hasAttachments || multiLine ? "rounded-lg" : "rounded-full"} ${dragging ? "ring-2 ring-foreground/20" : ""}`}
       >
         {hasAttachments && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-3">

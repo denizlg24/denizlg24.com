@@ -428,7 +428,7 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
         {CARD_COUNTS.map((cardCount, i) => (
           <div
             key={`column-skeleton-${cardCount}`}
-            className="min-w-64 flex-1 flex flex-col rounded-lg border bg-muted/30 animate-pulse"
+            className="min-w-64 max-w-72 flex-1 flex flex-col rounded-lg border bg-muted/30 animate-pulse"
           >
             <div className="flex items-center gap-2 p-3 border-b">
               <div className="size-4 rounded bg-muted" />

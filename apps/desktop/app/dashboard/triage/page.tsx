@@ -249,7 +249,7 @@ export default function TriagePage() {
         >
           <TabsList
             variant="line"
-            className="max-w-full justify-start overflow-x-auto"
+            className="max-w-full justify-start overflow-x-auto overflow-y-hidden"
           >
             {FILTERS.map((f) => (
               <TabsTrigger key={f.value} value={f.value}>

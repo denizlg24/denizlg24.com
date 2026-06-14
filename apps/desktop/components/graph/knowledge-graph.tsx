@@ -112,7 +112,34 @@ export function KnowledgeGraph<TItem, TGroup>({
   // are applied, so the layout visibly settles exactly once.
   const [forcesReady, setForcesReady] = useState(false);
   const forcesAppliedRef = useRef(false);
-  const graphData = useMemo(() => ({ nodes, links }), [nodes, links]);
+  const didFitRef = useRef(false);
+
+  // A content signature keyed on node ids + edge count. The simulation re-settles
+  // ("collapses to center then explodes") on every distinct graphData object it
+  // ingests, so we must hand it a *stable* reference whenever the graph content
+  // is unchanged — otherwise an identity-only re-render triggers a second settle.
+  const signature = useMemo(
+    () =>
+      `${nodes.length}:${links.length}:${nodes.map((node) => node.id).join(",")}`,
+    [nodes, links],
+  );
+
+  const graphData = useMemo(() => {
+    // Seed unpositioned nodes on a golden-angle spiral so the layout starts
+    // pre-spread instead of stacked at the origin. d3-force keeps any existing
+    // x/y, so a settled graph that re-ingests barely moves rather than imploding
+    // to the center and flinging back out.
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    nodes.forEach((node, index) => {
+      const positioned = node as { x?: number; y?: number };
+      if (positioned.x == null || positioned.y == null) {
+        const radius = Math.sqrt(index + 0.5) * 16;
+        positioned.x = Math.cos(index * goldenAngle) * radius;
+        positioned.y = Math.sin(index * goldenAngle) * radius;
+      }
+    });
+    return { nodes, links };
+  }, [signature]);
 
   useEffect(() => {
     type SimNode = SimulationNodeDatum & { val: number };
@@ -138,9 +165,11 @@ export function KnowledgeGraph<TItem, TGroup>({
 
       fg.d3Force(
         "charge",
-        forceManyBody<SimNode>().strength(
-          (node) => -30 - Math.sqrt(node.val) * 8,
-        ) as never,
+        forceManyBody<SimNode>()
+          .strength((node) => -34 - Math.sqrt(node.val) * 7)
+          // Cap the repulsion range so a transiently clustered layout can't
+          // fling nodes off-screen before collide/link forces settle it.
+          .distanceMax(320) as never,
       );
 
       const linkForce = fg.d3Force("link") as ReturnType<
@@ -150,7 +179,7 @@ export function KnowledgeGraph<TItem, TGroup>({
 
       linkForce
         .distance(
-          (link) => nodeRadius(link.source) + nodeRadius(link.target) + 18,
+          (link) => nodeRadius(link.source) + nodeRadius(link.target) + 26,
         )
         .strength((link) => (link.type === "membership" ? 0.4 : 0.7));
 
@@ -180,7 +209,7 @@ export function KnowledgeGraph<TItem, TGroup>({
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [nodes, links]);
+  }, [signature]);
 
   useEffect(() => {
     if (forcesReady) graphRef.current?.d3ReheatSimulation();
@@ -190,12 +219,19 @@ export function KnowledgeGraph<TItem, TGroup>({
     if (!containerRef.current) return;
 
     const element = containerRef.current;
-    const resizeObserver = new ResizeObserver(() => {
-      setSize({ width: element.clientWidth, height: element.clientHeight });
-    });
+    const measure = () => {
+      const width = element.clientWidth;
+      const height = element.clientHeight;
+      setSize((prev) =>
+        prev.width === width && prev.height === height
+          ? prev
+          : { width, height },
+      );
+    };
+    const resizeObserver = new ResizeObserver(measure);
 
     resizeObserver.observe(element);
-    setSize({ width: element.clientWidth, height: element.clientHeight });
+    measure();
     setTheme(readTheme(element));
 
     const mutationObserver = new MutationObserver(() => {
@@ -232,6 +268,12 @@ export function KnowledgeGraph<TItem, TGroup>({
           }
           linkWidth={(link) => (link.type === "membership" ? 0.5 : 0.3)}
           cooldownTicks={forcesReady ? 180 : 0}
+          d3VelocityDecay={0.45}
+          onEngineStop={() => {
+            if (didFitRef.current) return;
+            didFitRef.current = true;
+            graphRef.current?.zoomToFit(400, 48);
+          }}
           onNodeHover={(node) => {
             setHoveredId(node ? node.id : null);
             if (containerRef.current) {

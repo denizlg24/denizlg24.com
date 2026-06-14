@@ -164,7 +164,7 @@ export function KanbanColumn({
   return (
     <>
       <div
-        className={`min-w-64 w-full flex-1 flex flex-col max-h-full rounded-2xl transition-colors select-none ${
+        className={`min-w-64 max-w-72 flex-1 flex flex-col max-h-full rounded-2xl transition-colors select-none ${
           isColumnDragOver && dragging?.kind === "column"
             ? "bg-primary/5 ring-2 ring-primary ring-offset-2"
             : "bg-secondary/60 dark:bg-muted/40"
