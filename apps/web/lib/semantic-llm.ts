@@ -175,8 +175,10 @@ async function callSemanticLlm(messages: ChatMessage[]) {
     inputTokens,
     outputTokens,
     costUsd: calculateCost(model, inputTokens, outputTokens),
-    systemPrompt: messages.find((message) => message.role === "system")?.content ?? "",
-    userPrompt: messages.find((message) => message.role === "user")?.content ?? "",
+    systemPrompt:
+      messages.find((message) => message.role === "system")?.content ?? "",
+    userPrompt:
+      messages.find((message) => message.role === "user")?.content ?? "",
     source: SOURCE,
   });
 

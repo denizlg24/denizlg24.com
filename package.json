@@ -6,11 +6,15 @@
     "dev": "bun --env-file=.env turbo run dev",
     "lint": "bun --env-file=.env turbo run lint",
     "check-types": "bun --env-file=.env turbo run check-types",
+    "test": "bun --env-file=.env turbo run test",
     "format-and-lint": "biome check .",
-    "format-and-lint:fix": "biome check . --write"
+    "format-and-lint:fix": "biome check . --write",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
     "turbo": "^2.9.18",
     "typescript": "5.9.2"
   },
@@ -26,5 +30,8 @@
     "cmdk": "1.1.1",
     "react": "19.2.7",
     "react-dom": "19.2.7"
+  },
+  "lint-staged": {
+    "*": "biome check --write --no-errors-on-unmatched --files-ignore-unknown=true"
   }
 }
