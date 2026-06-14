@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import mongoose, { type QueryFilter } from "mongoose";
+import { calculateCost, logLlmUsage } from "@/lib/llm";
 import { connectDB } from "@/lib/mongodb";
 import {
   pruneGroupIds,
@@ -166,6 +167,18 @@ async function callSemanticLlm(messages: ChatMessage[]) {
   const json = (await response.json()) as ChatResponse;
   const content = json.choices?.[0]?.message?.content;
   if (!content) throw new Error("Semantic LLM returned no content");
+
+  const inputTokens = json.usage?.prompt_tokens ?? 0;
+  const outputTokens = json.usage?.completion_tokens ?? 0;
+  await logLlmUsage({
+    llmModel: model,
+    inputTokens,
+    outputTokens,
+    costUsd: calculateCost(model, inputTokens, outputTokens),
+    systemPrompt: messages.find((message) => message.role === "system")?.content ?? "",
+    userPrompt: messages.find((message) => message.role === "user")?.content ?? "",
+    source: SOURCE,
+  });
 
   return { content, model, usage: json.usage };
 }

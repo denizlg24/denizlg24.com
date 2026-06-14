@@ -46,6 +46,10 @@ const PRICING: Record<string, { input: number; output: number }> = {
   "claude-3-opus-latest": { input: 15, output: 75 },
   "claude-3-opus-20240229": { input: 15, output: 75 },
   "claude-3-haiku-20240307": { input: 0.25, output: 1.25 },
+
+  // DeepSeek (semantic keyword/classification LLM)
+  "deepseek-chat": { input: 0.27, output: 1.1 },
+  "deepseek-reasoner": { input: 0.55, output: 2.19 },
 };
 
 // Cache pricing multipliers (relative to base input price)
