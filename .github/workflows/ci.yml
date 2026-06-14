@@ -37,9 +37,9 @@ jobs:
       NEXT_PUBLIC_SITE_URL: "http://localhost:3000"
       RESEND_API_KEY: "re_ci_placeholder"
       REVALIDATE_SECRET: "ci-revalidate-secret"
-    # To use Turborepo Remote Caching, uncomment:
-    #   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-    #   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: "denizlg24"
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
     steps:
       - name: Check out code
         uses: actions/checkout@v6

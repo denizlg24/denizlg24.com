@@ -1,8 +1,11 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
+  "remoteCache": {
+    "signature": true
+  },
   "globalDependencies": [".env"],
-  "globalEnv": [
+  "globalPassThroughEnv": [
     "ADMIN_SECRET",
     "ANTHROPIC_API_KEY",
     "BETTER_AUTH_SECRET",
@@ -21,10 +24,6 @@
     "INSTAGRAM_REDIRECT_URI",
     "MONGO_RESOURCE_URI",
     "MONGODB_URI",
-    "NEXT_PUBLIC_APP_URL",
-    "NEXT_PUBLIC_DESKTOP_API_BASE_URL",
-    "NEXT_PUBLIC_GATEWAY_URL",
-    "NEXT_PUBLIC_SITE_URL",
     "PINATA_API_KEY",
     "PINATA_API_SECRET",
     "PINATA_JWT_TOKEN",
@@ -51,6 +50,12 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$"],
+      "env": [
+        "NEXT_PUBLIC_APP_URL",
+        "NEXT_PUBLIC_DESKTOP_API_BASE_URL",
+        "NEXT_PUBLIC_GATEWAY_URL",
+        "NEXT_PUBLIC_SITE_URL"
+      ],
       "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "out/**"]
     },
     "lint": {
