@@ -56,7 +56,7 @@ export const Footer = () => {
             <FaInstagram className="w-5 h-5" />
           </a>
           <a
-            href="mailto:denizlg24@gmail.com"
+            href="mailto:denizlgunes@oceaninformatix.com"
             className="text-accent hover:text-foreground transition-colors"
             target="_blank"
             rel="noopener noreferrer"

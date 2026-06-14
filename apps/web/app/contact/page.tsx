@@ -58,13 +58,13 @@ export default async function Page() {
                 Phone
               </span>
               <a
-                href="tel:+351910143859"
+                href="tel:+351926316228"
                 className="inline-flex items-center gap-2 text-accent hover:text-foreground transition-colors"
                 target="_blank"
                 rel="noopener"
               >
                 <Phone className="w-4 h-4" />
-                +351 910 143 859
+                +351 926316228
               </a>
             </div>
             <div className="flex flex-col items-center gap-1 flex-1">

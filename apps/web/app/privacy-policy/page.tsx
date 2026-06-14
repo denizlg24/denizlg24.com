@@ -124,8 +124,8 @@ export default function PrivacyPolicyPage() {
           <p className="text-foreground/80 leading-relaxed">
             If you have any questions, concerns, or just want to say hi, drop me
             an email at{" "}
-            <StyledLink href="mailto:denizlg24@gmail.com">
-              denizlg24@gmail.com
+            <StyledLink href="mailto:denizlgunes@oceaninformatix.com">
+              denizlgunes@oceaninformatix.com
             </StyledLink>{" "}
             or use the <StyledLink href="/contact">contact form</StyledLink>.
             I'd love to hear from you!
