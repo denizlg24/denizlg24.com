@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
 
     const timeToRead = calculateReadingTime(content || "");
     const finalTags: string[] = tags || [];
-    const topicGroups = await computeTopicGroups(finalTags);
+    const topicGroups = await computeTopicGroups(finalTags, "blog");
 
     const blog = await Blog.create({
       title,

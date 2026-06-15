@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       .exec();
     const order = maxOrderProject ? maxOrderProject.order + 1 : 1;
     const finalTags: string[] = tags || [];
-    const topicGroups = await computeTopicGroups(finalTags);
+    const topicGroups = await computeTopicGroups(finalTags, "project");
 
     const project = await Project.create({
       title,

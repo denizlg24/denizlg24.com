@@ -82,7 +82,7 @@ export async function PATCH(
 
     await connectDB();
     if (Array.isArray(body.tags)) {
-      body.topicGroups = await computeTopicGroups(body.tags);
+      body.topicGroups = await computeTopicGroups(body.tags, "project");
     }
     const project = await Project.findByIdAndUpdate(id, body, {
       returnDocument: "after",

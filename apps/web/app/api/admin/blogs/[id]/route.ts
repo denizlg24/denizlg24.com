@@ -69,7 +69,10 @@ export async function PATCH(
       updateData.timeToRead = calculateReadingTime(parsed.data.content);
     }
     if (parsed.data.tags !== undefined) {
-      updateData.topicGroups = await computeTopicGroups(parsed.data.tags);
+      updateData.topicGroups = await computeTopicGroups(
+        parsed.data.tags,
+        "blog",
+      );
     }
 
     const blog = await Blog.findByIdAndUpdate(id, updateData, {
