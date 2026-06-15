@@ -3,6 +3,7 @@ import { connectDB } from "@/lib/mongodb";
 import { getProjectById, toggleProjectActive } from "@/lib/projects";
 import { revalidateProjectsContent } from "@/lib/public-content-revalidation";
 import { requireAdmin } from "@/lib/require-admin";
+import { computeTopicGroups } from "@/lib/tag-classify";
 import { Project } from "@/models/Project";
 
 export async function GET(
@@ -80,6 +81,9 @@ export async function PATCH(
     }
 
     await connectDB();
+    if (Array.isArray(body.tags)) {
+      body.topicGroups = await computeTopicGroups(body.tags);
+    }
     const project = await Project.findByIdAndUpdate(id, body, {
       returnDocument: "after",
       runValidators: true,

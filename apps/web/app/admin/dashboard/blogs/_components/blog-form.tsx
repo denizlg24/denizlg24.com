@@ -23,7 +23,7 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as z from "zod";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
-import type { ILeanBlog } from "@/models/Blog";
+import type { IBlogReference, ILeanBlog } from "@/models/Blog";
 
 const blogSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -45,6 +45,9 @@ export function BlogForm({ blog, mode }: BlogFormProps) {
   const [media, setMedia] = useState<string[]>(blog?.media || []);
   const [tags, setTags] = useState<string[]>(blog?.tags || []);
   const [newTag, setNewTag] = useState("");
+  const [references, setReferences] = useState<IBlogReference[]>(
+    blog?.references || [],
+  );
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
@@ -128,6 +131,26 @@ export function BlogForm({ blog, mode }: BlogFormProps) {
     setTags(tags.filter((t) => t !== tag));
   };
 
+  const addReference = () => {
+    setReferences([...references, { label: "", url: "" }]);
+  };
+
+  const updateReference = (
+    index: number,
+    field: keyof IBlogReference,
+    value: string,
+  ) => {
+    setReferences(
+      references.map((ref, i) =>
+        i === index ? { ...ref, [field]: value } : ref,
+      ),
+    );
+  };
+
+  const removeReference = (index: number) => {
+    setReferences(references.filter((_, i) => i !== index));
+  };
+
   const onSubmit = async (data: BlogFormData) => {
     setLoading(true);
 
@@ -136,6 +159,9 @@ export function BlogForm({ blog, mode }: BlogFormProps) {
         ...data,
         media,
         tags,
+        references: references.filter(
+          (ref) => ref.label.trim() && ref.url.trim(),
+        ),
       };
 
       const url =
@@ -211,6 +237,54 @@ export function BlogForm({ blog, mode }: BlogFormProps) {
             <Plus className="w-4 h-4" />
           </Button>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <FieldLabel>References (optional)</FieldLabel>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={addReference}
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Add Reference
+          </Button>
+        </div>
+        {references.length > 0 && (
+          <div className="flex flex-col gap-3">
+            {references.map((reference, index) => (
+              <div key={index} className="flex gap-2 items-center">
+                <Input
+                  className="w-1/3"
+                  placeholder="Label"
+                  value={reference.label}
+                  onChange={(e) =>
+                    updateReference(index, "label", e.target.value)
+                  }
+                />
+                <Input
+                  className="grow"
+                  placeholder="https://..."
+                  value={reference.url}
+                  onChange={(e) =>
+                    updateReference(index, "url", e.target.value)
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => removeReference(index)}
+                  className="shrink-0"
+                >
+                  <Trash2 className="w-4 h-4 text-destructive" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-3">

@@ -23,6 +23,7 @@ export interface IProject extends Document {
   sourceRepository?: ISourceRepository;
   markdown: string;
   tags: string[];
+  topicGroups?: string[];
   isActive: boolean;
   isFeatured: boolean;
   order: number;
@@ -45,6 +46,7 @@ export interface ILeanProject {
   sourceRepository?: ISourceRepository;
   markdown: string;
   tags: string[];
+  topicGroups?: string[];
   isActive: boolean;
   isFeatured: boolean;
   order: number;
@@ -130,6 +132,10 @@ const ProjectSchema = new Schema<IProject>(
       default: "",
     },
     tags: {
+      type: [String],
+      default: [],
+    },
+    topicGroups: {
       type: [String],
       default: [],
     },

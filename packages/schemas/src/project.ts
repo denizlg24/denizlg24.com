@@ -26,6 +26,7 @@ export const projectSchema = z.object({
   sourceRepository: sourceRepositorySchema.optional(),
   markdown: z.string(),
   tags: z.array(z.string()),
+  topicGroups: z.array(z.string()).optional(),
   isActive: z.boolean(),
   isFeatured: z.boolean(),
   order: z.number(),

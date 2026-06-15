@@ -2,7 +2,7 @@ export const revalidate = 2592000; // Revalidate every 30 days
 
 import { Badge } from "@repo/ui/badge";
 import { Separator } from "@repo/ui/separator";
-import { ArrowLeft, Calendar, Clock } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
@@ -123,6 +123,32 @@ export default async function BlogPostPage({
         <div className="prose-container">
           <MarkdownRenderer content={blog.content} />
         </div>
+
+        {blog.references && blog.references.length > 0 && (
+          <>
+            <Separator className="my-8" />
+            <section>
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                References
+              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                {blog.references.map((reference) => (
+                  <Badge key={reference.url} variant="outline" asChild>
+                    <a
+                      href={reference.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5"
+                    >
+                      {reference.label}
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </Badge>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
 
         <Separator className="my-8" />
 

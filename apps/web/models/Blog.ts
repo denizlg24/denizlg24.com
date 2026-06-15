@@ -1,5 +1,10 @@
 import mongoose, { type Document, Schema } from "mongoose";
 
+export interface IBlogReference {
+  label: string;
+  url: string;
+}
+
 export interface IBlog extends Document {
   slug: string;
   title: string;
@@ -8,6 +13,8 @@ export interface IBlog extends Document {
   timeToRead: number;
   media?: string[];
   tags?: string[];
+  topicGroups?: string[];
+  references?: IBlogReference[];
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -22,6 +29,8 @@ export interface ILeanBlog {
   timeToRead: number;
   media?: string[];
   tags?: string[];
+  topicGroups?: string[];
+  references?: IBlogReference[];
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -64,6 +73,22 @@ const BlogSchema = new Schema<IBlog>(
         trim: true,
       },
     ],
+    topicGroups: {
+      type: [String],
+      default: [],
+    },
+    references: {
+      type: [
+        new Schema<IBlogReference>(
+          {
+            label: { type: String, required: true, trim: true },
+            url: { type: String, required: true, trim: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
     isActive: {
       type: Boolean,
       required: true,

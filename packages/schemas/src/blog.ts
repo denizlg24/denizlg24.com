@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+export const blogReferenceSchema = z.object({
+  label: z.string(),
+  url: z.string(),
+});
+export type IBlogReference = z.infer<typeof blogReferenceSchema>;
+
 export const blogSchema = z.object({
   _id: z.string(),
   slug: z.string(),
@@ -9,6 +15,8 @@ export const blogSchema = z.object({
   timeToRead: z.number(),
   media: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
+  topicGroups: z.array(z.string()).optional(),
+  references: z.array(blogReferenceSchema).optional(),
   isActive: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -44,6 +52,14 @@ export const blogUpdateSchema = z
     excerpt: z.string().optional(),
     content: z.string().optional(),
     tags: z.array(z.string()).optional(),
+    references: z
+      .array(
+        z.object({
+          label: z.string().min(1),
+          url: z.string().url(),
+        }),
+      )
+      .optional(),
     media: z.array(z.string()).optional(),
     isActive: z.boolean().optional(),
   })

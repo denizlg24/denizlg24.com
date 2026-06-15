@@ -8,6 +8,12 @@ export async function getBlogTags() {
   return tags;
 }
 
+export async function getBlogTopicGroups() {
+  await connectDB();
+  const groups = await Blog.distinct("topicGroups", { isActive: true });
+  return (groups as string[]).filter(Boolean).sort();
+}
+
 export async function getFilteredActiveBlogs({
   tags,
   query,

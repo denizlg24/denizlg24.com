@@ -20,9 +20,9 @@ export const TagSelect = ({
 
   useEffect(() => {
     const newParams = new URLSearchParams(searchParamsRef.current.toString());
-    newParams.delete("tags");
+    newParams.delete("topics");
     values.forEach((val) => {
-      newParams.append("tags", val);
+      newParams.append("topics", val);
     });
     router.push(`/${related}?${newParams.toString()}`);
   }, [values, related, router]);

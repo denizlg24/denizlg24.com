@@ -1,5 +1,5 @@
-import { getBlogTags } from "@/lib/blog";
-import { getProjectTags } from "@/lib/projects";
+import { getBlogTopicGroups } from "@/lib/blog";
+import { getProjectTopicGroups } from "@/lib/projects";
 import { FilterBar } from "./filter-bar";
 
 export async function FilterWrapper({
@@ -7,7 +7,9 @@ export async function FilterWrapper({
 }: {
   fetcher?: "projects" | "blog";
 }) {
-  const tags =
-    fetcher === "projects" ? await getProjectTags() : await getBlogTags();
-  return <FilterBar related={fetcher} tags={tags} />;
+  const topics =
+    fetcher === "projects"
+      ? await getProjectTopicGroups()
+      : await getBlogTopicGroups();
+  return <FilterBar related={fetcher} tags={topics} />;
 }

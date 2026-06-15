@@ -3,8 +3,19 @@ import { getAllBlogs } from "@/lib/blog";
 import { connectDB } from "@/lib/mongodb";
 import { revalidateBlogContent } from "@/lib/public-content-revalidation";
 import { requireAdmin } from "@/lib/require-admin";
+import { computeTopicGroups } from "@/lib/tag-classify";
 import { calculateReadingTime, string_to_slug } from "@/lib/utils";
-import { Blog } from "@/models/Blog";
+import { Blog, type IBlogReference } from "@/models/Blog";
+
+function sanitizeReferences(input: unknown): IBlogReference[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((ref) => ({
+      label: typeof ref?.label === "string" ? ref.label.trim() : "",
+      url: typeof ref?.url === "string" ? ref.url.trim() : "",
+    }))
+    .filter((ref) => ref.label && /^https?:\/\//i.test(ref.url));
+}
 
 export async function GET(request: NextRequest) {
   const authError = await requireAdmin(request);
@@ -28,11 +39,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { title, excerpt, media, content, tags, isActive } = body;
+    const { title, excerpt, media, content, tags, references, isActive } = body;
 
     await connectDB();
 
     const timeToRead = calculateReadingTime(content || "");
+    const finalTags: string[] = tags || [];
+    const topicGroups = await computeTopicGroups(finalTags);
 
     const blog = await Blog.create({
       title,
@@ -41,7 +54,9 @@ export async function POST(request: NextRequest) {
       media: media || [],
       content: content || "",
       timeToRead,
-      tags: tags || [],
+      tags: finalTags,
+      topicGroups,
+      references: sanitizeReferences(references),
       isActive: isActive !== undefined ? isActive : true,
     });
     revalidateBlogContent();

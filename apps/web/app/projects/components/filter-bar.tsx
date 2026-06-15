@@ -12,11 +12,11 @@ export const FilterBar = ({
 }) => {
   const searchParams = useSearchParams();
   const query = searchParams.get("query") || "";
-  const arrayTags = searchParams.getAll("tags") || [];
+  const selectedTopics = searchParams.getAll("topics") || [];
   return (
     <div className="w-full flex flex-col items-center justify-between gap-2 xs:flex-row mt-16">
       <SearchInput related={related} query={query} />
-      <TagSelect related={related} selected={arrayTags} tags={tags} />
+      <TagSelect related={related} selected={selectedTopics} tags={tags} />
     </div>
   );
 };

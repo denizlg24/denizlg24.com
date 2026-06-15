@@ -4,6 +4,7 @@ import { getBlogById, toggleBlogActive } from "@/lib/blog";
 import { connectDB } from "@/lib/mongodb";
 import { revalidateBlogContent } from "@/lib/public-content-revalidation";
 import { requireAdmin } from "@/lib/require-admin";
+import { computeTopicGroups } from "@/lib/tag-classify";
 import { calculateReadingTime } from "@/lib/utils";
 import { Blog } from "@/models/Blog";
 
@@ -66,6 +67,9 @@ export async function PATCH(
     const updateData: Record<string, unknown> = { ...parsed.data };
     if (parsed.data.content !== undefined) {
       updateData.timeToRead = calculateReadingTime(parsed.data.content);
+    }
+    if (parsed.data.tags !== undefined) {
+      updateData.topicGroups = await computeTopicGroups(parsed.data.tags);
     }
 
     const blog = await Blog.findByIdAndUpdate(id, updateData, {

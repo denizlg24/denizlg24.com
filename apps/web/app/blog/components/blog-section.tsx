@@ -36,7 +36,7 @@ export const BlogSection = ({
 }) => {
   const searchParams = useSearchParams();
   const query = searchParams.get("query") || "";
-  const arrayTags = searchParams.getAll("tags") || [];
+  const selectedTopics = searchParams.getAll("topics") || [];
   const sort = searchParams.get("sort") || "newest";
   const router = useRouter();
 
@@ -64,10 +64,9 @@ export const BlogSection = ({
   const blogs = useMemo(() => {
     let filtered = initialBlogs;
 
-    if (arrayTags.length > 0) {
-      filtered = filtered.filter(
-        (blog) =>
-          blog.tags && arrayTags.every((tag) => blog.tags?.includes(tag)),
+    if (selectedTopics.length > 0) {
+      filtered = filtered.filter((blog) =>
+        blog.topicGroups?.some((group) => selectedTopics.includes(group)),
       );
     }
 
@@ -131,7 +130,7 @@ export const BlogSection = ({
     }
 
     return filtered;
-  }, [initialBlogs, query, arrayTags, sort, viewsMap]);
+  }, [initialBlogs, query, selectedTopics, sort, viewsMap]);
 
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString("en-US", {
@@ -144,7 +143,7 @@ export const BlogSection = ({
   return (
     <>
       <div className="w-full flex flex-row items-center justify-between">
-        {query || arrayTags.length > 0 ? (
+        {query || selectedTopics.length > 0 ? (
           <p className="text-sm text-left text-muted-foreground">
             Displaying {blogs.length} post(s) matching your filters.
           </p>
@@ -188,7 +187,7 @@ export const BlogSection = ({
             </EmptyMedia>
             <EmptyTitle>No posts to display</EmptyTitle>
             <EmptyDescription>
-              {query || arrayTags.length > 0
+              {query || selectedTopics.length > 0
                 ? "Whoops. There are no posts matching your filters. Maybe I have to start posting more, or maybe you should adjust your filters..."
                 : "Whoops. There are no posts to display. Either I broke something or I'm lazy and still haven't written anything. You decide..."}
             </EmptyDescription>
@@ -196,7 +195,7 @@ export const BlogSection = ({
           <EmptyContent>
             <Button asChild variant="outline" size="sm">
               <Link href={"/blog"}>
-                {query || arrayTags.length > 0 ? (
+                {query || selectedTopics.length > 0 ? (
                   <>
                     <Trash2 /> Clear filters
                   </>

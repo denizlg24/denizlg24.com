@@ -175,6 +175,12 @@ export async function getProjectTags() {
   return tags;
 }
 
+export async function getProjectTopicGroups() {
+  await connectDB();
+  const groups = await Project.distinct("topicGroups", { isActive: true });
+  return (groups as string[]).filter(Boolean).sort();
+}
+
 export async function getFilteredActiveProjects({
   tags,
   query,

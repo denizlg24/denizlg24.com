@@ -22,17 +22,17 @@ export const ProjectsSection = ({
 }) => {
   const searchParams = useSearchParams();
   const query = searchParams.get("query") || "";
-  const arrayTags = searchParams.getAll("tags") || [];
+  const selectedTopics = searchParams.getAll("topics") || [];
   const projects = useMemo(() => {
-    if (!query && arrayTags.length === 0) return initialProjects;
+    if (!query && selectedTopics.length === 0) return initialProjects;
 
     const lowerQuery = query.toLowerCase().trim();
 
     return initialProjects
       .map((project) => {
         if (
-          arrayTags.length > 0 &&
-          arrayTags.some((tag) => !project.tags.includes(tag))
+          selectedTopics.length > 0 &&
+          !project.topicGroups?.some((group) => selectedTopics.includes(group))
         ) {
           return null;
         }
@@ -65,12 +65,12 @@ export const ProjectsSection = ({
       })
       .filter((item): item is ILeanProject & { score: number } => item !== null)
       .sort((a, b) => b.score - a.score);
-  }, [initialProjects, query, arrayTags]);
+  }, [initialProjects, query, selectedTopics]);
 
   if (projects.length === 0)
     return (
       <>
-        {query || arrayTags.length > 0 ? (
+        {query || selectedTopics.length > 0 ? (
           <p className="col-span-full text-sm text-left ">
             Displaying {projects.length} project(s) matching your filters.
           </p>
@@ -86,7 +86,7 @@ export const ProjectsSection = ({
             </EmptyMedia>
             <EmptyTitle>No projects to display</EmptyTitle>
             <EmptyDescription>
-              {query || arrayTags.length > 0
+              {query || selectedTopics.length > 0
                 ? "Whoops. There are no projects matching your filters. Maybe I have to work harder, or maybe you should adjust your filters..."
                 : "Whoops. There are no projects to display. Either I broke something or I'm a fraud that has never done anything. You decide..."}
             </EmptyDescription>
@@ -94,7 +94,7 @@ export const ProjectsSection = ({
           <EmptyContent>
             <Button asChild variant="outline" size="sm">
               <Link href={"/projects"}>
-                {query || arrayTags.length > 0 ? (
+                {query || selectedTopics.length > 0 ? (
                   <>
                     <Trash2 /> Clear filters
                   </>
@@ -113,7 +113,7 @@ export const ProjectsSection = ({
 
   return (
     <>
-      {query || arrayTags.length > 0 ? (
+      {query || selectedTopics.length > 0 ? (
         <p className="col-span-full text-sm text-left">
           Displaying {projects.length} project(s) matching your filters.
         </p>
