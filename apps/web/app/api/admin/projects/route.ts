@@ -3,7 +3,7 @@ import { connectDB } from "@/lib/mongodb";
 import { getAllProjects } from "@/lib/projects";
 import { revalidateProjectsContent } from "@/lib/public-content-revalidation";
 import { requireAdmin } from "@/lib/require-admin";
-import { computeTopicGroups } from "@/lib/tag-classify";
+import { computeProjectTopicGroups } from "@/lib/tag-classify";
 import { Project } from "@/models/Project";
 
 export async function GET(request: NextRequest) {
@@ -49,7 +49,12 @@ export async function POST(request: NextRequest) {
       .exec();
     const order = maxOrderProject ? maxOrderProject.order + 1 : 1;
     const finalTags: string[] = tags || [];
-    const topicGroups = await computeTopicGroups(finalTags, "project");
+    const topicGroups = await computeProjectTopicGroups({
+      title,
+      subtitle,
+      tags: finalTags,
+      markdown: markdown || "",
+    });
 
     const project = await Project.create({
       title,

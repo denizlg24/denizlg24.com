@@ -3,7 +3,7 @@ import { connectDB } from "@/lib/mongodb";
 import { getProjectById, toggleProjectActive } from "@/lib/projects";
 import { revalidateProjectsContent } from "@/lib/public-content-revalidation";
 import { requireAdmin } from "@/lib/require-admin";
-import { computeTopicGroups } from "@/lib/tag-classify";
+import { computeProjectTopicGroups } from "@/lib/tag-classify";
 import { Project } from "@/models/Project";
 
 export async function GET(
@@ -81,8 +81,20 @@ export async function PATCH(
     }
 
     await connectDB();
-    if (Array.isArray(body.tags)) {
-      body.topicGroups = await computeTopicGroups(body.tags, "project");
+    const reclassifyKeys = ["tags", "title", "subtitle", "markdown"] as const;
+    if (reclassifyKeys.some((key) => key in body)) {
+      const existing = await Project.findById(id)
+        .select("title subtitle markdown tags")
+        .lean()
+        .exec();
+      if (existing) {
+        body.topicGroups = await computeProjectTopicGroups({
+          title: body.title ?? existing.title,
+          subtitle: body.subtitle ?? existing.subtitle,
+          markdown: body.markdown ?? existing.markdown,
+          tags: Array.isArray(body.tags) ? body.tags : existing.tags,
+        });
+      }
     }
     const project = await Project.findByIdAndUpdate(id, body, {
       returnDocument: "after",
