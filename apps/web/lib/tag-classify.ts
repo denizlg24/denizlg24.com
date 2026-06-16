@@ -232,9 +232,11 @@ export async function computeProjectTopicGroups(
 Allowed groups: ${[...PROJECT_GROUPS, FALLBACK_GROUP].join(", ")}.
 - "Frontend": primarily UI/client work with no backend the author built.
 - "Fullstack": the author built both client and server/data layers.
-- "Infrastructure": DevOps, hosting, networking, monitoring, CI/CD, self-hosted services.
+- "Infrastructure": DevOps, hosting, networking, monitoring, CI/CD, self-hosted services, storage/ops systems.
 - "Hardware/Software": embedded, IoT, firmware, or projects bridging physical hardware and code.
-Assign one or two groups, most specific first. Prefer "Fullstack" over "Frontend" when both apply; do not return both. Use "${FALLBACK_GROUP}" only when none fit.
+Assign one or two groups, most specific first. Prefer "Fullstack" over "Frontend" when both apply; do not return both.
+When a project centrally involves self-hosting, DevOps, networking, or running/operating its own infrastructure, include "Infrastructure" even alongside "Fullstack". Add "Hardware/Software" alongside another group when physical hardware is involved.
+Use "${FALLBACK_GROUP}" only when none fit.
 Return ONLY a JSON object: { "groups": ["..."] }.`;
   const user = JSON.stringify({
     title: input.title,
