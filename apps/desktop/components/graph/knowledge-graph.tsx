@@ -67,6 +67,9 @@ interface Props<TItem, TGroup> {
   onSelectItem: (item: TItem) => void;
   onSelectGroup: (group: TGroup) => void;
   onRelationClick?: (sourceId: string) => void;
+  onItemContextMenu?: (item: TItem) => void;
+  onGroupContextMenu?: (group: TGroup) => void;
+  onBackgroundContextMenu?: () => void;
 }
 
 const NODE_REL_SIZE = 3;
@@ -101,6 +104,9 @@ export function KnowledgeGraph<TItem, TGroup>({
   onSelectItem,
   onSelectGroup,
   onRelationClick,
+  onItemContextMenu,
+  onGroupContextMenu,
+  onBackgroundContextMenu,
 }: Props<TItem, TGroup>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphRef | null>(null);
@@ -292,6 +298,14 @@ export function KnowledgeGraph<TItem, TGroup>({
             const sourceId = resolveNodeId(link.source);
             if (sourceId) onRelationClick?.(sourceId);
           }}
+          onNodeRightClick={(node) => {
+            if (node.type === "item" && node.item) {
+              onItemContextMenu?.(node.item as TItem);
+            } else if (node.type === "group" && node.group) {
+              onGroupContextMenu?.(node.group as TGroup);
+            }
+          }}
+          onBackgroundRightClick={() => onBackgroundContextMenu?.()}
           nodeCanvasObjectMode={() => "replace"}
           nodeCanvasObject={(node, context, globalScale) => {
             if (node.x == null || node.y == null) return;

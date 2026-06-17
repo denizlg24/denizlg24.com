@@ -1,6 +1,16 @@
 "use client";
 
 import { contactSchema } from "@repo/schemas";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { SortHeader } from "@repo/ui/data-table";
@@ -24,6 +34,7 @@ import {
   MessageSquare,
   MoreHorizontal,
   RefreshCw,
+  Trash2,
   UserSquare,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -136,6 +147,10 @@ export default function ContactsPage() {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [selectedContact, setSelectedContact] = useState<IContact | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<IContact | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteArchivedOpen, setDeleteArchivedOpen] = useState(false);
+  const [deletingArchived, setDeletingArchived] = useState(false);
 
   const fetchContacts = useCallback(async () => {
     if (!api) return;
@@ -195,6 +210,52 @@ export default function ContactsPage() {
         total: prev.total - 1,
       }));
     }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget || !api) return;
+    setDeleting(true);
+    const result = await api.DELETE<{ success: boolean }>({
+      endpoint: `contacts/${deleteTarget.ticketId}`,
+    });
+    if ("code" in result) {
+      toast.error("Failed to delete contact");
+    } else {
+      handleDelete(deleteTarget.ticketId);
+      if (selectedContact?.ticketId === deleteTarget.ticketId) {
+        setSheetOpen(false);
+      }
+      toast.success("Contact deleted");
+      setDeleteTarget(null);
+    }
+    setDeleting(false);
+  };
+
+  const handleDeleteArchived = async () => {
+    if (!api) return;
+    setDeletingArchived(true);
+    const result = await api.DELETE<{ success: boolean; deletedCount: number }>(
+      {
+        endpoint: "contacts/archived",
+      },
+    );
+    if ("code" in result) {
+      toast.error("Failed to delete archived contacts");
+    } else {
+      setContacts((prev) => prev.filter((c) => c.status !== "archived"));
+      setStats((prev) => ({
+        ...prev,
+        archived: 0,
+        total: Math.max(0, prev.total - result.deletedCount),
+      }));
+      toast.success(
+        result.deletedCount === 1
+          ? "Deleted 1 archived contact"
+          : `Deleted ${result.deletedCount} archived contacts`,
+      );
+      setDeleteArchivedOpen(false);
+    }
+    setDeletingArchived(false);
   };
 
   const handleRowClick = (contact: IContact) => {
@@ -347,6 +408,17 @@ export default function ContactsPage() {
                   Archive
                 </DropdownMenuItem>
               )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteTarget(contact);
+                }}
+              >
+                <Trash2 className="size-3.5" />
+                Delete
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         );
@@ -378,6 +450,16 @@ export default function ContactsPage() {
         icon={<UserSquare className="size-4 text-muted-foreground" />}
         title="Contacts"
       >
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 text-xs gap-1.5 text-destructive hover:text-destructive"
+          disabled={stats.archived === 0}
+          onClick={() => setDeleteArchivedOpen(true)}
+        >
+          <Trash2 className="size-3.5" />
+          Delete archived
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -450,6 +532,66 @@ export default function ContactsPage() {
         onStatusChange={handleStatusChange}
         onDelete={handleDelete}
       />
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete contact?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete ticket {deleteTarget?.ticketId}. This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleConfirmDelete();
+              }}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deleteArchivedOpen}
+        onOpenChange={setDeleteArchivedOpen}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete all archived contacts?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all {stats.archived} archived
+              contacts. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingArchived}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDeleteArchived();
+              }}
+              disabled={deletingArchived}
+            >
+              {deletingArchived ? "Deleting..." : "Delete archived"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,5 +1,15 @@
 "use client";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import {
@@ -182,6 +192,34 @@ export default function NotesPage() {
   const [sort, setSort] = useState<Sort>("updated-desc");
   const [importingLink, setImportingLink] = useState(false);
   const [semanticOpen, setSemanticOpen] = useState(false);
+  const [folderCurrentId, setFolderCurrentId] = useState<string | null>(null);
+  const [pendingDeleteNote, setPendingDeleteNote] = useState<INote | null>(
+    null,
+  );
+  const [pendingDeleteGroup, setPendingDeleteGroup] =
+    useState<INoteGroup | null>(null);
+
+  const goNewNote = useCallback(
+    (groupId: string | null) => {
+      router.push(
+        groupId
+          ? `/dashboard/notes/new?group=${encodeURIComponent(groupId)}`
+          : "/dashboard/notes/new",
+      );
+    },
+    [router],
+  );
+
+  const goNewGroup = useCallback(
+    (parentId: string | null) => {
+      router.push(
+        parentId
+          ? `/dashboard/notes/new-group?parent=${encodeURIComponent(parentId)}`
+          : "/dashboard/notes/new-group",
+      );
+    },
+    [router],
+  );
 
   const load = useCallback(
     async (silent = false) => {
@@ -712,7 +750,7 @@ export default function NotesPage() {
             size="sm"
             variant="outline"
             className="h-7"
-            onClick={() => router.push("/dashboard/notes/new-group")}
+            onClick={() => goNewGroup(view === "list" ? folderCurrentId : null)}
           >
             <FolderPlus className="size-3.5" />
             <span className="hidden lg:inline">Group</span>
@@ -721,7 +759,7 @@ export default function NotesPage() {
           <Button
             size="sm"
             className="h-7"
-            onClick={() => router.push("/dashboard/notes/new")}
+            onClick={() => goNewNote(view === "list" ? folderCurrentId : null)}
           >
             <FilePlus2 className="size-3.5" />
             <span className="hidden lg:inline">Note</span>
@@ -862,11 +900,18 @@ export default function NotesPage() {
               setSelectedId(null);
               setSelectedGroupId(group._id);
             }}
+            onCreateNoteHere={goNewNote}
+            onCreateFolderHere={goNewGroup}
+            onCategorizeNote={(note) => handleCategorizeNote(note._id)}
+            onDeleteNote={setPendingDeleteNote}
+            onDeleteGroup={setPendingDeleteGroup}
           />
         ) : (
           <NoteFolderView
             notes={sortedNotes}
             groups={groups}
+            currentId={folderCurrentId}
+            onCurrentIdChange={setFolderCurrentId}
             onSelect={(note) => {
               setSelectedGroupId(null);
               setSelectedId(note._id);
@@ -875,6 +920,11 @@ export default function NotesPage() {
               setSelectedId(null);
               setSelectedGroupId(group._id);
             }}
+            onCreateNoteHere={goNewNote}
+            onCreateFolderHere={goNewGroup}
+            onCategorizeNote={(note) => handleCategorizeNote(note._id)}
+            onDeleteNote={setPendingDeleteNote}
+            onDeleteGroup={setPendingDeleteGroup}
           />
         )}
       </div>
@@ -885,6 +935,69 @@ export default function NotesPage() {
           onChanged={() => void load(true)}
         />
       )}
+
+      <AlertDialog
+        open={pendingDeleteNote !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteNote(null);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete “{pendingDeleteNote?.title}”. This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (pendingDeleteNote) {
+                  void handleDeleteNote(pendingDeleteNote._id);
+                }
+                setPendingDeleteNote(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingDeleteGroup !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteGroup(null);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete folder?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete “{pendingDeleteGroup?.name}”. Notes
+              inside are kept but removed from this folder. This action cannot
+              be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (pendingDeleteGroup) {
+                  void handleDeleteGroup(pendingDeleteGroup._id);
+                }
+                setPendingDeleteGroup(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

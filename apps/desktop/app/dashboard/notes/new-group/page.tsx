@@ -5,7 +5,7 @@ import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { Textarea } from "@repo/ui/textarea";
 import { ArrowLeft, FolderPlus, Loader2 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -18,6 +18,7 @@ const NONE_VALUE = "__none__";
 
 export default function NewGroupPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { settings, loading: loadingSettings } = useUserSettings();
 
   const api = useMemo(() => {
@@ -27,7 +28,9 @@ export default function NewGroupPage() {
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [parentId, setParentId] = useState<string>(NONE_VALUE);
+  const [parentId, setParentId] = useState<string>(
+    () => searchParams.get("parent") ?? NONE_VALUE,
+  );
   const [groups, setGroups] = useState<INoteGroup[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const selectedParentIds = parentId === NONE_VALUE ? [] : [parentId];

@@ -1,5 +1,15 @@
 "use client";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { DataTable } from "@repo/ui/data-table";
@@ -19,22 +29,64 @@ import {
   Eye,
   Mail,
   MoreHorizontal,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useImperativeHandle, useState } from "react";
 import { toast } from "sonner";
 import type { ILeanContact } from "@/models/Contact";
+
+export interface ContactsTableHandle {
+  removeByStatus: (status: string) => void;
+}
 
 interface ContactsTableProps {
   initialContacts: ILeanContact[];
   onStatusChange?: (oldStatus: string, newStatus: string) => void;
+  onDelete?: (status: string) => void;
+  ref?: React.Ref<ContactsTableHandle>;
 }
 
 export function ContactsTable({
   initialContacts,
   onStatusChange,
+  onDelete,
+  ref,
 }: ContactsTableProps) {
   const [contacts, setContacts] = useState<ILeanContact[]>(initialContacts);
+  const [deleteTarget, setDeleteTarget] = useState<ILeanContact | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  useImperativeHandle(ref, () => ({
+    removeByStatus: (status: string) => {
+      setContacts((prev) => prev.filter((c) => c.status !== status));
+    },
+  }));
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const response = await fetch(
+        `/api/admin/contacts/${deleteTarget.ticketId}`,
+        { method: "DELETE" },
+      );
+
+      if (!response.ok) throw new Error("Failed to delete contact");
+
+      setContacts((prev) =>
+        prev.filter((c) => c.ticketId !== deleteTarget.ticketId),
+      );
+      onDelete?.(deleteTarget.status);
+      toast.success("Contact deleted");
+      setDeleteTarget(null);
+    } catch (error) {
+      console.error("Error deleting contact:", error);
+      toast.error("Failed to delete contact");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleStatusUpdate = async (ticketId: string, newStatus: string) => {
     const contact = contacts.find((c) => c.ticketId === ticketId);
@@ -211,6 +263,14 @@ export function ContactsTable({
                 <Archive className="mr-2 h-4 w-4" />
                 Archive
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => setDeleteTarget(contact)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         );
@@ -219,11 +279,43 @@ export function ContactsTable({
   ];
 
   return (
-    <DataTable
-      columns={columns}
-      data={contacts}
-      searchPlaceholder="Search by ticket ID or email..."
-      searchableColumns={["ticketId", "email"]}
-    />
+    <>
+      <DataTable
+        columns={columns}
+        data={contacts}
+        searchPlaceholder="Search by ticket ID or email..."
+        searchableColumns={["ticketId", "email"]}
+      />
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete ticket {deleteTarget?.ticketId}. This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDelete();
+              }}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
