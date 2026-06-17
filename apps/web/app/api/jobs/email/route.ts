@@ -33,6 +33,9 @@ export async function GET(request: Request) {
       }
     }
 
+    const allFailed = accounts.length > 0 && syncedCount === 0;
+    const status = allFailed ? 500 : 200;
+
     return new Response(
       JSON.stringify({
         message: `Cron job completed: ${syncedCount} accounts synced, ${failedCount} failed`,
@@ -40,7 +43,7 @@ export async function GET(request: Request) {
         failedCount,
       }),
       {
-        status: 200,
+        status,
         headers: { "Content-Type": "application/json" },
       },
     );
