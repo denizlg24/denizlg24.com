@@ -42,8 +42,19 @@ These are settled — executors and future advisors do not re-litigate:
 | 005 | Spike: responsive admin design + shared UI direction | P2 | M | 003 (004 ideally) | DONE (2026-06-12: doc + contacts prototype verified at 375/768/1280 via puppeteer + Tauri-IPC mock; key drift: NavigationMenu sidebar is dead code — nav is ⌘K-only; 1 additive out-of-scope edit to paginated-data-table.tsx (meta.className, within STOP threshold); follow-ups 007–012 proposed in doc) |
 | 006 | GitHub Actions CI + Dependabot + lockfile auto-repair | P2 | S | 003 | DONE (2026-06-12: 3 files under `.github/`; initially BLOCKED on pre-existing Biome failures (CRLF from `core.autocrlf=true` + real lint errors), operator authorized fixing — `.gitattributes` `eol=lf`, biome migrate 2.4.16 + `tailwindDirectives`, 181-file format pass, optional-chain/banned-type/a11y fixes; full chain green) |
 | 007 | Desktop UX fixes + responsive admin implementation (umbrella; phases F1–F7 fixes, R1–R6 = doc's proposed 007–012) | P2 | XL | 005 (006 for CI gates) | DONE (2026-06-13: F1–F7 + R1–R6 landed; final R6 pass made chat-home/history/input/loading states overflow-free at 375px while preserving desktop behavior. Full typecheck, desktop+web builds, 161 tests, Biome, and browser probe green.) |
+| 008 | Email-sync cron reports failure when every account fails (BUG-04) | P1 | S | — | DONE (2026-06-17: 500 returned only when accounts.length>0 && syncedCount===0; 5-case bun:test added; typecheck + Biome green) |
+| 009 | Consolidate note/person group traversal into `@repo/utils` (DEBT-02) | P3 | M | — | TODO |
+| 010 | Harden email-triage LLM prompts against prompt injection (SEC-04) | P1 | M | — | TODO |
+| 011 | Characterization tests: admin auth gate + contact flow (TEST-02/03) | P2 | M | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (reason) | REJECTED (rationale)
+
+> **2026-06-17 reconcile pass** (`improve` re-audit @ `bbaedfe`): plans 001–007
+> all verified DONE. Promoted backlog items BUG-04→008, DEBT-02→009, SEC-04→010,
+> TEST-02/03→011 (their blockers, 005/007, are now complete). All four are
+> independent and parallelizable; 011 is the recommended safety net to land
+> before any DEBT-05 god-file refactor. Live-code vetting downgraded BUG-03 and
+> BUG-06 (now handled) — see "considered and rejected".
 
 ## Dependency notes
 
@@ -62,29 +73,35 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (reason) | REJECTED (rational
 
 ## Audit findings not planned (backlog)
 
-Real findings, deliberately not planned now — revisit after 005:
+Real findings, deliberately not planned now. Items promoted to plans in the
+2026-06-17 reconcile pass are struck through with their plan number.
 
-- **SEC-04** LLM prompt injection: untrusted email subject/from/body
-  concatenated into triage prompts with tool use enabled
-  (`lib/triage.ts:721-728`, pre-port path). Fix: delimit untrusted content +
-  system-prompt hardening. M effort.
+- ~~**SEC-04** LLM prompt injection in triage prompts~~ → **planned as 010**
+  (re-verified @ `bbaedfe`: 3 call sites in `lib/triage.ts`; `runExtraction`
+  ~787 is the highest-risk one — output drives Kanban/calendar writes).
 - **SEC-09** Static IMAP encryption key from env, no rotation/versioning
   (`lib/safe-email-password.ts`). Encryption itself is AES-256-GCM (fine). L effort.
-- **BUG-04** Email sync cron returns 200 even when every account fails
-  (`app/api/jobs/email/route.ts:23-33`) — monitoring blind spot. S/M effort.
-- **BUG-03** Kanban drag optimistic update not snapshot-rolled-back on API
-  failure (desktop `kanban-board.tsx:333-394`). M effort.
-- **BUG-06** Window listeners can persist if kanban unmounts mid-drag
-  (`kanban-board.tsx:66-105`). S effort.
+- ~~**BUG-04** Email sync cron returns 200 even when every account fails~~ →
+  **planned as 008** (re-verified @ `bbaedfe`: `app/api/jobs/email/route.ts`).
+- **BUG-03** Kanban drag optimistic update — RE-VERIFIED @ `bbaedfe`: `handleDrop`
+  calls `fetchBoard()` (server refetch) on API failure, restoring correct state.
+  Moved to "considered and rejected".
+- **BUG-06** Kanban window listeners — RE-VERIFIED @ `bbaedfe`: both the
+  mousemove tracker and the per-drag mousemove/mouseup effects have cleanup
+  returns; unmount runs them. Moved to "considered and rejected".
 - **PERF-03** Initial IMAP sync: per-email DB writes, no batching/limit
-  (`lib/sync-email.ts:50-110`). M effort.
+  (`lib/sync-email.ts`). RE-VERIFIED: bounded to the last 50 messages on initial
+  sync; low leverage. Left in backlog. M effort.
 - **PERF-04** Desktop bundle: heavy deps (@fortune-sheet, force-graph, pdf)
   with only 2 `dynamic()` usages found — needs build analysis. M effort.
-- **TEST-02/03** Zero tests on `require-admin`, contact flow, email sync —
-  partially addressed by 001/002; full characterization suite remains. L effort.
-- **DEBT-02** Note-group tree/hierarchy logic duplicated with divergent APIs
-  (desktop `lib/note-group-tree.ts` vs web `lib/note-group-hierarchy.ts`) —
-  consolidate into `@repo/utils` after 004. M effort.
+- ~~**TEST-02/03** Zero tests on `require-admin`, contact flow, email sync~~ →
+  **planned as 011** (require-admin + contact; email-sync cron route covered by
+  008; `syncInbox` IMAP-coupled characterization deferred).
+- ~~**DEBT-02** Note-group tree/hierarchy logic split across desktop/web~~ →
+  **planned as 009**. NOTE re-vetted @ `bbaedfe`: the two files are
+  convergent, NOT byte-duplicated (different self-inclusion semantics + ObjectId
+  coercion); 009 is scoped as a generic `@repo/utils` core + behavior-preserving
+  adapters, not a copy-paste merge.
 - **DEBT-05** God files: `lib/triage.ts` (~1300 lines), `chat-view.tsx`
   (~1290), `person-detail.tsx` (~1240). Real but L effort / HIGH risk without
   tests — needs characterization tests first.
@@ -122,3 +139,13 @@ So nobody re-audits these:
   the zod-schema decision; draft deleted.
 - **History-preserving `git subtree` import** (first draft of plan 003):
   superseded by scaffold-first decision; history lives in `_archive/` instead.
+- **BUG-03 "kanban optimistic update not rolled back"**: RE-VERIFIED @ `bbaedfe`
+  (`apps/desktop/app/dashboard/kanban/_components/kanban-board.tsx`). On a failed
+  reorder/move PATCH, `handleDrop` calls `fetchBoard()` which refetches
+  authoritative state from the server — the optimistic UI is reconciled, not
+  left stale. Refetch-on-failure is an acceptable rollback strategy. Not a bug.
+- **BUG-06 "kanban window listeners leak on mid-drag unmount"**: RE-VERIFIED @
+  `bbaedfe` (same file). The global `mousemove` tracker effect (`[]` deps) and
+  the per-drag `mousemove`/`mouseup` effect (`[dragging]` deps) both return
+  cleanup functions that `removeEventListener`; React runs them on unmount.
+  No leak. Not a bug.
