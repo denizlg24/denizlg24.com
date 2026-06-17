@@ -83,9 +83,9 @@ interface Props<
   itemValPerConnection?: number;
   onSelectItem: (item: TItem) => void;
   onSelectGroup: (group: TGroup) => void;
-  onItemContextMenu?: (item: TItem) => void;
-  onGroupContextMenu?: (group: TGroup) => void;
-  onBackgroundContextMenu?: () => void;
+  onItemContextMenu?: (item: TItem, event: MouseEvent) => void;
+  onGroupContextMenu?: (group: TGroup, event: MouseEvent) => void;
+  onBackgroundContextMenu?: (event: MouseEvent) => void;
 }
 
 export function EntityGraph<

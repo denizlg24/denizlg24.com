@@ -16,7 +16,8 @@ import {
   SquareArrowOutUpRight,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { EntityGraph } from "@/components/graph/entity-graph";
 import { classColor } from "@/lib/bookmark-color";
 import type { INote, INoteEdge, INoteGroup } from "@/lib/data-types";
@@ -62,11 +63,35 @@ export function NoteGraph({
   onDeleteGroup,
 }: Props) {
   const [target, setTarget] = useState<ContextTarget>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+
+  const openContextMenu = (nextTarget: ContextTarget, event: MouseEvent) => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+
+    event.preventDefault();
+    flushSync(() => setTarget(nextTarget));
+    trigger.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        button: 2,
+        buttons: 0,
+        cancelable: true,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        screenX: event.screenX,
+        screenY: event.screenY,
+        shiftKey: event.shiftKey,
+      }),
+    );
+  };
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="h-full w-full">
+        <div ref={triggerRef} className="h-full w-full">
           <EntityGraph
             items={notes}
             groups={groups}
@@ -76,9 +101,15 @@ export function NoteGraph({
             getItemColor={getNoteColor}
             onSelectItem={onSelectNote}
             onSelectGroup={onSelectGroup}
-            onItemContextMenu={(note) => setTarget({ kind: "note", note })}
-            onGroupContextMenu={(group) => setTarget({ kind: "group", group })}
-            onBackgroundContextMenu={() => setTarget({ kind: "background" })}
+            onItemContextMenu={(note, event) =>
+              openContextMenu({ kind: "note", note }, event)
+            }
+            onGroupContextMenu={(group, event) =>
+              openContextMenu({ kind: "group", group }, event)
+            }
+            onBackgroundContextMenu={(event) =>
+              openContextMenu({ kind: "background" }, event)
+            }
           />
         </div>
       </ContextMenuTrigger>
