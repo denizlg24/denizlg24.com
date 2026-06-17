@@ -139,7 +139,7 @@ build a `Request`, assert `response.status` and `await response.json()`).
 | Typecheck    | `cd apps/web && bun run typecheck`                               | exit 0   |
 | Auth test    | `cd apps/web && bun test lib/require-admin.test.ts`             | all pass |
 | Contact test | `cd apps/web && bun test app/api/contact/route.test.ts`        | all pass |
-| All web tests| `cd apps/web && bun test`                                        | all pass |
+| All web tests| `cd apps/web && bun test --env-file=../../.env`                  | all pass |
 | Lint/format  | `bun run format-and-lint`                                         | exit 0   |
 
 ## Scope
@@ -244,7 +244,11 @@ Build requests as JSON `POST`s (content-type `application/json`). Reset mocks in
 ### Step 3: Full web suite + gates
 
 **Verify**:
-- `cd apps/web && bun test` → all pass (the two new files plus the existing 6)
+- `cd apps/web && bun test --env-file=../../.env` → all pass (the two new
+  files plus the existing 6). The `--env-file` is required: the `.env` lives at
+  the repo ROOT, and bun only auto-loads `apps/web/.env` (absent), so the
+  full suite's mongodb-coupled modules (`lib/projects.test.ts`,
+  `lib/triage.test.ts`) throw at module load without it.
 - `cd apps/web && bun run typecheck` → exit 0
 - `bun run format-and-lint` → exit 0 (run `biome check <new files> --write` if
   it reports formatting diffs)
@@ -264,7 +268,7 @@ ALL must hold:
 
 - [ ] `apps/web/lib/require-admin.test.ts` exists with the 8 cases; passes
 - [ ] `apps/web/app/api/contact/route.test.ts` exists with the 5 cases; passes
-- [ ] `cd apps/web && bun test` → all tests pass (existing + new)
+- [ ] `cd apps/web && bun test --env-file=../../.env` → all tests pass (existing + new)
 - [ ] `cd apps/web && bun run typecheck` exits 0
 - [ ] `bun run format-and-lint` exits 0
 - [ ] **No production files modified** (`git status` shows only the 2 new test files)
