@@ -67,6 +67,9 @@ interface Props<TItem, TGroup> {
   onSelectItem: (item: TItem) => void;
   onSelectGroup: (group: TGroup) => void;
   onRelationClick?: (sourceId: string) => void;
+  onItemContextMenu?: (item: TItem, event: MouseEvent) => void;
+  onGroupContextMenu?: (group: TGroup, event: MouseEvent) => void;
+  onBackgroundContextMenu?: (event: MouseEvent) => void;
 }
 
 const NODE_REL_SIZE = 3;
@@ -101,6 +104,9 @@ export function KnowledgeGraph<TItem, TGroup>({
   onSelectItem,
   onSelectGroup,
   onRelationClick,
+  onItemContextMenu,
+  onGroupContextMenu,
+  onBackgroundContextMenu,
 }: Props<TItem, TGroup>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphRef | null>(null);
@@ -112,7 +118,6 @@ export function KnowledgeGraph<TItem, TGroup>({
   // are applied, so the layout visibly settles exactly once.
   const [forcesReady, setForcesReady] = useState(false);
   const forcesAppliedRef = useRef(false);
-  const didFitRef = useRef(false);
 
   // A content signature keyed on node ids + edge count. The simulation re-settles
   // ("collapses to center then explodes") on every distinct graphData object it
@@ -269,11 +274,6 @@ export function KnowledgeGraph<TItem, TGroup>({
           linkWidth={(link) => (link.type === "membership" ? 0.5 : 0.3)}
           cooldownTicks={forcesReady ? 180 : 0}
           d3VelocityDecay={0.45}
-          onEngineStop={() => {
-            if (didFitRef.current) return;
-            didFitRef.current = true;
-            graphRef.current?.zoomToFit(400, 48);
-          }}
           onNodeHover={(node) => {
             setHoveredId(node ? node.id : null);
             if (containerRef.current) {
@@ -292,6 +292,14 @@ export function KnowledgeGraph<TItem, TGroup>({
             const sourceId = resolveNodeId(link.source);
             if (sourceId) onRelationClick?.(sourceId);
           }}
+          onNodeRightClick={(node, event) => {
+            if (node.type === "item" && node.item) {
+              onItemContextMenu?.(node.item as TItem, event);
+            } else if (node.type === "group" && node.group) {
+              onGroupContextMenu?.(node.group as TGroup, event);
+            }
+          }}
+          onBackgroundRightClick={(event) => onBackgroundContextMenu?.(event)}
           nodeCanvasObjectMode={() => "replace"}
           nodeCanvasObject={(node, context, globalScale) => {
             if (node.x == null || node.y == null) return;

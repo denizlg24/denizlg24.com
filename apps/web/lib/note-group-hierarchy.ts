@@ -1,3 +1,4 @@
+import { ancestorIds } from "@repo/utils";
 import type { ILeanNoteGroup } from "@/models/NoteGroup";
 
 export type GroupLike = Pick<ILeanNoteGroup, "_id" | "parentId">;
@@ -13,32 +14,20 @@ export function buildAncestorMap(groups: GroupLike[]): AncestorMap {
     );
   }
 
-  const memo: AncestorMap = new Map();
-
-  const resolve = (id: string, seen: Set<string>): Set<string> => {
-    const cached = memo.get(id);
-    if (cached) return cached;
-    if (seen.has(id)) return new Set();
-
-    seen.add(id);
-    const ancestors = new Set<string>();
+  const parentOf = (id: string): string | null => {
     const parentId = parentById.get(id) ?? null;
-    if (parentId && parentById.has(parentId)) {
-      ancestors.add(parentId);
-      for (const ancestor of resolve(parentId, seen)) {
-        ancestors.add(ancestor);
-      }
-    }
-
-    memo.set(id, ancestors);
-    return ancestors;
+    return parentId && parentById.has(parentId) ? parentId : null;
   };
 
+  const ancestorsById: AncestorMap = new Map();
   for (const id of parentById.keys()) {
-    resolve(id, new Set());
+    ancestorsById.set(
+      id,
+      new Set(ancestorIds(id, parentOf, { includeSelf: false })),
+    );
   }
 
-  return memo;
+  return ancestorsById;
 }
 
 export function pruneRedundantAncestors<
@@ -60,35 +49,4 @@ export function pruneRedundantAncestors<
   return groupIds.filter(
     (groupId) => !ancestorsOfAnyMember.has(String(groupId)),
   );
-}
-
-export function descendantIds(
-  rootId: string,
-  groups: GroupLike[],
-): Set<string> {
-  const childrenByParent = new Map<string, string[]>();
-  for (const group of groups) {
-    const parentId = group.parentId ? String(group.parentId) : null;
-    if (!parentId) continue;
-    const existing = childrenByParent.get(parentId) ?? [];
-    existing.push(String(group._id));
-    childrenByParent.set(parentId, existing);
-  }
-
-  const result = new Set<string>();
-  const stack = [rootId];
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) continue;
-
-    const children = childrenByParent.get(current) ?? [];
-    for (const childId of children) {
-      if (result.has(childId)) continue;
-      result.add(childId);
-      stack.push(childId);
-    }
-  }
-
-  return result;
 }

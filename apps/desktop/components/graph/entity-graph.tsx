@@ -83,6 +83,9 @@ interface Props<
   itemValPerConnection?: number;
   onSelectItem: (item: TItem) => void;
   onSelectGroup: (group: TGroup) => void;
+  onItemContextMenu?: (item: TItem, event: MouseEvent) => void;
+  onGroupContextMenu?: (group: TGroup, event: MouseEvent) => void;
+  onBackgroundContextMenu?: (event: MouseEvent) => void;
 }
 
 export function EntityGraph<
@@ -99,6 +102,9 @@ export function EntityGraph<
   itemValPerConnection = 0.28,
   onSelectItem,
   onSelectGroup,
+  onItemContextMenu,
+  onGroupContextMenu,
+  onBackgroundContextMenu,
 }: Props<TItem, TGroup>) {
   const data = useMemo(() => {
     const scheme = themeScheme();
@@ -244,6 +250,9 @@ export function EntityGraph<
       links={data.links}
       onSelectItem={onSelectItem}
       onSelectGroup={onSelectGroup}
+      onItemContextMenu={onItemContextMenu}
+      onGroupContextMenu={onGroupContextMenu}
+      onBackgroundContextMenu={onBackgroundContextMenu}
       onRelationClick={(sourceId) => {
         const item = items.find((candidate) => candidate._id === sourceId);
         if (item) onSelectItem(item);

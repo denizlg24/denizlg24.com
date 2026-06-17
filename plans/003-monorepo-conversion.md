@@ -262,7 +262,7 @@ any porting — it proves the monorepo skeleton works.
 bun install
 bunx turbo typecheck --filter=web
 bunx turbo build --filter=web
-cd apps/web && bun test
+cd apps/web && bun test --env-file=../../.env
 ```
 
 **Verify**: build exits 0; typecheck/test match the plan-001 recorded

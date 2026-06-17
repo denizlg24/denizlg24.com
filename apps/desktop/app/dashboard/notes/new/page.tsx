@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useUserSettings } from "@/context/user-context";
@@ -9,14 +9,14 @@ import type { INote, INoteEdge, INoteGroup } from "@/lib/data-types";
 import { classifyNoteLocally } from "@/lib/semantic/classify-note";
 import { NoteDetail } from "../_components/note-detail";
 
-function createDraftNote(): INote {
+function createDraftNote(groupIds: string[]): INote {
   const now = new Date().toISOString();
   return {
     _id: "draft",
     title: "",
     content: "",
     tags: [],
-    groupIds: [],
+    groupIds,
     status: "open",
     createdAt: now,
     updatedAt: now,
@@ -25,6 +25,7 @@ function createDraftNote(): INote {
 
 export default function NewNotePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { settings, loading: loadingSettings } = useUserSettings();
 
   const api = useMemo(() => {
@@ -32,7 +33,10 @@ export default function NewNotePage() {
     return new denizApi(settings.apiKey);
   }, [settings, loadingSettings]);
 
-  const [draftNote, setDraftNote] = useState<INote>(() => createDraftNote());
+  const [draftNote, setDraftNote] = useState<INote>(() => {
+    const group = searchParams.get("group");
+    return createDraftNote(group ? [group] : []);
+  });
   const [groups, setGroups] = useState<INoteGroup[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);

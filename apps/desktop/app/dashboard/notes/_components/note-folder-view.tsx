@@ -1,15 +1,28 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@repo/ui/context-menu";
 import { ScrollArea } from "@repo/ui/scroll-area";
 import {
+  BrainCircuit,
   ChevronRight,
   CornerLeftUp,
+  FilePlus2,
   FileText,
   Folder,
+  FolderOpen,
+  FolderPlus,
   Globe,
   House,
   Settings2,
+  SquareArrowOutUpRight,
+  Trash2,
 } from "lucide-react";
 import Image from "next/image";
 import { useMemo, useState } from "react";
@@ -28,21 +41,44 @@ function safeHostname(url: string) {
 interface Props {
   notes: INote[];
   groups: INoteGroup[];
+  currentId: string | null;
+  onCurrentIdChange: (id: string | null) => void;
   onSelect: (note: INote) => void;
   onSelectGroup: (group: INoteGroup) => void;
+  onCreateNoteHere: (groupId: string | null) => void;
+  onCreateFolderHere: (parentId: string | null) => void;
+  onCategorizeNote: (note: INote) => void;
+  onDeleteNote: (note: INote) => void;
+  onDeleteGroup: (group: INoteGroup) => void;
 }
+
+type ContextTarget =
+  | { kind: "note"; note: INote }
+  | { kind: "group"; group: INoteGroup }
+  | { kind: "background" };
 
 export function NoteFolderView({
   notes,
   groups,
+  currentId,
+  onCurrentIdChange,
   onSelect,
   onSelectGroup,
+  onCreateNoteHere,
+  onCreateFolderHere,
+  onCategorizeNote,
+  onDeleteNote,
+  onDeleteGroup,
 }: Props) {
-  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [target, setTarget] = useState<ContextTarget>({ kind: "background" });
 
   const groupById = useMemo(
     () => new Map(groups.map((group) => [group._id, group])),
     [groups],
+  );
+  const noteById = useMemo(
+    () => new Map(notes.map((note) => [note._id, note])),
+    [notes],
   );
   const descendantIdsByGroup = useMemo(
     () => buildDescendantIdMap(groups),
@@ -98,6 +134,27 @@ export function NoteFolderView({
 
   const isEmpty = childFolders.length === 0 && folderNotes.length === 0;
 
+  // Single context menu for the whole grid: resolve the right-clicked tile from
+  // data attributes so we avoid nesting Radix ContextMenu roots (which would
+  // double-open).
+  const handleContextMenu = (event: React.MouseEvent<HTMLElement>) => {
+    const el = (event.target as HTMLElement).closest<HTMLElement>(
+      "[data-folder-id], [data-note-id]",
+    );
+    const folderId = el?.dataset.folderId;
+    const noteId = el?.dataset.noteId;
+
+    if (folderId) {
+      const group = groupById.get(folderId);
+      setTarget(group ? { kind: "group", group } : { kind: "background" });
+    } else if (noteId) {
+      const note = noteById.get(noteId);
+      setTarget(note ? { kind: "note", note } : { kind: "background" });
+    } else {
+      setTarget({ kind: "background" });
+    }
+  };
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-9 shrink-0 items-center gap-1 border-b px-3 text-xs">
@@ -105,14 +162,14 @@ export function NoteFolderView({
           variant="ghost"
           size="icon-xs"
           disabled={activeId === null}
-          onClick={() => setCurrentId(current?.parentId ?? null)}
+          onClick={() => onCurrentIdChange(current?.parentId ?? null)}
           title="Up one level"
         >
           <CornerLeftUp />
         </Button>
         <button
           type="button"
-          onClick={() => setCurrentId(null)}
+          onClick={() => onCurrentIdChange(null)}
           className={cn(
             "inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-muted",
             activeId === null
@@ -128,7 +185,7 @@ export function NoteFolderView({
             <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
             <button
               type="button"
-              onClick={() => setCurrentId(group._id)}
+              onClick={() => onCurrentIdChange(group._id)}
               className={cn(
                 "max-w-40 truncate rounded px-1.5 py-0.5 hover:bg-muted",
                 index === breadcrumb.length - 1
@@ -153,32 +210,109 @@ export function NoteFolderView({
         )}
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        {isEmpty ? (
-          <div className="flex h-48 items-center justify-center text-xs text-muted-foreground">
-            This folder is empty.
-          </div>
-        ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2 p-4">
-            {childFolders.map((group) => (
-              <FolderTile
-                key={group._id}
-                group={group}
-                count={folderNoteCount.get(group._id) ?? 0}
-                onOpen={() => setCurrentId(group._id)}
-                onDetails={() => onSelectGroup(group)}
-              />
-            ))}
-            {folderNotes.map((note) => (
-              <NoteTile
-                key={note._id}
-                note={note}
-                onOpen={() => onSelect(note)}
-              />
-            ))}
-          </div>
-        )}
-      </ScrollArea>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <ScrollArea
+            className="min-h-0 flex-1"
+            onContextMenu={handleContextMenu}
+          >
+            {isEmpty ? (
+              <div className="flex h-48 items-center justify-center text-xs text-muted-foreground">
+                This folder is empty.
+              </div>
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2 p-4">
+                {childFolders.map((group) => (
+                  <FolderTile
+                    key={group._id}
+                    group={group}
+                    count={folderNoteCount.get(group._id) ?? 0}
+                    onOpen={() => onCurrentIdChange(group._id)}
+                    onDetails={() => onSelectGroup(group)}
+                  />
+                ))}
+                {folderNotes.map((note) => (
+                  <NoteTile
+                    key={note._id}
+                    note={note}
+                    onOpen={() => onSelect(note)}
+                  />
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-48">
+          {target.kind === "note" && (
+            <>
+              <ContextMenuItem onSelect={() => onSelect(target.note)}>
+                <SquareArrowOutUpRight className="size-3.5" />
+                Open
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => onCategorizeNote(target.note)}>
+                <BrainCircuit className="size-3.5" />
+                Categorize
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                variant="destructive"
+                onSelect={() => onDeleteNote(target.note)}
+              >
+                <Trash2 className="size-3.5" />
+                Delete
+              </ContextMenuItem>
+            </>
+          )}
+
+          {target.kind === "group" && (
+            <>
+              <ContextMenuItem
+                onSelect={() => onCurrentIdChange(target.group._id)}
+              >
+                <FolderOpen className="size-3.5" />
+                Open
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() => onCreateNoteHere(target.group._id)}
+              >
+                <FilePlus2 className="size-3.5" />
+                New note here
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() => onCreateFolderHere(target.group._id)}
+              >
+                <FolderPlus className="size-3.5" />
+                New subfolder
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => onSelectGroup(target.group)}>
+                <Settings2 className="size-3.5" />
+                Details
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                variant="destructive"
+                onSelect={() => onDeleteGroup(target.group)}
+              >
+                <Trash2 className="size-3.5" />
+                Delete
+              </ContextMenuItem>
+            </>
+          )}
+
+          {target.kind === "background" && (
+            <>
+              <ContextMenuItem onSelect={() => onCreateNoteHere(activeId)}>
+                <FilePlus2 className="size-3.5" />
+                New note here
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => onCreateFolderHere(activeId)}>
+                <FolderPlus className="size-3.5" />
+                New folder here
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
     </div>
   );
 }
@@ -195,7 +329,7 @@ function FolderTile({
   onDetails: () => void;
 }) {
   return (
-    <div className="group relative">
+    <div className="group relative" data-folder-id={group._id}>
       <button
         type="button"
         onClick={onOpen}
@@ -233,6 +367,7 @@ function NoteTile({ note, onOpen }: { note: INote; onOpen: () => void }) {
     <button
       type="button"
       onClick={onOpen}
+      data-note-id={note._id}
       className="flex flex-col items-center gap-2 rounded-lg border border-transparent px-3 py-4 text-center transition-colors hover:border-border hover:bg-muted/50"
       title={note.title}
     >

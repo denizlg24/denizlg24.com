@@ -106,3 +106,10 @@ export async function deleteContact(ticketId: string): Promise<boolean> {
   const result = await Contact.deleteOne({ ticketId });
   return result.deletedCount > 0;
 }
+
+export async function deleteArchivedContacts(): Promise<number> {
+  await connectDB();
+
+  const result = await Contact.deleteMany({ status: "archived" });
+  return result.deletedCount ?? 0;
+}
