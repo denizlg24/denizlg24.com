@@ -1,3 +1,5 @@
+export * from "./group-forest";
+
 export function getAge(birthDate: string): number {
   const birth = new Date(birthDate);
   const today = new Date();
