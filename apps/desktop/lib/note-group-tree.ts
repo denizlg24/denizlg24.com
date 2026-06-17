@@ -1,45 +1,34 @@
+import {
+  ancestorIds,
+  descendantIdSet,
+  groupByParent,
+  indexById,
+} from "@repo/utils";
 import type { INoteGroup, IPersonGroup } from "@/lib/data-types";
 
 type GroupLike = INoteGroup | IPersonGroup;
 
 export function buildGroupById<TGroup extends GroupLike>(groups: TGroup[]) {
-  return new Map(groups.map((group) => [group._id, group] as const));
+  return indexById(groups, (group) => group._id);
 }
 
 export function buildChildrenByParent<TGroup extends GroupLike>(
   groups: TGroup[],
 ) {
-  const childrenByParent = new Map<string | null, TGroup[]>();
-
-  for (const group of groups) {
-    const parentId = group.parentId ?? null;
-    const current = childrenByParent.get(parentId) ?? [];
-    current.push(group);
-    childrenByParent.set(parentId, current);
-  }
-
-  for (const children of childrenByParent.values()) {
-    children.sort((left, right) => left.name.localeCompare(right.name));
-  }
-
-  return childrenByParent;
+  return groupByParent(
+    groups,
+    (group) => group.parentId ?? null,
+    (left, right) => left.name.localeCompare(right.name),
+  );
 }
 
 export function collectAncestorIds(
   groupId: string,
   byId: Map<string, GroupLike>,
 ): string[] {
-  const ancestors: string[] = [];
-  const visited = new Set<string>();
-  let currentId: string | null | undefined = groupId;
-
-  while (currentId && !visited.has(currentId)) {
-    visited.add(currentId);
-    ancestors.push(currentId);
-    currentId = byId.get(currentId)?.parentId ?? null;
-  }
-
-  return ancestors;
+  return ancestorIds(groupId, (id) => byId.get(id)?.parentId ?? null, {
+    includeSelf: true,
+  });
 }
 
 export function buildPathLabelMap<TGroup extends GroupLike>(groups: TGroup[]) {
@@ -80,23 +69,13 @@ export function buildDescendantIdMap<TGroup extends GroupLike>(
   const childrenByParent = buildChildrenByParent(groups);
   const descendantIdsByGroup = new Map<string, Set<string>>();
 
-  const collect = (groupId: string): Set<string> => {
-    const cached = descendantIdsByGroup.get(groupId);
-    if (cached) return cached;
-
-    const next = new Set<string>([groupId]);
-    for (const child of childrenByParent.get(groupId) ?? []) {
-      for (const descendantId of collect(child._id)) {
-        next.add(descendantId);
-      }
-    }
-
-    descendantIdsByGroup.set(groupId, next);
-    return next;
-  };
-
   for (const group of groups) {
-    collect(group._id);
+    descendantIdsByGroup.set(
+      group._id,
+      descendantIdSet(group._id, childrenByParent, (child) => child._id, {
+        includeRoot: true,
+      }),
+    );
   }
 
   return descendantIdsByGroup;
