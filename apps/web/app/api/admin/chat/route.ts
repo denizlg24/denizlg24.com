@@ -4,7 +4,10 @@ import {
   getConversation,
   updateConversationMessages,
 } from "@/lib/conversations";
-import { createAgenticSSEStream } from "@/lib/llm-chat";
+import {
+  createAgenticSSEStream,
+  hasPendingToolContinuation,
+} from "@/lib/llm-chat";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { requireAdmin } from "@/lib/require-admin";
 import { getToolSchemas } from "@/lib/tools/registry";
@@ -31,19 +34,34 @@ function sanitizeContentBlock(
         name: block.name ?? "",
         input: block.input ?? {},
       };
+    case "server_tool_use":
+      return {
+        type: "server_tool_use",
+        id: block.id ?? "",
+        name: "web_search",
+        input: block.input ?? {},
+      };
     case "tool_result": {
       const result: Anthropic.ToolResultBlockParam = {
         type: "tool_result",
         tool_use_id: block.tool_use_id ?? "",
       };
       if (block.content !== undefined) {
-        result.content = block.content;
+        result.content =
+          block.content as Anthropic.ToolResultBlockParam["content"];
       }
       if (block.is_error) {
         result.is_error = true;
       }
       return result;
     }
+    case "web_search_tool_result":
+      return {
+        type: "web_search_tool_result",
+        tool_use_id: block.tool_use_id ?? "",
+        content:
+          block.content as Anthropic.WebSearchToolResultBlockParam["content"],
+      };
     default:
       return null;
   }
@@ -76,6 +94,13 @@ function messageContentToStored(
           name: block.name,
           input: block.input as Record<string, unknown>,
         };
+      case "server_tool_use":
+        return {
+          type: "server_tool_use",
+          id: block.id,
+          name: block.name,
+          input: block.input as Record<string, unknown>,
+        };
       case "tool_result":
         return {
           type: "tool_result",
@@ -83,6 +108,12 @@ function messageContentToStored(
           content:
             typeof block.content === "string" ? block.content : undefined,
           is_error: block.is_error ?? undefined,
+        };
+      case "web_search_tool_result":
+        return {
+          type: "web_search_tool_result",
+          tool_use_id: block.tool_use_id,
+          content: block.content,
         };
       default:
         return { type: block.type };
@@ -172,6 +203,14 @@ export const POST = async (req: NextRequest) => {
     }
 
     if (message) {
+      if (hasPendingToolContinuation(messages)) {
+        return NextResponse.json(
+          {
+            error: "Resolve the pending tool call before sending a new message",
+          },
+          { status: 409 },
+        );
+      }
       const userContent: string | Anthropic.ContentBlockParam[] =
         typeof message === "string" ? message : message;
       messages.push({ role: "user", content: userContent });
