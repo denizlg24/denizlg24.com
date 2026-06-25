@@ -210,6 +210,9 @@ function convertApiMessagesToDisplay(
 
     const contentArr = msg.content as any[];
     const segments: IChatContentSegment[] = [];
+    const pendingActionIds = new Set(
+      msg.pendingActions?.map((action) => action.toolId) ?? [],
+    );
 
     for (const block of contentArr) {
       if (block.type === "text") {
@@ -224,7 +227,9 @@ function convertApiMessagesToDisplay(
           toolId: block.id,
           toolName: block.name,
           input: block.input,
-          status: "calling",
+          status: pendingActionIds.has(block.id)
+            ? "pending_approval"
+            : "calling",
         };
         const last = segments[segments.length - 1];
         if (last?.type === "tool_group") {
@@ -257,20 +262,15 @@ function convertApiMessagesToDisplay(
           }
         }
       }
-    } else {
-      for (const seg of segments) {
-        if (seg.type !== "tool_group") continue;
-        for (const tc of seg.calls) {
-          if (tc.status === "calling") {
-            tc.status = "pending_approval";
-          }
-        }
-      }
     }
 
     const displayMsg: IChatMessage = {
       ...msg,
       segments: segments.length > 0 ? segments : undefined,
+      pendingActions:
+        msg.pendingActions && msg.pendingActions.length > 0
+          ? msg.pendingActions
+          : undefined,
       content:
         segments
           .filter((s): s is { type: "text"; text: string } => s.type === "text")
@@ -309,6 +309,58 @@ function convertApiMessagesToDisplay(
   }
 
   return display;
+}
+
+function mergeContentSegments(
+  existing: IChatContentSegment[],
+  incoming: IChatContentSegment[],
+): IChatContentSegment[] {
+  const merged: IChatContentSegment[] = existing.map((segment) =>
+    segment.type === "tool_group"
+      ? { ...segment, calls: segment.calls.map((call) => ({ ...call })) }
+      : { ...segment },
+  );
+
+  const findExistingToolCall = (toolId: string): IChatToolCall | null => {
+    for (const segment of merged) {
+      if (segment.type !== "tool_group") continue;
+      const call = segment.calls.find((item) => item.toolId === toolId);
+      if (call) return call;
+    }
+    return null;
+  };
+
+  for (const segment of incoming) {
+    if (segment.type === "text") {
+      const last = merged[merged.length - 1];
+      if (last?.type === "text") {
+        last.text += segment.text;
+      } else {
+        merged.push({ ...segment });
+      }
+      continue;
+    }
+
+    let targetGroup = merged.findLast(
+      (item): item is Extract<IChatContentSegment, { type: "tool_group" }> =>
+        item.type === "tool_group",
+    );
+    for (const incomingCall of segment.calls) {
+      const existingCall = findExistingToolCall(incomingCall.toolId);
+      if (existingCall) {
+        Object.assign(existingCall, incomingCall);
+        continue;
+      }
+
+      if (!targetGroup || merged[merged.length - 1]?.type !== "tool_group") {
+        targetGroup = { type: "tool_group", calls: [] };
+        merged.push(targetGroup);
+      }
+      targetGroup.calls.push({ ...incomingCall });
+    }
+  }
+
+  return merged;
 }
 
 export function ChatView() {
@@ -709,7 +761,10 @@ export function ChatView() {
         if (lastMsg?.role === "assistant") {
           const existingSegments = lastMsg.segments ?? [];
           const newSegments = streamResult.segments;
-          const mergedSegments = [...existingSegments, ...newSegments];
+          const mergedSegments = mergeContentSegments(
+            existingSegments,
+            newSegments,
+          );
 
           const prevText =
             typeof lastMsg.content === "string" ? lastMsg.content : "";
@@ -829,7 +884,7 @@ export function ChatView() {
   const markToolCallsInSegments = (
     segments: IChatContentSegment[],
     ids: Set<string>,
-    status: "done" | "error",
+    status: IChatToolCall["status"],
   ): IChatContentSegment[] =>
     segments.map((seg) => {
       if (seg.type !== "tool_group") return seg;
@@ -863,7 +918,7 @@ export function ChatView() {
         if (msg.segments) {
           updated = {
             ...updated,
-            segments: markToolCallsInSegments(msg.segments, ids, "done"),
+            segments: markToolCallsInSegments(msg.segments, ids, "calling"),
           };
         }
         return updated;

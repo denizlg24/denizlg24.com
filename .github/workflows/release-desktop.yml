@@ -96,11 +96,11 @@ jobs:
             args: ""
             rust_targets: ""
           - name: macOS Apple Silicon
-            platform: macos-latest
+            platform: macos-26
             args: "--target aarch64-apple-darwin"
             rust_targets: "aarch64-apple-darwin"
           - name: macOS Intel
-            platform: macos-latest
+            platform: macos-26-intel
             args: "--target x86_64-apple-darwin"
             rust_targets: "x86_64-apple-darwin"
     runs-on: ${{ matrix.platform }}

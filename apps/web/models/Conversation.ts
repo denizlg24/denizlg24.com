@@ -7,7 +7,7 @@ export interface StoredContentBlock {
   name?: string;
   input?: Record<string, unknown>;
   tool_use_id?: string;
-  content?: string;
+  content?: unknown;
   is_error?: boolean;
 }
 
@@ -21,6 +21,12 @@ export interface IConversationMessage {
   role: "user" | "assistant";
   content: string | StoredContentBlock[];
   tokenUsage?: TokenUsage;
+  pendingActions?: {
+    toolId: string;
+    toolName: string;
+    input: Record<string, unknown>;
+    status: "pending";
+  }[];
   createdAt: Date;
 }
 

@@ -137,7 +137,23 @@ export function useChatStream(API: denizApi | null) {
         pushUpdate();
       };
 
+      const findToolCall = (toolId: string): IChatToolCall | null => {
+        for (const seg of segments) {
+          if (seg.type !== "tool_group") continue;
+          const tc = seg.calls.find((c) => c.toolId === toolId);
+          if (tc) return tc;
+        }
+        return null;
+      };
+
       const addToolCall = (tc: IChatToolCall) => {
+        const existing = findToolCall(tc.toolId);
+        if (existing) {
+          Object.assign(existing, tc);
+          pushUpdate();
+          return;
+        }
+
         const last = segments[segments.length - 1];
         if (last?.type === "tool_group") {
           last.calls.push(tc);
@@ -150,16 +166,26 @@ export function useChatStream(API: denizApi | null) {
       const updateToolCall = (
         toolId: string,
         update: Partial<IChatToolCall>,
-      ) => {
-        for (const seg of segments) {
-          if (seg.type !== "tool_group") continue;
-          const tc = seg.calls.find((c) => c.toolId === toolId);
-          if (tc) {
-            Object.assign(tc, update);
-            pushUpdate();
-            return;
-          }
+      ): boolean => {
+        const tc = findToolCall(toolId);
+        if (tc) {
+          Object.assign(tc, update);
+          pushUpdate();
+          return true;
         }
+        return false;
+      };
+
+      const addPendingAction = (action: IChatPendingAction) => {
+        const existing = pendingActions.find(
+          (item) => item.toolId === action.toolId,
+        );
+        if (existing) {
+          Object.assign(existing, action);
+        } else {
+          pendingActions.push(action);
+        }
+        setPendingConfirmations([...pendingActions]);
       };
 
       const executeClientTool = async (
@@ -287,23 +313,31 @@ export function useChatStream(API: denizApi | null) {
                 clientToolRequests.push(request);
                 updateToolCall(request.toolId, { status: "calling" });
               } else if (event.type === "tool_result") {
-                updateToolCall(event.toolId as string, {
+                const updated = updateToolCall(event.toolId as string, {
                   result: event.result as string,
                   isError: event.isError as boolean,
                   status: event.isError ? "error" : "done",
                 });
+                if (!updated && typeof event.toolName === "string") {
+                  addToolCall({
+                    toolId: event.toolId as string,
+                    toolName: event.toolName,
+                    input: {},
+                    result: event.result as string,
+                    isError: event.isError as boolean,
+                    status: event.isError ? "error" : "done",
+                  });
+                }
               } else if (event.type === "tool_confirmation_required") {
                 updateToolCall(event.toolId as string, {
                   status: "pending_approval",
                 });
-                const pa: IChatPendingAction = {
+                addPendingAction({
                   toolId: event.toolId as string,
                   toolName: event.toolName as string,
                   input: event.input as Record<string, unknown>,
                   status: "pending",
-                };
-                pendingActions.push(pa);
-                setPendingConfirmations([...pendingActions]);
+                });
               } else if (event.type === "rate_limit_backoff") {
                 const retryAfterMs = event.retryAfterMs as number;
                 setBackoff({
@@ -328,6 +362,7 @@ export function useChatStream(API: denizApi | null) {
                 // they don't need user interaction. Accumulate their
                 // results so they're carried through the (possibly
                 // multi-trip) approval handshake.
+                let hasNewClientToolResults = false;
                 if (clientToolRequests.length > 0) {
                   const results = await Promise.all(
                     clientToolRequests.map(executeClientTool),
@@ -339,6 +374,7 @@ export function useChatStream(API: denizApi | null) {
                     if (!seenIds.has(r.toolUseId)) {
                       accumulatedClientToolResults.push(r);
                       seenIds.add(r.toolUseId);
+                      hasNewClientToolResults = true;
                     }
                   }
                   clientToolRequests = [];
@@ -349,15 +385,20 @@ export function useChatStream(API: denizApi | null) {
                   return null;
                 }
 
-                if (pendingActions.length === 0) {
-                  // No approval needed — resume immediately with all
-                  // collected client results in one shot.
+                if (pendingActions.length === 0 || hasNewClientToolResults) {
+                  // Resume immediately whenever client-side work was produced.
+                  // If approvals were already supplied for this continuation,
+                  // carry them through so mixed client/server turns do not ask
+                  // for the same approval twice.
                   requestBody = {
                     conversationId: body.conversationId,
                     model: body.model,
                     toolsEnabled: body.toolsEnabled,
                     webSearchEnabled: body.webSearchEnabled,
                     clientToolResults: [...accumulatedClientToolResults],
+                    ...(requestBody.toolApprovals
+                      ? { toolApprovals: requestBody.toolApprovals }
+                      : {}),
                   };
                   shouldContinueWithClientResults = true;
                   break;
