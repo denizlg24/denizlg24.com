@@ -1,25 +1,10 @@
-import { forbidden } from "next/navigation";
-import { getNowPageContent } from "@/lib/now-page";
-import { getAdminSession } from "@/lib/require-admin";
-import { NowPageEditor } from "./_components/now-page-editor";
+import { NowPage } from "@repo/admin/now/now-page";
+import { AdminFeatureShell } from "../_components/admin-feature-shell";
 
-export default async function NowPageAdmin() {
-  const session = await getAdminSession();
-
-  if (!session) {
-    forbidden();
-  }
-
-  const doc = await getNowPageContent();
-
+export default function NowPageAdmin() {
   return (
-    <div className="mx-auto space-y-6">
-      <NowPageEditor
-        initialContent={doc?.content || ""}
-        lastUpdated={
-          doc?.updatedAt ? new Date(doc.updatedAt).toISOString() : null
-        }
-      />
-    </div>
+    <AdminFeatureShell>
+      <NowPage />
+    </AdminFeatureShell>
   );
 }

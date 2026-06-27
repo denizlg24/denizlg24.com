@@ -7,6 +7,7 @@ import {
   CalendarDays,
   Clock,
   Contact,
+  FileText,
   FolderGit2,
   Home,
   Inbox,
@@ -64,8 +65,13 @@ const items = [
     icon: NotebookPen,
   },
   {
+    title: "Notes",
+    url: "/admin/dashboard/notes",
+    icon: FileText,
+  },
+  {
     title: "Comments",
-    url: "/admin/dashboard/comments",
+    url: "/admin/dashboard/blogs/comments",
     icon: MessageSquare,
   },
   {

@@ -87,7 +87,7 @@ const CalendarEventSourceSchema = new mongoose.Schema(
 );
 
 export const CalendarEventSchema = new mongoose.Schema<ICalendarEvent>({
-  date: { type: Date, required: true },
+  date: { type: Date, required: true, index: true },
   calendarDate: { type: String, required: true, index: true },
   isAllDay: { type: Boolean, default: false },
   kind: {
@@ -122,6 +122,8 @@ CalendarEventSchema.index(
     partialFilterExpression: { "source.providerKey": { $type: "string" } },
   },
 );
+
+CalendarEventSchema.index({ calendarDate: 1, isAllDay: -1, date: 1 });
 
 export const CalendarEvent: mongoose.Model<ICalendarEvent> =
   mongoose.models.CalendarEvent ||

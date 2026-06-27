@@ -1,6 +1,6 @@
+import { TimetableGrid } from "@repo/admin/timetable/timetable-grid";
 import { Button } from "@repo/ui/button";
 import { CalendarDays, Plus } from "lucide-react";
-import { TimetableGrid } from "@/app/dashboard/timetable/_components/timetable-grid";
 
 export default function Loading() {
   return (

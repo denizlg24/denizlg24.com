@@ -566,7 +566,7 @@ export function DashboardOverview() {
                     {board.boardTitle}
                   </span>
                 </div>
-                <div className="flex flex-col divide-y divide-foreground/4 border-l border-foreground/10 pl-4 ml-[3px]">
+                <div className="flex flex-col divide-y divide-foreground/4 border-l border-foreground/10 pl-4 ml-0.75">
                   {board.cards.map((card) => (
                     <div
                       key={card._id}

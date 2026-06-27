@@ -21,6 +21,7 @@
     "@hookform/resolvers": "^5.4.0",
     "@radix-ui/react-dialog": "^1.1.16",
     "@react-pdf/renderer": "^4.5.1",
+    "@repo/admin": "workspace:*",
     "@repo/schemas": "workspace:*",
     "@repo/ui": "workspace:*",
     "@repo/utils": "workspace:*",

@@ -7,10 +7,14 @@ import {
 } from "@/lib/calendar-events";
 import { connectDB } from "@/lib/mongodb";
 import { CalendarEvent } from "@/models/CalendarEvent";
-import { CalendarSettings } from "@/models/CalendarSettings";
+import {
+  CalendarSettings,
+  type ILeanCalendarSettings,
+} from "@/models/CalendarSettings";
 import { type BirthdayParts, type ILeanPerson, Person } from "@/models/Person";
 
 const NAGER_BASE_URL = "https://date.nager.at/api/v3";
+const ensurePromises = new Map<string, Promise<void>>();
 
 interface NagerCountry {
   countryCode: string;
@@ -114,15 +118,61 @@ export async function ensureGeneratedCalendarEventsForRange(
   start: Date,
   end: Date,
 ) {
+  const key = touchedYears(start, end).join(",");
+  const existing = ensurePromises.get(key);
+  if (existing) return existing;
+
+  const promise = ensureGeneratedCalendarEventsForRangeInternal(
+    start,
+    end,
+  ).finally(() => {
+    ensurePromises.delete(key);
+  });
+  ensurePromises.set(key, promise);
+  return promise;
+}
+
+async function ensureGeneratedCalendarEventsForRangeInternal(
+  start: Date,
+  end: Date,
+) {
   await connectDB();
   const years = touchedYears(start, end);
-  const settings = await CalendarSettings.findById("singleton").lean().exec();
+  const settings = await CalendarSettings.findByIdAndUpdate(
+    "singleton",
+    { $setOnInsert: { holidayCountryCode: null } },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
+  )
+    .lean<ILeanCalendarSettings>()
+    .exec();
+
+  const generatedBirthdayYears = settings.generatedBirthdayYears ?? [];
+  const generatedHolidaySyncs = settings.generatedHolidaySyncs ?? [];
+  const birthdayYears = years.filter(
+    (year) => !generatedBirthdayYears.includes(year),
+  );
+  const holidayCountryCode = settings.holidayCountryCode?.trim().toUpperCase();
+  const holidayYears = holidayCountryCode
+    ? years.filter(
+        (year) =>
+          !generatedHolidaySyncs.some(
+            (sync) =>
+              sync.countryCode === holidayCountryCode && sync.year === year,
+          ),
+      )
+    : [];
 
   await Promise.all([
-    settings?.holidayCountryCode
-      ? syncHolidayEventsForYears(settings.holidayCountryCode, years)
-      : Promise.resolve([]),
-    syncBirthdayEventsForYears(years),
+    holidayCountryCode && holidayYears.length > 0
+      ? syncHolidayEventsForYears(holidayCountryCode, holidayYears).then(() =>
+          markGeneratedHolidayYears(holidayCountryCode, holidayYears),
+        )
+      : Promise.resolve(),
+    birthdayYears.length > 0
+      ? syncBirthdayEventsForYears(birthdayYears).then(() =>
+          markGeneratedBirthdayYears(birthdayYears),
+        )
+      : Promise.resolve(),
   ]);
 }
 
@@ -166,6 +216,26 @@ async function syncHolidayEventsForYear(countryCode: string, year: number) {
   }
 
   return events;
+}
+
+async function markGeneratedBirthdayYears(years: number[]) {
+  if (years.length === 0) return;
+
+  await CalendarSettings.findByIdAndUpdate("singleton", {
+    $addToSet: { generatedBirthdayYears: { $each: years } },
+  }).exec();
+}
+
+async function markGeneratedHolidayYears(countryCode: string, years: number[]) {
+  if (years.length === 0) return;
+
+  await CalendarSettings.findByIdAndUpdate("singleton", {
+    $addToSet: {
+      generatedHolidaySyncs: {
+        $each: years.map((year) => ({ countryCode, year })),
+      },
+    },
+  }).exec();
 }
 
 async function upsertGeneratedEvent({
