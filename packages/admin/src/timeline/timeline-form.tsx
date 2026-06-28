@@ -235,7 +235,7 @@ export function TimelineForm({
               <button
                 type="button"
                 onClick={() => setLogoUrl("")}
-                className="absolute -top-1.5 -right-1.5 p-0.5 rounded-full bg-destructive text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute -top-1.5 -right-1.5 p-0.5 rounded-full bg-destructive text-destructive-foreground "
               >
                 <X className="size-3" />
               </button>
@@ -264,11 +264,11 @@ export function TimelineForm({
 
       <Separator />
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <Label className="text-xs">From</Label>
           <Input
-            type="date"
+            placeholder="MM-DD-YYYY"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
           />
@@ -276,7 +276,7 @@ export function TimelineForm({
         <div className="flex flex-col gap-1.5">
           <Label className="text-xs">To (leave empty for current)</Label>
           <Input
-            type="date"
+            placeholder="MM-DD-YYYY"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
           />
@@ -334,13 +334,13 @@ export function TimelineForm({
               <Badge
                 key={topic}
                 variant="secondary"
-                className="text-xs gap-1 pr-1"
+                className="text-xs gap-1 pr-1 max-w-full! flex flex-row items-center justify-start gap-1"
               >
-                {topic}
+                <span className="truncate">{topic}</span>
                 <button
                   type="button"
                   onClick={() => setTopics(topics.filter((t) => t !== topic))}
-                  className="hover:text-destructive transition-colors"
+                  className="hover:text-destructive transition-colors shrink-0"
                 >
                   <X className="size-3" />
                 </button>
@@ -380,8 +380,8 @@ export function TimelineForm({
             );
           })}
         </div>
-        <div className="flex items-end gap-2 mt-1">
-          <div className="flex flex-col gap-1 flex-1">
+        <div className="flex flex-col gap-2 mt-1 sm:flex-row sm:items-end">
+          <div className="flex flex-col gap-1 sm:flex-1">
             <Input
               value={newLinkLabel}
               onChange={(e) => setNewLinkLabel(e.target.value)}
@@ -389,7 +389,7 @@ export function TimelineForm({
               className="h-8 text-xs"
             />
           </div>
-          <div className="flex flex-col gap-1 flex-[2]">
+          <div className="flex flex-col gap-1 sm:flex-[2]">
             <Input
               value={newLinkUrl}
               onChange={(e) => setNewLinkUrl(e.target.value)}
@@ -403,35 +403,41 @@ export function TimelineForm({
               }}
             />
           </div>
-          <Select
-            value={newLinkIcon}
-            onValueChange={(v: "external" | "github" | "notepad") =>
-              setNewLinkIcon(v)
-            }
-          >
-            <SelectTrigger className="h-8 w-28 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {LINK_ICONS.map((li) => (
-                <SelectItem key={li.value} value={li.value} className="text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <li.icon className="size-3" />
-                    {li.label}
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 shrink-0"
-            onClick={handleAddLink}
-            disabled={!newLinkLabel.trim() || !newLinkUrl.trim()}
-          >
-            <Plus className="size-3.5" />
-          </Button>
+          <div className="flex items-end gap-2">
+            <Select
+              value={newLinkIcon}
+              onValueChange={(v: "external" | "github" | "notepad") =>
+                setNewLinkIcon(v)
+              }
+            >
+              <SelectTrigger className="h-8 w-full text-xs sm:w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LINK_ICONS.map((li) => (
+                  <SelectItem
+                    key={li.value}
+                    value={li.value}
+                    className="text-xs"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <li.icon className="size-3" />
+                      {li.label}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0"
+              onClick={handleAddLink}
+              disabled={!newLinkLabel.trim() || !newLinkUrl.trim()}
+            >
+              <Plus className="size-3.5" />
+            </Button>
+          </div>
         </div>
       </div>
 

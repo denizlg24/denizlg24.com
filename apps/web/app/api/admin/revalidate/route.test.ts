@@ -9,6 +9,9 @@ const revalidatePublicContentMock = mock((targets: string[]) => [
 ]);
 
 mock.module("@/lib/require-admin", () => ({
+  getAdminSession: mock(async () => ({
+    user: { email: "admin@example.com", role: "admin", emailVerified: true },
+  })),
   requireAdmin: requireAdminMock,
 }));
 

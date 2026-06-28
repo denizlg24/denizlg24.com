@@ -508,7 +508,7 @@ export function PersonDetail({
                     className="object-cover"
                     unoptimized
                   />
-                  <span className="absolute inset-0 flex items-center justify-center bg-black/35 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/35 text-[10px] text-white ">
                     Change
                   </span>
                 </>

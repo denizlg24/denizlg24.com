@@ -247,7 +247,7 @@ export function BlogForm({ mode, blog, onSuccess, onCancel }: BlogFormProps) {
                 className="relative group rounded-md overflow-hidden border"
               >
                 <img src={url} alt="" className="w-full h-24 object-cover" />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <div className="absolute inset-0 bg-black/50  flex items-center justify-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleCopyUrl(url)}

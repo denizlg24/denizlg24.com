@@ -7,7 +7,14 @@ import type {
   IFullEmail,
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
-import { Inbox, Loader2, Mail, Pencil, RefreshCw } from "lucide-react";
+import {
+  Inbox,
+  Loader2,
+  Mail,
+  Pencil,
+  RefreshCw,
+  Settings,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
@@ -35,6 +42,9 @@ export function InboxPage() {
   );
   const [selectedEmail, setSelectedEmail] = useState<IEmail | null>(null);
   const [addAccountOpen, setAddAccountOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<IEmailAccount | null>(
+    null,
+  );
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeReplyTo, setComposeReplyTo] = useState<
     { address: string; subject: string } | undefined
@@ -81,8 +91,45 @@ export function InboxPage() {
   };
 
   const handleCompose = (replyTo?: { address: string; subject: string }) => {
+    void fetchAccounts();
     setComposeReplyTo(replyTo);
     setComposeOpen(true);
+  };
+
+  const handleAccountSaved = async (account?: IEmailAccount) => {
+    if (account) {
+      setAccounts((currentAccounts) => {
+        const existingIndex = currentAccounts.findIndex(
+          (item) => item._id === account._id,
+        );
+        if (existingIndex === -1) return [account, ...currentAccounts];
+
+        return currentAccounts.map((item) =>
+          item._id === account._id ? account : item,
+        );
+      });
+    }
+
+    await fetchAccounts();
+  };
+
+  const handleAddAccount = () => {
+    setEditingAccount(null);
+    setAddAccountOpen(true);
+  };
+
+  const handleEditAccount = (account: IEmailAccount) => {
+    setAddAccountOpen(false);
+    setEditingAccount(account);
+  };
+
+  const handleAccountDialogOpenChange = (open: boolean) => {
+    if (open) {
+      setAddAccountOpen(true);
+      return;
+    }
+    setAddAccountOpen(false);
+    setEditingAccount(null);
   };
 
   const handleSyncComplete = () => {
@@ -90,6 +137,7 @@ export function InboxPage() {
   };
 
   const selectedAccount = accounts.find((a) => a._id === selectedAccountId);
+  const accountDialogOpen = addAccountOpen || editingAccount !== null;
 
   return (
     <div className="flex h-full">
@@ -103,7 +151,8 @@ export function InboxPage() {
         }}
         loading={loadingAccounts}
         onSyncComplete={handleSyncComplete}
-        onAddAccount={() => setAddAccountOpen(true)}
+        onAddAccount={handleAddAccount}
+        onEditAccount={handleEditAccount}
       />
 
       <div className="flex-1 min-w-0 flex flex-col h-full">
@@ -145,6 +194,7 @@ export function InboxPage() {
             onSelectAccount={handleSelectAccount}
             onSyncComplete={handleSyncComplete}
             onCompose={() => handleCompose()}
+            onEditAccount={handleEditAccount}
           />
         )}
       </div>
@@ -152,13 +202,16 @@ export function InboxPage() {
       <ComposeDialog
         open={composeOpen}
         onOpenChange={setComposeOpen}
+        accounts={accounts}
+        selectedAccountId={selectedAccountId}
         replyTo={composeReplyTo}
       />
 
       <AddAccountDialog
-        open={addAccountOpen}
-        onOpenChange={setAddAccountOpen}
-        onAccountAdded={fetchAccounts}
+        open={accountDialogOpen}
+        onOpenChange={handleAccountDialogOpenChange}
+        onAccountAdded={handleAccountSaved}
+        account={editingAccount}
       />
     </div>
   );
@@ -170,12 +223,14 @@ function AccountsOverview({
   onSelectAccount,
   onSyncComplete,
   onCompose,
+  onEditAccount,
 }: {
   accounts: IEmailAccount[];
   loading: boolean;
   onSelectAccount: (id: string) => void;
   onSyncComplete: () => void;
   onCompose: () => void;
+  onEditAccount: (account: IEmailAccount) => void;
 }) {
   const { client, slots } = useAdmin();
   const [syncingAll, setSyncingAll] = useState(false);
@@ -262,23 +317,37 @@ function AccountsOverview({
           <div className="p-3 sm:p-6">
             <div className="space-y-1">
               {accounts.map((account) => (
-                <button
-                  type="button"
+                <div
                   key={account._id}
-                  onClick={() => onSelectAccount(account._id)}
-                  className="w-full flex items-center gap-4 px-4 py-3.5 rounded-lg hover:bg-muted/50 transition-colors text-left group"
+                  className="group flex w-full items-center gap-2 rounded-lg px-4 py-3.5 text-left transition-colors hover:bg-muted/50"
                 >
-                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold shrink-0">
-                    {account.user[0].toUpperCase()}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">{account.user}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {account.host} &middot; {account.inboxName}
-                    </p>
-                  </div>
-                  <Mail className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => onSelectAccount(account._id)}
+                    className="flex min-w-0 flex-1 items-center gap-4 text-left"
+                  >
+                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold shrink-0">
+                      {account.user[0].toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">{account.user}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {account.host} &middot; {account.inboxName}
+                      </p>
+                    </div>
+                    <Mail className="h-4 w-4 text-muted-foreground " />
+                  </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 opacity-100"
+                    onClick={() => onEditAccount(account)}
+                  >
+                    <Settings className="h-4 w-4" />
+                    <span className="sr-only">Edit account</span>
+                  </Button>
+                </div>
               ))}
             </div>
           </div>

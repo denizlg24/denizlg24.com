@@ -13,6 +13,7 @@ type CalendarEventInput = Partial<ILeanCalendarEvent> & {
 const GENERATED_EDIT_FIELDS = new Set([
   "date",
   "calendarDate",
+  "endDate",
   "isAllDay",
   "title",
   "place",
@@ -50,6 +51,9 @@ export function normalizeCalendarEventInput(data: CalendarEventInput) {
     isAllDay,
     calendarDate,
     date: isAllDay ? anchorDateFromCalendarDate(calendarDate) : date,
+    ...(data.endDate !== undefined
+      ? { endDate: data.endDate ? new Date(data.endDate) : undefined }
+      : {}),
     links: data.links ?? [],
     status: data.status ?? "scheduled",
     notifyBySlack: data.notifyBySlack ?? false,
@@ -70,6 +74,7 @@ export function serializeCalendarEvent(
     ...(event as ILeanCalendarEvent),
     _id: String(event._id),
     date,
+    endDate: event.endDate as Date | undefined,
     calendarDate,
     isAllDay: (event.isAllDay as boolean | undefined) ?? false,
     kind: (event.kind as ILeanCalendarEvent["kind"] | undefined) ?? "manual",
@@ -199,21 +204,46 @@ export const updateCalendarEvent = async ({
       };
     }
 
-    if (
-      update.notifyBySlack &&
-      (update.date || update.notifyBeforeMinutes !== undefined)
-    ) {
-      const eventDate = new Date(update.date || existing.date);
+    const unset: Record<string, ""> = {};
+    const notificationFieldsChanged =
+      update.notifyBySlack !== undefined ||
+      update.date !== undefined ||
+      update.notifyBeforeMinutes !== undefined;
+    const nextNotifyBySlack =
+      update.notifyBySlack ?? existing.notifyBySlack ?? false;
+    const nextEventDate = new Date(update.date ?? existing.date);
+    const notificationScheduleChanged =
+      (update.notifyBySlack !== undefined &&
+        update.notifyBySlack !== existing.notifyBySlack) ||
+      (update.notifyBeforeMinutes !== undefined &&
+        update.notifyBeforeMinutes !== (existing.notifyBeforeMinutes ?? 15)) ||
+      (update.date !== undefined &&
+        nextEventDate.getTime() !== new Date(existing.date).getTime());
+
+    if (notificationFieldsChanged && nextNotifyBySlack) {
       const notifyBeforeMinutes =
         update.notifyBeforeMinutes ?? existing.notifyBeforeMinutes ?? 15;
       update.notifyAt = new Date(
-        eventDate.getTime() - notifyBeforeMinutes * 60_000,
+        nextEventDate.getTime() - notifyBeforeMinutes * 60_000,
       );
+      if (notificationScheduleChanged) {
+        update.isNotificationSent = false;
+      }
+    } else if (update.notifyBySlack === false) {
+      unset.notifyAt = "";
+      update.isNotificationSent = false;
     }
 
-    const updatedEvent = await CalendarEvent.findByIdAndUpdate(id, update, {
-      returnDocument: "after",
-    }).lean();
+    const updateOperation =
+      Object.keys(unset).length > 0 ? { $set: update, $unset: unset } : update;
+
+    const updatedEvent = await CalendarEvent.findByIdAndUpdate(
+      id,
+      updateOperation,
+      {
+        returnDocument: "after",
+      },
+    ).lean();
 
     return updatedEvent ? serializeCalendarEvent(updatedEvent) : null;
   } catch {

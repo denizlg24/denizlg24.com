@@ -1,0 +1,11 @@
+
+version = 1
+project_id = "bde429e9-ee00-48ae-b433-7109912e8afd"
+name = "denizlg24.com"
+
+default_remote = "origin"
+
+[remotes]
+origin = "https://envoy.denizlg24.com/api"
+
+

@@ -9,7 +9,7 @@ import {
   TooltipTrigger,
 } from "@repo/ui/tooltip";
 import { cn } from "@repo/ui/utils";
-import { Inbox, Loader2, Plus, RefreshCw } from "lucide-react";
+import { Inbox, Loader2, Plus, RefreshCw, Settings } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
@@ -22,6 +22,7 @@ interface AccountSidebarProps {
   loading: boolean;
   onSyncComplete: () => void;
   onAddAccount: () => void;
+  onEditAccount: (account: IEmailAccount) => void;
 }
 
 export function AccountSidebar({
@@ -32,6 +33,7 @@ export function AccountSidebar({
   loading,
   onSyncComplete,
   onAddAccount,
+  onEditAccount,
 }: AccountSidebarProps) {
   const { client } = useAdmin();
   const [syncingId, setSyncingId] = useState<string | null>(null);
@@ -56,7 +58,7 @@ export function AccountSidebar({
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="hidden w-56 shrink-0 border-r flex-col h-full md:flex">
+      <div className="hidden w-60 shrink-0 border-r flex-col h-full md:flex min-h-[calc(100vh-3rem)]">
         <div className="p-3 pb-0">
           <button
             type="button"
@@ -98,7 +100,7 @@ export function AccountSidebar({
                   <div
                     key={account._id}
                     className={cn(
-                      "group flex items-center gap-2.5 w-full px-2.5 py-2 rounded-md text-sm transition-colors cursor-pointer",
+                      "group flex items-center gap-1 w-full px-2.5 py-2 rounded-md text-sm transition-colors cursor-pointer",
                       isActive
                         ? "bg-accent text-accent-foreground"
                         : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
@@ -128,7 +130,23 @@ export function AccountSidebar({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                          className="h-4 w-4 shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditAccount(account);
+                          }}
+                        >
+                          <Settings className="h-3 w-3" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">Edit</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-4 w-4 shrink-0"
                           onClick={(e) => handleSync(account._id, e)}
                           disabled={isSyncing}
                         >

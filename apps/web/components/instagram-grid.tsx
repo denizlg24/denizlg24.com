@@ -50,7 +50,7 @@ function BentoItem({
         loading="lazy"
       />
       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors duration-300 flex items-center justify-center">
-        <FaInstagram className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 drop-shadow-lg" />
+        <FaInstagram className="w-6 h-6 text-white  duration-300 drop-shadow-lg" />
       </div>
     </Link>
   );

@@ -454,7 +454,7 @@ export default function KanbanPage() {
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
-                        className="absolute top-2 right-2 size-6 rounded-full bg-black/20 hover:bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-2 right-2 size-6 rounded-full bg-black/20 hover:bg-black/40 flex items-center justify-center "
                         onClick={(e) => e.stopPropagation()}
                       >
                         <MoreHorizontal className="size-3.5 text-white" />

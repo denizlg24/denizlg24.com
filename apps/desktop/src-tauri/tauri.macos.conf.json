@@ -1,0 +1,21 @@
+{
+  "app": {
+    "windows": [
+      {
+        "fullscreen": false,
+        "height": 720,
+        "resizable": true,
+        "title": "denizlg24 - Life Dashboard",
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 12,
+          "y": 12
+        },
+        "width": 1280,
+        "useHttpsScheme": true
+      }
+    ]
+  }
+}

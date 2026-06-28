@@ -1,8 +1,12 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import {
   deleteCalendarEvent,
   updateCalendarEvent,
 } from "@/lib/calendar-events";
+import {
+  isGoogleOutboundSyncableKind,
+  syncEventToGoogle,
+} from "@/lib/google-calendar-sync";
 import { requireAdmin } from "@/lib/require-admin";
 
 export async function PATCH(
@@ -20,6 +24,13 @@ export async function PATCH(
     return NextResponse.json(
       { error: "Failed to update calendar event" },
       { status: 500 },
+    );
+  }
+  if (isGoogleOutboundSyncableKind(updated.kind)) {
+    after(() =>
+      syncEventToGoogle(updated._id, "upsert").catch((error) => {
+        console.error("Failed to sync calendar event to Google:", error);
+      }),
     );
   }
   return NextResponse.json({ event: updated }, { status: 200 });
@@ -41,5 +52,10 @@ export async function DELETE(
       { status: 500 },
     );
   }
+  after(() =>
+    syncEventToGoogle(id, "delete").catch((error) => {
+      console.error("Failed to delete Google Calendar event mirror:", error);
+    }),
+  );
   return NextResponse.json({ success: true }, { status: 200 });
 }

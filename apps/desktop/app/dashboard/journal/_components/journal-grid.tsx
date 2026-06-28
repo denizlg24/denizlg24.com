@@ -130,7 +130,7 @@ export function JournalGrid({
                     "absolute top-full mt-1 text-[9px] tabular-nums transition-opacity duration-150",
                     today
                       ? "opacity-100 text-foreground/60"
-                      : "opacity-0 group-hover:opacity-100 text-muted-foreground/50",
+                      : "text-muted-foreground/50",
                   )}
                 >
                   {format(date, "d")}

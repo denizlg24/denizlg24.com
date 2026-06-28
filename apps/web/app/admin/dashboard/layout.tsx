@@ -6,6 +6,7 @@ import { forbidden } from "next/navigation";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { getAdminSession } from "@/lib/require-admin";
+import { CalendarPreloader } from "./_components/calendar-preloader";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -30,6 +31,7 @@ export default async function RootLayout({
 
   return (
     <SidebarProvider>
+      <CalendarPreloader />
       <AppSidebar />
       <main className="-mt-26 flex min-h-[calc(100dvh-1.75rem)] max-h-screen min-w-0 w-full flex-col overflow-hidden">
         <PageHeader
@@ -43,7 +45,7 @@ export default async function RootLayout({
             <Kbd>B</Kbd>
           </KbdGroup>
         </PageHeader>
-        <section className="min-h-0 w-full flex-1 overflow-y-hidden overflow-x-hidden px-3 pt-4 pb-6 sm:px-4">
+        <section className="min-h-0 w-full flex-1 overflow-x-hidden px-3 pt-4 pb-6 sm:px-4">
           {children}
         </section>
       </main>

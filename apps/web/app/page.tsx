@@ -97,13 +97,17 @@ export default function Home() {
             influence the way I approach engineering and problem-solving.
           </p>
           <p className="sm:text-base text-sm">
-            Today, I&apos;m completing my degree in Computing and Informatics
-            Engineering at FEUP while building real-world products. I specialize
-            in fullstack development, creating web applications, but also have
-            developed custom software solutions, and modern digital experiences
-            for clients. I enjoy designing systems end-to-end, experimenting
-            with new technologies, and building products that feel simple,
-            reliable, and are safe to use.
+            I've completed my{" "}
+            <strong>
+              BSc in Computing and Informatics Engineering at FEUP
+            </strong>{" "}
+            in 2026. I'm starting my{" "}
+            <strong>MSc in Computer Science and Engineering at DTU</strong> in
+            Denmark. I specialize in fullstack development, creating web
+            applications, but also have developed custom software solutions, and
+            modern digital experiences for clients. I enjoy designing systems
+            end-to-end, experimenting with new technologies, and building
+            products that feel simple, reliable, and are safe to use.
           </p>
         </article>
         <div className="col-span-2 w-full flex flex-col items-center gap-2">

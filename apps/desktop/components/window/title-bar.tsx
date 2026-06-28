@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Maximize2, Minimize2, Minus, Square, X } from "lucide-react";
+import { Copy, Minus, Square, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { isTauri } from "@/lib/platform";
@@ -42,14 +42,11 @@ type AppWindow = {
   toggleMaximize: () => Promise<void>;
   close: () => Promise<void>;
   isMaximized: () => Promise<boolean>;
-  isFullscreen: () => Promise<boolean>;
-  setFullscreen: (fullscreen: boolean) => Promise<void>;
   onResized: (handler: () => void) => Promise<() => void>;
 };
 
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [osPlatform, setOsPlatform] = useState<string>("windows");
   const [appWindow, setAppWindow] = useState<AppWindow | null>(null);
 
@@ -67,18 +64,12 @@ export function TitleBar() {
       setAppWindow(win);
       setOsPlatform(os);
 
-      if (os === "macos") {
-        setIsFullscreen(await win.isFullscreen());
-      } else {
-        setIsMaximized(await win.isMaximized());
-      }
+      if (os === "macos") return;
+
+      setIsMaximized(await win.isMaximized());
 
       unlisten = await win.onResized(async () => {
-        if (os === "macos") {
-          setIsFullscreen(await win.isFullscreen());
-        } else {
-          setIsMaximized(await win.isMaximized());
-        }
+        setIsMaximized(await win.isMaximized());
       });
     })();
 
@@ -99,50 +90,7 @@ export function TitleBar() {
         data-tauri-drag-region
         className="fixed top-0 left-0 right-0 z-50 flex h-8 select-none items-center bg-background"
       >
-        <div className="flex items-center gap-2 pl-3 group/traffic">
-          <button
-            type="button"
-            onClick={() => appWindow?.close()}
-            className="size-3 rounded-full bg-[#ff5f57] flex items-center justify-center transition-[filter] hover:brightness-90 active:brightness-75"
-            aria-label="Close"
-          >
-            <X
-              className="size-1.5 opacity-0 group-hover/traffic:opacity-100 transition-opacity text-[#4d0000]"
-              strokeWidth={4}
-            />
-          </button>
-          <button
-            type="button"
-            onClick={() => appWindow?.minimize()}
-            className="size-3 rounded-full bg-[#febc2e] flex items-center justify-center transition-[filter] hover:brightness-90 active:brightness-75"
-            aria-label="Minimize"
-          >
-            <Minus
-              className="size-1.5 opacity-0 group-hover/traffic:opacity-100 transition-opacity text-[#995700]"
-              strokeWidth={4}
-            />
-          </button>
-          <button
-            type="button"
-            onClick={() => appWindow?.setFullscreen(!isFullscreen)}
-            className="size-3 rounded-full bg-[#28c840] flex items-center justify-center transition-[filter] hover:brightness-90 active:brightness-75"
-            aria-label={isFullscreen ? "Exit Full Screen" : "Full Screen"}
-          >
-            {isFullscreen ? (
-              <Minimize2
-                className="size-1.5 opacity-0 group-hover/traffic:opacity-100 transition-opacity text-[#006500]"
-                strokeWidth={4}
-              />
-            ) : (
-              <Maximize2
-                className="size-1.5 opacity-0 group-hover/traffic:opacity-100 transition-opacity text-[#006500]"
-                strokeWidth={4}
-              />
-            )}
-          </button>
-        </div>
-
-        <div className="ml-2">
+        <div className="ml-[76px] flex items-center">
           <BackgroundTasksIndicator />
         </div>
 

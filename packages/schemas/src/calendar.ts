@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const calendarEventSourceSchema = z.object({
-  provider: z.enum(["nager-date", "people"]),
+  provider: z.enum(["nager-date", "people", "google"]),
   providerKey: z.string(),
   countryCode: z.string().optional(),
   personId: z.string().optional(),
@@ -21,9 +21,10 @@ export const calendarEventLinkSchema = z.object({
 export const calendarEventSchema = z.object({
   _id: z.string(),
   date: z.string(),
+  endDate: z.string().optional(),
   calendarDate: z.string(),
   isAllDay: z.boolean(),
-  kind: z.enum(["manual", "holiday", "birthday"]),
+  kind: z.enum(["manual", "meeting", "flight", "holiday", "birthday"]),
   source: calendarEventSourceSchema.optional(),
   title: z.string(),
   place: z.string().optional(),
@@ -49,3 +50,52 @@ export const countryOptionSchema = z.object({
   name: z.string(),
 });
 export type ICountryOption = z.infer<typeof countryOptionSchema>;
+
+export const calendarExternalProviderSchema = z.literal("google");
+
+export const calendarExternalConnectionSchema = z.object({
+  _id: z.string().optional(),
+  provider: calendarExternalProviderSchema,
+  enabled: z.boolean(),
+  calendarId: z.string(),
+  accountEmail: z.string().optional(),
+  scope: z.array(z.string()),
+  connectedAt: z.string(),
+  updatedAt: z.string(),
+  lastSyncAt: z.string().optional(),
+  lastSyncError: z.string().optional(),
+});
+export type ICalendarExternalConnection = z.infer<
+  typeof calendarExternalConnectionSchema
+>;
+
+export const calendarExternalSyncSchema = z.object({
+  _id: z.string().optional(),
+  provider: calendarExternalProviderSchema,
+  localEventId: z.string(),
+  remoteCalendarId: z.string(),
+  remoteEventId: z.string(),
+  lastSyncedHash: z.string().optional(),
+  lastSyncedAt: z.string().optional(),
+  pendingAction: z.enum(["upsert", "delete"]).optional(),
+  lastError: z.string().optional(),
+  updatedAt: z.string(),
+});
+export type ICalendarExternalSync = z.infer<typeof calendarExternalSyncSchema>;
+
+export const calendarGoogleIntegrationStatusSchema = z.object({
+  connected: z.boolean(),
+  enabled: z.boolean(),
+  calendarId: z.string(),
+  accountEmail: z.string().optional(),
+  scope: z.array(z.string()),
+  connectedAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+  lastSyncAt: z.string().optional(),
+  lastSyncError: z.string().optional(),
+  pendingSyncCount: z.number(),
+  failedSyncCount: z.number(),
+});
+export type ICalendarGoogleIntegrationStatus = z.infer<
+  typeof calendarGoogleIntegrationStatusSchema
+>;

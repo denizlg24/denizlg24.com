@@ -515,7 +515,9 @@ function TimelineRow({
           {item.subtitle}
         </span>
         <span className="text-[10px] text-muted-foreground tabular-nums">
-          {formatDateRange(item.dateFrom, item.dateTo)}
+          {!isNaN(new Date(item.dateFrom).getTime())
+            ? formatDateRange(item.dateFrom, item.dateTo)
+            : item.dateFrom + (item.dateTo ? " - " + item.dateTo : "")}
         </span>
       </div>
 

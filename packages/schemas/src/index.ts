@@ -14,5 +14,6 @@ export * from "./project";
 export * from "./resource";
 export * from "./spreadsheet";
 export * from "./timetable";
+export * from "./tool-labels";
 export * from "./triage";
 export * from "./whiteboard";

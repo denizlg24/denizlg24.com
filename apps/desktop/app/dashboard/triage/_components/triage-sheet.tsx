@@ -153,7 +153,7 @@ export function TriageSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+      <SheetContent className="w-full! max-w-lg! overflow-x-auto overflow-y-auto max-h-screen!">
         <SheetHeader>
           <SheetTitle className="text-sm font-semibold">
             {detail?.email.subject ?? "Loading..."}

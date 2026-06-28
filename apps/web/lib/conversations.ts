@@ -72,21 +72,35 @@ function withPendingActions(
   });
 }
 
-export async function getAllConversations() {
+interface ConversationListOptions {
+  offset: number;
+  limit: number;
+}
+
+export async function getAllConversations(options: ConversationListOptions) {
   await connectDB();
 
-  const conversations = await Conversation.find()
-    .select("title llmModel updatedAt")
-    .sort({ updatedAt: -1 })
-    .limit(50)
-    .lean();
+  const [conversations, totalRows] = await Promise.all([
+    Conversation.find()
+      .select("title llmModel updatedAt")
+      .sort({ updatedAt: -1, _id: -1 })
+      .skip(options.offset)
+      .limit(options.limit)
+      .lean(),
+    Conversation.countDocuments(),
+  ]);
 
-  return conversations.map((c) => ({
-    _id: c._id.toString(),
-    title: c.title,
-    llmModel: c.llmModel,
-    updatedAt: c.updatedAt,
-  }));
+  return {
+    conversations: conversations.map((c) => ({
+      _id: c._id.toString(),
+      title: c.title,
+      llmModel: c.llmModel,
+      updatedAt: c.updatedAt,
+    })),
+    totalRows,
+    offset: options.offset,
+    limit: options.limit,
+  };
 }
 
 export async function getConversation(id: string) {
