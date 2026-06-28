@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "shadcn/tailwind.css";
 @import "tw-animate-css";
 @source "../../../packages/ui/src/**/*.{ts,tsx}";
 @source "../../../packages/admin/src/**/*.{ts,tsx}";
@@ -166,6 +167,34 @@
 
   --sidebar-border: #536150;
   --sidebar-ring: #a1bc98;
+}
+
+/* Animated text shimmer — clips a moving highlight band to the glyphs.
+   Used for in-flight states (tool calls running, "Thinking…"). */
+@utility shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--muted-foreground) 0%,
+    var(--muted-foreground) 35%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 65%,
+    var(--muted-foreground) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
 }
 
 @keyframes cursor-blink {

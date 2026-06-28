@@ -2,6 +2,14 @@
 
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@repo/ui/message-scroller";
 import { ScrollArea } from "@repo/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@repo/ui/sheet";
 import { Skeleton } from "@repo/ui/skeleton";
@@ -24,6 +32,7 @@ import {
   useChatStream,
 } from "@/hooks/use-chat-stream";
 import { denizApi } from "@/lib/api-wrapper";
+import { mergeContentSegments } from "@/lib/chat-segments";
 import type {
   IChatAttachment,
   IChatContentSegment,
@@ -311,58 +320,6 @@ function convertApiMessagesToDisplay(
   return display;
 }
 
-function mergeContentSegments(
-  existing: IChatContentSegment[],
-  incoming: IChatContentSegment[],
-): IChatContentSegment[] {
-  const merged: IChatContentSegment[] = existing.map((segment) =>
-    segment.type === "tool_group"
-      ? { ...segment, calls: segment.calls.map((call) => ({ ...call })) }
-      : { ...segment },
-  );
-
-  const findExistingToolCall = (toolId: string): IChatToolCall | null => {
-    for (const segment of merged) {
-      if (segment.type !== "tool_group") continue;
-      const call = segment.calls.find((item) => item.toolId === toolId);
-      if (call) return call;
-    }
-    return null;
-  };
-
-  for (const segment of incoming) {
-    if (segment.type === "text") {
-      const last = merged[merged.length - 1];
-      if (last?.type === "text") {
-        last.text += segment.text;
-      } else {
-        merged.push({ ...segment });
-      }
-      continue;
-    }
-
-    let targetGroup = merged.findLast(
-      (item): item is Extract<IChatContentSegment, { type: "tool_group" }> =>
-        item.type === "tool_group",
-    );
-    for (const incomingCall of segment.calls) {
-      const existingCall = findExistingToolCall(incomingCall.toolId);
-      if (existingCall) {
-        Object.assign(existingCall, incomingCall);
-        continue;
-      }
-
-      if (!targetGroup || merged[merged.length - 1]?.type !== "tool_group") {
-        targetGroup = { type: "tool_group", calls: [] };
-        merged.push(targetGroup);
-      }
-      targetGroup.calls.push({ ...incomingCall });
-    }
-  }
-
-  return merged;
-}
-
 export function ChatView() {
   const { settings, loading: loadingSettings, setSettings } = useUserSettings();
 
@@ -400,10 +357,6 @@ export function ChatView() {
   const [sidebarOpen, setSidebarOpen] = useState(settings.chatSidebarOpen);
   const attachmentsRef = useRef<IChatAttachment[]>([]);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const userScrolledUp = useRef(false);
-  const lastScrollTop = useRef(0);
-
   const isActive = active || messages.length > 0;
 
   const toggleSidebar = useCallback(
@@ -434,7 +387,6 @@ export function ChatView() {
     setInput("");
     setAttachments([]);
     setSearchQuery("");
-    userScrolledUp.current = false;
     toggleSidebar(false);
   }, [isStreaming, abort, toggleSidebar]);
 
@@ -458,32 +410,6 @@ export function ChatView() {
     if (API && (!isActive || sidebarOpen)) fetchConversations();
   }, [API, isActive, sidebarOpen, fetchConversations]);
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = el;
-      if (
-        scrollTop < lastScrollTop.current &&
-        scrollHeight - scrollTop - clientHeight > 100
-      ) {
-        userScrolledUp.current = true;
-      }
-      if (scrollHeight - scrollTop - clientHeight < 20) {
-        userScrolledUp.current = false;
-      }
-      lastScrollTop.current = scrollTop;
-    };
-    el.addEventListener("scroll", handleScroll);
-    return () => el.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  useEffect(() => {
-    if (!userScrolledUp.current && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, streamSegments]);
-
   const loadConversation = async (meta: IConversationMeta) => {
     if (!API) return;
     const result = await API.GET<{ conversation: IConversation }>({
@@ -498,7 +424,6 @@ export function ChatView() {
     setModel(result.conversation.llmModel);
     setTitle(result.conversation.title);
     setActive(true);
-    userScrolledUp.current = false;
     toggleSidebar(false);
   };
 
@@ -521,7 +446,6 @@ export function ChatView() {
     setTitle("");
     setInput("");
     setAttachments([]);
-    userScrolledUp.current = false;
   };
 
   const uploadSingleAttachment = useCallback(
@@ -649,7 +573,6 @@ export function ChatView() {
     setInput("");
     setAttachments([]);
     setActive(true);
-    userScrolledUp.current = false;
 
     let currentConversationId = conversationId;
 
@@ -715,8 +638,6 @@ export function ChatView() {
 
   const continueChat = async (toolApprovals: Record<string, boolean>) => {
     if (!API || isStreaming || !conversationId) return;
-
-    userScrolledUp.current = false;
 
     // Recover any client tool results that were computed during the
     // pause — the server needs them alongside toolApprovals to build a
@@ -830,8 +751,6 @@ export function ChatView() {
     if (!lastUserMsg || !conversationId) return;
 
     const messageContent = lastUserMsg.content;
-
-    userScrolledUp.current = false;
 
     const streamResult = await streamChat({
       conversationId,
@@ -1244,50 +1163,68 @@ export function ChatView() {
           <span className="text-sm text-foreground/70 truncate">{title}</span>
         </div>
 
-        <div
-          ref={scrollRef}
-          className="flex-1 min-h-0 overflow-y-auto px-3 py-6 sm:px-4"
-        >
-          <div className="max-w-3xl mx-auto">
-            {messages.map((msg, i) => {
-              const isLastAssistant =
-                isStreaming &&
-                i === messages.length - 1 &&
-                msg.role === "assistant";
+        <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+          <MessageScroller className="flex-1 min-h-0">
+            <MessageScrollerViewport className="px-3 py-6 sm:px-4">
+              <MessageScrollerContent className="mx-auto w-full max-w-3xl gap-6">
+                {messages.map((msg, i) => {
+                  const isLastAssistant =
+                    isStreaming &&
+                    i === messages.length - 1 &&
+                    msg.role === "assistant";
+                  const messageId = `${msg.role}-${msg.createdAt ?? i}-${i}`;
 
-              return (
-                <ChatMessage
-                  key={`${i}-${msg.createdAt}`}
-                  message={msg}
-                  isStreaming={isLastAssistant}
-                  streamSegments={isLastAssistant ? streamSegments : undefined}
-                  onApproveAll={handleApproveAll}
-                  onDenyAll={handleDenyAll}
-                  onRetry={msg.error ? retryFromError : undefined}
-                />
-              );
-            })}
-            {isStreaming &&
-              (messages.length === 0 ||
-                messages[messages.length - 1].role === "user") && (
-                <ChatMessage
-                  message={{
-                    role: "assistant",
-                    content: "",
-                    pendingActions:
-                      pendingConfirmations.length > 0
-                        ? pendingConfirmations
-                        : undefined,
-                    createdAt: new Date().toISOString(),
-                  }}
-                  isStreaming
-                  streamSegments={streamSegments}
-                  onApproveAll={handleApproveAll}
-                  onDenyAll={handleDenyAll}
-                />
-              )}
-          </div>
-        </div>
+                  return (
+                    <MessageScrollerItem
+                      key={messageId}
+                      messageId={messageId}
+                      scrollAnchor={
+                        isLastAssistant ||
+                        (!isStreaming && i === messages.length - 1)
+                      }
+                    >
+                      <ChatMessage
+                        message={msg}
+                        isStreaming={isLastAssistant}
+                        streamSegments={
+                          isLastAssistant ? streamSegments : undefined
+                        }
+                        onApproveAll={handleApproveAll}
+                        onDenyAll={handleDenyAll}
+                        onRetry={msg.error ? retryFromError : undefined}
+                      />
+                    </MessageScrollerItem>
+                  );
+                })}
+                {isStreaming &&
+                  (messages.length === 0 ||
+                    messages[messages.length - 1].role === "user") && (
+                    <MessageScrollerItem
+                      messageId="assistant-streaming"
+                      scrollAnchor
+                    >
+                      <ChatMessage
+                        message={{
+                          role: "assistant",
+                          content: "",
+                          pendingActions:
+                            pendingConfirmations.length > 0
+                              ? pendingConfirmations
+                              : undefined,
+                          createdAt: "assistant-streaming",
+                        }}
+                        isStreaming
+                        streamSegments={streamSegments}
+                        onApproveAll={handleApproveAll}
+                        onDenyAll={handleDenyAll}
+                      />
+                    </MessageScrollerItem>
+                  )}
+              </MessageScrollerContent>
+            </MessageScrollerViewport>
+            <MessageScrollerButton />
+          </MessageScroller>
+        </MessageScrollerProvider>
 
         {backoff.active && (
           <div className="mx-4 mb-2 flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">

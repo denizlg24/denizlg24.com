@@ -1,8 +1,7 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
-import { Card, CardContent } from "@repo/ui/card";
-import { ArrowDownToLine, X } from "lucide-react";
+import { ArrowUpRight, Download, X } from "lucide-react";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import type { GitHubRelease } from "@/lib/update-checker";
@@ -10,46 +9,57 @@ import { fetchLatestRelease, isNewerVersion } from "@/lib/update-checker";
 
 function UpdateToastContent({
   release,
+  currentVersion,
   toastId,
   onDownload,
 }: {
   release: GitHubRelease;
+  currentVersion: string;
   toastId: string | number;
   onDownload: () => void;
 }) {
+  const nextVersion = release.tag_name.replace(/^v/, "");
+
   return (
-    <Card className="w-full py-0 shadow-md">
-      <CardContent className="flex items-start gap-3 p-4">
-        <ArrowDownToLine className="size-5 text-accent-strong mt-0.5 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="text-accent-strong font-semibold">
-            {release.name || `Update ${release.tag_name} available`}
-          </p>
-          <p className="text-muted-foreground text-sm mt-1">
-            A new version is available.
-          </p>
-          <div className="flex items-center gap-2 mt-3">
-            <Button size="sm" onClick={onDownload}>
-              Download
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => toast.dismiss(toastId)}
-            >
-              Dismiss
-            </Button>
-          </div>
-        </div>
+    <div className="w-full overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-sm min-w-3xs">
+      <div className="flex items-start justify-between gap-3 px-4 pt-3.5">
+        <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/70">
+          <Download className="size-3" />
+          Update available
+        </span>
         <button
           type="button"
-          className="text-foreground hover:text-accent transition-colors shrink-0"
+          aria-label="Dismiss"
+          className="-mr-1 -mt-0.5 text-muted-foreground/50 transition-colors hover:text-foreground"
           onClick={() => toast.dismiss(toastId)}
         >
-          <X className="size-4" />
+          <X className="size-3.5" />
         </button>
-      </CardContent>
-    </Card>
+      </div>
+
+      <div className="px-4 pt-2">
+        <p className="text-sm font-medium leading-snug text-accent-strong">
+          {release.name || `Version ${nextVersion}`}
+        </p>
+        <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+          {currentVersion} &rarr; {nextVersion}
+        </p>
+      </div>
+
+      <div className="flex items-center gap-3 px-4 pb-3.5 pt-3">
+        <Button size="xs" className="rounded-sm" onClick={onDownload}>
+          Download
+          <ArrowUpRight />
+        </Button>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground transition-colors hover:text-foreground border-b px-2"
+          onClick={() => toast.dismiss(toastId)}
+        >
+          Later
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -70,11 +80,12 @@ export function UpdateNotifier() {
             (id) => (
               <UpdateToastContent
                 release={release}
+                currentVersion={currentVersion}
                 toastId={id}
                 onDownload={() => open(release.html_url)}
               />
             ),
-            { duration: 10000 },
+            { duration: Infinity },
           );
         }
       } catch {
