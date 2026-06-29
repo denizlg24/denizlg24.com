@@ -361,11 +361,13 @@ async function markPausedPending(
       },
       {
         $set: {
+          pendingAction: "upsert",
+        },
+        $setOnInsert: {
           provider: GOOGLE_CALENDAR_PROVIDER,
           localEventId: objectIdFor(localEventId),
           remoteCalendarId,
           remoteEventId: getDeterministicGoogleEventId(localEventId),
-          pendingAction: "upsert",
         },
       },
       { upsert: true },
