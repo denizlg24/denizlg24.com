@@ -9,7 +9,12 @@ const nextConfig: NextConfig = {
       process.env.NEXT_PUBLIC_DESKTOP_API_BASE_URL ?? PRODUCTION_API_BASE_URL,
   },
   reactCompiler: true,
-  transpilePackages: ["@repo/schemas", "@repo/utils", "@repo/ui"],
+  transpilePackages: [
+    "@repo/admin",
+    "@repo/schemas",
+    "@repo/utils",
+    "@repo/ui",
+  ],
   output: "export",
   images: {
     unoptimized: true,

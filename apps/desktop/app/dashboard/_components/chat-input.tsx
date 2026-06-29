@@ -1,18 +1,29 @@
 "use client";
 
+import {
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+} from "@repo/ui/attachment";
 import { Label } from "@repo/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
+import { Spinner } from "@repo/ui/spinner";
 import { Switch } from "@repo/ui/switch";
 import {
   ArrowUp,
   FileText,
   Image,
-  Loader2,
   Paperclip,
   Settings,
   Square,
   X,
 } from "lucide-react";
+import type * as React from "react";
 import {
   useCallback,
   useEffect,
@@ -41,6 +52,34 @@ function fileToAttachment(file: File): IChatAttachment | null {
     previewUrl: isImage ? URL.createObjectURL(file) : undefined,
     status: "pending",
   };
+}
+
+function formatAttachmentSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getAttachmentState(
+  status: IChatAttachment["status"],
+): React.ComponentProps<typeof Attachment>["state"] {
+  switch (status) {
+    case "pending":
+      return "idle";
+    case "uploading":
+      return "uploading";
+    case "error":
+      return "error";
+    default:
+      return "done";
+  }
+}
+
+function getAttachmentDescription(att: IChatAttachment): string {
+  if (att.status === "uploading") return "Uploading";
+  if (att.status === "error") return att.error ?? "Upload failed";
+  if (att.status === "done") return "Ready";
+  return formatAttachmentSize(att.file.size);
 }
 
 export function ChatInput({
@@ -206,33 +245,48 @@ export function ChatInput({
         className={`relative border bg-popover shadow-lg flex flex-col ${hasAttachments || multiLine ? "rounded-lg" : "rounded-full"} ${dragging ? "ring-2 ring-foreground/20" : ""}`}
       >
         {hasAttachments && (
-          <div className="flex flex-wrap gap-1.5 px-3 pt-3">
+          <AttachmentGroup className="px-3 pt-3 pb-0">
             {attachments?.map((att) => (
-              <div
+              <Attachment
                 key={att.id}
-                className="group relative flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 max-w-36"
+                state={getAttachmentState(att.status)}
+                size="sm"
+                className="max-w-56"
               >
-                {att.status === "uploading" ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground/50 shrink-0" />
-                ) : att.status === "error" ? (
-                  <X className="w-3.5 h-3.5 text-destructive shrink-0" />
-                ) : att.type === "image" ? (
-                  <Image className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-                ) : (
-                  <FileText className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-                )}
-                <span className="text-xs text-muted-foreground truncate">
-                  {att.name}
-                </span>
-                <button
-                  onClick={() => removeAttachment(att.id)}
-                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-foreground text-background flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                <AttachmentMedia
+                  variant={
+                    att.type === "image" && att.previewUrl ? "image" : "icon"
+                  }
                 >
-                  <X className="w-2.5 h-2.5" />
-                </button>
-              </div>
+                  {att.status === "uploading" ? (
+                    <Spinner className="size-3.5 text-muted-foreground/60" />
+                  ) : att.status === "error" ? (
+                    <X />
+                  ) : att.type === "image" && att.previewUrl ? (
+                    <img src={att.previewUrl} alt={att.name} />
+                  ) : att.type === "image" ? (
+                    <Image />
+                  ) : (
+                    <FileText />
+                  )}
+                </AttachmentMedia>
+                <AttachmentContent>
+                  <AttachmentTitle>{att.name}</AttachmentTitle>
+                  <AttachmentDescription>
+                    {getAttachmentDescription(att)}
+                  </AttachmentDescription>
+                </AttachmentContent>
+                <AttachmentActions>
+                  <AttachmentAction
+                    aria-label={`Remove ${att.name}`}
+                    onClick={() => removeAttachment(att.id)}
+                  >
+                    <X />
+                  </AttachmentAction>
+                </AttachmentActions>
+              </Attachment>
             ))}
-          </div>
+          </AttachmentGroup>
         )}
         <div className="flex items-end">
           <Popover>

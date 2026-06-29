@@ -375,7 +375,7 @@ export const NoteEditor = ({
         <div
           className={`flex flex-row items-center gap-1 overflow-hidden transition-[max-width,opacity,margin] duration-300 ease-out ${
             toolbarOpen
-              ? "max-w-[600px] opacity-100 mr-1"
+              ? "max-w-150 opacity-100 mr-1"
               : "max-w-0 opacity-0 mr-0"
           }`}
         >

@@ -1,40 +1,16 @@
-import { forbidden } from "next/navigation";
-import { getAdminSession } from "@/lib/require-admin";
-import { getAllTimelineItems } from "@/lib/timeline";
-import { TimelineManager } from "./_components/timeline-manager";
+import { TimelinePage } from "@repo/admin/timeline/timeline-page";
+import type { Metadata } from "next";
+import { AdminFeatureShell } from "../_components/admin-feature-shell";
 
-export default async function TimelinePage() {
-  const session = await getAdminSession();
+export const metadata: Metadata = {
+  title: "Timeline | Admin Dashboard",
+  description: "Manage timeline entries",
+};
 
-  if (!session) {
-    forbidden();
-  }
-
-  const items = await getAllTimelineItems();
-
+export default function TimelineRoute() {
   return (
-    <div className="mx-auto space-y-6">
-      <TimelineManager
-        initialItems={items.map((item) => ({
-          _id: item._id.toString(),
-          title: item.title,
-          subtitle: item.subtitle,
-          logoUrl: item.logoUrl,
-          dateFrom: item.dateFrom,
-          dateTo: item.dateTo,
-          topics: item.topics,
-          category: item.category,
-          order: item.order,
-          links: item.links?.map((link) => ({
-            label: link.label,
-            url: link.url,
-            icon: link.icon,
-          })),
-          isActive: item.isActive,
-          createdAt: item.createdAt,
-          updatedAt: item.updatedAt,
-        }))}
-      />
-    </div>
+    <AdminFeatureShell>
+      <TimelinePage newHref="/admin/dashboard/timeline/new" />
+    </AdminFeatureShell>
   );
 }

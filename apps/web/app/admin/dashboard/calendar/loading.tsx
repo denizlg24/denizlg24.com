@@ -1,5 +1,0 @@
-import { AdminListPageSkeleton } from "../_components/admin-loading-skeletons";
-
-export default function CalendarLoading() {
-  return <AdminListPageSkeleton rows={4} />;
-}

@@ -1,20 +1,10 @@
-import { forbidden } from "next/navigation";
-import { getAdminSession } from "@/lib/require-admin";
-import { getAllTimetableEntries } from "@/lib/timetable";
-import { TimetableManager } from "./_components/timetable-manager";
+import { TimetablePage } from "@repo/admin/timetable/timetable-page";
+import { AdminFeatureShell } from "../_components/admin-feature-shell";
 
-export default async function TimetablePage() {
-  const session = await getAdminSession();
-
-  if (!session) {
-    forbidden();
-  }
-
-  const entries = await getAllTimetableEntries();
-
+export default function TimetableRoute() {
   return (
-    <div className="mx-auto space-y-6">
-      <TimetableManager initialEntries={entries} />
-    </div>
+    <AdminFeatureShell>
+      <TimetablePage />
+    </AdminFeatureShell>
   );
 }

@@ -1,6 +1,19 @@
 "use client";
 
+import {
+  Attachment,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+  AttachmentTrigger,
+} from "@repo/ui/attachment";
+import { Bubble, BubbleContent } from "@repo/ui/bubble";
 import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
+import { Marker, MarkerContent, MarkerIcon } from "@repo/ui/marker";
+import { Message, MessageContent, MessageFooter } from "@repo/ui/message";
+import { Spinner } from "@repo/ui/spinner";
 import {
   Check,
   ChevronDown,
@@ -8,28 +21,18 @@ import {
   Code,
   Eye,
   FileText,
-  Image,
-  Loader2,
   RotateCcw,
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { mergeContentSegments } from "@/lib/chat-segments";
 import type {
   IChatContentSegment,
   IChatMessage,
   IChatMessageAttachment,
   IChatToolCall,
 } from "@/lib/data-types";
-
-function TypingIndicator() {
-  return (
-    <div className="flex items-center gap-1 py-2">
-      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:0ms]" />
-      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:150ms]" />
-      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:300ms]" />
-    </div>
-  );
-}
+import { cn } from "@/lib/utils";
 
 function ErrorCard({
   error,
@@ -39,23 +42,25 @@ function ErrorCard({
   onRetry?: () => void;
 }) {
   return (
-    <div className="my-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <X className="w-3 h-3 text-destructive shrink-0" />
-          <span className="text-xs text-destructive/80">{error}</span>
+    <Bubble variant="destructive" className="max-w-full">
+      <BubbleContent className="w-full">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <X className="w-3 h-3 text-destructive shrink-0" />
+            <span className="text-xs text-destructive/80">{error}</span>
+          </div>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Retry</span>
+            </button>
+          )}
         </div>
-        {onRetry && (
-          <button
-            onClick={onRetry}
-            className="flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors shrink-0"
-          >
-            <RotateCcw className="w-3 h-3" />
-            <span>Retry</span>
-          </button>
-        )}
-      </div>
-    </div>
+      </BubbleContent>
+    </Bubble>
   );
 }
 
@@ -75,6 +80,42 @@ function extractAttachmentsFromContent(
     }
   }
   return attachments;
+}
+
+function ChatMessageAttachment({
+  attachment,
+}: {
+  attachment: IChatMessageAttachment;
+}) {
+  const isImage = attachment.type === "image";
+
+  return (
+    <Attachment size="sm" className="max-w-64">
+      <AttachmentMedia variant={isImage ? "image" : "icon"}>
+        {isImage ? (
+          <img src={attachment.url} alt={attachment.name} />
+        ) : (
+          <FileText />
+        )}
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle>{attachment.name}</AttachmentTitle>
+        <AttachmentDescription>
+          {isImage ? "Image" : "Document"}
+        </AttachmentDescription>
+      </AttachmentContent>
+      <AttachmentTrigger asChild>
+        <a
+          href={attachment.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Open ${attachment.name}`}
+        >
+          <span className="sr-only">Open {attachment.name}</span>
+        </a>
+      </AttachmentTrigger>
+    </Attachment>
+  );
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -134,16 +175,30 @@ const TOOL_LABELS: Record<string, string> = {
 function ToolCallStatusIcon({ status }: { status: IChatToolCall["status"] }) {
   switch (status) {
     case "calling":
-      return <Loader2 className="w-3 h-3 animate-spin" />;
-    case "error":
-      return <X className="w-3 h-3 text-destructive" />;
     case "pending_approval":
       return (
-        <Loader2 className="w-3 h-3 animate-spin text-muted-foreground/40" />
+        <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/50" />
       );
+    case "error":
+      return <X className="w-3 h-3 text-destructive" />;
     default:
       return <Check className="w-3 h-3 text-foreground" />;
   }
+}
+
+function TypingIndicator() {
+  return (
+    <Message>
+      <MessageContent>
+        <Marker role="status" className="py-1">
+          <MarkerIcon>
+            <Spinner className="size-3.5" />
+          </MarkerIcon>
+          <MarkerContent className="shimmer">Thinking...</MarkerContent>
+        </Marker>
+      </MessageContent>
+    </Message>
+  );
 }
 
 function SingleToolCall({
@@ -160,16 +215,20 @@ function SingleToolCall({
   const [expanded, setExpanded] = useState(false);
   const label = TOOL_LABELS[call.toolName] ?? call.toolName;
   const isPending = call.status === "pending_approval";
+  const isActive =
+    call.status === "calling" || call.status === "pending_approval";
 
   return (
-    <div>
-      <div className="flex items-center gap-1.5">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-        >
+    <div className="w-full">
+      <Marker className="gap-1.5">
+        <MarkerIcon className="flex items-center justify-center">
           <ToolCallStatusIcon status={call.status} />
-          <span>{label}</span>
+        </MarkerIcon>
+        <button
+          onClick={() => call.result && setExpanded(!expanded)}
+          className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+        >
+          <span className={cn("truncate", isActive && "shimmer")}>{label}</span>
           {call.result &&
             (expanded ? (
               <ChevronDown className="w-3 h-3" />
@@ -193,9 +252,9 @@ function SingleToolCall({
             </button>
           </span>
         )}
-      </div>
+      </Marker>
       {expanded && call.result && (
-        <pre className="mt-1.5 text-[11px] bg-surface rounded p-2 overflow-x-auto max-h-40 text-muted-foreground/70">
+        <pre className="mt-1.5 ml-5 text-[11px] bg-surface rounded p-2 overflow-x-auto max-h-40 text-muted-foreground/70">
           {tryFormatJson(call.result)}
         </pre>
       )}
@@ -217,7 +276,7 @@ function ToolGroupBlock({
 
   if (calls.length === 1) {
     return (
-      <div className="my-2 rounded-lg border border-border px-3 py-2">
+      <div className="my-1.5 w-full">
         <SingleToolCall
           call={calls[0]}
           onApproveAll={onApproveAll}
@@ -228,9 +287,8 @@ function ToolGroupBlock({
   }
 
   const anyError = calls.some((c) => c.status === "error");
-  const anyCalling = calls.some((c) => c.status === "calling");
-  const allDone = calls.every(
-    (c) => c.status === "done" || c.status === "pending_approval",
+  const anyActive = calls.some(
+    (c) => c.status === "calling" || c.status === "pending_approval",
   );
 
   const uniqueNames = [...new Set(calls.map((c) => c.toolName))];
@@ -241,22 +299,24 @@ function ToolGroupBlock({
   });
 
   return (
-    <div className="my-2 rounded-lg border border-border px-3 py-2">
-      <div className="flex items-center gap-1.5">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-        >
-          {anyCalling ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
+    <div className="my-1.5">
+      <Marker className="gap-1.5">
+        <MarkerIcon className="flex items-center justify-center">
+          {anyActive ? (
+            <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/50" />
           ) : anyError ? (
             <X className="w-3 h-3 text-destructive" />
-          ) : allDone && !hasPending ? (
-            <Check className="w-3 h-3 text-foreground" />
           ) : (
-            <Loader2 className="w-3 h-3 animate-spin text-muted-foreground/40" />
+            <Check className="w-3 h-3 text-foreground" />
           )}
-          <span>{summaryParts.join(", ")}</span>
+        </MarkerIcon>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+        >
+          <span className={cn("truncate", anyActive && "shimmer")}>
+            {summaryParts.join(", ")}
+          </span>
           {expanded ? (
             <ChevronDown className="w-3 h-3" />
           ) : (
@@ -279,9 +339,9 @@ function ToolGroupBlock({
             </button>
           </span>
         )}
-      </div>
+      </Marker>
       {expanded && (
-        <div className="mt-2 flex flex-col gap-1 border-t border-border pt-2">
+        <div className="mt-1.5 flex flex-col gap-1 pl-5">
           {calls.map((call) => (
             <SingleToolCall
               key={call.toolId}
@@ -381,45 +441,33 @@ export function ChatMessage({
         : []);
 
     return (
-      <div className="flex justify-end mb-4">
-        <div className="bg-surface rounded-2xl px-4 py-2 max-w-[80%]">
+      <Message align="end">
+        <MessageContent>
           {displayAttachments.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-2">
+            <AttachmentGroup className="max-w-[80%] justify-end">
               {displayAttachments.map((att, i) => (
-                <a
-                  key={i}
-                  href={att.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 max-w-36 hover:bg-background/50 transition-colors"
-                >
-                  {att.type === "image" ? (
-                    <Image className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-                  ) : (
-                    <FileText className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-                  )}
-                  <span className="text-xs text-muted-foreground truncate">
-                    {att.name}
-                  </span>
-                </a>
+                <ChatMessageAttachment
+                  key={`${att.url}-${i}`}
+                  attachment={att}
+                />
               ))}
-            </div>
+            </AttachmentGroup>
           )}
           {displayContent && (
-            <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-              {displayContent}
-            </p>
+            <Bubble variant="muted" align="end">
+              <BubbleContent className="whitespace-pre-wrap text-muted-foreground">
+                {displayContent}
+              </BubbleContent>
+            </Bubble>
           )}
-        </div>
-      </div>
+        </MessageContent>
+      </Message>
     );
   }
 
   const segments: IChatContentSegment[] | null =
     isStreaming && streamSegments
-      ? message.segments
-        ? [...message.segments, ...streamSegments]
-        : streamSegments
+      ? mergeContentSegments(message.segments ?? [], streamSegments)
       : (message.segments ?? null);
 
   const textContent = segments
@@ -438,58 +486,64 @@ export function ChatMessage({
       )
     : textContent.length > 0;
 
-  if (isStreaming && !hasContent)
-    return (
-      <div className="mb-6">
-        <TypingIndicator />
-      </div>
-    );
+  if (isStreaming && !hasContent) return <TypingIndicator />;
 
   return (
-    <div className="mb-6 group">
-      {showRaw ? (
-        <pre className="text-sm font-mono whitespace-pre-wrap text-foreground/80 bg-surface rounded-lg p-4 overflow-x-auto">
-          {rawContent}
-        </pre>
-      ) : segments ? (
-        <SegmentRenderer
-          segments={segments}
-          isStreaming={isStreaming}
-          onApproveAll={onApproveAll}
-          onDenyAll={onDenyAll}
-        />
-      ) : (
-        <div className="max-w-none">
-          <MarkdownRenderer content={textContent} />
-          {isStreaming && (
-            <span className="inline-block w-2 h-4 bg-foreground/70 animate-pulse ml-0.5 -mb-0.5" />
-          )}
-        </div>
-      )}
-
-      {message.error && <ErrorCard error={message.error} onRetry={onRetry} />}
-
-      {!isStreaming && textContent && (
-        <div className="flex items-center gap-2 mt-1">
-          <button
-            onClick={() => setShowRaw((v) => !v)}
-            className="text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors"
+    <Message className="group">
+      <MessageContent>
+        {hasContent && (
+          <Bubble
+            variant={showRaw ? "outline" : "ghost"}
+            className="max-w-full"
           >
-            {showRaw ? (
-              <Eye className="w-3.5 h-3.5" />
-            ) : (
-              <Code className="w-3.5 h-3.5" />
+            <BubbleContent className="w-full max-w-none">
+              {showRaw ? (
+                <pre className="scroll-fade-x max-h-[60vh] overflow-x-auto whitespace-pre-wrap rounded-lg bg-surface p-4 font-mono text-sm text-foreground/80">
+                  {rawContent}
+                </pre>
+              ) : segments ? (
+                <SegmentRenderer
+                  segments={segments}
+                  isStreaming={isStreaming}
+                  onApproveAll={onApproveAll}
+                  onDenyAll={onDenyAll}
+                />
+              ) : (
+                <div className="max-w-none">
+                  <MarkdownRenderer content={textContent} />
+                  {isStreaming && (
+                    <span className="inline-block w-2 h-4 bg-foreground/70 animate-pulse ml-0.5 -mb-0.5" />
+                  )}
+                </div>
+              )}
+            </BubbleContent>
+          </Bubble>
+        )}
+
+        {message.error && <ErrorCard error={message.error} onRetry={onRetry} />}
+
+        {!isStreaming && textContent && (
+          <MessageFooter className="gap-2">
+            <button
+              onClick={() => setShowRaw((v) => !v)}
+              className="text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors"
+            >
+              {showRaw ? (
+                <Eye className="w-3.5 h-3.5" />
+              ) : (
+                <Code className="w-3.5 h-3.5" />
+              )}
+            </button>
+            {message.tokenUsage && (
+              <p className="text-[11px] text-muted-foreground/50">
+                {(message.tokenUsage.inputTokens ?? 0) +
+                  (message.tokenUsage.outputTokens ?? 0)}{" "}
+                tokens &middot; ${(message.tokenUsage.costUsd ?? 0).toFixed(4)}
+              </p>
             )}
-          </button>
-          {message.tokenUsage && (
-            <p className="text-[11px] text-muted-foreground/50">
-              {(message.tokenUsage.inputTokens ?? 0) +
-                (message.tokenUsage.outputTokens ?? 0)}{" "}
-              tokens &middot; ${(message.tokenUsage.costUsd ?? 0).toFixed(4)}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
+          </MessageFooter>
+        )}
+      </MessageContent>
+    </Message>
   );
 }

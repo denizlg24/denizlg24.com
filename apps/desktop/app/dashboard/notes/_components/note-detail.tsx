@@ -194,7 +194,7 @@ export function NoteDetail({
               ? "Paste a link to import it, or write a note and create it"
               : note.url
                 ? note.siteName || safeHostname(note.url)
-                : "Markdown note"}
+                : note.title || "Untitled note"}
           </span>
         </div>
         {!isDraft && (

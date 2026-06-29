@@ -1,33 +1,41 @@
+"use client";
+
+import { ProjectForm } from "@repo/admin/projects/project-form";
 import { Button } from "@repo/ui/button";
+import { PageHeader } from "@repo/ui/page-header";
+import { ScrollArea } from "@repo/ui/scroll-area";
 import { ArrowLeft, FolderGit2 } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { getAdminSession } from "@/lib/require-admin";
-import { AdminPageHeader } from "../../_components/admin-page-header";
-import { ProjectForm } from "../_components/project-form";
+import { useRouter } from "next/navigation";
+import { AdminFeatureShell } from "../../_components/admin-feature-shell";
 
-export default async function NewProjectPage() {
-  const session = await getAdminSession();
-
-  if (!session) {
-    redirect("/auth/login");
-  }
+export default function NewProjectPage() {
+  const router = useRouter();
 
   return (
-    <div className="flex flex-col gap-3">
-      <AdminPageHeader
-        icon={<FolderGit2 className="size-4 text-muted-foreground" />}
-        title="Create Project"
-        leading={
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/admin/dashboard/projects">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back
-            </Link>
-          </Button>
-        }
-      />
-      <ProjectForm mode="create" />
-    </div>
+    <AdminFeatureShell>
+      <div className="flex flex-col h-full">
+        <PageHeader
+          leading={
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" asChild>
+              <Link href="/admin/dashboard/projects">
+                <ArrowLeft className="size-4" />
+              </Link>
+            </Button>
+          }
+          icon={<FolderGit2 className="size-4 text-muted-foreground" />}
+          title="New Project"
+        />
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="px-4 py-4">
+            <ProjectForm
+              mode="create"
+              onSuccess={() => router.push("/admin/dashboard/projects")}
+              onCancel={() => router.push("/admin/dashboard/projects")}
+            />
+          </div>
+        </ScrollArea>
+      </div>
+    </AdminFeatureShell>
   );
 }

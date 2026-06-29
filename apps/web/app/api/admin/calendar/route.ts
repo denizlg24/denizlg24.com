@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import {
   createCalendarEvent,
   getCalendarEvents,
@@ -6,6 +6,32 @@ import {
 } from "@/lib/calendar-events";
 import { ensureGeneratedCalendarEventsForRange } from "@/lib/calendar-sync";
 import { requireAdmin } from "@/lib/require-admin";
+
+const GENERATED_EVENTS_WAIT_MS = 300;
+
+async function prepareGeneratedEvents(start: Date, end: Date) {
+  const ensurePromise = ensureGeneratedCalendarEventsForRange(start, end);
+  const finished = await Promise.race([
+    ensurePromise.then(
+      () => true,
+      (error) => {
+        console.error("Failed to generate calendar events:", error);
+        return true;
+      },
+    ),
+    new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), GENERATED_EVENTS_WAIT_MS);
+    }),
+  ]);
+
+  if (!finished) {
+    after(() =>
+      ensurePromise.catch((error) => {
+        console.error("Failed to generate calendar events:", error);
+      }),
+    );
+  }
+}
 
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
@@ -33,7 +59,7 @@ export async function GET(request: NextRequest) {
 
   if (dateParam) {
     const date = new Date(dateParam);
-    await ensureGeneratedCalendarEventsForRange(date, date);
+    await prepareGeneratedEvents(date, date);
     const events = await getCalendarEvents(date);
     return NextResponse.json({ events }, { status: 200 });
   }
@@ -41,7 +67,7 @@ export async function GET(request: NextRequest) {
   if (startParam && endParam) {
     const start = new Date(startParam);
     const end = new Date(endParam);
-    await ensureGeneratedCalendarEventsForRange(start, end);
+    await prepareGeneratedEvents(start, end);
     const events = await getMonthCalendarEvents(start, end);
     return NextResponse.json({ events }, { status: 200 });
   }

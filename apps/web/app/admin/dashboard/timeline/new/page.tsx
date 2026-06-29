@@ -1,36 +1,41 @@
+"use client";
+
+import { TimelineForm } from "@repo/admin/timeline/timeline-form";
 import { Button } from "@repo/ui/button";
+import { PageHeader } from "@repo/ui/page-header";
+import { ScrollArea } from "@repo/ui/scroll-area";
 import { ArrowLeft, Briefcase } from "lucide-react";
 import Link from "next/link";
-import { forbidden } from "next/navigation";
-import { getAdminSession } from "@/lib/require-admin";
-import { AdminPageHeader } from "../../_components/admin-page-header";
-import { TimelineForm } from "../_components/timeline-form";
+import { useRouter } from "next/navigation";
+import { AdminFeatureShell } from "../../_components/admin-feature-shell";
 
-export default async function NewTimelinePage() {
-  const session = await getAdminSession();
-
-  if (!session) {
-    forbidden();
-  }
+export default function NewTimelinePage() {
+  const router = useRouter();
 
   return (
-    <div className="flex flex-col gap-3">
-      <AdminPageHeader
-        icon={<Briefcase className="size-4 text-muted-foreground" />}
-        title="Create Timeline Item"
-        leading={
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/admin/dashboard/timeline">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back
-            </Link>
-          </Button>
-        }
-      />
-
-      <div className="bg-background">
-        <TimelineForm mode="create" />
+    <AdminFeatureShell>
+      <div className="flex flex-col h-full">
+        <PageHeader
+          leading={
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" asChild>
+              <Link href="/admin/dashboard/timeline">
+                <ArrowLeft className="size-4" />
+              </Link>
+            </Button>
+          }
+          icon={<Briefcase className="size-4 text-muted-foreground" />}
+          title="New Timeline Item"
+        />
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="px-4 py-4">
+            <TimelineForm
+              mode="create"
+              onSuccess={() => router.push("/admin/dashboard/timeline")}
+              onCancel={() => router.push("/admin/dashboard/timeline")}
+            />
+          </div>
+        </ScrollArea>
       </div>
-    </div>
+    </AdminFeatureShell>
   );
 }

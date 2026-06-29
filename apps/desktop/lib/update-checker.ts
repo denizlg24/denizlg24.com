@@ -25,7 +25,7 @@ export function isNewerVersion(current: string, latest: string): boolean {
 export async function fetchLatestRelease(): Promise<GitHubRelease | null> {
   try {
     const response = await platformFetch(
-      "https://api.github.com/repos/denizlg24/denizlg24-app/releases/latest",
+      "https://api.github.com/repos/denizlg24/denizlg24.com/releases/latest",
       {
         method: "GET",
         headers: {

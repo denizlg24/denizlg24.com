@@ -191,7 +191,7 @@ function ScheduleTasksSwitcher({
             />
           ))}
           {agendaItems.length > 4 && (
-            <p className="text-[10px] text-muted-foreground mt-1 ml-[52px]">
+            <p className="text-[10px] text-muted-foreground mt-1 ml-13">
               +{agendaItems.length - 4} more
             </p>
           )}
