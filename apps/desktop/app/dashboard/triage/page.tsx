@@ -10,19 +10,14 @@ import { toast } from "sonner";
 import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
-import type { IEmailTriage, TriageCategory } from "@/lib/data-types";
+import type {
+  IEmailTriage,
+  TriageFilter,
+  TriageListResponse,
+} from "@/lib/data-types";
 import { CategoryBadge } from "./_components/category-badge";
 import { TriageLoadingSkeleton } from "./_components/triage-loading-skeleton";
 import { TriageSheet } from "./_components/triage-sheet";
-
-type TriageFilter = TriageCategory | "archived";
-
-interface TriageListResponse {
-  items: IEmailTriage[];
-  totalRows: number;
-  offset: number;
-  limit: number;
-}
 
 const TRIAGE_PAGE_SIZE = 10;
 const PREFETCH_PAGE_COUNT = 3;

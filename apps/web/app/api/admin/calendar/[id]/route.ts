@@ -26,9 +26,13 @@ export async function PATCH(
       { status: 500 },
     );
   }
-  if (isGoogleOutboundSyncableKind(updated.kind)) {
+  const syncAction = isGoogleOutboundSyncableKind(updated.kind)
+    ? "upsert"
+    : "delete";
+
+  if (syncAction) {
     after(() =>
-      syncEventToGoogle(updated._id, "upsert").catch((error) => {
+      syncEventToGoogle(updated._id, syncAction).catch((error) => {
         console.error("Failed to sync calendar event to Google:", error);
       }),
     );

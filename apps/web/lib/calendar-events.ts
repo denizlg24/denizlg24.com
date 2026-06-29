@@ -183,7 +183,12 @@ export const updateCalendarEvent = async ({
     if (!existing.kind && !update.kind) {
       update.kind = "manual";
     }
-    if (update.date || update.calendarDate || update.isAllDay !== undefined) {
+    if (
+      update.date !== undefined ||
+      update.calendarDate !== undefined ||
+      update.isAllDay !== undefined ||
+      update.endDate !== undefined
+    ) {
       Object.assign(
         update,
         normalizeCalendarEventInput({

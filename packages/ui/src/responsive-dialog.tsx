@@ -56,7 +56,7 @@ export function ResponsiveDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "max-h-[90vh] overflow-y-auto w-full! max-w-5xl!",
+          "max-h-[90vh] overflow-y-auto w-full! max-w-5xl",
           className,
         )}
       >

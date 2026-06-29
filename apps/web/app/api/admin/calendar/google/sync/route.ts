@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
 
-  const parsed = syncSchema.safeParse(await request.json().catch(() => ({})));
+  const parsed = syncSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid sync range" }, { status: 400 });
   }

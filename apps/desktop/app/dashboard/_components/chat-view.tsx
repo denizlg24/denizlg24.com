@@ -34,6 +34,7 @@ import {
 import { denizApi } from "@/lib/api-wrapper";
 import { mergeContentSegments } from "@/lib/chat-segments";
 import type {
+  ConversationListResponse,
   IChatAttachment,
   IChatContentSegment,
   IChatMessage,
@@ -71,13 +72,6 @@ const CONVERSATION_PAGE_SIZE = 30;
 const CONVERSATION_PREFETCH_PAGE_COUNT = 3;
 const CONVERSATION_FETCH_LIMIT =
   CONVERSATION_PAGE_SIZE * CONVERSATION_PREFETCH_PAGE_COUNT;
-
-interface ConversationListResponse {
-  conversations: IConversationMeta[];
-  totalRows: number;
-  offset: number;
-  limit: number;
-}
 
 function useClock() {
   const [now, setNow] = useState(new Date());
@@ -361,7 +355,9 @@ export function ChatView() {
   const [messages, setMessages] = useState<IChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<IConversationMeta[]>([]);
-  const [conversationTotalRows, setConversationTotalRows] = useState(0);
+  const [conversationNextCursor, setConversationNextCursor] = useState<
+    string | null
+  >(null);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [loadingMoreConversations, setLoadingMoreConversations] =
     useState(false);
@@ -406,21 +402,28 @@ export function ChatView() {
   }, [isStreaming, abort, toggleSidebar]);
 
   const fetchConversations = useCallback(
-    async (offset = 0) => {
+    async (cursor: string | null = null) => {
       if (!API) return;
-      if (offset === 0) {
+      const initialLoad = cursor === null;
+
+      if (initialLoad) {
         setLoadingConversations(true);
       } else {
         setLoadingMoreConversations(true);
       }
 
+      const params = new URLSearchParams({
+        limit: String(CONVERSATION_FETCH_LIMIT),
+      });
+      if (cursor) params.set("cursor", cursor);
+
       const result = await API.GET<ConversationListResponse>({
-        endpoint: `conversations?offset=${offset}&limit=${CONVERSATION_FETCH_LIMIT}`,
+        endpoint: `conversations?${params.toString()}`,
       });
       if (!("code" in result)) {
-        setConversationTotalRows(result.totalRows);
+        setConversationNextCursor(result.nextCursor);
         setConversations((prev) => {
-          if (offset === 0) return result.conversations;
+          if (initialLoad) return result.conversations;
           const seen = new Set(prev.map((conversation) => conversation._id));
           return [
             ...prev,
@@ -441,16 +444,16 @@ export function ChatView() {
   }, [attachments]);
 
   useEffect(() => {
-    if (API && (!isActive || sidebarOpen)) fetchConversations(0);
+    if (API && (!isActive || sidebarOpen)) fetchConversations();
   }, [API, isActive, sidebarOpen, fetchConversations]);
 
-  const hasMoreConversations = conversations.length < conversationTotalRows;
+  const hasMoreConversations = conversationNextCursor !== null;
 
   const loadMoreConversations = useCallback(() => {
     if (loadingMoreConversations || !hasMoreConversations) return;
-    void fetchConversations(conversations.length);
+    void fetchConversations(conversationNextCursor);
   }, [
-    conversations.length,
+    conversationNextCursor,
     fetchConversations,
     hasMoreConversations,
     loadingMoreConversations,
@@ -481,7 +484,6 @@ export function ChatView() {
     });
     if (!("code" in result)) {
       setConversations((prev) => prev.filter((c) => c._id !== id));
-      setConversationTotalRows((prev) => Math.max(0, prev - 1));
     }
   };
 

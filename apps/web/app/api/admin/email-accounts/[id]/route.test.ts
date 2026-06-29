@@ -38,8 +38,15 @@ mock.module("@/lib/safe-email-password", () => ({
   encryptPassword: encryptPasswordMock,
 }));
 mock.module("@/lib/smtp", () => ({
-  isSmtpConfigured: (account: { smtpHost?: string }) =>
-    Boolean(account.smtpHost),
+  isSmtpConfigured: (account: {
+    smtpHost?: string;
+    smtpPassword?: string;
+    smtpPasswordSharedWithImap?: boolean;
+  }) =>
+    Boolean(
+      account.smtpHost &&
+        (account.smtpPassword || account.smtpPasswordSharedWithImap),
+    ),
   sendMailFromAccount: mock(async () => ({})),
   SMTP_PROVIDER_DEFAULTS: {
     gmail: {
@@ -289,6 +296,55 @@ describe("PATCH /api/admin/email-accounts/[id]", () => {
     const update = updateCalls[0]?.[1];
     expect(update?.$set.displayName).toBe("Work");
     expect(update?.$set.lastSmtpTestAt).toBeUndefined();
+  });
+
+  test("disables SMTP sending and clears stored SMTP settings", async () => {
+    accountLeanMock.mockResolvedValue(
+      existingAccount({
+        smtpHost: "smtp.gmail.com",
+        smtpPort: 465,
+        smtpSecure: true,
+        smtpRequireTls: false,
+        smtpPassword: encryptedSmtpSecret,
+        smtpPasswordSharedWithImap: false,
+        smtpFromName: "Me",
+        smtpFromAddress: "me@example.com",
+        lastSmtpTestAt: new Date("2026-01-01T00:00:00.000Z"),
+        lastSmtpError: "Previous error",
+      }),
+    );
+    accountUpdateLeanMock.mockResolvedValue(existingAccount());
+
+    const response = await PATCH(
+      patchRequest({
+        smtpEnabled: false,
+      }),
+      params,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.account.smtpConfigured).toBe(false);
+    expect(verifySmtpConnectionMock).not.toHaveBeenCalled();
+    expect(accountFindByIdAndUpdateMock).toHaveBeenCalledWith(
+      "account-id",
+      expect.objectContaining({
+        $unset: expect.objectContaining({
+          smtpHost: "",
+          smtpPort: "",
+          smtpSecure: "",
+          smtpRequireTls: "",
+          smtpUser: "",
+          smtpPassword: "",
+          smtpPasswordSharedWithImap: "",
+          smtpFromName: "",
+          smtpFromAddress: "",
+          lastSmtpTestAt: "",
+          lastSmtpError: "",
+        }),
+      }),
+      { returnDocument: "after" },
+    );
   });
 
   test("returns a generic 400 when SMTP verification fails", async () => {

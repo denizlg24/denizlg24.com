@@ -33,6 +33,7 @@ const updateAccountSchema = z.object({
   secure: z.boolean().optional(),
   user: z.string().trim().email().max(320).optional(),
   inboxName: z.string().trim().min(1).max(120).optional(),
+  smtpEnabled: z.boolean().optional(),
   smtpHost: z.string().trim().min(1).max(255).optional(),
   smtpPort: z.coerce.number().int().min(1).max(65535).optional(),
   smtpSecure: z.boolean().optional(),
@@ -60,14 +61,6 @@ function serializeEmailAccount(account: ILeanEmailAccount) {
     _id: account._id.toString(),
     smtpConfigured: isSmtpConfigured(account),
   };
-}
-
-function resolveExistingSmtpPassword(account: ILeanEmailAccount) {
-  if (account.smtpPassword) return decryptSecret(account.smtpPassword);
-  if (account.smtpPasswordSharedWithImap) {
-    return decryptSecret(account.imapPassword);
-  }
-  return null;
 }
 
 export async function PATCH(
@@ -101,25 +94,9 @@ export async function PATCH(
     const provider = parsed.data.provider ?? account.provider ?? "custom";
     const smtpDefaults = getSmtpDefaults(provider);
     const user = parsed.data.user ?? account.user;
-    const smtpHost =
-      parsed.data.smtpHost ?? account.smtpHost ?? smtpDefaults?.host;
-    const smtpPort =
-      parsed.data.smtpPort ?? account.smtpPort ?? smtpDefaults?.port;
-    const smtpSecure =
-      parsed.data.smtpSecure ?? account.smtpSecure ?? smtpDefaults?.secure;
-    const smtpRequireTls =
-      parsed.data.smtpRequireTls ??
-      account.smtpRequireTls ??
-      smtpDefaults?.requireTLS;
-    const smtpUser = parsed.data.smtpUser ?? account.smtpUser ?? user;
-    const smtpFromAddress =
-      parsed.data.smtpFromAddress ?? account.smtpFromAddress ?? user;
-    const useSameCredentialsForSending =
-      parsed.data.useSameCredentialsForSending ??
-      account.smtpPasswordSharedWithImap ??
-      false;
     const hasProvidedSmtpSettings = Boolean(
-      parsed.data.smtpHost !== undefined ||
+      parsed.data.smtpEnabled !== undefined ||
+        parsed.data.smtpHost !== undefined ||
         parsed.data.smtpPort !== undefined ||
         parsed.data.smtpSecure !== undefined ||
         parsed.data.smtpRequireTls !== undefined ||
@@ -129,10 +106,37 @@ export async function PATCH(
         parsed.data.smtpFromName !== undefined ||
         parsed.data.smtpFromAddress !== undefined,
     );
+    const shouldDisableSmtp = parsed.data.smtpEnabled === false;
+    const shouldConfigureSmtp = hasProvidedSmtpSettings && !shouldDisableSmtp;
+    const smtpHost = shouldConfigureSmtp
+      ? (parsed.data.smtpHost ?? account.smtpHost ?? smtpDefaults?.host)
+      : undefined;
+    const smtpPort = shouldConfigureSmtp
+      ? (parsed.data.smtpPort ?? account.smtpPort ?? smtpDefaults?.port)
+      : undefined;
+    const smtpSecure = shouldConfigureSmtp
+      ? (parsed.data.smtpSecure ?? account.smtpSecure ?? smtpDefaults?.secure)
+      : undefined;
+    const smtpRequireTls = shouldConfigureSmtp
+      ? (parsed.data.smtpRequireTls ??
+        account.smtpRequireTls ??
+        smtpDefaults?.requireTLS)
+      : undefined;
+    const smtpUser = shouldConfigureSmtp
+      ? (parsed.data.smtpUser ?? account.smtpUser ?? user)
+      : undefined;
+    const smtpFromAddress = shouldConfigureSmtp
+      ? (parsed.data.smtpFromAddress ?? account.smtpFromAddress ?? user)
+      : undefined;
+    const useSameCredentialsForSending = shouldConfigureSmtp
+      ? (parsed.data.useSameCredentialsForSending ??
+        account.smtpPasswordSharedWithImap ??
+        false)
+      : false;
 
     let smtpPasswordForVerify: string | null = null;
-    if (hasProvidedSmtpSettings) {
-      if (!smtpHost || !smtpPort) {
+    if (shouldConfigureSmtp) {
+      if (!smtpHost || !smtpPort || !smtpUser) {
         return NextResponse.json(
           { error: "Missing required SMTP settings" },
           { status: 400 },
@@ -143,8 +147,10 @@ export async function PATCH(
         smtpPasswordForVerify = decryptSecret(account.imapPassword);
       } else if (parsed.data.smtpPassword) {
         smtpPasswordForVerify = parsed.data.smtpPassword;
+      } else if (account.smtpPassword) {
+        smtpPasswordForVerify = decryptSecret(account.smtpPassword);
       } else {
-        smtpPasswordForVerify = resolveExistingSmtpPassword(account);
+        smtpPasswordForVerify = null;
       }
 
       if (!smtpPasswordForVerify) {
@@ -195,7 +201,7 @@ export async function PATCH(
       ...(parsed.data.inboxName !== undefined
         ? { inboxName: parsed.data.inboxName }
         : {}),
-      ...(hasProvidedSmtpSettings
+      ...(shouldConfigureSmtp
         ? {
             smtpHost,
             smtpPort,
@@ -209,11 +215,29 @@ export async function PATCH(
           }
         : {}),
     };
-    const $unset: Record<string, ""> = { lastSmtpError: "" };
+    const $unset: Record<string, ""> = {};
 
-    if (hasProvidedSmtpSettings && useSameCredentialsForSending) {
+    if (shouldDisableSmtp) {
+      $unset.smtpHost = "";
+      $unset.smtpPort = "";
+      $unset.smtpSecure = "";
+      $unset.smtpRequireTls = "";
+      $unset.smtpUser = "";
       $unset.smtpPassword = "";
-    } else if (hasProvidedSmtpSettings && parsed.data.smtpPassword) {
+      $unset.smtpPasswordSharedWithImap = "";
+      $unset.smtpFromName = "";
+      $unset.smtpFromAddress = "";
+      $unset.lastSmtpTestAt = "";
+      $unset.lastSmtpError = "";
+    }
+
+    if (shouldConfigureSmtp) {
+      $unset.lastSmtpError = "";
+    }
+
+    if (shouldConfigureSmtp && useSameCredentialsForSending) {
+      $unset.smtpPassword = "";
+    } else if (shouldConfigureSmtp && parsed.data.smtpPassword) {
       $set.smtpPassword = encryptPassword(parsed.data.smtpPassword);
     }
 

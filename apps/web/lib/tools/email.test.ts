@@ -29,6 +29,10 @@ const draftCreateMock = mock(async (data: Record<string, unknown>) => ({
 }));
 const draftLeanMock = mock(async (): Promise<unknown> => null);
 const draftFindByIdMock = mock(() => ({ lean: draftLeanMock }));
+const draftFindOneAndUpdateLeanMock = mock(async (): Promise<unknown> => null);
+const draftFindOneAndUpdateMock = mock(() => ({
+  lean: draftFindOneAndUpdateLeanMock,
+}));
 const draftFindByIdAndUpdateMock = mock(async () => ({}));
 
 mock.module("@/lib/mongodb", () => ({ connectDB: connectDBMock }));
@@ -82,6 +86,7 @@ mock.module("@/models/EmailDraft", () => ({
   EmailDraftModel: {
     create: draftCreateMock,
     findById: draftFindByIdMock,
+    findOneAndUpdate: draftFindOneAndUpdateMock,
     findByIdAndUpdate: draftFindByIdAndUpdateMock,
   },
 }));
@@ -117,6 +122,9 @@ beforeEach(() => {
   draftLeanMock.mockReset();
   draftLeanMock.mockResolvedValue(null);
   draftFindByIdMock.mockClear();
+  draftFindOneAndUpdateLeanMock.mockReset();
+  draftFindOneAndUpdateLeanMock.mockResolvedValue(null);
+  draftFindOneAndUpdateMock.mockClear();
   draftFindByIdAndUpdateMock.mockClear();
 });
 
@@ -190,7 +198,7 @@ describe("email chat tools", () => {
       text: "Draft body",
       status: "draft",
     };
-    draftLeanMock.mockResolvedValue(draft);
+    draftFindOneAndUpdateLeanMock.mockResolvedValue(draft);
     accountByIdLeanMock.mockResolvedValue(smtpAccount);
 
     const result = await getTool("request_send_email").execute?.({
@@ -213,6 +221,11 @@ describe("email chat tools", () => {
         text: "Draft body",
       }),
     );
+    expect(draftFindOneAndUpdateMock).toHaveBeenCalledWith(
+      { _id: "draft-id", status: "draft" },
+      { status: "sending" },
+      { returnDocument: "after" },
+    );
     expect(draftFindByIdAndUpdateMock).toHaveBeenCalledWith(
       draft._id,
       expect.objectContaining({ status: "sent" }),
@@ -220,6 +233,7 @@ describe("email chat tools", () => {
   });
 
   test("request_send_email refuses drafts that were already sent", async () => {
+    draftFindOneAndUpdateLeanMock.mockResolvedValue(null);
     draftLeanMock.mockResolvedValue({
       _id: { toString: () => "draft-id" },
       accountId: "account-id",
@@ -235,5 +249,50 @@ describe("email chat tools", () => {
       getTool("request_send_email").execute?.({ draftId: "draft-id" }),
     ).rejects.toThrow("Email draft was already sent");
     expect(sendMailFromAccountMock).not.toHaveBeenCalled();
+  });
+
+  test("request_send_email refuses drafts that are already being sent", async () => {
+    draftFindOneAndUpdateLeanMock.mockResolvedValue(null);
+    draftLeanMock.mockResolvedValue({
+      _id: { toString: () => "draft-id" },
+      accountId: "account-id",
+      to: ["to@example.com"],
+      cc: [],
+      bcc: [],
+      subject: "Hello",
+      text: "Draft body",
+      status: "sending",
+    });
+
+    await expect(
+      getTool("request_send_email").execute?.({ draftId: "draft-id" }),
+    ).rejects.toThrow("Email draft is already being sent");
+    expect(sendMailFromAccountMock).not.toHaveBeenCalled();
+  });
+
+  test("request_send_email restores a reserved draft when sending fails", async () => {
+    const draft = {
+      _id: { toString: () => "draft-id" },
+      accountId: "account-id",
+      to: ["to@example.com"],
+      cc: [],
+      bcc: [],
+      subject: "Hello",
+      text: "Draft body",
+      status: "sending",
+    };
+    draftFindOneAndUpdateLeanMock.mockResolvedValue(draft);
+    accountByIdLeanMock.mockResolvedValue(smtpAccount);
+    sendMailFromAccountMock.mockRejectedValue(new Error("SMTP failed"));
+
+    await expect(
+      getTool("request_send_email").execute?.({ draftId: "draft-id" }),
+    ).rejects.toThrow("SMTP failed");
+
+    expect(draftFindOneAndUpdateMock).toHaveBeenCalledWith(
+      { _id: draft._id, status: "sending" },
+      { status: "draft" },
+    );
+    expect(draftFindByIdAndUpdateMock).not.toHaveBeenCalled();
   });
 });

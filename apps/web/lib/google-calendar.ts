@@ -94,8 +94,5 @@ export function getGoogleApiErrorStatus(error: unknown) {
 export function sanitizeGoogleSyncError(error: unknown) {
   const status = getGoogleApiErrorStatus(error);
   if (status) return `Google Calendar request failed with status ${status}`;
-  if (error instanceof Error && error.message) {
-    return error.message.slice(0, 300);
-  }
   return "Google Calendar request failed";
 }

@@ -77,7 +77,7 @@ describe("GET /api/admin/calendar/google/callback", () => {
       ),
     );
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(307);
     expect(getTokenMock).not.toHaveBeenCalled();
   });
 
@@ -88,7 +88,7 @@ describe("GET /api/admin/calendar/google/callback", () => {
       ),
     );
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(307);
     expect(getTokenMock).not.toHaveBeenCalled();
   });
 

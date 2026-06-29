@@ -19,14 +19,19 @@ const revalidatePathMock = mock((_path: string) => {});
 const accountLeanMock = mock(async (): Promise<unknown[]> => []);
 const accountFindMock = mock(() => ({ lean: accountLeanMock }));
 const accountFindOneMock = mock(async () => null);
-const accountCreateMock = mock(async (data: Record<string, unknown>) => ({
-  ...data,
-  _id: { toString: () => "account-id" },
-  toObject: () => ({
+function createAccountDocument(data: Record<string, unknown>) {
+  return {
     ...data,
     _id: { toString: () => "account-id" },
-  }),
-}));
+    toObject: () => ({
+      ...data,
+      _id: { toString: () => "account-id" },
+    }),
+  };
+}
+const accountCreateMock = mock(async (data: Record<string, unknown>) =>
+  createAccountDocument(data),
+);
 
 mock.module("next/cache", () => ({ revalidatePath: revalidatePathMock }));
 mock.module("@/lib/require-admin", () => ({
@@ -104,7 +109,10 @@ beforeEach(() => {
   accountFindMock.mockClear();
   accountFindOneMock.mockReset();
   accountFindOneMock.mockResolvedValue(null);
-  accountCreateMock.mockClear();
+  accountCreateMock.mockReset();
+  accountCreateMock.mockImplementation(async (data: Record<string, unknown>) =>
+    createAccountDocument(data),
+  );
 });
 
 describe("/api/admin/email-accounts", () => {
@@ -182,6 +190,32 @@ describe("/api/admin/email-accounts", () => {
     );
   });
 
+  test("POST does not enable provider SMTP defaults when SMTP is disabled", async () => {
+    const response = await POST(
+      new Request("http://localhost/api/admin/email-accounts", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "gmail",
+          host: "imap.gmail.com",
+          port: 993,
+          secure: true,
+          user: "me@example.com",
+          password: "imap-pass",
+          inboxName: "INBOX",
+          smtpEnabled: false,
+        }),
+      }) as Parameters<typeof POST>[0],
+    );
+
+    expect(response.status).toBe(201);
+    expect(verifySmtpConnectionMock).not.toHaveBeenCalled();
+    expect(accountCreateMock).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        smtpHost: "smtp.gmail.com",
+      }),
+    );
+  });
+
   test("POST returns generic 400 when SMTP verification fails", async () => {
     verifySmtpConnectionMock.mockRejectedValue(new Error("bad password"));
 
@@ -208,5 +242,36 @@ describe("/api/admin/email-accounts", () => {
     expect(body.error).toContain("Failed to verify SMTP sending");
     expect(body.error).not.toContain("imap-pass");
     expect(accountCreateMock).not.toHaveBeenCalled();
+  });
+
+  test("POST returns 400 when unique email account index rejects a duplicate", async () => {
+    accountCreateMock.mockRejectedValue(
+      Object.assign(new Error("duplicate key"), {
+        code: 11000,
+        keyPattern: { user: 1, host: 1 },
+      }),
+    );
+
+    const response = await POST(
+      new Request("http://localhost/api/admin/email-accounts", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "gmail",
+          host: "imap.gmail.com",
+          port: 993,
+          secure: true,
+          user: "me@example.com",
+          password: "imap-pass",
+          inboxName: "INBOX",
+        }),
+      }) as Parameters<typeof POST>[0],
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe(
+      "An account with this email and host already exists",
+    );
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 });

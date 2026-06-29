@@ -1,5 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createConversation, getAllConversations } from "@/lib/conversations";
+import {
+  createConversation,
+  getAllConversations,
+  InvalidConversationCursorError,
+} from "@/lib/conversations";
 import { requireAdmin } from "@/lib/require-admin";
 
 const DEFAULT_CONVERSATION_LIMIT = 90;
@@ -26,9 +30,14 @@ export async function GET(request: NextRequest) {
     const result = await getAllConversations({
       offset: parseOffset(searchParams.get("offset")),
       limit: parseLimit(searchParams.get("limit")),
+      cursor: searchParams.get("cursor"),
     });
     return NextResponse.json(result, { status: 200 });
-  } catch (_error) {
+  } catch (error) {
+    if (error instanceof InvalidConversationCursorError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     return NextResponse.json(
       { error: "Failed to fetch conversations" },
       { status: 500 },

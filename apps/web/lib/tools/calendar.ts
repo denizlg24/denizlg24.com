@@ -9,7 +9,13 @@ import { fetchFavicon } from "@/lib/fetch-favicon";
 import type { ToolDefinition } from "./types";
 
 type LinkInput = { label: string; url: string; icon?: string }[];
-type UserCalendarEventKind = "manual" | "meeting" | "flight" | "birthday";
+const USER_CALENDAR_EVENT_KINDS = [
+  "manual",
+  "meeting",
+  "flight",
+  "birthday",
+] as const;
+type UserCalendarEventKind = (typeof USER_CALENDAR_EVENT_KINDS)[number];
 
 export const calendarTools: ToolDefinition[] = [
   {
@@ -63,7 +69,7 @@ export const calendarTools: ToolDefinition[] = [
           kind: {
             type: "string",
             description: "Event type",
-            enum: ["manual", "meeting", "flight", "birthday"],
+            enum: [...USER_CALENDAR_EVENT_KINDS],
           },
           status: {
             type: "string",
@@ -147,7 +153,7 @@ export const calendarTools: ToolDefinition[] = [
           kind: {
             type: "string",
             description: "New event type (optional)",
-            enum: ["manual", "meeting", "flight", "birthday"],
+            enum: [...USER_CALENDAR_EVENT_KINDS],
           },
           status: {
             type: "string",

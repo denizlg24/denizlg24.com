@@ -1,6 +1,5 @@
 import mongoose, { type Document, Schema } from "mongoose";
 import type { EncryptedSecret } from "@/lib/encrypted-secret";
-import type { ILeanEmail } from "@/models/Email";
 
 export type EmailAccountProvider =
   | "custom"
@@ -30,7 +29,7 @@ export interface IEmailAccount extends Document {
   smtpFromAddress?: string;
   lastSmtpTestAt?: Date;
   lastSmtpError?: string;
-  emails?: string[];
+  emails?: mongoose.Types.ObjectId[];
 }
 
 export interface ILeanEmailAccount {
@@ -55,7 +54,7 @@ export interface ILeanEmailAccount {
   smtpFromAddress?: string;
   lastSmtpTestAt?: Date;
   lastSmtpError?: string;
-  emails?: string[] | ILeanEmail[];
+  emails?: mongoose.Types.ObjectId[];
 }
 
 const EncryptedSecretSchema = new Schema<EncryptedSecret>(
@@ -94,6 +93,8 @@ const EmailAccountSchema = new Schema<IEmailAccount>({
   lastSmtpError: { type: String },
   emails: [{ type: Schema.Types.ObjectId, ref: "Email" }],
 });
+
+EmailAccountSchema.index({ user: 1, host: 1 }, { unique: true });
 
 export const EmailAccountModel: mongoose.Model<IEmailAccount> =
   mongoose.models.EmailAccount ||

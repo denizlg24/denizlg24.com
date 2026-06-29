@@ -123,4 +123,28 @@ describe("updateCalendarEvent", () => {
     expect(update?.$set?.isNotificationSent).toBe(false);
     expect(update?.$unset).toEqual({ notifyAt: "" });
   });
+
+  test("resets sent state and recomputes notifyAt when the schedule changes", async () => {
+    const existing = manualEvent({
+      notifyBySlack: true,
+      isNotificationSent: true,
+      notifyAt: new Date("2026-07-01T10:15:00.000Z"),
+    });
+    eventLeanMock.mockResolvedValue(existing);
+    calendarEventFindByIdAndUpdateMock.mockImplementation((_id, update) => ({
+      lean: mock(async () => applyCalendarUpdate(existing, update)),
+    }));
+
+    const result = await updateCalendarEvent({
+      id: localEventId,
+      data: { notifyBeforeMinutes: 30 },
+    });
+
+    const update = calendarEventFindByIdAndUpdateMock.mock.calls[0]?.[1] as
+      | Partial<ILeanCalendarEvent>
+      | undefined;
+
+    expect(result?.isNotificationSent).toBe(false);
+    expect(update?.notifyAt).toEqual(new Date("2026-07-01T10:00:00.000Z"));
+  });
 });

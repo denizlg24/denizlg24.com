@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 import {
   Conversation,
   type IConversationMessage,
@@ -73,33 +74,96 @@ function withPendingActions(
 }
 
 interface ConversationListOptions {
-  offset: number;
+  cursor?: string | null;
+  offset?: number;
   limit: number;
+}
+
+interface ConversationListRow {
+  _id: Types.ObjectId;
+  title: string;
+  llmModel: string;
+  updatedAt: Date;
+}
+
+interface ConversationCursor {
+  _id: Types.ObjectId;
+  updatedAt: Date;
+}
+
+export class InvalidConversationCursorError extends Error {
+  constructor() {
+    super("Invalid conversation cursor");
+    this.name = "InvalidConversationCursorError";
+  }
+}
+
+function encodeConversationCursor(conversation: ConversationListRow) {
+  return `${conversation.updatedAt.toISOString()}|${conversation._id.toString()}`;
+}
+
+function parseConversationCursor(cursor: string | null | undefined) {
+  if (!cursor) return null;
+
+  const [updatedAtValue, id] = cursor.split("|");
+  const updatedAt = new Date(updatedAtValue ?? "");
+
+  if (
+    !updatedAtValue ||
+    !id ||
+    Number.isNaN(updatedAt.getTime()) ||
+    !Types.ObjectId.isValid(id)
+  ) {
+    throw new InvalidConversationCursorError();
+  }
+
+  return {
+    _id: new Types.ObjectId(id),
+    updatedAt,
+  } satisfies ConversationCursor;
 }
 
 export async function getAllConversations(options: ConversationListOptions) {
   await connectDB();
 
+  const cursor = parseConversationCursor(options.cursor);
+  const query = cursor
+    ? {
+        $or: [
+          { updatedAt: { $lt: cursor.updatedAt } },
+          { updatedAt: cursor.updatedAt, _id: { $lt: cursor._id } },
+        ],
+      }
+    : {};
+  const effectiveOffset = cursor ? 0 : (options.offset ?? 0);
+  const rowsLimit = options.limit + 1;
   const [conversations, totalRows] = await Promise.all([
-    Conversation.find()
+    Conversation.find(query)
       .select("title llmModel updatedAt")
       .sort({ updatedAt: -1, _id: -1 })
-      .skip(options.offset)
-      .limit(options.limit)
-      .lean(),
+      .skip(effectiveOffset)
+      .limit(rowsLimit)
+      .lean<ConversationListRow[]>(),
     Conversation.countDocuments(),
   ]);
+  const pageRows = conversations.slice(0, options.limit);
+  const lastPageRow = pageRows.at(-1);
+  const nextCursor =
+    conversations.length > options.limit && lastPageRow
+      ? encodeConversationCursor(lastPageRow)
+      : null;
 
   return {
-    conversations: conversations.map((c) => ({
+    conversations: pageRows.map((c) => ({
       _id: c._id.toString(),
       title: c.title,
       llmModel: c.llmModel,
-      updatedAt: c.updatedAt,
+      updatedAt: c.updatedAt.toISOString(),
     })),
     totalRows,
-    offset: options.offset,
+    offset: effectiveOffset,
     limit: options.limit,
+    nextCursor,
   };
 }
 

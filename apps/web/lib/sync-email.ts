@@ -1,3 +1,4 @@
+import type { Types } from "mongoose";
 import { EmailAccountModel, type IEmailAccount } from "@/models/EmailAccount";
 import { createImapClient, saveEmail } from "./email";
 import { decryptPassword } from "./safe-email-password";
@@ -19,7 +20,7 @@ export async function syncInbox(account: IEmailAccount) {
 
   const lastUid = account.lastUid ?? 0;
   let highestUid = lastUid;
-  const emailIds: string[] = [];
+  const emailIds: Types.ObjectId[] = [];
 
   const lock = await client.getMailboxLock(account.inboxName || "INBOX");
   try {
@@ -78,7 +79,7 @@ export async function syncInbox(account: IEmailAccount) {
             inReplyTo: msg.envelope.inReplyTo || undefined,
           });
 
-          emailIds.push(email._id.toString());
+          emailIds.push(email._id);
 
           if (msg.uid > highestUid) {
             highestUid = msg.uid;
@@ -127,7 +128,7 @@ export async function syncInbox(account: IEmailAccount) {
             inReplyTo: msg.envelope.inReplyTo || undefined,
           });
 
-          emailIds.push(email._id.toString());
+          emailIds.push(email._id);
 
           if (msg.uid > highestUid) {
             highestUid = msg.uid;

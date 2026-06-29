@@ -31,6 +31,7 @@ interface FormData {
   user: string;
   password: string;
   inboxName: string;
+  smtpEnabled: boolean;
   smtpHost: string;
   smtpPort: number;
   smtpSecure: boolean;
@@ -136,6 +137,7 @@ const DEFAULT_FORM: FormData = {
   user: "",
   password: "",
   inboxName: "INBOX",
+  smtpEnabled: false,
   smtpHost: "",
   smtpPort: 587,
   smtpSecure: false,
@@ -199,6 +201,7 @@ export function AddAccountDialog({
   const secure = watch("secure");
   const smtpSecure = watch("smtpSecure");
   const smtpRequireTls = watch("smtpRequireTls");
+  const smtpEnabled = watch("smtpEnabled");
   const useSameCredentialsForSending = watch("useSameCredentialsForSending");
   const selectedPreset = useMemo(() => getProviderPreset(provider), [provider]);
 
@@ -206,6 +209,7 @@ export function AddAccountDialog({
     if (!account) return DEFAULT_FORM;
     const accountProvider = inferProvider(account);
     const preset = getProviderPreset(accountProvider);
+    const smtpConfigured = account.smtpConfigured ?? Boolean(account.smtpHost);
     return {
       provider: accountProvider,
       displayName: account.displayName ?? "",
@@ -215,14 +219,22 @@ export function AddAccountDialog({
       user: account.user,
       password: "",
       inboxName: account.inboxName,
-      smtpHost: account.smtpHost ?? preset?.smtp.host ?? "",
-      smtpPort: account.smtpPort ?? preset?.smtp.port ?? 587,
-      smtpSecure: account.smtpSecure ?? preset?.smtp.secure ?? false,
-      smtpRequireTls: account.smtpRequireTls ?? preset?.smtp.requireTLS ?? true,
+      smtpEnabled: smtpConfigured,
+      smtpHost: smtpConfigured
+        ? (account.smtpHost ?? preset?.smtp.host ?? "")
+        : "",
+      smtpPort: smtpConfigured
+        ? (account.smtpPort ?? preset?.smtp.port ?? 587)
+        : 587,
+      smtpSecure: smtpConfigured
+        ? (account.smtpSecure ?? preset?.smtp.secure ?? false)
+        : false,
+      smtpRequireTls: smtpConfigured
+        ? (account.smtpRequireTls ?? preset?.smtp.requireTLS ?? true)
+        : true,
       smtpUser: account.smtpUser ?? "",
       smtpPassword: "",
-      useSameCredentialsForSending:
-        account.smtpPasswordSharedWithImap ?? !account.smtpConfigured,
+      useSameCredentialsForSending: account.smtpPasswordSharedWithImap ?? true,
       smtpFromName: account.smtpFromName ?? "",
       smtpFromAddress: account.smtpFromAddress ?? "",
     };
@@ -240,7 +252,6 @@ export function AddAccountDialog({
     setError(null);
 
     try {
-      const hasSmtpSettings = Boolean(data.smtpHost.trim());
       const payload = {
         provider: data.provider,
         displayName: data.displayName || undefined,
@@ -254,9 +265,10 @@ export function AddAccountDialog({
               password: data.password,
               inboxName: data.inboxName,
             }),
-        ...(hasSmtpSettings
+        smtpEnabled: data.smtpEnabled,
+        ...(data.smtpEnabled
           ? {
-              smtpHost: data.smtpHost,
+              smtpHost: data.smtpHost.trim(),
               smtpPort: data.smtpPort,
               smtpSecure: data.smtpSecure,
               smtpRequireTls: data.smtpRequireTls,
@@ -313,6 +325,7 @@ export function AddAccountDialog({
       setValue("port", preset.imap.port);
       setValue("secure", preset.imap.secure);
     }
+    setValue("smtpEnabled", Boolean(preset.smtp.host));
     setValue("smtpHost", preset.smtp.host);
     setValue("smtpPort", preset.smtp.port);
     setValue("smtpSecure", preset.smtp.secure);
@@ -483,6 +496,17 @@ export function AddAccountDialog({
           </div>
         </div>
 
+        <div className="flex items-center justify-between rounded-md border px-3 py-2">
+          <Label htmlFor="smtpEnabled" className="cursor-pointer text-xs">
+            Enable SMTP sending
+          </Label>
+          <Switch
+            id="smtpEnabled"
+            checked={smtpEnabled}
+            onCheckedChange={(checked) => setValue("smtpEnabled", checked)}
+          />
+        </div>
+
         <div className="grid gap-3 sm:grid-cols-[1fr_110px_120px]">
           <div className="space-y-1.5">
             <Label htmlFor="smtpHost" className="text-xs">
@@ -492,6 +516,7 @@ export function AddAccountDialog({
               id="smtpHost"
               placeholder="smtp.gmail.com"
               className="h-9 text-sm"
+              disabled={!smtpEnabled}
               {...register("smtpHost")}
             />
           </div>
@@ -503,6 +528,7 @@ export function AddAccountDialog({
               id="smtpPort"
               type="number"
               className="h-9 text-sm"
+              disabled={!smtpEnabled}
               {...register("smtpPort", {
                 valueAsNumber: true,
                 min: { value: 1, message: "Invalid port" },
@@ -518,6 +544,7 @@ export function AddAccountDialog({
               <Switch
                 id="smtpSecure"
                 checked={smtpSecure}
+                disabled={!smtpEnabled}
                 onCheckedChange={(checked) => setValue("smtpSecure", checked)}
               />
             </div>
@@ -528,6 +555,7 @@ export function AddAccountDialog({
               <Switch
                 id="smtpRequireTls"
                 checked={smtpRequireTls}
+                disabled={!smtpEnabled}
                 onCheckedChange={(checked) =>
                   setValue("smtpRequireTls", checked)
                 }
@@ -546,13 +574,14 @@ export function AddAccountDialog({
           <Switch
             id="useSameCredentialsForSending"
             checked={useSameCredentialsForSending}
+            disabled={!smtpEnabled}
             onCheckedChange={(checked) =>
               setValue("useSameCredentialsForSending", checked)
             }
           />
         </div>
 
-        {!useSameCredentialsForSending && (
+        {smtpEnabled && !useSameCredentialsForSending && (
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="smtpUser" className="text-xs">
@@ -563,6 +592,7 @@ export function AddAccountDialog({
                 type="email"
                 placeholder="sender@example.com"
                 className="h-9 text-sm"
+                disabled={!smtpEnabled}
                 {...register("smtpUser")}
               />
             </div>
@@ -575,6 +605,7 @@ export function AddAccountDialog({
                 type="password"
                 placeholder={isEditing ? "Leave blank to keep current" : ""}
                 className="h-9 text-sm"
+                disabled={!smtpEnabled}
                 {...register("smtpPassword")}
               />
             </div>
@@ -603,6 +634,7 @@ export function AddAccountDialog({
               id="smtpFromName"
               placeholder="Optional"
               className="h-9 text-sm"
+              disabled={!smtpEnabled}
               {...register("smtpFromName")}
             />
           </div>
@@ -615,6 +647,7 @@ export function AddAccountDialog({
               type="email"
               placeholder="Defaults to account"
               className="h-9 text-sm"
+              disabled={!smtpEnabled}
               {...register("smtpFromAddress")}
             />
           </div>

@@ -96,6 +96,17 @@ interface EventLink {
   icon?: string;
 }
 
+type CalendarGoogleStatusPatchResult = Omit<
+  ICalendarGoogleIntegrationStatus,
+  "pendingSyncCount" | "failedSyncCount"
+> &
+  Partial<
+    Pick<
+      ICalendarGoogleIntegrationStatus,
+      "pendingSyncCount" | "failedSyncCount"
+    >
+  >;
+
 const USER_EVENT_KIND_OPTIONS = [
   { value: "manual", label: "Event", icon: CalendarIcon },
   { value: "meeting", label: "Meeting", icon: Users },
@@ -440,7 +451,7 @@ export function CalendarPage() {
   const saveGoogleCalendarSettings = useCallback(async () => {
     setGoogleMutating(true);
     try {
-      const result = await client.patch<ICalendarGoogleIntegrationStatus>(
+      const result = await client.patch<CalendarGoogleStatusPatchResult>(
         "calendar/google",
         {
           calendarId: googleCalendarId || "primary",
@@ -452,8 +463,10 @@ export function CalendarPage() {
           ...(current ?? result),
           ...result,
           connected: true,
-          pendingSyncCount: current?.pendingSyncCount ?? 0,
-          failedSyncCount: current?.failedSyncCount ?? 0,
+          pendingSyncCount:
+            result.pendingSyncCount ?? current?.pendingSyncCount ?? 0,
+          failedSyncCount:
+            result.failedSyncCount ?? current?.failedSyncCount ?? 0,
         };
         setCachedGoogleCalendarStatus(nextStatus);
         return nextStatus;
@@ -474,7 +487,7 @@ export function CalendarPage() {
     async (enabled: boolean) => {
       setGoogleMutating(true);
       try {
-        const result = await client.patch<ICalendarGoogleIntegrationStatus>(
+        const result = await client.patch<CalendarGoogleStatusPatchResult>(
           "calendar/google",
           {
             enabled,
@@ -486,8 +499,10 @@ export function CalendarPage() {
             ...(current ?? result),
             ...result,
             connected: true,
-            pendingSyncCount: current?.pendingSyncCount ?? 0,
-            failedSyncCount: current?.failedSyncCount ?? 0,
+            pendingSyncCount:
+              result.pendingSyncCount ?? current?.pendingSyncCount ?? 0,
+            failedSyncCount:
+              result.failedSyncCount ?? current?.failedSyncCount ?? 0,
           };
           setCachedGoogleCalendarStatus(nextStatus);
           return nextStatus;

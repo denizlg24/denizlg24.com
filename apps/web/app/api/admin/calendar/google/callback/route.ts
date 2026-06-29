@@ -35,15 +35,11 @@ export async function GET(request: NextRequest) {
   )?.value;
 
   if (!state || !expectedState || state !== expectedState) {
-    return deleteStateCookie(
-      NextResponse.json({ error: "Invalid OAuth state" }, { status: 400 }),
-    );
+    return deleteStateCookie(calendarRedirect(request, "invalid-state"));
   }
 
   if (!code) {
-    return deleteStateCookie(
-      NextResponse.json({ error: "Missing OAuth code" }, { status: 400 }),
-    );
+    return deleteStateCookie(calendarRedirect(request, "missing-oauth-code"));
   }
 
   try {

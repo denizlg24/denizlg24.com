@@ -10,7 +10,7 @@ export interface IEmailDraft extends Document {
   html?: string;
   replyToMessageId?: string;
   previousDraftId?: mongoose.Types.ObjectId;
-  status: "draft" | "sent";
+  status: "draft" | "sending" | "sent";
   sentAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -27,7 +27,7 @@ export interface ILeanEmailDraft {
   html?: string;
   replyToMessageId?: string;
   previousDraftId?: string | mongoose.Types.ObjectId;
-  status: "draft" | "sent";
+  status: "draft" | "sending" | "sent";
   sentAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -51,7 +51,7 @@ const EmailDraftSchema = new Schema<IEmailDraft>(
     previousDraftId: { type: Schema.Types.ObjectId, ref: "EmailDraft" },
     status: {
       type: String,
-      enum: ["draft", "sent"],
+      enum: ["draft", "sending", "sent"],
       default: "draft",
       index: true,
     },

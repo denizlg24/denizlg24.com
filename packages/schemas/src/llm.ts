@@ -61,6 +61,7 @@ export const llmRecentRequestsPageSchema = z.object({
   totalRows: z.number(),
   offset: z.number(),
   limit: z.number(),
+  nextCursor: z.string().nullable(),
 });
 export type LlmRecentRequestsPage = z.infer<typeof llmRecentRequestsPageSchema>;
 

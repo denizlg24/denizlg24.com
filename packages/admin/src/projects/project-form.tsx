@@ -390,7 +390,7 @@ export function ProjectForm({
                 className="relative group rounded-md overflow-hidden border"
               >
                 <img src={url} alt="" className="w-full h-20 object-cover" />
-                <div className="absolute inset-0 bg-black/50  flex items-center justify-center gap-2">
+                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                   <button
                     type="button"
                     onClick={() => {

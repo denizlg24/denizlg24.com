@@ -85,10 +85,9 @@ function getPrefetchBlockKey(pageIndex: number, pageSize: number) {
 
 function splitItemsIntoPages<T>(
   items: T[],
-  offset: number,
+  firstPageIndex: number,
   pageSize: number,
 ): Record<number, T[]> {
-  const firstPageIndex = Math.floor(offset / pageSize);
   const pages: Record<number, T[]> = {};
 
   for (let index = 0; index < items.length; index += pageSize) {
@@ -99,6 +98,19 @@ function splitItemsIntoPages<T>(
   }
 
   return pages;
+}
+
+function getRecentRequestsPath(options: {
+  cursor?: string | null;
+  limit: number;
+  section?: "recent";
+}) {
+  const params = new URLSearchParams({ limit: String(options.limit) });
+
+  if (options.section) params.set("section", options.section);
+  if (options.cursor) params.set("lastId", options.cursor);
+
+  return `llm/usage?${params.toString()}`;
 }
 
 const requestColumns: ColumnDef<LlmRecentRequest>[] = [
@@ -343,15 +355,28 @@ export function LlmUsagePage() {
       pageSize: RECENT_REQUEST_PAGE_SIZE,
     });
   const loadedRecentBlocksRef = useRef<Set<string>>(new Set());
+  const recentRequestCursorByPageRef = useRef<Map<number, string | null>>(
+    new Map([[0, null]]),
+  );
   const recentCacheGenerationRef = useRef(0);
 
   const cacheRecentRequests = useCallback(
-    (page: LlmRecentRequestsPage, pageSize: number) => {
+    (page: LlmRecentRequestsPage, firstPageIndex: number, pageSize: number) => {
       setRecentRequestPages((prev) => ({
         ...prev,
-        ...splitItemsIntoPages(page.items, page.offset, pageSize),
+        ...splitItemsIntoPages(page.items, firstPageIndex, pageSize),
       }));
       setRecentRequestTotalRows(page.totalRows);
+
+      for (let index = 0; index < page.items.length; index += pageSize) {
+        const pageItems = page.items.slice(index, index + pageSize);
+        const pageIndex = firstPageIndex + index / pageSize;
+        const lastItem = pageItems.at(-1);
+
+        if (lastItem) {
+          recentRequestCursorByPageRef.current.set(pageIndex + 1, lastItem._id);
+        }
+      }
     },
     [],
   );
@@ -359,10 +384,12 @@ export function LlmUsagePage() {
   useEffect(() => {
     let active = true;
     loadedRecentBlocksRef.current = new Set();
+    recentRequestCursorByPageRef.current = new Map([[0, null]]);
     recentCacheGenerationRef.current += 1;
     const generation = recentCacheGenerationRef.current;
     setRecentRequestPages({});
     setRecentRequestTotalRows(0);
+    setLoading(true);
     setRecentRequestPagination({
       pageIndex: 0,
       pageSize: RECENT_REQUEST_PAGE_SIZE,
@@ -370,7 +397,9 @@ export function LlmUsagePage() {
 
     client
       .get<unknown>(
-        `llm/usage?offset=0&limit=${RECENT_REQUEST_PAGE_SIZE * PREFETCH_PAGE_COUNT}`,
+        getRecentRequestsPath({
+          limit: RECENT_REQUEST_PAGE_SIZE * PREFETCH_PAGE_COUNT,
+        }),
       )
       .then((result) => {
         if (!active || generation !== recentCacheGenerationRef.current) return;
@@ -378,14 +407,18 @@ export function LlmUsagePage() {
         loadedRecentBlocksRef.current.add(
           getPrefetchBlockKey(0, RECENT_REQUEST_PAGE_SIZE),
         );
-        cacheRecentRequests(parsed.recentRequests, RECENT_REQUEST_PAGE_SIZE);
+        cacheRecentRequests(parsed.recentRequests, 0, RECENT_REQUEST_PAGE_SIZE);
         setData(parsed);
       })
       .catch(() => {
-        if (active) toast.error("Failed to load usage data");
+        if (active && generation === recentCacheGenerationRef.current) {
+          toast.error("Failed to load usage data");
+        }
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active && generation === recentCacheGenerationRef.current) {
+          setLoading(false);
+        }
       });
 
     return () => {
@@ -406,18 +439,56 @@ export function LlmUsagePage() {
       if (!force && loadedRecentBlocksRef.current.has(blockKey)) return;
 
       const generation = recentCacheGenerationRef.current;
-      const offset = blockStart * pageSize;
       const limit = pageSize * PREFETCH_PAGE_COUNT;
       setRecentRequestLoading(true);
 
       try {
-        const result = await client.get<unknown>(
-          `llm/usage?section=recent&offset=${offset}&limit=${limit}`,
-        );
-        if (generation !== recentCacheGenerationRef.current) return;
-        const parsed = llmRecentRequestsPageResponseSchema.parse(result);
-        loadedRecentBlocksRef.current.add(blockKey);
-        cacheRecentRequests(parsed.recentRequests, pageSize);
+        let firstBlockStart = blockStart;
+
+        while (
+          firstBlockStart > 0 &&
+          !recentRequestCursorByPageRef.current.has(firstBlockStart)
+        ) {
+          firstBlockStart -= PREFETCH_PAGE_COUNT;
+        }
+
+        for (
+          let currentBlockStart = firstBlockStart;
+          currentBlockStart <= blockStart;
+          currentBlockStart += PREFETCH_PAGE_COUNT
+        ) {
+          const currentBlockKey = getPrefetchBlockKey(
+            currentBlockStart,
+            pageSize,
+          );
+
+          if (!force && loadedRecentBlocksRef.current.has(currentBlockKey)) {
+            continue;
+          }
+
+          const cursor =
+            recentRequestCursorByPageRef.current.get(currentBlockStart);
+
+          if (cursor === undefined) {
+            throw new Error("Missing cursor for request page");
+          }
+
+          const result = await client.get<unknown>(
+            getRecentRequestsPath({
+              section: "recent",
+              cursor,
+              limit,
+            }),
+          );
+          if (generation !== recentCacheGenerationRef.current) return;
+          const parsed = llmRecentRequestsPageResponseSchema.parse(result);
+          loadedRecentBlocksRef.current.add(currentBlockKey);
+          cacheRecentRequests(
+            parsed.recentRequests,
+            currentBlockStart,
+            pageSize,
+          );
+        }
       } catch {
         if (generation === recentCacheGenerationRef.current) {
           toast.error("Failed to load request page");
@@ -445,6 +516,7 @@ export function LlmUsagePage() {
     (next: PaginationState) => {
       if (next.pageSize !== recentRequestPagination.pageSize) {
         loadedRecentBlocksRef.current = new Set();
+        recentRequestCursorByPageRef.current = new Map([[0, null]]);
         recentCacheGenerationRef.current += 1;
         setRecentRequestPages({});
         setRecentRequestTotalRows(0);

@@ -27,12 +27,13 @@ const providerSchema = z.enum([
 const createAccountSchema = z.object({
   provider: providerSchema.optional().default("custom"),
   displayName: z.string().trim().max(120).optional(),
-  host: z.string().trim().min(1).max(255),
-  port: z.coerce.number().int().min(1).max(65535),
-  secure: z.boolean(),
+  host: z.string().trim().min(1).max(255).optional(),
+  port: z.coerce.number().int().min(1).max(65535).optional(),
+  secure: z.boolean().optional(),
   user: z.string().trim().email().max(320),
   password: z.string().min(1).max(1000),
   inboxName: z.string().trim().min(1).max(120).optional(),
+  smtpEnabled: z.boolean().optional(),
   smtpHost: z.string().trim().min(1).max(255).optional(),
   smtpPort: z.coerce.number().int().min(1).max(65535).optional(),
   smtpSecure: z.boolean().optional(),
@@ -70,6 +71,15 @@ function serializeEmailAccount(account: ILeanEmailAccount) {
     _id: account._id.toString(),
     smtpConfigured: isSmtpConfigured(account),
   };
+}
+
+function isDuplicateEmailAccountError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === 11000
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -130,8 +140,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let client: Awaited<ReturnType<typeof createImapClient>> | undefined;
+
     try {
-      const client = await createImapClient({
+      client = await createImapClient({
         host,
         port,
         secure,
@@ -140,7 +152,6 @@ export async function POST(request: NextRequest) {
       });
 
       await client.mailboxOpen(inboxName || "INBOX");
-      await client.logout();
     } catch (connectionError) {
       console.error("IMAP connection test failed");
       return NextResponse.json(
@@ -150,18 +161,28 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 },
       );
+    } finally {
+      await client?.logout().catch(() => undefined);
     }
 
     const smtpDefaults = getSmtpDefaults(provider);
-    const smtpHost = parsed.data.smtpHost ?? smtpDefaults?.host;
-    const smtpPort = parsed.data.smtpPort ?? smtpDefaults?.port;
-    const smtpSecure =
-      parsed.data.smtpSecure ?? smtpDefaults?.secure ?? undefined;
-    const smtpRequireTls =
-      parsed.data.smtpRequireTls ?? smtpDefaults?.requireTLS ?? undefined;
+    const hasSmtpSettings =
+      parsed.data.smtpEnabled ??
+      Boolean(parsed.data.smtpHost || parsed.data.smtpPort);
+    const smtpHost = hasSmtpSettings
+      ? (parsed.data.smtpHost ?? smtpDefaults?.host)
+      : undefined;
+    const smtpPort = hasSmtpSettings
+      ? (parsed.data.smtpPort ?? smtpDefaults?.port)
+      : undefined;
+    const smtpSecure = hasSmtpSettings
+      ? (parsed.data.smtpSecure ?? smtpDefaults?.secure ?? undefined)
+      : undefined;
+    const smtpRequireTls = hasSmtpSettings
+      ? (parsed.data.smtpRequireTls ?? smtpDefaults?.requireTLS ?? undefined)
+      : undefined;
     const smtpUser = parsed.data.smtpUser || user;
     const smtpFromAddress = parsed.data.smtpFromAddress || user;
-    const hasSmtpSettings = Boolean(smtpHost || smtpPort);
     const smtpPassword = useSameCredentialsForSending
       ? password
       : parsed.data.smtpPassword;
@@ -205,50 +226,54 @@ export async function POST(request: NextRequest) {
 
     await connectDB();
 
-    const existingAccount = await EmailAccountModel.findOne({ user, host });
-    if (existingAccount) {
+    try {
+      const account = await EmailAccountModel.create({
+        provider,
+        displayName,
+        host,
+        port,
+        secure,
+        user,
+        imapPassword: encryptedPassword,
+        inboxName: inboxName || "INBOX",
+        lastUid: 0,
+        ...(hasSmtpSettings
+          ? {
+              smtpHost,
+              smtpPort,
+              smtpSecure,
+              smtpRequireTls,
+              smtpUser,
+              smtpPassword: encryptedSmtpPassword,
+              smtpPasswordSharedWithImap: useSameCredentialsForSending,
+              smtpFromName: parsed.data.smtpFromName,
+              smtpFromAddress,
+              lastSmtpTestAt: new Date(),
+              lastSmtpError: undefined,
+            }
+          : {}),
+      });
+
+      revalidatePath("/admin/dashboard/inbox");
+
       return NextResponse.json(
-        { error: "An account with this email and host already exists" },
-        { status: 400 },
+        {
+          message: "Email account added successfully",
+          account: serializeEmailAccount(
+            account.toObject() as ILeanEmailAccount,
+          ),
+        },
+        { status: 201 },
       );
+    } catch (error) {
+      if (isDuplicateEmailAccountError(error)) {
+        return NextResponse.json(
+          { error: "An account with this email and host already exists" },
+          { status: 400 },
+        );
+      }
+      throw error;
     }
-
-    const account = await EmailAccountModel.create({
-      provider,
-      displayName,
-      host,
-      port,
-      secure,
-      user,
-      imapPassword: encryptedPassword,
-      inboxName: inboxName || "INBOX",
-      lastUid: 0,
-      ...(hasSmtpSettings
-        ? {
-            smtpHost,
-            smtpPort,
-            smtpSecure,
-            smtpRequireTls,
-            smtpUser,
-            smtpPassword: encryptedSmtpPassword,
-            smtpPasswordSharedWithImap: useSameCredentialsForSending,
-            smtpFromName: parsed.data.smtpFromName,
-            smtpFromAddress,
-            lastSmtpTestAt: new Date(),
-            lastSmtpError: undefined,
-          }
-        : {}),
-    });
-
-    revalidatePath("/admin/dashboard/inbox");
-
-    return NextResponse.json(
-      {
-        message: "Email account added successfully",
-        account: serializeEmailAccount(account.toObject() as ILeanEmailAccount),
-      },
-      { status: 201 },
-    );
   } catch (error) {
     console.error("Error creating email account:", error);
     return NextResponse.json(

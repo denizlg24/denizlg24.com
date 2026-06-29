@@ -338,7 +338,6 @@ async function markConnectionSyncSuccess() {
     { provider: GOOGLE_CALENDAR_PROVIDER },
     {
       $set: { lastSyncAt: new Date() },
-      $unset: { lastSyncError: "" },
     },
   );
 }
@@ -351,14 +350,25 @@ async function getCalendarApi(connection: ILeanCalendarExternalConnection) {
 async function markPausedPending(
   localEventId: string,
   action: GoogleCalendarSyncAction,
+  remoteCalendarId: string,
 ) {
   if (action === "upsert") {
-    await CalendarExternalEventSync.updateMany(
+    await CalendarExternalEventSync.findOneAndUpdate(
       {
         provider: GOOGLE_CALENDAR_PROVIDER,
         localEventId: objectIdFor(localEventId),
+        remoteCalendarId,
       },
-      { $set: { pendingAction: action } },
+      {
+        $set: {
+          provider: GOOGLE_CALENDAR_PROVIDER,
+          localEventId: objectIdFor(localEventId),
+          remoteCalendarId,
+          remoteEventId: getDeterministicGoogleEventId(localEventId),
+          pendingAction: "upsert",
+        },
+      },
+      { upsert: true },
     );
     return;
   }
@@ -481,11 +491,20 @@ async function syncUpsert(
   try {
     const calendar = await getCalendarApi(connection);
     if (existingSync) {
-      await calendar.events.patch({
-        calendarId: remoteCalendarId,
-        eventId: remoteEventId,
-        requestBody: payload,
-      });
+      try {
+        await calendar.events.patch({
+          calendarId: remoteCalendarId,
+          eventId: remoteEventId,
+          requestBody: payload,
+        });
+      } catch (error) {
+        const status = getGoogleApiErrorStatus(error);
+        if (status !== 404 && status !== 410) throw error;
+        await calendar.events.insert({
+          calendarId: remoteCalendarId,
+          requestBody: { ...payload, id: remoteEventId },
+        });
+      }
     } else {
       try {
         await calendar.events.insert({
@@ -745,7 +764,11 @@ export async function syncEventToGoogle(
   }
 
   if (!connection.enabled) {
-    await markPausedPending(localEventId, action);
+    await markPausedPending(
+      localEventId,
+      action,
+      connection.calendarId || GOOGLE_CALENDAR_DEFAULT_ID,
+    );
     return { status: "skipped", action, localEventId };
   }
 

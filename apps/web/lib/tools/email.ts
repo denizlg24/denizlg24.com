@@ -386,27 +386,45 @@ export const emailTools: ToolDefinition[] = [
       if (!parsed.success) throw new Error("Invalid email send request");
 
       await connectDB();
-      const draft = await EmailDraftModel.findById(
-        parsed.data.draftId,
+      const draft = await EmailDraftModel.findOneAndUpdate(
+        { _id: parsed.data.draftId, status: "draft" },
+        { status: "sending" },
+        { returnDocument: "after" },
       ).lean<ILeanEmailDraft | null>();
-      if (!draft) throw new Error("Email draft not found");
-      if (draft.status === "sent")
-        throw new Error("Email draft was already sent");
+      if (!draft) {
+        const currentDraft = await EmailDraftModel.findById(
+          parsed.data.draftId,
+        ).lean<ILeanEmailDraft | null>();
+        if (!currentDraft) throw new Error("Email draft not found");
+        if (currentDraft.status === "sent")
+          throw new Error("Email draft was already sent");
+        if (currentDraft.status === "sending")
+          throw new Error("Email draft is already being sent");
+        throw new Error("Email draft is not sendable");
+      }
 
-      const account = await EmailAccountModel.findById(
-        draft.accountId,
-      ).lean<ILeanEmailAccount | null>();
-      if (!account) throw new Error("Email account not found");
+      try {
+        const account = await EmailAccountModel.findById(
+          draft.accountId,
+        ).lean<ILeanEmailAccount | null>();
+        if (!account) throw new Error("Email account not found");
 
-      await sendMailFromAccount(account, {
-        to: draft.to,
-        cc: draft.cc,
-        bcc: draft.bcc,
-        subject: draft.subject,
-        text: draft.text,
-        html: draft.html,
-        replyToMessageId: draft.replyToMessageId,
-      });
+        await sendMailFromAccount(account, {
+          to: draft.to,
+          cc: draft.cc,
+          bcc: draft.bcc,
+          subject: draft.subject,
+          text: draft.text,
+          html: draft.html,
+          replyToMessageId: draft.replyToMessageId,
+        });
+      } catch (error) {
+        await EmailDraftModel.findOneAndUpdate(
+          { _id: draft._id, status: "sending" },
+          { status: "draft" },
+        );
+        throw error;
+      }
 
       const sentAt = new Date();
       await EmailDraftModel.findByIdAndUpdate(draft._id, {

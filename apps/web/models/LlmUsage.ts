@@ -40,6 +40,7 @@ const LlmUsageSchema = new mongoose.Schema<ILlmUsage>(
 
 LlmUsageSchema.index({ source: 1 });
 LlmUsageSchema.index({ createdAt: -1 });
+LlmUsageSchema.index({ createdAt: -1, _id: -1 });
 
 export const LlmUsage: mongoose.Model<ILlmUsage> =
   mongoose.models.LlmUsage ||
