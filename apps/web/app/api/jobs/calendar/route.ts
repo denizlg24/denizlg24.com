@@ -1,5 +1,9 @@
 import { subDays } from "date-fns";
 import { ensureGeneratedCalendarEventsForCurrentWindow } from "@/lib/calendar-sync";
+import {
+  type GoogleCalendarInboundSyncResult,
+  syncUpcomingGoogleEventsToCalendar,
+} from "@/lib/google-calendar-sync";
 import { connectDB } from "@/lib/mongodb";
 import { CalendarEvent, type ICalendarEvent } from "@/models/CalendarEvent";
 
@@ -15,6 +19,16 @@ export async function GET(request: Request) {
     }
     await connectDB();
     await ensureGeneratedCalendarEventsForCurrentWindow();
+
+    let googleSync: GoogleCalendarInboundSyncResult | null = null;
+
+    try {
+      googleSync = await syncUpcomingGoogleEventsToCalendar();
+    } catch (error) {
+      console.log("Error occurred while syncing Google events:", error);
+      googleSync = null;
+    }
+
     const eventsCompleted = await CalendarEvent.updateMany(
       {
         status: "scheduled",
@@ -37,7 +51,9 @@ export async function GET(request: Request) {
         isNotificationSent: true,
       });
     }
-    return new Response(JSON.stringify({ success: true }), { status: 200 });
+    return new Response(JSON.stringify({ success: true, googleSync }), {
+      status: 200,
+    });
   } catch (_error) {
     return new Response(JSON.stringify({ error: "Internal Server Error" }), {
       status: 500,

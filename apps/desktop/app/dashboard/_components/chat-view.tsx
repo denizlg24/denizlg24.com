@@ -34,6 +34,7 @@ import {
 import { denizApi } from "@/lib/api-wrapper";
 import { mergeContentSegments } from "@/lib/chat-segments";
 import type {
+  ConversationListResponse,
   IChatAttachment,
   IChatContentSegment,
   IChatMessage,
@@ -66,6 +67,11 @@ const SUGGESTIONS = [
   "Show my project portfolio",
   "Check my latest emails",
 ];
+
+const CONVERSATION_PAGE_SIZE = 30;
+const CONVERSATION_PREFETCH_PAGE_COUNT = 3;
+const CONVERSATION_FETCH_LIMIT =
+  CONVERSATION_PAGE_SIZE * CONVERSATION_PREFETCH_PAGE_COUNT;
 
 function useClock() {
   const [now, setNow] = useState(new Date());
@@ -349,7 +355,12 @@ export function ChatView() {
   const [messages, setMessages] = useState<IChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<IConversationMeta[]>([]);
+  const [conversationNextCursor, setConversationNextCursor] = useState<
+    string | null
+  >(null);
   const [loadingConversations, setLoadingConversations] = useState(false);
+  const [loadingMoreConversations, setLoadingMoreConversations] =
+    useState(false);
   const [active, setActive] = useState(false);
   const [title, setTitle] = useState("");
   const [attachments, setAttachments] = useState<IChatAttachment[]>([]);
@@ -390,17 +401,43 @@ export function ChatView() {
     toggleSidebar(false);
   }, [isStreaming, abort, toggleSidebar]);
 
-  const fetchConversations = useCallback(async () => {
-    if (!API) return;
-    setLoadingConversations(true);
-    const result = await API.GET<{ conversations: IConversationMeta[] }>({
-      endpoint: "conversations",
-    });
-    if (!("code" in result)) {
-      setConversations(result.conversations);
-    }
-    setLoadingConversations(false);
-  }, [API]);
+  const fetchConversations = useCallback(
+    async (cursor: string | null = null) => {
+      if (!API) return;
+      const initialLoad = cursor === null;
+
+      if (initialLoad) {
+        setLoadingConversations(true);
+      } else {
+        setLoadingMoreConversations(true);
+      }
+
+      const params = new URLSearchParams({
+        limit: String(CONVERSATION_FETCH_LIMIT),
+      });
+      if (cursor) params.set("cursor", cursor);
+
+      const result = await API.GET<ConversationListResponse>({
+        endpoint: `conversations?${params.toString()}`,
+      });
+      if (!("code" in result)) {
+        setConversationNextCursor(result.nextCursor);
+        setConversations((prev) => {
+          if (initialLoad) return result.conversations;
+          const seen = new Set(prev.map((conversation) => conversation._id));
+          return [
+            ...prev,
+            ...result.conversations.filter(
+              (conversation) => !seen.has(conversation._id),
+            ),
+          ];
+        });
+      }
+      setLoadingConversations(false);
+      setLoadingMoreConversations(false);
+    },
+    [API],
+  );
 
   useEffect(() => {
     attachmentsRef.current = attachments;
@@ -409,6 +446,18 @@ export function ChatView() {
   useEffect(() => {
     if (API && (!isActive || sidebarOpen)) fetchConversations();
   }, [API, isActive, sidebarOpen, fetchConversations]);
+
+  const hasMoreConversations = conversationNextCursor !== null;
+
+  const loadMoreConversations = useCallback(() => {
+    if (loadingMoreConversations || !hasMoreConversations) return;
+    void fetchConversations(conversationNextCursor);
+  }, [
+    conversationNextCursor,
+    fetchConversations,
+    hasMoreConversations,
+    loadingMoreConversations,
+  ]);
 
   const loadConversation = async (meta: IConversationMeta) => {
     if (!API) return;
@@ -983,6 +1032,18 @@ export function ChatView() {
                         </div>
                       </div>
                     ))}
+                    {hasMoreConversations && !searchQuery && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs text-muted-foreground"
+                        onClick={loadMoreConversations}
+                        disabled={loadingMoreConversations}
+                      >
+                        {loadingMoreConversations ? "Loading..." : "Load more"}
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1134,6 +1195,18 @@ export function ChatView() {
                       </div>
                     </div>
                   ))}
+                  {hasMoreConversations && !searchQuery && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs text-muted-foreground"
+                      onClick={loadMoreConversations}
+                      disabled={loadingMoreConversations}
+                    >
+                      {loadingMoreConversations ? "Loading..." : "Load more"}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>

@@ -78,7 +78,7 @@ export function CapabilitySection({
                 className={`size-1.5 rounded-full shrink-0 ${cap.isActive ? "bg-accent" : "bg-muted-foreground/30"}`}
               />
               <div
-                className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="flex items-center gap-0.5 "
                 onClick={(e) => e.stopPropagation()}
               >
                 <button

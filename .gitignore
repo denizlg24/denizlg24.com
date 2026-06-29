@@ -50,3 +50,14 @@ _archive/
 .conclave/
 # tauri
 apps/desktop/src-tauri/target/
+
+# Envoy - Local state
+.envoy/cache/
+.envoy/latest
+.envoy/HEAD
+.envoy/refs/
+
+# Envoy - Config
+!.envoy/config.toml
+
+

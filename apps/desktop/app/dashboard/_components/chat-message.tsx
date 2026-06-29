@@ -1,5 +1,6 @@
 "use client";
 
+import { getToolLabel } from "@repo/schemas";
 import {
   Attachment,
   AttachmentContent,
@@ -118,60 +119,6 @@ function ChatMessageAttachment({
   );
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  get_calendar_events: "Fetched calendar events",
-  create_calendar_event: "Creating calendar event",
-  update_calendar_event: "Updating calendar event",
-  delete_calendar_event: "Deleting calendar event",
-  list_kanban_boards: "Listed kanban boards",
-  get_kanban_board: "Fetched kanban board",
-  create_kanban_card: "Creating kanban card",
-  update_kanban_card: "Updating kanban card",
-  list_groups: "Listed groups",
-  create_group: "Creating group",
-  update_group: "Updating group",
-  delete_group: "Deleting group",
-  list_notes: "Listed notes",
-  search_notes: "Searched notes",
-  get_note: "Read note",
-  create_note: "Creating note",
-  update_note: "Updating note",
-  delete_note: "Deleting note",
-  semantic_classify_note: "Classifying note",
-  get_timetable: "Fetched timetable",
-  create_timetable_entry: "Creating timetable entry",
-  update_timetable_entry: "Updating timetable entry",
-  delete_timetable_entry: "Deleting timetable entry",
-  list_contacts: "Listed contacts",
-  get_contact: "Read contact",
-  update_contact_status: "Updating contact status",
-  list_blogs: "Listed blog posts",
-  get_blog: "Read blog post",
-  search_blogs: "Searched blogs",
-  list_projects: "Listed projects",
-  get_project: "Read project",
-  list_timeline_items: "Fetched timeline",
-  list_emails: "Listed emails",
-  get_email: "Read email",
-  web_search: "Searched the web",
-  get_resources: "Fetched resources",
-  get_resource_by_id: "Fetched resource",
-  get_resource_health: "Checked resource health",
-  get_healthy_resources: "Fetched healthy resources",
-  create_resource: "Creating resource",
-  delete_resource: "Deleting resource",
-  update_resource: "Updating resource",
-  reboot_resource: "Rebooting resource",
-  restart_resource_service: "Restarting service",
-  get_now_page: "Fetched now page",
-  update_now_page: "Updating now page",
-  mark_email_as_read: "Marking email as read",
-  delete_email: "Deleting email",
-  list_account_emails: "Listed account emails",
-  reply_to_contact: "Replying to contact",
-  list_kanban_columns: "Listed kanban columns",
-};
-
 function ToolCallStatusIcon({ status }: { status: IChatToolCall["status"] }) {
   switch (status) {
     case "calling":
@@ -213,7 +160,7 @@ function SingleToolCall({
   hasPendingGroup?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const label = TOOL_LABELS[call.toolName] ?? call.toolName;
+  const label = getToolLabel(call.toolName);
   const isPending = call.status === "pending_approval";
   const isActive =
     call.status === "calling" || call.status === "pending_approval";
@@ -294,7 +241,7 @@ function ToolGroupBlock({
   const uniqueNames = [...new Set(calls.map((c) => c.toolName))];
   const summaryParts = uniqueNames.map((name) => {
     const count = calls.filter((c) => c.toolName === name).length;
-    const label = TOOL_LABELS[name] ?? name;
+    const label = getToolLabel(name);
     return count > 1 ? `${label} (x${count})` : label;
   });
 

@@ -8,6 +8,7 @@ export const chatToolCallSchema = z.object({
   isError: z.boolean().optional(),
   status: z.enum(["calling", "done", "error", "pending_approval"]),
 });
+
 export type IChatToolCall = z.infer<typeof chatToolCallSchema>;
 
 export const chatContentSegmentSchema = z.union([
@@ -80,3 +81,14 @@ export const conversationMetaSchema = z.object({
   updatedAt: z.string(),
 });
 export type IConversationMeta = z.infer<typeof conversationMetaSchema>;
+
+export const conversationListResponseSchema = z.object({
+  conversations: z.array(conversationMetaSchema),
+  totalRows: z.number(),
+  offset: z.number(),
+  limit: z.number(),
+  nextCursor: z.string().nullable(),
+});
+export type ConversationListResponse = z.infer<
+  typeof conversationListResponseSchema
+>;

@@ -109,10 +109,15 @@ async function runTool(
 function deniedResult(
   toolUse: Anthropic.ToolUseBlock,
 ): Anthropic.ToolResultBlockParam {
+  const content =
+    toolUse.name === "request_send_email"
+      ? "User denied sending this email. Do not request sending again yet. Ask the user what should be corrected; after they provide instructions, call generate_email_draft with the revised email and previousDraftId before requesting send again."
+      : "User denied this action.";
+
   return {
     type: "tool_result",
     tool_use_id: toolUse.id,
-    content: "User denied this action.",
+    content,
     is_error: true,
   };
 }

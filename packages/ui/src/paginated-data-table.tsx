@@ -13,6 +13,7 @@ import {
   type PaginationState,
   type RowData,
   type SortingState,
+  type Updater,
   useReactTable,
 } from "@tanstack/react-table";
 import { Search } from "lucide-react";
@@ -53,6 +54,14 @@ interface FacetFilter {
   label: string;
 }
 
+interface ManualPagination {
+  pageIndex: number;
+  pageSize: number;
+  totalRows: number;
+  loading?: boolean;
+  onPaginationChange: (pagination: PaginationState) => void;
+}
+
 interface PaginatedDataTableProps<TData> {
   columns: ColumnDef<TData, unknown>[];
   data: TData[];
@@ -65,6 +74,8 @@ interface PaginatedDataTableProps<TData> {
   searchPlaceholder?: string;
   /** Opt-in toolbar: per-column selects over the column's distinct values. */
   facetFilters?: FacetFilter[];
+  /** Server-backed pagination. Data must contain only the current page. */
+  manualPagination?: ManualPagination;
 }
 
 function getPageItems(pageIndex: number, pageCount: number): PageItem[] {
@@ -93,6 +104,7 @@ function PaginatedDataTable<TData>({
   onRowClick,
   searchPlaceholder,
   facetFilters,
+  manualPagination,
 }: PaginatedDataTableProps<TData>) {
   const resolvedPageSizeOptions = Array.from(
     new Set([...pageSizeOptions, defaultPageSize]),
@@ -103,10 +115,32 @@ function PaginatedDataTable<TData>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     [],
   );
-  const [pagination, setPagination] = React.useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: defaultPageSize,
-  });
+  const [localPagination, setLocalPagination] = React.useState<PaginationState>(
+    {
+      pageIndex: 0,
+      pageSize: defaultPageSize,
+    },
+  );
+  const pagination = manualPagination
+    ? {
+        pageIndex: manualPagination.pageIndex,
+        pageSize: manualPagination.pageSize,
+      }
+    : localPagination;
+
+  const handlePaginationChange = React.useCallback(
+    (updater: Updater<PaginationState>) => {
+      const next =
+        typeof updater === "function" ? updater(pagination) : updater;
+
+      if (manualPagination) {
+        manualPagination.onPaginationChange(next);
+      } else {
+        setLocalPagination(next);
+      }
+    },
+    [manualPagination, pagination],
+  );
 
   const table = useReactTable({
     data,
@@ -115,26 +149,33 @@ function PaginatedDataTable<TData>({
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
-    onPaginationChange: setPagination,
-    autoResetPageIndex: true,
+    onPaginationChange: handlePaginationChange,
+    manualPagination: manualPagination !== undefined,
+    pageCount: manualPagination
+      ? Math.ceil(manualPagination.totalRows / manualPagination.pageSize)
+      : undefined,
+    autoResetPageIndex: manualPagination === undefined,
     globalFilterFn: "includesString",
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    getPaginationRowModel:
+      manualPagination === undefined ? getPaginationRowModel() : undefined,
   });
 
   const hasToolbar =
     searchPlaceholder !== undefined || (facetFilters?.length ?? 0) > 0;
 
   const pageCount = table.getPageCount();
-  const totalRows = table.getFilteredRowModel().rows.length;
+  const totalRows =
+    manualPagination?.totalRows ?? table.getFilteredRowModel().rows.length;
   const currentRows = table.getRowModel().rows;
   const currentPage = table.getState().pagination.pageIndex;
   const currentPageSize = table.getState().pagination.pageSize;
   const pageItems = getPageItems(currentPage, pageCount);
+  const isLoading = manualPagination?.loading ?? false;
   const rangeStart = totalRows === 0 ? 0 : currentPage * currentPageSize + 1;
   const rangeEnd =
     totalRows === 0
@@ -229,7 +270,7 @@ function PaginatedDataTable<TData>({
                 variant="outline"
                 size="sm"
                 onClick={() => table.previousPage()}
-                disabled={!table.getCanPreviousPage()}
+                disabled={!table.getCanPreviousPage() || isLoading}
               >
                 Previous
               </Button>
@@ -243,6 +284,7 @@ function PaginatedDataTable<TData>({
                     size="sm"
                     className="h-8 min-w-8 px-2 tabular-nums"
                     onClick={() => table.setPageIndex(item)}
+                    disabled={isLoading && item !== currentPage}
                   >
                     {item + 1}
                   </Button>
@@ -261,7 +303,7 @@ function PaginatedDataTable<TData>({
                 variant="outline"
                 size="sm"
                 onClick={() => table.nextPage()}
-                disabled={!table.getCanNextPage()}
+                disabled={!table.getCanNextPage() || isLoading}
               >
                 Next
               </Button>
@@ -295,7 +337,16 @@ function PaginatedDataTable<TData>({
             ))}
           </TableHeader>
           <TableBody>
-            {currentRows.length > 0 ? (
+            {isLoading && currentRows.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className="h-20 text-center text-muted-foreground text-xs"
+                >
+                  Loading...
+                </TableCell>
+              </TableRow>
+            ) : currentRows.length > 0 ? (
               currentRows.map((row) => (
                 <TableRow
                   key={row.id}

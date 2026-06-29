@@ -67,9 +67,9 @@ export function ResourcesSkeleton() {
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
         {slots?.sidebarTrigger}
-        <div className="h-4 w-32 bg-muted rounded animate-pulse" />
+        <div className="h-4 w-32 bg-muted/50 rounded animate-pulse" />
         <div className="flex-1" />
-        <div className="h-7 w-24 bg-muted rounded animate-pulse" />
+        <div className="h-7 w-24 bg-muted/50 rounded animate-pulse" />
       </div>
       <div className="flex-1 overflow-auto">
         {Array.from({ length: 5 }).map((_, i) => (
@@ -77,15 +77,15 @@ export function ResourcesSkeleton() {
             key={i}
             className="flex items-center gap-4 px-4 py-3 border-b border-border/50"
           >
-            <div className="size-2 bg-muted rounded-full animate-pulse" />
+            <div className="size-2 bg-muted/50 rounded-full animate-pulse" />
             <div className="flex-1 flex flex-col gap-1.5">
-              <div className="h-3.5 w-40 bg-muted rounded animate-pulse" />
-              <div className="h-2.5 w-56 bg-muted rounded animate-pulse" />
+              <div className="h-3.5 w-40 bg-muted/50 rounded animate-pulse" />
+              <div className="h-2.5 w-56 bg-muted/50 rounded animate-pulse" />
             </div>
             <div className="hidden md:flex gap-6">
-              <div className="h-4 w-32 bg-muted rounded animate-pulse" />
-              <div className="h-4 w-14 bg-muted rounded animate-pulse" />
-              <div className="h-4 w-14 bg-muted rounded animate-pulse" />
+              <div className="h-4 w-32 bg-muted/50 rounded animate-pulse" />
+              <div className="h-4 w-14 bg-muted/50 rounded animate-pulse" />
+              <div className="h-4 w-14 bg-muted/50 rounded animate-pulse" />
             </div>
           </div>
         ))}

@@ -5,7 +5,7 @@
     "build": "bun --env-file=.env turbo run build",
     "dev": "bun --env-file=.env turbo run dev",
     "lint": "bun --env-file=.env turbo run lint",
-    "check-types": "bun --env-file=.env turbo run check-types",
+    "check-types": "bun --env-file=.env turbo run typecheck",
     "test": "bun --env-file=.env turbo run test",
     "format-and-lint": "biome check .",
     "format-and-lint:fix": "biome check . --write",

@@ -56,6 +56,22 @@ export const llmRecentRequestSchema = z.object({
 });
 export type LlmRecentRequest = z.infer<typeof llmRecentRequestSchema>;
 
+export const llmRecentRequestsPageSchema = z.object({
+  items: z.array(llmRecentRequestSchema),
+  totalRows: z.number(),
+  offset: z.number(),
+  limit: z.number(),
+  nextCursor: z.string().nullable(),
+});
+export type LlmRecentRequestsPage = z.infer<typeof llmRecentRequestsPageSchema>;
+
+export const llmRecentRequestsPageResponseSchema = z.object({
+  recentRequests: llmRecentRequestsPageSchema,
+});
+export type LlmRecentRequestsPageResponse = z.infer<
+  typeof llmRecentRequestsPageResponseSchema
+>;
+
 export const llmUsageResponseSchema = z.object({
   allTime: llmUsagePeriodStatsSchema,
   last30d: llmUsagePeriodStatsSchema,
@@ -64,6 +80,6 @@ export const llmUsageResponseSchema = z.object({
   byModel: z.array(llmModelBreakdownSchema),
   bySource: z.array(llmSourceBreakdownSchema),
   dailyBreakdown: z.array(llmDailyBreakdownSchema),
-  recentRequests: z.array(llmRecentRequestSchema),
+  recentRequests: llmRecentRequestsPageSchema,
 });
 export type LlmUsageResponse = z.infer<typeof llmUsageResponseSchema>;

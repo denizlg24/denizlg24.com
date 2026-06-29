@@ -103,3 +103,18 @@ export const triageSettingsSchema = z.object({
   lastRunAt: z.string().optional(),
 });
 export type ITriageSettings = z.infer<typeof triageSettingsSchema>;
+
+export const triageFilterSchema = z.union([
+  triageCategorySchema,
+  z.literal("archived"),
+]);
+
+export type TriageFilter = z.infer<typeof triageFilterSchema>;
+
+export const triageListResponseSchema = z.object({
+  items: z.array(emailTriageSchema),
+  totalRows: z.number(),
+  offset: z.number(),
+  limit: z.number(),
+});
+export type TriageListResponse = z.infer<typeof triageListResponseSchema>;

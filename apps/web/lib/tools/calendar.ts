@@ -9,6 +9,13 @@ import { fetchFavicon } from "@/lib/fetch-favicon";
 import type { ToolDefinition } from "./types";
 
 type LinkInput = { label: string; url: string; icon?: string }[];
+const USER_CALENDAR_EVENT_KINDS = [
+  "manual",
+  "meeting",
+  "flight",
+  "birthday",
+] as const;
+type UserCalendarEventKind = (typeof USER_CALENDAR_EVENT_KINDS)[number];
 
 export const calendarTools: ToolDefinition[] = [
   {
@@ -59,6 +66,11 @@ export const calendarTools: ToolDefinition[] = [
             description: "Event day in YYYY-MM-DD format (optional)",
           },
           place: { type: "string", description: "Event location (optional)" },
+          kind: {
+            type: "string",
+            description: "Event type",
+            enum: [...USER_CALENDAR_EVENT_KINDS],
+          },
           status: {
             type: "string",
             description: "Event status",
@@ -107,7 +119,7 @@ export const calendarTools: ToolDefinition[] = [
         date: new Date(input.date as string),
         calendarDate: input.calendarDate as string | undefined,
         isAllDay: false,
-        kind: "manual",
+        kind: (input.kind as UserCalendarEventKind | undefined) ?? "manual",
         place: input.place as string | undefined,
         status:
           (input.status as "scheduled" | "completed" | "canceled") ??
@@ -138,6 +150,11 @@ export const calendarTools: ToolDefinition[] = [
             description: "New event day in YYYY-MM-DD format (optional)",
           },
           place: { type: "string", description: "New location (optional)" },
+          kind: {
+            type: "string",
+            description: "New event type (optional)",
+            enum: [...USER_CALENDAR_EVENT_KINDS],
+          },
           status: {
             type: "string",
             description: "New status (optional)",
@@ -176,6 +193,7 @@ export const calendarTools: ToolDefinition[] = [
       if (input.date) data.date = new Date(input.date as string);
       if (input.calendarDate) data.calendarDate = input.calendarDate;
       if (input.place) data.place = input.place;
+      if (input.kind) data.kind = input.kind;
       if (input.status) data.status = input.status;
       if (input.notifyBySlack !== undefined)
         data.notifyBySlack = input.notifyBySlack;

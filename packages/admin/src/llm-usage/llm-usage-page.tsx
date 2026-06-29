@@ -4,10 +4,14 @@ import type {
   LlmDailyBreakdown,
   LlmModelBreakdown,
   LlmRecentRequest,
+  LlmRecentRequestsPage,
   LlmSourceBreakdown,
   LlmUsageResponse,
 } from "@repo/schemas";
-import { llmUsageResponseSchema } from "@repo/schemas";
+import {
+  llmRecentRequestsPageResponseSchema,
+  llmUsageResponseSchema,
+} from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { type ChartConfig, ChartContainer, ChartTooltip } from "@repo/ui/chart";
 import { SortHeader } from "@repo/ui/data-table";
@@ -17,9 +21,9 @@ import { Separator } from "@repo/ui/separator";
 import { Skeleton } from "@repo/ui/skeleton";
 import { TableSkeleton, TabStripSkeleton } from "@repo/ui/skeleton-blocks";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, PaginationState } from "@tanstack/react-table";
 import { Brain } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
@@ -68,6 +72,47 @@ const PERIOD_LABELS: Record<TimePeriod, string> = {
   last24h: "24 Hours",
 };
 
+const RECENT_REQUEST_PAGE_SIZE = 10;
+const PREFETCH_PAGE_COUNT = 3;
+
+function getPrefetchBlockStart(pageIndex: number) {
+  return Math.floor(pageIndex / PREFETCH_PAGE_COUNT) * PREFETCH_PAGE_COUNT;
+}
+
+function getPrefetchBlockKey(pageIndex: number, pageSize: number) {
+  return `${getPrefetchBlockStart(pageIndex)}:${pageSize}`;
+}
+
+function splitItemsIntoPages<T>(
+  items: T[],
+  firstPageIndex: number,
+  pageSize: number,
+): Record<number, T[]> {
+  const pages: Record<number, T[]> = {};
+
+  for (let index = 0; index < items.length; index += pageSize) {
+    pages[firstPageIndex + index / pageSize] = items.slice(
+      index,
+      index + pageSize,
+    );
+  }
+
+  return pages;
+}
+
+function getRecentRequestsPath(options: {
+  cursor?: string | null;
+  limit: number;
+  section?: "recent";
+}) {
+  const params = new URLSearchParams({ limit: String(options.limit) });
+
+  if (options.section) params.set("section", options.section);
+  if (options.cursor) params.set("lastId", options.cursor);
+
+  return `llm/usage?${params.toString()}`;
+}
+
 const requestColumns: ColumnDef<LlmRecentRequest>[] = [
   {
     accessorKey: "llmModel",
@@ -91,11 +136,7 @@ const requestColumns: ColumnDef<LlmRecentRequest>[] = [
   {
     accessorKey: "inputTokens",
     meta: { className: "hidden md:table-cell" },
-    header: ({ column }) => (
-      <div className="text-right">
-        <SortHeader label="Input" column={column} />
-      </div>
-    ),
+    header: () => <div className="text-right">Input</div>,
     cell: ({ row }) => (
       <div className="text-right tabular-nums text-muted-foreground">
         {(row.getValue("inputTokens") as number).toLocaleString()}
@@ -105,11 +146,7 @@ const requestColumns: ColumnDef<LlmRecentRequest>[] = [
   {
     accessorKey: "outputTokens",
     meta: { className: "hidden md:table-cell" },
-    header: ({ column }) => (
-      <div className="text-right">
-        <SortHeader label="Output" column={column} />
-      </div>
-    ),
+    header: () => <div className="text-right">Output</div>,
     cell: ({ row }) => (
       <div className="text-right tabular-nums text-muted-foreground">
         {(row.getValue("outputTokens") as number).toLocaleString()}
@@ -118,11 +155,7 @@ const requestColumns: ColumnDef<LlmRecentRequest>[] = [
   },
   {
     accessorKey: "costUsd",
-    header: ({ column }) => (
-      <div className="text-right">
-        <SortHeader label="Cost" column={column} />
-      </div>
-    ),
+    header: () => <div className="text-right">Cost</div>,
     cell: ({ row }) => (
       <div className="text-right tabular-nums">
         {formatCost(row.getValue("costUsd"))}
@@ -131,11 +164,7 @@ const requestColumns: ColumnDef<LlmRecentRequest>[] = [
   },
   {
     accessorKey: "createdAt",
-    header: ({ column }) => (
-      <div className="text-right">
-        <SortHeader label="Date" column={column} />
-      </div>
-    ),
+    header: () => <div className="text-right">Date</div>,
     cell: ({ row }) => (
       <div className="text-right text-muted-foreground">
         {formatDateTime(row.getValue("createdAt"))}
@@ -315,27 +344,190 @@ export function LlmUsagePage() {
   const [data, setData] = useState<LlmUsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<TimePeriod>("last30d");
+  const [recentRequestPages, setRecentRequestPages] = useState<
+    Record<number, LlmRecentRequest[]>
+  >({});
+  const [recentRequestTotalRows, setRecentRequestTotalRows] = useState(0);
+  const [recentRequestLoading, setRecentRequestLoading] = useState(false);
+  const [recentRequestPagination, setRecentRequestPagination] =
+    useState<PaginationState>({
+      pageIndex: 0,
+      pageSize: RECENT_REQUEST_PAGE_SIZE,
+    });
+  const loadedRecentBlocksRef = useRef<Set<string>>(new Set());
+  const recentRequestCursorByPageRef = useRef<Map<number, string | null>>(
+    new Map([[0, null]]),
+  );
+  const recentCacheGenerationRef = useRef(0);
+
+  const cacheRecentRequests = useCallback(
+    (page: LlmRecentRequestsPage, firstPageIndex: number, pageSize: number) => {
+      setRecentRequestPages((prev) => ({
+        ...prev,
+        ...splitItemsIntoPages(page.items, firstPageIndex, pageSize),
+      }));
+      setRecentRequestTotalRows(page.totalRows);
+
+      for (let index = 0; index < page.items.length; index += pageSize) {
+        const pageItems = page.items.slice(index, index + pageSize);
+        const pageIndex = firstPageIndex + index / pageSize;
+        const lastItem = pageItems.at(-1);
+
+        if (lastItem) {
+          recentRequestCursorByPageRef.current.set(pageIndex + 1, lastItem._id);
+        }
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     let active = true;
+    loadedRecentBlocksRef.current = new Set();
+    recentRequestCursorByPageRef.current = new Map([[0, null]]);
+    recentCacheGenerationRef.current += 1;
+    const generation = recentCacheGenerationRef.current;
+    setRecentRequestPages({});
+    setRecentRequestTotalRows(0);
+    setLoading(true);
+    setRecentRequestPagination({
+      pageIndex: 0,
+      pageSize: RECENT_REQUEST_PAGE_SIZE,
+    });
 
     client
-      .get<unknown>("llm/usage")
+      .get<unknown>(
+        getRecentRequestsPath({
+          limit: RECENT_REQUEST_PAGE_SIZE * PREFETCH_PAGE_COUNT,
+        }),
+      )
       .then((result) => {
-        if (!active) return;
-        setData(llmUsageResponseSchema.parse(result));
+        if (!active || generation !== recentCacheGenerationRef.current) return;
+        const parsed = llmUsageResponseSchema.parse(result);
+        loadedRecentBlocksRef.current.add(
+          getPrefetchBlockKey(0, RECENT_REQUEST_PAGE_SIZE),
+        );
+        cacheRecentRequests(parsed.recentRequests, 0, RECENT_REQUEST_PAGE_SIZE);
+        setData(parsed);
       })
       .catch(() => {
-        if (active) toast.error("Failed to load usage data");
+        if (active && generation === recentCacheGenerationRef.current) {
+          toast.error("Failed to load usage data");
+        }
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active && generation === recentCacheGenerationRef.current) {
+          setLoading(false);
+        }
       });
 
     return () => {
       active = false;
     };
-  }, [client]);
+  }, [cacheRecentRequests, client]);
+
+  const fetchRecentRequestBlock = useCallback(
+    async (
+      pageIndex = recentRequestPagination.pageIndex,
+      pageSize = recentRequestPagination.pageSize,
+      force = false,
+    ) => {
+      if (!data) return;
+
+      const blockStart = getPrefetchBlockStart(pageIndex);
+      const blockKey = getPrefetchBlockKey(pageIndex, pageSize);
+      if (!force && loadedRecentBlocksRef.current.has(blockKey)) return;
+
+      const generation = recentCacheGenerationRef.current;
+      const limit = pageSize * PREFETCH_PAGE_COUNT;
+      setRecentRequestLoading(true);
+
+      try {
+        let firstBlockStart = blockStart;
+
+        while (
+          firstBlockStart > 0 &&
+          !recentRequestCursorByPageRef.current.has(firstBlockStart)
+        ) {
+          firstBlockStart -= PREFETCH_PAGE_COUNT;
+        }
+
+        for (
+          let currentBlockStart = firstBlockStart;
+          currentBlockStart <= blockStart;
+          currentBlockStart += PREFETCH_PAGE_COUNT
+        ) {
+          const currentBlockKey = getPrefetchBlockKey(
+            currentBlockStart,
+            pageSize,
+          );
+
+          if (!force && loadedRecentBlocksRef.current.has(currentBlockKey)) {
+            continue;
+          }
+
+          const cursor =
+            recentRequestCursorByPageRef.current.get(currentBlockStart);
+
+          if (cursor === undefined) {
+            throw new Error("Missing cursor for request page");
+          }
+
+          const result = await client.get<unknown>(
+            getRecentRequestsPath({
+              section: "recent",
+              cursor,
+              limit,
+            }),
+          );
+          if (generation !== recentCacheGenerationRef.current) return;
+          const parsed = llmRecentRequestsPageResponseSchema.parse(result);
+          loadedRecentBlocksRef.current.add(currentBlockKey);
+          cacheRecentRequests(
+            parsed.recentRequests,
+            currentBlockStart,
+            pageSize,
+          );
+        }
+      } catch {
+        if (generation === recentCacheGenerationRef.current) {
+          toast.error("Failed to load request page");
+        }
+      } finally {
+        if (generation === recentCacheGenerationRef.current) {
+          setRecentRequestLoading(false);
+        }
+      }
+    },
+    [
+      cacheRecentRequests,
+      client,
+      data,
+      recentRequestPagination.pageIndex,
+      recentRequestPagination.pageSize,
+    ],
+  );
+
+  useEffect(() => {
+    void fetchRecentRequestBlock();
+  }, [fetchRecentRequestBlock]);
+
+  const handleRecentRequestPaginationChange = useCallback(
+    (next: PaginationState) => {
+      if (next.pageSize !== recentRequestPagination.pageSize) {
+        loadedRecentBlocksRef.current = new Set();
+        recentRequestCursorByPageRef.current = new Map([[0, null]]);
+        recentCacheGenerationRef.current += 1;
+        setRecentRequestPages({});
+        setRecentRequestTotalRows(0);
+        setRecentRequestPagination({ pageIndex: 0, pageSize: next.pageSize });
+        return;
+      }
+
+      setRecentRequestPagination(next);
+    },
+    [recentRequestPagination.pageSize],
+  );
 
   if (loading) {
     return <LlmUsageSkeleton />;
@@ -357,6 +549,10 @@ export function LlmUsagePage() {
   }
 
   const stats = data[period];
+  const currentRecentRequests =
+    recentRequestPages[recentRequestPagination.pageIndex] ?? [];
+  const currentRecentRequestsLoading =
+    recentRequestLoading && currentRecentRequests.length === 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
@@ -486,13 +682,15 @@ export function LlmUsagePage() {
           <TabsContent value="requests" className="mt-0">
             <PaginatedDataTable
               columns={requestColumns}
-              data={data.recentRequests}
+              data={currentRecentRequests}
               emptyMessage="No recent requests"
-              searchPlaceholder="Search requests..."
-              facetFilters={[
-                { columnId: "llmModel", label: "models" },
-                { columnId: "source", label: "sources" },
-              ]}
+              manualPagination={{
+                pageIndex: recentRequestPagination.pageIndex,
+                pageSize: recentRequestPagination.pageSize,
+                totalRows: recentRequestTotalRows,
+                loading: currentRecentRequestsLoading,
+                onPaginationChange: handleRecentRequestPaginationChange,
+              }}
             />
           </TabsContent>
           <TabsContent value="models" className="mt-0">

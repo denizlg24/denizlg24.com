@@ -37,13 +37,25 @@ function isTriageUserStatus(
   );
 }
 
+const DEFAULT_TRIAGE_LIMIT = 30;
+const MAX_TRIAGE_LIMIT = 300;
+
 function parseLimit(value: string | null): number {
-  const parsed = Number(value ?? 50);
+  const parsed = Number(value ?? DEFAULT_TRIAGE_LIMIT);
   if (!Number.isFinite(parsed)) {
-    return 50;
+    return DEFAULT_TRIAGE_LIMIT;
   }
 
-  return Math.min(Math.max(1, Math.trunc(parsed)), 200);
+  return Math.min(Math.max(1, Math.trunc(parsed)), MAX_TRIAGE_LIMIT);
+}
+
+function parseOffset(value: string | null): number {
+  const parsed = Number(value ?? 0);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.trunc(parsed));
 }
 
 export async function GET(request: NextRequest) {
@@ -57,6 +69,7 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status");
   const cursor = searchParams.get("cursor");
   const limit = parseLimit(searchParams.get("limit"));
+  const offset = parseOffset(searchParams.get("offset"));
 
   const query: Record<string, unknown> = {};
   if (category !== "all" && isTriageCategory(category))
@@ -71,10 +84,14 @@ export async function GET(request: NextRequest) {
     if (!Number.isNaN(d.getTime())) query.triagedAt = { $lt: d };
   }
 
-  const triages = await EmailTriageModel.find(query)
-    .sort({ triagedAt: -1 })
-    .limit(limit)
-    .lean();
+  const [triages, totalRows] = await Promise.all([
+    EmailTriageModel.find(query)
+      .sort({ triagedAt: -1, _id: -1 })
+      .skip(offset)
+      .limit(limit)
+      .lean(),
+    EmailTriageModel.countDocuments(query),
+  ]);
 
   const emailIds = triages.map((t) => t.emailId);
   const emails = await EmailModel.find({ _id: { $in: emailIds } })
@@ -126,6 +143,11 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     items,
+    totalRows,
+    offset,
+    limit,
     nextCursor: items.at(-1)?.triagedAt.toISOString() ?? null,
+    nextOffset:
+      offset + items.length < totalRows ? offset + items.length : null,
   });
 }

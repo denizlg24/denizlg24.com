@@ -257,7 +257,7 @@ export default function PomodoroPage() {
       </div>
 
       <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
-        <SheetContent side="right" className="overflow-y-auto">
+        <SheetContent className="w-full max-w-md! overflow-x-auto overflow-y-auto max-h-screen!">
           <SheetHeader>
             <SheetTitle>Session History</SheetTitle>
             <SheetDescription>

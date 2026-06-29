@@ -3,19 +3,24 @@
 import { Button } from "@repo/ui/button";
 import { PaginatedDataTable } from "@repo/ui/paginated-data-table";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, PaginationState } from "@tanstack/react-table";
 import { Archive, Brain, Loader2, Play } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
-import type { IEmailTriage, TriageCategory } from "@/lib/data-types";
+import type {
+  IEmailTriage,
+  TriageFilter,
+  TriageListResponse,
+} from "@/lib/data-types";
 import { CategoryBadge } from "./_components/category-badge";
 import { TriageLoadingSkeleton } from "./_components/triage-loading-skeleton";
 import { TriageSheet } from "./_components/triage-sheet";
 
-type TriageFilter = TriageCategory | "archived";
+const TRIAGE_PAGE_SIZE = 10;
+const PREFETCH_PAGE_COUNT = 3;
 
 const FILTERS: { value: TriageFilter; label: string }[] = [
   { value: "action-needed", label: "Action Needed" },
@@ -32,12 +37,54 @@ function isTriageFilter(value: string): value is TriageFilter {
   return FILTERS.some((filter) => filter.value === value);
 }
 
-function getTriageEndpoint(filter: TriageFilter): string {
-  if (filter === "archived") {
-    return "triage?status=archived";
+function getPrefetchBlockStart(pageIndex: number) {
+  return Math.floor(pageIndex / PREFETCH_PAGE_COUNT) * PREFETCH_PAGE_COUNT;
+}
+
+function getPrefetchBlockKey(
+  filter: TriageFilter,
+  pageIndex: number,
+  pageSize: number,
+) {
+  return `${filter}:${getPrefetchBlockStart(pageIndex)}:${pageSize}`;
+}
+
+function splitItemsIntoPages<T>(
+  items: T[],
+  offset: number,
+  pageSize: number,
+): Record<number, T[]> {
+  const firstPageIndex = Math.floor(offset / pageSize);
+  const pages: Record<number, T[]> = {};
+
+  for (let index = 0; index < items.length; index += pageSize) {
+    pages[firstPageIndex + index / pageSize] = items.slice(
+      index,
+      index + pageSize,
+    );
   }
 
-  return `triage?status=open&category=${filter}`;
+  return pages;
+}
+
+function getTriageEndpoint(
+  filter: TriageFilter,
+  offset: number,
+  limit: number,
+): string {
+  const params = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+  });
+
+  if (filter === "archived") {
+    params.set("status", "archived");
+    return `triage?${params.toString()}`;
+  }
+
+  params.set("status", "open");
+  params.set("category", filter);
+  return `triage?${params.toString()}`;
 }
 
 function formatRelative(iso: string): string {
@@ -60,25 +107,97 @@ export default function TriagePage() {
     return new denizApi(settings.apiKey);
   }, [settings, loadingSettings]);
 
-  const [items, setItems] = useState<IEmailTriage[]>([]);
+  const [itemsByPage, setItemsByPage] = useState<
+    Record<number, IEmailTriage[]>
+  >({});
+  const [totalRows, setTotalRows] = useState(0);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<TriageFilter>("action-needed");
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: TRIAGE_PAGE_SIZE,
+  });
   const [running, setRunning] = useState(false);
   const [archivingAll, setArchivingAll] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const loadedBlocksRef = useRef<Set<string>>(new Set());
+  const cacheGenerationRef = useRef(0);
 
-  const fetchItems = useCallback(async () => {
-    if (!api) return;
-    setLoading(true);
-    const endpoint = getTriageEndpoint(filter);
-    const res = await api.GET<{ items: IEmailTriage[] }>({ endpoint });
-    if ("code" in res) {
-      toast.error("Failed to load triage");
-    } else {
-      setItems(res.items);
-    }
-    setLoading(false);
-  }, [api, filter]);
+  const items = itemsByPage[pagination.pageIndex] ?? [];
+  const currentPageLoading = loading && items.length === 0;
+
+  const cacheItems = useCallback(
+    (page: TriageListResponse, pageSize: number) => {
+      setItemsByPage((prev) => ({
+        ...prev,
+        ...splitItemsIntoPages(page.items, page.offset, pageSize),
+      }));
+      setTotalRows(page.totalRows);
+    },
+    [],
+  );
+
+  const resetItemsCache = useCallback(() => {
+    loadedBlocksRef.current = new Set();
+    cacheGenerationRef.current += 1;
+    setItemsByPage({});
+    setTotalRows(0);
+  }, []);
+
+  const fetchItems = useCallback(
+    async (options?: {
+      force?: boolean;
+      pageIndex?: number;
+      pageSize?: number;
+    }) => {
+      if (!api) return;
+      const pageIndex = options?.pageIndex ?? pagination.pageIndex;
+      const pageSize = options?.pageSize ?? pagination.pageSize;
+      const blockKey = getPrefetchBlockKey(filter, pageIndex, pageSize);
+      if (!options?.force && loadedBlocksRef.current.has(blockKey)) {
+        setLoading(false);
+        return;
+      }
+
+      const blockStart = getPrefetchBlockStart(pageIndex);
+      const generation = cacheGenerationRef.current;
+      const offset = blockStart * pageSize;
+      const limit = pageSize * PREFETCH_PAGE_COUNT;
+
+      setLoading(true);
+      const endpoint = getTriageEndpoint(filter, offset, limit);
+      const res = await api.GET<TriageListResponse>({ endpoint });
+      if (generation !== cacheGenerationRef.current) return;
+
+      if ("code" in res) {
+        toast.error("Failed to load triage");
+      } else {
+        loadedBlocksRef.current.add(blockKey);
+        cacheItems(res, pageSize);
+      }
+      setLoading(false);
+    },
+    [api, cacheItems, filter, pagination.pageIndex, pagination.pageSize],
+  );
+
+  const refreshItems = useCallback(async () => {
+    resetItemsCache();
+    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+    await fetchItems({ force: true, pageIndex: 0 });
+  }, [fetchItems, resetItemsCache]);
+
+  const handlePaginationChange = useCallback(
+    (next: PaginationState) => {
+      if (next.pageSize !== pagination.pageSize) {
+        resetItemsCache();
+        setPagination({ pageIndex: 0, pageSize: next.pageSize });
+        return;
+      }
+
+      setPagination(next);
+    },
+    [pagination.pageSize, resetItemsCache],
+  );
 
   useEffect(() => {
     void fetchItems();
@@ -102,7 +221,7 @@ export default function TriagePage() {
     toast.success(
       `Scanned ${res.stats.scanned} · ${res.stats.fullTriaged} triaged · ${res.stats.prefilteredSpam} spam`,
     );
-    await fetchItems();
+    await refreshItems();
   };
 
   const activeFilterLabel =
@@ -142,7 +261,7 @@ export default function TriagePage() {
         : `Archived ${res.modifiedCount} ${activeFilterLabel.toLowerCase()} item${res.modifiedCount === 1 ? "" : "s"}`,
     );
 
-    await fetchItems();
+    await refreshItems();
   };
 
   const columns = useMemo<ColumnDef<IEmailTriage>[]>(
@@ -243,6 +362,8 @@ export default function TriagePage() {
           onValueChange={(value) => {
             if (isTriageFilter(value) && value !== filter) {
               setSelectedId(null);
+              resetItemsCache();
+              setPagination((prev) => ({ ...prev, pageIndex: 0 }));
               setFilter(value);
             }
           }}
@@ -266,7 +387,7 @@ export default function TriagePage() {
               variant="outline"
               className="h-7 gap-1.5 text-xs"
               onClick={handleArchiveAll}
-              disabled={loading || archivingAll || items.length === 0}
+              disabled={loading || archivingAll || totalRows === 0}
             >
               {archivingAll ? (
                 <Loader2 className="size-3.5 animate-spin" />
@@ -287,6 +408,13 @@ export default function TriagePage() {
               data={items}
               emptyMessage="No triage items"
               onRowClick={(item) => setSelectedId(item._id)}
+              manualPagination={{
+                pageIndex: pagination.pageIndex,
+                pageSize: pagination.pageSize,
+                totalRows,
+                loading: currentPageLoading,
+                onPaginationChange: handlePaginationChange,
+              }}
             />
           )}
         </div>
@@ -298,7 +426,7 @@ export default function TriagePage() {
           triageId={selectedId}
           open={!!selectedId}
           onOpenChange={(open) => !open && setSelectedId(null)}
-          onSuggestionUpdated={() => fetchItems()}
+          onSuggestionUpdated={() => refreshItems()}
         />
       )}
     </div>

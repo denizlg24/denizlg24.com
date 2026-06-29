@@ -17,19 +17,35 @@ export const emailSchema = z.object({
 });
 export type IEmail = z.infer<typeof emailSchema>;
 
+export const emailProviderSchema = z.enum([
+  "custom",
+  "gmail",
+  "outlook",
+  "yahoo",
+  "icloud",
+]);
+
 export const emailAccountSchema = z.object({
   _id: z.string(),
+  provider: emailProviderSchema.optional(),
+  displayName: z.string().optional(),
   host: z.string(),
   port: z.number(),
   secure: z.boolean(),
   user: z.string(),
-  imapPassword: z.object({
-    ciphertext: z.string(),
-    iv: z.string(),
-    authTag: z.string(),
-  }),
   inboxName: z.string(),
   lastUid: z.number(),
+  smtpHost: z.string().optional(),
+  smtpPort: z.number().optional(),
+  smtpSecure: z.boolean().optional(),
+  smtpRequireTls: z.boolean().optional(),
+  smtpUser: z.string().optional(),
+  smtpPasswordSharedWithImap: z.boolean().optional(),
+  smtpFromName: z.string().optional(),
+  smtpFromAddress: z.string().optional(),
+  smtpConfigured: z.boolean().optional(),
+  lastSmtpTestAt: z.string().optional(),
+  lastSmtpError: z.string().optional(),
   emails: z.array(emailSchema).optional(),
 });
 export type IEmailAccount = z.infer<typeof emailAccountSchema>;

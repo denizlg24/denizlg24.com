@@ -234,7 +234,7 @@ export function EmailDetail({
                       {downloadingIdx === att.index ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
                       ) : (
-                        <Download className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                        <Download className="h-3.5 w-3.5 text-muted-foreground  shrink-0" />
                       )}
                     </button>
                   ))}

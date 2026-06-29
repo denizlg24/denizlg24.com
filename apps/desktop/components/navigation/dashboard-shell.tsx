@@ -2,6 +2,7 @@
 
 import { useIsMobile } from "@repo/ui/hooks/use-mobile";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { CalendarPreloader } from "./calendar-preloader";
 import { CommandPalette } from "./command-palette";
 import { NavigationMenu } from "./navigation-menu";
 
@@ -15,6 +16,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider className="min-h-0 flex-1 overflow-hidden">
+      <CalendarPreloader />
       {isMobile ? <NavigationMenu /> : null}
       <div className="min-h-0 w-full flex-1 overflow-hidden">{children}</div>
       <CommandPalette />

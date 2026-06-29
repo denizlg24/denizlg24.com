@@ -287,8 +287,8 @@ export function ProjectForm({
             );
           })}
         </div>
-        <div className="flex items-end gap-2 mt-1">
-          <div className="flex flex-col gap-1 flex-1">
+        <div className="flex flex-col gap-2 mt-1 sm:flex-row sm:items-end">
+          <div className="flex flex-col gap-1 sm:flex-1">
             <Input
               value={newLinkLabel}
               onChange={(e) => setNewLinkLabel(e.target.value)}
@@ -296,7 +296,7 @@ export function ProjectForm({
               className="h-8 text-xs"
             />
           </div>
-          <div className="flex flex-col gap-1 flex-[2]">
+          <div className="flex flex-col gap-1 sm:flex-[2]">
             <Input
               value={newLinkUrl}
               onChange={(e) => setNewLinkUrl(e.target.value)}
@@ -310,35 +310,41 @@ export function ProjectForm({
               }}
             />
           </div>
-          <Select
-            value={newLinkIcon}
-            onValueChange={(v: "external" | "github" | "notepad") =>
-              setNewLinkIcon(v)
-            }
-          >
-            <SelectTrigger className="h-8 w-28 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {LINK_ICONS.map((li) => (
-                <SelectItem key={li.value} value={li.value} className="text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <li.icon className="size-3" />
-                    {li.label}
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 shrink-0"
-            onClick={handleAddLink}
-            disabled={!newLinkLabel.trim() || !newLinkUrl.trim()}
-          >
-            <Plus className="size-3.5" />
-          </Button>
+          <div className="flex items-end gap-2">
+            <Select
+              value={newLinkIcon}
+              onValueChange={(v: "external" | "github" | "notepad") =>
+                setNewLinkIcon(v)
+              }
+            >
+              <SelectTrigger className="h-8 w-full text-xs sm:w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LINK_ICONS.map((li) => (
+                  <SelectItem
+                    key={li.value}
+                    value={li.value}
+                    className="text-xs"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <li.icon className="size-3" />
+                      {li.label}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0"
+              onClick={handleAddLink}
+              disabled={!newLinkLabel.trim() || !newLinkUrl.trim()}
+            >
+              <Plus className="size-3.5" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -384,7 +390,7 @@ export function ProjectForm({
                 className="relative group rounded-md overflow-hidden border"
               >
                 <img src={url} alt="" className="w-full h-20 object-cover" />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                   <button
                     type="button"
                     onClick={() => {
@@ -453,7 +459,7 @@ export function ProjectForm({
                 className="relative group rounded-md overflow-hidden border"
               >
                 <img src={url} alt="" className="w-full h-24 object-cover" />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <div className="absolute inset-0 bg-black/50  flex items-center justify-center gap-2">
                   <button
                     type="button"
                     onClick={() => {

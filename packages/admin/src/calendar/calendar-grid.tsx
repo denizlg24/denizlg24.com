@@ -48,6 +48,8 @@ function formatEventTime(dateStr: string): string {
 }
 
 function eventKindClass(event: ICalendarEvent) {
+  if (event.kind === "meeting") return "border-l-2 border-l-emerald-400";
+  if (event.kind === "flight") return "border-l-2 border-l-indigo-400";
   if (event.kind === "holiday") return "border-l-2 border-l-amber-400";
   if (event.kind === "birthday") return "border-l-2 border-l-sky-400";
   return "";

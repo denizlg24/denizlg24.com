@@ -3,11 +3,12 @@ import mongoose from "mongoose";
 export interface ICalendarEvent {
   _id: unknown;
   date: Date;
+  endDate?: Date;
   calendarDate: string;
   isAllDay: boolean;
-  kind: "manual" | "holiday" | "birthday";
+  kind: "manual" | "meeting" | "flight" | "holiday" | "birthday";
   source?: {
-    provider: "nager-date" | "people";
+    provider: "nager-date" | "people" | "google";
     providerKey: string;
     countryCode?: string;
     personId?: mongoose.Types.ObjectId | string;
@@ -34,11 +35,12 @@ export interface ICalendarEvent {
 export interface ILeanCalendarEvent {
   _id: string;
   date: Date;
+  endDate?: Date;
   calendarDate: string;
   isAllDay: boolean;
-  kind: "manual" | "holiday" | "birthday";
+  kind: "manual" | "meeting" | "flight" | "holiday" | "birthday";
   source?: {
-    provider: "nager-date" | "people";
+    provider: "nager-date" | "people" | "google";
     providerKey: string;
     countryCode?: string;
     personId?: string;
@@ -72,7 +74,7 @@ const CalendarEventSourceSchema = new mongoose.Schema(
   {
     provider: {
       type: String,
-      enum: ["nager-date", "people"],
+      enum: ["nager-date", "people", "google"],
       required: true,
     },
     providerKey: { type: String, required: true },
@@ -88,11 +90,12 @@ const CalendarEventSourceSchema = new mongoose.Schema(
 
 export const CalendarEventSchema = new mongoose.Schema<ICalendarEvent>({
   date: { type: Date, required: true, index: true },
+  endDate: { type: Date },
   calendarDate: { type: String, required: true, index: true },
   isAllDay: { type: Boolean, default: false },
   kind: {
     type: String,
-    enum: ["manual", "holiday", "birthday"],
+    enum: ["manual", "meeting", "flight", "holiday", "birthday"],
     default: "manual",
     index: true,
   },

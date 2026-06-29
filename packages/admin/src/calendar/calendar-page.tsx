@@ -1,6 +1,19 @@
 "use client";
 
-import type { ICalendarEvent } from "@repo/schemas";
+import type {
+  ICalendarEvent,
+  ICalendarGoogleIntegrationStatus,
+} from "@repo/schemas";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Calendar } from "@repo/ui/calendar";
@@ -40,14 +53,32 @@ import {
   Clock,
   ExternalLink,
   Link as LinkIcon,
+  Loader2,
   MapPin,
   Pencil,
+  Plane,
   Plus,
+  RefreshCw,
+  Settings,
+  Trash2,
+  Users,
   X,
 } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import {
+  deleteCachedCalendarEvents,
+  fetchCalendarEvents,
+  fetchGoogleCalendarStatus,
+  getCachedCalendarEvents,
+  getCachedGoogleCalendarStatus,
+  getCalendarMonthRange,
+  removeCachedCalendarEvent,
+  replaceCachedCalendarEvent,
+  setCachedGoogleCalendarStatus,
+} from "./calendar-data";
 import { CalendarGrid } from "./calendar-grid";
 
 function getFaviconUrl(url: string) {
@@ -63,6 +94,32 @@ interface EventLink {
   label: string;
   url: string;
   icon?: string;
+}
+
+type CalendarGoogleStatusPatchResult = Omit<
+  ICalendarGoogleIntegrationStatus,
+  "pendingSyncCount" | "failedSyncCount"
+> &
+  Partial<
+    Pick<
+      ICalendarGoogleIntegrationStatus,
+      "pendingSyncCount" | "failedSyncCount"
+    >
+  >;
+
+const USER_EVENT_KIND_OPTIONS = [
+  { value: "manual", label: "Event", icon: CalendarIcon },
+  { value: "meeting", label: "Meeting", icon: Users },
+  { value: "flight", label: "Flight", icon: Plane },
+  { value: "birthday", label: "Birthday", icon: CalendarDays },
+] as const;
+
+function getEventKindLabel(kind: ICalendarEvent["kind"]) {
+  if (kind === "meeting") return "Meeting";
+  if (kind === "flight") return "Flight";
+  if (kind === "birthday") return "Birthday";
+  if (kind === "holiday") return "Holiday";
+  return "Event";
 }
 
 function getSmartNotificationOptions(dateStr: string) {
@@ -119,15 +176,6 @@ function getSmartNotificationOptions(dateStr: string) {
   return options;
 }
 
-function getMonthRange(start: Date, monthOffset: number) {
-  const year = start.getFullYear();
-  const month = start.getMonth() + monthOffset;
-  return {
-    start: new Date(year, month, 1),
-    end: new Date(year, month + 1, 0, 23, 59, 59),
-  };
-}
-
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -147,34 +195,38 @@ function isAbortError(error: unknown) {
 
 export function CalendarPage() {
   const { client, slots } = useAdmin();
+  const initialRange = useMemo(() => getCalendarMonthRange(), []);
+  const initialCachedEvents = useMemo(
+    () => getCachedCalendarEvents(initialRange.start, initialRange.end),
+    [initialRange],
+  );
 
-  const [events, setEvents] = useState<ICalendarEvent[]>([]);
+  const [events, setEvents] = useState<ICalendarEvent[]>(
+    () => initialCachedEvents ?? [],
+  );
+  const [eventsLoading, setEventsLoading] = useState(
+    () => initialCachedEvents === null,
+  );
+  const [googleStatus, setGoogleStatus] =
+    useState<ICalendarGoogleIntegrationStatus | null>(() =>
+      getCachedGoogleCalendarStatus(),
+    );
+  const [googleSettingsOpen, setGoogleSettingsOpen] = useState(false);
+  const [googleCalendarId, setGoogleCalendarId] = useState("primary");
+  const [googleMutating, setGoogleMutating] = useState(false);
+  const [googleSyncing, setGoogleSyncing] = useState(false);
 
-  const eventsCache = useRef<Map<string, ICalendarEvent[]>>(new Map());
   const activeFetchController = useRef<AbortController | null>(null);
   const currentFetchRequestId = useRef(0);
   const prefetchControllers = useRef<Set<AbortController>>(new Set());
   const statusMutationId = useRef(0);
 
-  const cacheKey = useCallback(
-    (start: Date, end: Date) => `${start.toISOString()}|${end.toISOString()}`,
-    [],
-  );
+  const invalidateCache = useCallback((start: Date, end: Date) => {
+    deleteCachedCalendarEvents(start, end);
+  }, []);
 
-  const invalidateCache = useCallback(
-    (start: Date, end: Date) => {
-      eventsCache.current.delete(cacheKey(start, end));
-    },
-    [cacheKey],
-  );
-
-  const now = new Date();
-  const [startDate, setStartDate] = useState(
-    () => new Date(now.getFullYear(), now.getMonth(), 1),
-  );
-  const [endDate, setEndDate] = useState(
-    () => new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59),
-  );
+  const [startDate, setStartDate] = useState(() => initialRange.start);
+  const [endDate, setEndDate] = useState(() => initialRange.end);
 
   const [viewEvent, setViewEvent] = useState<ICalendarEvent | null>(null);
   const [editing, setEditing] = useState(false);
@@ -183,6 +235,7 @@ export function CalendarPage() {
     place: string;
     date: string;
     isAllDay: boolean;
+    kind: ICalendarEvent["kind"];
     status: ICalendarEvent["status"];
     notifyBySlack: boolean;
     notifyBeforeMinutes: number;
@@ -192,6 +245,7 @@ export function CalendarPage() {
     place: "",
     date: "",
     isAllDay: false,
+    kind: "manual",
     status: "scheduled",
     notifyBySlack: false,
     notifyBeforeMinutes: 0,
@@ -202,24 +256,21 @@ export function CalendarPage() {
     url: "",
   });
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const replaceEventEverywhere = useCallback((event: ICalendarEvent) => {
     setViewEvent((current) => (current?._id === event._id ? event : current));
     setEvents((prev) =>
       prev.map((existing) => (existing._id === event._id ? event : existing)),
     );
+    replaceCachedCalendarEvent(event);
+  }, []);
 
-    for (const [key, cachedEvents] of eventsCache.current.entries()) {
-      if (!cachedEvents.some((cachedEvent) => cachedEvent._id === event._id)) {
-        continue;
-      }
-      eventsCache.current.set(
-        key,
-        cachedEvents.map((cachedEvent) =>
-          cachedEvent._id === event._id ? event : cachedEvent,
-        ),
-      );
-    }
+  const removeEventEverywhere = useCallback((eventId: string) => {
+    setViewEvent((current) => (current?._id === eventId ? null : current));
+    setEvents((prev) => prev.filter((event) => event._id !== eventId));
+    removeCachedCalendarEvent(eventId);
   }, []);
 
   const openViewEvent = useCallback((e: ICalendarEvent) => {
@@ -234,6 +285,7 @@ export function CalendarPage() {
       place: viewEvent.place ?? "",
       date: format(new Date(viewEvent.date), "yyyy-MM-dd'T'HH:mm"),
       isAllDay: viewEvent.isAllDay,
+      kind: viewEvent.kind,
       status: viewEvent.status,
       notifyBySlack: viewEvent.notifyBySlack,
       notifyBeforeMinutes: viewEvent.notifyBeforeMinutes,
@@ -259,6 +311,7 @@ export function CalendarPage() {
           date: new Date(editForm.date).toISOString(),
           calendarDate: editForm.date.slice(0, 10),
           isAllDay: editForm.isAllDay,
+          kind: editForm.kind,
           status: editForm.status,
           notifyBySlack: editForm.notifyBySlack,
           notifyBeforeMinutes: editForm.notifyBeforeMinutes,
@@ -281,6 +334,36 @@ export function CalendarPage() {
     startDate,
     endDate,
     replaceEventEverywhere,
+  ]);
+
+  const deleteViewedEvent = useCallback(async () => {
+    if (!viewEvent || deleting) return;
+
+    const eventId = viewEvent._id;
+    setDeleting(true);
+    try {
+      await client.del<{ success: true }>(`calendar/${eventId}`);
+      invalidateCache(startDate, endDate);
+      removeEventEverywhere(eventId);
+      setEditing(false);
+      setDeleteDialogOpen(false);
+      toast.success("Event deleted");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete event",
+      );
+      console.error("Failed to delete event:", error);
+    } finally {
+      setDeleting(false);
+    }
+  }, [
+    client,
+    deleting,
+    viewEvent,
+    invalidateCache,
+    startDate,
+    endDate,
+    removeEventEverywhere,
   ]);
 
   const changeStatus = useCallback(
@@ -316,6 +399,7 @@ export function CalendarPage() {
     title: "",
     place: "",
     date: "",
+    kind: "manual" as ICalendarEvent["kind"],
     notifyBySlack: false,
     isAllDay: false,
     notifyBeforeMinutes: 30,
@@ -327,6 +411,192 @@ export function CalendarPage() {
   });
   const [addSaving, setAddSaving] = useState(false);
 
+  const fetchGoogleStatus = useCallback(
+    async (options: { skipCache?: boolean } = {}) => {
+      try {
+        const result = await fetchGoogleCalendarStatus(client, {
+          skipCache: options.skipCache,
+        });
+        setGoogleStatus(result);
+        setGoogleCalendarId(result.calendarId || "primary");
+      } catch (error) {
+        console.error("Failed to fetch Google Calendar status:", error);
+      }
+    },
+    [client],
+  );
+
+  useEffect(() => {
+    void fetchGoogleStatus();
+  }, [fetchGoogleStatus]);
+
+  const connectGoogleCalendar = useCallback(async () => {
+    setGoogleMutating(true);
+    try {
+      const result = await client.post<{ url: string }>(
+        "calendar/google/connect",
+        {},
+      );
+      window.location.assign(result.url);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to start Google Calendar connection",
+      );
+      setGoogleMutating(false);
+    }
+  }, [client]);
+
+  const saveGoogleCalendarSettings = useCallback(async () => {
+    setGoogleMutating(true);
+    try {
+      const result = await client.patch<CalendarGoogleStatusPatchResult>(
+        "calendar/google",
+        {
+          calendarId: googleCalendarId || "primary",
+          enabled: googleStatus?.enabled ?? true,
+        },
+      );
+      setGoogleStatus((current) => {
+        const nextStatus = {
+          ...(current ?? result),
+          ...result,
+          connected: true,
+          pendingSyncCount:
+            result.pendingSyncCount ?? current?.pendingSyncCount ?? 0,
+          failedSyncCount:
+            result.failedSyncCount ?? current?.failedSyncCount ?? 0,
+        };
+        setCachedGoogleCalendarStatus(nextStatus);
+        return nextStatus;
+      });
+      toast.success("Google Calendar settings saved");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to save Google Calendar settings",
+      );
+    } finally {
+      setGoogleMutating(false);
+    }
+  }, [client, googleCalendarId, googleStatus?.enabled]);
+
+  const setGoogleEnabled = useCallback(
+    async (enabled: boolean) => {
+      setGoogleMutating(true);
+      try {
+        const result = await client.patch<CalendarGoogleStatusPatchResult>(
+          "calendar/google",
+          {
+            enabled,
+            calendarId: googleCalendarId || "primary",
+          },
+        );
+        setGoogleStatus((current) => {
+          const nextStatus = {
+            ...(current ?? result),
+            ...result,
+            connected: true,
+            pendingSyncCount:
+              result.pendingSyncCount ?? current?.pendingSyncCount ?? 0,
+            failedSyncCount:
+              result.failedSyncCount ?? current?.failedSyncCount ?? 0,
+          };
+          setCachedGoogleCalendarStatus(nextStatus);
+          return nextStatus;
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Failed to update Google Calendar",
+        );
+      } finally {
+        setGoogleMutating(false);
+      }
+    },
+    [client, googleCalendarId],
+  );
+
+  const disconnectGoogleCalendar = useCallback(async () => {
+    if (!window.confirm("Disconnect Google Calendar?")) return;
+    setGoogleMutating(true);
+    try {
+      await client.del<{ success: true }>("calendar/google");
+      const disconnectedStatus = {
+        connected: false,
+        enabled: false,
+        calendarId: "primary",
+        scope: [],
+        pendingSyncCount: 0,
+        failedSyncCount: 0,
+      };
+      setGoogleStatus(disconnectedStatus);
+      setCachedGoogleCalendarStatus(disconnectedStatus);
+      setGoogleCalendarId("primary");
+      setGoogleSettingsOpen(false);
+      toast.success("Google Calendar disconnected");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to disconnect Google Calendar",
+      );
+    } finally {
+      setGoogleMutating(false);
+    }
+  }, [client]);
+
+  const syncExistingGoogleEvents = useCallback(async () => {
+    setGoogleSyncing(true);
+    try {
+      const result = await client.post<{
+        totalCount: number;
+        syncedCount: number;
+        failedCount: number;
+        skippedCount: number;
+      }>("calendar/google/sync", {
+        start: new Date().toISOString(),
+      });
+      await fetchGoogleStatus({ skipCache: true });
+      toast.success(
+        `Pushed ${result.syncedCount} of ${result.totalCount} syncable events`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to sync existing events",
+      );
+    } finally {
+      setGoogleSyncing(false);
+    }
+  }, [client, fetchGoogleStatus]);
+
+  const retryGoogleCalendarSync = useCallback(async () => {
+    setGoogleSyncing(true);
+    try {
+      const result = await client.post<{
+        totalCount: number;
+        syncedCount: number;
+        failedCount: number;
+        skippedCount: number;
+      }>("calendar/google/retry", {});
+      await fetchGoogleStatus({ skipCache: true });
+      toast.success(
+        `Retried ${result.totalCount} Google Calendar sync item${result.totalCount === 1 ? "" : "s"}`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to retry sync",
+      );
+    } finally {
+      setGoogleSyncing(false);
+    }
+  }, [client, fetchGoogleStatus]);
+
   const openAddEvent = useCallback((date?: Date) => {
     setAddForm({
       title: "",
@@ -334,6 +604,7 @@ export function CalendarPage() {
       date: date
         ? format(date, "yyyy-MM-dd'T'HH:mm")
         : format(new Date(), "yyyy-MM-dd'T'HH:mm"),
+      kind: "manual",
       notifyBySlack: false,
       isAllDay: false,
       notifyBeforeMinutes: 30,
@@ -353,7 +624,7 @@ export function CalendarPage() {
         date: new Date(addForm.date).toISOString(),
         calendarDate: addForm.date.slice(0, 10),
         isAllDay: false,
-        kind: "manual",
+        kind: addForm.kind,
         status: "scheduled",
         notifyBySlack: addForm.notifyBySlack,
         notifyBeforeMinutes: addForm.notifyBeforeMinutes,
@@ -397,10 +668,12 @@ export function CalendarPage() {
       end: Date,
       options: { prefetch?: boolean; skipCache?: boolean } = {},
     ) => {
-      const key = cacheKey(start, end);
-      const cachedEvents = eventsCache.current.get(key);
+      const cachedEvents = getCachedCalendarEvents(start, end);
       if (!options.skipCache && cachedEvents) {
-        if (!options.prefetch) setEvents(cachedEvents);
+        if (!options.prefetch) {
+          setEvents(cachedEvents);
+          setEventsLoading(false);
+        }
         return cachedEvents;
       }
 
@@ -412,25 +685,33 @@ export function CalendarPage() {
         currentFetchRequestId.current = requestId;
         activeFetchController.current?.abort();
         activeFetchController.current = controller;
+        setEventsLoading(true);
       } else {
         prefetchControllers.current.add(controller);
       }
 
       try {
-        const result = await client.get<{ events: ICalendarEvent[] }>(
-          `calendar?start=${start.toISOString()}&end=${end.toISOString()}`,
-          { signal: controller.signal },
-        );
-        eventsCache.current.set(key, result.events);
+        const result = await fetchCalendarEvents(client, start, end, {
+          signal: controller.signal,
+          skipCache: options.skipCache,
+        });
         if (
           requestId !== null &&
           currentFetchRequestId.current === requestId &&
           !controller.signal.aborted
         ) {
-          setEvents(result.events);
+          setEvents(result);
+          setEventsLoading(false);
         }
-        return result.events;
+        return result;
       } catch (error) {
+        if (
+          requestId !== null &&
+          currentFetchRequestId.current === requestId &&
+          !controller.signal.aborted
+        ) {
+          setEventsLoading(false);
+        }
         if (!isAbortError(error)) {
           console.error("Failed to fetch calendar events:", error);
         }
@@ -445,7 +726,7 @@ export function CalendarPage() {
         }
       }
     },
-    [client, cacheKey],
+    [client],
   );
 
   useEffect(() => {
@@ -453,8 +734,8 @@ export function CalendarPage() {
 
     fetchEvents(startDate, endDate).then(() => {
       if (disposed) return;
-      const previousMonth = getMonthRange(startDate, -1);
-      const nextMonth = getMonthRange(startDate, 1);
+      const previousMonth = getCalendarMonthRange(startDate, -1);
+      const nextMonth = getCalendarMonthRange(startDate, 1);
       void fetchEvents(previousMonth.start, previousMonth.end, {
         prefetch: true,
       });
@@ -477,8 +758,15 @@ export function CalendarPage() {
   }, []);
 
   const handleMonthChange = useCallback((start: Date, end: Date) => {
+    const cachedEvents = getCachedCalendarEvents(start, end);
     setStartDate(start);
     setEndDate(end);
+    if (cachedEvents) {
+      setEvents(cachedEvents);
+      setEventsLoading(false);
+    } else {
+      setEventsLoading(true);
+    }
   }, []);
 
   return (
@@ -490,6 +778,25 @@ export function CalendarPage() {
       >
         <Button
           onClick={() => {
+            if (googleStatus?.connected) {
+              setGoogleSettingsOpen(true);
+            } else {
+              void connectGoogleCalendar();
+            }
+          }}
+          size="sm"
+          variant={googleStatus?.lastSyncError ? "destructive" : "outline"}
+          disabled={googleMutating}
+        >
+          {googleStatus?.lastSyncError ? <RefreshCw /> : <CalendarIcon />}
+          {!googleStatus?.connected
+            ? "Connect Google Calendar"
+            : googleStatus.enabled
+              ? "Google Calendar"
+              : "Google Paused"}
+        </Button>
+        <Button
+          onClick={() => {
             openAddEvent();
           }}
           size={"sm"}
@@ -498,7 +805,15 @@ export function CalendarPage() {
           Add Event
         </Button>
       </PageHeader>
-      <div className="min-h-0 flex-1 overflow-y-auto pb-4">
+      <div className="relative min-h-0 flex-1 overflow-y-auto pb-4">
+        {eventsLoading && (
+          <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
+            <div className="inline-flex items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-sm text-muted-foreground shadow-sm backdrop-blur">
+              <Loader2 className="size-4 animate-spin" />
+              Loading calendar
+            </div>
+          </div>
+        )}
         <CalendarGrid
           events={events}
           onMonthChange={handleMonthChange}
@@ -506,6 +821,134 @@ export function CalendarPage() {
           onDayClick={openDayView}
         />
       </div>
+
+      <Dialog open={googleSettingsOpen} onOpenChange={setGoogleSettingsOpen}>
+        <DialogContent className="max-w-md">
+          <div className="space-y-1.5">
+            <DialogTitle>Google Calendar</DialogTitle>
+            <DialogDescription>
+              Two-way sync imports upcoming Google events and mirrors app
+              events, meetings, flights, and birthdays back to Google.
+            </DialogDescription>
+          </div>
+
+          <Separator />
+
+          {!googleStatus?.connected ? (
+            <Button
+              onClick={connectGoogleCalendar}
+              disabled={googleMutating}
+              size="sm"
+              className="w-full"
+            >
+              <CalendarIcon className="h-3.5 w-3.5" />
+              Connect Google Calendar
+            </Button>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Account</span>
+                  <span className="truncate text-right">
+                    {googleStatus.accountEmail || "Connected"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">State</span>
+                  <Badge
+                    variant={googleStatus.enabled ? "default" : "secondary"}
+                  >
+                    {googleStatus.enabled ? "Enabled" : "Paused"}
+                  </Badge>
+                </div>
+                {googleStatus.lastSyncAt && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Last sync</span>
+                    <span className="text-right">
+                      {format(new Date(googleStatus.lastSyncAt), "PP p")}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {googleStatus.lastSyncError && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2.5 text-xs text-destructive">
+                  {googleStatus.lastSyncError}
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <Label htmlFor="google-calendar-id">Calendar ID</Label>
+                <Input
+                  id="google-calendar-id"
+                  value={googleCalendarId}
+                  onChange={(event) => setGoogleCalendarId(event.target.value)}
+                  placeholder="primary"
+                />
+              </div>
+
+              <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                <Label htmlFor="google-enabled" className="text-sm">
+                  Enable Google sync
+                </Label>
+                <Switch
+                  id="google-enabled"
+                  checked={googleStatus.enabled}
+                  disabled={googleMutating}
+                  onCheckedChange={(enabled) => void setGoogleEnabled(enabled)}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={saveGoogleCalendarSettings}
+                  disabled={googleMutating}
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                  Save
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={syncExistingGoogleEvents}
+                  disabled={googleSyncing || !googleStatus.enabled}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Push existing
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={retryGoogleCalendarSync}
+                  disabled={
+                    googleSyncing ||
+                    (!googleStatus.failedSyncCount &&
+                      !googleStatus.pendingSyncCount)
+                  }
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Retry
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={disconnectGoogleCalendar}
+                  disabled={googleMutating}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Disconnect
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={viewEvent !== null}
@@ -522,6 +965,11 @@ export function CalendarPage() {
                   <DialogTitle className="leading-snug">
                     {viewEvent?.title}
                   </DialogTitle>
+                  {viewEvent && (
+                    <Badge variant="outline">
+                      {getEventKindLabel(viewEvent.kind)}
+                    </Badge>
+                  )}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button type="button" className="shrink-0 cursor-pointer">
@@ -639,10 +1087,30 @@ export function CalendarPage() {
 
               <Separator />
 
-              <Button variant="outline" size="sm" onClick={startEditing}>
-                <Pencil className="w-3.5 h-3.5" />
-                Edit event
-              </Button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={startEditing}
+                  disabled={deleting}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Edit event
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setDeleteDialogOpen(true)}
+                  disabled={deleting}
+                >
+                  {deleting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3.5 h-3.5" />
+                  )}
+                  {deleting ? "Deleting..." : "Delete"}
+                </Button>
+              </div>
             </>
           ) : (
             <>
@@ -661,6 +1129,39 @@ export function CalendarPage() {
                       setEditForm((f) => ({ ...f, title: e.target.value }))
                     }
                   />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Type</Label>
+                  <Select
+                    value={editForm.kind}
+                    onValueChange={(v) =>
+                      setEditForm((f) => ({
+                        ...f,
+                        kind: v as ICalendarEvent["kind"],
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent position="popper">
+                      {editForm.kind === "holiday" && (
+                        <SelectItem value="holiday">Holiday</SelectItem>
+                      )}
+                      {USER_EVENT_KIND_OPTIONS.map((option) => {
+                        const Icon = option.icon;
+                        return (
+                          <SelectItem key={option.value} value={option.value}>
+                            <span className="flex items-center gap-2">
+                              <Icon className="size-3.5" />
+                              {option.label}
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-1.5">
@@ -973,6 +1474,31 @@ export function CalendarPage() {
         </DialogContent>
       </Dialog>
 
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete event?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {viewEvent?.title ?? "this event"}.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={(event) => {
+                event.preventDefault();
+                void deleteViewedEvent();
+              }}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog open={addingEvent} onOpenChange={setAddingEvent}>
         <DialogContent className="max-w-md">
           <DialogTitle>New event</DialogTitle>
@@ -991,6 +1517,36 @@ export function CalendarPage() {
                   setAddForm((f) => ({ ...f, title: e.target.value }))
                 }
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Type</Label>
+              <Select
+                value={addForm.kind}
+                onValueChange={(v) =>
+                  setAddForm((f) => ({
+                    ...f,
+                    kind: v as ICalendarEvent["kind"],
+                  }))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {USER_EVENT_KIND_OPTIONS.map((option) => {
+                    const Icon = option.icon;
+                    return (
+                      <SelectItem key={option.value} value={option.value}>
+                        <span className="flex items-center gap-2">
+                          <Icon className="size-3.5" />
+                          {option.label}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-1.5">

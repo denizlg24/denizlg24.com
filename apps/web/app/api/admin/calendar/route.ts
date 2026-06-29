@@ -5,6 +5,10 @@ import {
   getMonthCalendarEvents,
 } from "@/lib/calendar-events";
 import { ensureGeneratedCalendarEventsForRange } from "@/lib/calendar-sync";
+import {
+  isGoogleOutboundSyncableKind,
+  syncEventToGoogle,
+} from "@/lib/google-calendar-sync";
 import { requireAdmin } from "@/lib/require-admin";
 
 const GENERATED_EVENTS_WAIT_MS = 300;
@@ -43,6 +47,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Failed to create calendar event" },
       { status: 500 },
+    );
+  }
+  if (isGoogleOutboundSyncableKind(created.kind)) {
+    after(() =>
+      syncEventToGoogle(created._id, "upsert").catch((error) => {
+        console.error("Failed to sync calendar event to Google:", error);
+      }),
     );
   }
   return NextResponse.json({ event: created }, { status: 200 });
