@@ -27,7 +27,7 @@ export function ProjectEditorSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="w-full pt-0 px-4 pb-6 max-w-full! overflow-x-auto px-2 pb-2 overflow-y-auto max-h-screen!"
+        className="w-full pt-0 px-4 pb-6 max-w-full! overflow-x-auto overflow-y-auto max-h-screen!"
       >
         <SheetHeader className="px-4 pt-4 pb-0">
           <SheetTitle className="text-sm">Edit Project</SheetTitle>
