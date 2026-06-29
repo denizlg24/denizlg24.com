@@ -6,7 +6,7 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun ../../scripts/clean-next-dev-types.mjs && next typegen && tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
