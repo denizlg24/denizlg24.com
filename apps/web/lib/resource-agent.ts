@@ -507,9 +507,9 @@ export async function getUptimeData(
 
       if (day.totalChecks > 0) {
         const ratio = day.healthyChecks / day.totalChecks;
-        if (ratio >= 0.9) {
+        if (ratio === 1) {
           status = "up";
-        } else if (ratio > 0) {
+        } else if (ratio >= 0.5) {
           status = "degraded";
         } else {
           status = "down";
