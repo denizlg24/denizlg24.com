@@ -9,6 +9,7 @@ import {
   Contact,
   FileText,
   FolderGit2,
+  GraduationCap,
   Home,
   Inbox,
   KeyRound,
@@ -58,6 +59,11 @@ const items = [
     title: "Timetable",
     url: "/admin/dashboard/timetable",
     icon: CalendarDays,
+  },
+  {
+    title: "Courses",
+    url: "/admin/dashboard/courses",
+    icon: GraduationCap,
   },
   {
     title: "Blog",

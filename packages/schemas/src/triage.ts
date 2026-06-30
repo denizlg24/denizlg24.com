@@ -39,6 +39,9 @@ export const triageTaskSuggestionSchema = z.object({
   kanbanBoardTitle: z.string().optional(),
   kanbanColumnId: z.string().optional(),
   kanbanColumnTitle: z.string().optional(),
+  courseId: z.string().optional(),
+  courseName: z.string().optional(),
+  updatesCourseDeadlineId: z.string().optional(),
   status: triageSuggestionStatusSchema,
   acceptedCardId: z.string().optional(),
 });
@@ -49,6 +52,9 @@ export const triageEventSuggestionSchema = z.object({
   title: z.string(),
   date: z.string(),
   place: z.string().optional(),
+  courseId: z.string().optional(),
+  courseName: z.string().optional(),
+  updatesCalendarEventId: z.string().optional(),
   status: triageSuggestionStatusSchema,
   acceptedEventId: z.string().optional(),
 });
@@ -64,6 +70,8 @@ export const emailTriageSchema = z.object({
   category: triageCategorySchema,
   confidence: z.number(),
   summary: z.string().optional(),
+  matchedCourseId: z.string().optional(),
+  matchedCourseName: z.string().optional(),
   suggestedTasks: z.array(triageTaskSuggestionSchema),
   suggestedEvents: z.array(triageEventSuggestionSchema),
   userStatus: z.enum(["pending", "reviewed", "archived"]),

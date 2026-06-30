@@ -56,8 +56,8 @@ apps/desktop/src-tauri/target/
 .envoy/latest
 .envoy/HEAD
 .envoy/refs/
+.envoy/*.log
 
 # Envoy - Config
 !.envoy/config.toml
-
 

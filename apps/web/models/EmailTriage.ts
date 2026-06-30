@@ -22,6 +22,9 @@ export interface ITriageTaskSuggestion {
   kanbanBoardTitle?: string;
   kanbanColumnId?: mongoose.Types.ObjectId;
   kanbanColumnTitle?: string;
+  courseId?: mongoose.Types.ObjectId;
+  courseName?: string;
+  updatesCourseDeadlineId?: mongoose.Types.ObjectId;
   status: TriageSuggestionStatus;
   acceptedCardId?: mongoose.Types.ObjectId;
 }
@@ -31,6 +34,9 @@ export interface ITriageEventSuggestion {
   title: string;
   date: Date;
   place?: string;
+  courseId?: mongoose.Types.ObjectId;
+  courseName?: string;
+  updatesCalendarEventId?: mongoose.Types.ObjectId;
   status: TriageSuggestionStatus;
   acceptedEventId?: mongoose.Types.ObjectId;
 }
@@ -42,6 +48,8 @@ export interface IEmailTriage extends Document {
   category: TriageCategory;
   confidence: number;
   summary?: string;
+  matchedCourseId?: mongoose.Types.ObjectId;
+  matchedCourseName?: string;
   suggestedTasks: ITriageTaskSuggestion[];
   suggestedEvents: ITriageEventSuggestion[];
   userStatus: "pending" | "reviewed" | "archived";
@@ -59,18 +67,32 @@ export interface ILeanEmailTriage {
   category: TriageCategory;
   confidence: number;
   summary?: string;
+  matchedCourseId?: string;
+  matchedCourseName?: string;
   suggestedTasks: (Omit<
     ITriageTaskSuggestion,
-    "_id" | "acceptedCardId" | "kanbanBoardId" | "kanbanColumnId"
+    | "_id"
+    | "acceptedCardId"
+    | "kanbanBoardId"
+    | "kanbanColumnId"
+    | "courseId"
+    | "updatesCourseDeadlineId"
   > & {
     _id: string;
     acceptedCardId?: string;
     kanbanBoardId?: string;
     kanbanColumnId?: string;
+    courseId?: string;
+    updatesCourseDeadlineId?: string;
   })[];
-  suggestedEvents: (Omit<ITriageEventSuggestion, "_id" | "acceptedEventId"> & {
+  suggestedEvents: (Omit<
+    ITriageEventSuggestion,
+    "_id" | "acceptedEventId" | "courseId" | "updatesCalendarEventId"
+  > & {
     _id: string;
     acceptedEventId?: string;
+    courseId?: string;
+    updatesCalendarEventId?: string;
   })[];
   userStatus: "pending" | "reviewed" | "archived";
   modelUsed: string;
@@ -92,6 +114,9 @@ const TaskSuggestionSchema = new Schema<ITriageTaskSuggestion>({
   kanbanBoardTitle: { type: String },
   kanbanColumnId: { type: Schema.Types.ObjectId, ref: "KanbanColumn" },
   kanbanColumnTitle: { type: String },
+  courseId: { type: Schema.Types.ObjectId, ref: "Course" },
+  courseName: { type: String },
+  updatesCourseDeadlineId: { type: Schema.Types.ObjectId },
   status: {
     type: String,
     enum: ["pending", "accepted", "dismissed"],
@@ -104,6 +129,9 @@ const EventSuggestionSchema = new Schema<ITriageEventSuggestion>({
   title: { type: String, required: true },
   date: { type: Date, required: true },
   place: { type: String },
+  courseId: { type: Schema.Types.ObjectId, ref: "Course" },
+  courseName: { type: String },
+  updatesCalendarEventId: { type: Schema.Types.ObjectId, ref: "CalendarEvent" },
   status: {
     type: String,
     enum: ["pending", "accepted", "dismissed"],
@@ -147,6 +175,12 @@ const EmailTriageSchema = new Schema<IEmailTriage>(
     },
     confidence: { type: Number, required: true, min: 0, max: 1 },
     summary: { type: String },
+    matchedCourseId: {
+      type: Schema.Types.ObjectId,
+      ref: "Course",
+      index: true,
+    },
+    matchedCourseName: { type: String },
     suggestedTasks: { type: [TaskSuggestionSchema], default: [] },
     suggestedEvents: { type: [EventSuggestionSchema], default: [] },
     userStatus: {
