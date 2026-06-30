@@ -65,7 +65,7 @@ const DAY_LABEL: Record<
   },
   degraded: {
     label: "Partial outage",
-    tone: "text-amber-600 dark:text-amber-500",
+    tone: "text-amber-500 dark:text-amber-400",
     Icon: AlertTriangle,
   },
   down: {
@@ -102,9 +102,9 @@ function DayHover({ day }: { day: PublicDailyStatus }) {
       </div>
 
       <div
-        className={`flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 ${tone}`}
+        className={`flex items-center gap-2 bg-muted/20 px-3 py-2 text-accent-strong`}
       >
-        <Icon className="h-4 w-4 shrink-0" />
+        <Icon className={`h-4 w-4 shrink-0  ${tone}`} />
         <span className="text-sm font-medium">{label}</span>
         {day.status !== "unknown" && day.totalChecks > 0 && (
           <span className="ml-auto text-xs tabular-nums text-muted-foreground">
@@ -115,13 +115,13 @@ function DayHover({ day }: { day: PublicDailyStatus }) {
 
       {day.totalChecks > 0 ? (
         <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-          <dt className="text-muted-foreground">Healthy</dt>
+          {/* <dt className="text-muted-foreground">Healthy</dt>
           <dd className="tabular-nums text-right">
             {day.healthyChecks} / {day.totalChecks}
           </dd>
 
           <dt className="text-muted-foreground">Missed</dt>
-          <dd className="tabular-nums text-right">{missed}</dd>
+          <dd className="tabular-nums text-right">{missed}</dd> */}
 
           <dt className="text-muted-foreground">Avg response</dt>
           <dd className="tabular-nums text-right">
