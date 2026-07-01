@@ -21,7 +21,9 @@ import {
   Calendar,
   Check,
   ChevronDown,
+  ClipboardList,
   Loader2,
+  Paperclip,
   Undo2,
   X,
 } from "lucide-react";
@@ -183,6 +185,12 @@ export function TriageSheet({
               <Badge variant="outline" className="text-xs tabular-nums">
                 {(detail.triage.confidence * 100).toFixed(0)}%
               </Badge>
+              {detail.triage.attachmentTextUsed && (
+                <Badge variant="secondary" className="text-xs">
+                  <Paperclip className="size-3" />
+                  attachments
+                </Badge>
+              )}
               <Progress
                 value={detail.triage.confidence * 100}
                 className="h-1 flex-1"
@@ -267,6 +275,12 @@ export function TriageSheet({
                           <span className="text-[10px] text-muted-foreground tabular-nums">
                             due {new Date(t.dueDate).toLocaleDateString()}
                           </span>
+                        )}
+                        {t.assignmentType && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            <ClipboardList className="size-3" />
+                            {t.assignmentType}
+                          </Badge>
                         )}
                       </>
                     }

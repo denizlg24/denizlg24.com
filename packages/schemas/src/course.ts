@@ -21,6 +21,14 @@ export const courseCustomFieldSchema = z.object({
 });
 export type ICourseCustomField = z.infer<typeof courseCustomFieldSchema>;
 
+export const courseTriageContextSchema = z.object({
+  _id: z.string(),
+  label: z.string(),
+  value: z.string(),
+  includeInTriage: z.boolean(),
+});
+export type ICourseTriageContext = z.infer<typeof courseTriageContextSchema>;
+
 export const courseManualDeadlineSchema = z.object({
   _id: z.string(),
   title: z.string(),
@@ -30,6 +38,73 @@ export const courseManualDeadlineSchema = z.object({
   completed: z.boolean(),
 });
 export type ICourseManualDeadline = z.infer<typeof courseManualDeadlineSchema>;
+
+export const courseAssignmentTypeSchema = z.enum([
+  "assignment",
+  "exam",
+  "quiz",
+  "project",
+  "lab",
+  "reading",
+  "other",
+]);
+export type CourseAssignmentType = z.infer<typeof courseAssignmentTypeSchema>;
+
+export const courseAssignmentStatusSchema = z.enum([
+  "planned",
+  "in-progress",
+  "submitted",
+  "graded",
+  "archived",
+]);
+export type CourseAssignmentStatus = z.infer<
+  typeof courseAssignmentStatusSchema
+>;
+
+export const courseAssignmentLinkSchema = z.object({
+  _id: z.string(),
+  label: z.string(),
+  url: z.string(),
+});
+export type ICourseAssignmentLink = z.infer<typeof courseAssignmentLinkSchema>;
+
+export const courseAssignmentFileSchema = z.object({
+  _id: z.string(),
+  name: z.string(),
+  url: z.string(),
+  mimeType: z.string().optional(),
+  size: z.number().optional(),
+});
+export type ICourseAssignmentFile = z.infer<typeof courseAssignmentFileSchema>;
+
+export const courseAssignmentGradeSchema = z.object({
+  score: z.number().optional(),
+  maxScore: z.number().optional(),
+  letter: z.string().optional(),
+  weight: z.number().optional(),
+  gradedAt: z.string().optional(),
+  notes: z.string().optional(),
+});
+export type ICourseAssignmentGrade = z.infer<
+  typeof courseAssignmentGradeSchema
+>;
+
+export const courseAssignmentSchema = z.object({
+  _id: z.string(),
+  courseId: z.string(),
+  title: z.string(),
+  type: courseAssignmentTypeSchema,
+  status: courseAssignmentStatusSchema,
+  dueAt: z.string().optional(),
+  submittedAt: z.string().optional(),
+  notes: z.string().optional(),
+  links: z.array(courseAssignmentLinkSchema),
+  files: z.array(courseAssignmentFileSchema),
+  grade: courseAssignmentGradeSchema.optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type ICourseAssignment = z.infer<typeof courseAssignmentSchema>;
 
 export const courseSchema = z.object({
   _id: z.string(),
@@ -46,6 +121,7 @@ export const courseSchema = z.object({
   endsOn: z.string().optional(),
   links: z.array(courseLinkSchema),
   customFields: z.array(courseCustomFieldSchema),
+  triageContext: z.array(courseTriageContextSchema),
   manualDeadlines: z.array(courseManualDeadlineSchema),
   timetableEntryIds: z.array(z.string()),
   calendarEventIds: z.array(z.string()),
@@ -69,10 +145,18 @@ export const courseStatsSchema = z.object({
   resources: z.number(),
   openManualDeadlines: z.number(),
   overdueDeadlines: z.number(),
+  assignments: z.number(),
+  openAssignments: z.number(),
+  gradedAssignments: z.number(),
+  gradeAverage: z.number().nullable(),
 });
 export type ICourseStats = z.infer<typeof courseStatsSchema>;
 
-export const courseDeadlineSourceSchema = z.enum(["manual", "kanban"]);
+export const courseDeadlineSourceSchema = z.enum([
+  "manual",
+  "kanban",
+  "assignment",
+]);
 export type CourseDeadlineSource = z.infer<typeof courseDeadlineSourceSchema>;
 
 export const courseDeadlineSchema = z.object({
@@ -205,6 +289,7 @@ export const courseDetailSchema = z.object({
   calendarEvents: z.array(courseCalendarSummarySchema),
   kanbanBoards: z.array(courseKanbanBoardSummarySchema),
   kanbanCards: z.array(courseKanbanCardSummarySchema),
+  assignments: z.array(courseAssignmentSchema),
   notes: z.array(courseNoteSummarySchema),
   people: z.array(coursePersonSummarySchema),
   resources: z.array(courseResourceSummarySchema),

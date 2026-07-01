@@ -15,6 +15,13 @@ export interface ICourseCustomField {
   value: string;
 }
 
+export interface ICourseTriageContext {
+  _id: mongoose.Types.ObjectId;
+  label: string;
+  value: string;
+  includeInTriage: boolean;
+}
+
 export interface ICourseManualDeadline {
   _id: mongoose.Types.ObjectId;
   title: string;
@@ -38,6 +45,7 @@ export interface ICourse extends Document {
   endsOn?: Date;
   links: mongoose.Types.DocumentArray<ICourseLink>;
   customFields: mongoose.Types.DocumentArray<ICourseCustomField>;
+  triageContext: mongoose.Types.DocumentArray<ICourseTriageContext>;
   manualDeadlines: mongoose.Types.DocumentArray<ICourseManualDeadline>;
   timetableEntryIds: mongoose.Types.ObjectId[];
   calendarEventIds: mongoose.Types.ObjectId[];
@@ -58,6 +66,12 @@ const LinkSchema = new Schema<ICourseLink>({
 const CustomFieldSchema = new Schema<ICourseCustomField>({
   label: { type: String, required: true, trim: true },
   value: { type: String, required: true, trim: true },
+});
+
+const TriageContextSchema = new Schema<ICourseTriageContext>({
+  label: { type: String, required: true, trim: true },
+  value: { type: String, required: true, trim: true },
+  includeInTriage: { type: Boolean, default: false },
 });
 
 const ManualDeadlineSchema = new Schema<ICourseManualDeadline>({
@@ -96,6 +110,7 @@ const CourseSchema = new Schema<ICourse>(
     endsOn: { type: Date },
     links: { type: [LinkSchema], default: [] },
     customFields: { type: [CustomFieldSchema], default: [] },
+    triageContext: { type: [TriageContextSchema], default: [] },
     manualDeadlines: { type: [ManualDeadlineSchema], default: [] },
     timetableEntryIds: { type: objectIdArray("TimetableEntry"), default: [] },
     calendarEventIds: { type: objectIdArray("CalendarEvent"), default: [] },

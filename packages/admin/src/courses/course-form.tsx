@@ -8,6 +8,7 @@ import type {
   ICourseManualDeadline,
   ICourseOption,
   ICourseOptions,
+  ICourseTriageContext,
 } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
@@ -55,6 +56,9 @@ const COURSE_COLORS = [
 
 type LinkDraft = Omit<ICourseLink, "_id"> & { _id?: string };
 type CustomFieldDraft = Omit<ICourseCustomField, "_id"> & { _id?: string };
+type TriageContextDraft = Omit<ICourseTriageContext, "_id"> & {
+  _id?: string;
+};
 type ManualDeadlineDraft = Omit<ICourseManualDeadline, "_id"> & {
   _id?: string;
 };
@@ -73,6 +77,7 @@ export interface CourseFormValues {
   endsOn?: string;
   links: LinkDraft[];
   customFields: CustomFieldDraft[];
+  triageContext: TriageContextDraft[];
   manualDeadlines: ManualDeadlineDraft[];
   timetableEntryIds: string[];
   calendarEventIds: string[];
@@ -126,6 +131,7 @@ function formDefaults(initial?: ICourse): CourseFormValues {
     endsOn: toDateInput(initial?.endsOn),
     links: initial?.links ?? [],
     customFields: initial?.customFields ?? [],
+    triageContext: initial?.triageContext ?? [],
     manualDeadlines:
       initial?.manualDeadlines.map((deadline) => ({
         ...deadline,
@@ -156,6 +162,13 @@ function normalizeSubmit(values: CourseFormValues): CourseFormValues {
       .map((field) => ({
         label: field.label.trim(),
         value: field.value.trim(),
+      }))
+      .filter((field) => field.label && field.value),
+    triageContext: values.triageContext
+      .map((field) => ({
+        label: field.label.trim(),
+        value: field.value.trim(),
+        includeInTriage: field.includeInTriage,
       }))
       .filter((field) => field.label && field.value),
     manualDeadlines: values.manualDeadlines
@@ -521,6 +534,85 @@ export function CourseForm({
                 >
                   <Trash2 className="size-4 text-destructive" />
                 </Button>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Triage Context</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setField("triageContext", [
+                    ...values.triageContext,
+                    { label: "", value: "", includeInTriage: false },
+                  ])
+                }
+              >
+                <Plus className="size-3.5" />
+                Add
+              </Button>
+            </div>
+            {values.triageContext.map((field, index) => (
+              <div key={field._id ?? index} className="rounded-md border p-2">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-[0.8fr_1fr_auto]">
+                  <Input
+                    value={field.label}
+                    placeholder="Label"
+                    onChange={(event) => {
+                      const triageContext = [...values.triageContext];
+                      triageContext[index] = {
+                        ...field,
+                        label: event.target.value,
+                      };
+                      setField("triageContext", triageContext);
+                    }}
+                  />
+                  <Input
+                    value={field.value}
+                    placeholder="Value"
+                    onChange={(event) => {
+                      const triageContext = [...values.triageContext];
+                      triageContext[index] = {
+                        ...field,
+                        value: event.target.value,
+                      };
+                      setField("triageContext", triageContext);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() =>
+                      setField(
+                        "triageContext",
+                        values.triageContext.filter(
+                          (_, current) => current !== index,
+                        ),
+                      )
+                    }
+                  >
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                </div>
+                <label className="mt-2 flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={field.includeInTriage}
+                    onCheckedChange={(checked) => {
+                      const triageContext = [...values.triageContext];
+                      triageContext[index] = {
+                        ...field,
+                        includeInTriage: checked === true,
+                      };
+                      setField("triageContext", triageContext);
+                    }}
+                  />
+                  Use in triage
+                </label>
               </div>
             ))}
           </div>

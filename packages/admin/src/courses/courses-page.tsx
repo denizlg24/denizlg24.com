@@ -30,9 +30,11 @@ import { cn } from "@repo/ui/utils";
 import {
   AlertCircle,
   ArrowLeft,
+  Award,
   BookOpen,
   CalendarDays,
   CheckCircle2,
+  ClipboardList,
   Clock,
   ExternalLink,
   FileText,
@@ -45,6 +47,7 @@ import {
   Pencil,
   Plus,
   Radio,
+  ShieldCheck,
   Trash2,
   UsersRound,
 } from "lucide-react";
@@ -53,6 +56,10 @@ import type * as React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import {
+  CourseAssignmentsPanel,
+  CourseGradebookPanel,
+} from "./course-assignments";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -89,6 +96,11 @@ function deadlineTone(deadline: ICourseDeadline) {
   if (deadline.completed) return "text-muted-foreground";
   if (deadline.overdue) return "text-destructive";
   return "text-foreground";
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (value === null || value === undefined) return "--";
+  return `${value.toFixed(1)}%`;
 }
 
 function CourseSkeleton() {
@@ -193,18 +205,19 @@ function CourseCard({
           )}
         </div>
 
-        <div className="grid grid-cols-4 gap-2 text-xs">
+        <div className="grid grid-cols-4 gap-2 text-[11px]">
           <span className="rounded-md bg-muted/60 px-2 py-1">
             {stats.timetableEntries} time
           </span>
           <span className="rounded-md bg-muted/60 px-2 py-1">
-            {stats.dueCards + stats.openManualDeadlines} due
+            {stats.dueCards + stats.openManualDeadlines + stats.openAssignments}{" "}
+            due
           </span>
           <span className="rounded-md bg-muted/60 px-2 py-1">
-            {stats.notes} notes
+            {stats.assignments} work
           </span>
           <span className="rounded-md bg-muted/60 px-2 py-1">
-            {stats.people} ppl
+            {formatPercent(stats.gradeAverage)}
           </span>
         </div>
 
@@ -241,12 +254,14 @@ function CourseHome({
   onEdit,
   onDelete,
   onOpenExternal,
+  onRefresh,
 }: {
   detail: ICourseDetail;
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onOpenExternal: (url: string) => void;
+  onRefresh: () => Promise<void>;
 }) {
   const { course, stats } = detail;
   const activeDeadlines = detail.deadlines.filter(
@@ -318,10 +333,12 @@ function CourseHome({
                     {course.description}
                   </p>
                 )}
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
                   <Stat label="Schedule" value={stats.timetableEntries} />
                   <Stat label="Events" value={stats.calendarEvents} />
                   <Stat label="Cards" value={stats.kanbanCards} />
+                  <Stat label="Work" value={stats.assignments} />
+                  <Stat label="Graded" value={stats.gradedAssignments} />
                   <Stat label="Overdue" value={stats.overdueDeadlines} />
                 </div>
                 {(course.location ||
@@ -432,6 +449,18 @@ function CourseHome({
             </Section>
 
             <Section
+              title="Assignments"
+              icon={<ClipboardList className="size-4 text-muted-foreground" />}
+            >
+              <CourseAssignmentsPanel
+                courseId={course._id}
+                assignments={detail.assignments}
+                onOpenExternal={onOpenExternal}
+                onRefresh={onRefresh}
+              />
+            </Section>
+
+            <Section
               title="Timetable"
               icon={<Clock className="size-4 text-muted-foreground" />}
             >
@@ -468,6 +497,50 @@ function CourseHome({
           </div>
 
           <div className="space-y-4">
+            <Section
+              title="Gradebook"
+              icon={<Award className="size-4 text-muted-foreground" />}
+            >
+              <CourseGradebookPanel
+                assignments={detail.assignments}
+                gradeAverage={stats.gradeAverage}
+              />
+            </Section>
+
+            <Section
+              title="Triage Context"
+              icon={<ShieldCheck className="size-4 text-muted-foreground" />}
+            >
+              {course.triageContext.length === 0 ? (
+                <InlineEmpty label="No triage context" />
+              ) : (
+                <div className="space-y-2">
+                  {course.triageContext.map((field) => (
+                    <div
+                      key={field._id}
+                      className="rounded-md border px-3 py-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                          {field.label}
+                        </span>
+                        <Badge
+                          variant={
+                            field.includeInTriage ? "secondary" : "outline"
+                          }
+                        >
+                          {field.includeInTriage ? "triage" : "private"}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 truncate text-xs text-muted-foreground">
+                        {field.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+
             <Section
               title="Related Emails"
               icon={<Inbox className="size-4 text-muted-foreground" />}
@@ -813,6 +886,7 @@ export function CoursesPage({
           onEdit={openEdit}
           onDelete={() => setDeleteTarget(detail.course)}
           onOpenExternal={(url) => platform.openExternal(url)}
+          onRefresh={() => fetchDetail(detail.course._id)}
         />
         <DeleteCourseDialog
           deleteTarget={deleteTarget}

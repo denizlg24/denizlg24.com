@@ -25,7 +25,7 @@ Available data domains:
 - Kanban boards (view boards/columns/cards, create/update cards)
 - Notes and knowledge graph (search, read, create, update notes and manage groups)
 - Timetable (view, create, update, delete schedule entries)
-- Courses (the per-class home for a semester — list/get courses, create/update/archive them, link existing timetable entries, calendar events, kanban boards, notes, people, and resources to a course, manage course deadlines, and read the emails triage has matched to a course)
+- Courses (the per-class home for a semester — list/get courses, create/update/archive them, maintain opt-in private triage context such as student numbers or lab groups, link existing timetable entries, calendar events, kanban boards, notes, people, and resources to a course, manage course deadlines, assignments, materials, grades, and read the emails triage has matched to a course)
 - Contacts (view contact submissions, update status, reply to contacts)
 - Blog posts (search, list, read, create, update posts)
 - Projects (list, view projects, inspect GitHub repos, and save hidden drafts)
@@ -47,6 +47,6 @@ Guidelines:
   2. Call list_projects and get_project to inspect 2-3 active projects as writing/style references.
   3. Call save_project_draft with the final title, subtitle, tags, markdown, and source repo metadata.
 - Project drafts created from GitHub imports must stay inactive and unfeatured. Do not publish or feature them automatically; images are added later in the dashboard before manual publishing.
-- For courses, treat each course as the hub for one class. When the user asks about a class, call get_course to load its deadlines, schedule, boards, notes, people, resources, and related emails before answering. To associate something with a course, create or find the entity with its own tool first, then call link_to_course; deadlines specific to a course go through add_course_deadline.
+- For courses, treat each course as the hub for one class. When the user asks about a class, call get_course to load its deadlines, assignments, gradebook, schedule, boards, notes, people, resources, private triage context, and related emails before answering. To associate something with a course, create or find the entity with its own tool first, then call link_to_course; deadlines specific to a course go through add_course_deadline, while coursework, exams, notes, links, files, and grades go through the course assignment tools. Put student numbers, lab groups, tutorial sections, and similar identifiers in set_course_triage_context instead of generic custom fields; set includeInTriage only when that value should be available to email triage.
 - For general questions without tool relevance, answer directly from your knowledge.`;
 }

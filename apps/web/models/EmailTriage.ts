@@ -11,6 +11,14 @@ export type TriageCategory =
 
 export type TriageSuggestionStatus = "pending" | "accepted" | "dismissed";
 export type TriagePriority = "none" | "low" | "medium" | "high" | "urgent";
+export type TriageCourseAssignmentType =
+  | "assignment"
+  | "exam"
+  | "quiz"
+  | "project"
+  | "lab"
+  | "reading"
+  | "other";
 
 export interface ITriageTaskSuggestion {
   _id: mongoose.Types.ObjectId;
@@ -25,8 +33,10 @@ export interface ITriageTaskSuggestion {
   courseId?: mongoose.Types.ObjectId;
   courseName?: string;
   updatesCourseDeadlineId?: mongoose.Types.ObjectId;
+  assignmentType?: TriageCourseAssignmentType;
   status: TriageSuggestionStatus;
   acceptedCardId?: mongoose.Types.ObjectId;
+  acceptedAssignmentId?: mongoose.Types.ObjectId;
 }
 
 export interface ITriageEventSuggestion {
@@ -50,6 +60,8 @@ export interface IEmailTriage extends Document {
   summary?: string;
   matchedCourseId?: mongoose.Types.ObjectId;
   matchedCourseName?: string;
+  attachmentTextUsed: boolean;
+  attachmentTextSources: string[];
   suggestedTasks: ITriageTaskSuggestion[];
   suggestedEvents: ITriageEventSuggestion[];
   userStatus: "pending" | "reviewed" | "archived";
@@ -69,6 +81,8 @@ export interface ILeanEmailTriage {
   summary?: string;
   matchedCourseId?: string;
   matchedCourseName?: string;
+  attachmentTextUsed: boolean;
+  attachmentTextSources: string[];
   suggestedTasks: (Omit<
     ITriageTaskSuggestion,
     | "_id"
@@ -77,9 +91,11 @@ export interface ILeanEmailTriage {
     | "kanbanColumnId"
     | "courseId"
     | "updatesCourseDeadlineId"
+    | "acceptedAssignmentId"
   > & {
     _id: string;
     acceptedCardId?: string;
+    acceptedAssignmentId?: string;
     kanbanBoardId?: string;
     kanbanColumnId?: string;
     courseId?: string;
@@ -117,12 +133,20 @@ const TaskSuggestionSchema = new Schema<ITriageTaskSuggestion>({
   courseId: { type: Schema.Types.ObjectId, ref: "Course" },
   courseName: { type: String },
   updatesCourseDeadlineId: { type: Schema.Types.ObjectId },
+  assignmentType: {
+    type: String,
+    enum: ["assignment", "exam", "quiz", "project", "lab", "reading", "other"],
+  },
   status: {
     type: String,
     enum: ["pending", "accepted", "dismissed"],
     default: "pending",
   },
   acceptedCardId: { type: Schema.Types.ObjectId, ref: "KanbanCard" },
+  acceptedAssignmentId: {
+    type: Schema.Types.ObjectId,
+    ref: "CourseAssignment",
+  },
 });
 
 const EventSuggestionSchema = new Schema<ITriageEventSuggestion>({
@@ -181,6 +205,8 @@ const EmailTriageSchema = new Schema<IEmailTriage>(
       index: true,
     },
     matchedCourseName: { type: String },
+    attachmentTextUsed: { type: Boolean, default: false },
+    attachmentTextSources: { type: [String], default: [] },
     suggestedTasks: { type: [TaskSuggestionSchema], default: [] },
     suggestedEvents: { type: [EventSuggestionSchema], default: [] },
     userStatus: {

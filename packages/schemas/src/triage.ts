@@ -29,6 +29,19 @@ export const triagePrioritySchema = z.enum([
 ]);
 export type TriagePriority = z.infer<typeof triagePrioritySchema>;
 
+export const triageCourseAssignmentTypeSchema = z.enum([
+  "assignment",
+  "exam",
+  "quiz",
+  "project",
+  "lab",
+  "reading",
+  "other",
+]);
+export type TriageCourseAssignmentType = z.infer<
+  typeof triageCourseAssignmentTypeSchema
+>;
+
 export const triageTaskSuggestionSchema = z.object({
   _id: z.string(),
   title: z.string(),
@@ -42,8 +55,10 @@ export const triageTaskSuggestionSchema = z.object({
   courseId: z.string().optional(),
   courseName: z.string().optional(),
   updatesCourseDeadlineId: z.string().optional(),
+  assignmentType: triageCourseAssignmentTypeSchema.optional(),
   status: triageSuggestionStatusSchema,
   acceptedCardId: z.string().optional(),
+  acceptedAssignmentId: z.string().optional(),
 });
 export type ITriageTaskSuggestion = z.infer<typeof triageTaskSuggestionSchema>;
 
@@ -72,6 +87,8 @@ export const emailTriageSchema = z.object({
   summary: z.string().optional(),
   matchedCourseId: z.string().optional(),
   matchedCourseName: z.string().optional(),
+  attachmentTextUsed: z.boolean(),
+  attachmentTextSources: z.array(z.string()),
   suggestedTasks: z.array(triageTaskSuggestionSchema),
   suggestedEvents: z.array(triageEventSuggestionSchema),
   userStatus: z.enum(["pending", "reviewed", "archived"]),

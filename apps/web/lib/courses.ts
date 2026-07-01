@@ -1,6 +1,10 @@
 import type {
+  CourseAssignmentStatus,
+  CourseAssignmentType,
+  ICourseAssignment as CourseAssignmentWire,
   CourseStatus,
   ICourse as CourseWire,
+  ICourseAssignmentGrade,
   ICourseCalendarSummary,
   ICourseDeadline,
   ICourseDetail,
@@ -19,6 +23,7 @@ import type {
 import mongoose from "mongoose";
 import { CalendarEvent } from "@/models/CalendarEvent";
 import { Course } from "@/models/Course";
+import { CourseAssignment } from "@/models/CourseAssignment";
 import { EmailModel } from "@/models/Email";
 import { EmailTriageModel } from "@/models/EmailTriage";
 import { KanbanBoard } from "@/models/KanbanBoard";
@@ -49,11 +54,36 @@ const LINK_FIELDS = [
 ] as const;
 export type CourseLinkField = (typeof LINK_FIELDS)[number];
 
+const ASSIGNMENT_TYPES = [
+  "assignment",
+  "exam",
+  "quiz",
+  "project",
+  "lab",
+  "reading",
+  "other",
+] as const satisfies readonly CourseAssignmentType[];
+
+const ASSIGNMENT_STATUSES = [
+  "planned",
+  "in-progress",
+  "submitted",
+  "graded",
+  "archived",
+] as const satisfies readonly CourseAssignmentStatus[];
+
+const COMPLETED_ASSIGNMENT_STATUSES = new Set<CourseAssignmentStatus>([
+  "submitted",
+  "graded",
+  "archived",
+]);
+
 export interface CourseMatchCandidate {
   _id: string;
   name: string;
   code?: string;
   instructorName?: string;
+  triageContext: { label: string; value: string }[];
   boardIds: string[];
   openDeadlines: { _id: string; title: string; dueAt: string }[];
   upcomingEvents: { _id: string; title: string; date: string }[];
@@ -68,6 +98,9 @@ type LeanFindModel = {
 
 type CourseMutationInput = Partial<
   Omit<CourseWire, "_id" | "createdAt" | "updatedAt">
+>;
+type CourseAssignmentMutationInput = Partial<
+  Omit<CourseAssignmentWire, "_id" | "courseId" | "createdAt" | "updatedAt">
 >;
 
 const ID_ARRAY_FIELDS = [
@@ -115,6 +148,12 @@ function parseDate(value: unknown): Date | null | undefined {
   if (value === undefined) return undefined;
   const date = value instanceof Date ? value : new Date(String(value));
   return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function parseNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function normalizeObjectIds(value: unknown): mongoose.Types.ObjectId[] {
@@ -165,6 +204,17 @@ function serializeCustomFields(value: unknown): CourseWire["customFields"] {
     .filter((field) => field.label && field.value);
 }
 
+function serializeTriageContext(value: unknown): CourseWire["triageContext"] {
+  return getArray(value)
+    .map((field) => ({
+      _id: toId(field._id),
+      label: cleanStringOrEmpty(field.label),
+      value: cleanStringOrEmpty(field.value),
+      includeInTriage: field.includeInTriage === true,
+    }))
+    .filter((field) => field.label && field.value);
+}
+
 function serializeManualDeadlines(
   value: unknown,
 ): CourseWire["manualDeadlines"] {
@@ -206,6 +256,16 @@ function normalizeCustomFields(value: unknown) {
     .filter((field) => field.label && field.value);
 }
 
+function normalizeTriageContext(value: unknown) {
+  return getArray(value)
+    .map((field) => ({
+      label: cleanStringOrEmpty(field.label),
+      value: cleanStringOrEmpty(field.value),
+      includeInTriage: field.includeInTriage === true,
+    }))
+    .filter((field) => field.label && field.value);
+}
+
 function normalizeManualDeadlines(value: unknown) {
   const deadlines: Array<{
     title: string;
@@ -229,6 +289,166 @@ function normalizeManualDeadlines(value: unknown) {
   }
 
   return deadlines;
+}
+
+function coerceAssignmentType(value: unknown): CourseAssignmentType {
+  return typeof value === "string" &&
+    (ASSIGNMENT_TYPES as readonly string[]).includes(value)
+    ? (value as CourseAssignmentType)
+    : "assignment";
+}
+
+function coerceAssignmentStatus(value: unknown): CourseAssignmentStatus {
+  return typeof value === "string" &&
+    (ASSIGNMENT_STATUSES as readonly string[]).includes(value)
+    ? (value as CourseAssignmentStatus)
+    : "planned";
+}
+
+function serializeAssignmentLinks(
+  value: unknown,
+): CourseAssignmentWire["links"] {
+  return getArray(value)
+    .map((link) => ({
+      _id: toId(link._id),
+      label: cleanStringOrEmpty(link.label),
+      url: cleanStringOrEmpty(link.url),
+    }))
+    .filter((link) => link.label && link.url);
+}
+
+function serializeAssignmentFiles(
+  value: unknown,
+): CourseAssignmentWire["files"] {
+  return getArray(value)
+    .map((file) => ({
+      _id: toId(file._id),
+      name: cleanStringOrEmpty(file.name),
+      url: cleanStringOrEmpty(file.url),
+      mimeType: cleanString(file.mimeType),
+      size: parseNumber(file.size),
+    }))
+    .filter((file) => file.name && file.url);
+}
+
+function serializeAssignmentGrade(
+  value: unknown,
+): ICourseAssignmentGrade | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const grade = value as RawRecord;
+  const score = parseNumber(grade.score);
+  const maxScore = parseNumber(grade.maxScore);
+  const weight = parseNumber(grade.weight);
+  const letter = cleanString(grade.letter);
+  const notes = cleanString(grade.notes);
+  const gradedAt = toIsoString(grade.gradedAt);
+  if (
+    score === undefined &&
+    maxScore === undefined &&
+    weight === undefined &&
+    !letter &&
+    !notes &&
+    !gradedAt
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(score !== undefined ? { score } : {}),
+    ...(maxScore !== undefined ? { maxScore } : {}),
+    ...(letter ? { letter } : {}),
+    ...(weight !== undefined ? { weight } : {}),
+    ...(gradedAt ? { gradedAt } : {}),
+    ...(notes ? { notes } : {}),
+  };
+}
+
+function serializeCourseAssignment(
+  assignment: RawRecord,
+): CourseAssignmentWire {
+  const createdAt =
+    toIsoString(assignment.createdAt) ?? new Date().toISOString();
+  const updatedAt = toIsoString(assignment.updatedAt) ?? createdAt;
+
+  return {
+    _id: toId(assignment._id),
+    courseId: toId(assignment.courseId),
+    title: cleanStringOrEmpty(assignment.title),
+    type: coerceAssignmentType(assignment.type),
+    status: coerceAssignmentStatus(assignment.status),
+    dueAt: toIsoString(assignment.dueAt),
+    submittedAt: toIsoString(assignment.submittedAt),
+    notes: cleanString(assignment.notes),
+    links: serializeAssignmentLinks(assignment.links),
+    files: serializeAssignmentFiles(assignment.files),
+    grade: serializeAssignmentGrade(assignment.grade),
+    createdAt,
+    updatedAt,
+  };
+}
+
+function normalizeAssignmentLinks(value: unknown) {
+  return getArray(value)
+    .map((link) => ({
+      label: cleanStringOrEmpty(link.label),
+      url: cleanStringOrEmpty(link.url),
+    }))
+    .filter((link) => link.label && link.url);
+}
+
+function normalizeAssignmentFiles(value: unknown) {
+  return getArray(value)
+    .map((file) => ({
+      name: cleanStringOrEmpty(file.name),
+      url: cleanStringOrEmpty(file.url),
+      mimeType: cleanString(file.mimeType),
+      size: parseNumber(file.size),
+    }))
+    .filter((file) => file.name && file.url);
+}
+
+function normalizeAssignmentGrade(value: unknown) {
+  if (!value || typeof value !== "object") return undefined;
+  const grade = value as RawRecord;
+  const score = parseNumber(grade.score);
+  const maxScore = parseNumber(grade.maxScore);
+  const weight = parseNumber(grade.weight);
+  const gradedAt = parseDate(grade.gradedAt);
+  const normalized = {
+    ...(score !== undefined ? { score } : {}),
+    ...(maxScore !== undefined ? { maxScore } : {}),
+    ...(cleanString(grade.letter) ? { letter: cleanString(grade.letter) } : {}),
+    ...(weight !== undefined ? { weight } : {}),
+    ...(gradedAt ? { gradedAt } : {}),
+    ...(cleanString(grade.notes) ? { notes: cleanString(grade.notes) } : {}),
+  };
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeAssignmentMutation(data: CourseAssignmentMutationInput) {
+  const update: Record<string, unknown> = {};
+
+  if ("title" in data) update.title = cleanStringOrEmpty(data.title);
+  if ("type" in data) update.type = coerceAssignmentType(data.type);
+  if ("status" in data) update.status = coerceAssignmentStatus(data.status);
+
+  if ("dueAt" in data) {
+    const dueAt = parseDate(data.dueAt);
+    if (dueAt !== undefined) update.dueAt = dueAt;
+  }
+
+  if ("submittedAt" in data) {
+    const submittedAt = parseDate(data.submittedAt);
+    if (submittedAt !== undefined) update.submittedAt = submittedAt;
+  }
+
+  if ("notes" in data) update.notes = cleanString(data.notes) ?? "";
+  if ("links" in data) update.links = normalizeAssignmentLinks(data.links);
+  if ("files" in data) update.files = normalizeAssignmentFiles(data.files);
+  if ("grade" in data) update.grade = normalizeAssignmentGrade(data.grade);
+
+  return update;
 }
 
 export function normalizeCourseMutation(data: CourseMutationInput) {
@@ -257,6 +477,9 @@ export function normalizeCourseMutation(data: CourseMutationInput) {
   if ("links" in data) update.links = normalizeLinks(data.links);
   if ("customFields" in data) {
     update.customFields = normalizeCustomFields(data.customFields);
+  }
+  if ("triageContext" in data) {
+    update.triageContext = normalizeTriageContext(data.triageContext);
   }
   if ("manualDeadlines" in data) {
     update.manualDeadlines = normalizeManualDeadlines(data.manualDeadlines);
@@ -288,6 +511,7 @@ export function serializeCourse(course: RawRecord): CourseWire {
     endsOn: toIsoString(course.endsOn),
     links: serializeLinks(course.links),
     customFields: serializeCustomFields(course.customFields),
+    triageContext: serializeTriageContext(course.triageContext),
     manualDeadlines: serializeManualDeadlines(course.manualDeadlines),
     timetableEntryIds: serializeIds(course.timetableEntryIds),
     calendarEventIds: serializeIds(course.calendarEventIds),
@@ -314,6 +538,7 @@ function buildDeadlines(
   course: CourseWire,
   kanbanCards: ICourseKanbanCardSummary[],
   boardsById: Map<string, ICourseKanbanBoardSummary>,
+  assignments: CourseAssignmentWire[],
 ): ICourseDeadline[] {
   const now = Date.now();
 
@@ -328,6 +553,27 @@ function buildDeadlines(
     completed: deadline.completed,
     overdue: !deadline.completed && new Date(deadline.dueAt).getTime() < now,
   }));
+
+  const assignmentDeadlines = assignments
+    .filter(
+      (assignment) => assignment.dueAt && assignment.status !== "archived",
+    )
+    .map((assignment) => {
+      const dueAt = assignment.dueAt ?? new Date().toISOString();
+      const completed = COMPLETED_ASSIGNMENT_STATUSES.has(assignment.status);
+      return {
+        _id: `assignment:${assignment._id}`,
+        title: assignment.title,
+        dueAt,
+        source: "assignment" as const,
+        sourceId: assignment._id,
+        sourceLabel: assignment.type,
+        notes: assignment.notes,
+        url: assignment.links[0]?.url,
+        completed,
+        overdue: !completed && new Date(dueAt).getTime() < now,
+      };
+    });
 
   const kanban = kanbanCards
     .filter((card) => Boolean(card.dueDate))
@@ -347,15 +593,58 @@ function buildDeadlines(
       };
     });
 
-  return [...manual, ...kanban].sort(
+  return [...manual, ...assignmentDeadlines, ...kanban].sort(
     (a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime(),
   );
+}
+
+function getAssignmentGradePercent(
+  assignment: CourseAssignmentWire,
+): number | undefined {
+  const score = assignment.grade?.score;
+  const maxScore = assignment.grade?.maxScore;
+  if (score === undefined || maxScore === undefined || maxScore <= 0) {
+    return undefined;
+  }
+  return (score / maxScore) * 100;
+}
+
+function calculateGradeAverage(assignments: CourseAssignmentWire[]) {
+  const graded: { percent: number; weight?: number }[] = [];
+  for (const assignment of assignments) {
+    const percent = getAssignmentGradePercent(assignment);
+    if (percent !== undefined) {
+      graded.push({ percent, weight: assignment.grade?.weight });
+    }
+  }
+  if (graded.length === 0) return null;
+
+  const weighted = graded.filter(
+    (grade) => grade.weight !== undefined && grade.weight > 0,
+  );
+  if (weighted.length > 0) {
+    const totalWeight = weighted.reduce(
+      (sum, grade) => sum + (grade.weight ?? 0),
+      0,
+    );
+    if (totalWeight > 0) {
+      return (
+        weighted.reduce(
+          (sum, grade) => sum + grade.percent * (grade.weight ?? 0),
+          0,
+        ) / totalWeight
+      );
+    }
+  }
+
+  return graded.reduce((sum, grade) => sum + grade.percent, 0) / graded.length;
 }
 
 function buildStats(
   course: CourseWire,
   kanbanCards: ICourseKanbanCardSummary[],
   deadlines: ICourseDeadline[],
+  assignments: CourseAssignmentWire[],
 ): ICourseStats {
   return {
     timetableEntries: course.timetableEntryIds.length,
@@ -370,6 +659,18 @@ function buildStats(
       (deadline) => !deadline.completed,
     ).length,
     overdueDeadlines: deadlines.filter((deadline) => deadline.overdue).length,
+    assignments: assignments.filter(
+      (assignment) => assignment.status !== "archived",
+    ).length,
+    openAssignments: assignments.filter(
+      (assignment) =>
+        assignment.status !== "archived" &&
+        !COMPLETED_ASSIGNMENT_STATUSES.has(assignment.status),
+    ).length,
+    gradedAssignments: assignments.filter(
+      (assignment) => assignment.grade?.score !== undefined,
+    ).length,
+    gradeAverage: calculateGradeAverage(assignments),
   };
 }
 
@@ -486,6 +787,19 @@ async function getCourseKanbanCards(boardIds: string[]) {
   return cards.map(toKanbanCardSummary);
 }
 
+async function getCourseAssignments(courseIds: string[]) {
+  const validIds = courseIds.filter((id) =>
+    mongoose.Types.ObjectId.isValid(id),
+  );
+  if (validIds.length === 0) return [];
+  const assignments = await CourseAssignment.find({
+    courseId: { $in: validIds },
+  })
+    .sort({ dueAt: 1, updatedAt: -1 })
+    .lean<RawRecord[]>();
+  return assignments.map(serializeCourseAssignment);
+}
+
 function buildBoardSummaries(
   boards: RawRecord[],
   cards: ICourseKanbanCardSummary[],
@@ -522,8 +836,12 @@ export async function getCourses(): Promise<ICourseListItem[]> {
   const linkedBoardIds = [
     ...new Set(courses.flatMap((course) => course.kanbanBoardIds)),
   ];
-  const kanbanCards = await getCourseKanbanCards(linkedBoardIds);
+  const [kanbanCards, assignments] = await Promise.all([
+    getCourseKanbanCards(linkedBoardIds),
+    getCourseAssignments(courses.map((course) => course._id)),
+  ]);
   const cardsByBoard = new Map<string, ICourseKanbanCardSummary[]>();
+  const assignmentsByCourse = new Map<string, CourseAssignmentWire[]>();
 
   for (const card of kanbanCards) {
     const list = cardsByBoard.get(card.boardId) ?? [];
@@ -531,14 +849,26 @@ export async function getCourses(): Promise<ICourseListItem[]> {
     cardsByBoard.set(card.boardId, list);
   }
 
+  for (const assignment of assignments) {
+    const list = assignmentsByCourse.get(assignment.courseId) ?? [];
+    list.push(assignment);
+    assignmentsByCourse.set(assignment.courseId, list);
+  }
+
   return courses.map((course) => {
     const courseCards = course.kanbanBoardIds.flatMap(
       (boardId) => cardsByBoard.get(boardId) ?? [],
     );
-    const deadlines = buildDeadlines(course, courseCards, new Map());
+    const courseAssignments = assignmentsByCourse.get(course._id) ?? [];
+    const deadlines = buildDeadlines(
+      course,
+      courseCards,
+      new Map(),
+      courseAssignments,
+    );
     return {
       course,
-      stats: buildStats(course, courseCards, deadlines),
+      stats: buildStats(course, courseCards, deadlines, courseAssignments),
       nextDeadline: deadlines.find((deadline) => !deadline.completed),
     };
   });
@@ -569,6 +899,7 @@ export async function getCourseDetail(
     rawPeople,
     rawResources,
     kanbanCards,
+    rawAssignments,
   ] = await Promise.all([
     findByIds(TimetableEntry, course.timetableEntryIds),
     findByIds(CalendarEvent, course.calendarEventIds),
@@ -577,6 +908,9 @@ export async function getCourseDetail(
     findByIds(Person, course.personIds),
     findByIds(Resource, course.resourceIds),
     getCourseKanbanCards(course.kanbanBoardIds),
+    CourseAssignment.find({ courseId: id })
+      .sort({ dueAt: 1, updatedAt: -1 })
+      .lean<RawRecord[]>(),
   ]);
 
   const timetableEntries = sortByIdOrder(
@@ -604,17 +938,24 @@ export async function getCourseDetail(
     rawResources.map(toResourceSummary),
     course.resourceIds,
   );
-  const deadlines = buildDeadlines(course, kanbanCards, boardsById);
+  const assignments = rawAssignments.map(serializeCourseAssignment);
+  const deadlines = buildDeadlines(
+    course,
+    kanbanCards,
+    boardsById,
+    assignments,
+  );
   const emails = await getCourseRelatedEmails(id);
 
   return {
     course,
-    stats: buildStats(course, kanbanCards, deadlines),
+    stats: buildStats(course, kanbanCards, deadlines, assignments),
     deadlines,
     timetableEntries,
     calendarEvents,
     kanbanBoards,
     kanbanCards,
+    assignments,
     notes,
     people,
     resources,
@@ -659,7 +1000,71 @@ export async function deleteCourse(id: string): Promise<boolean> {
   if (!mongoose.Types.ObjectId.isValid(id)) return false;
   await connectDB();
   const result = await Course.findByIdAndDelete(id);
+  if (result) {
+    await CourseAssignment.deleteMany({ courseId: id });
+  }
   return Boolean(result);
+}
+
+export async function createCourseAssignment(
+  courseId: string,
+  data: CourseAssignmentMutationInput,
+): Promise<CourseAssignmentWire | null> {
+  if (!mongoose.Types.ObjectId.isValid(courseId)) return null;
+  const title = cleanString(data.title);
+  if (!title) return null;
+
+  await connectDB();
+  const courseExists = await Course.exists({ _id: courseId });
+  if (!courseExists) return null;
+
+  const payload = normalizeAssignmentMutation({
+    ...data,
+    title,
+    status: data.status ?? "planned",
+    type: data.type ?? "assignment",
+  });
+  const assignment = await CourseAssignment.create({
+    ...payload,
+    courseId: new mongoose.Types.ObjectId(courseId),
+  });
+  return serializeCourseAssignment(
+    assignment.toObject() as unknown as RawRecord,
+  );
+}
+
+export async function updateCourseAssignment(
+  courseId: string,
+  assignmentId: string,
+  data: CourseAssignmentMutationInput,
+): Promise<CourseAssignmentWire | null> {
+  if (!mongoose.Types.ObjectId.isValid(courseId)) return null;
+  if (!mongoose.Types.ObjectId.isValid(assignmentId)) return null;
+  if ("title" in data && !cleanString(data.title)) return null;
+
+  await connectDB();
+  const update = normalizeAssignmentMutation(data);
+  const assignment = await CourseAssignment.findOneAndUpdate(
+    { _id: assignmentId, courseId },
+    update,
+    { returnDocument: "after", runValidators: true },
+  ).lean<RawRecord>();
+  return assignment ? serializeCourseAssignment(assignment) : null;
+}
+
+export async function deleteCourseAssignment(
+  courseId: string,
+  assignmentId: string,
+): Promise<boolean> {
+  if (!mongoose.Types.ObjectId.isValid(courseId)) return false;
+  if (!mongoose.Types.ObjectId.isValid(assignmentId)) return false;
+
+  await connectDB();
+  const result = await CourseAssignment.deleteOne({
+    _id: assignmentId,
+    courseId,
+  });
+  return result.deletedCount > 0;
 }
 
 export async function getCourseOptions(): Promise<ICourseOptions> {
@@ -929,7 +1334,7 @@ export async function getCoursesForMatching(): Promise<CourseMatchCandidate[]> {
   await connectDB();
   const courses = await Course.find({ status: "active" })
     .select(
-      "name code instructorName manualDeadlines calendarEventIds kanbanBoardIds",
+      "name code instructorName triageContext manualDeadlines calendarEventIds kanbanBoardIds",
     )
     .lean<RawRecord[]>();
   if (courses.length === 0) return [];
@@ -972,6 +1377,12 @@ export async function getCoursesForMatching(): Promise<CourseMatchCandidate[]> {
       name: cleanStringOrEmpty(course.name),
       code: cleanString(course.code),
       instructorName: cleanString(course.instructorName),
+      triageContext: serializeTriageContext(course.triageContext)
+        .filter((field) => field.includeInTriage)
+        .map((field) => ({
+          label: field.label,
+          value: field.value,
+        })),
       boardIds: serializeIds(course.kanbanBoardIds),
       openDeadlines,
       upcomingEvents,
