@@ -8,6 +8,8 @@ import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import {
   type IDashboardStats,
+  type ISemesterDeadline,
+  type ISemesterOverview,
   type UpcomingCard,
   type UpcomingKanbanResult,
   upcomingKanbanResultSchema,
@@ -18,6 +20,16 @@ function formatDueLabel(card: UpcomingCard) {
   if (card.daysUntilDue <= 0) return "today";
   if (card.daysUntilDue === 1) return "tomorrow";
   return `in ${card.daysUntilDue}d`;
+}
+
+function formatDeadlineDue(deadline: ISemesterDeadline) {
+  if (deadline.overdue) return "overdue";
+  const days = Math.ceil(
+    (new Date(deadline.dueAt).getTime() - Date.now()) / 86400000,
+  );
+  if (days <= 0) return "today";
+  if (days === 1) return "tomorrow";
+  return `in ${days}d`;
 }
 
 const SUMMARY_SKELETON_ITEMS = [
@@ -117,22 +129,34 @@ interface AgendaDisplayItem {
 function ScheduleTasksSwitcher({
   agendaItems,
   upcoming,
+  semester,
 }: {
   agendaItems: AgendaDisplayItem[];
   upcoming: UpcomingKanbanResult | null;
+  semester: ISemesterOverview | null;
 }) {
   const hasSchedule = agendaItems.length > 0;
   const hasTasks = upcoming !== null && upcoming.stats.total > 0;
-  const [tab, setTab] = useState<"schedule" | "tasks">(
-    hasSchedule ? "schedule" : "tasks",
+  const hasSemester = semester !== null && semester.stats.activeCourses > 0;
+  const [tab, setTab] = useState<"schedule" | "tasks" | "semester">(
+    hasSchedule ? "schedule" : hasTasks ? "tasks" : "semester",
   );
 
   useEffect(() => {
-    if (tab === "schedule" && !hasSchedule && hasTasks) setTab("tasks");
-    if (tab === "tasks" && !hasTasks && hasSchedule) setTab("schedule");
-  }, [hasSchedule, hasTasks, tab]);
+    const available = {
+      schedule: hasSchedule,
+      tasks: hasTasks,
+      semester: hasSemester,
+    };
+    if (!available[tab]) {
+      const fallback = (["schedule", "tasks", "semester"] as const).find(
+        (key) => available[key],
+      );
+      if (fallback) setTab(fallback);
+    }
+  }, [hasSchedule, hasTasks, hasSemester, tab]);
 
-  if (!hasSchedule && !hasTasks) return null;
+  if (!hasSchedule && !hasTasks && !hasSemester) return null;
 
   return (
     <div className="w-full max-w-md">
@@ -174,6 +198,29 @@ function ScheduleTasksSwitcher({
               }`}
             >
               {upcoming.stats.total}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("semester")}
+          disabled={!hasSemester}
+          className={`pb-1 border-b transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+            tab === "semester"
+              ? "border-foreground text-accent-strong"
+              : "border-transparent text-muted-foreground hover:text-accent-strong"
+          }`}
+        >
+          Semester
+          {hasSemester && (
+            <span
+              className={`ml-1.5 normal-case tracking-normal ${
+                semester.stats.overdue > 0
+                  ? "text-destructive"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {semester.stats.overdue + semester.stats.dueNext7Days}
             </span>
           )}
         </button>
@@ -264,6 +311,58 @@ function ScheduleTasksSwitcher({
           )}
         </div>
       )}
+
+      {tab === "semester" && hasSemester && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+            {semester.stats.overdue > 0 && (
+              <span className="text-destructive">
+                {semester.stats.overdue} overdue
+              </span>
+            )}
+            <span>{semester.stats.dueNext7Days} due this week</span>
+            {semester.stats.semesterAverage !== null && (
+              <span>avg {semester.stats.semesterAverage.toFixed(1)}%</span>
+            )}
+          </div>
+
+          {semester.deadlines.length === 0 ? (
+            <p className="text-center text-xs text-muted-foreground">
+              Nothing due in the next two weeks
+            </p>
+          ) : (
+            <div className="flex flex-col">
+              {semester.deadlines.slice(0, 5).map((deadline) => (
+                <div
+                  key={deadline._id}
+                  className="flex items-baseline gap-3 py-1"
+                >
+                  <span
+                    className={`w-16 shrink-0 font-mono text-xs tabular-nums ${
+                      deadline.overdue
+                        ? "text-destructive"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {formatDeadlineDue(deadline)}
+                  </span>
+                  <span className="flex-1 truncate text-sm text-accent-strong">
+                    {deadline.title}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {deadline.courseCode ?? deadline.courseName}
+                  </span>
+                </div>
+              ))}
+              {semester.deadlines.length > 5 && (
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  +{semester.deadlines.length - 5} more
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -303,6 +402,7 @@ export function DashboardSummary() {
   const { settings, loading: loadingSettings } = useUserSettings();
   const [stats, setStats] = useState<IDashboardStats | null>(null);
   const [upcoming, setUpcoming] = useState<UpcomingKanbanResult | null>(null);
+  const [semester, setSemester] = useState<ISemesterOverview | null>(null);
   const [loading, setLoading] = useState(true);
 
   const API = useMemo(() => {
@@ -313,15 +413,19 @@ export function DashboardSummary() {
   const fetchStats = useCallback(async () => {
     if (!API) return;
     setLoading(true);
-    const [statsResult, upcomingResult] = await Promise.all([
+    const [statsResult, upcomingResult, semesterResult] = await Promise.all([
       API.GET<IDashboardStats>({ endpoint: "dashboard/stats" }),
       API.GET({
         endpoint: "kanban/upcoming?days=7",
         schema: upcomingKanbanResultSchema,
       }),
+      API.GET<{ overview: ISemesterOverview }>({
+        endpoint: "courses/overview",
+      }),
     ]);
     if (!("code" in statsResult)) setStats(statsResult);
     if (!("code" in upcomingResult)) setUpcoming(upcomingResult);
+    if (!("code" in semesterResult)) setSemester(semesterResult.overview);
     setLoading(false);
   }, [API]);
 
@@ -375,7 +479,11 @@ export function DashboardSummary() {
         <StatNumber value={stats.triage.actionRequired} label="Action Req" />
       </div>
 
-      <ScheduleTasksSwitcher agendaItems={agendaItems} upcoming={upcoming} />
+      <ScheduleTasksSwitcher
+        agendaItems={agendaItems}
+        upcoming={upcoming}
+        semester={semester}
+      />
 
       <div className="flex flex-col items-center gap-4">
         {stats.resources.length > 0 && (

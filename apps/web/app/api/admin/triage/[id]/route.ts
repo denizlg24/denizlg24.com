@@ -54,6 +54,10 @@ export async function GET(
       _id: triage._id.toString(),
       emailId: triage.emailId.toString(),
       accountId: triage.accountId.toString(),
+      attachmentTextUsed: triage.attachmentTextUsed === true,
+      attachmentTextSources: Array.isArray(triage.attachmentTextSources)
+        ? triage.attachmentTextSources
+        : [],
       suggestedTasks: (triage.suggestedTasks ?? []).map((s) => ({
         ...s,
         _id: String(s._id),
@@ -63,6 +67,9 @@ export async function GET(
           : undefined,
         acceptedCardId: s.acceptedCardId
           ? s.acceptedCardId.toString()
+          : undefined,
+        acceptedAssignmentId: s.acceptedAssignmentId
+          ? s.acceptedAssignmentId.toString()
           : undefined,
       })),
       suggestedEvents: (triage.suggestedEvents ?? []).map((s) => ({

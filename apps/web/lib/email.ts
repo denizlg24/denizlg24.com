@@ -5,6 +5,11 @@ import { EmailModel, type IEmail } from "@/models/Email";
 import { EmailAccountModel } from "@/models/EmailAccount";
 import { decryptPassword } from "./safe-email-password";
 
+const TRIAGE_ATTACHMENT_MAX_COUNT = 3;
+const TRIAGE_ATTACHMENT_MAX_BYTES = 512 * 1024;
+const TRIAGE_ATTACHMENT_MAX_CHARS = 2200;
+const TRIAGE_ATTACHMENT_TOTAL_CHARS = 6000;
+
 export async function createImapClient(account: {
   host: string;
   port: number;
@@ -110,11 +115,95 @@ export interface FetchedEmailBody {
   date: Date;
   text: string;
   html: string;
+  attachmentText: FetchedEmailAttachmentText[];
+}
+
+export interface FetchedEmailAttachmentText {
+  filename: string;
+  contentType: string;
+  size: number;
+  text: string;
+  truncated: boolean;
+}
+
+interface FetchEmailBodyOptions {
+  includeAttachmentText?: boolean;
+}
+
+function isTextLikeAttachment(filename: string, contentType: string) {
+  const normalizedType = contentType.toLowerCase();
+  const normalizedName = filename.toLowerCase();
+  return (
+    normalizedType.startsWith("text/") ||
+    [
+      "application/json",
+      "application/ld+json",
+      "application/xml",
+      "application/xhtml+xml",
+      "application/csv",
+      "application/ics",
+      "text/calendar",
+      "text/csv",
+    ].includes(normalizedType) ||
+    /\.(txt|md|markdown|csv|tsv|ics|json|xml|yaml|yml)$/i.test(normalizedName)
+  );
+}
+
+function normalizeAttachmentText(value: string) {
+  return value
+    .replace(/\0/g, "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function extractAttachmentText(
+  attachments: Awaited<ReturnType<typeof simpleParser>>["attachments"],
+): FetchedEmailAttachmentText[] {
+  const extracted: FetchedEmailAttachmentText[] = [];
+  let totalChars = 0;
+
+  for (const [index, attachment] of attachments.entries()) {
+    if (extracted.length >= TRIAGE_ATTACHMENT_MAX_COUNT) break;
+
+    const filename = attachment.filename || `attachment-${index}`;
+    const contentType = attachment.contentType || "application/octet-stream";
+    const size = attachment.size ?? attachment.content.length;
+    if (size > TRIAGE_ATTACHMENT_MAX_BYTES) continue;
+    if (!isTextLikeAttachment(filename, contentType)) continue;
+
+    const normalized = normalizeAttachmentText(
+      attachment.content.toString("utf8"),
+    );
+    if (!normalized) continue;
+
+    const remaining = TRIAGE_ATTACHMENT_TOTAL_CHARS - totalChars;
+    if (remaining <= 0) break;
+
+    const limit = Math.min(TRIAGE_ATTACHMENT_MAX_CHARS, remaining);
+    const text = normalized.slice(0, limit).trim();
+    if (!text) continue;
+
+    totalChars += text.length;
+    extracted.push({
+      filename,
+      contentType,
+      size,
+      text,
+      truncated: normalized.length > text.length,
+    });
+  }
+
+  return extracted;
 }
 
 export async function fetchEmailBody(
   accountId: string,
   uid: number,
+  options?: FetchEmailBodyOptions,
 ): Promise<FetchedEmailBody | null> {
   const account = await EmailAccountModel.findById(accountId).lean();
   if (!account) return null;
@@ -152,6 +241,9 @@ export async function fetchEmailBody(
       date: parsed.date ?? msg.envelope?.date ?? new Date(),
       text: parsed.text ?? "",
       html: typeof parsed.html === "string" ? parsed.html : "",
+      attachmentText: options?.includeAttachmentText
+        ? extractAttachmentText(parsed.attachments ?? [])
+        : [],
     };
   } finally {
     lock.release();

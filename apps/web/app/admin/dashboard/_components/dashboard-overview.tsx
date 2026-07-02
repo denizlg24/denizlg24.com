@@ -1,6 +1,11 @@
 "use client";
 
-import type { UpcomingCard, UpcomingKanbanResult } from "@repo/schemas";
+import type {
+  ISemesterDeadline,
+  ISemesterOverview,
+  UpcomingCard,
+  UpcomingKanbanResult,
+} from "@repo/schemas";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   AlertCircle,
@@ -26,6 +31,16 @@ function formatDueLabel(card: UpcomingCard) {
   if (card.daysUntilDue <= 0) return "today";
   if (card.daysUntilDue === 1) return "tomorrow";
   return `in ${card.daysUntilDue}d`;
+}
+
+function formatDeadlineDue(deadline: ISemesterDeadline) {
+  if (deadline.overdue) return "overdue";
+  const days = Math.ceil(
+    (new Date(deadline.dueAt).getTime() - Date.now()) / 86400000,
+  );
+  if (days <= 0) return "today";
+  if (days === 1) return "tomorrow";
+  return `in ${days}d`;
 }
 
 interface DashboardStats {
@@ -298,16 +313,19 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 export function DashboardOverview() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [upcoming, setUpcoming] = useState<UpcomingKanbanResult | null>(null);
+  const [semester, setSemester] = useState<ISemesterOverview | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchStats = useCallback(async () => {
     try {
-      const [statsRes, upcomingRes] = await Promise.all([
+      const [statsRes, upcomingRes, semesterRes] = await Promise.all([
         fetch("/api/admin/dashboard/stats"),
         fetch("/api/admin/kanban/upcoming?days=7"),
+        fetch("/api/admin/courses/overview"),
       ]);
       if (statsRes.ok) setStats(await statsRes.json());
       if (upcomingRes.ok) setUpcoming(await upcomingRes.json());
+      if (semesterRes.ok) setSemester((await semesterRes.json()).overview);
     } catch (error) {
       console.error("Failed to fetch dashboard stats:", error);
     } finally {
@@ -593,6 +611,79 @@ export function DashboardOverview() {
               </motion.div>
             ))}
           </div>
+        </motion.div>
+      )}
+
+      {semester && semester.stats.activeCourses > 0 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.4 }}
+          className="py-10 border-b border-foreground/6"
+        >
+          <div className="flex items-baseline justify-between mb-4">
+            <SectionLabel>Semester</SectionLabel>
+            <div className="flex items-center gap-3 text-[11px] text-foreground">
+              {semester.stats.overdue > 0 && (
+                <span className="text-destructive">
+                  {semester.stats.overdue} overdue
+                </span>
+              )}
+              <span>{semester.stats.dueNext7Days} due this week</span>
+              {semester.stats.semesterAverage !== null && (
+                <span>avg {semester.stats.semesterAverage.toFixed(1)}%</span>
+              )}
+              <Link
+                href="/admin/dashboard/courses"
+                className="hover:text-accent-strong transition-colors flex items-center gap-0.5"
+              >
+                Courses <ArrowUpRight className="w-3 h-3" />
+              </Link>
+            </div>
+          </div>
+
+          {semester.deadlines.length === 0 ? (
+            <p className="text-sm text-foreground italic">
+              Nothing due in the next two weeks
+            </p>
+          ) : (
+            <div className="flex flex-col divide-y divide-foreground/4">
+              {semester.deadlines.slice(0, 5).map((deadline) => (
+                <div
+                  key={deadline._id}
+                  className="flex items-baseline gap-4 py-2"
+                >
+                  <span
+                    className={`text-xs font-mono w-20 shrink-0 tabular-nums ${
+                      deadline.overdue
+                        ? "text-destructive"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {formatDeadlineDue(deadline)}
+                  </span>
+                  <span className="text-sm text-accent-strong truncate flex-1">
+                    {deadline.title}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground shrink-0 flex items-center gap-1.5">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{
+                        backgroundColor:
+                          deadline.courseColor ?? "var(--accent)",
+                      }}
+                    />
+                    {deadline.courseCode ?? deadline.courseName}
+                  </span>
+                </div>
+              ))}
+              {semester.deadlines.length > 5 && (
+                <p className="pt-2 text-[11px] text-muted-foreground">
+                  +{semester.deadlines.length - 5} more on the courses page
+                </p>
+              )}
+            </div>
+          )}
         </motion.div>
       )}
 

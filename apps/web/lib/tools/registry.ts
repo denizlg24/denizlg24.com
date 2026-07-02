@@ -2,6 +2,7 @@ import { blogTools } from "./blog";
 import { calendarTools } from "./calendar";
 import { clientTools } from "./client";
 import { contactsTools } from "./contacts";
+import { coursesTools } from "./courses";
 import { emailTools } from "./email";
 import { kanbanTools } from "./kanban";
 import { notesTools } from "./notes";
@@ -20,6 +21,9 @@ const allTools: ToolDefinition[] = [
   ...notesTools,
   ...calendarTools,
   ...timetableTools,
+
+  // Academic
+  ...coursesTools,
 
   // Content
   ...blogTools,

@@ -3,6 +3,7 @@ export * from "./blog";
 export * from "./calendar";
 export * from "./contact";
 export * from "./conversation";
+export * from "./course";
 export * from "./dashboard";
 export * from "./email";
 export * from "./journal";

@@ -109,6 +109,10 @@ export async function GET(request: NextRequest) {
       category: t.category,
       confidence: t.confidence,
       summary: t.summary,
+      attachmentTextUsed: t.attachmentTextUsed === true,
+      attachmentTextSources: Array.isArray(t.attachmentTextSources)
+        ? t.attachmentTextSources
+        : [],
       suggestedTasks: (t.suggestedTasks ?? []).map((s) => ({
         ...s,
         _id: String(s._id),
@@ -118,6 +122,9 @@ export async function GET(request: NextRequest) {
           : undefined,
         acceptedCardId: s.acceptedCardId
           ? s.acceptedCardId.toString()
+          : undefined,
+        acceptedAssignmentId: s.acceptedAssignmentId
+          ? s.acceptedAssignmentId.toString()
           : undefined,
       })),
       suggestedEvents: (t.suggestedEvents ?? []).map((s) => ({
