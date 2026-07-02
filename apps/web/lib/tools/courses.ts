@@ -11,9 +11,12 @@ import {
   createCourseAssignment,
   deleteCourseAssignment,
   getCourseDetail,
+  getCourseGradeProjection,
   getCourseRelatedEmails,
   getCourses,
+  getSemesterOverview,
   removeCourseLink,
+  requiredAverageForTarget,
   updateCourse,
   updateCourseAssignment,
 } from "@/lib/courses";
@@ -678,6 +681,73 @@ export const coursesTools: ToolDefinition[] = [
       );
       if (!course) throw new Error("Course or deadline not found");
       return { _id: course._id, updated: true };
+    },
+  },
+  {
+    schema: {
+      name: "get_semester_overview",
+      description:
+        "The semester cockpit in one call: per-course grade standings with projections (current weighted average, graded vs remaining weight, best/worst case final grade), every open deadline that is overdue or due within 14 days across all courses, the next 7 days of classes from the timetable, and aggregate stats. Call this first for any semester-wide question (how is the semester going, what's due this week, what does my week look like).",
+      input_schema: {
+        type: "object",
+        properties: {},
+      },
+    },
+    isWrite: false,
+    category: "courses",
+    execute: async () => {
+      return await getSemesterOverview();
+    },
+  },
+  {
+    schema: {
+      name: "project_course_grade",
+      description:
+        "Grade projection for one course: current weighted average, graded vs remaining weight, best/worst case final grade, and — when targetAverage is given — the average needed on the remaining weight to reach that target. Use for questions like 'what do I need on the final to get 85%?'. Requires grade weights on graded assignments.",
+      input_schema: {
+        type: "object",
+        properties: {
+          courseId: { type: "string", description: "Course ID" },
+          targetAverage: {
+            type: "number",
+            description:
+              "Target final grade as a percentage 0-100 (optional). E.g. 85 to ask what is needed on remaining work to finish at 85%.",
+          },
+        },
+        required: ["courseId"],
+      },
+    },
+    isWrite: false,
+    category: "courses",
+    execute: async (input) => {
+      const result = await getCourseGradeProjection(input.courseId as string);
+      if (!result) throw new Error("Course not found");
+
+      const target =
+        typeof input.targetAverage === "number"
+          ? input.targetAverage
+          : undefined;
+      if (target === undefined) return result;
+
+      const requiredAverage = requiredAverageForTarget(
+        result.projection,
+        target,
+      );
+      let note: string | undefined;
+      if (requiredAverage === null) {
+        note =
+          result.projection.remainingWeight === 0
+            ? "All grade weight is already graded — the final grade is settled."
+            : "No weighted grades recorded yet; add grade weights to assignments to enable target projections.";
+      }
+      return {
+        ...result,
+        target,
+        requiredAverage,
+        alreadySecured: requiredAverage !== null && requiredAverage <= 0,
+        achievable: requiredAverage !== null && requiredAverage <= 100,
+        note,
+      };
     },
   },
 ];

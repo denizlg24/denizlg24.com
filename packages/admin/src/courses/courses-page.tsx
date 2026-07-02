@@ -60,6 +60,7 @@ import {
   CourseAssignmentsPanel,
   CourseGradebookPanel,
 } from "./course-assignments";
+import { SemesterCockpit } from "./semester-cockpit";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -754,8 +755,12 @@ function normalizeBasePath(path = "/admin/dashboard/courses") {
 
 export function CoursesPage({
   routeBasePath = "/admin/dashboard/courses",
+  buildEditPath,
 }: {
   routeBasePath?: string;
+  /** Desktop's static export cannot serve dynamic segments, so it routes
+      edits through a query-param page instead of `{basePath}/{id}/edit`. */
+  buildEditPath?: (courseId: string) => string;
 }) {
   const { client, platform, slots } = useAdmin();
   const router = useRouter();
@@ -831,7 +836,11 @@ export function CoursesPage({
 
   const openEdit = () => {
     if (!detail) return;
-    router.push(`${basePath}/${detail.course._id}/edit`);
+    router.push(
+      buildEditPath
+        ? buildEditPath(detail.course._id)
+        : `${basePath}/${detail.course._id}/edit`,
+    );
   };
 
   const handleDelete = async () => {
@@ -930,6 +939,10 @@ export function CoursesPage({
           </Empty>
         ) : (
           <div className="space-y-6">
+            <SemesterCockpit
+              onSelectCourse={setSelectedCourseId}
+              reloadSignal={courses.length}
+            />
             {groupedCourses.map(([semester, items]) => (
               <section key={semester} className="space-y-3">
                 <div className="flex items-center gap-2">

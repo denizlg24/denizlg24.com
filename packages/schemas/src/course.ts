@@ -314,3 +314,84 @@ export const courseOptionsSchema = z.object({
   resources: z.array(courseOptionSchema),
 });
 export type ICourseOptions = z.infer<typeof courseOptionsSchema>;
+
+// All percentages are 0-100. Weight fields refer to grade weights (share of
+// the final grade); projections are only computed from weighted grades.
+export const courseGradeProjectionSchema = z.object({
+  currentAverage: z.number().nullable(),
+  gradedWeight: z.number().nullable(),
+  remainingWeight: z.number().nullable(),
+  bestCase: z.number().nullable(),
+  worstCase: z.number().nullable(),
+});
+export type ICourseGradeProjection = z.infer<
+  typeof courseGradeProjectionSchema
+>;
+
+export const semesterDeadlineSchema = courseDeadlineSchema.extend({
+  courseId: z.string(),
+  courseName: z.string(),
+  courseCode: z.string().optional(),
+  courseColor: z.string().optional(),
+});
+export type ISemesterDeadline = z.infer<typeof semesterDeadlineSchema>;
+
+export const semesterCourseStandingSchema = z.object({
+  courseId: z.string(),
+  name: z.string(),
+  code: z.string().optional(),
+  semester: z.string().optional(),
+  color: z.string().optional(),
+  gradeAverage: z.number().nullable(),
+  projection: courseGradeProjectionSchema,
+  openAssignments: z.number(),
+  dueNext7Days: z.number(),
+  overdue: z.number(),
+  nextDeadline: semesterDeadlineSchema.optional(),
+});
+export type ISemesterCourseStanding = z.infer<
+  typeof semesterCourseStandingSchema
+>;
+
+export const semesterScheduleClassSchema = z.object({
+  courseId: z.string(),
+  courseName: z.string(),
+  courseColor: z.string().optional(),
+  title: z.string(),
+  startTime: z.string(),
+  endTime: z.string(),
+  place: z.string().optional(),
+});
+export type ISemesterScheduleClass = z.infer<
+  typeof semesterScheduleClassSchema
+>;
+
+export const semesterScheduleDaySchema = z.object({
+  date: z.string(),
+  label: z.string(),
+  isToday: z.boolean(),
+  classes: z.array(semesterScheduleClassSchema),
+  deadlineCount: z.number(),
+});
+export type ISemesterScheduleDay = z.infer<typeof semesterScheduleDaySchema>;
+
+export const semesterOverviewStatsSchema = z.object({
+  activeCourses: z.number(),
+  openAssignments: z.number(),
+  dueNext7Days: z.number(),
+  overdue: z.number(),
+  gradedAssignments: z.number(),
+  semesterAverage: z.number().nullable(),
+});
+export type ISemesterOverviewStats = z.infer<
+  typeof semesterOverviewStatsSchema
+>;
+
+export const semesterOverviewSchema = z.object({
+  generatedAt: z.string(),
+  stats: semesterOverviewStatsSchema,
+  courses: z.array(semesterCourseStandingSchema),
+  deadlines: z.array(semesterDeadlineSchema),
+  week: z.array(semesterScheduleDaySchema),
+});
+export type ISemesterOverview = z.infer<typeof semesterOverviewSchema>;

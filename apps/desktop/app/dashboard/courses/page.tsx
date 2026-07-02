@@ -12,7 +12,10 @@ export default function CoursesRoute() {
       {loading ? (
         <div className="h-full animate-pulse bg-muted/20" />
       ) : (
-        <CoursesPage routeBasePath="/dashboard/courses" />
+        <CoursesPage
+          routeBasePath="/dashboard/courses"
+          buildEditPath={(courseId) => `/dashboard/courses/edit?id=${courseId}`}
+        />
       )}
     </AdminProvider>
   );

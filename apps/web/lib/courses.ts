@@ -9,6 +9,7 @@ import type {
   ICourseDeadline,
   ICourseDetail,
   ICourseEmailSummary,
+  ICourseGradeProjection,
   ICourseKanbanBoardSummary,
   ICourseKanbanCardSummary,
   ICourseListItem,
@@ -18,6 +19,11 @@ import type {
   ICourseResourceSummary,
   ICourseStats,
   ICourseTimetableSummary,
+  ISemesterCourseStanding,
+  ISemesterDeadline,
+  ISemesterOverview,
+  ISemesterScheduleClass,
+  ISemesterScheduleDay,
   TriageCategory,
 } from "@repo/schemas";
 import mongoose from "mongoose";
@@ -1392,4 +1398,283 @@ export async function getCoursesForMatching(): Promise<CourseMatchCandidate[]> {
 
 export function parseCourseStatus(value: unknown): CourseStatus {
   return value === "archived" ? "archived" : "active";
+}
+
+export function computeGradeProjection(
+  assignments: CourseAssignmentWire[],
+): ICourseGradeProjection {
+  const active = assignments.filter(
+    (assignment) => assignment.status !== "archived",
+  );
+  const currentAverage = calculateGradeAverage(active);
+
+  const gradedWeighted = active
+    .map((assignment) => ({
+      percent: getAssignmentGradePercent(assignment),
+      weight: assignment.grade?.weight,
+    }))
+    .filter(
+      (grade): grade is { percent: number; weight: number } =>
+        grade.percent !== undefined &&
+        grade.weight !== undefined &&
+        grade.weight > 0,
+    );
+
+  if (gradedWeighted.length === 0) {
+    return {
+      currentAverage,
+      gradedWeight: null,
+      remainingWeight: null,
+      bestCase: null,
+      worstCase: null,
+    };
+  }
+
+  // Weights are shares of the final grade; clamp so malformed weights
+  // (summing past 100) cannot produce projections outside 0-100.
+  const gradedWeight = Math.min(
+    100,
+    gradedWeighted.reduce((sum, grade) => sum + grade.weight, 0),
+  );
+  const remainingWeight = Math.max(0, 100 - gradedWeight);
+  const earned = Math.min(
+    gradedWeight,
+    gradedWeighted.reduce(
+      (sum, grade) => sum + (grade.percent * grade.weight) / 100,
+      0,
+    ),
+  );
+
+  return {
+    currentAverage,
+    gradedWeight,
+    remainingWeight,
+    bestCase: earned + remainingWeight,
+    worstCase: earned,
+  };
+}
+
+export function requiredAverageForTarget(
+  projection: ICourseGradeProjection,
+  target: number,
+): number | null {
+  if (
+    projection.remainingWeight === null ||
+    projection.worstCase === null ||
+    projection.remainingWeight <= 0
+  ) {
+    return null;
+  }
+  return ((target - projection.worstCase) / projection.remainingWeight) * 100;
+}
+
+export async function getCourseGradeProjection(courseId: string): Promise<{
+  course: { _id: string; name: string; code?: string };
+  assignments: number;
+  projection: ICourseGradeProjection;
+} | null> {
+  if (!mongoose.Types.ObjectId.isValid(courseId)) return null;
+  await connectDB();
+  const course = await Course.findById(courseId)
+    .select("name code")
+    .lean<RawRecord>();
+  if (!course) return null;
+  const assignments = await getCourseAssignments([courseId]);
+  return {
+    course: {
+      _id: toId(course._id),
+      name: cleanStringOrEmpty(course.name),
+      code: cleanString(course.code),
+    },
+    assignments: assignments.filter(
+      (assignment) => assignment.status !== "archived",
+    ).length,
+    projection: computeGradeProjection(assignments),
+  };
+}
+
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function toDateKey(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+export async function getSemesterOverview(): Promise<ISemesterOverview> {
+  await connectDB();
+  const rawCourses = await Course.find({ status: "active" })
+    .sort({ semester: -1, name: 1 })
+    .lean<RawRecord[]>();
+  const courses = rawCourses.map(serializeCourse);
+
+  const boardIds = [
+    ...new Set(courses.flatMap((course) => course.kanbanBoardIds)),
+  ];
+  const timetableEntryIds = [
+    ...new Set(courses.flatMap((course) => course.timetableEntryIds)),
+  ];
+  const [kanbanCards, assignments, rawTimetableEntries] = await Promise.all([
+    getCourseKanbanCards(boardIds),
+    getCourseAssignments(courses.map((course) => course._id)),
+    findByIds(TimetableEntry, timetableEntryIds),
+  ]);
+
+  const cardsByBoard = new Map<string, ICourseKanbanCardSummary[]>();
+  for (const card of kanbanCards) {
+    const list = cardsByBoard.get(card.boardId) ?? [];
+    list.push(card);
+    cardsByBoard.set(card.boardId, list);
+  }
+  const assignmentsByCourse = new Map<string, CourseAssignmentWire[]>();
+  for (const assignment of assignments) {
+    const list = assignmentsByCourse.get(assignment.courseId) ?? [];
+    list.push(assignment);
+    assignmentsByCourse.set(assignment.courseId, list);
+  }
+  const timetableById = new Map(
+    rawTimetableEntries.map((entry) => [
+      toId(entry._id),
+      toTimetableSummary(entry),
+    ]),
+  );
+
+  const now = Date.now();
+  const in7Days = now + 7 * 24 * 60 * 60 * 1000;
+  const in14Days = now + 14 * 24 * 60 * 60 * 1000;
+
+  const standings: ISemesterCourseStanding[] = [];
+  const radar: ISemesterDeadline[] = [];
+  let openAssignments = 0;
+  let gradedAssignments = 0;
+
+  for (const course of courses) {
+    const courseCards = course.kanbanBoardIds.flatMap(
+      (boardId) => cardsByBoard.get(boardId) ?? [],
+    );
+    const courseAssignments = assignmentsByCourse.get(course._id) ?? [];
+    const deadlines = buildDeadlines(
+      course,
+      courseCards,
+      new Map(),
+      courseAssignments,
+    );
+    const open = deadlines.filter((deadline) => !deadline.completed);
+    const withCourse = (deadline: ICourseDeadline): ISemesterDeadline => ({
+      ...deadline,
+      courseId: course._id,
+      courseName: course.name,
+      courseCode: course.code,
+      courseColor: course.color,
+    });
+    for (const deadline of open) {
+      const dueTime = new Date(deadline.dueAt).getTime();
+      if (deadline.overdue || (dueTime >= now && dueTime <= in14Days)) {
+        radar.push(withCourse(deadline));
+      }
+    }
+
+    const projection = computeGradeProjection(courseAssignments);
+    const activeAssignments = courseAssignments.filter(
+      (assignment) => assignment.status !== "archived",
+    );
+    const courseOpenAssignments = activeAssignments.filter(
+      (assignment) => !COMPLETED_ASSIGNMENT_STATUSES.has(assignment.status),
+    ).length;
+    openAssignments += courseOpenAssignments;
+    gradedAssignments += activeAssignments.filter(
+      (assignment) => assignment.grade?.score !== undefined,
+    ).length;
+
+    standings.push({
+      courseId: course._id,
+      name: course.name,
+      code: course.code,
+      semester: course.semester,
+      color: course.color,
+      gradeAverage: projection.currentAverage,
+      projection,
+      openAssignments: courseOpenAssignments,
+      dueNext7Days: open.filter((deadline) => {
+        const dueTime = new Date(deadline.dueAt).getTime();
+        return dueTime >= now && dueTime <= in7Days;
+      }).length,
+      overdue: open.filter((deadline) => deadline.overdue).length,
+      nextDeadline: open[0] ? withCourse(open[0]) : undefined,
+    });
+  }
+
+  radar.sort(
+    (a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime(),
+  );
+
+  const week: ISemesterScheduleDay[] = [];
+  const today = new Date();
+  for (let offset = 0; offset < 7; offset++) {
+    const date = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate() + offset,
+    );
+    const dateKey = toDateKey(date);
+    // Timetable entries use 0 = Monday … 6 = Sunday.
+    const timetableDay = (date.getDay() + 6) % 7;
+    const classes: ISemesterScheduleClass[] = [];
+    for (const course of courses) {
+      for (const entryId of course.timetableEntryIds) {
+        const entry = timetableById.get(entryId);
+        if (!entry?.isActive || entry.dayOfWeek !== timetableDay) {
+          continue;
+        }
+        classes.push({
+          courseId: course._id,
+          courseName: course.name,
+          courseColor: course.color,
+          title: entry.title,
+          startTime: entry.startTime,
+          endTime: entry.endTime,
+          place: entry.place,
+        });
+      }
+    }
+    classes.sort((a, b) => a.startTime.localeCompare(b.startTime));
+    week.push({
+      date: dateKey,
+      label: DAY_LABELS[date.getDay()],
+      isToday: offset === 0,
+      classes,
+      deadlineCount: radar.filter(
+        (deadline) => toDateKey(new Date(deadline.dueAt)) === dateKey,
+      ).length,
+    });
+  }
+
+  const gradedStandings = standings.filter(
+    (standing) => standing.gradeAverage !== null,
+  );
+  const semesterAverage =
+    gradedStandings.length > 0
+      ? gradedStandings.reduce(
+          (sum, standing) => sum + (standing.gradeAverage ?? 0),
+          0,
+        ) / gradedStandings.length
+      : null;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    stats: {
+      activeCourses: courses.length,
+      openAssignments,
+      dueNext7Days: standings.reduce(
+        (sum, standing) => sum + standing.dueNext7Days,
+        0,
+      ),
+      overdue: standings.reduce((sum, standing) => sum + standing.overdue, 0),
+      gradedAssignments,
+      semesterAverage,
+    },
+    courses: standings,
+    deadlines: radar,
+    week,
+  };
 }
