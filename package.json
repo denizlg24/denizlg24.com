@@ -12,10 +12,10 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.1",
+    "@biomejs/biome": "^2.5.2",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
-    "turbo": "^2.10.0",
+    "turbo": "^2.10.3",
     "typescript": "5.9.3"
   },
   "engines": {
