@@ -787,22 +787,32 @@ export function CalendarPage() {
           size="sm"
           variant={googleStatus?.lastSyncError ? "destructive" : "outline"}
           disabled={googleMutating}
+          title={
+            !googleStatus?.connected
+              ? "Connect Google Calendar"
+              : googleStatus.enabled
+                ? "Google Calendar"
+                : "Google Paused"
+          }
         >
           {googleStatus?.lastSyncError ? <RefreshCw /> : <CalendarIcon />}
-          {!googleStatus?.connected
-            ? "Connect Google Calendar"
-            : googleStatus.enabled
-              ? "Google Calendar"
-              : "Google Paused"}
+          <span className="hidden sm:inline">
+            {!googleStatus?.connected
+              ? "Connect Google Calendar"
+              : googleStatus.enabled
+                ? "Google Calendar"
+                : "Google Paused"}
+          </span>
         </Button>
         <Button
           onClick={() => {
             openAddEvent();
           }}
           size={"sm"}
+          title="Add Event"
         >
           <Plus />
-          Add Event
+          <span className="hidden sm:inline">Add Event</span>
         </Button>
       </PageHeader>
       <div className="relative min-h-0 flex-1 overflow-y-auto pb-4">

@@ -116,7 +116,7 @@ export function PersonGroupDetail({
         </AlertDialog>
       </div>
 
-      <div className="mx-auto w-full max-w-3xl space-y-5 p-6">
+      <div className="mx-auto min-h-0 w-full max-w-3xl flex-1 space-y-5 overflow-y-auto p-6">
         <div className="space-y-2">
           <Label className="text-xs">Name</Label>
           <Input
