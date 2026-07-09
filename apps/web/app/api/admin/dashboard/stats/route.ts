@@ -1,5 +1,6 @@
 import { addDays, endOfDay, startOfDay } from "date-fns";
 import { type NextRequest, NextResponse } from "next/server";
+import { maybeSyncCourseSchedules } from "@/lib/course-lifecycle";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import { Blog } from "@/models/Blog";
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest) {
 
   try {
     await connectDB();
+    await maybeSyncCourseSchedules();
 
     const now = new Date();
     const todayDayOfWeek = (now.getDay() + 6) % 7;
