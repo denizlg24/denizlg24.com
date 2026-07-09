@@ -268,22 +268,24 @@ export function ProjectsPage({ newHref }: { newHref: string }) {
               className="h-8 text-xs gap-1.5"
               onClick={handleResetOrder}
               disabled={savingOrder}
+              title="Reset"
             >
               <Undo2 className="size-3.5" />
-              Reset
+              <span className="hidden sm:inline">Reset</span>
             </Button>
             <Button
               size="sm"
               className="h-8 text-xs gap-1.5"
               onClick={handleSaveOrder}
               disabled={savingOrder}
+              title="Save Order"
             >
               {savingOrder ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <Save className="size-3.5" />
               )}
-              Save Order
+              <span className="hidden sm:inline">Save Order</span>
             </Button>
           </>
         )}
@@ -296,14 +298,15 @@ export function ProjectsPage({ newHref }: { newHref: string }) {
             setLoading(true);
             fetchProjects();
           }}
+          title="Refresh"
         >
           <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
+          <span className="hidden sm:inline">Refresh</span>
         </Button>
         <Button size="sm" className="h-8 text-xs gap-1.5" asChild>
-          <Link href={newHref}>
+          <Link href={newHref} title="New Project">
             <Plus className="size-3.5" />
-            New Project
+            <span className="hidden sm:inline">New Project</span>
           </Link>
         </Button>
       </PageHeader>
