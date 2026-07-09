@@ -18,6 +18,7 @@ const getPersonLabel = (person: IPerson) => person.name;
 export const getPersonGroupIds = (person: IPerson) => person.groupIds;
 const getPersonColor = (person: IPerson, scheme: "dark" | "light") =>
   classColor(person.placeMet ?? person.name, scheme);
+const getPersonImage = (person: IPerson) => person.photos[0];
 
 export function PersonGraph({
   people,
@@ -34,6 +35,7 @@ export function PersonGraph({
       getItemLabel={getPersonLabel}
       getItemGroupIds={getPersonGroupIds}
       getItemColor={getPersonColor}
+      getItemImage={getPersonImage}
       onSelectItem={onSelectPerson}
       onSelectGroup={onSelectGroup}
     />

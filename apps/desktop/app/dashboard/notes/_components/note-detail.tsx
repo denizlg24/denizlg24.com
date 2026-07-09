@@ -14,6 +14,14 @@ import {
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Calendar } from "@repo/ui/calendar";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@repo/ui/command";
 import { Input } from "@repo/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import {
@@ -31,6 +39,7 @@ import {
   FolderTree,
   Image as ImageIcon,
   Link as LinkIcon,
+  Plus,
   Shapes,
   Tag as TagIcon,
   Trash2,
@@ -90,6 +99,8 @@ interface Props {
   onSelectNote: (note: INote) => void;
   onSuggestionsChange: (next: string[]) => void;
   onUpdated: (note: INote) => void;
+  onAddEdge?: (from: string, to: string) => Promise<void>;
+  onRemoveEdge?: (edgeId: string) => Promise<void>;
   api: denizApi | null;
   mode?: "existing" | "draft";
   onSaveDraft?: (content: string) => Promise<void>;
@@ -109,6 +120,8 @@ export function NoteDetail({
   onSelectNote,
   onSuggestionsChange,
   onUpdated,
+  onAddEdge,
+  onRemoveEdge,
   api,
   mode = "existing",
   onSaveDraft,
@@ -152,13 +165,26 @@ export function NoteDetail({
   };
 
   const relatedNotes = useMemo(() => {
-    const relatedIds = new Set<string>();
+    const edgeIdByNote = new Map<string, string>();
     for (const edge of edges) {
-      if (edge.from === note._id) relatedIds.add(edge.to);
-      else if (edge.to === note._id) relatedIds.add(edge.from);
+      if (edge.from === note._id) edgeIdByNote.set(edge.to, edge._id);
+      else if (edge.to === note._id) edgeIdByNote.set(edge.from, edge._id);
     }
-    return allNotes.filter((candidate) => relatedIds.has(candidate._id));
+    return allNotes
+      .filter((candidate) => edgeIdByNote.has(candidate._id))
+      .map((candidate) => ({
+        note: candidate,
+        edgeId: edgeIdByNote.get(candidate._id) as string,
+      }));
   }, [allNotes, edges, note._id]);
+
+  const relatableNotes = useMemo(() => {
+    const relatedIds = new Set(relatedNotes.map((entry) => entry.note._id));
+    return allNotes.filter(
+      (candidate) =>
+        candidate._id !== note._id && !relatedIds.has(candidate._id),
+    );
+  }, [allNotes, note._id, relatedNotes]);
 
   const noteGroups = useMemo(
     () =>
@@ -354,35 +380,57 @@ export function NoteDetail({
                   label="related"
                 >
                   <div className="flex flex-wrap items-center gap-1">
-                    {relatedNotes.length === 0 && (
+                    {relatedNotes.map(({ note: related, edgeId }) => (
+                      <span
+                        key={related._id}
+                        className="inline-flex items-center gap-1 rounded-md border bg-muted/20 px-1.5 py-0.5 text-[10px]"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onSelectNote(related)}
+                          className="inline-flex items-center gap-1 hover:underline"
+                        >
+                          {related.favicon ? (
+                            <Image
+                              src={related.favicon}
+                              alt=""
+                              width={10}
+                              height={10}
+                              className="size-2.5 rounded-sm"
+                              unoptimized
+                            />
+                          ) : (
+                            <FileText className="size-2.5" />
+                          )}
+                          <span className="max-w-[16rem] truncate">
+                            {related.title}
+                          </span>
+                        </button>
+                        {onRemoveEdge && (
+                          <button
+                            type="button"
+                            onClick={() => void onRemoveEdge(edgeId)}
+                            className="text-muted-foreground opacity-60 hover:opacity-100"
+                            aria-label="Remove related note"
+                          >
+                            <X className="size-2.5" />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                    {onAddEdge && (
+                      <RelatedNotePicker
+                        notes={relatableNotes}
+                        onSelect={(toNoteId) =>
+                          void onAddEdge(note._id, toNoteId)
+                        }
+                      />
+                    )}
+                    {relatedNotes.length === 0 && !onAddEdge && (
                       <span className="text-[10px] text-muted-foreground">
                         None
                       </span>
                     )}
-                    {relatedNotes.map((related) => (
-                      <button
-                        key={related._id}
-                        type="button"
-                        onClick={() => onSelectNote(related)}
-                        className="inline-flex items-center gap-1 rounded-md border bg-muted/20 px-1.5 py-0.5 text-[10px] hover:bg-muted"
-                      >
-                        {related.favicon ? (
-                          <Image
-                            src={related.favicon}
-                            alt=""
-                            width={10}
-                            height={10}
-                            className="size-2.5 rounded-sm"
-                            unoptimized
-                          />
-                        ) : (
-                          <FileText className="size-2.5" />
-                        )}
-                        <span className="max-w-[16rem] truncate">
-                          {related.title}
-                        </span>
-                      </button>
-                    ))}
                   </div>
                 </PropertyRow>
               )}
@@ -557,5 +605,74 @@ function DateProperty({
         </button>
       )}
     </div>
+  );
+}
+
+function RelatedNotePicker({
+  notes,
+  onSelect,
+}: {
+  notes: INote[];
+  onSelect: (noteId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (notes.length === 0) return null;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-dashed px-1.5 text-[10px] text-muted-foreground hover:border-solid hover:text-foreground"
+        >
+          <Plus className="size-2.5" />
+          related note
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[min(22rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+        align="start"
+        sideOffset={6}
+      >
+        <Command>
+          <CommandInput placeholder="Find note…" />
+          <CommandList>
+            <CommandEmpty>
+              <span className="text-xs text-muted-foreground">
+                No notes found
+              </span>
+            </CommandEmpty>
+            <CommandGroup heading="Notes">
+              {notes.map((candidate) => (
+                <CommandItem
+                  key={candidate._id}
+                  value={`${candidate.title} ${candidate._id}`}
+                  onSelect={() => {
+                    onSelect(candidate._id);
+                    setOpen(false);
+                  }}
+                  className="text-xs"
+                >
+                  {candidate.favicon ? (
+                    <Image
+                      src={candidate.favicon}
+                      alt=""
+                      width={14}
+                      height={14}
+                      className="mr-1 size-3.5 rounded-sm"
+                      unoptimized
+                    />
+                  ) : (
+                    <FileText className="mr-1 size-3.5" />
+                  )}
+                  <span className="truncate">{candidate.title}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
