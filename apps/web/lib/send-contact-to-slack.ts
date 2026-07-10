@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { getAppTimeZone } from "./timezone";
 
 const contactFormSchema = z.object({
   name: z.string().min(2),
@@ -33,6 +34,7 @@ export async function sendToSlack(data: ContactFormData) {
     hour: "2-digit",
     minute: "2-digit",
     timeZoneName: "short",
+    timeZone: await getAppTimeZone(),
   });
 
   const blocks = [

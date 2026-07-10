@@ -11,6 +11,13 @@ const calendarEventFindByIdAndUpdateMock = mock(
 );
 
 mock.module("./mongodb", () => ({ connectDB: connectDBMock }));
+mock.module("@/models/AppSettings", () => ({
+  AppSettings: {
+    findById: () => ({
+      lean: () => ({ exec: async () => ({ timeZone: "Europe/Lisbon" }) }),
+    }),
+  },
+}));
 mock.module("@/models/CalendarEvent", () => ({
   CalendarEvent: {
     findById: calendarEventFindByIdMock,

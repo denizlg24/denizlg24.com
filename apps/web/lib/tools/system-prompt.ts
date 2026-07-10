@@ -1,15 +1,17 @@
-export function buildSystemPrompt(): string {
+export function buildSystemPrompt(timeZone: string): string {
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone,
   });
   const timeStr = now.toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     timeZoneName: "short",
+    timeZone,
   });
 
   return `You are Deniz's personal AI assistant. You are helpful, knowledgeable, concise, and proactive. You can answer any question on any topic — general knowledge, programming, math, writing, advice, and more.

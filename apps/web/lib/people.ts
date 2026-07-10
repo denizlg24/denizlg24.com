@@ -13,6 +13,7 @@ import {
   serializePersonEdge,
   serializePersonGroup,
 } from "@/lib/people-route-utils";
+import { getAppTimeZone, inTz } from "@/lib/timezone";
 import { CalendarEvent } from "@/models/CalendarEvent";
 import { type BirthdayParts, type ILeanPerson, Person } from "@/models/Person";
 import { type ILeanPersonEdge, PersonEdge } from "@/models/PersonEdge";
@@ -125,6 +126,18 @@ export async function getPersonById(id: string): Promise<PersonWire | null> {
   return person ? serializePerson(person) : null;
 }
 
+export async function getPeopleByIds(ids: string[]): Promise<PersonWire[]> {
+  const validIds = [
+    ...new Set(ids.filter((id) => mongoose.Types.ObjectId.isValid(id))),
+  ];
+  if (validIds.length === 0) return [];
+  await connectDB();
+  const people = await Person.find({ _id: { $in: validIds } })
+    .lean<ILeanPerson[]>()
+    .exec();
+  return people.map(serializePerson);
+}
+
 export async function getPersonEdges(
   personId: string,
 ): Promise<PersonEdgeWire[]> {
@@ -168,9 +181,10 @@ export async function createPerson(
   });
 
   await replaceRelations(String(person._id), body.relations);
+  const currentYear = inTz(new Date(), await getAppTimeZone()).getFullYear();
   await syncBirthdayEventsForPerson(String(person._id), [
-    new Date().getFullYear(),
-    new Date().getFullYear() + 1,
+    currentYear,
+    currentYear + 1,
   ]);
 
   const created = await Person.findById(person._id).lean<ILeanPerson>().exec();
@@ -222,7 +236,7 @@ export async function updatePerson(
 
   await replaceRelations(id, body.relations);
   if ("birthday" in body || "name" in body) {
-    const year = new Date().getFullYear();
+    const year = inTz(new Date(), await getAppTimeZone()).getFullYear();
     await syncBirthdayEventsForPerson(id, [year, year + 1, year + 2], person);
   }
 

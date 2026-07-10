@@ -38,6 +38,7 @@ import { Person } from "@/models/Person";
 import { Resource } from "@/models/Resource";
 import { TimetableEntry } from "@/models/TimetableEntry";
 import { connectDB } from "./mongodb";
+import { dateKeyInTz, getAppTimeZone, inTz } from "./timezone";
 
 const TRIAGE_CATEGORIES: readonly TriageCategory[] = [
   "spam",
@@ -1006,6 +1007,11 @@ export async function deleteCourse(id: string): Promise<boolean> {
   await connectDB();
   const result = await Course.findByIdAndDelete(id);
   if (result) {
+    await Promise.all(
+      result.timetableEntryIds.map((id) =>
+        TimetableEntry.findByIdAndDelete(id),
+      ),
+    );
     await CourseAssignment.deleteMany({ courseId: id });
   }
   return Boolean(result);
@@ -1507,12 +1513,6 @@ export async function getCourseGradeProjection(courseId: string): Promise<{
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function toDateKey(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
-}
-
 export async function getSemesterOverview(): Promise<ISemesterOverview> {
   await connectDB();
   const rawCourses = await Course.find({ status: "active" })
@@ -1621,14 +1621,12 @@ export async function getSemesterOverview(): Promise<ISemesterOverview> {
   );
 
   const week: ISemesterScheduleDay[] = [];
-  const today = new Date();
+  const timeZone = await getAppTimeZone();
+  const today = inTz(new Date(), timeZone);
   for (let offset = 0; offset < 7; offset++) {
-    const date = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate() + offset,
-    );
-    const dateKey = toDateKey(date);
+    const date = inTz(today, timeZone);
+    date.setDate(date.getDate() + offset);
+    const dateKey = dateKeyInTz(date, timeZone);
     // Timetable entries use 0 = Monday … 6 = Sunday.
     const timetableDay = (date.getDay() + 6) % 7;
     const classes: ISemesterScheduleClass[] = [];
@@ -1656,7 +1654,7 @@ export async function getSemesterOverview(): Promise<ISemesterOverview> {
       isToday: offset === 0,
       classes,
       deadlineCount: radar.filter(
-        (deadline) => toDateKey(new Date(deadline.dueAt)) === dateKey,
+        (deadline) => dateKeyInTz(deadline.dueAt, timeZone) === dateKey,
       ).length,
     });
   }

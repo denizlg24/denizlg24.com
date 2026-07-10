@@ -3,6 +3,7 @@ import {
   createPersonGroup,
   deletePerson,
   deletePersonGroup,
+  getPeopleByIds,
   getPeopleGraph,
   getPersonById,
   getPersonEdges,
@@ -171,15 +172,9 @@ export const peopleTools: ToolDefinition[] = [
       const relatedIds = edges.map((edge) =>
         edge.from === personId ? edge.to : edge.from,
       );
-      const relatedPeople = await Promise.all(
-        relatedIds.map((id) => getPersonById(id)),
-      );
+      const relatedPeople = await getPeopleByIds(relatedIds);
       const nameById = new Map(
-        relatedPeople
-          .filter((related): related is NonNullable<typeof related> =>
-            Boolean(related),
-          )
-          .map((related) => [related._id, related.name]),
+        relatedPeople.map((related) => [related._id, related.name]),
       );
 
       return {

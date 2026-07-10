@@ -10,6 +10,7 @@ import {
 } from "@/lib/llm-chat";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { requireAdmin } from "@/lib/require-admin";
+import { getAppTimeZone } from "@/lib/timezone";
 import { getToolSchemas } from "@/lib/tools/registry";
 import { buildSystemPrompt } from "@/lib/tools/system-prompt";
 import type {
@@ -237,7 +238,7 @@ export const POST = async (req: NextRequest) => {
       tools.push(webSearchTool);
     }
 
-    const system = buildSystemPrompt();
+    const system = buildSystemPrompt(await getAppTimeZone());
 
     const onPersist = async (
       msgs: Anthropic.MessageParam[],

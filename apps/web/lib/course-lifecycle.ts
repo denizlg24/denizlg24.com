@@ -2,18 +2,19 @@ import type mongoose from "mongoose";
 import { Course } from "@/models/Course";
 import { TimetableEntry } from "@/models/TimetableEntry";
 import { connectDB } from "./mongodb";
+import { getAppTimeZone, inTz } from "./timezone";
 
 const SYNC_INTERVAL_MS = 5 * 60 * 1000;
 let lastSyncAt = 0;
 
-function startOfDay(date: Date): Date {
-  const result = new Date(date);
+function startOfDay(date: Date, timeZone: string): Date {
+  const result = inTz(date, timeZone);
   result.setHours(0, 0, 0, 0);
   return result;
 }
 
-function endOfDay(date: Date): Date {
-  const result = new Date(date);
+function endOfDay(date: Date, timeZone: string): Date {
+  const result = inTz(date, timeZone);
   result.setHours(23, 59, 59, 999);
   return result;
 }
@@ -24,9 +25,10 @@ function coursePhase(
   startsOn: Date | undefined | null,
   endsOn: Date | undefined | null,
   now: Date,
+  timeZone: string,
 ): CoursePhase {
-  if (endsOn && now > endOfDay(endsOn)) return "ended";
-  if (startsOn && now < startOfDay(startsOn)) return "pending";
+  if (endsOn && now > endOfDay(endsOn, timeZone)) return "ended";
+  if (startsOn && now < startOfDay(startsOn, timeZone)) return "pending";
   return "running";
 }
 
@@ -54,11 +56,12 @@ export async function syncCourseSchedules(
     .select("timetableEntryIds startsOn endsOn")
     .lean();
 
+  const timeZone = await getAppTimeZone();
   const phaseByEntry = new Map<string, CoursePhase>();
   const endedCourseIds: mongoose.Types.ObjectId[] = [];
 
   for (const course of courses) {
-    const phase = coursePhase(course.startsOn, course.endsOn, now);
+    const phase = coursePhase(course.startsOn, course.endsOn, now, timeZone);
     if (phase === "ended") endedCourseIds.push(course._id);
     for (const entryId of course.timetableEntryIds ?? []) {
       const key = String(entryId);

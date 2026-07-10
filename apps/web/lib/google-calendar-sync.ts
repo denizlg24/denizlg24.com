@@ -23,6 +23,7 @@ import {
   sanitizeGoogleSyncError,
 } from "./google-calendar";
 import { connectDB } from "./mongodb";
+import { getAppTimeZone } from "./timezone";
 
 export type GoogleCalendarSyncAction = "upsert" | "delete";
 
@@ -759,6 +760,9 @@ export async function syncEventToGoogle(
   action: GoogleCalendarSyncAction,
 ): Promise<GoogleCalendarSyncResult> {
   await connectDB();
+  // warms the timezone cache so sync helpers (toGoogleEventPayload,
+  // calendarDateFromDate defaults) resolve the user's timezone
+  await getAppTimeZone();
 
   const connection = await getGoogleConnection();
   if (!connection) {
@@ -786,6 +790,9 @@ export async function syncUpcomingGoogleEventsToCalendar({
   end?: Date;
 } = {}): Promise<GoogleCalendarInboundSyncResult> {
   await connectDB();
+  // warms the timezone cache so sync helpers (toGoogleEventPayload,
+  // calendarDateFromDate defaults) resolve the user's timezone
+  await getAppTimeZone();
 
   const connection = await getGoogleConnection();
   if (!connection?.enabled) {
@@ -865,8 +872,9 @@ export async function backfillManualEventsToGoogle({
   end: Date;
 }) {
   await connectDB();
-  const startDate = calendarDateFromDate(start);
-  const endDate = calendarDateFromDate(end);
+  const timeZone = await getAppTimeZone();
+  const startDate = calendarDateFromDate(start, timeZone);
+  const endDate = calendarDateFromDate(end, timeZone);
   const events = await CalendarEvent.find({
     kind: { $in: [...OUTBOUND_SYNCABLE_KINDS] },
     $or: [
@@ -898,6 +906,9 @@ export async function backfillManualEventsToGoogle({
 
 export async function retryGoogleCalendarSyncFailures() {
   await connectDB();
+  // warms the timezone cache so sync helpers (toGoogleEventPayload,
+  // calendarDateFromDate defaults) resolve the user's timezone
+  await getAppTimeZone();
   const rows = await CalendarExternalEventSync.find({
     provider: GOOGLE_CALENDAR_PROVIDER,
     $or: [

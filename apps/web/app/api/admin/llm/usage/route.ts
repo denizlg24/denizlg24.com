@@ -3,6 +3,7 @@ import { Types } from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
+import { getAppTimeZone, inTz } from "@/lib/timezone";
 import { LlmUsage } from "@/models/LlmUsage";
 
 type SumAgg = {
@@ -168,7 +169,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const now = new Date();
+    const timeZone = await getAppTimeZone();
+    const now = inTz(new Date(), timeZone);
     const thirtyDaysAgo = startOfDay(subDays(now, 30));
     const sevenDaysAgo = startOfDay(subDays(now, 7));
     const oneDayAgo = startOfDay(subDays(now, 1));
@@ -194,7 +196,11 @@ export async function GET(request: NextRequest) {
               {
                 $group: {
                   _id: {
-                    $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
+                    $dateToString: {
+                      format: "%Y-%m-%d",
+                      date: "$createdAt",
+                      timezone: timeZone,
+                    },
                   },
                   requests: { $sum: 1 },
                   inputTokens: { $sum: "$inputTokens" },

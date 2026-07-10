@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { maybeSyncCourseSchedules } from "@/lib/course-lifecycle";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
+import { getAppTimeZone, inTz } from "@/lib/timezone";
 import { Blog } from "@/models/Blog";
 import { BlogComment } from "@/models/BlogComment";
 import { CalendarEvent } from "@/models/CalendarEvent";
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
     await connectDB();
     await maybeSyncCourseSchedules();
 
-    const now = new Date();
+    const now = inTz(new Date(), await getAppTimeZone());
     const todayDayOfWeek = (now.getDay() + 6) % 7;
     const startOfToday = startOfDay(now);
     const endOfToday = endOfDay(now);

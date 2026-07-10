@@ -13,6 +13,7 @@ export * from "./notes";
 export * from "./people";
 export * from "./project";
 export * from "./resource";
+export * from "./settings";
 export * from "./spreadsheet";
 export * from "./timetable";
 export * from "./tool-labels";
