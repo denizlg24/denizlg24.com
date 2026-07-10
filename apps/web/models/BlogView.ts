@@ -7,14 +7,6 @@ export interface IBlogView extends Document {
   updatedAt: Date;
 }
 
-export interface ILeanBlogView {
-  _id: string;
-  blogId: string;
-  views: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
 const BlogViewSchema = new Schema<IBlogView>(
   {
     blogId: {

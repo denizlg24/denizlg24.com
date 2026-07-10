@@ -2,7 +2,6 @@ import type {
   CourseAssignmentStatus,
   CourseAssignmentType,
   ICourseAssignment as CourseAssignmentWire,
-  CourseStatus,
   ICourse as CourseWire,
   ICourseAssignmentGrade,
   ICourseCalendarSummary,
@@ -1281,6 +1280,23 @@ export function completeCourseDeadline(
   return updateCourseDeadline(courseId, deadlineId, { completed });
 }
 
+export async function deleteCourseDeadline(
+  courseId: string,
+  deadlineId: string,
+): Promise<CourseWire | null> {
+  if (!mongoose.Types.ObjectId.isValid(courseId)) return null;
+  if (!mongoose.Types.ObjectId.isValid(deadlineId)) return null;
+
+  await connectDB();
+  const deadlineObjectId = new mongoose.Types.ObjectId(deadlineId);
+  const course = await Course.findOneAndUpdate(
+    { _id: courseId, "manualDeadlines._id": deadlineObjectId },
+    { $pull: { manualDeadlines: { _id: deadlineObjectId } } },
+    { returnDocument: "after" },
+  ).lean<RawRecord>();
+  return course ? serializeCourse(course) : null;
+}
+
 function coerceTriageCategory(value: unknown): TriageCategory {
   return typeof value === "string" &&
     (TRIAGE_CATEGORIES as readonly string[]).includes(value)
@@ -1394,10 +1410,6 @@ export async function getCoursesForMatching(): Promise<CourseMatchCandidate[]> {
       upcomingEvents,
     };
   });
-}
-
-export function parseCourseStatus(value: unknown): CourseStatus {
-  return value === "archived" ? "archived" : "active";
 }
 
 export function computeGradeProjection(

@@ -9,7 +9,9 @@ import {
   completeCourseDeadline,
   createCourse,
   createCourseAssignment,
+  deleteCourse,
   deleteCourseAssignment,
+  deleteCourseDeadline,
   getCourseDetail,
   getCourseGradeProjection,
   getCourseRelatedEmails,
@@ -19,6 +21,7 @@ import {
   requiredAverageForTarget,
   updateCourse,
   updateCourseAssignment,
+  updateCourseDeadline,
 } from "@/lib/courses";
 import type { ToolDefinition } from "./types";
 
@@ -567,6 +570,36 @@ export const coursesTools: ToolDefinition[] = [
             description: "New submission date (optional)",
           },
           notes: { type: "string", description: "New notes (optional)" },
+          links: {
+            type: "array",
+            description:
+              "Related URLs. Replaces the full list when provided (optional)",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                url: { type: "string" },
+              },
+              required: ["label", "url"],
+              additionalProperties: false,
+            },
+          },
+          files: {
+            type: "array",
+            description:
+              "Already-uploaded file metadata. Replaces the full list when provided (optional)",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                url: { type: "string" },
+                mimeType: { type: "string" },
+                size: { type: "number" },
+              },
+              required: ["name", "url"],
+              additionalProperties: false,
+            },
+          },
           score: { type: "number", description: "Grade score (optional)" },
           maxScore: {
             type: "number",
@@ -597,6 +630,8 @@ export const coursesTools: ToolDefinition[] = [
         "dueAt",
         "submittedAt",
         "notes",
+        "links",
+        "files",
       ]) {
         if (input[key] !== undefined) data[key] = input[key];
       }
@@ -681,6 +716,157 @@ export const coursesTools: ToolDefinition[] = [
       );
       if (!course) throw new Error("Course or deadline not found");
       return { _id: course._id, updated: true };
+    },
+  },
+  {
+    schema: {
+      name: "update_course_deadline",
+      description:
+        "Update a course's manual deadline: title, due date, notes, or completion. Only provided fields change.",
+      input_schema: {
+        type: "object",
+        properties: {
+          courseId: { type: "string", description: "Course ID" },
+          deadlineId: {
+            type: "string",
+            description: "Manual deadline ID (from get_course deadlines)",
+          },
+          title: { type: "string", description: "New title (optional)" },
+          dueAt: {
+            type: "string",
+            description: "New due date/time, ISO 8601 (optional)",
+          },
+          notes: { type: "string", description: "New notes (optional)" },
+          completed: {
+            type: "boolean",
+            description: "New completion state (optional)",
+          },
+        },
+        required: ["courseId", "deadlineId"],
+      },
+    },
+    isWrite: true,
+    category: "courses",
+    execute: async (input) => {
+      const course = await updateCourseDeadline(
+        input.courseId as string,
+        input.deadlineId as string,
+        {
+          title: input.title as string | undefined,
+          dueAt: input.dueAt as string | undefined,
+          notes: input.notes as string | undefined,
+          completed: input.completed as boolean | undefined,
+        },
+      );
+      if (!course) throw new Error("Course or deadline not found");
+      return { _id: course._id, updated: true };
+    },
+  },
+  {
+    schema: {
+      name: "delete_course_deadline",
+      description:
+        "Delete a course's manual deadline permanently. To keep it but mark it done, use complete_course_deadline instead.",
+      input_schema: {
+        type: "object",
+        properties: {
+          courseId: { type: "string", description: "Course ID" },
+          deadlineId: {
+            type: "string",
+            description: "Manual deadline ID (from get_course deadlines)",
+          },
+        },
+        required: ["courseId", "deadlineId"],
+      },
+    },
+    isWrite: true,
+    category: "courses",
+    execute: async (input) => {
+      const course = await deleteCourseDeadline(
+        input.courseId as string,
+        input.deadlineId as string,
+      );
+      if (!course) throw new Error("Course or deadline not found");
+      return { _id: course._id, deleted: true };
+    },
+  },
+  {
+    schema: {
+      name: "delete_course",
+      description:
+        "Permanently delete a course and its assignments. Cannot be undone — prefer archive_course unless the user explicitly asks for deletion.",
+      input_schema: {
+        type: "object",
+        properties: {
+          courseId: { type: "string", description: "Course ID" },
+        },
+        required: ["courseId"],
+      },
+    },
+    isWrite: true,
+    category: "courses",
+    execute: async (input) => {
+      const deleted = await deleteCourse(input.courseId as string);
+      if (!deleted) throw new Error("Course not found");
+      return { deleted: true };
+    },
+  },
+  {
+    schema: {
+      name: "resolve_course",
+      description:
+        "Find a course by (partial) name or code, e.g. 'CS101' or 'algorithms'. Returns the best matches with ids so you can skip list_courses when the user names a specific class.",
+      input_schema: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Course name or code to look up",
+          },
+        },
+        required: ["query"],
+      },
+    },
+    isWrite: false,
+    category: "courses",
+    execute: async (input) => {
+      const query = (input.query as string).trim().toLowerCase();
+      if (!query) throw new Error("query required");
+
+      const courses = await getCourses();
+      const scored = courses
+        .map(({ course }) => {
+          const name = course.name.toLowerCase();
+          const code = (course.code ?? "").toLowerCase();
+          let score = 0;
+          if (code && code === query) score = 100;
+          else if (name === query) score = 90;
+          else if (code && (code.includes(query) || query.includes(code)))
+            score = 70;
+          else if (name.includes(query)) score = 60;
+          else {
+            const tokens = query.split(/\s+/).filter(Boolean);
+            const hits = tokens.filter(
+              (token) => name.includes(token) || code.includes(token),
+            ).length;
+            if (tokens.length > 0 && hits > 0)
+              score = Math.round((hits / tokens.length) * 50);
+          }
+          return { course, score };
+        })
+        .filter((entry) => entry.score > 0)
+        .sort((a, b) => b.score - a.score);
+
+      return {
+        matches: scored.slice(0, 5).map(({ course, score }) => ({
+          _id: course._id,
+          name: course.name,
+          code: course.code,
+          semester: course.semester,
+          status: course.status,
+          confidence: score,
+        })),
+      };
     },
   },
   {

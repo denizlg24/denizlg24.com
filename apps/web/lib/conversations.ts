@@ -214,25 +214,6 @@ export async function updateConversationMessages(
   return { ...conversation, _id: conversation._id.toString() };
 }
 
-export async function appendMessages(
-  id: string,
-  messages: IConversationMessage[],
-) {
-  await connectDB();
-
-  const conversation = await Conversation.findByIdAndUpdate(
-    id,
-    {
-      $push: { messages: { $each: messages } },
-      updatedAt: new Date(),
-    },
-    { returnDocument: "after" },
-  ).lean();
-  if (!conversation) return null;
-
-  return { ...conversation, _id: conversation._id.toString() };
-}
-
 export async function deleteConversation(id: string): Promise<boolean> {
   await connectDB();
 

@@ -169,43 +169,10 @@ async function getNextProjectOrder(): Promise<number> {
   return maxOrderProject ? maxOrderProject.order + 1 : 1;
 }
 
-export async function getProjectTags() {
-  await connectDB();
-  const tags = await Project.distinct("tags");
-  return tags;
-}
-
 export async function getProjectTopicGroups() {
   await connectDB();
   const groups = await Project.distinct("topicGroups", { isActive: true });
   return (groups as string[]).filter(Boolean).sort();
-}
-
-export async function getFilteredActiveProjects({
-  tags,
-  query,
-}: {
-  tags: string[];
-  query: string;
-}) {
-  await connectDB();
-  const filter: Record<string, unknown> = { isActive: true };
-
-  if (tags.length > 0) {
-    filter.tags = { $all: tags };
-  }
-
-  if (query) {
-    filter.$or = [
-      { title: { $regex: query, $options: "i" } },
-      { subtitle: { $regex: query, $options: "i" } },
-      { description: { $regex: query, $options: "i" } },
-      { tags: { $regex: query, $options: "i" } },
-    ];
-  }
-
-  const projects = await Project.find(filter).sort({ order: 1 }).lean().exec();
-  return projects.map((project) => serializeProject(project));
 }
 
 export async function getAllProjects() {

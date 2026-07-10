@@ -66,6 +66,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FaGoogle } from "react-icons/fa6";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import {
@@ -795,7 +796,7 @@ export function CalendarPage() {
                 : "Google Paused"
           }
         >
-          {googleStatus?.lastSyncError ? <RefreshCw /> : <CalendarIcon />}
+          {googleStatus?.lastSyncError ? <RefreshCw /> : <FaGoogle />}
           <span className="hidden sm:inline">
             {!googleStatus?.connected
               ? "Connect Google Calendar"

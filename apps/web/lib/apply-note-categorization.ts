@@ -131,11 +131,3 @@ export async function resolveIncomingCategorization({
     relatedNoteIds: [],
   };
 }
-
-export async function upsertRelatedEdges(
-  noteId: mongoose.Types.ObjectId,
-  relatedNoteIds: string[],
-) {
-  void noteId;
-  void relatedNoteIds;
-}

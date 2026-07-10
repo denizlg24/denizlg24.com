@@ -92,21 +92,6 @@ export async function getJournalById(
   }
 }
 
-export async function getJournalByDate(
-  date: Date,
-): Promise<ILeanJournalLog | null> {
-  try {
-    await connectDB();
-    const journal = await JournalLog.findOne({
-      date: { $gte: startOfDay(date), $lte: endOfDay(date) },
-    });
-    if (!journal) return null;
-    return serializeJournal(journal);
-  } catch {
-    return null;
-  }
-}
-
 export async function createJournal(data: {
   date: Date;
   content?: string;

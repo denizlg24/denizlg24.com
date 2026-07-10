@@ -52,16 +52,6 @@ function setCommenterInfo(info: CommenterInfo): void {
   Cookies.set(COMMENTER_COOKIE, JSON.stringify(info), { expires: 365 });
 }
 
-export function getOrCreateSessionId(): string {
-  const existing = getCommenterInfo();
-  if (existing?.sessionId) {
-    return existing.sessionId;
-  }
-
-  const sessionId = generateSessionId();
-  return sessionId;
-}
-
 interface CommentInputProps {
   blogId: string;
   parentCommentId?: string;

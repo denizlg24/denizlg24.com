@@ -12,10 +12,6 @@ export interface PiCronConfig {
   password: EncryptedField;
 }
 
-export function isPiCronCapability(cap: ICapability): boolean {
-  return cap.type === "picron";
-}
-
 function isEncryptedField(value: unknown): value is EncryptedField {
   if (typeof value !== "object" || value === null) return false;
 

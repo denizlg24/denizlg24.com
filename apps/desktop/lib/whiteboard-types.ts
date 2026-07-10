@@ -65,18 +65,3 @@ export interface SelectionRect {
   width: number;
   height: number;
 }
-
-export interface WhiteboardCanvasProps {
-  elements: IWhiteboardElement[];
-  viewState: ViewState;
-  selectedTool: WhiteboardTool;
-  selectedColor: string;
-  selectedThickness: number;
-  selectedElementIds: Set<string>;
-  selectionRect: SelectionRect | null;
-  activeDrawing: IWhiteboardElement | null;
-  onPointerDown: (e: React.PointerEvent<SVGSVGElement>) => void;
-  onPointerMove: (e: React.PointerEvent<SVGSVGElement>) => void;
-  onPointerUp: (e: React.PointerEvent<SVGSVGElement>) => void;
-  onWheel: (e: React.WheelEvent<SVGSVGElement>) => void;
-}

@@ -5,9 +5,18 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
-import { History, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
+import {
+  Copy,
+  History,
+  MoreHorizontal,
+  Pause,
+  Pencil,
+  Play,
+  Trash2,
+} from "lucide-react";
 
 function JobStatusDot({ job }: { job: PiCronJob }) {
   if (!job.enabled) {
@@ -45,15 +54,28 @@ function formatRelative(iso: string | null): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
+export function jobUrlPath(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.pathname}${parsed.search}` || "/";
+  } catch {
+    return url;
+  }
+}
+
 export function PiCronJobRow({
   job,
   onEdit,
+  onDuplicate,
+  onToggleEnabled,
   onDelete,
   onTrigger,
   onHistory,
 }: {
   job: PiCronJob;
   onEdit: () => void;
+  onDuplicate: () => void;
+  onToggleEnabled: () => void;
   onDelete: () => void;
   onTrigger: () => void;
   onHistory: () => void;
@@ -72,12 +94,16 @@ export function PiCronJobRow({
           )}
         </div>
         <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-[11px] font-mono text-muted-foreground/70">
+          <span className="text-[11px] font-mono text-muted-foreground/70 shrink-0">
             {job.expression}
           </span>
-          <span className="text-muted-foreground">·</span>
-          <span className="text-[11px] font-mono text-muted-foreground uppercase">
+          <span className="text-muted-foreground shrink-0">·</span>
+          <span className="text-[11px] font-mono text-muted-foreground uppercase shrink-0">
             {job.method}
+          </span>
+          <span className="text-muted-foreground shrink-0">·</span>
+          <span className="text-[11px] font-mono text-muted-foreground/70 truncate">
+            {jobUrlPath(job.url)}
           </span>
         </div>
       </div>
@@ -125,11 +151,26 @@ export function PiCronJobRow({
             <DropdownMenuItem onClick={onTrigger}>
               <Play className="size-3.5 mr-2" /> Trigger now
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={onToggleEnabled}>
+              {job.enabled ? (
+                <>
+                  <Pause className="size-3.5 mr-2" /> Pause
+                </>
+              ) : (
+                <>
+                  <Play className="size-3.5 mr-2" /> Resume
+                </>
+              )}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={onHistory}>
               <History className="size-3.5 mr-2" /> History
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onEdit}>
               <Pencil className="size-3.5 mr-2" /> Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onDuplicate}>
+              <Copy className="size-3.5 mr-2" /> Duplicate
             </DropdownMenuItem>
             <DropdownMenuItem className="text-destructive" onClick={onDelete}>
               <Trash2 className="size-3.5 mr-2" /> Delete

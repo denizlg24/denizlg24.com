@@ -823,5 +823,3 @@ export async function runSemanticKeywordSync({
     throw error;
   }
 }
-
-export const semanticLlmSource = SOURCE;

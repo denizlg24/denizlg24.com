@@ -18,18 +18,6 @@ export interface ITriageSettings {
   updatedAt: Date;
 }
 
-export interface ILeanTriageSettings {
-  _id: string;
-  enabled: boolean;
-  runIntervalMinutes: number;
-  prefilterModel: string;
-  fullModel: string;
-  categoryRouting: Record<TriageCategory, ICategoryRouting>;
-  lastRunAt?: Date;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }

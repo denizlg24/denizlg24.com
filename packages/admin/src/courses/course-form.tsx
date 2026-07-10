@@ -788,7 +788,7 @@ export function CourseForm({
         </TabsContent>
       </Tabs>
 
-      <div className="sticky bottom-0 -mx-1 -mb-5 flex justify-end gap-2 border-t bg-background px-1 py-3">
+      <div className="flex justify-end gap-2 border-t bg-background px-1 py-3">
         <Button
           type="button"
           variant="outline"

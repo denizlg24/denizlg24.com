@@ -32,21 +32,6 @@ export interface ISubResource {
   updatedAt: Date;
 }
 
-export interface ILeanSubResource {
-  _id: string;
-  parentResourceId: string;
-  name: string;
-  description: string;
-  isActive: boolean;
-  isPublic: boolean;
-  check: SubResourceCheck;
-  lastCheckedAt: string | null;
-  lastStatus: "healthy" | "unhealthy" | null;
-  lastResponseTimeMs: number | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 const SubResourceCheckSchema = new Schema(
   {
     type: { type: String, enum: ["http", "tcp"], required: true },
