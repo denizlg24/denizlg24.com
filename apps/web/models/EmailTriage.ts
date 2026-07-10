@@ -71,52 +71,6 @@ export interface IEmailTriage extends Document {
   updatedAt: Date;
 }
 
-export interface ILeanEmailTriage {
-  _id: string;
-  emailId: string;
-  accountId: string;
-  stage: "prefilter" | "full";
-  category: TriageCategory;
-  confidence: number;
-  summary?: string;
-  matchedCourseId?: string;
-  matchedCourseName?: string;
-  attachmentTextUsed: boolean;
-  attachmentTextSources: string[];
-  suggestedTasks: (Omit<
-    ITriageTaskSuggestion,
-    | "_id"
-    | "acceptedCardId"
-    | "kanbanBoardId"
-    | "kanbanColumnId"
-    | "courseId"
-    | "updatesCourseDeadlineId"
-    | "acceptedAssignmentId"
-  > & {
-    _id: string;
-    acceptedCardId?: string;
-    acceptedAssignmentId?: string;
-    kanbanBoardId?: string;
-    kanbanColumnId?: string;
-    courseId?: string;
-    updatesCourseDeadlineId?: string;
-  })[];
-  suggestedEvents: (Omit<
-    ITriageEventSuggestion,
-    "_id" | "acceptedEventId" | "courseId" | "updatesCalendarEventId"
-  > & {
-    _id: string;
-    acceptedEventId?: string;
-    courseId?: string;
-    updatesCalendarEventId?: string;
-  })[];
-  userStatus: "pending" | "reviewed" | "archived";
-  modelUsed: string;
-  triagedAt: Date;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
 const TaskSuggestionSchema = new Schema<ITriageTaskSuggestion>({
   title: { type: String, required: true },
   description: { type: String },

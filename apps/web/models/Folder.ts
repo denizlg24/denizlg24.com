@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import type { ILeanNote } from "./Notes";
 
 export interface IFolder extends mongoose.Document {
   name: string;
@@ -14,15 +13,6 @@ export interface ILeanFolder {
   name: string;
   parentFolder?: string;
   notes: string[];
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface ILeanFolderWithNotes {
-  _id: string;
-  name: string;
-  parentFolder?: string;
-  notes: ILeanNote[];
   createdAt: Date;
   updatedAt: Date;
 }

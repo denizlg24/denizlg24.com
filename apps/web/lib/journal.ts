@@ -7,8 +7,12 @@ import { Note } from "@/models/Note";
 import type { IWhiteboard } from "@/models/Whiteboard";
 import { Whiteboard } from "@/models/Whiteboard";
 import { connectDB } from "./mongodb";
+import { dateKeyInTz, getAppTimeZone, inTz } from "./timezone";
 
-function serializeJournal(journal: IJournalLog): ILeanJournalLog {
+function serializeJournal(
+  journal: IJournalLog,
+  timeZone: string,
+): ILeanJournalLog {
   return {
     _id: journal._id.toString(),
     date: journal.date,
@@ -27,8 +31,7 @@ function serializeJournal(journal: IJournalLog): ILeanJournalLog {
     events: (journal.events ?? []).map((event) => ({
       _id: String(event._id),
       date: event.date,
-      calendarDate:
-        event.calendarDate ?? new Date(event.date).toISOString().slice(0, 10),
+      calendarDate: event.calendarDate ?? dateKeyInTz(event.date, timeZone),
       isAllDay: event.isAllDay ?? false,
       kind: event.kind ?? "manual",
       source: event.source
@@ -65,15 +68,16 @@ export async function getJournalLogs(
 ): Promise<ILeanJournalLog[]> {
   try {
     await connectDB();
+    const timeZone = await getAppTimeZone();
     const filter: Record<string, unknown> = {};
     if (startDate || endDate) {
       filter.date = {
-        ...(startDate && { $gte: startOfDay(startDate) }),
-        ...(endDate && { $lte: endOfDay(endDate) }),
+        ...(startDate && { $gte: startOfDay(inTz(startDate, timeZone)) }),
+        ...(endDate && { $lte: endOfDay(inTz(endDate, timeZone)) }),
       };
     }
     const journals = await JournalLog.find(filter).sort({ date: -1 });
-    return journals.map(serializeJournal);
+    return journals.map((journal) => serializeJournal(journal, timeZone));
   } catch {
     return [];
   }
@@ -86,22 +90,7 @@ export async function getJournalById(
     await connectDB();
     const journal = await JournalLog.findById(id);
     if (!journal) return null;
-    return serializeJournal(journal);
-  } catch {
-    return null;
-  }
-}
-
-export async function getJournalByDate(
-  date: Date,
-): Promise<ILeanJournalLog | null> {
-  try {
-    await connectDB();
-    const journal = await JournalLog.findOne({
-      date: { $gte: startOfDay(date), $lte: endOfDay(date) },
-    });
-    if (!journal) return null;
-    return serializeJournal(journal);
+    return serializeJournal(journal, await getAppTimeZone());
   } catch {
     return null;
   }
@@ -113,11 +102,12 @@ export async function createJournal(data: {
 }): Promise<ILeanJournalLog | null> {
   try {
     await connectDB();
-    const normalized = startOfDay(data.date);
+    const timeZone = await getAppTimeZone();
+    const normalized = startOfDay(inTz(data.date, timeZone));
     const existing = await JournalLog.findOne({
       date: normalized,
     });
-    if (existing) return serializeJournal(existing);
+    if (existing) return serializeJournal(existing, timeZone);
 
     const journal = await JournalLog.create({
       date: normalized,
@@ -125,7 +115,7 @@ export async function createJournal(data: {
       events: [],
       notes: [],
     });
-    return serializeJournal(journal);
+    return serializeJournal(journal, timeZone);
   } catch (err) {
     console.error("Failed to create journal:", err);
     return null;
@@ -144,7 +134,7 @@ export async function updateJournalContent(
       { returnDocument: "after" },
     );
     if (!updated) return null;
-    return serializeJournal(updated);
+    return serializeJournal(updated, await getAppTimeZone());
   } catch (err) {
     console.error("Failed to update journal:", err);
     return null;
@@ -183,7 +173,8 @@ export async function upsertJournalDayData(
 ): Promise<ILeanJournalLog | null> {
   try {
     await connectDB();
-    const normalized = startOfDay(date);
+    const timeZone = await getAppTimeZone();
+    const normalized = startOfDay(inTz(date, timeZone));
     const existing = await JournalLog.findOne({
       date: normalized,
     });
@@ -198,7 +189,7 @@ export async function upsertJournalDayData(
         returnDocument: "after",
       });
       if (!updated) return null;
-      return serializeJournal(updated);
+      return serializeJournal(updated, timeZone);
     }
 
     const journal = await JournalLog.create({
@@ -208,7 +199,7 @@ export async function upsertJournalDayData(
       events: data.events ?? [],
       notes: data.notes ?? [],
     });
-    return serializeJournal(journal);
+    return serializeJournal(journal, timeZone);
   } catch (err) {
     console.error("Failed to upsert journal day data:", err);
     return null;
@@ -221,8 +212,9 @@ export async function collectDayDataToJournal(
 ): Promise<ILeanJournalLog | null> {
   try {
     await connectDB();
-    const dayStart = startOfDay(date);
-    const dayEnd = endOfDay(date);
+    const timeZone = await getAppTimeZone();
+    const dayStart = startOfDay(inTz(date, timeZone));
+    const dayEnd = endOfDay(inTz(date, timeZone));
 
     const [events, notes, todayBoard] = await Promise.all([
       CalendarEvent.find({

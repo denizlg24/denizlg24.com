@@ -66,6 +66,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FaGoogle } from "react-icons/fa6";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import {
@@ -787,22 +788,32 @@ export function CalendarPage() {
           size="sm"
           variant={googleStatus?.lastSyncError ? "destructive" : "outline"}
           disabled={googleMutating}
+          title={
+            !googleStatus?.connected
+              ? "Connect Google Calendar"
+              : googleStatus.enabled
+                ? "Google Calendar"
+                : "Google Paused"
+          }
         >
-          {googleStatus?.lastSyncError ? <RefreshCw /> : <CalendarIcon />}
-          {!googleStatus?.connected
-            ? "Connect Google Calendar"
-            : googleStatus.enabled
-              ? "Google Calendar"
-              : "Google Paused"}
+          {googleStatus?.lastSyncError ? <RefreshCw /> : <FaGoogle />}
+          <span className="hidden sm:inline">
+            {!googleStatus?.connected
+              ? "Connect Google Calendar"
+              : googleStatus.enabled
+                ? "Google Calendar"
+                : "Google Paused"}
+          </span>
         </Button>
         <Button
           onClick={() => {
             openAddEvent();
           }}
           size={"sm"}
+          title="Add Event"
         >
           <Plus />
-          Add Event
+          <span className="hidden sm:inline">Add Event</span>
         </Button>
       </PageHeader>
       <div className="relative min-h-0 flex-1 overflow-y-auto pb-4">

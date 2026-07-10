@@ -6,6 +6,7 @@ import {
   serializeCalendarEvent,
 } from "@/lib/calendar-events";
 import { connectDB } from "@/lib/mongodb";
+import { getAppTimeZone, inTz } from "@/lib/timezone";
 import { CalendarEvent } from "@/models/CalendarEvent";
 import {
   CalendarSettings,
@@ -118,7 +119,7 @@ export async function ensureGeneratedCalendarEventsForRange(
   start: Date,
   end: Date,
 ) {
-  const key = touchedYears(start, end).join(",");
+  const key = touchedYears(start, end, await getAppTimeZone()).join(",");
   const existing = ensurePromises.get(key);
   if (existing) return existing;
 
@@ -137,7 +138,7 @@ async function ensureGeneratedCalendarEventsForRangeInternal(
   end: Date,
 ) {
   await connectDB();
-  const years = touchedYears(start, end);
+  const years = touchedYears(start, end, await getAppTimeZone());
   const settings = await CalendarSettings.findByIdAndUpdate(
     "singleton",
     { $setOnInsert: { holidayCountryCode: null } },
@@ -290,11 +291,13 @@ async function upsertGeneratedEvent({
   return event ? serializeCalendarEvent(event) : null;
 }
 
-function touchedYears(start: Date, end: Date) {
-  const years = eachYearOfInterval({ start, end }).map((date) =>
-    date.getUTCFullYear(),
+function touchedYears(start: Date, end: Date, timeZone: string) {
+  const tzStart = inTz(start, timeZone);
+  const tzEnd = inTz(end, timeZone);
+  const years = eachYearOfInterval({ start: tzStart, end: tzEnd }).map((date) =>
+    date.getFullYear(),
   );
-  years.push(start.getUTCFullYear(), end.getUTCFullYear());
+  years.push(tzStart.getFullYear(), tzEnd.getFullYear());
   return [...new Set(years)];
 }
 

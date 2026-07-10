@@ -27,6 +27,7 @@ export type KnowledgeGraphNodeData<TItem = unknown, TGroup = unknown> = {
   type: "item" | "group";
   val: number;
   color: string;
+  image?: string;
   item?: TItem;
   group?: TGroup;
 };
@@ -113,6 +114,10 @@ export function KnowledgeGraph<TItem, TGroup>({
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [theme, setTheme] = useState<Theme | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // Cache of node images; a load bumps the counter so the canvas repaints
+  // with the now-available bitmap. Failed loads fall back to the color dot.
+  const imageCacheRef = useRef(new Map<string, HTMLImageElement | "error">());
+  const [, setLoadedImageCount] = useState(0);
   // The engine starts with default forces before the ref is available to
   // install the custom ones; cooldownTicks stays 0 (engine paused) until they
   // are applied, so the layout visibly settles exactly once.
@@ -307,10 +312,46 @@ export function KnowledgeGraph<TItem, TGroup>({
             const radius = Math.sqrt(node.val) * NODE_REL_SIZE;
             const isHovered = hoveredId === node.id;
 
+            let image: HTMLImageElement | null = null;
+            if (node.image) {
+              const cached = imageCacheRef.current.get(node.image);
+              if (cached === undefined) {
+                const element = new window.Image();
+                element.crossOrigin = "anonymous";
+                element.onload = () => setLoadedImageCount((n) => n + 1);
+                element.onerror = () =>
+                  imageCacheRef.current.set(node.image as string, "error");
+                element.src = node.image;
+                imageCacheRef.current.set(node.image, element);
+              } else if (cached !== "error" && cached.complete) {
+                image = cached;
+              }
+            }
+
             context.beginPath();
             context.arc(node.x, node.y, radius, 0, 2 * Math.PI);
             context.fillStyle = node.color;
             context.fill();
+
+            if (image) {
+              context.save();
+              context.beginPath();
+              context.arc(node.x, node.y, radius, 0, 2 * Math.PI);
+              context.clip();
+              context.drawImage(
+                image,
+                node.x - radius,
+                node.y - radius,
+                radius * 2,
+                radius * 2,
+              );
+              context.restore();
+              context.beginPath();
+              context.arc(node.x, node.y, radius, 0, 2 * Math.PI);
+              context.strokeStyle = node.color;
+              context.lineWidth = Math.max(radius * 0.12, 0.4 / globalScale);
+              context.stroke();
+            }
 
             const showLabel = isHovered || globalScale >= LABEL_ZOOM_THRESHOLD;
             if (!showLabel) return;

@@ -24,13 +24,3 @@ export function classColor(
   const light = scheme === "dark" ? 64 : 42;
   return `hsl(${hue} ${sat}% ${light}%)`;
 }
-
-export function classColorMuted(
-  key: string | undefined | null,
-  scheme: ColorScheme = "dark",
-): string {
-  const hue = hueFromKey(key);
-  const sat = 38;
-  const light = scheme === "dark" ? 50 : 55;
-  return `hsl(${hue} ${sat}% ${light}%)`;
-}

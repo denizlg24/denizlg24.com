@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { maybeSyncCourseSchedules } from "@/lib/course-lifecycle";
 import { requireAdmin } from "@/lib/require-admin";
 import { createTimetableEntry, getAllTimetableEntries } from "@/lib/timetable";
 
@@ -7,6 +8,7 @@ export async function GET(request: NextRequest) {
   if (authError) return authError;
 
   try {
+    await maybeSyncCourseSchedules();
     const entries = await getAllTimetableEntries();
     return NextResponse.json({ entries }, { status: 200 });
   } catch (error) {

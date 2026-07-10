@@ -12,19 +12,6 @@ export interface ILlmUsage extends mongoose.Document {
   updatedAt: Date;
 }
 
-export interface ILeanLlmUsage {
-  _id: string;
-  llmModel: string;
-  inputTokens: number;
-  outputTokens: number;
-  costUsd: number;
-  systemPrompt: string;
-  userPrompt: string;
-  source: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
 const LlmUsageSchema = new mongoose.Schema<ILlmUsage>(
   {
     llmModel: { type: String, required: true },

@@ -101,18 +101,14 @@ interface TimetableGridProps {
 }
 
 export function TimetableGrid({ entries, onEntryClick }: TimetableGridProps) {
-  const activeEntries = entries.filter((e) => e.isActive);
-
   let minHour = 8;
   let maxHour = 23;
 
-  if (activeEntries.length > 0) {
+  if (entries.length > 0) {
     const earliest = Math.min(
-      ...activeEntries.map((e) => timeToMinutes(e.startTime)),
+      ...entries.map((e) => timeToMinutes(e.startTime)),
     );
-    const latest = Math.max(
-      ...activeEntries.map((e) => timeToMinutes(e.endTime)),
-    );
+    const latest = Math.max(...entries.map((e) => timeToMinutes(e.endTime)));
     minHour = Math.min(minHour, Math.floor(earliest / 60));
     maxHour = Math.max(maxHour, Math.ceil(latest / 60));
   }
@@ -125,7 +121,7 @@ export function TimetableGrid({ entries, onEntryClick }: TimetableGridProps) {
   const hourHeight = 60;
 
   const entriesByDay = DAYS.map((_, dayIndex) =>
-    activeEntries.filter((e) => e.dayOfWeek === dayIndex),
+    entries.filter((e) => e.dayOfWeek === dayIndex),
   );
 
   const layoutByDay = entriesByDay.map((dayEntries) =>
@@ -208,6 +204,8 @@ export function TimetableGrid({ entries, onEntryClick }: TimetableGridProps) {
                       "absolute z-10 border-l-2 border-black/20 overflow-hidden cursor-pointer transition-opacity hover:opacity-80 flex flex-col min-w-0",
                       colors.bg,
                       colors.text,
+                      !entry.isActive &&
+                        "opacity-40 border border-dashed border-black/30 hover:opacity-60",
                     )}
                     style={{
                       top,

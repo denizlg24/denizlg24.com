@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { maybeSyncCourseSchedules } from "@/lib/course-lifecycle";
 import {
   deleteCourse,
   getCourseById,
@@ -49,6 +50,7 @@ export async function PATCH(
         { status: 404 },
       );
     }
+    await maybeSyncCourseSchedules();
     return NextResponse.json({ course }, { status: 200 });
   } catch (error) {
     console.error("Failed to update course:", error);

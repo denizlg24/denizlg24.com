@@ -79,6 +79,7 @@ interface Props<
   getItemLabel: (item: TItem) => string;
   getItemGroupIds: (item: TItem) => string[];
   getItemColor: (item: TItem, scheme: "dark" | "light") => string;
+  getItemImage?: (item: TItem) => string | undefined;
   itemValBase?: number;
   itemValPerConnection?: number;
   onSelectItem: (item: TItem) => void;
@@ -98,6 +99,7 @@ export function EntityGraph<
   getItemLabel,
   getItemGroupIds,
   getItemColor,
+  getItemImage,
   itemValBase = 0.75,
   itemValPerConnection = 0.28,
   onSelectItem,
@@ -175,6 +177,7 @@ export function EntityGraph<
           type: "item" as const,
           val: itemValBase + connections * itemValPerConnection,
           color: getItemColor(item, scheme),
+          image: getItemImage?.(item),
           item,
         };
       }),
@@ -240,6 +243,7 @@ export function EntityGraph<
     getItemLabel,
     getItemGroupIds,
     getItemColor,
+    getItemImage,
     itemValBase,
     itemValPerConnection,
   ]);

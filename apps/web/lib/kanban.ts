@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/mongodb";
+import { getAppTimeZone, inTz } from "@/lib/timezone";
 import { type ILeanKanbanBoard, KanbanBoard } from "@/models/KanbanBoard";
 import {
   type ILeanKanbanCard,
@@ -308,13 +309,14 @@ export async function getUpcomingCards(
 ): Promise<UpcomingKanbanResult> {
   await connectDB();
 
-  const now = new Date();
-  const endOfToday = new Date(now);
+  const timeZone = await getAppTimeZone();
+  const now = inTz(new Date(), timeZone);
+  const endOfToday = inTz(now, timeZone);
   endOfToday.setHours(23, 59, 59, 999);
-  const horizon = new Date(now);
+  const horizon = inTz(now, timeZone);
   horizon.setDate(horizon.getDate() + days);
   horizon.setHours(23, 59, 59, 999);
-  const endOfWeek = new Date(now);
+  const endOfWeek = inTz(now, timeZone);
   endOfWeek.setDate(endOfWeek.getDate() + 7);
   endOfWeek.setHours(23, 59, 59, 999);
 

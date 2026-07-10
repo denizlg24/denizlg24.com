@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Textarea } from "@repo/ui/textarea";
+import { Plus, X } from "lucide-react";
 import { useState } from "react";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
@@ -44,53 +45,83 @@ export interface JobFormData {
   enabled?: boolean;
 }
 
+interface HeaderRow {
+  id: number;
+  key: string;
+  value: string;
+}
+
+let headerRowId = 0;
+
+function headersToRows(headers: Record<string, string> | undefined) {
+  return Object.entries(headers ?? {}).map(([key, value]) => ({
+    id: ++headerRowId,
+    key,
+    value,
+  }));
+}
+
 export function JobFormDialog({
   open,
   onOpenChange,
   onSubmit,
   editingJob,
+  template,
+  urlSuggestions = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (data: JobFormData) => Promise<void>;
   editingJob?: PiCronJob | null;
+  /** Prefill values for a new job (duplicate flow) — still creates. */
+  template?: PiCronJob | null;
+  urlSuggestions?: string[];
 }) {
-  const [name, setName] = useState(editingJob?.name ?? "");
+  const source = editingJob ?? template ?? null;
+  const defaultName = editingJob
+    ? editingJob.name
+    : template
+      ? `${template.name} (copy)`
+      : "";
+
+  const [name, setName] = useState(defaultName);
   const [expression, setExpression] = useState(
-    editingJob?.expression ?? "*/5 * * * *",
+    source?.expression ?? "*/5 * * * *",
   );
-  const [url, setUrl] = useState(editingJob?.url ?? "");
-  const [method, setMethod] = useState(editingJob?.method ?? "GET");
-  const [headersStr, setHeadersStr] = useState(
-    editingJob?.headers ? JSON.stringify(editingJob.headers, null, 2) : "{}",
+  const [url, setUrl] = useState(source?.url ?? "");
+  const [method, setMethod] = useState(source?.method ?? "GET");
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>(() =>
+    headersToRows(source?.headers),
   );
-  const [body, setBody] = useState(editingJob?.body ?? "");
-  const [timeout, setTimeout] = useState(String(editingJob?.timeout ?? 30));
-  const [enabled, setEnabled] = useState(editingJob?.enabled ?? true);
+  const [body, setBody] = useState(source?.body ?? "");
+  const [timeout, setTimeout] = useState(String(source?.timeout ?? 30));
+  const [enabled, setEnabled] = useState(source?.enabled ?? true);
   const [submitting, setSubmitting] = useState(false);
 
   const resetForm = () => {
-    setName(editingJob?.name ?? "");
-    setExpression(editingJob?.expression ?? "*/5 * * * *");
-    setUrl(editingJob?.url ?? "");
-    setMethod(editingJob?.method ?? "GET");
-    setHeadersStr(
-      editingJob?.headers ? JSON.stringify(editingJob.headers, null, 2) : "{}",
+    setName(defaultName);
+    setExpression(source?.expression ?? "*/5 * * * *");
+    setUrl(source?.url ?? "");
+    setMethod(source?.method ?? "GET");
+    setHeaderRows(headersToRows(source?.headers));
+    setBody(source?.body ?? "");
+    setTimeout(String(source?.timeout ?? 30));
+    setEnabled(source?.enabled ?? true);
+  };
+
+  const updateHeaderRow = (id: number, patch: Partial<HeaderRow>) => {
+    setHeaderRows((rows) =>
+      rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
     );
-    setBody(editingJob?.body ?? "");
-    setTimeout(String(editingJob?.timeout ?? 30));
-    setEnabled(editingJob?.enabled ?? true);
   };
 
   const handleSubmit = async () => {
     if (!name.trim() || !url.trim()) return;
     setSubmitting(true);
     try {
-      let headers: Record<string, string> = {};
-      try {
-        headers = JSON.parse(headersStr);
-      } catch {
-        /* ignore */
+      const headers: Record<string, string> = {};
+      for (const row of headerRows) {
+        if (row.key.trim()) headers[row.key.trim()] = row.value;
       }
 
       await onSubmit({
@@ -119,11 +150,19 @@ export function JobFormDialog({
     >
       <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{editingJob ? "Edit Job" : "New Cron Job"}</DialogTitle>
+          <DialogTitle>
+            {editingJob
+              ? "Edit Job"
+              : template
+                ? "Duplicate Job"
+                : "New Cron Job"}
+          </DialogTitle>
           <DialogDescription>
             {editingJob
               ? "Update the cron job configuration."
-              : "Schedule a new recurring HTTP request."}
+              : template
+                ? `Start from "${template.name}" and adjust what differs.`
+                : "Schedule a new recurring HTTP request."}
           </DialogDescription>
         </DialogHeader>
 
@@ -188,21 +227,74 @@ export function JobFormDialog({
                 onChange={(e) => setUrl(e.target.value)}
                 className="font-mono text-xs"
                 placeholder="https://..."
+                list="picron-url-suggestions"
               />
+              {urlSuggestions.length > 0 && (
+                <datalist id="picron-url-suggestions">
+                  {urlSuggestions.map((suggestion) => (
+                    <option key={suggestion} value={suggestion} />
+                  ))}
+                </datalist>
+              )}
             </div>
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label>
-              Headers{" "}
-              <span className="text-muted-foreground font-normal">(JSON)</span>
-            </Label>
-            <Textarea
-              value={headersStr}
-              onChange={(e) => setHeadersStr(e.target.value)}
-              rows={2}
-              className="resize-none font-mono text-xs"
-            />
+            <div className="flex items-center justify-between">
+              <Label>Headers</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs gap-1 text-muted-foreground"
+                onClick={() =>
+                  setHeaderRows((rows) => [
+                    ...rows,
+                    { id: ++headerRowId, key: "", value: "" },
+                  ])
+                }
+              >
+                <Plus className="size-3" /> Add
+              </Button>
+            </div>
+            {headerRows.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground/60">No headers</p>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {headerRows.map((row) => (
+                  <div key={row.id} className="flex items-center gap-1.5">
+                    <Input
+                      value={row.key}
+                      onChange={(e) =>
+                        updateHeaderRow(row.id, { key: e.target.value })
+                      }
+                      className="flex-1 font-mono text-xs h-7"
+                      placeholder="Authorization"
+                    />
+                    <Input
+                      value={row.value}
+                      onChange={(e) =>
+                        updateHeaderRow(row.id, { value: e.target.value })
+                      }
+                      className="flex-[2] font-mono text-xs h-7"
+                      placeholder="Bearer …"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Remove header"
+                      onClick={() =>
+                        setHeaderRows((rows) =>
+                          rows.filter((r) => r.id !== row.id),
+                        )
+                      }
+                      className="p-1 rounded hover:bg-muted/50 text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {(method === "POST" || method === "PUT" || method === "PATCH") && (

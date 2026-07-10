@@ -25,7 +25,11 @@ import { toast } from "sonner";
 import { DashboardPageHeader } from "@/components/navigation/dashboard-page-header";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
-import type { ICalendarSettings, ICountryOption } from "@/lib/data-types";
+import type {
+  IAppSettings,
+  ICalendarSettings,
+  ICountryOption,
+} from "@/lib/data-types";
 import { isTauri } from "@/lib/platform";
 import { pickDirectory } from "@/lib/platform-fs";
 import {
@@ -316,6 +320,119 @@ function CalendarSyncSettings({ api }: { api: denizApi | null }) {
   );
 }
 
+function TimeZoneSettings({ api }: { api: denizApi | null }) {
+  const [remoteSettings, setRemoteSettings] = useState<IAppSettings | null>(
+    null,
+  );
+  const [selectedTimeZone, setSelectedTimeZone] = useState<string>("default");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const timeZones = useMemo(() => Intl.supportedValuesOf("timeZone"), []);
+  const deviceTimeZone = useMemo(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+    [],
+  );
+
+  useEffect(() => {
+    if (!api) return;
+    const client = api;
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      const result = await client.GET<{ settings: IAppSettings }>({
+        endpoint: "settings",
+      });
+
+      if (cancelled) return;
+
+      if ("code" in result) {
+        toast.error(result.message);
+      } else {
+        setRemoteSettings(result.settings);
+        setSelectedTimeZone(result.settings.timeZone ?? "default");
+      }
+
+      setLoading(false);
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  const commit = async (next: string) => {
+    if (!api) return;
+    const previous = selectedTimeZone;
+    setSelectedTimeZone(next);
+    setSaving(true);
+    const result = await api.PATCH<{ settings: IAppSettings }>({
+      endpoint: "settings",
+      body: {
+        timeZone: next === "default" ? null : next,
+      },
+    });
+    setSaving(false);
+    if ("code" in result) {
+      toast.error(result.message);
+      setSelectedTimeZone(previous);
+      return;
+    }
+    setRemoteSettings(result.settings);
+  };
+
+  return (
+    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div className="flex flex-col gap-1 shrink-0">
+        <Label className="text-sm font-medium">Timezone</Label>
+        <p className="text-xs text-muted-foreground">
+          Used by the backend for day boundaries, schedules, and reminders.
+        </p>
+      </div>
+      {loading ? (
+        <Skeleton className="h-9 w-xs" />
+      ) : (
+        <div className="flex items-center gap-1.5">
+          {saving && (
+            <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+          )}
+          {selectedTimeZone !== deviceTimeZone &&
+            timeZones.includes(deviceTimeZone) && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 text-xs"
+                onClick={() => commit(deviceTimeZone)}
+              >
+                Use device
+              </Button>
+            )}
+          <Select value={selectedTimeZone} onValueChange={commit}>
+            <SelectTrigger className="w-full sm:w-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent position="popper" className="max-h-72">
+              <SelectItem value="default">
+                Server default
+                {remoteSettings?.effectiveTimeZone && !remoteSettings.timeZone
+                  ? ` (${remoteSettings.effectiveTimeZone})`
+                  : ""}
+              </SelectItem>
+              {timeZones.map((timeZone) => (
+                <SelectItem key={timeZone} value={timeZone}>
+                  {timeZone.replaceAll("_", " ")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettingsLoadingSkeleton() {
   return (
     <div className="flex flex-col gap-2 pb-4">
@@ -386,6 +503,8 @@ export default function SettingsPage() {
           </div>
         ))}
 
+        <Separator />
+        <TimeZoneSettings api={api} />
         <Separator />
         <CalendarSyncSettings api={api} />
       </div>

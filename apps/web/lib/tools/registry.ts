@@ -7,6 +7,7 @@ import { emailTools } from "./email";
 import { kanbanTools } from "./kanban";
 import { notesTools } from "./notes";
 import { nowTools } from "./now";
+import { peopleTools } from "./people";
 import { projectsTools } from "./projects";
 import { resourceTools } from "./resources";
 import { timelineTools } from "./timeline";
@@ -24,6 +25,9 @@ const allTools: ToolDefinition[] = [
 
   // Academic
   ...coursesTools,
+
+  // People
+  ...peopleTools,
 
   // Content
   ...blogTools,
@@ -46,10 +50,6 @@ for (const tool of allTools) {
 
 export function getToolSchemas(): ToolSchema[] {
   return allTools.map((t) => t.schema);
-}
-
-export function getReadOnlyToolSchemas(): ToolSchema[] {
-  return allTools.filter((t) => !t.isWrite).map((t) => t.schema);
 }
 
 export function getToolByName(name: string): ToolDefinition | undefined {

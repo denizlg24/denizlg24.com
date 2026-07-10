@@ -434,9 +434,10 @@ export function ContactsPage() {
           className="h-8 text-xs gap-1.5 text-destructive hover:text-destructive"
           disabled={stats.archived === 0}
           onClick={() => setDeleteArchivedOpen(true)}
+          title="Delete archived"
         >
           <Trash2 className="size-3.5" />
-          Delete archived
+          <span className="hidden sm:inline">Delete archived</span>
         </Button>
         <Button
           variant="ghost"
@@ -446,9 +447,10 @@ export function ContactsPage() {
             setLoading(true);
             fetchContacts();
           }}
+          title="Refresh"
         >
           <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
+          <span className="hidden sm:inline">Refresh</span>
         </Button>
       </PageHeader>
 

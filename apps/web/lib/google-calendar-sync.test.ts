@@ -65,6 +65,13 @@ const syncFindByIdAndDeleteMock = mock(async () => ({}));
 const syncUpdateManyMock = mock(async () => ({}));
 
 mock.module("./mongodb", () => ({ connectDB: connectDBMock }));
+mock.module("@/models/AppSettings", () => ({
+  AppSettings: {
+    findById: () => ({
+      lean: () => ({ exec: async () => ({ timeZone: "Europe/Lisbon" }) }),
+    }),
+  },
+}));
 mock.module("./encrypted-secret", () => ({
   decryptSecret: decryptSecretMock,
   encryptSecret: (secret: string) => ({

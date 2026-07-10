@@ -1,6 +1,7 @@
 import { Blog } from "@/models/Blog";
 import { BlogComment, type ILeanBlogComment } from "@/models/BlogComment";
 import { connectDB } from "./mongodb";
+import { getAppTimeZone } from "./timezone";
 
 export async function sendToSlack({
   comment,
@@ -26,6 +27,7 @@ export async function sendToSlack({
     hour: "2-digit",
     minute: "2-digit",
     timeZoneName: "short",
+    timeZone: await getAppTimeZone(),
   });
 
   const isReply = !!comment.commentId;

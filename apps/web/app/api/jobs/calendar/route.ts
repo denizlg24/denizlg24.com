@@ -5,6 +5,7 @@ import {
   syncUpcomingGoogleEventsToCalendar,
 } from "@/lib/google-calendar-sync";
 import { connectDB } from "@/lib/mongodb";
+import { getAppTimeZone } from "@/lib/timezone";
 import { CalendarEvent, type ICalendarEvent } from "@/models/CalendarEvent";
 
 export async function GET(request: Request) {
@@ -66,7 +67,7 @@ async function sendEventToSlack(event: ICalendarEvent) {
   if (!slackWebhookUrl) return;
   const headerText = `⏰ Reminder: ${event.title} is scheduled for ${new Date(
     event.date,
-  ).toLocaleDateString()}`;
+  ).toLocaleDateString("en-US", { timeZone: await getAppTimeZone() })}`;
 
   const blocks = [
     {

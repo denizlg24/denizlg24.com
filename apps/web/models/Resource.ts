@@ -50,20 +50,6 @@ export interface IResource extends Document {
   updatedAt: Date;
 }
 
-export interface ILeanResource {
-  _id: string;
-  name: string;
-  description: string;
-  url: string;
-  type: "pi" | "vps" | "api" | "service";
-  isActive: boolean;
-  isPublic: boolean;
-  agentService: IAgentService;
-  capabilities: ILeanCapability[];
-  createdAt: string;
-  updatedAt: string;
-}
-
 const AgentServiceMetricsSchema = new Schema(
   {
     cpuUsagePercent: { type: Number, default: null },

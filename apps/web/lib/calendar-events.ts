@@ -5,6 +5,12 @@ import {
   type ILeanCalendarEvent,
 } from "@/models/CalendarEvent";
 import { connectDB } from "./mongodb";
+import {
+  dateKeyInTz,
+  getAppTimeZone,
+  getCachedAppTimeZone,
+  inTz,
+} from "./timezone";
 
 type CalendarEventInput = Partial<ILeanCalendarEvent> & {
   date?: Date | string;
@@ -23,22 +29,28 @@ const GENERATED_EDIT_FIELDS = new Set([
   "notifyBeforeMinutes",
 ]);
 
-export function calendarDateFromDate(date: Date | string) {
-  return new Date(date).toISOString().slice(0, 10);
+export function calendarDateFromDate(
+  date: Date | string,
+  timeZone: string = getCachedAppTimeZone(),
+) {
+  return dateKeyInTz(date, timeZone);
 }
 
 export function anchorDateFromCalendarDate(calendarDate: string) {
   return new Date(`${calendarDate}T12:00:00.000Z`);
 }
 
-export function normalizeCalendarEventInput(data: CalendarEventInput) {
+export function normalizeCalendarEventInput(
+  data: CalendarEventInput,
+  timeZone: string = getCachedAppTimeZone(),
+) {
   const kind = data.kind ?? "manual";
   const isAllDay = data.isAllDay ?? false;
   const calendarDate =
     data.calendarDate ??
     (data.date
-      ? calendarDateFromDate(data.date)
-      : calendarDateFromDate(new Date()));
+      ? calendarDateFromDate(data.date, timeZone)
+      : calendarDateFromDate(new Date(), timeZone));
   const date = data.date
     ? new Date(data.date)
     : isAllDay
@@ -114,8 +126,9 @@ function visibleCalendarFilter() {
 export const getMonthCalendarEvents = async (start: Date, end: Date) => {
   try {
     await connectDB();
-    const startDate = calendarDateFromDate(start);
-    const endDate = calendarDateFromDate(end);
+    const timeZone = await getAppTimeZone();
+    const startDate = calendarDateFromDate(start, timeZone);
+    const endDate = calendarDateFromDate(end, timeZone);
     const events = await CalendarEvent.find({
       $and: [
         visibleCalendarFilter(),
@@ -139,13 +152,15 @@ export const getMonthCalendarEvents = async (start: Date, end: Date) => {
 export const getCalendarEvents = async (date: Date) => {
   try {
     await connectDB();
-    const calendarDate = calendarDateFromDate(date);
+    const timeZone = await getAppTimeZone();
+    const calendarDate = calendarDateFromDate(date, timeZone);
+    const tzDate = inTz(date, timeZone);
     const events = await CalendarEvent.find({
       $and: [
         visibleCalendarFilter(),
         {
           $or: [
-            { date: { $gte: startOfDay(date), $lte: endOfDay(date) } },
+            { date: { $gte: startOfDay(tzDate), $lte: endOfDay(tzDate) } },
             { calendarDate },
           ],
         },
@@ -169,13 +184,14 @@ export const updateCalendarEvent = async ({
 }) => {
   try {
     await connectDB();
+    const timeZone = await getAppTimeZone();
 
     const existing = await CalendarEvent.findById(id).lean();
     if (!existing) return null;
 
     const update = { ...data };
     if (!existing.calendarDate) {
-      update.calendarDate = calendarDateFromDate(existing.date);
+      update.calendarDate = calendarDateFromDate(existing.date, timeZone);
     }
     if (existing.isAllDay === undefined && update.isAllDay === undefined) {
       update.isAllDay = false;
@@ -191,13 +207,16 @@ export const updateCalendarEvent = async ({
     ) {
       Object.assign(
         update,
-        normalizeCalendarEventInput({
-          date: update.date ?? existing.date,
-          calendarDate: update.calendarDate ?? existing.calendarDate,
-          isAllDay: update.isAllDay ?? existing.isAllDay,
-          kind: update.kind ?? existing.kind,
-          source: existing.source as ILeanCalendarEvent["source"],
-        }),
+        normalizeCalendarEventInput(
+          {
+            date: update.date ?? existing.date,
+            calendarDate: update.calendarDate ?? existing.calendarDate,
+            isAllDay: update.isAllDay ?? existing.isAllDay,
+            kind: update.kind ?? existing.kind,
+            source: existing.source as ILeanCalendarEvent["source"],
+          },
+          timeZone,
+        ),
       );
     }
 
@@ -282,7 +301,10 @@ export const deleteCalendarEvent = async (id: string) => {
 export const createCalendarEvent = async (data: CalendarEventInput) => {
   try {
     await connectDB();
-    const normalized = normalizeCalendarEventInput(data);
+    const normalized = normalizeCalendarEventInput(
+      data,
+      await getAppTimeZone(),
+    );
 
     if (
       normalized.notifyBySlack &&

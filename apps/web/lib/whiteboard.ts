@@ -1,4 +1,3 @@
-import { Types } from "mongoose";
 import {
   type ILeanWhiteboard,
   type ILeanWhiteboardMeta,
@@ -156,24 +155,6 @@ export async function deleteWhiteboard(id: string): Promise<boolean> {
   try {
     await connectDB();
     await Whiteboard.findByIdAndDelete(id);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function reorderWhiteboards(
-  orderedIds: string[],
-): Promise<boolean> {
-  try {
-    await connectDB();
-    const bulkOps = orderedIds.map((id, index) => ({
-      updateOne: {
-        filter: { _id: new Types.ObjectId(id) } as any,
-        update: { order: index },
-      },
-    }));
-    await Whiteboard.bulkWrite(bulkOps);
     return true;
   } catch {
     return false;

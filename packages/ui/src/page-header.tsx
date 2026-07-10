@@ -25,7 +25,9 @@ export function PageHeader({
     >
       {leading}
       {icon}
-      <span className="flex-1 text-sm font-semibold">{title}</span>
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+        {title}
+      </span>
       {children}
     </div>
   );

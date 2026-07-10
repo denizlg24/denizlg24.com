@@ -9,6 +9,7 @@ import { getSubResourceModel } from "@/models/resource-db/SubResource";
 import { connectResourceDB } from "./mongodb-resource";
 import { decryptPassword } from "./safe-email-password";
 import { runSubResourceCheck } from "./sub-resource-check";
+import { dateKeyInTz, getAppTimeZone, inTz } from "./timezone";
 
 const STALE_MS = 10 * 60 * 1000;
 
@@ -433,6 +434,7 @@ export async function getUptimeData(
   resourceIds: string[],
 ): Promise<Map<string, ResourceUptimeData>> {
   const HealthCheckLog = await getHealthCheckLogModel();
+  const timeZone = await getAppTimeZone();
 
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -450,7 +452,13 @@ export async function getUptimeData(
       $group: {
         _id: {
           resourceId: "$resourceId",
-          day: { $dateToString: { format: "%Y-%m-%d", date: "$checkedAt" } },
+          day: {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$checkedAt",
+              timezone: timeZone,
+            },
+          },
         },
         totalChecks: { $sum: 1 },
         healthyChecks: { $sum: { $cond: ["$isHealthy", 1, 0] } },
@@ -485,7 +493,7 @@ export async function getUptimeData(
     uptimeMap.set(id, {
       resourceId: id,
       uptimePercentage: 0,
-      dailyHistory: buildEmptyHistory(),
+      dailyHistory: buildEmptyHistory(timeZone),
     });
   }
 
@@ -525,7 +533,7 @@ export async function getUptimeData(
       });
     }
 
-    const history = buildEmptyHistory();
+    const history = buildEmptyHistory(timeZone);
     for (let i = 0; i < history.length; i++) {
       const existing = dayMap.get(history[i].date);
       if (existing) history[i] = existing;
@@ -630,14 +638,14 @@ export async function getPublicResourceStatuses(): Promise<
   });
 }
 
-function buildEmptyHistory(): DailyUptimeEntry[] {
+function buildEmptyHistory(timeZone: string): DailyUptimeEntry[] {
   const history: DailyUptimeEntry[] = [];
-  const now = new Date();
+  const now = inTz(new Date(), timeZone);
   for (let i = 29; i >= 0; i--) {
-    const d = new Date(now);
+    const d = inTz(now, timeZone);
     d.setDate(d.getDate() - i);
     history.push({
-      date: d.toISOString().slice(0, 10),
+      date: dateKeyInTz(d, timeZone),
       totalChecks: 0,
       healthyChecks: 0,
       avgResponseTimeMs: null,

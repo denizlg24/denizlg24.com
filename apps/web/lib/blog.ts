@@ -2,12 +2,6 @@ import { Blog } from "@/models/Blog";
 import { BlogView } from "@/models/BlogView";
 import { connectDB } from "./mongodb";
 
-export async function getBlogTags() {
-  await connectDB();
-  const tags = await Blog.distinct("tags");
-  return tags;
-}
-
 export async function getBlogTopicGroups() {
   await connectDB();
   const groups = await Blog.distinct("topicGroups", { isActive: true });

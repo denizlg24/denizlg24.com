@@ -4,22 +4,6 @@ import TimelineItem, {
   type ITimelineItemLean,
 } from "@/models/TimelineItem";
 
-export async function getTimelineItems(
-  category?: "work" | "education" | "personal",
-): Promise<ITimelineItem[]> {
-  await connectDB();
-
-  const items = await TimelineItem.find({
-    isActive: true,
-    ...(category ? { category } : {}),
-  })
-    .sort({ order: 1, createdAt: -1 })
-    .lean()
-    .exec();
-
-  return items as ITimelineItem[];
-}
-
 export async function getAllTimelineItems(
   category?: "work" | "education" | "personal",
 ) {
@@ -78,17 +62,6 @@ export async function updateTimelineItem(
 export async function deleteTimelineItem(id: string) {
   await connectDB();
   await TimelineItem.findByIdAndDelete(id);
-}
-
-export async function getTimelineItemById(id: string) {
-  await connectDB();
-  const item = await TimelineItem.findById(id).lean().exec();
-  if (!item) return null;
-
-  return {
-    ...item,
-    _id: item._id.toString(),
-  };
 }
 
 export async function toggleTimelineItemActive(id: string) {

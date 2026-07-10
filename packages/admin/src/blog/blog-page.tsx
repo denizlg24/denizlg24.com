@@ -332,14 +332,15 @@ export function BlogPage({ newHref }: { newHref: string }) {
             setLoading(true);
             fetchBlogs();
           }}
+          title="Refresh"
         >
           <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
+          <span className="hidden sm:inline">Refresh</span>
         </Button>
         <Button size="sm" className="h-8 text-xs gap-1.5" asChild>
-          <Link href={newHref}>
+          <Link href={newHref} title="New Post">
             <Plus className="size-3.5" />
-            New Post
+            <span className="hidden sm:inline">New Post</span>
           </Link>
         </Button>
       </PageHeader>

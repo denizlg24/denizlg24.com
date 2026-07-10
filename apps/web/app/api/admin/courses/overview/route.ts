@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { maybeSyncCourseSchedules } from "@/lib/course-lifecycle";
 import { getSemesterOverview } from "@/lib/courses";
 import { requireAdmin } from "@/lib/require-admin";
 
@@ -7,6 +8,7 @@ export async function GET(request: NextRequest) {
   if (authError) return authError;
 
   try {
+    await maybeSyncCourseSchedules();
     const overview = await getSemesterOverview();
     return NextResponse.json({ overview }, { status: 200 });
   } catch (error) {

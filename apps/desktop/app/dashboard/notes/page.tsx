@@ -373,6 +373,41 @@ export default function NotesPage() {
     [api, edges, notes],
   );
 
+  const handleAddEdge = useCallback(
+    async (from: string, to: string) => {
+      if (!api) return;
+      const result = await api.POST<{ edge: INoteEdge }>({
+        endpoint: "notes/edges",
+        body: { from, to },
+      });
+      if ("code" in result) {
+        toast.error(result.message);
+        return;
+      }
+      setEdges((current) => [
+        ...current.filter((edge) => edge._id !== result.edge._id),
+        result.edge,
+      ]);
+    },
+    [api],
+  );
+
+  const handleRemoveEdge = useCallback(
+    async (edgeId: string) => {
+      if (!api) return;
+      const previousEdges = edges;
+      setEdges((current) => current.filter((edge) => edge._id !== edgeId));
+      const result = await api.DELETE<{ success: true }>({
+        endpoint: `notes/edges/${edgeId}`,
+      });
+      if ("code" in result) {
+        toast.error(result.message);
+        setEdges(previousEdges);
+      }
+    },
+    [api, edges],
+  );
+
   const handlePasteImport = useCallback(
     async (url: string) => {
       if (!api || importingLink) return;
@@ -666,6 +701,8 @@ export default function NotesPage() {
           applyUpdatedNote(note);
           void autoClassifyNote(note);
         }}
+        onAddEdge={handleAddEdge}
+        onRemoveEdge={handleRemoveEdge}
         api={api}
         onCategorize={() => handleCategorizeNote(selectedNote._id)}
       />

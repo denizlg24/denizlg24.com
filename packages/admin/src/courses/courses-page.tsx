@@ -176,13 +176,13 @@ function CourseCard({
     <button
       type="button"
       onClick={onSelect}
-      className="group rounded-md border bg-card text-left transition-colors hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex flex-col rounded-md border bg-card text-left transition-colors hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div
         className="h-1 rounded-t-md"
         style={{ backgroundColor: course.color ?? "var(--accent)" }}
       />
-      <div className="space-y-4 p-4">
+      <div className="flex flex-1 flex-col gap-4 p-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             {course.code && (
@@ -196,7 +196,7 @@ function CourseCard({
               </span>
             )}
           </div>
-          <h2 className="line-clamp-2 text-base font-semibold leading-snug">
+          <h2 className="line-clamp-2 min-h-[2.75rem] text-base font-semibold leading-snug">
             {course.name}
           </h2>
           {course.description && (
@@ -206,7 +206,7 @@ function CourseCard({
           )}
         </div>
 
-        <div className="grid grid-cols-4 gap-2 text-[11px]">
+        <div className="mt-auto grid grid-cols-4 gap-2 text-[11px]">
           <span className="rounded-md bg-muted/60 px-2 py-1">
             {stats.timetableEntries} time
           </span>

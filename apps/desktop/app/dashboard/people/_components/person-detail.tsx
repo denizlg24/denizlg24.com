@@ -671,51 +671,63 @@ export function PersonDetail({
                 icon={<LinkIcon className="size-3" />}
                 label="relations"
               >
-                <div className="flex flex-wrap items-center gap-1">
-                  {relations.length === 0 && (
-                    <span className="text-[10px] text-muted-foreground">
-                      None
-                    </span>
-                  )}
-                  {relations.map((relation) => (
-                    <span
-                      key={relation.personId}
-                      className="group inline-flex items-center gap-1 rounded-md border bg-muted/20 px-1.5 py-0.5 text-[10px]"
-                    >
-                      <span className="font-medium">
-                        {peopleById.get(relation.personId)?.name ?? "Unknown"}
-                      </span>
-                      <Input
-                        value={relation.reason ?? ""}
-                        onChange={(event) => {
-                          const reason = event.target.value;
-                          setRelations((current) =>
-                            current.map((item) =>
-                              item.personId === relation.personId
-                                ? { ...item, reason }
-                                : item,
-                            ),
-                          );
-                        }}
-                        placeholder="note"
-                        className="h-4 w-24 border-none bg-transparent px-1 text-[10px] text-muted-foreground shadow-none focus-visible:ring-0"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setRelations((current) =>
-                            current.filter(
-                              (item) => item.personId !== relation.personId,
-                            ),
-                          )
-                        }
-                        className="text-muted-foreground opacity-60 hover:opacity-100"
-                        aria-label="Remove relation"
+                <div className="flex w-full flex-col gap-1">
+                  {relations.map((relation) => {
+                    const related = peopleById.get(relation.personId);
+                    return (
+                      <div
+                        key={relation.personId}
+                        className="flex items-center gap-2 rounded-md border bg-muted/20 px-2 py-1"
                       >
-                        <X className="size-2.5" />
-                      </button>
-                    </span>
-                  ))}
+                        {related?.photos[0] ? (
+                          <Image
+                            src={related.photos[0]}
+                            alt=""
+                            width={20}
+                            height={20}
+                            className="size-5 shrink-0 rounded-full object-cover"
+                            unoptimized
+                          />
+                        ) : (
+                          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted">
+                            <UserRound className="size-3 text-muted-foreground" />
+                          </span>
+                        )}
+                        <span className="max-w-[40%] shrink-0 truncate text-[11px] font-medium">
+                          {related?.name ?? "Unknown"}
+                        </span>
+                        <Input
+                          value={relation.reason ?? ""}
+                          onChange={(event) => {
+                            const reason = event.target.value;
+                            setRelations((current) =>
+                              current.map((item) =>
+                                item.personId === relation.personId
+                                  ? { ...item, reason }
+                                  : item,
+                              ),
+                            );
+                          }}
+                          placeholder="How do they relate?"
+                          className="h-5 flex-1 border-none bg-transparent px-1 text-[10px] text-muted-foreground shadow-none focus-visible:ring-0"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRelations((current) =>
+                              current.filter(
+                                (item) => item.personId !== relation.personId,
+                              ),
+                            )
+                          }
+                          className="shrink-0 text-muted-foreground opacity-60 hover:opacity-100"
+                          aria-label="Remove relation"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
                   <RelationPicker
                     people={relationOptions}
                     onSelect={(personId) =>

@@ -15,22 +15,6 @@ export interface IEmail extends Document {
   updatedAt: Date;
 }
 
-export interface ILeanEmail {
-  _id: string | mongoose.Types.ObjectId;
-  accountId: string | mongoose.Types.ObjectId;
-  messageId: string;
-  subject: string;
-  from: { name: string | undefined; address: string }[];
-  date: Date;
-  seen: boolean;
-  uid: number;
-  inReplyTo?: string;
-  references?: string[];
-  threadId?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
 const EmailSchema = new Schema<IEmail>(
   {
     accountId: { type: Schema.Types.ObjectId, required: true },
