@@ -316,8 +316,10 @@ export function KnowledgeGraph<TItem, TGroup>({
             if (node.image) {
               const cached = imageCacheRef.current.get(node.image);
               if (cached === undefined) {
+                // No crossOrigin: the Tauri webview origin fails CORS checks
+                // against the photo host, which rejects the load silently.
+                // Drawing taints the canvas, but nothing reads pixels back.
                 const element = new window.Image();
-                element.crossOrigin = "anonymous";
                 element.onload = () => setLoadedImageCount((n) => n + 1);
                 element.onerror = () =>
                   imageCacheRef.current.set(node.image as string, "error");
