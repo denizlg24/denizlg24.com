@@ -36,6 +36,7 @@ export function PersonGraph({
       getItemGroupIds={getPersonGroupIds}
       getItemColor={getPersonColor}
       getItemImage={getPersonImage}
+      itemSizing="group"
       onSelectItem={onSelectPerson}
       onSelectGroup={onSelectGroup}
     />
