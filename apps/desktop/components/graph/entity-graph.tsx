@@ -69,6 +69,11 @@ export function useEntityGraphData<
   return { visibleGroups, visibleEdges };
 }
 
+const GROUP_ROOT_VAL_BASE = 14;
+const GROUP_ROOT_VAL_PER_MEMBER = 2.2;
+const GROUP_CHILD_VAL_BASE = 5;
+const GROUP_CHILD_VAL_PER_MEMBER = 1.2;
+
 interface Props<
   TItem extends { _id: string },
   TGroup extends EntityGraphGroup,
@@ -82,6 +87,15 @@ interface Props<
   getItemImage?: (item: TItem) => string | undefined;
   itemValBase?: number;
   itemValPerConnection?: number;
+  /**
+   * "connections" (default): items stay an order of magnitude below groups,
+   * sized by decayed reach — right for notes, where items and folders are
+   * different kinds of things. "group": items ARE groups semantically (a
+   * person "contains" their network; "I" is the root of the people graph),
+   * so they're sized on the group scale and the top hub can outgrow root
+   * group nodes and read as the center.
+   */
+  itemSizing?: "connections" | "group";
   onSelectItem: (item: TItem) => void;
   onSelectGroup: (group: TGroup) => void;
   onItemContextMenu?: (item: TItem, event: MouseEvent) => void;
@@ -102,6 +116,7 @@ export function EntityGraph<
   getItemImage,
   itemValBase = 0.75,
   itemValPerConnection = 0.28,
+  itemSizing = "connections",
   onSelectItem,
   onSelectGroup,
   onItemContextMenu,
@@ -161,40 +176,107 @@ export function EntityGraph<
       undirectedEdges.push(edge);
     }
 
-    const edgeCount = new Map<string, number>();
+    const adjacency = new Map<string, string[]>();
+    const addNeighbor = (from: string, to: string) => {
+      const list = adjacency.get(from) ?? [];
+      list.push(to);
+      adjacency.set(from, list);
+    };
     for (const edge of undirectedEdges) {
-      edgeCount.set(edge.from, (edgeCount.get(edge.from) ?? 0) + 1);
-      edgeCount.set(edge.to, (edgeCount.get(edge.to) ?? 0) + 1);
+      addNeighbor(edge.from, edge.to);
+      addNeighbor(edge.to, edge.from);
+    }
+
+    // Item counterpart of the group subtree sizing above: score every node the
+    // whole network can reach from it, halved per hop. Edges are undirected in
+    // practice, so raw reachability would tie all nodes in a component — the
+    // decay is what lets hubs (e.g. "me" in the people graph) read as centers.
+    const reachScore = new Map<string, number>();
+    for (const itemId of visibleItemIds) {
+      let score = 0;
+      let hopWeight = 1;
+      const visited = new Set<string>([itemId]);
+      let frontier = adjacency.get(itemId) ?? [];
+      while (frontier.length > 0) {
+        const next: string[] = [];
+        for (const neighborId of frontier) {
+          if (visited.has(neighborId)) continue;
+          visited.add(neighborId);
+          score += hopWeight;
+          next.push(...(adjacency.get(neighborId) ?? []));
+        }
+        frontier = next;
+        hopWeight /= 2;
+      }
+      reachScore.set(itemId, score);
+    }
+
+    const groupVal = (group: TGroup) => {
+      const isRoot = !group.parentId;
+      const subtree = subtreeMemberCount.get(group._id) ?? 0;
+      const base = isRoot ? GROUP_ROOT_VAL_BASE : GROUP_CHILD_VAL_BASE;
+      const perMember = isRoot
+        ? GROUP_ROOT_VAL_PER_MEMBER
+        : GROUP_CHILD_VAL_PER_MEMBER;
+      return base + subtree * perMember;
+    };
+
+    const itemConnections = (item: TItem) =>
+      (reachScore.get(item._id) ?? 0) + getItemGroupIds(item).length;
+
+    // Group sizing treats items as groups whose members are their decayed
+    // reach — but decayed reach can never out-count a big group's full-weight
+    // subtree, so anchor the scale to the groups: the top-reach item is the
+    // root of the whole graph ("I" in the people graph) and must land above
+    // the largest group node. Leaves keep near-zero reach, so they stay small.
+    let itemValPerConnectionInGroupMode = GROUP_ROOT_VAL_PER_MEMBER;
+    if (itemSizing === "group") {
+      const maxGroupVal = groups.reduce(
+        (max, group) => Math.max(max, groupVal(group)),
+        0,
+      );
+      const maxConnections = items.reduce(
+        (max, item) => Math.max(max, itemConnections(item)),
+        0,
+      );
+      if (maxConnections > 0) {
+        const targetTopVal = Math.max(
+          maxGroupVal * 1.35,
+          GROUP_ROOT_VAL_BASE + maxConnections * GROUP_ROOT_VAL_PER_MEMBER,
+        );
+        itemValPerConnectionInGroupMode = Math.max(
+          itemValPerConnectionInGroupMode,
+          (targetTopVal - GROUP_CHILD_VAL_BASE) / maxConnections,
+        );
+      }
     }
 
     const nodes: KnowledgeGraphNodeData<TItem, TGroup>[] = [
       ...items.map((item) => {
-        const connections =
-          (edgeCount.get(item._id) ?? 0) + getItemGroupIds(item).length;
+        const connections = itemConnections(item);
+        const val =
+          itemSizing === "group"
+            ? GROUP_CHILD_VAL_BASE +
+              connections * itemValPerConnectionInGroupMode
+            : itemValBase + connections * itemValPerConnection;
         return {
           id: item._id,
           label: getItemLabel(item),
           type: "item" as const,
-          val: itemValBase + connections * itemValPerConnection,
+          val,
           color: getItemColor(item, scheme),
           image: getItemImage?.(item),
           item,
         };
       }),
-      ...groups.map((group) => {
-        const isRoot = !group.parentId;
-        const subtree = subtreeMemberCount.get(group._id) ?? 0;
-        const base = isRoot ? 14 : 5;
-        const perMember = isRoot ? 2.2 : 1.2;
-        return {
-          id: `group:${group._id}`,
-          label: group.name,
-          type: "group" as const,
-          val: base + subtree * perMember,
-          color: group.color ?? classColor(group.name, scheme),
-          group,
-        };
-      }),
+      ...groups.map((group) => ({
+        id: `group:${group._id}`,
+        label: group.name,
+        type: "group" as const,
+        val: groupVal(group),
+        color: group.color ?? classColor(group.name, scheme),
+        group,
+      })),
     ];
 
     const links: KnowledgeGraphLinkData[] = [];
@@ -246,6 +328,7 @@ export function EntityGraph<
     getItemImage,
     itemValBase,
     itemValPerConnection,
+    itemSizing,
   ]);
 
   return (
