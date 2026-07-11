@@ -11,6 +11,7 @@
     "category": "DeveloperTool",
     "copyright": "Copyright \u00a9 2026 denizlg24. All rights reserved.",
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "externalBin": [],
     "icon": [
       "icons/32x32.png",
@@ -47,9 +48,16 @@
   },
   "productName": "denizlg24 - Life Dashboard",
   "mainBinaryName": "denizlg24-app",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "identifier": "app.denizlg24.com",
-  "plugins": {},
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk4NkI1QzBEMzMyMTcyOUYKUldTZmNpRXpEVnhybUMrSmVhT0JDUGduR1FmT1JzUURyR3B2OWFtZHRSNi9EcThUZUNCaHRlOS8K",
+      "endpoints": [
+        "https://github.com/denizlg24/denizlg24.com/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "app": {
     "windows": [
       {
