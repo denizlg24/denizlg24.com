@@ -38,6 +38,7 @@ import {
   settingsFieldMeta,
   type UserSettings,
 } from "@/lib/user-settings";
+import { UpdateSettings } from "./_components/update-settings";
 
 function SettingsFieldRow({
   fieldKey,
@@ -507,6 +508,8 @@ export default function SettingsPage() {
         <TimeZoneSettings api={api} />
         <Separator />
         <CalendarSyncSettings api={api} />
+        <Separator />
+        <UpdateSettings />
       </div>
     </div>
   );
