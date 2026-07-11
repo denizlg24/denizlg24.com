@@ -151,6 +151,14 @@ interface Props {
   onDelete?: () => Promise<void>;
 }
 
+function personInitials(name: string | undefined) {
+  if (!name) return "?";
+  const words = name.trim().split(/\s+/);
+  const first = words[0]?.[0] ?? "";
+  const last = words.length > 1 ? (words[words.length - 1]?.[0] ?? "") : "";
+  return (first + last).toUpperCase() || "?";
+}
+
 function relationsFor(personId: string, edges: IPersonEdge[]) {
   return edges
     .filter((edge) => edge.from === personId || edge.to === personId)
@@ -251,6 +259,9 @@ export function PersonDetail({
   const [groupIds, setGroupIds] = useState(person.groupIds);
   const [relations, setRelations] = useState<RelationDraft[]>(
     relationsFor(person._id, edges),
+  );
+  const [editingRelationId, setEditingRelationId] = useState<string | null>(
+    null,
   );
   const [email, setEmail] = useState(person.email ?? "");
   const [phone, setPhone] = useState(person.phone ?? "");
@@ -671,32 +682,61 @@ export function PersonDetail({
                 icon={<LinkIcon className="size-3" />}
                 label="relations"
               >
-                <div className="flex w-full flex-col gap-1">
+                <div className="flex w-full flex-wrap items-center gap-1">
                   {relations.map((relation) => {
                     const related = peopleById.get(relation.personId);
+                    const avatar = related?.photos[0] ? (
+                      <Image
+                        src={related.photos[0]}
+                        alt=""
+                        width={20}
+                        height={20}
+                        className="size-5 shrink-0 rounded-full object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-medium text-muted-foreground">
+                        {personInitials(related?.name)}
+                      </span>
+                    );
+                    if (editingRelationId !== relation.personId) {
+                      return (
+                        <button
+                          type="button"
+                          key={relation.personId}
+                          onClick={() =>
+                            setEditingRelationId(relation.personId)
+                          }
+                          title={related?.name ?? "Unknown"}
+                          className="inline-flex h-6 max-w-full items-center gap-1.5 rounded-full border bg-muted/20 py-0.5 pl-0.5 pr-2 hover:bg-muted/40"
+                        >
+                          {avatar}
+                          <span className="truncate text-[10px] text-muted-foreground">
+                            {relation.reason?.trim() ||
+                              related?.name ||
+                              "Unknown"}
+                          </span>
+                        </button>
+                      );
+                    }
                     return (
                       <div
                         key={relation.personId}
-                        className="flex items-center gap-2 rounded-md border bg-muted/20 px-2 py-1"
+                        className="flex w-full items-center gap-2 rounded-md border bg-muted/20 px-2 py-1"
+                        onBlur={(event) => {
+                          if (event.currentTarget.contains(event.relatedTarget))
+                            return;
+                          setEditingRelationId((current) =>
+                            current === relation.personId ? null : current,
+                          );
+                        }}
                       >
-                        {related?.photos[0] ? (
-                          <Image
-                            src={related.photos[0]}
-                            alt=""
-                            width={20}
-                            height={20}
-                            className="size-5 shrink-0 rounded-full object-cover"
-                            unoptimized
-                          />
-                        ) : (
-                          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted">
-                            <UserRound className="size-3 text-muted-foreground" />
-                          </span>
-                        )}
+                        {avatar}
                         <span className="max-w-[40%] shrink-0 truncate text-[11px] font-medium">
                           {related?.name ?? "Unknown"}
                         </span>
                         <Input
+                          autoFocus
                           value={relation.reason ?? ""}
                           onChange={(event) => {
                             const reason = event.target.value;
@@ -708,11 +748,22 @@ export function PersonDetail({
                               ),
                             );
                           }}
+                          onKeyDown={(event) => {
+                            if (
+                              event.key === "Enter" ||
+                              event.key === "Escape"
+                            ) {
+                              setEditingRelationId(null);
+                            }
+                          }}
                           placeholder="How do they relate?"
                           className="h-5 flex-1 border-none bg-transparent px-1 text-[10px] text-muted-foreground shadow-none focus-visible:ring-0"
                         />
                         <button
                           type="button"
+                          // Keep the input focused so the row's blur handler
+                          // can't collapse it before this click lands.
+                          onMouseDown={(event) => event.preventDefault()}
                           onClick={() =>
                             setRelations((current) =>
                               current.filter(
@@ -730,12 +781,13 @@ export function PersonDetail({
                   })}
                   <RelationPicker
                     people={relationOptions}
-                    onSelect={(personId) =>
+                    onSelect={(personId) => {
                       setRelations((current) => [
                         ...current,
                         { personId, reason: undefined },
-                      ])
-                    }
+                      ]);
+                      setEditingRelationId(personId);
+                    }}
                   />
                 </div>
               </PropertyRow>
@@ -928,6 +980,7 @@ function SocialsProperty({
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [customPlatform, setCustomPlatform] = useState("");
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   const addSocial = (platform: string) => {
     if (!platform.trim()) return;
@@ -935,6 +988,7 @@ function SocialsProperty({
       ...value,
       { platform: platform.trim().toLowerCase(), handle: "" },
     ]);
+    setEditingIndex(value.length);
     setPickerOpen(false);
     setCustomPlatform("");
   };
@@ -955,25 +1009,65 @@ function SocialsProperty({
     <div className="flex flex-wrap items-center gap-1.5">
       {value.map((social, index) => {
         const Icon = socialIcon(social.platform);
+        const label =
+          socialPresetFor(social.platform)?.label ?? social.platform;
+        if (editingIndex !== index) {
+          return (
+            <button
+              type="button"
+              key={`${social.platform}-${index}`}
+              onClick={() => setEditingIndex(index)}
+              title={label}
+              className="inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/20 px-1.5 py-0.5 text-[10px] hover:bg-muted/40"
+            >
+              <Icon className="size-3 shrink-0 text-muted-foreground" />
+              <span
+                className={
+                  social.handle.trim()
+                    ? "truncate"
+                    : "truncate text-muted-foreground"
+                }
+              >
+                {social.handle.trim() || label}
+              </span>
+            </button>
+          );
+        }
         return (
           <span
             key={`${social.platform}-${index}`}
             className="group inline-flex items-center gap-1 rounded-md border bg-muted/20 px-1.5 py-0.5 text-[10px]"
+            onBlur={(event) => {
+              if (event.currentTarget.contains(event.relatedTarget)) return;
+              setEditingIndex((current) =>
+                current === index ? null : current,
+              );
+            }}
           >
             <Icon className="size-3 text-muted-foreground" />
             <Input
+              autoFocus
               value={social.handle}
               onChange={(event) =>
                 updateSocial(index, { handle: event.target.value })
               }
-              placeholder={
-                socialPresetFor(social.platform)?.label ?? social.platform
-              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === "Escape") {
+                  setEditingIndex(null);
+                }
+              }}
+              placeholder={label}
               className="h-4 w-28 border-none bg-transparent px-1 text-[10px] shadow-none focus-visible:ring-0"
             />
             <button
               type="button"
-              onClick={() => removeSocial(index)}
+              // Keep the input focused so the chip's blur handler
+              // can't collapse it before this click lands.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                removeSocial(index);
+                setEditingIndex(null);
+              }}
               className="text-muted-foreground opacity-60 hover:opacity-100"
               aria-label="Remove social"
             >
