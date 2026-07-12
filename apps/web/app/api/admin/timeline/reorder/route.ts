@@ -23,6 +23,17 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    const invalid = items.some(
+      (item) =>
+        typeof item?._id !== "string" || typeof item?.order !== "number",
+    );
+    if (invalid) {
+      return NextResponse.json(
+        { error: "Each item must have a string _id and numeric order" },
+        { status: 400 },
+      );
+    }
+
     await connectDB();
 
     const bulkOps = items.map((item) => ({

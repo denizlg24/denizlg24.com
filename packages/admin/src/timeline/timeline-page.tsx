@@ -190,7 +190,7 @@ export function TimelinePage({ newHref }: { newHref: string }) {
   const handleSaveOrder = async () => {
     setSavingOrder(true);
 
-    const ordered = items.map((item, i) => ({ id: item._id, order: i }));
+    const ordered = items.map((item, i) => ({ _id: item._id, order: i }));
     try {
       await client.patch<{ success: boolean }>("timeline/reorder", {
         items: ordered,
@@ -217,10 +217,9 @@ export function TimelinePage({ newHref }: { newHref: string }) {
     );
 
     try {
-      await client.patch<{ timelineItem: ITimelineItem }>(
-        `timeline/${item._id}`,
-        { toggleActive: true },
-      );
+      await client.patch<{ item: ITimelineItem }>(`timeline/${item._id}`, {
+        toggleActive: true,
+      });
     } catch {
       toast.error("Failed to update");
       setItems((prev) =>
@@ -236,7 +235,7 @@ export function TimelinePage({ newHref }: { newHref: string }) {
     setDeleting(true);
 
     try {
-      await client.del<{ message: string }>(`timeline/${deleteTarget._id}`);
+      await client.del<{ success: boolean }>(`timeline/${deleteTarget._id}`);
       setItems((prev) => prev.filter((i) => i._id !== deleteTarget._id));
       setOriginalOrder((prev) =>
         prev.filter((i) => i._id !== deleteTarget._id),
