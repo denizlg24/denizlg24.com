@@ -31,7 +31,16 @@ export async function POST(
   try {
     const { boardId } = await params;
     const body = await request.json();
-    const { title, color, wipLimit, icon } = body;
+    const {
+      title,
+      description,
+      color,
+      wipLimit,
+      icon,
+      isDoneColumn,
+      isCollapsed,
+      sortRule,
+    } = body;
 
     if (!title) {
       return NextResponse.json({ error: "title is required" }, { status: 400 });
@@ -39,9 +48,13 @@ export async function POST(
 
     const column = await createColumn(boardId, {
       title,
+      description,
       color,
       wipLimit,
       icon,
+      isDoneColumn,
+      isCollapsed,
+      sortRule,
     });
     return NextResponse.json({ column }, { status: 201 });
   } catch (_error) {

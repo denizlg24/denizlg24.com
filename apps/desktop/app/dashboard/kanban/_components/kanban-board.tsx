@@ -4,6 +4,7 @@ import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { Plus, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -13,7 +14,6 @@ import type {
   IKanbanCard,
   IKanbanColumn,
 } from "@/lib/data-types";
-import { CardDialog } from "./card-dialog";
 import {
   COLUMN_COLORS,
   ColumnColorPicker,
@@ -26,9 +26,6 @@ import {
 } from "./kanban-column";
 
 type FullBoard = IKanbanBoard & { columns: ColumnWithCards[] };
-type KanbanCardUpdate = Omit<Partial<IKanbanCard>, "dueDate"> & {
-  dueDate?: Date | string | null;
-};
 type EmptyApiResponse = Record<string, never>;
 
 interface KanbanBoardProps {
@@ -37,9 +34,9 @@ interface KanbanBoardProps {
 }
 
 export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
+  const router = useRouter();
   const [columns, setColumns] = useState<ColumnWithCards[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCard, setSelectedCard] = useState<IKanbanCard | null>(null);
 
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState("");
@@ -155,6 +152,10 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
       color?: string;
       icon?: string;
       wipLimit?: number | null;
+      description?: string;
+      isDoneColumn?: boolean;
+      isCollapsed?: boolean;
+      sortRule?: "manual" | "priority" | "dueDate";
     },
   ) => {
     const snapshot = columns.find((c) => c._id === columnId);
@@ -169,7 +170,9 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
                   ? undefined
                   : (updates.wipLimit ?? c.wipLimit),
             }
-          : c,
+          : updates.isDoneColumn
+            ? { ...c, isDoneColumn: false }
+            : c,
       ),
     );
     const result = await API.PATCH<EmptyApiResponse>({
@@ -188,6 +191,10 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
                   color: snapshot.color,
                   icon: snapshot.icon,
                   wipLimit: snapshot.wipLimit,
+                  description: snapshot.description,
+                  isDoneColumn: snapshot.isDoneColumn,
+                  isCollapsed: snapshot.isCollapsed,
+                  sortRule: snapshot.sortRule,
                 }
               : c,
           ),
@@ -225,38 +232,6 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
     );
   };
 
-  const handleUpdateCard = async (
-    cardId: string,
-    updates: KanbanCardUpdate,
-  ) => {
-    const result = await API.PATCH<{ card: IKanbanCard }>({
-      endpoint: `kanban/boards/${boardId}/cards/${cardId}`,
-      body: updates,
-    });
-    if ("code" in result) {
-      toast.error("Failed to update card");
-      return;
-    }
-
-    const updatedCard = result.card;
-
-    if (updates.columnId) {
-      fetchBoard();
-    } else {
-      setColumns((cols) =>
-        cols.map((col) => ({
-          ...col,
-          cards: col.cards.map((c) =>
-            c._id === cardId ? { ...c, ...updatedCard } : c,
-          ),
-        })),
-      );
-    }
-    setSelectedCard((prev) =>
-      prev?._id === cardId ? { ...prev, ...updatedCard } : prev,
-    );
-  };
-
   const handleClearColumn = async (columnId: string) => {
     const snapshot = columns.find((c) => c._id === columnId);
     setColumns((cols) =>
@@ -275,27 +250,6 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
         fetchBoard();
       }
     }
-  };
-
-  const handleToggleCardDone = async (card: IKanbanCard) => {
-    const isDone = card.labels.some((label) => label.toLowerCase() === "done");
-    if (isDone) {
-      await handleUpdateCard(card._id, {
-        labels: card.labels.filter((label) => label.toLowerCase() !== "done"),
-      });
-      return;
-    }
-
-    const doneColumn = columns.find(
-      (col) => col.title.trim().toLowerCase() === "done",
-    );
-    await handleUpdateCard(card._id, {
-      labels: [...card.labels, "done"],
-      dueDate: null,
-      ...(doneColumn && doneColumn._id !== card.columnId
-        ? { columnId: doneColumn._id, order: doneColumn.cards.length }
-        : {}),
-    });
   };
 
   const handleDeleteCard = async (cardId: string) => {
@@ -358,6 +312,20 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
       movedCard = { ...movedCard, columnId: targetColumnId };
       const targetCol = newCols.find((c) => c._id === targetColumnId);
       if (!targetCol) return;
+
+      if ((targetCol.sortRule ?? "manual") !== "manual") {
+        targetCol.cards.push(movedCard);
+        setColumns(newCols);
+        const result = await API.PATCH<{ card: IKanbanCard }>({
+          endpoint: `kanban/boards/${boardId}/cards/${cardId}`,
+          body: { columnId: targetColumnId },
+        });
+        if ("code" in result) {
+          toast.error("Failed to move card");
+          fetchBoard();
+        }
+        return;
+      }
 
       if (before) {
         const beforeIdx = targetCol.cards.findIndex((c) => c._id === before);
@@ -468,7 +436,7 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
 
   return (
     <>
-      <div className="flex h-full w-max min-w-full items-start gap-4 p-3 sm:p-4">
+      <div className="flex h-full min-h-0 w-max min-w-full items-stretch gap-3 px-3 py-3">
         {columns.map((col) => (
           <KanbanColumn
             key={col._id}
@@ -478,12 +446,15 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
             onColumnDragStart={handleColumnDragStart}
             onCardDragOver={handleCardDragOver}
             onDrop={handleDrop}
-            onCardClick={setSelectedCard}
+            onCardClick={(card) =>
+              router.push(
+                `/dashboard/kanban/card?board=${encodeURIComponent(boardId)}&card=${encodeURIComponent(card._id)}`,
+              )
+            }
             onAddCard={handleAddCard}
             onUpdateColumn={handleUpdateColumn}
             onDeleteColumn={handleDeleteColumn}
             onClearColumn={handleClearColumn}
-            onToggleCardDone={handleToggleCardDone}
           />
         ))}
 
@@ -570,19 +541,9 @@ export function KanbanBoard({ API, boardId }: KanbanBoardProps) {
         </div>
       </div>
 
-      {selectedCard && (
-        <CardDialog
-          card={selectedCard}
-          columns={columns}
-          onClose={() => setSelectedCard(null)}
-          onUpdate={handleUpdateCard}
-          onDelete={handleDeleteCard}
-        />
-      )}
-
       {createPortal(
         <div
-          className={`fixed bottom-6 right-6 z-9999 flex items-center justify-center rounded-2xl border-2 border-dashed transition-all duration-200 ${
+          className={`fixed bottom-6 right-6 z-50 flex items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200 ${
             dragging
               ? "opacity-100 scale-100"
               : "opacity-0 scale-75 pointer-events-none"

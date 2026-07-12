@@ -33,6 +33,7 @@ import { EmailModel } from "@/models/Email";
 import { EmailTriageModel } from "@/models/EmailTriage";
 import { KanbanBoard } from "@/models/KanbanBoard";
 import { KanbanCard } from "@/models/KanbanCard";
+import { KanbanColumn } from "@/models/KanbanColumn";
 import { Note } from "@/models/Note";
 import { Person } from "@/models/Person";
 import { Resource } from "@/models/Resource";
@@ -594,8 +595,8 @@ function buildDeadlines(
         sourceLabel: boardsById.get(card.boardId)?.title,
         priority: card.priority,
         notes: card.description,
-        completed: false,
-        overdue: new Date(dueAt).getTime() < now,
+        completed: card.completed ?? false,
+        overdue: !(card.completed ?? false) && new Date(dueAt).getTime() < now,
       };
     });
 
@@ -716,7 +717,10 @@ function toCalendarSummary(event: RawRecord): ICourseCalendarSummary {
   };
 }
 
-function toKanbanCardSummary(card: RawRecord): ICourseKanbanCardSummary {
+function toKanbanCardSummary(
+  card: RawRecord,
+  completed = false,
+): ICourseKanbanCardSummary {
   return {
     _id: toId(card._id),
     boardId: toId(card.boardId),
@@ -733,6 +737,7 @@ function toKanbanCardSummary(card: RawRecord): ICourseKanbanCardSummary {
         ? (card.priority as ICourseKanbanCardSummary["priority"])
         : "none",
     dueDate: toIsoString(card.dueDate),
+    completed,
   };
 }
 
@@ -782,15 +787,29 @@ async function findByIds(model: LeanFindModel, ids: string[]) {
   return model.find({ _id: { $in: ids } }).lean<RawRecord[]>();
 }
 
-async function getCourseKanbanCards(boardIds: string[]) {
-  if (boardIds.length === 0) return [];
+async function getCourseKanbanCards(boardIds: string[], courseId?: string) {
+  const linkQueries: Record<string, unknown>[] = [];
+  if (boardIds.length > 0) linkQueries.push({ boardId: { $in: boardIds } });
+  if (courseId) linkQueries.push({ courseIds: courseId });
+  if (linkQueries.length === 0) return [];
+
   const cards = await KanbanCard.find({
-    boardId: { $in: boardIds },
     isArchived: false,
+    $or: linkQueries,
   })
     .sort({ dueDate: 1, order: 1 })
     .lean<RawRecord[]>();
-  return cards.map(toKanbanCardSummary);
+  const columnIds = [...new Set(cards.map((card) => toId(card.columnId)))];
+  const doneColumns = await KanbanColumn.find({
+    _id: { $in: columnIds },
+    isDoneColumn: true,
+  })
+    .select("_id")
+    .lean<RawRecord[]>();
+  const doneColumnIds = new Set(doneColumns.map((column) => toId(column._id)));
+  return cards.map((card) =>
+    toKanbanCardSummary(card, doneColumnIds.has(toId(card.columnId))),
+  );
 }
 
 async function getCourseAssignments(courseIds: string[]) {
@@ -913,7 +932,7 @@ export async function getCourseDetail(
     findByIds(Note, course.noteIds),
     findByIds(Person, course.personIds),
     findByIds(Resource, course.resourceIds),
-    getCourseKanbanCards(course.kanbanBoardIds),
+    getCourseKanbanCards(course.kanbanBoardIds, id),
     CourseAssignment.find({ courseId: id })
       .sort({ dueAt: 1, updatedAt: -1 })
       .lean<RawRecord[]>(),

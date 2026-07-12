@@ -1,5 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { deleteCard, getCardById, updateCard } from "@/lib/kanban";
+import {
+  deleteCard,
+  getCardById,
+  getCardLinks,
+  updateCard,
+} from "@/lib/kanban";
 import { requireAdmin } from "@/lib/require-admin";
 
 export async function GET(
@@ -11,10 +16,13 @@ export async function GET(
 
   try {
     const { cardId } = await params;
-    const card = await getCardById(cardId);
+    const [card, links] = await Promise.all([
+      getCardById(cardId),
+      getCardLinks(cardId),
+    ]);
     if (!card)
       return NextResponse.json({ error: "Card not found" }, { status: 404 });
-    return NextResponse.json({ card }, { status: 200 });
+    return NextResponse.json({ card, links }, { status: 200 });
   } catch (_error) {
     return NextResponse.json(
       { error: "Failed to fetch card" },

@@ -78,6 +78,7 @@ interface ExtractionResult {
     description?: string;
     priority: TriagePriority;
     dueDate?: Date;
+    dueHasTime?: boolean;
     kanbanBoardId?: string;
     kanbanBoardTitle?: string;
     kanbanColumnId?: string;
@@ -636,8 +637,11 @@ async function getKanbanTargets(): Promise<CompactKanbanTarget[]> {
   }
 
   const boardIds = boards.map((board) => board._id);
-  const columns = await KanbanColumn.find({ boardId: { $in: boardIds } })
-    .select("boardId title order")
+  const columns = await KanbanColumn.find({
+    boardId: { $in: boardIds },
+    isDoneColumn: { $ne: true },
+  })
+    .select("boardId title order isDoneColumn")
     .sort({ order: 1 })
     .lean();
 
@@ -902,7 +906,13 @@ function buildExtractionTool(
     priority: { type: "string", enum: PRIORITIES },
     dueDate: {
       type: "string",
-      description: "ISO 8601 due date if clearly mentioned, otherwise omit.",
+      description:
+        "ISO 8601 due date, including time-of-day when clearly mentioned; otherwise omit.",
+    },
+    dueHasTime: {
+      type: "boolean",
+      description:
+        "True only when the source clearly gives a meaningful time-of-day for dueDate.",
     },
   };
   const taskRequired = ["title", "priority"];
@@ -1204,6 +1214,8 @@ async function runExtraction(
           typeof task.description === "string" ? task.description : undefined,
         priority: coercePriority(task.priority),
         dueDate: parseDate(task.dueDate),
+        dueHasTime:
+          typeof task.dueHasTime === "boolean" ? task.dueHasTime : undefined,
         ...(isCourseAssignmentType(task.assignmentType)
           ? { assignmentType: task.assignmentType }
           : {}),
@@ -1356,6 +1368,7 @@ async function autoAccept(
         description: task.description,
         priority: task.priority,
         dueDate: task.dueDate ? task.dueDate.toISOString() : undefined,
+        hasDueTime: task.dueHasTime,
       });
       await EmailTriageModel.updateOne(
         { _id: triageId },
@@ -1800,6 +1813,7 @@ export async function runTriage(options?: {
           description: task.description,
           priority: task.priority,
           dueDate: task.dueDate,
+          dueHasTime: task.dueHasTime,
           kanbanBoardId: task.kanbanBoardId,
           kanbanBoardTitle: task.kanbanBoardTitle,
           kanbanColumnId: task.kanbanColumnId,
@@ -1934,6 +1948,7 @@ export async function acceptSuggestion(
       dueDate:
         getStringOverride(overrides, "dueDate") ??
         (task.dueDate ? task.dueDate.toISOString() : undefined),
+      hasDueTime: task.dueHasTime,
     });
     triage.suggestedTasks[index].status = "accepted";
     triage.suggestedTasks[index].acceptedCardId = new mongoose.Types.ObjectId(

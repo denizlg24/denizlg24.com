@@ -26,6 +26,7 @@ export interface ITriageTaskSuggestion {
   description?: string;
   priority: TriagePriority;
   dueDate?: Date;
+  dueHasTime?: boolean;
   kanbanBoardId?: mongoose.Types.ObjectId;
   kanbanBoardTitle?: string;
   kanbanColumnId?: mongoose.Types.ObjectId;
@@ -80,6 +81,7 @@ const TaskSuggestionSchema = new Schema<ITriageTaskSuggestion>({
     default: "none",
   },
   dueDate: { type: Date },
+  dueHasTime: { type: Boolean },
   kanbanBoardId: { type: Schema.Types.ObjectId, ref: "KanbanBoard" },
   kanbanBoardTitle: { type: String },
   kanbanColumnId: { type: Schema.Types.ObjectId, ref: "KanbanColumn" },

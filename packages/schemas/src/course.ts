@@ -230,6 +230,7 @@ export const courseKanbanCardSummarySchema = z.object({
   labels: z.array(z.string()),
   priority: kanbanPrioritySchema,
   dueDate: z.string().optional(),
+  completed: z.boolean().optional(),
 });
 export type ICourseKanbanCardSummary = z.infer<
   typeof courseKanbanCardSummarySchema

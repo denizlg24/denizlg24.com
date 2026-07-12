@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/mongodb";
 import { getAppTimeZone, inTz } from "@/lib/timezone";
+import { CalendarEvent } from "@/models/CalendarEvent";
+import { Course } from "@/models/Course";
 import { type ILeanKanbanBoard, KanbanBoard } from "@/models/KanbanBoard";
 import {
   type ILeanKanbanCard,
@@ -8,6 +10,42 @@ import {
   type KanbanPriority,
 } from "@/models/KanbanCard";
 import { type ILeanKanbanColumn, KanbanColumn } from "@/models/KanbanColumn";
+import { Note } from "@/models/Note";
+import { Person } from "@/models/Person";
+
+export type CardEntityType = "calendar" | "note" | "person" | "course";
+
+const CARD_ENTITY_FIELD_MAP = {
+  calendar: "calendarEventIds",
+  note: "noteIds",
+  person: "personIds",
+  course: "courseIds",
+} as const;
+
+function serializeCard<
+  T extends {
+    _id: unknown;
+    boardId: unknown;
+    columnId: unknown;
+    hasDueTime?: boolean;
+    calendarEventIds?: string[];
+    noteIds?: string[];
+    personIds?: string[];
+    courseIds?: string[];
+  },
+>(card: T): ILeanKanbanCard {
+  return {
+    ...card,
+    _id: String(card._id),
+    boardId: String(card.boardId),
+    columnId: String(card.columnId),
+    hasDueTime: card.hasDueTime ?? false,
+    calendarEventIds: card.calendarEventIds ?? [],
+    noteIds: card.noteIds ?? [],
+    personIds: card.personIds ?? [],
+    courseIds: card.courseIds ?? [],
+  } as unknown as ILeanKanbanCard;
+}
 
 export async function getAllBoards(): Promise<ILeanKanbanBoard[]> {
   await connectDB();
@@ -33,12 +71,7 @@ export async function getFullBoard(boardId: string) {
     (acc, card) => {
       const colId = card.columnId.toString();
       if (!acc[colId]) acc[colId] = [];
-      acc[colId].push({
-        ...card,
-        _id: card._id.toString(),
-        boardId: card.boardId.toString(),
-        columnId: colId,
-      });
+      acc[colId].push(serializeCard(card));
       return acc;
     },
     {} as Record<string, ILeanKanbanCard[]>,
@@ -109,13 +142,28 @@ export async function getBoardColumns(
 
 export async function createColumn(
   boardId: string,
-  data: { title: string; color?: string; wipLimit?: number; icon?: string },
+  data: {
+    title: string;
+    description?: string;
+    color?: string;
+    wipLimit?: number;
+    icon?: string;
+    isDoneColumn?: boolean;
+    isCollapsed?: boolean;
+    sortRule?: "manual" | "priority" | "dueDate";
+  },
 ) {
   await connectDB();
   const lastCol = await KanbanColumn.findOne({ boardId })
     .sort({ order: -1 })
     .lean();
   const order = lastCol ? lastCol.order + 1 : 0;
+  if (data.isDoneColumn) {
+    await KanbanColumn.updateMany(
+      { boardId },
+      { $set: { isDoneColumn: false } },
+    );
+  }
   const column = await KanbanColumn.create({ boardId, order, ...data });
   return {
     ...column.toObject(),
@@ -128,12 +176,24 @@ export async function updateColumn(
   id: string,
   data: Partial<{
     title: string;
+    description: string;
     color: string;
     wipLimit: number;
     icon: string;
+    isDoneColumn: boolean;
+    isCollapsed: boolean;
+    sortRule: "manual" | "priority" | "dueDate";
   }>,
 ) {
   await connectDB();
+  if (data.isDoneColumn) {
+    const current = await KanbanColumn.findById(id).select("boardId").lean();
+    if (!current) return null;
+    await KanbanColumn.updateMany(
+      { boardId: current.boardId, _id: { $ne: id } },
+      { $set: { isDoneColumn: false } },
+    );
+  }
   const column = await KanbanColumn.findByIdAndUpdate(id, data, {
     returnDocument: "after",
     runValidators: true,
@@ -184,24 +244,14 @@ export async function getBoardCards(
   const cards = await KanbanCard.find(query)
     .sort({ columnId: 1, order: 1 })
     .lean();
-  return cards.map((c) => ({
-    ...c,
-    _id: c._id.toString(),
-    boardId: c.boardId.toString(),
-    columnId: c.columnId.toString(),
-  }));
+  return cards.map((c) => serializeCard(c));
 }
 
 export async function getCardById(id: string) {
   await connectDB();
   const card = await KanbanCard.findById(id).lean();
   if (!card) return null;
-  return {
-    ...card,
-    _id: card._id.toString(),
-    boardId: card.boardId.toString(),
-    columnId: card.columnId.toString(),
-  };
+  return serializeCard(card);
 }
 
 export async function createCard(
@@ -212,7 +262,13 @@ export async function createCard(
     description?: string;
     labels?: string[];
     priority?: KanbanPriority;
+    startDate?: string;
     dueDate?: string;
+    hasDueTime?: boolean;
+    calendarEventIds?: string[];
+    noteIds?: string[];
+    personIds?: string[];
+    courseIds?: string[];
   },
 ) {
   await connectDB();
@@ -221,12 +277,7 @@ export async function createCard(
     .lean();
   const order = lastCard ? lastCard.order + 1 : 0;
   const card = await KanbanCard.create({ boardId, columnId, order, ...data });
-  return {
-    ...card.toObject(),
-    _id: card._id.toString(),
-    boardId: card.boardId.toString(),
-    columnId: card.columnId.toString(),
-  };
+  return serializeCard(card.toObject());
 }
 
 export async function updateCard(
@@ -238,7 +289,13 @@ export async function updateCard(
     order: number;
     labels: string[];
     priority: string;
+    startDate: string | null;
     dueDate: string | null;
+    hasDueTime: boolean;
+    calendarEventIds: string[];
+    noteIds: string[];
+    personIds: string[];
+    courseIds: string[];
     isArchived: boolean;
   }>,
 ) {
@@ -248,11 +305,79 @@ export async function updateCard(
     runValidators: true,
   }).lean();
   if (!card) return null;
+  return serializeCard(card);
+}
+
+export async function linkCardEntity(
+  cardId: string,
+  entityType: CardEntityType,
+  entityId: string,
+) {
+  await connectDB();
+  const field = CARD_ENTITY_FIELD_MAP[entityType];
+  const card = await KanbanCard.findByIdAndUpdate(
+    cardId,
+    { $addToSet: { [field]: entityId } },
+    { returnDocument: "after", runValidators: true },
+  ).lean();
+  return card ? serializeCard(card) : null;
+}
+
+export async function unlinkCardEntity(
+  cardId: string,
+  entityType: CardEntityType,
+  entityId: string,
+) {
+  await connectDB();
+  const field = CARD_ENTITY_FIELD_MAP[entityType];
+  const card = await KanbanCard.findByIdAndUpdate(
+    cardId,
+    { $pull: { [field]: entityId } },
+    { returnDocument: "after", runValidators: true },
+  ).lean();
+  return card ? serializeCard(card) : null;
+}
+
+export async function getCardLinks(cardId: string) {
+  await connectDB();
+  const card = await KanbanCard.findById(cardId)
+    .select("calendarEventIds noteIds personIds courseIds")
+    .lean();
+  if (!card) return null;
+
+  const [calendarEvents, notes, people, courses] = await Promise.all([
+    CalendarEvent.find({ _id: { $in: card.calendarEventIds ?? [] } })
+      .select("title date")
+      .lean(),
+    Note.find({ _id: { $in: card.noteIds ?? [] }, status: "open" })
+      .select("title")
+      .lean(),
+    Person.find({ _id: { $in: card.personIds ?? [] } })
+      .select("name")
+      .lean(),
+    Course.find({ _id: { $in: card.courseIds ?? [] }, status: "active" })
+      .select("name")
+      .lean(),
+  ]);
+
   return {
-    ...card,
-    _id: card._id.toString(),
-    boardId: card.boardId.toString(),
-    columnId: card.columnId.toString(),
+    calendarEvents: calendarEvents.map((event) => ({
+      _id: String(event._id),
+      title: event.title,
+      start: event.date.toISOString(),
+    })),
+    notes: notes.map((note) => ({
+      _id: note._id.toString(),
+      name: note.title,
+    })),
+    people: people.map((person) => ({
+      _id: person._id.toString(),
+      name: person.name,
+    })),
+    courses: courses.map((course) => ({
+      _id: course._id.toString(),
+      name: course.name,
+    })),
   };
 }
 
@@ -346,6 +471,11 @@ export async function getUpcomingCards(
   const columnTitleById = new Map(
     columns.map((c) => [c._id.toString(), c.title] as const),
   );
+  const doneColumnIds = new Set(
+    columns
+      .filter((column) => column.isDoneColumn)
+      .map((column) => column._id.toString()),
+  );
 
   const msPerDay = 24 * 60 * 60 * 1000;
   const grouped = new Map<string, UpcomingBoardGroup>();
@@ -354,6 +484,7 @@ export async function getUpcomingCards(
   let dueThisWeek = 0;
 
   for (const card of cards) {
+    if (doneColumnIds.has(card.columnId.toString())) continue;
     const boardIdStr = card.boardId.toString();
     const board = boardById.get(boardIdStr);
     if (!board) continue;
@@ -368,10 +499,7 @@ export async function getUpcomingCards(
     if (due <= endOfWeek) dueThisWeek++;
 
     const upcomingCard: UpcomingKanbanCard = {
-      ...card,
-      _id: card._id.toString(),
-      boardId: boardIdStr,
-      columnId: card.columnId.toString(),
+      ...serializeCard(card),
       columnTitle: columnTitleById.get(card.columnId.toString()) ?? "",
       daysUntilDue,
       overdue: isOverdue,
@@ -393,7 +521,10 @@ export async function getUpcomingCards(
   return {
     boards: [...grouped.values()],
     stats: {
-      total: cards.filter((c) => boardById.has(c.boardId.toString())).length,
+      total: [...grouped.values()].reduce(
+        (total, group) => total + group.cards.length,
+        0,
+      ),
       overdue,
       dueToday,
       dueThisWeek,
