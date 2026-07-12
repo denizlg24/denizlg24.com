@@ -24,7 +24,7 @@ IMPORTANT: Always call tools directly — both read and write. Never ask the use
 
 Available data domains:
 - Calendar events (view, create, update, delete events)
-- Kanban boards (view boards/columns/cards, create/update cards)
+- Kanban boards (view boards/columns/cards, create/update cards, and attach calendar events, notes, people, or courses). Card completion is determined by whether the card is in the board's done column; do not use a "done" label.
 - Notes and knowledge graph (search, read, create, update notes and manage groups)
 - Timetable (view, create, update, delete schedule entries)
 - Courses (the per-class home for a semester — list/get courses, create/update/archive them, maintain opt-in private triage context such as student numbers or lab groups, link existing timetable entries, calendar events, kanban boards, notes, people, and resources to a course, manage course deadlines, assignments, materials, grades, read the emails triage has matched to a course, and get a semester-wide overview with grade projections and a deadline radar)

@@ -10,7 +10,13 @@ export interface IKanbanCard extends Document {
   order: number;
   labels: string[];
   priority: KanbanPriority;
+  startDate?: Date;
   dueDate?: Date;
+  hasDueTime: boolean;
+  calendarEventIds: string[];
+  noteIds: string[];
+  personIds: string[];
+  courseIds: string[];
   isArchived: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -25,7 +31,13 @@ export interface ILeanKanbanCard {
   order: number;
   labels: string[];
   priority: KanbanPriority;
+  startDate?: Date;
   dueDate?: Date;
+  hasDueTime: boolean;
+  calendarEventIds: string[];
+  noteIds: string[];
+  personIds: string[];
+  courseIds: string[];
   isArchived: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -54,7 +66,13 @@ const KanbanCardSchema = new mongoose.Schema<IKanbanCard>(
       enum: ["none", "low", "medium", "high", "urgent"],
       default: "none",
     },
+    startDate: { type: Date },
     dueDate: { type: Date },
+    hasDueTime: { type: Boolean, default: false },
+    calendarEventIds: { type: [String], default: [] },
+    noteIds: { type: [String], default: [] },
+    personIds: { type: [String], default: [] },
+    courseIds: { type: [String], default: [] },
     isArchived: { type: Boolean, default: false, index: true },
   },
   { timestamps: true },

@@ -33,7 +33,20 @@ export async function POST(
   try {
     const { boardId } = await params;
     const body = await request.json();
-    const { columnId, title, description, labels, priority, dueDate } = body;
+    const {
+      columnId,
+      title,
+      description,
+      labels,
+      priority,
+      startDate,
+      dueDate,
+      hasDueTime,
+      calendarEventIds,
+      noteIds,
+      personIds,
+      courseIds,
+    } = body;
 
     if (!columnId) {
       return NextResponse.json(
@@ -50,7 +63,13 @@ export async function POST(
       description,
       labels,
       priority,
+      startDate,
       dueDate,
+      hasDueTime,
+      calendarEventIds,
+      noteIds,
+      personIds,
+      courseIds,
     });
     return NextResponse.json({ card }, { status: 201 });
   } catch (_error) {

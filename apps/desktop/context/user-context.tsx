@@ -48,6 +48,7 @@ const KNOWN_ROUTES = new Set([
   "/dashboard/whiteboard",
   "/dashboard/whiteboard/today",
   "/dashboard/kanban",
+  "/dashboard/kanban/card",
   "/dashboard/pomodoro",
   "/dashboard/resources",
   "/dashboard/llm-usage",
