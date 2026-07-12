@@ -63,6 +63,7 @@ export function CvPage() {
 
   const [cv, setCv] = useState<ICvFile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
   const [previewError, setPreviewError] = useState(false);
@@ -79,6 +80,7 @@ export function CvPage() {
       toast.error("Failed to load CV");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [client]);
 
@@ -196,12 +198,15 @@ export function CvPage() {
           variant="ghost"
           size="sm"
           className="h-8 text-xs gap-1.5"
+          disabled={refreshing}
           onClick={() => {
-            setLoading(true);
+            setRefreshing(true);
             fetchCv();
           }}
         >
-          <RefreshCw className="size-3.5" />
+          <RefreshCw
+            className={refreshing ? "size-3.5 animate-spin" : "size-3.5"}
+          />
           Refresh
         </Button>
 

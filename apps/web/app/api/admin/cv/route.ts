@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
-import { uploadFileToStorage } from "@/lib/storage-api";
+import { deleteFileFromStorage, uploadFileToStorage } from "@/lib/storage-api";
 import {
   AppSettings,
   type ILeanAppSettings,
@@ -49,11 +49,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const data = await request.formData();
-    const file: File | null = data.get("file") as unknown as File;
+    const entry = data.get("file");
 
-    if (!file) {
+    if (!(entry instanceof File)) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
+
+    const file = entry;
 
     const isPdf =
       file.type === "application/pdf" ||
@@ -74,23 +76,36 @@ export async function POST(request: NextRequest) {
 
     const uploaded = await uploadFileToStorage(file, "file");
 
-    await connectDB();
-    const settings = await AppSettings.findByIdAndUpdate(
-      "singleton",
-      {
-        $set: {
-          cv: {
-            url: uploaded.publicUrl,
-            filename: file.name,
-            size: uploaded.sizeBytes,
-            updatedAt: new Date(),
+    let settings: ILeanAppSettings | null;
+    try {
+      await connectDB();
+      settings = await AppSettings.findByIdAndUpdate(
+        "singleton",
+        {
+          $set: {
+            cv: {
+              url: uploaded.publicUrl,
+              filename: file.name,
+              size: uploaded.sizeBytes,
+              updatedAt: new Date(),
+            },
           },
         },
-      },
-      { upsert: true, new: true },
-    )
-      .lean<ILeanAppSettings>()
-      .exec();
+        { upsert: true, new: true },
+      )
+        .lean<ILeanAppSettings>()
+        .exec();
+    } catch (dbError) {
+      // Persisting the metadata failed — remove the just-uploaded file so we
+      // don't leave an orphaned object in storage.
+      await deleteFileFromStorage(uploaded.id).catch((cleanupError) => {
+        console.error(
+          "Failed to clean up orphaned CV upload after DB error:",
+          cleanupError,
+        );
+      });
+      throw dbError;
+    }
 
     const cv = serializeCv(settings?.cv);
     if (!cv) {
@@ -114,9 +129,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const err = error as Error;
     console.error("Error uploading CV:", err);
-    return NextResponse.json(
-      { error: "Failed to upload CV", details: err.message },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Failed to upload CV" }, { status: 500 });
   }
 }

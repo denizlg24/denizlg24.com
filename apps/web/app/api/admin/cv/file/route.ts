@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(upstream.body, {
       headers: {
         "content-type": "application/pdf",
-        "content-disposition": `inline; filename="${settings.cv.filename.replaceAll('"', "")}"`,
+        "content-disposition": `inline; filename="${settings.cv.filename.replace(/["\r\n]/g, "")}"`,
         "cache-control": "no-store",
       },
     });

@@ -124,7 +124,14 @@ export function ImageCropDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        // Block Escape/overlay close mid-export so onCropped can't fire after cancel.
+        if (!o && exporting) return;
+        onOpenChange(o);
+      }}
+    >
       {/* no scale animation: the cropper measures its container on mount and
           a zooming dialog makes it measure mid-animation */}
       <DialogContent className="sm:max-w-md gap-4 data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100">

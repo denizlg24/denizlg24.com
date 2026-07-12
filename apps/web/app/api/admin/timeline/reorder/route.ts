@@ -23,6 +23,13 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    if (items.length === 0) {
+      return NextResponse.json(
+        { error: "Items array must not be empty" },
+        { status: 400 },
+      );
+    }
+
     const invalid = items.some(
       (item) =>
         typeof item?._id !== "string" || typeof item?.order !== "number",
