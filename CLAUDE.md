@@ -90,6 +90,12 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 ### Upload
 - `POST /upload` → FormData with "file" field → `{ url, hash }` (Pinata, images only, max 5MB)
 
+### CV
+- `GET /cv` → `{ cv: ICvFile | null }` (stored on the AppSettings singleton)
+- `GET /cv/file` → PDF bytes proxied from storage (admin preview renders these via react-pdf; webviews can't embed remote PDFs natively)
+- `POST /cv` → FormData with "file" field (PDF only, max 10MB) → uploads to storage "file" bucket, saves url/filename/size, revalidates `/` → `{ cv }`
+- Public homepage resume button reads the stored URL via `lib/cv.ts` `getCvUrl()`, falling back to the bundled `/assets/DenizGunesCV2026.pdf`; shared admin UI is `packages/admin/src/cv/cv-page.tsx`
+
 ### LLM Usage
 - `GET /llm/usage` → usage stats, breakdowns, recent requests
 

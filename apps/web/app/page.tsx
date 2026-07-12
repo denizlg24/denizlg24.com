@@ -15,6 +15,7 @@ import { Timeline } from "@/components/timeline";
 import TimelineTabsContent from "@/components/timeline-tabs-content";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getCvUrl } from "@/lib/cv";
 
 export const metadata: Metadata = {
   title: {
@@ -39,7 +40,9 @@ export const metadata: Metadata = {
   },
 };
 
-export default function Home() {
+export default async function Home() {
+  const cvUrl = await getCvUrl();
+
   return (
     <main className="flex flex-col items-center justify-center">
       <section className="w-full max-w-5xl mx-auto px-4 text-center items-center">
@@ -122,11 +125,7 @@ export default function Home() {
           </div>
           <div className="flex justify-between w-full sm:max-w-2xs max-w-3xs gap-4 items-center mx-auto">
             <Button variant={"secondary"} className="w-fit" asChild>
-              <a
-                href="/assets/DenizGunesCV2026.pdf"
-                target="_blank"
-                rel="noopener"
-              >
+              <a href={cvUrl} target="_blank" rel="noopener">
                 Resume <FileDown />
               </a>
             </Button>
