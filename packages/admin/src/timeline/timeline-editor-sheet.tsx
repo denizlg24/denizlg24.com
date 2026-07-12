@@ -36,6 +36,7 @@ export function TimelineEditorSheet({
           </SheetDescription>
         </SheetHeader>
         <TimelineForm
+          key={item._id}
           mode="edit"
           item={item}
           onSuccess={(updated) => {

@@ -25,6 +25,7 @@ import {
 import { useRef, useState } from "react";
 import { FaGithub } from "react-icons/fa6";
 import { toast } from "sonner";
+import { ImageCropDialog } from "../media/image-crop-dialog";
 import { useAdmin } from "../provider";
 
 const LINK_ICONS = [
@@ -78,8 +79,19 @@ export function TimelineForm({
   >("external");
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [pendingLogo, setPendingLogo] = useState<{
+    file: File;
+    src: string;
+  } | null>(null);
 
   const logoInputRef = useRef<HTMLInputElement>(null);
+
+  const clearPendingLogo = () => {
+    setPendingLogo((prev) => {
+      if (prev) URL.revokeObjectURL(prev.src);
+      return null;
+    });
+  };
 
   const handleAddTopic = () => {
     const topic = topicInput.trim();
@@ -95,8 +107,9 @@ export function TimelineForm({
     }
   };
 
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (logoInputRef.current) logoInputRef.current.value = "";
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
@@ -108,6 +121,10 @@ export function TimelineForm({
       return;
     }
 
+    setPendingLogo({ file, src: URL.createObjectURL(file) });
+  };
+
+  const uploadLogo = async (file: File) => {
     setUploadingLogo(true);
     const formData = new FormData();
     formData.append("file", file);
@@ -123,7 +140,6 @@ export function TimelineForm({
       toast.error("Upload failed");
     }
     setUploadingLogo(false);
-    if (logoInputRef.current) logoInputRef.current.value = "";
   };
 
   const handleAddLink = () => {
@@ -155,9 +171,10 @@ export function TimelineForm({
     const body = {
       title: title.trim(),
       subtitle: subtitle.trim(),
-      logoUrl: logoUrl || undefined,
+      // send empty strings (not undefined) so clearing a field persists on edit
+      logoUrl: logoUrl.trim(),
       dateFrom,
-      dateTo: dateTo || undefined,
+      dateTo: dateTo.trim(),
       category,
       topics,
       links,
@@ -166,19 +183,19 @@ export function TimelineForm({
 
     try {
       if (mode === "create") {
-        const result = await client.post<{
-          message: string;
-          timelineItem: ITimelineItem;
-        }>("timeline", body);
+        const result = await client.post<{ item: ITimelineItem }>(
+          "timeline",
+          body,
+        );
         toast.success("Timeline item created");
-        onSuccess(result.timelineItem);
+        onSuccess(result.item);
       } else if (item) {
-        const result = await client.patch<{ timelineItem: ITimelineItem }>(
+        const result = await client.patch<{ item: ITimelineItem }>(
           `timeline/${item._id}`,
           body,
         );
         toast.success("Timeline item updated");
-        onSuccess(result.timelineItem);
+        onSuccess(result.item);
       }
     } catch {
       toast.error(
@@ -222,7 +239,7 @@ export function TimelineForm({
           type="file"
           accept="image/*"
           className="hidden"
-          onChange={handleLogoUpload}
+          onChange={handleLogoPick}
         />
         <div className="flex items-center gap-3">
           {logoUrl ? (
@@ -476,6 +493,26 @@ export function TimelineForm({
           </Button>
         )}
       </div>
+
+      {pendingLogo && (
+        <ImageCropDialog
+          src={pendingLogo.src}
+          open
+          onOpenChange={(open) => {
+            if (!open) clearPendingLogo();
+          }}
+          onCropped={(blob) => {
+            const file = new File([blob], "logo.png", { type: "image/png" });
+            clearPendingLogo();
+            uploadLogo(file);
+          }}
+          onUseOriginal={() => {
+            const file = pendingLogo.file;
+            clearPendingLogo();
+            uploadLogo(file);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -4,6 +4,8 @@ import {
   createColumn,
   getAllBoards,
   getFullBoard,
+  linkCardEntity,
+  unlinkCardEntity,
   updateCard,
   updateColumn,
 } from "@/lib/kanban";
@@ -88,7 +90,20 @@ export const kanbanTools: ToolDefinition[] = [
     execute: async (input) => {
       const board = await getFullBoard(input.boardId as string);
       if (!board) return { success: false, message: "Board not found" };
-      return board;
+      return {
+        ...board,
+        columns: board.columns.map((column) => ({
+          ...column,
+          cards: column.cards.map((card) => ({
+            ...card,
+            linkCount:
+              card.calendarEventIds.length +
+              card.noteIds.length +
+              card.personIds.length +
+              card.courseIds.length,
+          })),
+        })),
+      };
     },
   },
   {
@@ -221,6 +236,9 @@ export const kanbanTools: ToolDefinition[] = [
         title: col.title,
         color: col.color,
         icon: col.icon,
+        description: col.description,
+        isDoneColumn: col.isDoneColumn,
+        sortRule: col.sortRule,
         cardCount: col.cards.length,
       }));
     },
@@ -228,12 +246,27 @@ export const kanbanTools: ToolDefinition[] = [
   {
     schema: {
       name: "create_kanban_column",
-      description: "Create a new column on a kanban board.",
+      description:
+        "Create a new column on a kanban board. A done column makes every card in it complete; only one column per board can be the done column.",
       input_schema: {
         type: "object",
         properties: {
           boardId: { type: "string", description: "Board ID" },
           title: { type: "string", description: "Column title" },
+          description: {
+            type: "string",
+            description: "Column description (optional)",
+          },
+          isDoneColumn: {
+            type: "boolean",
+            description:
+              "When true, cards in this column count as complete. Replaces the done column on this board.",
+          },
+          sortRule: {
+            type: "string",
+            enum: ["manual", "priority", "dueDate"],
+            description: "How cards in the column are sorted (optional)",
+          },
           color: {
             type: "string",
             description: "Column color in hex (optional)",
@@ -264,9 +297,16 @@ export const kanbanTools: ToolDefinition[] = [
       }
       const column = await createColumn(input.boardId as string, {
         title: input.title as string,
+        description: input.description as string | undefined,
         color: input.color as string | undefined,
         wipLimit: input.wipLimit as number | undefined,
         icon: input.icon as string | undefined,
+        isDoneColumn: input.isDoneColumn as boolean | undefined,
+        sortRule: input.sortRule as
+          | "manual"
+          | "priority"
+          | "dueDate"
+          | undefined,
       });
       return column;
     },
@@ -275,12 +315,25 @@ export const kanbanTools: ToolDefinition[] = [
     schema: {
       name: "update_kanban_column",
       description:
-        "Update an existing kanban column's title, color, icon, or WIP limit.",
+        "Update a kanban column, including its description, sort rule, or done semantics. Setting isDoneColumn true makes this the board's only done column.",
       input_schema: {
         type: "object",
         properties: {
           id: { type: "string", description: "Column ID" },
           title: { type: "string", description: "New title (optional)" },
+          description: {
+            type: "string",
+            description: "New description (optional)",
+          },
+          isDoneColumn: {
+            type: "boolean",
+            description: "Whether cards in this column count as complete",
+          },
+          sortRule: {
+            type: "string",
+            enum: ["manual", "priority", "dueDate"],
+            description: "New card sort rule (optional)",
+          },
           color: {
             type: "string",
             description: "New color in hex (optional)",
@@ -308,9 +361,13 @@ export const kanbanTools: ToolDefinition[] = [
       }
       const data: Record<string, unknown> = {};
       if (input.title !== undefined) data.title = input.title;
+      if (input.description !== undefined) data.description = input.description;
       if (input.color !== undefined) data.color = input.color;
       if (input.icon !== undefined) data.icon = input.icon;
       if (input.wipLimit !== undefined) data.wipLimit = input.wipLimit;
+      if (input.isDoneColumn !== undefined)
+        data.isDoneColumn = input.isDoneColumn;
+      if (input.sortRule !== undefined) data.sortRule = input.sortRule;
       const column = await updateColumn(input.id as string, data);
       if (!column) return { success: false, message: "Column not found" };
       return column;
@@ -369,6 +426,11 @@ export const kanbanTools: ToolDefinition[] = [
           id: card._id,
           title: card.title,
           columnId: col._id,
+          linkCount:
+            card.calendarEventIds.length +
+            card.noteIds.length +
+            card.personIds.length +
+            card.courseIds.length,
         })),
       );
       if (input.columnId) {
@@ -401,7 +463,16 @@ export const kanbanTools: ToolDefinition[] = [
           },
           dueDate: {
             type: "string",
-            description: "Due date in ISO 8601 (optional)",
+            description:
+              "Due date in ISO 8601, including time when one is known (optional)",
+          },
+          startDate: {
+            type: "string",
+            description: "Start date in ISO 8601 (optional)",
+          },
+          hasDueTime: {
+            type: "boolean",
+            description: "Whether the dueDate time component is meaningful",
           },
           labels: {
             type: "array",
@@ -422,7 +493,9 @@ export const kanbanTools: ToolDefinition[] = [
           title: input.title as string,
           description: input.description as string | undefined,
           priority: input.priority as KanbanPriority | undefined,
+          startDate: input.startDate as string | undefined,
           dueDate: input.dueDate as string | undefined,
+          hasDueTime: input.hasDueTime as boolean | undefined,
           labels: input.labels as string[] | undefined,
         },
       );
@@ -452,9 +525,18 @@ export const kanbanTools: ToolDefinition[] = [
             enum: ["none", "low", "medium", "high", "urgent"],
           },
           dueDate: {
-            type: "string",
+            type: ["string", "null"],
             description:
               "New due date in ISO 8601, or null to clear (optional)",
+          },
+          startDate: {
+            type: ["string", "null"],
+            description:
+              "New start date in ISO 8601, or null to clear (optional)",
+          },
+          hasDueTime: {
+            type: "boolean",
+            description: "Whether the dueDate time component is meaningful",
           },
           isArchived: {
             type: "boolean",
@@ -472,11 +554,71 @@ export const kanbanTools: ToolDefinition[] = [
       if (input.description !== undefined) data.description = input.description;
       if (input.columnId !== undefined) data.columnId = input.columnId;
       if (input.priority !== undefined) data.priority = input.priority;
+      if (input.startDate !== undefined) data.startDate = input.startDate;
       if (input.dueDate !== undefined) data.dueDate = input.dueDate;
+      if (input.hasDueTime !== undefined) data.hasDueTime = input.hasDueTime;
       if (input.isArchived !== undefined) data.isArchived = input.isArchived;
       const result = await updateCard(input.id as string, data);
       if (!result) return { success: false, message: "Card not found" };
       return result;
+    },
+  },
+  {
+    schema: {
+      name: "link_kanban_card",
+      description:
+        "Attach a calendar event, note, person, or course to a kanban card.",
+      input_schema: {
+        type: "object",
+        properties: {
+          cardId: { type: "string", description: "Card ID" },
+          entityType: {
+            type: "string",
+            enum: ["calendar", "note", "person", "course"],
+          },
+          entityId: { type: "string", description: "Entity ID" },
+        },
+        required: ["cardId", "entityType", "entityId"],
+      },
+    },
+    isWrite: true,
+    category: "kanban",
+    execute: async (input) => {
+      const card = await linkCardEntity(
+        input.cardId as string,
+        input.entityType as "calendar" | "note" | "person" | "course",
+        input.entityId as string,
+      );
+      return card ?? { success: false, message: "Card not found" };
+    },
+  },
+  {
+    schema: {
+      name: "unlink_kanban_card",
+      description:
+        "Remove a calendar event, note, person, or course attachment from a kanban card.",
+      input_schema: {
+        type: "object",
+        properties: {
+          cardId: { type: "string", description: "Card ID" },
+          entityType: {
+            type: "string",
+            enum: ["calendar", "note", "person", "course"],
+          },
+          entityId: { type: "string", description: "Entity ID" },
+        },
+        required: ["cardId", "entityType", "entityId"],
+      },
+    },
+    isWrite: true,
+    category: "kanban",
+    execute: async (input) => {
+      const card = await unlinkCardEntity(
+        input.cardId as string,
+        input.entityType as "calendar" | "note" | "person" | "course",
+        input.entityId as string,
+      );
+      return card ?? { success: false, message: "Card not found" };
     },
   },
   {

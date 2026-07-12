@@ -220,6 +220,22 @@ export default function KanbanPage() {
   const [deleteTarget, setDeleteTarget] = useState<IKanbanBoard | null>(null);
 
   useEffect(() => {
+    const boardId = new URLSearchParams(window.location.search).get("board");
+    if (boardId) setSelectedBoardId(boardId);
+  }, []);
+
+  const selectBoard = (boardId: string | null) => {
+    setSelectedBoardId(boardId);
+    window.history.replaceState(
+      null,
+      "",
+      boardId
+        ? `/dashboard/kanban?board=${encodeURIComponent(boardId)}`
+        : "/dashboard/kanban",
+    );
+  };
+
+  useEffect(() => {
     if (!API || !initialLoading) return;
     API.GET<{ boards: IKanbanBoard[] }>({ endpoint: "kanban/boards" })
       .then((result) => {
@@ -255,7 +271,10 @@ export default function KanbanPage() {
         for (const colTitle of template.columns) {
           await API.POST({
             endpoint: `kanban/boards/${board._id}/columns`,
-            body: { title: colTitle },
+            body: {
+              title: colTitle,
+              isDoneColumn: colTitle.trim().toLowerCase() === "done",
+            },
           });
         }
       }
@@ -266,7 +285,7 @@ export default function KanbanPage() {
       setNewColor(BOARD_COLORS[0]);
       setSelectedTemplate("blank");
       toast.success("Board created");
-      setSelectedBoardId(board._id);
+      selectBoard(board._id);
     } finally {
       setIsSubmitting(false);
     }
@@ -319,7 +338,7 @@ export default function KanbanPage() {
         return;
       }
       setBoards((prev) => prev.filter((b) => b._id !== deleteTarget._id));
-      if (selectedBoardId === deleteTarget._id) setSelectedBoardId(null);
+      if (selectedBoardId === deleteTarget._id) selectBoard(null);
       setDeleteTarget(null);
       toast.success("Board deleted");
     } finally {
@@ -381,7 +400,7 @@ export default function KanbanPage() {
               variant="ghost"
               size="icon"
               className="size-7"
-              onClick={() => setSelectedBoardId(null)}
+              onClick={() => selectBoard(null)}
             >
               <ArrowLeft className="size-4" />
             </Button>
@@ -436,10 +455,8 @@ export default function KanbanPage() {
                 key={board._id}
                 role="button"
                 tabIndex={0}
-                onClick={() => setSelectedBoardId(board._id)}
-                onKeyDown={(e) =>
-                  e.key === "Enter" && setSelectedBoardId(board._id)
-                }
+                onClick={() => selectBoard(board._id)}
+                onKeyDown={(e) => e.key === "Enter" && selectBoard(board._id)}
                 className="group rounded-2xl border bg-card overflow-hidden cursor-pointer hover:shadow-md transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div

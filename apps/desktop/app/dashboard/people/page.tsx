@@ -23,7 +23,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { GroupTreeCombobox } from "@/app/dashboard/notes/_components/group-tree-combobox";
@@ -55,6 +55,7 @@ function matchesQuery(person: IPerson, query: string, groupLabels: string[]) {
 
 export default function PeoplePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { settings, loading: loadingSettings } = useUserSettings();
   const api = useMemo(() => {
     if (loadingSettings) return null;
@@ -101,6 +102,14 @@ export default function PeoplePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const personId = searchParams.get("person");
+    if (personId && people.some((person) => person._id === personId)) {
+      setSelectedGroupId(null);
+      setSelectedId(personId);
+    }
+  }, [people, searchParams]);
 
   const pathLabelById = useMemo(() => buildPathLabelMap(groups), [groups]);
   const descendantIdsByGroup = useMemo(
@@ -264,7 +273,10 @@ export default function PeoplePage() {
         edges={edges}
         api={api}
         onCreateGroup={(name) => createPersonGroup(name)}
-        onBack={() => setSelectedId(null)}
+        onBack={() => {
+          setSelectedId(null);
+          router.replace("/dashboard/people");
+        }}
         onSave={(body) => savePerson(selectedPerson._id, body)}
         onDelete={() => deletePerson(selectedPerson._id)}
       />

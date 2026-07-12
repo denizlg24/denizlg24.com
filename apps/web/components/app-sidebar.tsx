@@ -8,6 +8,7 @@ import {
   Clock,
   Contact,
   FileText,
+  FileUser,
   FolderGit2,
   GraduationCap,
   Home,
@@ -94,6 +95,11 @@ const items = [
     title: "Now Page",
     url: "/admin/dashboard/now-page",
     icon: Clock,
+  },
+  {
+    title: "CV",
+    url: "/admin/dashboard/cv",
+    icon: FileUser,
   },
   {
     title: "Instagram Tokens",

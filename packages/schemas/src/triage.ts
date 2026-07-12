@@ -48,6 +48,7 @@ export const triageTaskSuggestionSchema = z.object({
   description: z.string().optional(),
   priority: triagePrioritySchema,
   dueDate: z.string().optional(),
+  dueHasTime: z.boolean().optional(),
   kanbanBoardId: z.string().optional(),
   kanbanBoardTitle: z.string().optional(),
   kanbanColumnId: z.string().optional(),
