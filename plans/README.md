@@ -48,6 +48,8 @@ These are settled — executors and future advisors do not re-litigate:
 | 011 | Characterization tests: admin auth gate + contact flow (TEST-02/03) | P2 | M | — | DONE (2026-06-17: `require-admin.test.ts` 8 cases + `contact/route.test.ts` 5 cases via `bun:test` `mock.module`; no production files touched; no drift from `bbaedfe`; auth-failure cases assert `forbidden()` *throws* vs `getAdminSession` returning null. typecheck + Biome green. Full suite 163 pass/0 fail when env is loaded — the `.env` lives at the repo ROOT, so `cd apps/web && bun test` needs `--env-file=../../.env` (bun otherwise only auto-loads `apps/web/.env`, which doesn't exist, and `lib/projects.test.ts`/`lib/triage.test.ts` then throw at module load on a missing `MONGODB_URI`). This corrects the "pre-existing MONGODB_URI failure" note in 009/010 — it's an env-loading quirk, not a real failure) |
 | 012 | Extract admin UI into shared `@repo/admin` feature package | P2 | XL | 003, 004, 007 | IN PROGRESS (2026-06-26c: Notes migrated with a scoped shared web+desktop surface: folder-grid view, note detail/editor, note/group create/update/delete, metadata filters, deep-linked note selection, and markdown download via `PlatformBridge`; web intentionally excludes PDF export, graph view, semantic/local classifier, and AI enhance controls. Earlier checkpoint: shared feature bodies also cover blog, calendar, inbox, projects, timeline, resources, contacts, now-page, llm-usage, timetable, authenticator; app-local dead routes/components removed where safe. Gates: `bunx turbo typecheck`, `bunx turbo build --filter=desktop`, `bun --env-file=.env turbo build --filter=web`, and `biome check` green.) |
 | 013 | Outbound Google Calendar sync + SMTP sending setup | P2 | L | 012 | DONE (2026-06-28: outbound-only Google Calendar OAuth/status/backfill/retry + one-way manual-event mirror landed; SMTP account setup/send added with Gmail/Outlook/iCloud/Yahoo/custom presets; tests cover sync mapping/OAuth/status/account/send routes; web typecheck/test, turbo typecheck, and web build green.) |
+| 014 | Centralize all LLM traffic behind one Gateway-backed service | P1 | L | — | TODO (2026-07-12: one in-process LlmService for every caller; dynamic `/v1/models` language catalog and capability-aware selection; memory-aware governor explicitly deferred) |
+| 015 | Comprehensive evolving personal-agent memory | P1 | XL | 014 | TODO (2026-07-12: default-on cross-domain observation and user-model formation → shadow retrieval → memory-aware chat → continuous reflection/procedures → proactive daily agent; authority remains approval-gated) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (reason) | REJECTED (rationale)
 
@@ -69,6 +71,11 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (reason) | REJECTED (rational
   coverage.
 - 005's deliverable is a design doc that spawns follow-up plans (007+),
   including the future `packages/ui`.
+- 014 is independent of the admin extraction work. It intentionally preserves
+  the desktop chat contract and can run while 012 remains in progress.
+- 015 starts only after 014 is DONE because every formation, reflection,
+  embedding and memory-aware chat request must pass through the single
+  Gateway-backed `LlmService`. Its release gates A-F must be enabled in order.
 - The doc's proposed plans 007–012 were folded into plan 007 as phases
   R1–R6 (2026-06-12, maintainer-requested umbrella plan with bug fixes) —
   do not create separate 008–012 files for those items.
