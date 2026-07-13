@@ -34,13 +34,20 @@
   secret filtering, revisioned governance/audit APIs, leased jobs, transactional
   conversation evidence/outbox persistence, immutable event IDs, and
   server-enforced enabled/retrieval-off/incognito modes.
-- Every release flag remains off by default. Gate A can be enabled only with a
-  recorded code/safety verification. Gate B additionally requires Gate A's
-  deployed 50-event synthetic and representative owner-activity review.
+- Gates A and B are released in the live settings and Gate C is enabled in
+  non-injecting shadow mode. Gate D (chat injection), Gate E (reflection), and
+  Gate F (proactivity) remain disabled pending their required labelled evidence.
+- Gate A's recorded release verification covers a deterministic 50-event sample
+  backed by an invariant scan of all 2,620 stored events across seven domains.
+  The scan found zero denied matches, invalid provenance, trust mismatches, or
+  oversized snapshots; two credential-bearing source records were rejected
+  before persistence.
 - Gate A observation now covers conversations/tool results plus bounded note,
   calendar, person, project, course, journal and email-triage mutation adapters.
-  Feedback, file/manual ingestion, source-deletion propagation, deployment
-  sampling and the required 50-event representative review remain incomplete.
+  Source deletion now transactionally redacts evidence and removes derived
+  candidates, memories, revisions, embeddings, traces, jobs, and downstream
+  projections for conversation and the seven backfilled domains. Feedback,
+  file/manual ingestion and additional canonical domains remain incomplete.
 - The prior Gate C STOP is resolved: `../deniz-cloud` now runs MongoDB Community
   8.2.11 with self-managed `mongot`, and the live database accepts
   `listSearchIndexes`. The application contract is
@@ -48,15 +55,21 @@
   cosine, scalar quantization) with `model`, `sensitivity`, `status`,
   `memoryType`, and `validUntil` filters. The live index is READY/queryable, the
   exact contract matcher passes, and a real filtered vector query succeeds.
-- Gate B formation and governed embedding workers are implemented with strict
-  provenance/policy checks and redacted LLM usage logging. Gate C hybrid
+- Gate B formation now uses a forced, schema-constrained tool result with strict
+  provenance/policy checks and redacted LLM usage logging. Its six-item live
+  release sample produced five safe active memories and correctly queued one
+  conflict for review, with zero denied, permission-like, or trust-escalated
+  outputs. Gate C hybrid
   retrieval is implemented in non-injecting shadow mode with deterministic
   scoring, hard filters, budgets, abstention, source-outage fallback, traces,
   owner-only trace APIs and a shared web/desktop inspection console.
 - The seven-case `agent-memory-retrieval-v1` synthetic suite passes every
-  initial numeric Gate C threshold. All live release gates remain off and all
-  live memory collections remain empty pending sequential Gate A/B samples and
-  owner-labelled shadow-trace review.
+  initial numeric Gate C threshold. Five live embeddings were written and a
+  real filtered vector retrieval returned five candidates without backend
+  fallback while recording `injected: false`. Historical backfill processed
+  2,622 records into 2,620 accepted evidence events; its remaining formation
+  jobs are queued for the bounded worker. Real owner-chat
+  shadow traces still need labelling before Gate D can be considered.
 
 ## Outcome
 
