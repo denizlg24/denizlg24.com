@@ -4,10 +4,13 @@ import {
   getConversation,
   updateConversationMessages,
 } from "@/lib/conversations";
+import { hasPendingToolContinuation } from "@/lib/llm-chat";
 import {
-  createAgenticSSEStream,
-  hasPendingToolContinuation,
-} from "@/lib/llm-chat";
+  CatalogUnavailableError,
+  LlmConfigurationError,
+  LlmModelError,
+} from "@/lib/llm-errors";
+import { streamAgent } from "@/lib/llm-service";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { requireAdmin } from "@/lib/require-admin";
 import { getAppTimeZone } from "@/lib/timezone";
@@ -149,7 +152,7 @@ export const POST = async (req: NextRequest) => {
     const {
       conversationId,
       message,
-      model = "claude-sonnet-4-6",
+      model = "anthropic/claude-sonnet-4.6",
       toolsEnabled = true,
       webSearchEnabled = false,
       toolApprovals,
@@ -266,15 +269,20 @@ export const POST = async (req: NextRequest) => {
       await updateConversationMessages(conversationId, messagesToStore);
     };
 
-    const sseStream = createAgenticSSEStream({
+    // Capability validation happens inside the service before any upstream
+    // stream opens; incompatible models are rejected as plain HTTP errors.
+    const sseStream = await streamAgent({
+      purpose: "chat",
+      source: "dashboard-chat",
       system,
       messages,
       model,
       tools: tools.length > 0 ? tools : undefined,
-      source: "dashboard-chat",
       toolApprovals,
       clientToolResults,
       onPersist,
+      requireTools: toolsEnabled,
+      requireWebSearch: webSearchEnabled,
     });
 
     return new Response(sseStream, {
@@ -286,6 +294,18 @@ export const POST = async (req: NextRequest) => {
       },
     });
   } catch (error) {
+    if (error instanceof LlmModelError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    if (error instanceof CatalogUnavailableError) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
+    if (error instanceof LlmConfigurationError) {
+      return NextResponse.json(
+        { error: "LLM service is not configured" },
+        { status: 500 },
+      );
+    }
     console.error("Chat route error:", error);
     return NextResponse.json(
       { error: "Failed to process chat request" },

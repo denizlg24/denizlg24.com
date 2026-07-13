@@ -85,12 +85,18 @@ const ADAPTIVE_THINKING_MODELS = new Set([
 const DEFAULT_CONTEXT_WINDOW = 200_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
 
-// Unattended-job default for JSON classification work. Overridable via env;
-// must stay a fully qualified Gateway id.
+// Unattended-job defaults. Policy, not catalog: overridable via env and
+// always fully qualified Gateway ids.
 const DEFAULT_SEMANTIC_MODEL = "deepseek/deepseek-v3.2";
+const DEFAULT_UNATTENDED_MODEL = "anthropic/claude-haiku-4.5";
 
 export function getSemanticModel(): string {
   return process.env.SEMANTIC_LLM_MODEL?.trim() || DEFAULT_SEMANTIC_MODEL;
+}
+
+/** Default model for unattended text jobs (note categorization, drafts). */
+export function getUnattendedModel(): string {
+  return process.env.LLM_UNATTENDED_MODEL?.trim() || DEFAULT_UNATTENDED_MODEL;
 }
 
 export function resolveLegacyAlias(model: string): string {

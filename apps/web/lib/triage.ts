@@ -15,7 +15,7 @@ import {
 } from "@/lib/courses";
 import { fetchEmailBody } from "@/lib/email";
 import { createCard } from "@/lib/kanban";
-import { anthropic, calculateCost, logLlmUsage } from "@/lib/llm";
+import { generateToolResult } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { findTriageShortcut, type ShortcutRule } from "@/lib/triage-shortcuts";
 import { EmailModel } from "@/models/Email";
@@ -529,23 +529,6 @@ function buildExtractionLogPrompt(
   ].join("\n");
 }
 
-function getToolInput(
-  content: Anthropic.ContentBlock[],
-  toolName: string,
-): Record<string, unknown> | undefined {
-  for (const block of content) {
-    if (
-      block.type === "tool_use" &&
-      block.name === toolName &&
-      isRecord(block.input)
-    ) {
-      return block.input;
-    }
-  }
-
-  return undefined;
-}
-
 export async function runPrefilter(
   model: string,
   emails: PrefilterEmailCandidate[],
@@ -564,40 +547,35 @@ export async function runPrefilter(
     })),
   );
 
-  const response = await anthropic.messages.create({
-    model: model as Anthropic.Model,
-    max_tokens: Math.min(80 + emails.length * 40, 600),
-    temperature: 0,
+  const { input } = await generateToolResult({
+    purpose: "triage-prefilter",
+    source: "email-triage-prefilter-v2",
+    model,
     system,
-    tools: [
-      {
-        name: "return_spam_ids",
-        description:
-          "Return the IDs of only the emails that are definite spam and can be safely prefiltered.",
-        input_schema: {
-          type: "object",
-          properties: {
-            spamIds: {
-              type: "array",
-              items: { type: "string" },
-            },
-          },
-          required: ["spamIds"],
-          additionalProperties: false,
-        },
-      },
-    ],
-    tool_choice: {
-      type: "tool",
+    prompt: userContent,
+    maxTokens: Math.min(80 + emails.length * 40, 600),
+    temperature: 0,
+    tool: {
       name: "return_spam_ids",
-      disable_parallel_tool_use: true,
+      description:
+        "Return the IDs of only the emails that are definite spam and can be safely prefiltered.",
+      input_schema: {
+        type: "object",
+        properties: {
+          spamIds: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+        required: ["spamIds"],
+        additionalProperties: false,
+      },
     },
-    messages: [{ role: "user", content: userContent }],
+    logUserPrompt: userContent.slice(0, 2000),
   });
 
-  const input = getToolInput(response.content, "return_spam_ids");
   const validIds = new Set(emails.map((email) => email._id));
-  const spamIds = Array.isArray(input?.spamIds)
+  return Array.isArray(input?.spamIds)
     ? Array.from(
         new Set(
           input.spamIds.filter(
@@ -607,23 +585,6 @@ export async function runPrefilter(
         ),
       )
     : [];
-
-  const cost = calculateCost(
-    model,
-    response.usage.input_tokens,
-    response.usage.output_tokens,
-  );
-  logLlmUsage({
-    llmModel: model,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-    costUsd: cost,
-    systemPrompt: system,
-    userPrompt: userContent.slice(0, 2000),
-    source: "email-triage-prefilter-v2",
-  });
-
-  return spamIds;
 }
 
 async function getKanbanTargets(): Promise<CompactKanbanTarget[]> {
@@ -1025,26 +986,23 @@ export async function runClassification(
     "</email_body>",
   ].join("\n");
 
-  const response = await anthropic.messages.create({
-    model: model as Anthropic.Model,
-    max_tokens: 220,
-    temperature: 0,
+  const { input } = await generateToolResult({
+    purpose: "triage-classify",
+    source: "email-triage-classify",
+    model,
     system,
-    tools: [buildClassificationTool()],
-    tool_choice: {
-      type: "tool",
-      name: "classify_email",
-      disable_parallel_tool_use: true,
-    },
-    messages: [{ role: "user", content: prompt }],
+    prompt,
+    maxTokens: 220,
+    temperature: 0,
+    tool: buildClassificationTool(),
+    logUserPrompt: prompt.slice(0, 3000),
   });
 
-  const input = getToolInput(response.content, "classify_email");
   if (!input) {
     return null;
   }
 
-  const result: ClassificationResult = {
+  return {
     category: coerceCategory(input.category),
     confidence: clampConfidence(input.confidence),
     summary: normalizeSummary(
@@ -1055,23 +1013,6 @@ export async function runClassification(
     needsEventExtraction:
       getBoolean(input.needsEventExtraction) || input.category === "scheduled",
   };
-
-  const cost = calculateCost(
-    model,
-    response.usage.input_tokens,
-    response.usage.output_tokens,
-  );
-  logLlmUsage({
-    llmModel: model,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-    costUsd: cost,
-    systemPrompt: system,
-    userPrompt: prompt.slice(0, 3000),
-    source: "email-triage-classify",
-  });
-
-  return result;
 }
 
 export async function runExtraction(
@@ -1168,21 +1109,22 @@ export async function runExtraction(
 
   const prompt = sections.join("\n");
 
-  const response = await anthropic.messages.create({
-    model: model as Anthropic.Model,
-    max_tokens: 1200,
-    temperature: 0,
+  const { input } = await generateToolResult({
+    purpose: "triage-extract",
+    source: "email-triage-extract",
+    model,
     system,
-    tools: [buildExtractionTool(kanbanTargets, courseTargets)],
-    tool_choice: {
-      type: "tool",
-      name: "extract_triage_details",
-      disable_parallel_tool_use: true,
-    },
-    messages: [{ role: "user", content: prompt }],
+    prompt,
+    maxTokens: 1200,
+    temperature: 0,
+    tool: buildExtractionTool(kanbanTargets, courseTargets),
+    logUserPrompt: buildExtractionLogPrompt(
+      email,
+      classification,
+      body.attachmentText?.map((attachment) => attachment.filename) ?? [],
+    ),
   });
 
-  const input = getToolInput(response.content, "extract_triage_details");
   if (!input) {
     return null;
   }
@@ -1264,25 +1206,6 @@ export async function runExtraction(
     matchedCourse?.name ??
     tasks.find((task) => task.courseName)?.courseName ??
     events.find((event) => event.courseName)?.courseName;
-
-  const cost = calculateCost(
-    model,
-    response.usage.input_tokens,
-    response.usage.output_tokens,
-  );
-  logLlmUsage({
-    llmModel: model,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-    costUsd: cost,
-    systemPrompt: system,
-    userPrompt: buildExtractionLogPrompt(
-      email,
-      classification,
-      body.attachmentText?.map((attachment) => attachment.filename) ?? [],
-    ),
-    source: "email-triage-extract",
-  });
 
   return {
     tasks,

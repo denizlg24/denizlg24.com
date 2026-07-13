@@ -1,9 +1,8 @@
-import { anthropic, calculateCost, logLlmUsage } from "@/lib/llm";
+import { generateText, getUnattendedModel } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { type ILeanNote, Note, type NoteStatus } from "@/models/Note";
 import { type ILeanNoteGroup, NoteGroup } from "@/models/NoteGroup";
 
-const MODEL = "claude-haiku-4-5-20251001";
 const SOURCE = "categorize-notes";
 const SINGLE_SOURCE = "note-categorize";
 const PASS_ALL_THRESHOLD = 20;
@@ -275,38 +274,15 @@ async function callLlm(
   system: string,
   source: string,
 ): Promise<string> {
-  const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 4096,
-    system,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const inputTokens = response.usage.input_tokens;
-  const outputTokens = response.usage.output_tokens;
-  const costUsd = calculateCost(MODEL, inputTokens, outputTokens);
-
-  logLlmUsage({
-    llmModel: MODEL,
-    inputTokens,
-    outputTokens,
-    costUsd,
-    systemPrompt: system,
-    userPrompt: prompt,
+  const { text } = await generateText({
+    purpose: "note-categorize",
     source,
+    model: getUnattendedModel(),
+    system,
+    prompt,
+    maxTokens: 4096,
   });
-
-  return response.content
-    .filter(
-      (
-        block,
-      ): block is Extract<
-        (typeof response.content)[number],
-        { type: "text" }
-      > => block.type === "text",
-    )
-    .map((block) => block.text)
-    .join("");
+  return text;
 }
 
 export async function categorizeNotesBatch(

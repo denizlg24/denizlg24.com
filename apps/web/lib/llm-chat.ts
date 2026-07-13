@@ -1,15 +1,16 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { APIError } from "@anthropic-ai/sdk";
-import {
-  anthropic,
-  type CacheUsage,
-  calculateCost,
-  getMaxTokens,
-  logLlmUsage,
-  supportsAdaptiveThinking,
-} from "@/lib/llm";
 import { getToolByName, isClientTool, isWriteTool } from "@/lib/tools/registry";
 import type { TokenUsage } from "@/models/Conversation";
+
+// Internal agent-loop module. The LLM service owns transports, model limits,
+// cost estimation, and usage logging, and injects them via AgenticStreamParams
+// — no provider client is imported or exported here.
+
+interface AgentCacheUsage {
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+}
 
 const MAX_ITERATIONS = 15;
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -237,10 +238,6 @@ export interface AgentTransport {
   streamMessages(params: Anthropic.MessageStreamParams): AgentMessageStream;
 }
 
-const defaultTransport: AgentTransport = {
-  streamMessages: (params) => anthropic.messages.stream(params),
-};
-
 interface AgenticStreamParams {
   system: string;
   messages: Anthropic.MessageParam[];
@@ -253,12 +250,25 @@ interface AgenticStreamParams {
     messages: Anthropic.MessageParam[],
     tokenUsage?: TokenUsage,
   ) => Promise<void>;
-  // Seams owned by the LLM service; defaults preserve current behavior.
-  transport?: AgentTransport;
-  maxTokens?: number;
-  useAdaptiveThinking?: boolean;
-  computeCost?: typeof calculateCost;
-  logUsage?: (...args: Parameters<typeof logLlmUsage>) => void | Promise<void>;
+  // Seams owned by the LLM service.
+  transport: AgentTransport;
+  maxTokens: number;
+  useAdaptiveThinking: boolean;
+  computeCost: (
+    model: string,
+    inputTokens: number,
+    outputTokens: number,
+    cacheUsage?: AgentCacheUsage,
+  ) => number;
+  logUsage: (entry: {
+    llmModel: string;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+    systemPrompt: string;
+    userPrompt: string;
+    source: string;
+  }) => void | Promise<void>;
 }
 
 export function createAgenticSSEStream({
@@ -270,11 +280,11 @@ export function createAgenticSSEStream({
   toolApprovals,
   clientToolResults,
   onPersist,
-  transport = defaultTransport,
+  transport,
   maxTokens: maxTokensOverride,
   useAdaptiveThinking,
-  computeCost = calculateCost,
-  logUsage = logLlmUsage,
+  computeCost,
+  logUsage,
 }: AgenticStreamParams): ReadableStream {
   const encoder = new TextEncoder();
   let totalInputTokens = 0;
@@ -315,7 +325,7 @@ export function createAgenticSSEStream({
       };
 
       const flushUsageLog = (extra?: { final: boolean }) => {
-        const cacheUsage: CacheUsage = {
+        const cacheUsage: AgentCacheUsage = {
           cacheCreationInputTokens: totalCacheCreationInputTokens,
           cacheReadInputTokens: totalCacheReadInputTokens,
         };
@@ -548,8 +558,7 @@ export function createAgenticSSEStream({
         }
 
         // ===== Main agentic loop =====
-        const useThinking =
-          useAdaptiveThinking ?? supportsAdaptiveThinking(model);
+        const useThinking = useAdaptiveThinking;
         const cachedSystem: Anthropic.TextBlockParam[] = [
           {
             type: "text",
@@ -562,7 +571,7 @@ export function createAgenticSSEStream({
           if (aborted) return;
           iterations++;
 
-          const maxTokens = maxTokensOverride ?? getMaxTokens(model);
+          const maxTokens = maxTokensOverride;
           let streamStarted = false;
 
           for (
