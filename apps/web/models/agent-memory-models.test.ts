@@ -4,6 +4,7 @@ import { AgentMemory } from "./AgentMemory";
 import { AgentMemoryCandidate } from "./AgentMemoryCandidate";
 import { AgentMemoryJob } from "./AgentMemoryJob";
 import { AgentMemoryRevision } from "./AgentMemoryRevision";
+import { Conversation } from "./Conversation";
 
 function indexIsUnique(
   model: {
@@ -17,6 +18,24 @@ function indexIsUnique(
 }
 
 describe("agent memory models", () => {
+  test("defaults new conversations to memory enabled with immutable event ids", () => {
+    const conversation = new Conversation({
+      title: "Memory test",
+      llmModel: "anthropic/claude-haiku-4.5",
+      messages: [
+        {
+          role: "user",
+          content: "Remember this.",
+          createdAt: new Date("2026-07-13T10:00:00.000Z"),
+        },
+      ],
+    });
+    expect(conversation.memoryMode).toBe("enabled");
+    expect(conversation.messages[0]?.eventId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f-]{27}$/,
+    );
+  });
+
   test("declare unique idempotency and revision indexes", () => {
     expect(indexIsUnique(AgentEvidenceEvent, "idempotencyKey")).toBe(true);
     expect(indexIsUnique(AgentMemoryJob, "idempotencyKey")).toBe(true);

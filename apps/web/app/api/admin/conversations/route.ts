@@ -1,3 +1,4 @@
+import { agentMemoryModeSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import {
   createConversation,
@@ -52,15 +53,22 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { title, model: llmModel } = body;
+    const memoryModeResult = agentMemoryModeSchema.safeParse(
+      body.memoryMode ?? "enabled",
+    );
 
-    if (!title || !llmModel) {
+    if (!title || !llmModel || !memoryModeResult.success) {
       return NextResponse.json(
-        { error: "title and model are required" },
+        { error: "title, model, and a valid memoryMode are required" },
         { status: 400 },
       );
     }
 
-    const conversation = await createConversation({ title, llmModel });
+    const conversation = await createConversation({
+      title,
+      llmModel,
+      memoryMode: memoryModeResult.data,
+    });
     return NextResponse.json({ conversation }, { status: 201 });
   } catch (_error) {
     return NextResponse.json(

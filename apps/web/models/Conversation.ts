@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import type { AgentMemoryMode } from "@repo/schemas";
 import mongoose from "mongoose";
 
 export interface StoredContentBlock {
@@ -18,6 +20,7 @@ export interface TokenUsage {
 }
 
 export interface IConversationMessage {
+  eventId: string;
   role: "user" | "assistant";
   content: string | StoredContentBlock[];
   tokenUsage?: TokenUsage;
@@ -33,6 +36,7 @@ export interface IConversationMessage {
 export interface IConversation extends mongoose.Document {
   title: string;
   llmModel: string;
+  memoryMode: AgentMemoryMode;
   messages: IConversationMessage[];
   createdAt: Date;
   updatedAt: Date;
@@ -42,6 +46,7 @@ export interface ILeanConversation {
   _id: string;
   title: string;
   llmModel: string;
+  memoryMode: AgentMemoryMode;
   messages: IConversationMessage[];
   createdAt: Date;
   updatedAt: Date;
@@ -59,6 +64,7 @@ const ConversationSchema = new mongoose.Schema<IConversation>(
             enum: ["user", "assistant"],
             required: true,
           },
+          eventId: { type: String, default: randomUUID, required: true },
           content: { type: mongoose.Schema.Types.Mixed, required: true },
           tokenUsage: {
             inputTokens: Number,
@@ -69,6 +75,12 @@ const ConversationSchema = new mongoose.Schema<IConversation>(
         },
       ],
       default: [],
+    },
+    memoryMode: {
+      type: String,
+      enum: ["enabled", "retrieval-off", "incognito"],
+      default: "enabled",
+      required: true,
     },
   },
   { timestamps: true, minimize: false },

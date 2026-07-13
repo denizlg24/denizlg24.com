@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { agentMemoryModeSchema } from "./agent-memory";
 
 export const chatToolCallSchema = z.object({
   toolId: z.string(),
@@ -45,6 +46,7 @@ export const chatPendingActionSchema = z.object({
 export type IChatPendingAction = z.infer<typeof chatPendingActionSchema>;
 
 export const chatMessageSchema = z.object({
+  eventId: z.string().uuid().optional(),
   role: z.enum(["user", "assistant"]),
   content: z.union([z.string(), z.array(z.unknown())]),
   tokenUsage: z
@@ -68,6 +70,7 @@ export const conversationSchema = z.object({
   _id: z.string(),
   title: z.string(),
   llmModel: z.string(),
+  memoryMode: agentMemoryModeSchema,
   messages: z.array(chatMessageSchema),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -78,6 +81,7 @@ export const conversationMetaSchema = z.object({
   _id: z.string(),
   title: z.string(),
   llmModel: z.string(),
+  memoryMode: agentMemoryModeSchema,
   updatedAt: z.string(),
 });
 export type IConversationMeta = z.infer<typeof conversationMetaSchema>;

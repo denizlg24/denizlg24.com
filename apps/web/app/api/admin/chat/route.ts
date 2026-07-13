@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
 import { type NextRequest, NextResponse } from "next/server";
 import {
@@ -189,6 +190,8 @@ export const POST = async (req: NextRequest) => {
 
     const messages: Anthropic.MessageParam[] = [];
     const existingTokenUsage = new Map<number, TokenUsage>();
+    const existingEventIds = new Map<number, string>();
+    const existingCreatedAt = new Map<number, Date>();
 
     if (conversationId) {
       const conversation = await getConversation(conversationId);
@@ -202,6 +205,8 @@ export const POST = async (req: NextRequest) => {
           if (msg.tokenUsage) {
             existingTokenUsage.set(index, msg.tokenUsage);
           }
+          if (msg.eventId) existingEventIds.set(index, msg.eventId);
+          existingCreatedAt.set(index, msg.createdAt);
         }
       }
     }
@@ -254,6 +259,7 @@ export const POST = async (req: NextRequest) => {
         const isLastAssistant = i === msgs.length - 1 && m.role === "assistant";
 
         return {
+          eventId: existingEventIds.get(i) ?? randomUUID(),
           role:
             m.role === "assistant" ? ("assistant" as const) : ("user" as const),
           content: messageContentToStored(m.content),
@@ -262,7 +268,7 @@ export const POST = async (req: NextRequest) => {
             : preserved
               ? { tokenUsage: preserved }
               : {}),
-          createdAt: new Date(),
+          createdAt: existingCreatedAt.get(i) ?? new Date(),
         };
       });
 

@@ -16,6 +16,17 @@ export interface IAgentMemorySettings extends Document<string> {
     reflection: boolean;
     proactivity: boolean;
   };
+  gateVerifications: Record<
+    string,
+    {
+      verifiedAt: Date;
+      verifiedBy: "owner";
+      sampleSize: number;
+      hardGatesPassed: boolean;
+      notes: string;
+      metrics: Record<string, number>;
+    }
+  >;
   enabledSources: AgentSourceType[];
   excludedSourceRefs: AgentSourceRef[];
   retrieval: {
@@ -49,6 +60,7 @@ export const DEFAULT_AGENT_MEMORY_SETTINGS = {
     reflection: false,
     proactivity: false,
   },
+  gateVerifications: {},
   enabledSources: [...AGENT_SOURCE_TYPES],
   excludedSourceRefs: [],
   retrieval: {
@@ -81,6 +93,7 @@ const AgentMemorySettingsSchema = new Schema<IAgentMemorySettings>(
       reflection: { type: Boolean, default: false },
       proactivity: { type: Boolean, default: false },
     },
+    gateVerifications: { type: Schema.Types.Mixed, default: {} },
     enabledSources: {
       type: [{ type: String, enum: AGENT_SOURCE_TYPES }],
       default: () => [...AGENT_SOURCE_TYPES],

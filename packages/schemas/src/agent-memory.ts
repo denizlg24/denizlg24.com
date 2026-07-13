@@ -274,9 +274,33 @@ export const agentReleaseGatesSchema = z.object({
 });
 export type AgentReleaseGates = z.infer<typeof agentReleaseGatesSchema>;
 
+export const agentReleaseGateNameSchema = z.enum([
+  "A",
+  "B",
+  "C",
+  "D",
+  "E",
+  "F",
+]);
+export type AgentReleaseGateName = z.infer<typeof agentReleaseGateNameSchema>;
+
+export const agentGateVerificationSchema = z.object({
+  verifiedAt: isoDateSchema,
+  verifiedBy: z.literal("owner"),
+  sampleSize: z.number().int().nonnegative(),
+  hardGatesPassed: z.boolean(),
+  notes: z.string().trim().min(1).max(4_096),
+  metrics: z.record(z.string(), z.number()).default({}),
+});
+export type AgentGateVerification = z.infer<typeof agentGateVerificationSchema>;
+
 export const agentMemorySettingsSchema = z.object({
   id: z.literal("singleton"),
   releaseGates: agentReleaseGatesSchema,
+  gateVerifications: z.partialRecord(
+    agentReleaseGateNameSchema,
+    agentGateVerificationSchema,
+  ),
   enabledSources: z.array(agentSourceTypeSchema),
   excludedSourceRefs: z.array(agentSourceRefSchema),
   retrieval: z.object({
@@ -317,6 +341,13 @@ export const updateAgentMemorySettingsSchema = agentMemorySettingsSchema
 export type UpdateAgentMemorySettings = z.infer<
   typeof updateAgentMemorySettingsSchema
 >;
+
+export const setAgentReleaseGateSchema = z.object({
+  gate: agentReleaseGateNameSchema,
+  enabled: z.boolean(),
+  verification: agentGateVerificationSchema.optional(),
+});
+export type SetAgentReleaseGate = z.infer<typeof setAgentReleaseGateSchema>;
 
 export const agentMemoryDecisionSchema = z.object({
   action: z.enum([

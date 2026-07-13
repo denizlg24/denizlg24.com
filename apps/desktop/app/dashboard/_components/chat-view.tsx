@@ -40,6 +40,7 @@ import {
 import { denizApi } from "@/lib/api-wrapper";
 import { mergeContentSegments } from "@/lib/chat-segments";
 import type {
+  AgentMemoryMode,
   ConversationListResponse,
   IChatAttachment,
   IChatContentSegment,
@@ -352,6 +353,7 @@ export function ChatView() {
   const [model, setModel] = useState<string | null>(null);
   const [toolsEnabled, setToolsEnabled] = useState(true);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [memoryMode, setMemoryMode] = useState<AgentMemoryMode>("enabled");
   const modelCatalog = useModelCatalog(API);
   const requiredCapabilities = useMemo(
     () => [
@@ -417,6 +419,7 @@ export function ChatView() {
     setTitle("");
     setInput("");
     setAttachments([]);
+    setMemoryMode("enabled");
     setSearchQuery("");
     toggleSidebar(false);
   }, [isStreaming, abort, toggleSidebar]);
@@ -492,6 +495,7 @@ export function ChatView() {
     setMessages(convertApiMessagesToDisplay(result.conversation.messages));
     setModel(result.conversation.llmModel);
     setTitle(result.conversation.title);
+    setMemoryMode(result.conversation.memoryMode);
     setActive(true);
     toggleSidebar(false);
   };
@@ -515,6 +519,28 @@ export function ChatView() {
     setTitle("");
     setInput("");
     setAttachments([]);
+    setMemoryMode("enabled");
+  };
+
+  const handleMemoryModeChange = async (nextMode: AgentMemoryMode) => {
+    if (!API || nextMode === memoryMode) return;
+    if (nextMode === "incognito" && messages.length > 0) {
+      toast.error("Start a new conversation to use Incognito");
+      return;
+    }
+    if (!conversationId) {
+      setMemoryMode(nextMode);
+      return;
+    }
+    const result = await API.PATCH<{ conversation: IConversation }>({
+      endpoint: `conversations/${conversationId}`,
+      body: { memoryMode: nextMode },
+    });
+    if ("code" in result) {
+      toast.error(result.message || "Failed to change memory mode");
+      return;
+    }
+    setMemoryMode(result.conversation.memoryMode);
   };
 
   const uploadSingleAttachment = useCallback(
@@ -656,7 +682,7 @@ export function ChatView() {
         conversation: IConversation;
       }>({
         endpoint: "conversations",
-        body: { title: msgTitle, model },
+        body: { title: msgTitle, model, memoryMode },
       });
 
       if ("code" in createResult) {
@@ -1122,6 +1148,9 @@ export function ChatView() {
               onToolsEnabledChange={setToolsEnabled}
               webSearchEnabled={webSearchEnabled}
               onWebSearchEnabledChange={setWebSearchEnabled}
+              memoryMode={memoryMode}
+              onMemoryModeChange={handleMemoryModeChange}
+              incognitoLocked={messages.length > 0 || isStreaming}
               attachments={attachments}
               onAttachmentsChange={handleAttachmentsChange}
             />
@@ -1387,6 +1416,9 @@ export function ChatView() {
           onToolsEnabledChange={setToolsEnabled}
           webSearchEnabled={webSearchEnabled}
           onWebSearchEnabledChange={setWebSearchEnabled}
+          memoryMode={memoryMode}
+          onMemoryModeChange={handleMemoryModeChange}
+          incognitoLocked={messages.length > 0 || isStreaming}
           attachments={attachments}
           onAttachmentsChange={handleAttachmentsChange}
         />
