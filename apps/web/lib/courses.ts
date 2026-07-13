@@ -26,6 +26,7 @@ import type {
   TriageCategory,
 } from "@repo/schemas";
 import mongoose from "mongoose";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { CalendarEvent } from "@/models/CalendarEvent";
 import { Course } from "@/models/Course";
 import { CourseAssignment } from "@/models/CourseAssignment";
@@ -1001,6 +1002,7 @@ export async function createCourse(
     status: data.status ?? "active",
   });
   const course = await Course.create(payload);
+  await observeDomainRecordSafely("course", course.toObject());
   return serializeCourse(course.toObject() as unknown as RawRecord);
 }
 
@@ -1018,7 +1020,9 @@ export async function updateCourse(
     runValidators: true,
   }).lean<RawRecord>();
 
-  return course ? serializeCourse(course) : null;
+  if (!course) return null;
+  await observeDomainRecordSafely("course", course);
+  return serializeCourse(course);
 }
 
 export async function deleteCourse(id: string): Promise<boolean> {

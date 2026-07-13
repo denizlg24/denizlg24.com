@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { connectDB } from "@/lib/mongodb";
 import { pruneGroupIds, serializeNote } from "@/lib/note-route-utils";
 import { requireAdmin } from "@/lib/require-admin";
@@ -84,6 +85,7 @@ async function updateNote(request: NextRequest, noteId: string) {
   if (!note) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  await observeDomainRecordSafely("note", note);
 
   return NextResponse.json({ note: serializeNote(note) }, { status: 200 });
 }

@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { syncBirthdayEventsForPerson } from "@/lib/calendar-sync";
 import { connectDB } from "@/lib/mongodb";
 import {
@@ -189,6 +190,7 @@ export async function createPerson(
 
   const created = await Person.findById(person._id).lean<ILeanPerson>().exec();
   if (!created) throw new Error("Created person could not be reloaded");
+  await observeDomainRecordSafely("person", created);
   return serializePerson(created);
 }
 
@@ -240,6 +242,7 @@ export async function updatePerson(
     await syncBirthdayEventsForPerson(id, [year, year + 1, year + 2], person);
   }
 
+  await observeDomainRecordSafely("person", person);
   return serializePerson(person);
 }
 

@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { connectDB } from "@/lib/mongodb";
 import {
   getProjectById,
@@ -53,6 +54,7 @@ export async function PATCH(
           { status: 404 },
         );
       }
+      await observeDomainRecordSafely("project", project);
       revalidateProjectsContent();
       return NextResponse.json(
         { message: "Project visibility toggled successfully", project },
@@ -76,6 +78,7 @@ export async function PATCH(
       )
         .lean()
         .exec();
+      await observeDomainRecordSafely("project", project);
       revalidateProjectsContent();
       return NextResponse.json(
         { message: "Project featured status toggled successfully", project },
@@ -97,6 +100,7 @@ export async function PATCH(
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
+    await observeDomainRecordSafely("project", project);
     revalidateProjectsContent();
     return NextResponse.json(
       {

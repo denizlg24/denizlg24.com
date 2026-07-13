@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { resolveIncomingCategorization } from "@/lib/apply-note-categorization";
 import { fetchUrlMetadata, type UrlMetadata } from "@/lib/fetch-url-metadata";
 import { connectDB } from "@/lib/mongodb";
@@ -219,6 +220,7 @@ export async function POST(request: NextRequest) {
     if (!createdNote) {
       throw new Error("Created note could not be reloaded");
     }
+    await observeDomainRecordSafely("note", createdNote);
 
     return NextResponse.json(
       {

@@ -1,4 +1,5 @@
 import { endOfDay, startOfDay } from "date-fns";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import {
   CalendarEvent,
   type ICalendarEvent,
@@ -269,7 +270,9 @@ export const updateCalendarEvent = async ({
       },
     ).lean();
 
-    return updatedEvent ? serializeCalendarEvent(updatedEvent) : null;
+    if (!updatedEvent) return null;
+    await observeDomainRecordSafely("calendar", updatedEvent);
+    return serializeCalendarEvent(updatedEvent);
   } catch {
     return null;
   }
@@ -318,6 +321,7 @@ export const createCalendarEvent = async (data: CalendarEventInput) => {
     }
 
     const savedEvent = await CalendarEvent.create(normalized);
+    await observeDomainRecordSafely("calendar", savedEvent.toObject());
     return serializeCalendarEvent(savedEvent.toObject());
   } catch (err) {
     console.log(err);

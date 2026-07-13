@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { fetchEmailBody } from "@/lib/email";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
@@ -118,5 +119,6 @@ export async function PATCH(
   if (!triage) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  await observeDomainRecordSafely("email-triage", triage);
   return NextResponse.json({ ok: true });
 }
