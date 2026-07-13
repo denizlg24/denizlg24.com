@@ -1,4 +1,5 @@
 import type { Model } from "mongoose";
+import { connectDB } from "@/lib/mongodb";
 import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { CalendarEvent } from "@/models/CalendarEvent";
 import { Course } from "@/models/Course";
@@ -65,6 +66,7 @@ export function parseBackfillCheckpoint(
 export async function scheduleAgentMemoryBackfill(): Promise<{
   scheduled: number;
 }> {
+  await connectDB();
   let scheduled = 0;
   for (const domain of AGENT_MEMORY_BACKFILL_DOMAINS) {
     const result = await AgentMemoryJob.updateOne(
