@@ -46,7 +46,7 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   semantic: [],
   "topic-classify": [],
   "hierarchy-draft": [],
-  "agent-memory-formation": [],
+  "agent-memory-formation": ["tool-use"],
   "agent-memory-embedding": [],
   "agent-memory-retrieval": [],
 };

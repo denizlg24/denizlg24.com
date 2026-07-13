@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { prepareFormationCandidate } from "./formation";
+import { parseFormationResult, prepareFormationCandidate } from "./formation";
 
 const evidence = [
   {
@@ -14,6 +14,16 @@ const evidence = [
 ];
 
 describe("formation candidate preparation", () => {
+  test("requires the strict forced-tool result shape", () => {
+    expect(parseFormationResult({ candidates: [] }).success).toBe(true);
+    expect(parseFormationResult(undefined).success).toBe(false);
+    expect(
+      parseFormationResult({
+        candidates: [{ statement: "Missing required provenance" }],
+      }).success,
+    ).toBe(false);
+  });
+
   test("cannot raise trust above its cited evidence", () => {
     const candidate = prepareFormationCandidate({
       evidence,
