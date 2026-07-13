@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "agent-memory:indexes": "bun scripts/agent-memory-indexes.ts",
+    "agent-memory:eval-retrieval": "bun scripts/eval-agent-memory-retrieval.ts",
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
