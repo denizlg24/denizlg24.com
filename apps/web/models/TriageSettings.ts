@@ -76,8 +76,10 @@ const TriageSettingsSchema = new Schema<ITriageSettings>(
     _id: { type: String, default: "singleton" },
     enabled: { type: Boolean, default: true },
     runIntervalMinutes: { type: Number, default: 120 },
-    prefilterModel: { type: String, default: "claude-haiku-4-5-20251001" },
-    fullModel: { type: String, default: "claude-sonnet-4-6" },
+    // Fully qualified Gateway ids. Legacy dashed ids in existing documents
+    // still resolve through the LLM service's alias map.
+    prefilterModel: { type: String, default: "anthropic/claude-haiku-4.5" },
+    fullModel: { type: String, default: "anthropic/claude-sonnet-4.6" },
     categoryRouting: {
       type: Schema.Types.Mixed,
       default: getDefaultCategoryRouting,

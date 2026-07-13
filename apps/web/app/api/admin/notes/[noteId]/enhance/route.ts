@@ -1,6 +1,6 @@
-import type Anthropic from "@anthropic-ai/sdk";
 import { type NextRequest, NextResponse } from "next/server";
-import { createSSEStream, streamGenerate } from "@/lib/llm";
+import { LlmConfigurationError, LlmModelError } from "@/lib/llm-errors";
+import { streamText } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import { Note } from "@/models/Note";
@@ -37,19 +37,18 @@ export const POST = async (
     }
     const {
       additionalInfo,
-      model = "claude-sonnet-4-5-20250929",
+      model = "anthropic/claude-sonnet-4.5",
       content,
     } = await req.json();
     const prompt = `Enhance the following note content:\n\n${content}${additionalInfo ? `\n\nAdditional information to consider:\n${additionalInfo}` : ""}`;
 
-    const result = await streamGenerate({
+    const sseStream = await streamText({
+      purpose: "enhance-note",
+      source: "enhance-note",
       system: SYSTEM_PROMPT,
       prompt,
-      model: model as Anthropic.Model,
-      source: "enhance-note",
+      model,
     });
-
-    const sseStream = createSSEStream(result);
 
     return new Response(sseStream, {
       headers: {
@@ -59,6 +58,15 @@ export const POST = async (
       },
     });
   } catch (error) {
+    if (error instanceof LlmModelError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    if (error instanceof LlmConfigurationError) {
+      return NextResponse.json(
+        { error: "LLM service is not configured" },
+        { status: 500 },
+      );
+    }
     console.error("Error enhancing note:", error);
     return NextResponse.json(
       { error: "Failed to enhance note" },

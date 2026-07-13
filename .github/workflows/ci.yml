@@ -25,7 +25,7 @@ jobs:
     # are intentionally not exposed to builds or pull requests.
     env:
       ADMIN_SECRET: "ci-admin-secret"
-      ANTHROPIC_API_KEY: "ci-anthropic-key"
+      AI_GATEWAY_API_KEY: "ci-gateway-key"
       BETTER_AUTH_SECRET: "ci-better-auth-secret-at-least-32-characters"
       BETTER_AUTH_URL: "http://localhost:3000"
       GITHUB_TOKEN: ${{ github.token }}

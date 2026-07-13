@@ -44,6 +44,7 @@ import { toast } from "sonner";
 import { MarkdownPdfDocument } from "@/components/markdown/markdown-pdf-renderer";
 import { ModelSelector } from "@/components/ui/model-selector";
 import { useUserSettings } from "@/context/user-context";
+import { pickDefaultModel, useModelCatalog } from "@/hooks/use-model-catalog";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { INote } from "@/lib/data-types";
 import { isTauri } from "@/lib/platform";
@@ -90,7 +91,15 @@ export const NoteEditor = ({
   const [enhancing, setEnhancing] = useState(false);
   const [categorizing, setCategorizing] = useState(false);
   const [additionalInfo, setAdditionalInfo] = useState("");
-  const [model, setModel] = useState("claude-haiku-4-5");
+  // Picked from the live catalog once it loads; no hardcoded default model.
+  const [model, setModel] = useState<string | null>(null);
+  const modelCatalog = useModelCatalog(API);
+
+  useEffect(() => {
+    if (model || !modelCatalog.models?.length) return;
+    const defaultModel = pickDefaultModel(modelCatalog.models, []);
+    if (defaultModel) setModel(defaultModel);
+  }, [model, modelCatalog.models]);
 
   const [toolbarOpen, setToolbarOpen] = useState(true);
 
@@ -293,7 +302,7 @@ export const NoteEditor = ({
   };
 
   const handleAIEnhance = async () => {
-    if (!API) return;
+    if (!API || !model) return;
     try {
       setEnhancing(true);
       closeEnhanceDialogRef.current?.click();
@@ -407,7 +416,15 @@ export const NoteEditor = ({
                     <Label htmlFor="model" className="w-32">
                       Model
                     </Label>
-                    <ModelSelector model={model} onModelChange={setModel} />
+                    <ModelSelector
+                      model={model}
+                      onModelChange={setModel}
+                      models={modelCatalog.models}
+                      loading={modelCatalog.loading}
+                      error={modelCatalog.error}
+                      stale={modelCatalog.stale}
+                      onRetry={modelCatalog.retry}
+                    />
                   </div>
                   <Separator />
                   <div className="flex flex-col items-start gap-1">

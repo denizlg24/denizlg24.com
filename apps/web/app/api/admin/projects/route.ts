@@ -1,9 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
-import { getAllProjects } from "@/lib/projects";
+import { getAllProjects, sanitizeProjectTopicGroups } from "@/lib/projects";
 import { revalidateProjectsContent } from "@/lib/public-content-revalidation";
 import { requireAdmin } from "@/lib/require-admin";
-import { computeProjectTopicGroups } from "@/lib/tag-classify";
 import { Project } from "@/models/Project";
 
 export async function GET(request: NextRequest) {
@@ -36,6 +35,7 @@ export async function POST(request: NextRequest) {
       links,
       markdown,
       tags,
+      topicGroups,
       isActive,
       isFeatured,
     } = body;
@@ -49,12 +49,6 @@ export async function POST(request: NextRequest) {
       .exec();
     const order = maxOrderProject ? maxOrderProject.order + 1 : 1;
     const finalTags: string[] = tags || [];
-    const topicGroups = await computeProjectTopicGroups({
-      title,
-      subtitle,
-      tags: finalTags,
-      markdown: markdown || "",
-    });
 
     const project = await Project.create({
       title,
@@ -64,7 +58,7 @@ export async function POST(request: NextRequest) {
       links: links || [],
       markdown: markdown || "",
       tags: finalTags,
-      topicGroups,
+      topicGroups: sanitizeProjectTopicGroups(topicGroups),
       isActive: isActive !== undefined ? isActive : true,
       isFeatured: isFeatured !== undefined ? isFeatured : false,
       order,

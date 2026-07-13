@@ -1,4 +1,4 @@
-import { calculateCost, logLlmUsage } from "@/lib/llm";
+import { generateJson } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { type TagContext, TagGroup } from "@/models/TagGroup";
 
@@ -15,59 +15,12 @@ export const TOPIC_GROUPS = [
 ] as const;
 export const FALLBACK_GROUP = "Other";
 
-// Fixed groups for projects. Unlike blog tags (classified one tag at a time),
-// projects are classified as a whole — title, subtitle, tags and body together —
-// because "Fullstack" vs "Frontend" is a property of the project, not of any
-// single tag. The LLM picks one or two of these per project.
-export const PROJECT_GROUPS = [
-  "Frontend",
-  "Fullstack",
-  "Infrastructure",
-  "Hardware/Software",
-] as const;
-
 const ALLOWED_GROUPS = new Set<string>([...TOPIC_GROUPS, FALLBACK_GROUP]);
-const ALLOWED_PROJECT_GROUPS = new Set<string>([
-  ...PROJECT_GROUPS,
-  FALLBACK_GROUP,
-]);
 
-const DEFAULT_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_MODEL = "deepseek-chat";
 const SOURCE = "tag-topic-classify";
-const PROJECT_SOURCE = "project-topic-classify";
-
-interface ChatResponse {
-  choices?: Array<{ message?: { content?: string } }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
-}
-
-function semanticModel() {
-  return process.env.SEMANTIC_LLM_MODEL?.trim() || DEFAULT_MODEL;
-}
-
-function semanticBaseUrl() {
-  return (
-    process.env.SEMANTIC_LLM_BASE_URL?.trim() || DEFAULT_BASE_URL
-  ).replace(/\/+$/, "");
-}
-
-function semanticApiKey() {
-  return process.env.SEMANTIC_LLM_API_KEY?.trim();
-}
 
 function normalizeTag(tag: string) {
   return tag.trim().toLowerCase();
-}
-
-function parseJsonObject<T>(text: string): T | null {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try {
-    return JSON.parse(match[0]) as T;
-  } catch {
-    return null;
-  }
 }
 
 // Fixed mode (blogs): the value must be one of the allowed groups.
@@ -77,55 +30,24 @@ function coerceFixedGroup(value: unknown): string {
     : FALLBACK_GROUP;
 }
 
-// Posts a chat-completion request to the semantic LLM and returns the parsed
-// JSON object from its response, logging usage. Returns null on any failure so
-// callers can degrade to a fallback instead of breaking the save.
+// Requests a JSON-object completion from the LLM service (configured
+// semantic model). Returns null on any failure — missing credentials,
+// transport errors — so callers degrade to a fallback instead of breaking
+// the save.
 async function requestJsonCompletion(
   system: string,
   user: string,
   source: string,
 ): Promise<Record<string, unknown> | null> {
-  const apiKey = semanticApiKey();
-  if (!apiKey) return null;
-  const model = semanticModel();
-
   try {
-    const response = await fetch(`${semanticBaseUrl()}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        temperature: 0,
-        response_format: { type: "json_object" },
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Classification request failed: ${response.status}`);
-    }
-
-    const json = (await response.json()) as ChatResponse;
-    const content = json.choices?.[0]?.message?.content ?? "";
-    const inputTokens = json.usage?.prompt_tokens ?? 0;
-    const outputTokens = json.usage?.completion_tokens ?? 0;
-    await logLlmUsage({
-      llmModel: model,
-      inputTokens,
-      outputTokens,
-      costUsd: calculateCost(model, inputTokens, outputTokens),
-      systemPrompt: system,
-      userPrompt: user,
+    const { json } = await generateJson<Record<string, unknown>>({
+      purpose: "topic-classify",
       source,
+      system,
+      user,
+      temperature: 0,
     });
-
-    return parseJsonObject<Record<string, unknown>>(content) ?? {};
+    return json ?? {};
   } catch (error) {
     console.error("Classification failed:", error);
     return null;
@@ -196,56 +118,4 @@ export async function computeTopicGroups(
     if (group) groups.add(group);
   }
   return [...groups];
-}
-
-export interface ProjectClassificationInput {
-  title: string;
-  subtitle?: string;
-  tags?: string[];
-  markdown?: string;
-}
-
-// Body text only feeds the classifier signal; trimming keeps token cost bounded
-// for long write-ups without losing the lede that usually frames the project.
-const PROJECT_BODY_CHAR_LIMIT = 2000;
-
-function coerceProjectGroups(value: unknown): string[] {
-  if (!Array.isArray(value)) return [FALLBACK_GROUP];
-  const groups = [
-    ...new Set(
-      value.filter(
-        (group): group is string =>
-          typeof group === "string" && ALLOWED_PROJECT_GROUPS.has(group),
-      ),
-    ),
-  ];
-  return groups.length > 0 ? groups : [FALLBACK_GROUP];
-}
-
-// Classifies a whole project (not its tags individually) into one or two fixed
-// project groups. Degrades to the fallback group on any failure so saves never
-// break.
-export async function computeProjectTopicGroups(
-  input: ProjectClassificationInput,
-): Promise<string[]> {
-  const system = `You classify a software project into its topic group(s) for a personal site's project filter.
-Allowed groups: ${[...PROJECT_GROUPS, FALLBACK_GROUP].join(", ")}.
-- "Frontend": primarily UI/client work with no backend the author built.
-- "Fullstack": the author built both client and server/data layers.
-- "Infrastructure": DevOps, hosting, networking, monitoring, CI/CD, self-hosted services, storage/ops systems.
-- "Hardware/Software": embedded, IoT, firmware, or projects bridging physical hardware and code.
-Assign one or two groups, most specific first. Prefer "Fullstack" over "Frontend" when both apply; do not return both.
-When a project centrally involves self-hosting, DevOps, networking, or running/operating its own infrastructure, include "Infrastructure" even alongside "Fullstack". Add "Hardware/Software" alongside another group when physical hardware is involved.
-Use "${FALLBACK_GROUP}" only when none fit.
-Return ONLY a JSON object: { "groups": ["..."] }.`;
-  const user = JSON.stringify({
-    title: input.title,
-    subtitle: input.subtitle ?? "",
-    tags: input.tags ?? [],
-    body: (input.markdown ?? "").slice(0, PROJECT_BODY_CHAR_LIMIT),
-  });
-
-  const parsed = await requestJsonCompletion(system, user, PROJECT_SOURCE);
-  if (!parsed) return [FALLBACK_GROUP];
-  return coerceProjectGroups(parsed.groups);
 }

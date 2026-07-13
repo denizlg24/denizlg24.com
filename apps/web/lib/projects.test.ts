@@ -1,5 +1,10 @@
-import { describe, expect, test } from "bun:test";
-import { buildProjectDraftLinks } from "./projects";
+import { describe, expect, mock, test } from "bun:test";
+
+mock.module("./mongodb", () => ({ connectDB: async () => {} }));
+
+const { buildProjectDraftLinks, sanitizeProjectTopicGroups } = await import(
+  "./projects"
+);
 
 describe("buildProjectDraftLinks", () => {
   test("always includes the canonical repository link", () => {
@@ -76,5 +81,24 @@ describe("buildProjectDraftLinks", () => {
         icon: "notepad",
       },
     ]);
+  });
+});
+
+describe("sanitizeProjectTopicGroups", () => {
+  test("trims manual project topics, preserving order", () => {
+    expect(
+      sanitizeProjectTopicGroups([
+        "Infrastructure",
+        "Creative Coding",
+        " Fullstack ",
+        "Infrastructure",
+        42,
+      ]),
+    ).toEqual(["Infrastructure", "Creative Coding", "Fullstack"]);
+  });
+
+  test("returns an empty list for missing or invalid input", () => {
+    expect(sanitizeProjectTopicGroups(undefined)).toEqual([]);
+    expect(sanitizeProjectTopicGroups("Infrastructure")).toEqual([]);
   });
 });

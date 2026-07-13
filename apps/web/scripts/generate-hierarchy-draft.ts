@@ -1,11 +1,11 @@
 import mongoose from "mongoose";
-import { anthropic, calculateCost, logLlmUsage } from "@/lib/llm";
+import { generateText, getUnattendedModel } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { type ILeanNote, Note } from "@/models/Note";
 import { type ILeanNoteEmbedding, NoteEmbedding } from "@/models/NoteEmbedding";
 import { type ILeanNoteGroup, NoteGroup } from "@/models/NoteGroup";
 
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL = getUnattendedModel();
 const SOURCE = "generate-hierarchy-draft";
 const DRAFT_COLLECTION = "knowledge_hierarchy_drafts";
 const PREFERRED_EMBEDDING_MODELS = [
@@ -95,39 +95,13 @@ async function callHaiku<T>({
   system: string;
   prompt: string;
 }) {
-  const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 4096,
-    system,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const text = response.content
-    .filter(
-      (
-        block,
-      ): block is Extract<
-        (typeof response.content)[number],
-        { type: "text" }
-      > => block.type === "text",
-    )
-    .map((block) => block.text)
-    .join("");
-
-  const costUsd = calculateCost(
-    MODEL,
-    response.usage.input_tokens,
-    response.usage.output_tokens,
-  );
-
-  await logLlmUsage({
-    llmModel: MODEL,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-    costUsd,
-    systemPrompt: system,
-    userPrompt: prompt,
+  const { text } = await generateText({
+    purpose: "hierarchy-draft",
     source: SOURCE,
+    model: MODEL,
+    system,
+    prompt,
+    maxTokens: 4096,
   });
 
   return parseJsonObject<T>(text);

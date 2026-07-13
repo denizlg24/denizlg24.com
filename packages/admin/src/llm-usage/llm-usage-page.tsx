@@ -3,6 +3,7 @@
 import type {
   LlmDailyBreakdown,
   LlmModelBreakdown,
+  LlmProviderBreakdown,
   LlmRecentRequest,
   LlmRecentRequestsPage,
   LlmSourceBreakdown,
@@ -56,6 +57,55 @@ function formatDateTime(dateStr: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function getProviderFromModel(model: string): string {
+  return model.includes("/") ? model.split("/")[0] : "legacy";
+}
+
+function formatProvider(provider: string): string {
+  return provider
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatAverageTokens(
+  inputTokens: number,
+  outputTokens: number,
+  requests: number,
+) {
+  if (requests === 0) return "0";
+  return formatTokens((inputTokens + outputTokens) / requests);
+}
+
+function deriveProviderBreakdown(
+  models: LlmModelBreakdown[],
+): LlmProviderBreakdown[] {
+  const byProvider = new Map<string, LlmProviderBreakdown>();
+
+  for (const model of models) {
+    const provider = getProviderFromModel(model.model);
+    const current = byProvider.get(provider);
+
+    if (current) {
+      current.requests += model.requests;
+      current.inputTokens += model.inputTokens;
+      current.outputTokens += model.outputTokens;
+      current.cost += model.cost;
+    } else {
+      byProvider.set(provider, {
+        provider,
+        requests: model.requests,
+        inputTokens: model.inputTokens,
+        outputTokens: model.outputTokens,
+        cost: model.cost,
+      });
+    }
+  }
+
+  return [...byProvider.values()].sort((left, right) => right.cost - left.cost);
 }
 
 const chartConfig = {
@@ -120,6 +170,16 @@ const requestColumns: ColumnDef<LlmRecentRequest>[] = [
     filterFn: "equalsString",
     cell: ({ row }) => (
       <span className="font-mono">{row.getValue("llmModel")}</span>
+    ),
+  },
+  {
+    id: "provider",
+    header: "Provider",
+    meta: { className: "hidden lg:table-cell" },
+    cell: ({ row }) => (
+      <Badge variant="secondary" className="text-xs">
+        {formatProvider(getProviderFromModel(row.original.llmModel))}
+      </Badge>
     ),
   },
   {
@@ -237,6 +297,86 @@ const modelColumns: ColumnDef<LlmModelBreakdown>[] = [
   },
 ];
 
+const providerColumns: ColumnDef<LlmProviderBreakdown>[] = [
+  {
+    accessorKey: "provider",
+    header: "Provider",
+    cell: ({ row }) => (
+      <Badge variant="secondary" className="text-xs">
+        {formatProvider(row.getValue("provider"))}
+      </Badge>
+    ),
+  },
+  {
+    accessorKey: "requests",
+    header: ({ column }) => (
+      <div className="text-right">
+        <SortHeader label="Requests" column={column} />
+      </div>
+    ),
+    cell: ({ row }) => (
+      <div className="text-right tabular-nums">
+        {(row.getValue("requests") as number).toLocaleString()}
+      </div>
+    ),
+  },
+  {
+    accessorKey: "inputTokens",
+    meta: { className: "hidden md:table-cell" },
+    header: ({ column }) => (
+      <div className="text-right">
+        <SortHeader label="Input" column={column} />
+      </div>
+    ),
+    cell: ({ row }) => (
+      <div className="text-right tabular-nums text-muted-foreground">
+        {formatTokens(row.getValue("inputTokens"))}
+      </div>
+    ),
+  },
+  {
+    accessorKey: "outputTokens",
+    meta: { className: "hidden md:table-cell" },
+    header: ({ column }) => (
+      <div className="text-right">
+        <SortHeader label="Output" column={column} />
+      </div>
+    ),
+    cell: ({ row }) => (
+      <div className="text-right tabular-nums text-muted-foreground">
+        {formatTokens(row.getValue("outputTokens"))}
+      </div>
+    ),
+  },
+  {
+    id: "avgTokens",
+    meta: { className: "hidden lg:table-cell" },
+    header: () => <div className="text-right">Avg / request</div>,
+    cell: ({ row }) => (
+      <div className="text-right tabular-nums text-muted-foreground">
+        {formatAverageTokens(
+          row.original.inputTokens,
+          row.original.outputTokens,
+          row.original.requests,
+        )}
+      </div>
+    ),
+  },
+  {
+    accessorKey: "cost",
+    header: ({ column }) => (
+      <div className="text-right">
+        <SortHeader label="Cost" column={column} />
+      </div>
+    ),
+    cell: ({ row }) => (
+      <div className="text-right tabular-nums">
+        {formatCost(row.getValue("cost"))}
+      </div>
+    ),
+  },
+];
+
 const sourceColumns: ColumnDef<LlmSourceBreakdown>[] = [
   {
     accessorKey: "source",
@@ -328,10 +468,10 @@ export function LlmUsageSkeleton() {
           <Skeleton className="h-3 w-24" />
           <Skeleton className="h-[230px] w-full" />
         </div>
-        <TabStripSkeleton widths={["w-28", "w-16", "w-20"]} />
+        <TabStripSkeleton widths={["w-28", "w-20", "w-16", "w-20"]} />
         <TableSkeleton
           rows={6}
-          widths={["w-40", "w-16", "w-16", "w-16", "w-16", "w-24"]}
+          widths={["w-40", "w-20", "w-16", "w-16", "w-16", "w-16", "w-24"]}
         />
       </div>
     </div>
@@ -549,6 +689,10 @@ export function LlmUsagePage() {
   }
 
   const stats = data[period];
+  const providerRows =
+    data.byProvider.length > 0
+      ? data.byProvider
+      : deriveProviderBreakdown(data.byModel);
   const currentRecentRequests =
     recentRequestPages[recentRequestPagination.pageIndex] ?? [];
   const currentRecentRequestsLoading =
@@ -676,6 +820,7 @@ export function LlmUsagePage() {
         <Tabs defaultValue="requests" className="flex flex-col gap-2">
           <TabsList variant="line">
             <TabsTrigger value="requests">Recent Requests</TabsTrigger>
+            <TabsTrigger value="providers">By Provider</TabsTrigger>
             <TabsTrigger value="models">By Model</TabsTrigger>
             <TabsTrigger value="sources">By Source</TabsTrigger>
           </TabsList>
@@ -691,6 +836,14 @@ export function LlmUsagePage() {
                 loading: currentRecentRequestsLoading,
                 onPaginationChange: handleRecentRequestPaginationChange,
               }}
+            />
+          </TabsContent>
+          <TabsContent value="providers" className="mt-0">
+            <PaginatedDataTable
+              columns={providerColumns}
+              data={providerRows}
+              emptyMessage="No provider usage yet"
+              searchPlaceholder="Search providers..."
             />
           </TabsContent>
           <TabsContent value="models" className="mt-0">

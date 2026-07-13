@@ -1,15 +1,16 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { APIError } from "@anthropic-ai/sdk";
-import {
-  anthropic,
-  type CacheUsage,
-  calculateCost,
-  getMaxTokens,
-  logLlmUsage,
-  supportsAdaptiveThinking,
-} from "@/lib/llm";
 import { getToolByName, isClientTool, isWriteTool } from "@/lib/tools/registry";
 import type { TokenUsage } from "@/models/Conversation";
+
+// Internal agent-loop module. The LLM service owns transports, model limits,
+// cost estimation, and usage logging, and injects them via AgenticStreamParams
+// — no provider client is imported or exported here.
+
+interface AgentCacheUsage {
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+}
 
 const MAX_ITERATIONS = 15;
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -224,6 +225,19 @@ export function hasPendingToolContinuation(
   return frame.toolUseBlocks.some((toolUse) => !resultMap.has(toolUse.id));
 }
 
+// Minimal structural view of an Anthropic message stream so the agent loop
+// can run against an injected transport (service adapter or test fake).
+export interface AgentMessageStream
+  extends AsyncIterable<Anthropic.MessageStreamEvent> {
+  emitted(event: "connect"): Promise<unknown>;
+  finalMessage(): Promise<Anthropic.Message>;
+  abort(): void;
+}
+
+export interface AgentTransport {
+  streamMessages(params: Anthropic.MessageStreamParams): AgentMessageStream;
+}
+
 interface AgenticStreamParams {
   system: string;
   messages: Anthropic.MessageParam[];
@@ -236,6 +250,25 @@ interface AgenticStreamParams {
     messages: Anthropic.MessageParam[],
     tokenUsage?: TokenUsage,
   ) => Promise<void>;
+  // Seams owned by the LLM service.
+  transport: AgentTransport;
+  maxTokens: number;
+  useAdaptiveThinking: boolean;
+  computeCost: (
+    model: string,
+    inputTokens: number,
+    outputTokens: number,
+    cacheUsage?: AgentCacheUsage,
+  ) => number;
+  logUsage: (entry: {
+    llmModel: string;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+    systemPrompt: string;
+    userPrompt: string;
+    source: string;
+  }) => void | Promise<void>;
 }
 
 export function createAgenticSSEStream({
@@ -247,6 +280,11 @@ export function createAgenticSSEStream({
   toolApprovals,
   clientToolResults,
   onPersist,
+  transport,
+  maxTokens: maxTokensOverride,
+  useAdaptiveThinking,
+  computeCost,
+  logUsage,
 }: AgenticStreamParams): ReadableStream {
   const encoder = new TextEncoder();
   let totalInputTokens = 0;
@@ -254,7 +292,7 @@ export function createAgenticSSEStream({
   let totalCacheCreationInputTokens = 0;
   let totalCacheReadInputTokens = 0;
   let iterations = 0;
-  let activeStream: ReturnType<typeof anthropic.messages.stream> | null = null;
+  let activeStream: AgentMessageStream | null = null;
   let aborted = false;
 
   return new ReadableStream({
@@ -287,17 +325,17 @@ export function createAgenticSSEStream({
       };
 
       const flushUsageLog = (extra?: { final: boolean }) => {
-        const cacheUsage: CacheUsage = {
+        const cacheUsage: AgentCacheUsage = {
           cacheCreationInputTokens: totalCacheCreationInputTokens,
           cacheReadInputTokens: totalCacheReadInputTokens,
         };
-        const costUsd = calculateCost(
+        const costUsd = computeCost(
           model,
           totalInputTokens,
           totalOutputTokens,
           cacheUsage,
         );
-        logLlmUsage({
+        logUsage({
           llmModel: model,
           inputTokens: totalInputTokens,
           outputTokens: totalOutputTokens,
@@ -520,7 +558,7 @@ export function createAgenticSSEStream({
         }
 
         // ===== Main agentic loop =====
-        const useThinking = supportsAdaptiveThinking(model);
+        const useThinking = useAdaptiveThinking;
         const cachedSystem: Anthropic.TextBlockParam[] = [
           {
             type: "text",
@@ -533,7 +571,7 @@ export function createAgenticSSEStream({
           if (aborted) return;
           iterations++;
 
-          const maxTokens = getMaxTokens(model);
+          const maxTokens = maxTokensOverride;
           let streamStarted = false;
 
           for (
@@ -542,7 +580,7 @@ export function createAgenticSSEStream({
             rateLimitAttempt++
           ) {
             try {
-              activeStream = anthropic.messages.stream({
+              activeStream = transport.streamMessages({
                 model: model as Anthropic.Model,
                 max_tokens: maxTokens,
                 system: cachedSystem,

@@ -98,6 +98,8 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 
 ### LLM Usage
 - `GET /llm/usage` → usage stats, breakdowns, recent requests
+- `GET /llm/models` → `{ models: LlmCatalogModel[], stale, fetchedAt }` — Vercel AI Gateway language-model catalog (fully qualified ids like `anthropic/claude-haiku-4.5`, capability tags, context/output limits); filters: `?creator=` and repeatable `?requiredCapability=`; 503 when the catalog is cold
+- All server LLM traffic goes through `apps/web/lib/llm-service.ts` (Vercel AI Gateway; `AI_GATEWAY_API_KEY`). Never import a provider SDK or build provider URLs in app code — add operations to the service instead. Model ids are fully qualified Gateway ids; legacy dashed ids resolve via the service's alias map.
 
 ## Porting Features from apps/web
 

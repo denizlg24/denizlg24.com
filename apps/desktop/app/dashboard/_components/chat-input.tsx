@@ -32,6 +32,7 @@ import {
   useState,
 } from "react";
 import { ModelSelector } from "@/components/ui/model-selector";
+import type { ModelCatalogState } from "@/hooks/use-model-catalog";
 import type { IChatAttachment } from "@/lib/data-types";
 
 const ACCEPTED_TYPES =
@@ -88,6 +89,9 @@ export function ChatInput({
   onSend,
   model,
   onModelChange,
+  modelCatalog,
+  requiredCapabilities,
+  modelIncompatible,
   disabled,
   streaming,
   onAbort,
@@ -103,8 +107,11 @@ export function ChatInput({
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
-  model: string;
+  model: string | null;
   onModelChange: (model: string) => void;
+  modelCatalog: ModelCatalogState;
+  requiredCapabilities?: string[];
+  modelIncompatible?: boolean;
   disabled?: boolean;
   streaming?: boolean;
   onAbort?: () => void;
@@ -123,7 +130,10 @@ export function ChatInput({
   const [dragging, setDragging] = useState(false);
 
   const hasAttachments = (attachments?.length ?? 0) > 0;
-  const canSend = value.trim() || hasAttachments;
+  // Sends are blocked while no model is selected or the selected model does
+  // not support the enabled features (the selector explains why).
+  const canSend =
+    (value.trim() || hasAttachments) && !!model && !modelIncompatible;
 
   const addFiles = useCallback(
     (files: FileList | File[]) => {
@@ -297,7 +307,16 @@ export function ChatInput({
             </PopoverTrigger>
             <PopoverContent align="start" className="w-64">
               <div className="flex flex-col gap-4">
-                <ModelSelector model={model} onModelChange={onModelChange} />
+                <ModelSelector
+                  model={model}
+                  onModelChange={onModelChange}
+                  models={modelCatalog.models}
+                  loading={modelCatalog.loading}
+                  error={modelCatalog.error}
+                  stale={modelCatalog.stale}
+                  onRetry={modelCatalog.retry}
+                  requiredCapabilities={requiredCapabilities}
+                />
                 {onToolsEnabledChange && (
                   <div className="flex items-center justify-between">
                     <Label
