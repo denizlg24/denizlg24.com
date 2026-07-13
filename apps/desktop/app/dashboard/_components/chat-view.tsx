@@ -724,6 +724,8 @@ export function ChatView() {
           streamResult.paused && streamResult.clientToolResults.length > 0
             ? streamResult.clientToolResults
             : undefined,
+        retrievalTraceId: streamResult.retrievalTraceId,
+        memoryInjected: streamResult.memoryInjected,
         createdAt: new Date().toISOString(),
       };
 
@@ -800,6 +802,10 @@ export function ChatView() {
               streamResult.paused && streamResult.clientToolResults.length > 0
                 ? streamResult.clientToolResults
                 : undefined,
+            retrievalTraceId:
+              streamResult.retrievalTraceId ?? lastMsg.retrievalTraceId,
+            memoryInjected:
+              streamResult.memoryInjected ?? lastMsg.memoryInjected,
           };
         } else {
           updated.push({
@@ -818,6 +824,8 @@ export function ChatView() {
               streamResult.paused && streamResult.clientToolResults.length > 0
                 ? streamResult.clientToolResults
                 : undefined,
+            retrievalTraceId: streamResult.retrievalTraceId,
+            memoryInjected: streamResult.memoryInjected,
             createdAt: new Date().toISOString(),
           });
         }
@@ -879,6 +887,8 @@ export function ChatView() {
           streamResult.paused && streamResult.clientToolResults.length > 0
             ? streamResult.clientToolResults
             : undefined,
+        retrievalTraceId: streamResult.retrievalTraceId,
+        memoryInjected: streamResult.memoryInjected,
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
@@ -1324,6 +1334,7 @@ export function ChatView() {
                         onApproveAll={handleApproveAll}
                         onDenyAll={handleDenyAll}
                         onRetry={msg.error ? retryFromError : undefined}
+                        api={API}
                       />
                     </MessageScrollerItem>
                   );
@@ -1349,6 +1360,7 @@ export function ChatView() {
                         streamSegments={streamSegments}
                         onApproveAll={handleApproveAll}
                         onDenyAll={handleDenyAll}
+                        api={API}
                       />
                     </MessageScrollerItem>
                   )}

@@ -56,6 +56,8 @@ export const chatMessageSchema = z.object({
       costUsd: z.number(),
     })
     .optional(),
+  retrievalTraceId: z.string().uuid().optional(),
+  memoryInjected: z.boolean().optional(),
   toolCalls: z.array(chatToolCallSchema).optional(),
   segments: z.array(chatContentSegmentSchema).optional(),
   pendingActions: z.array(chatPendingActionSchema).optional(),

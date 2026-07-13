@@ -104,6 +104,7 @@ async function writeEvidenceAudit(
 export async function observeEvidence(options: {
   memoryMode: AgentMemoryMode;
   evidence: CreateAgentEvidenceEvent;
+  enqueueFormation?: boolean;
   session?: ClientSession;
 }): Promise<EvidenceObservationResult> {
   if (options.memoryMode === "incognito") {
@@ -145,7 +146,7 @@ export async function observeEvidence(options: {
       ],
       { session },
     );
-    if (evidence.memoryEligible) {
+    if (evidence.memoryEligible && options.enqueueFormation !== false) {
       await AgentMemoryJob.create(
         [
           {

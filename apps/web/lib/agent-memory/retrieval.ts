@@ -13,6 +13,7 @@ import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
 import { AgentRetrievalTrace } from "@/models/AgentRetrievalTrace";
+import { buildMemoryContext } from "./context";
 import { sourceRefIsExcluded } from "./policy";
 import { findDeniedContent } from "./security";
 import { getAgentMemorySettings } from "./settings";
@@ -306,13 +307,127 @@ function serializeCandidate(candidate: RankedRetrievalCandidate) {
     revisionId: candidate.memory.revisionId,
     statement: candidate.memory.statement,
     memoryType: candidate.memory.memoryType,
+    status: candidate.memory.status,
+    explicitness: candidate.memory.explicitness,
+    confidence: candidate.memory.confidence,
+    importance: candidate.memory.importance,
+    trust: candidate.memory.trust,
     sensitivity: candidate.memory.sensitivity,
+    validFrom: candidate.memory.validFrom?.toISOString(),
+    validUntil: candidate.memory.validUntil?.toISOString(),
     evidenceIds: candidate.memory.evidenceIds,
+    contradictionIds: candidate.memory.contradictionIds,
+    pinned: candidate.memory.pinned,
+    updatedAt: candidate.memory.updatedAt.toISOString(),
     score: candidate.score,
     estimatedTokens: candidate.estimatedTokens,
     components: candidate.components,
     reasons: candidate.reasons,
   };
+}
+
+function traceCandidateToRanked(
+  raw: Record<string, unknown>,
+): RankedRetrievalCandidate | null {
+  if (
+    typeof raw.memoryId !== "string" ||
+    typeof raw.revisionId !== "string" ||
+    typeof raw.statement !== "string" ||
+    typeof raw.memoryType !== "string" ||
+    typeof raw.explicitness !== "string" ||
+    typeof raw.confidence !== "number" ||
+    typeof raw.importance !== "number" ||
+    typeof raw.trust !== "string" ||
+    typeof raw.sensitivity !== "string" ||
+    !Array.isArray(raw.evidenceIds) ||
+    !raw.evidenceIds.every((item) => typeof item === "string")
+  ) {
+    return null;
+  }
+  const updatedAt = new Date(
+    typeof raw.updatedAt === "string" ? raw.updatedAt : 0,
+  );
+  if (Number.isNaN(updatedAt.getTime())) return null;
+  const validFrom =
+    typeof raw.validFrom === "string" ? new Date(raw.validFrom) : undefined;
+  const validUntil =
+    typeof raw.validUntil === "string" ? new Date(raw.validUntil) : undefined;
+  if (
+    (validFrom && Number.isNaN(validFrom.getTime())) ||
+    (validUntil && Number.isNaN(validUntil.getTime()))
+  ) {
+    return null;
+  }
+  return {
+    memory: {
+      id: raw.memoryId,
+      revisionId: raw.revisionId,
+      statement: raw.statement,
+      memoryType: raw.memoryType as AgentMemoryType,
+      status: (raw.status ?? "active") as AgentMemoryStatus,
+      explicitness: raw.explicitness as AgentExplicitness,
+      confidence: raw.confidence,
+      importance: raw.importance,
+      trust: raw.trust as AgentTrust,
+      sensitivity: raw.sensitivity as AgentSensitivity,
+      validFrom,
+      validUntil,
+      evidenceIds: raw.evidenceIds as string[],
+      contradictionIds: Array.isArray(raw.contradictionIds)
+        ? raw.contradictionIds.map(String)
+        : [],
+      pinned: Boolean(raw.pinned),
+      updatedAt,
+    },
+    score: typeof raw.score === "number" ? raw.score : 0,
+    estimatedTokens:
+      typeof raw.estimatedTokens === "number" ? raw.estimatedTokens : 0,
+    components: (raw.components ?? {}) as RetrievalScoreComponents,
+    reasons: Array.isArray(raw.reasons) ? raw.reasons.map(String) : [],
+  };
+}
+
+export async function loadInjectedMemoryContext(
+  traceId: string,
+): Promise<string | null> {
+  const trace = await AgentRetrievalTrace.findOne({ traceId, injected: true })
+    .select("candidates selectedRevisionIds tokenBudget")
+    .lean();
+  if (!trace) return null;
+  const selectedIds = new Set(trace.selectedRevisionIds.map(String));
+  const selected = trace.candidates
+    .map((candidate) =>
+      traceCandidateToRanked(candidate as Record<string, unknown>),
+    )
+    .filter(
+      (candidate): candidate is RankedRetrievalCandidate =>
+        candidate !== null && selectedIds.has(candidate.memory.revisionId),
+    );
+  const settings = await getAgentMemorySettings();
+  const currentMemories = (
+    await AgentMemory.find({
+      _id: { $in: selected.map((candidate) => candidate.memory.id) },
+      status: "active",
+    }).lean()
+  ).map((item) =>
+    toRetrievalMemory(item as unknown as Record<string, unknown>),
+  );
+  const invalidEvidenceMemoryIds = await findInvalidEvidenceMemoryIds(
+    currentMemories,
+    settings.excludedSourceRefs,
+  );
+  const currentById = new Map(
+    currentMemories.map((memory) => [memory.id, memory]),
+  );
+  const stillEligible = selected.filter((candidate) => {
+    const current = currentById.get(candidate.memory.id);
+    return (
+      current?.revisionId === candidate.memory.revisionId &&
+      hardFilterMemory(current) === null &&
+      !invalidEvidenceMemoryIds.has(current.id)
+    );
+  });
+  return buildMemoryContext(stillEligible, trace.tokenBudget).context;
 }
 
 function toRetrievalMemory(raw: Record<string, unknown>): RetrievalMemory {
@@ -450,19 +565,21 @@ async function findInvalidEvidenceMemoryIds(
   );
 }
 
-export interface ShadowRetrievalResult {
+export interface ChatMemoryRetrievalResult {
   traceId: string;
   selectedRevisionIds: string[];
   abstained: boolean;
   estimatedTokens: number;
+  injected: boolean;
+  context: string | null;
 }
 
-export async function retrieveMemoriesShadow(options: {
+export async function retrieveMemoriesForChat(options: {
   conversationId?: string;
   requestId?: string;
   query: string;
   memoryMode: AgentMemoryMode;
-}): Promise<ShadowRetrievalResult | null> {
+}): Promise<ChatMemoryRetrievalResult | null> {
   if (options.memoryMode !== "enabled") return null;
   const query = options.query.trim().slice(0, 8_192);
   if (!query) return null;
@@ -504,6 +621,20 @@ export async function retrieveMemoriesShadow(options: {
       maxTokens: settings.retrieval.maxTokens,
     },
   );
+  const shouldInject = settings.releaseGates.chatMemory;
+  const builtContext = shouldInject
+    ? buildMemoryContext(ranked.selected, settings.retrieval.maxTokens)
+    : null;
+  const selected = builtContext?.selected ?? ranked.selected;
+  const contextExclusions: RetrievalExclusion[] =
+    builtContext?.excludedRevisionIds.map((revisionId) => ({
+      memoryId: ranked.selected.find(
+        (item) => item.memory.revisionId === revisionId,
+      )?.memory.id,
+      reason: "serialized-context-token-budget",
+    })) ?? [];
+  const context = builtContext?.context ?? null;
+  const injected = shouldInject && context !== null;
   const traceId = randomUUID();
   await AgentRetrievalTrace.create({
     traceId,
@@ -512,7 +643,7 @@ export async function retrieveMemoriesShadow(options: {
       ? { conversationId: new mongoose.Types.ObjectId(options.conversationId) }
       : {}),
     requestId: options.requestId,
-    purpose: "dashboard-chat-shadow",
+    purpose: injected ? "dashboard-chat" : "dashboard-chat-shadow",
     query: deniedQuery ? "[query redacted: denied content]" : query,
     filters: {
       status: "active",
@@ -527,19 +658,22 @@ export async function retrieveMemoriesShadow(options: {
       ...loaded.exclusions,
       ...evidenceExclusions,
       ...ranked.exclusions,
+      ...contextExclusions,
     ],
-    selectedRevisionIds: ranked.selected.map(
+    selectedRevisionIds: selected.map(
       (item) => new mongoose.Types.ObjectId(item.memory.revisionId),
     ),
     tokenBudget: settings.retrieval.maxTokens,
-    estimatedTokens: ranked.estimatedTokens,
-    injected: false,
-    abstained: ranked.selected.length === 0,
+    estimatedTokens: builtContext?.estimatedTokens ?? ranked.estimatedTokens,
+    injected,
+    abstained: selected.length === 0,
   });
   return {
     traceId,
-    selectedRevisionIds: ranked.selected.map((item) => item.memory.revisionId),
-    abstained: ranked.selected.length === 0,
-    estimatedTokens: ranked.estimatedTokens,
+    selectedRevisionIds: selected.map((item) => item.memory.revisionId),
+    abstained: selected.length === 0,
+    estimatedTokens: builtContext?.estimatedTokens ?? ranked.estimatedTokens,
+    injected,
+    context,
   };
 }

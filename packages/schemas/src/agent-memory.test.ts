@@ -4,6 +4,7 @@ import {
   agentFormationResultSchema,
   agentMemoryDecisionSchema,
   agentTemporalSchema,
+  createAgentMemoryFeedbackSchema,
 } from "./agent-memory";
 
 const evidence = {
@@ -77,5 +78,29 @@ describe("agent memory schemas", () => {
         ],
       }).success,
     ).toBe(false);
+  });
+
+  test("requires a selected memory and replacement text for corrections", () => {
+    const feedbackId = "9fa3e791-b155-4719-bda8-f6542ea421f3";
+    expect(
+      createAgentMemoryFeedbackSchema.safeParse({
+        feedbackId,
+        kind: "correction",
+      }).success,
+    ).toBe(false);
+    expect(
+      createAgentMemoryFeedbackSchema.safeParse({
+        feedbackId,
+        kind: "correction",
+        memoryId: "507f1f77bcf86cd799439011",
+        correction: "Deniz prefers detailed answers for architecture reviews.",
+      }).success,
+    ).toBe(true);
+    expect(
+      createAgentMemoryFeedbackSchema.safeParse({
+        feedbackId,
+        kind: "useful",
+      }).success,
+    ).toBe(true);
   });
 });

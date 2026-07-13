@@ -416,6 +416,53 @@ export const agentMemoryDecisionSchema = z.object({
 });
 export type AgentMemoryDecision = z.infer<typeof agentMemoryDecisionSchema>;
 
+export const agentMemoryFeedbackKindSchema = z.enum([
+  "useful",
+  "not-relevant",
+  "forget",
+  "correction",
+]);
+export type AgentMemoryFeedbackKind = z.infer<
+  typeof agentMemoryFeedbackKindSchema
+>;
+
+export const createAgentMemoryFeedbackSchema = z
+  .object({
+    feedbackId: z.string().uuid(),
+    kind: agentMemoryFeedbackKindSchema,
+    memoryId: z.string().optional(),
+    correction: z.string().trim().min(1).max(8_192).optional(),
+  })
+  .superRefine((value, context) => {
+    if (["forget", "correction"].includes(value.kind) && !value.memoryId) {
+      context.addIssue({
+        code: "custom",
+        path: ["memoryId"],
+        message: `${value.kind} feedback requires a memoryId`,
+      });
+    }
+    if (value.kind === "correction" && !value.correction) {
+      context.addIssue({
+        code: "custom",
+        path: ["correction"],
+        message: "Correction feedback requires replacement text",
+      });
+    }
+  });
+export type CreateAgentMemoryFeedback = z.infer<
+  typeof createAgentMemoryFeedbackSchema
+>;
+
+export const agentMemoryFeedbackResponseSchema = z.object({
+  feedbackId: z.string().uuid(),
+  kind: agentMemoryFeedbackKindSchema,
+  memoryIds: z.array(z.string()),
+  resultingMemoryId: z.string().optional(),
+});
+export type AgentMemoryFeedbackResponse = z.infer<
+  typeof agentMemoryFeedbackResponseSchema
+>;
+
 export const agentMemoryListResponseSchema = z.object({
   memories: z.array(agentMemorySchema),
   candidates: z.array(agentMemoryCandidateSchema),

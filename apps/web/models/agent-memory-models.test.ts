@@ -36,6 +36,27 @@ describe("agent memory models", () => {
     );
   });
 
+  test("persists memory disclosure metadata on assistant messages", async () => {
+    const traceId = "9fa3e791-b155-4719-bda8-f6542ea421f3";
+    const conversation = new Conversation({
+      title: "Memory trace test",
+      llmModel: "anthropic/claude-haiku-4.5",
+      messages: [
+        {
+          role: "assistant",
+          content: "A memory-grounded response.",
+          retrievalTraceId: traceId,
+          memoryInjected: true,
+          createdAt: new Date("2026-07-13T10:00:00.000Z"),
+        },
+      ],
+    });
+
+    await conversation.validate();
+    expect(conversation.messages[0]?.retrievalTraceId).toBe(traceId);
+    expect(conversation.messages[0]?.memoryInjected).toBe(true);
+  });
+
   test("declare unique idempotency and revision indexes", () => {
     expect(indexIsUnique(AgentEvidenceEvent, "idempotencyKey")).toBe(true);
     expect(indexIsUnique(AgentMemoryJob, "idempotencyKey")).toBe(true);

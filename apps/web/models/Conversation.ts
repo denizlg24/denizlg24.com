@@ -24,6 +24,8 @@ export interface IConversationMessage {
   role: "user" | "assistant";
   content: string | StoredContentBlock[];
   tokenUsage?: TokenUsage;
+  retrievalTraceId?: string;
+  memoryInjected?: boolean;
   pendingActions?: {
     toolId: string;
     toolName: string;
@@ -71,6 +73,8 @@ const ConversationSchema = new mongoose.Schema<IConversation>(
             outputTokens: Number,
             costUsd: Number,
           },
+          retrievalTraceId: { type: String },
+          memoryInjected: { type: Boolean },
           createdAt: { type: Date, default: Date.now },
         },
       ],

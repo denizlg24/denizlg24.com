@@ -149,6 +149,42 @@ describe("agent release gates", () => {
     ).toThrow("sample of at least 1");
   });
 
+  test("enables Gate D only after an owner-labelled baseline improvement", () => {
+    const current = {
+      ...disabled,
+      evidenceLedger: true,
+      formation: true,
+      shadowRetrieval: true,
+    };
+    const priorVerifications = {
+      A: verification,
+      B: verification,
+      C: verification,
+    };
+    expect(() =>
+      planGateTransition(
+        current,
+        { gate: "D", enabled: true, verification },
+        { vectorBackendReady: true, priorVerifications },
+      ),
+    ).toThrow("improve the labelled baseline");
+    expect(
+      planGateTransition(
+        current,
+        {
+          gate: "D",
+          enabled: true,
+          verification: {
+            ...verification,
+            sampleSize: 1,
+            metrics: { baselineImproved: 1 },
+          },
+        },
+        { vectorBackendReady: true, priorVerifications },
+      ).chatMemory,
+    ).toBe(true);
+  });
+
   test("disabling a gate also disables every dependent gate", () => {
     const enabled: AgentReleaseGates = {
       evidenceLedger: true,
