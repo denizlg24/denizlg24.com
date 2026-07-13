@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
-const { POST } = await import("./route");
+const { POST, preferredOperationsForSlot } = await import("./route");
 
 describe("POST /api/jobs/agent-memory", () => {
   const originalToken = process.env.AGENT_MEMORY_JOB_BEARER_TOKEN;
@@ -18,5 +18,12 @@ describe("POST /api/jobs/agent-memory", () => {
       new Request("http://localhost/api/jobs/agent-memory", { method: "POST" }),
     );
     expect(response.status).toBe(401);
+  });
+
+  test("reserves alternating worker capacity for embeddings", () => {
+    expect(preferredOperationsForSlot(0)).toEqual(["embedding"]);
+    expect(preferredOperationsForSlot(1)).toEqual(["formation", "backfill"]);
+    expect(preferredOperationsForSlot(8)).toEqual(["embedding"]);
+    expect(preferredOperationsForSlot(9)).toEqual(["formation", "backfill"]);
   });
 });

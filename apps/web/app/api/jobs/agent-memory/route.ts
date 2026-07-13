@@ -12,12 +12,35 @@ import {
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
 
 const MAX_JOBS_PER_REQUEST = 10;
+const ACTIVE_OPERATIONS: IAgentMemoryJob["operation"][] = [
+  "embedding",
+  "formation",
+  "backfill",
+];
+
+export function preferredOperationsForSlot(
+  index: number,
+): IAgentMemoryJob["operation"][] {
+  return index % 2 === 0 ? ["embedding"] : ["formation", "backfill"];
+}
+
+async function leaseScheduledJob(workerId: string, index: number) {
+  return (
+    (await leaseNextMemoryJob({
+      workerId,
+      operations: preferredOperationsForSlot(index),
+    })) ??
+    leaseNextMemoryJob({
+      workerId,
+      operations: ACTIVE_OPERATIONS,
+    })
+  );
+}
 
 async function processJob(job: IAgentMemoryJob) {
   if (job.operation === "backfill") return processBackfillJob(job);
   if (job.operation === "formation") return processFormationJob(job);
   if (job.operation === "embedding") return processEmbeddingJob(job);
-  if (job.operation === "deletion") return { deleted: true };
   throw new Error(`No agent-memory handler for ${job.operation}`);
 }
 
@@ -32,10 +55,7 @@ export async function POST(request: Request) {
   let failed = 0;
   const results: unknown[] = [];
   for (let index = 0; index < MAX_JOBS_PER_REQUEST; index += 1) {
-    const job = await leaseNextMemoryJob({
-      workerId,
-      operations: ["backfill", "formation", "embedding", "deletion"],
-    });
+    const job = await leaseScheduledJob(workerId, index);
     if (!job) break;
     try {
       const result = await processJob(job);
