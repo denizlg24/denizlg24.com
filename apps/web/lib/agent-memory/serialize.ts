@@ -6,6 +6,7 @@ import type {
 import type { IAgentMemory } from "@/models/AgentMemory";
 import type { IAgentMemoryCandidate } from "@/models/AgentMemoryCandidate";
 import type { IAgentMemorySettings } from "@/models/AgentMemorySettings";
+import type { IAgentRetrievalTrace } from "@/models/AgentRetrievalTrace";
 
 function iso(value: Date | string | undefined): string | undefined {
   if (!value) return undefined;
@@ -116,5 +117,42 @@ export function serializeAgentMemorySettings(
     maximumActionAutonomy: settings.maximumActionAutonomy,
     revision: settings.revision,
     updatedAt: settings.updatedAt.toISOString(),
+  };
+}
+
+export function serializeAgentRetrievalTrace(
+  trace: Pick<
+    IAgentRetrievalTrace,
+    | "traceId"
+    | "conversationId"
+    | "requestId"
+    | "purpose"
+    | "query"
+    | "filters"
+    | "candidates"
+    | "exclusions"
+    | "selectedRevisionIds"
+    | "tokenBudget"
+    | "estimatedTokens"
+    | "injected"
+    | "abstained"
+    | "createdAt"
+  >,
+) {
+  return {
+    traceId: trace.traceId,
+    conversationId: trace.conversationId?.toString(),
+    requestId: trace.requestId,
+    purpose: trace.purpose,
+    query: trace.query,
+    filters: trace.filters,
+    candidates: trace.candidates,
+    exclusions: trace.exclusions,
+    selectedRevisionIds: trace.selectedRevisionIds.map(String),
+    tokenBudget: trace.tokenBudget,
+    estimatedTokens: trace.estimatedTokens,
+    injected: trace.injected,
+    abstained: trace.abstained,
+    createdAt: trace.createdAt.toISOString(),
   };
 }

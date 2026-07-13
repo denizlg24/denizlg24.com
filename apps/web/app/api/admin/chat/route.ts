@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
+import type { AgentMemoryMode } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
+import { retrieveMemoriesShadow } from "@/lib/agent-memory/retrieval";
 import {
   getConversation,
   updateConversationMessages,
@@ -126,6 +128,21 @@ function messageContentToStored(
   });
 }
 
+function messageTextForRetrieval(message: unknown): string {
+  if (typeof message === "string") return message;
+  if (!Array.isArray(message)) return "";
+  return message
+    .filter(
+      (block): block is { type: "text"; text: string } =>
+        !!block &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "text" &&
+        typeof (block as { text?: unknown }).text === "string",
+    )
+    .map((block) => block.text)
+    .join("\n");
+}
+
 export const POST = async (req: NextRequest) => {
   const adminError = await requireAdmin(req);
   if (adminError) return adminError;
@@ -192,10 +209,12 @@ export const POST = async (req: NextRequest) => {
     const existingTokenUsage = new Map<number, TokenUsage>();
     const existingEventIds = new Map<number, string>();
     const existingCreatedAt = new Map<number, Date>();
+    let memoryMode: AgentMemoryMode = "enabled";
 
     if (conversationId) {
       const conversation = await getConversation(conversationId);
       if (conversation) {
+        memoryMode = conversation.memoryMode;
         for (const msg of conversation.messages) {
           const index = messages.length;
           messages.push({
@@ -247,6 +266,21 @@ export const POST = async (req: NextRequest) => {
     }
 
     const system = buildSystemPrompt(await getAppTimeZone());
+
+    if (message) {
+      try {
+        await retrieveMemoriesShadow({
+          conversationId,
+          requestId: randomUUID(),
+          query: messageTextForRetrieval(message),
+          memoryMode,
+        });
+      } catch (error) {
+        console.error("Agent memory shadow retrieval failed", {
+          error: error instanceof Error ? error.message : "unknown error",
+        });
+      }
+    }
 
     const onPersist = async (
       msgs: Anthropic.MessageParam[],
