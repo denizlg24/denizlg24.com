@@ -3,6 +3,7 @@ import {
   AGENT_MEMORY_BACKFILL_BATCH_SIZE,
   AGENT_MEMORY_BACKFILL_DOMAINS,
   parseBackfillCheckpoint,
+  scheduleAgentMemoryBackfill,
 } from "./backfill";
 
 describe("agent memory backfill", () => {
@@ -34,5 +35,11 @@ describe("agent memory backfill", () => {
     expect(() =>
       parseBackfillCheckpoint({ domain: "unknown", processed: 0 }),
     ).toThrow("invalid domain");
+  });
+
+  test("rejects unsafe migration namespaces before connecting", async () => {
+    await expect(
+      scheduleAgentMemoryBackfill({ idempotencyNamespace: "not:valid" }),
+    ).rejects.toThrow("namespace is invalid");
   });
 });

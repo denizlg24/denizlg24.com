@@ -422,9 +422,21 @@ export async function scheduleNextReflectionJob() {
     typeof lastJob?.checkpoint?.throughUpdatedAt === "string"
       ? new Date(lastJob.checkpoint.throughUpdatedAt)
       : new Date(0);
-  const changed = await AgentMemory.find({
-    updatedAt: { $gt: throughUpdatedAt },
-  })
+  const throughMemoryId =
+    typeof lastJob?.checkpoint?.throughMemoryId === "string" &&
+    Types.ObjectId.isValid(lastJob.checkpoint.throughMemoryId)
+      ? new Types.ObjectId(lastJob.checkpoint.throughMemoryId)
+      : null;
+  const changed = await AgentMemory.find(
+    throughMemoryId
+      ? {
+          $or: [
+            { updatedAt: { $gt: throughUpdatedAt } },
+            { updatedAt: throughUpdatedAt, _id: { $gt: throughMemoryId } },
+          ],
+        }
+      : { updatedAt: { $gt: throughUpdatedAt } },
+  )
     .sort({ updatedAt: 1, _id: 1 })
     .limit(REFLECTION_BATCH_SIZE);
   if (changed.length === 0) {
@@ -445,7 +457,10 @@ export async function scheduleNextReflectionJob() {
         status: "pending",
         attempts: 0,
         availableAt: new Date(),
-        checkpoint: { throughUpdatedAt: last.updatedAt.toISOString() },
+        checkpoint: {
+          throughUpdatedAt: last.updatedAt.toISOString(),
+          throughMemoryId: last._id.toString(),
+        },
       },
     },
     { upsert: true, returnDocument: "after" },

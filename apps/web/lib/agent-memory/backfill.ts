@@ -63,14 +63,20 @@ export function parseBackfillCheckpoint(
   };
 }
 
-export async function scheduleAgentMemoryBackfill(): Promise<{
+export async function scheduleAgentMemoryBackfill(options?: {
+  idempotencyNamespace?: string;
+}): Promise<{
   scheduled: number;
 }> {
+  const namespace = options?.idempotencyNamespace ?? "v1";
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(namespace)) {
+    throw new Error("Backfill idempotency namespace is invalid");
+  }
   await connectDB();
   let scheduled = 0;
   for (const domain of AGENT_MEMORY_BACKFILL_DOMAINS) {
     const result = await AgentMemoryJob.updateOne(
-      { idempotencyKey: `backfill:v1:${domain}` },
+      { idempotencyKey: `backfill:${namespace}:${domain}` },
       {
         $setOnInsert: {
           operation: "backfill",

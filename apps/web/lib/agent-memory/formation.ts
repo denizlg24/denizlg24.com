@@ -1,6 +1,8 @@
 import type {
   AgentFormationCandidate,
   AgentSensitivity,
+  AgentSourceRef,
+  AgentSourceType,
   AgentTrust,
 } from "@repo/schemas";
 import { agentFormationResultSchema } from "@repo/schemas";
@@ -20,8 +22,9 @@ import {
   rejectFormationCandidate,
   tryAutomaticallyPromoteMemoryCandidate,
 } from "./governance";
-import { AgentMemoryPolicyError } from "./policy";
+import { AgentMemoryPolicyError, sourceRefIsExcluded } from "./policy";
 import { containsPermissionLikeInstruction } from "./security";
+import { getAgentMemorySettings } from "./settings";
 
 const PROMPT_VERSION = "formation-v2";
 const SCHEMA_VERSION = "2";
@@ -191,6 +194,11 @@ interface FormationEvidence {
   occurredAt: Date;
 }
 
+interface StoredFormationEvidence extends FormationEvidence {
+  sourceType: AgentSourceType;
+  sourceRef: AgentSourceRef;
+}
+
 function leastTrusted(values: AgentTrust[]): AgentTrust {
   return values.reduce((least, value) =>
     TRUST_ORDER.indexOf(value) < TRUST_ORDER.indexOf(least) ? value : least,
@@ -287,13 +295,19 @@ export function parseFormationResult(input: unknown) {
 export async function processFormationJob(
   job: IAgentMemoryJob,
 ): Promise<{ candidates: number; promoted: number; rejected: number }> {
-  const evidence = await AgentEvidenceEvent.find({
+  const settings = await getAgentMemorySettings();
+  const rawEvidence = await AgentEvidenceEvent.find({
     eventId: { $in: job.evidenceIds },
     memoryEligible: true,
     redactedAt: { $exists: false },
   })
     .sort({ occurredAt: 1, eventId: 1 })
-    .lean<FormationEvidence[]>();
+    .lean<StoredFormationEvidence[]>();
+  const evidence = rawEvidence.filter(
+    (item) =>
+      settings.enabledSources.includes(item.sourceType) &&
+      !sourceRefIsExcluded(item.sourceRef, settings.excludedSourceRefs),
+  );
   if (evidence.length === 0) return { candidates: 0, promoted: 0, rejected: 0 };
 
   const activeMemories = await AgentMemory.find({ status: "active" })
