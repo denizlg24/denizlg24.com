@@ -410,6 +410,7 @@ describe("generateJson", () => {
       source: "semantic-keyword-llm",
       system: "sys",
       user: "user",
+      logUserPrompt: "[redacted]",
       temperature: 0.2,
     });
 
@@ -423,6 +424,7 @@ describe("generateJson", () => {
       llmModel: "deepseek/deepseek-v3.2",
       inputTokens: 100,
       outputTokens: 50,
+      userPrompt: "[redacted]",
     });
   });
 

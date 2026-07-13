@@ -202,6 +202,7 @@ export async function processFormationJob(
       model,
       system: formationSystemPrompt(),
       user: `<untrusted_evidence_json>${JSON.stringify(input)}</untrusted_evidence_json>`,
+      logUserPrompt: "[agent-memory formation input redacted]",
       temperature: 0,
     });
     const parsed = agentFormationResultSchema.safeParse(generated.json);

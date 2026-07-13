@@ -493,6 +493,8 @@ export interface GenerateJsonRequest extends LlmRequestContext {
   model?: string;
   system: string;
   user: string;
+  /** Optional redacted replacement stored in usage logs. */
+  logUserPrompt?: string;
   temperature?: number;
 }
 
@@ -524,6 +526,7 @@ export async function generateJson<T>({
   model,
   system,
   user,
+  logUserPrompt,
   temperature,
 }: GenerateJsonRequest): Promise<JsonResult<T>> {
   const resolved = await resolveModel({
@@ -557,7 +560,7 @@ export async function generateJson<T>({
     outputTokens: usage.outputTokens,
     costUsd: usage.costUsd,
     systemPrompt: system,
-    userPrompt: user,
+    userPrompt: logUserPrompt ?? user,
     source,
   });
 
