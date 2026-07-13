@@ -70,6 +70,27 @@ export async function completeMemoryJob(
   return result.modifiedCount === 1;
 }
 
+export async function requeueMemoryJob(options: {
+  jobId: string;
+  workerId: string;
+  checkpoint: Record<string, unknown>;
+  now?: Date;
+}): Promise<boolean> {
+  await connectDB();
+  const result = await AgentMemoryJob.updateOne(
+    { _id: options.jobId, status: "leased", leaseOwner: options.workerId },
+    {
+      $set: {
+        status: "pending",
+        availableAt: options.now ?? new Date(),
+        checkpoint: options.checkpoint,
+      },
+      $unset: { leaseOwner: 1, leaseExpiresAt: 1, lastError: 1 },
+    },
+  );
+  return result.modifiedCount === 1;
+}
+
 export async function failMemoryJob(options: {
   jobId: string;
   workerId: string;

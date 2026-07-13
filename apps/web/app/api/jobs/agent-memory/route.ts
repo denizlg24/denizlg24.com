@@ -1,17 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { processBackfillJob } from "@/lib/agent-memory/backfill";
 import { processEmbeddingJob } from "@/lib/agent-memory/embedding";
 import { processFormationJob } from "@/lib/agent-memory/formation";
 import {
   completeMemoryJob,
   failMemoryJob,
   leaseNextMemoryJob,
+  requeueMemoryJob,
 } from "@/lib/agent-memory/jobs";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
 
 const MAX_JOBS_PER_REQUEST = 10;
 
 async function processJob(job: IAgentMemoryJob) {
+  if (job.operation === "backfill") return processBackfillJob(job);
   if (job.operation === "formation") return processFormationJob(job);
   if (job.operation === "embedding") return processEmbeddingJob(job);
   if (job.operation === "deletion") return { deleted: true };
@@ -31,11 +34,25 @@ export async function POST(request: Request) {
   for (let index = 0; index < MAX_JOBS_PER_REQUEST; index += 1) {
     const job = await leaseNextMemoryJob({
       workerId,
-      operations: ["formation", "embedding", "deletion"],
+      operations: ["backfill", "formation", "embedding", "deletion"],
     });
     if (!job) break;
     try {
-      results.push(await processJob(job));
+      const result = await processJob(job);
+      results.push(result);
+      if (
+        job.operation === "backfill" &&
+        "done" in result &&
+        result.done === false &&
+        "checkpoint" in result
+      ) {
+        await requeueMemoryJob({
+          jobId: job._id.toString(),
+          workerId,
+          checkpoint: { ...result.checkpoint },
+        });
+        continue;
+      }
       await completeMemoryJob(job._id.toString(), workerId);
       completed += 1;
     } catch (error) {
