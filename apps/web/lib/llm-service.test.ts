@@ -302,7 +302,8 @@ describe("generateText", () => {
       purpose: "note-categorize",
       source: "note-categorize",
       model: "claude-haiku-4-5-20251001",
-      system: "sys",
+      system: "private memory context",
+      logSystemPrompt: "redacted system prompt",
       prompt: "prompt",
       maxTokens: 4096,
     });
@@ -317,12 +318,14 @@ describe("generateText", () => {
     expect(request?.url).toContain("ai-gateway.vercel.sh");
     expect(request?.body.model).toBe("anthropic/claude-haiku-4.5");
     expect(request?.body.max_tokens).toBe(4096);
+    expect(request?.body.system).toBe("private memory context");
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(llmUsageCreateMock.mock.calls[0]?.[0]).toMatchObject({
       llmModel: "anthropic/claude-haiku-4.5",
       source: "note-categorize",
       costUsd: result.usage.costUsd,
+      systemPrompt: "redacted system prompt",
     });
   });
 });

@@ -316,10 +316,9 @@ export const POST = async (req: NextRequest) => {
     const memoryInjected = message
       ? (memoryRetrieval?.injected ?? false)
       : inheritedMemoryInjected && personalMemoryContext !== null;
-    const system = buildSystemPrompt(
-      await getAppTimeZone(),
-      personalMemoryContext,
-    );
+    const timeZone = await getAppTimeZone();
+    const logSystemPrompt = buildSystemPrompt(timeZone);
+    const system = buildSystemPrompt(timeZone, personalMemoryContext);
 
     const onPersist = async (
       msgs: Anthropic.MessageParam[],
@@ -364,6 +363,7 @@ export const POST = async (req: NextRequest) => {
       purpose: "chat",
       source: "dashboard-chat",
       system,
+      logSystemPrompt,
       messages,
       model,
       tools: tools.length > 0 ? tools : undefined,

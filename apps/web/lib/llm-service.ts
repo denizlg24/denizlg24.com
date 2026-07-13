@@ -348,6 +348,8 @@ export async function embedText({
 export interface GenerateTextRequest extends LlmRequestContext {
   model: string;
   system: string;
+  /** Redacted replacement for usage logs when the system prompt has private context. */
+  logSystemPrompt?: string;
   prompt: string;
   maxTokens?: number;
   temperature?: number;
@@ -363,6 +365,7 @@ export async function generateText({
   source,
   model,
   system,
+  logSystemPrompt,
   prompt,
   maxTokens,
   temperature,
@@ -399,7 +402,7 @@ export async function generateText({
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     costUsd: usage.costUsd,
-    systemPrompt: system,
+    systemPrompt: logSystemPrompt ?? system,
     userPrompt: prompt,
     source,
   });
@@ -714,6 +717,8 @@ export async function streamText({
 export interface AgentStreamRequest extends LlmRequestContext {
   model: string;
   system: string;
+  /** Redacted replacement for usage logs when the system prompt has private context. */
+  logSystemPrompt?: string;
   messages: Anthropic.MessageParam[];
   tools?: Anthropic.ToolUnion[];
   toolApprovals?: Record<string, boolean>;
@@ -737,6 +742,7 @@ export async function streamAgent({
   source,
   model,
   system,
+  logSystemPrompt,
   messages,
   tools,
   toolApprovals,
@@ -760,6 +766,7 @@ export async function streamAgent({
 
   return createAgenticSSEStream({
     system,
+    logSystemPrompt,
     messages,
     model: resolved.id,
     tools,
