@@ -116,7 +116,7 @@ function assertVerification(
       "gate-disabled",
     );
   }
-  if (gate !== "A" && verification.sampleSize < 1) {
+  if (gate !== "A" && gate !== "B" && verification.sampleSize < 1) {
     throw new AgentMemoryPolicyError(
       `Gate ${gate} requires a labelled verification sample`,
       "gate-disabled",

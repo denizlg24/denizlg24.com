@@ -70,6 +70,23 @@ describe("agent release gates", () => {
     ).toThrow("sample of at least 50");
   });
 
+  test("allows Gate B deployment before its formation release sample exists", () => {
+    expect(
+      planGateTransition(
+        { ...disabled, evidenceLedger: true },
+        {
+          gate: "B",
+          enabled: true,
+          verification: { ...verification, sampleSize: 0 },
+        },
+        {
+          vectorBackendReady: false,
+          priorVerifications: { A: verification },
+        },
+      ).formation,
+    ).toBe(true);
+  });
+
   test("refuses Gate C without a bounded vector backend", () => {
     const current = {
       ...disabled,
@@ -100,6 +117,36 @@ describe("agent release gates", () => {
         },
       ),
     ).toThrow("bounded vector backend");
+  });
+
+  test("refuses Gate C until Gate B has a labelled release sample", () => {
+    expect(() =>
+      planGateTransition(
+        { ...disabled, evidenceLedger: true, formation: true },
+        {
+          gate: "C",
+          enabled: true,
+          verification: {
+            ...verification,
+            metrics: {
+              provenanceCoverage: 1,
+              exclusionCoverage: 1,
+              maliciousPromotions: 0,
+              budgetViolations: 0,
+              recallAt10: 1,
+              temporalAccuracy: 1,
+            },
+          },
+        },
+        {
+          vectorBackendReady: true,
+          priorVerifications: {
+            A: verification,
+            B: { ...verification, sampleSize: 0 },
+          },
+        },
+      ),
+    ).toThrow("sample of at least 1");
   });
 
   test("disabling a gate also disables every dependent gate", () => {
