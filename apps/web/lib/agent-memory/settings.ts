@@ -19,6 +19,10 @@ import {
   type IAgentMemorySettings,
 } from "@/models/AgentMemorySettings";
 import { AgentMemoryPolicyError } from "./policy";
+import {
+  AGENT_MEMORY_VECTOR_CONFIG,
+  vectorIndexMatchesContract,
+} from "./vector-config";
 
 const GATE_FIELDS: Record<AgentReleaseGateName, keyof AgentReleaseGates> = {
   A: "evidenceLedger",
@@ -164,10 +168,10 @@ export async function probeAgentMemoryVectorBackend(): Promise<boolean> {
   await connectDB();
   try {
     const indexes = await AgentMemorySettings.db
-      .collection("agent_memory_embeddings")
+      .collection(AGENT_MEMORY_VECTOR_CONFIG.collection)
       .listSearchIndexes()
       .toArray();
-    return indexes.some((index) => index.name === "agent_memory_vector_v1");
+    return indexes.some(vectorIndexMatchesContract);
   } catch {
     return false;
   }

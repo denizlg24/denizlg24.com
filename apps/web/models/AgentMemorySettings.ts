@@ -1,5 +1,6 @@
 import type { AgentSourceRef, AgentSourceType } from "@repo/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
+import { AGENT_MEMORY_VECTOR_CONFIG } from "@/lib/agent-memory/vector-config";
 import {
   AGENT_SOURCE_TYPES,
   AgentSourceRefSchema,
@@ -67,9 +68,9 @@ export const DEFAULT_AGENT_MEMORY_SETTINGS = {
     maxCoreItems: 8,
     maxRetrievedItems: 12,
     maxTokens: 2_500,
-    embeddingModel: null,
-    embeddingDimensions: null,
-    vectorIndex: null,
+    embeddingModel: AGENT_MEMORY_VECTOR_CONFIG.model,
+    embeddingDimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
+    vectorIndex: AGENT_MEMORY_VECTOR_CONFIG.indexName,
   },
   retention: { terminalJobDays: 30, retrievalTraceDays: 90 },
   reflectionSchedule: null,
@@ -103,9 +104,20 @@ const AgentMemorySettingsSchema = new Schema<IAgentMemorySettings>(
       maxCoreItems: { type: Number, default: 8, min: 0, max: 20 },
       maxRetrievedItems: { type: Number, default: 12, min: 0, max: 50 },
       maxTokens: { type: Number, default: 2_500, min: 0, max: 10_000 },
-      embeddingModel: { type: String, default: null },
-      embeddingDimensions: { type: Number, default: null, min: 1, max: 4_096 },
-      vectorIndex: { type: String, default: null },
+      embeddingModel: {
+        type: String,
+        default: AGENT_MEMORY_VECTOR_CONFIG.model,
+      },
+      embeddingDimensions: {
+        type: Number,
+        default: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
+        min: 1,
+        max: 4_096,
+      },
+      vectorIndex: {
+        type: String,
+        default: AGENT_MEMORY_VECTOR_CONFIG.indexName,
+      },
     },
     retention: {
       terminalJobDays: { type: Number, default: 30, min: 1, max: 365 },

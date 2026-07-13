@@ -69,6 +69,14 @@ const catalogModels = [
     tags: [],
     pricing: {},
   },
+  {
+    id: "openai/text-embedding-3-small",
+    name: "Text Embedding 3 Small",
+    owned_by: "openai",
+    type: "embedding",
+    tags: [],
+    pricing: { input: "0.00000002" },
+  },
 ];
 
 interface RecordedRequest {
@@ -115,6 +123,13 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.includes("/chat/completions")) {
     return nextCompletion();
   }
+  if (url.includes("/embeddings")) {
+    const dimensions = Number(body.dimensions);
+    return jsonResponse({
+      data: [{ embedding: Array.from({ length: dimensions }, () => 0.25) }],
+      usage: { prompt_tokens: 12, total_tokens: 12 },
+    });
+  }
   if (url.includes("/messages")) {
     return jsonResponse({
       id: "msg_test",
@@ -136,6 +151,7 @@ afterAll(() => {
 const { __resetCatalogForTests } = await import("./llm-model-catalog");
 const {
   countTokens,
+  embedText,
   estimateCost,
   generateJson,
   generateText,
@@ -143,6 +159,7 @@ const {
   getSemanticModel,
   listModels,
   resolveLegacyAlias,
+  resolveEmbeddingModel,
   resolveModel,
   streamAgent,
 } = await import("./llm-service");
@@ -245,6 +262,36 @@ describe("credentials", () => {
     } finally {
       process.env.AI_GATEWAY_API_KEY = saved;
     }
+  });
+});
+
+describe("embedText", () => {
+  test("resolves an embedding model, validates dimensions, and redacts logs", async () => {
+    const result = await embedText({
+      purpose: "agent-memory-embedding",
+      source: "agent-memory-query-embedding",
+      model: "openai/text-embedding-3-small",
+      dimensions: 1_536,
+      value: "private memory text",
+    });
+    expect(result.vector).toHaveLength(1_536);
+    expect(result.usage.inputTokens).toBe(12);
+    expect(result.usage.costUsd).toBeCloseTo(0.00000024, 12);
+    expect(recordedRequests.at(-1)?.body).toMatchObject({
+      model: "openai/text-embedding-3-small",
+      dimensions: 1_536,
+      input: "private memory text",
+    });
+    expect(llmUsageCreateMock.mock.calls[0]?.[0]).toMatchObject({
+      userPrompt: "[agent-memory embedding input redacted]",
+      source: "agent-memory-query-embedding",
+    });
+  });
+
+  test("rejects language models for embedding", async () => {
+    expect(
+      resolveEmbeddingModel("anthropic/claude-haiku-4.5"),
+    ).rejects.toBeInstanceOf(LlmModelError);
   });
 });
 

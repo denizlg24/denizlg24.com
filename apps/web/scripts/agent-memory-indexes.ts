@@ -1,4 +1,5 @@
 import type { Model } from "mongoose";
+import { AGENT_MEMORY_VECTOR_CONFIG } from "@/lib/agent-memory/vector-config";
 import { connectDB } from "@/lib/mongodb";
 import { AgentAuditEvent } from "@/models/AgentAuditEvent";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
@@ -40,6 +41,11 @@ async function main() {
   const dryRun = process.argv.includes("--dry-run");
 
   if (dryRun) {
+    console.log(
+      JSON.stringify({
+        searchIndex: AGENT_MEMORY_VECTOR_CONFIG,
+      }),
+    );
     for (const model of models) {
       console.log(
         JSON.stringify({

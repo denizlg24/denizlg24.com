@@ -1,7 +1,7 @@
 # Agent memory architecture
 
-Status: accepted for Gates A and B; Gate C blocked by the vector-backend
-decision below.
+Status: accepted; Gate C infrastructure verified on 2026-07-13 and application
+rollout remains gated by evaluation.
 
 ## Decision
 
@@ -17,26 +17,25 @@ client/write confirmation flow.
 
 ## Deployment capability decision
 
-The production-compatible datastore configured on 2026-07-13 is self-hosted
-MongoDB Community 7.0.30. A direct `buildInfo` query reported version `7.0.30`
-with no optional modules, and `listSearchIndexes` returned command-not-found
-(code 59). MongoDB documents native self-managed Vector Search for Community
-starting in 8.2; the current server therefore cannot provide the bounded native
-vector query required by Gate C.
+The production datastore was upgraded to self-hosted MongoDB Community 8.2.11
+with the self-managed `mongot` process in `../deniz-cloud`. A direct `buildInfo`
+query reported `8.2.11`, and `listSearchIndexes` now succeeds. This resolves the
+prior MongoDB 7.0 vector-backend STOP without introducing another database or
+an unbounded application-memory scan.
 
 Decision:
 
-- Gates A and B may use the current MongoDB deployment.
-- Gate C remains server-disabled. Production code must not scan an unbounded
+- Gates A-C may use the current MongoDB deployment after their release
+  verification passes.
+- Gate C remains server-disabled until its index is READY and its retrieval
+  evaluation thresholds pass. Production code must not scan an unbounded
   vector collection in application memory.
-- Unblocking Gate C requires a maintainer-approved upgrade to MongoDB 8.2+ with
-  Search, migration to MongoDB Atlas Vector Search, or an amendment approving a
-  different bounded vector backend.
-- The intended vector index is named `agent_memory_vector_v1`, indexes
-  `vector` with the configured dimensions and cosine similarity, and filters on
-  `status`, `sensitivity`, `memoryType`, `validUntil`, and `model`.
-- Embedding creation remains behind `LlmService`; the Gateway-supported default
-  is explicitly configured rather than inferred at runtime.
+- The vector index is `agent_memory_vector_v1` on
+  `agent_memory_embeddings.vector`: 1,536 dimensions, cosine similarity,
+  scalar quantization, with `model`, `sensitivity`, `status`, `memoryType`, and
+  `validUntil` filters.
+- Embedding creation remains behind `LlmService` and uses the explicit Gateway
+  model `openai/text-embedding-3-small`.
 
 This is a release block, not a reason to collapse embeddings into memories or
 to add a second LLM or data service.
@@ -267,6 +266,7 @@ retrieval does not improve the labelled baseline or increases confident error.
   sample must pass before Gate B can be enabled.
 - Gate B also needs its own labelled formation/review sample before its flag is
   enabled.
-- Gate C is blocked until the vector-backend decision above is resolved.
+- Gate C requires the configured search index to report READY/queryable and the
+  vector contract plus evaluation thresholds to match before enablement.
 - External notifications and consequential delegated execution are not part of
   this architecture.

@@ -39,11 +39,13 @@
 - Gate A rollout is not complete: only the conversation/tool-result adapter is
   wired, deployment sampling has not run, and the remaining supported-domain
   adapters are not implemented.
-- **STOP**: the configured production datastore is MongoDB Community 7.0.30.
-  It has no Search module and rejects `listSearchIndexes` with code 59. Gate C
-  therefore cannot meet the bounded production vector-search requirement
-  without an approved MongoDB 8.2+ upgrade, Atlas migration, or plan amendment.
-  Per this plan's STOP rules, Gates B-F were not implemented or enabled.
+- The prior Gate C STOP is resolved: `../deniz-cloud` now runs MongoDB Community
+  8.2.11 with self-managed `mongot`, and the live database accepts
+  `listSearchIndexes`. The application contract is
+  `agent_memory_embeddings.agent_memory_vector_v1` over `vector` (1,536d,
+  cosine, scalar quantization) with `model`, `sensitivity`, `status`,
+  `memoryType`, and `validUntil` filters. Gates remain disabled pending their
+  sequential release verification.
 
 ## Outcome
 

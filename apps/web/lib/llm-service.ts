@@ -9,6 +9,7 @@ import {
 } from "@/lib/llm-model-catalog";
 import { getGatewayAnthropicClient } from "@/lib/llm-transports/anthropic-gateway";
 import { requestChatCompletion } from "@/lib/llm-transports/chat-completions";
+import { requestEmbedding } from "@/lib/llm-transports/embeddings";
 import { connectDB } from "@/lib/mongodb";
 import type { TokenUsage } from "@/models/Conversation";
 import { LlmUsage } from "@/models/LlmUsage";
@@ -27,7 +28,10 @@ export type LlmPurpose =
   | "note-categorize"
   | "semantic"
   | "topic-classify"
-  | "hierarchy-draft";
+  | "hierarchy-draft"
+  | "agent-memory-formation"
+  | "agent-memory-embedding"
+  | "agent-memory-retrieval";
 
 // Catalog capabilities each purpose requires before a request is sent.
 // Per-request needs (tools/web search in chat) are added on top of these.
@@ -42,6 +46,9 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   semantic: [],
   "topic-classify": [],
   "hierarchy-draft": [],
+  "agent-memory-formation": [],
+  "agent-memory-embedding": [],
+  "agent-memory-retrieval": [],
 };
 
 // Compatibility only: resolves model ids stored before the Gateway migration
@@ -165,6 +172,37 @@ export async function resolveModel({
   return { id, catalogModel };
 }
 
+export async function resolveEmbeddingModel(
+  model: string,
+): Promise<ResolvedModel> {
+  if (!model.includes("/")) {
+    throw new LlmModelError(
+      `Unknown embedding model "${model}" - expected a fully qualified Gateway id`,
+    );
+  }
+  let catalogModel: GatewayModel | null;
+  try {
+    catalogModel = await findModel(model);
+  } catch (error) {
+    if (error instanceof CatalogUnavailableError) {
+      console.warn(
+        `[llm-service] Catalog unavailable; proceeding with configured embedding model "${model}"`,
+      );
+      return { id: model, catalogModel: null };
+    }
+    throw error;
+  }
+  if (!catalogModel) {
+    throw new LlmModelError(
+      `Embedding model "${model}" is not in the Gateway catalog`,
+    );
+  }
+  if (!new Set(["embedding", "embed"]).has(catalogModel.type)) {
+    throw new LlmModelError(`Model "${model}" is not an embedding model`);
+  }
+  return { id: model, catalogModel };
+}
+
 export interface CacheUsage {
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
@@ -187,14 +225,18 @@ export function estimateCost({
   cacheUsage?: CacheUsage;
 }): number {
   const pricing = catalogModel?.pricing;
-  if (!pricing || pricing.input === undefined || pricing.output === undefined) {
+  if (
+    !pricing ||
+    pricing.input === undefined ||
+    (outputTokens > 0 && pricing.output === undefined)
+  ) {
     console.warn(
       `[llm-service] No catalog pricing for "${catalogModel?.id ?? "unknown model"}"; recording cost as 0`,
     );
     return 0;
   }
 
-  let cost = inputTokens * pricing.input + outputTokens * pricing.output;
+  let cost = inputTokens * pricing.input + outputTokens * (pricing.output ?? 0);
   if (cacheUsage) {
     // Cache write/read rates come from the catalog; fall back to the
     // provider-typical multiples of the base input price.
@@ -246,6 +288,61 @@ export interface LlmUsageResult {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+}
+
+export interface EmbedTextRequest extends LlmRequestContext {
+  model: string;
+  dimensions: number;
+  value: string;
+}
+
+export interface EmbedTextResult {
+  model: string;
+  dimensions: number;
+  vector: number[];
+  usage: LlmUsageResult;
+}
+
+export async function embedText({
+  source,
+  model,
+  dimensions,
+  value,
+}: EmbedTextRequest): Promise<EmbedTextResult> {
+  if (!value.trim()) throw new LlmModelError("Embedding input cannot be empty");
+  if (!Number.isInteger(dimensions) || dimensions < 1 || dimensions > 4_096) {
+    throw new LlmModelError("Embedding dimensions must be between 1 and 4096");
+  }
+  const resolved = await resolveEmbeddingModel(model);
+  const result = await requestEmbedding({
+    model: resolved.id,
+    input: value,
+    dimensions,
+  });
+  const usage = {
+    inputTokens: result.inputTokens,
+    outputTokens: 0,
+    costUsd: estimateCost({
+      catalogModel: resolved.catalogModel,
+      inputTokens: result.inputTokens,
+      outputTokens: 0,
+    }),
+  };
+  await logLlmUsage({
+    llmModel: resolved.id,
+    inputTokens: usage.inputTokens,
+    outputTokens: 0,
+    costUsd: usage.costUsd,
+    systemPrompt: "Generate a semantic embedding.",
+    userPrompt: "[agent-memory embedding input redacted]",
+    source,
+  });
+  return {
+    model: resolved.id,
+    dimensions,
+    vector: result.vector,
+    usage,
+  };
 }
 
 export interface GenerateTextRequest extends LlmRequestContext {

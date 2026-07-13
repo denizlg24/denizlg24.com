@@ -1,5 +1,11 @@
+import type { AgentMemoryStatus, AgentMemoryType } from "@repo/schemas";
 import mongoose, { Schema } from "mongoose";
-import { AGENT_SENSITIVITIES, existingModel } from "./AgentMemoryCommon";
+import {
+  AGENT_MEMORY_STATUSES,
+  AGENT_MEMORY_TYPES,
+  AGENT_SENSITIVITIES,
+  existingModel,
+} from "./AgentMemoryCommon";
 
 export interface IAgentMemoryEmbedding {
   memoryId: mongoose.Types.ObjectId;
@@ -9,6 +15,9 @@ export interface IAgentMemoryEmbedding {
   vector: number[];
   contentHash: string;
   sensitivity: string;
+  status: AgentMemoryStatus;
+  memoryType: AgentMemoryType;
+  validUntil: Date | null;
   createdAt: Date;
 }
 
@@ -29,6 +38,9 @@ const AgentMemoryEmbeddingSchema = new Schema<IAgentMemoryEmbedding>(
     vector: { type: [Number], required: true, select: false },
     contentHash: { type: String, required: true, match: /^[a-f0-9]{64}$/ },
     sensitivity: { type: String, enum: AGENT_SENSITIVITIES, required: true },
+    status: { type: String, enum: AGENT_MEMORY_STATUSES, required: true },
+    memoryType: { type: String, enum: AGENT_MEMORY_TYPES, required: true },
+    validUntil: { type: Date, default: null },
   },
   {
     collection: "agent_memory_embeddings",
