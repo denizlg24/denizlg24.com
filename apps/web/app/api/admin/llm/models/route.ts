@@ -41,6 +41,14 @@ export const GET = async (req: NextRequest) => {
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
         tags: model.tags,
+        ...(model.pricing
+          ? {
+              pricing: {
+                input: model.pricing.input,
+                output: model.pricing.output,
+              },
+            }
+          : {}),
       })),
       stale,
       fetchedAt: fetchedAt.toISOString(),

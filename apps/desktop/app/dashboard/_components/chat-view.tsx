@@ -31,6 +31,12 @@ import {
   type StreamResult,
   useChatStream,
 } from "@/hooks/use-chat-stream";
+import {
+  isModelEligible,
+  modelDisplayName,
+  pickDefaultModel,
+  useModelCatalog,
+} from "@/hooks/use-model-catalog";
 import { denizApi } from "@/lib/api-wrapper";
 import { mergeContentSegments } from "@/lib/chat-segments";
 import type {
@@ -47,15 +53,6 @@ import type {
 import { ChatInput } from "./chat-input";
 import { ChatMessage } from "./chat-message";
 import { DashboardSummary } from "./dashboard-summary";
-
-const MODEL_LABELS: Record<string, string> = {
-  "claude-opus-4-7": "Opus 4.7",
-  "claude-opus-4-6": "Opus 4.6",
-  "claude-sonnet-4-6": "Sonnet 4.6",
-  "claude-haiku-4-5": "Haiku 4.5",
-  "claude-opus-4-5": "Opus 4.5",
-  "claude-sonnet-4-5": "Sonnet 4.5",
-};
 
 const SUGGESTIONS = [
   "What events do I have this week?",
@@ -349,9 +346,32 @@ export function ChatView() {
   const suggestion = useSuggestion();
 
   const [input, setInput] = useState("");
-  const [model, setModel] = useState("claude-haiku-4-5");
+  // No hardcoded default model: one is picked from the live catalog below.
+  // Selection is component-lifetime; persisting it in user settings is
+  // deliberately deferred until settings grow a model field.
+  const [model, setModel] = useState<string | null>(null);
   const [toolsEnabled, setToolsEnabled] = useState(true);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const modelCatalog = useModelCatalog(API);
+  const requiredCapabilities = useMemo(
+    () => [
+      ...(toolsEnabled ? ["tool-use"] : []),
+      ...(webSearchEnabled ? ["web-search"] : []),
+    ],
+    [toolsEnabled, webSearchEnabled],
+  );
+  const modelIncompatible =
+    !!model &&
+    !isModelEligible(model, modelCatalog.models, requiredCapabilities);
+
+  useEffect(() => {
+    if (model || !modelCatalog.models?.length) return;
+    const defaultModel = pickDefaultModel(
+      modelCatalog.models,
+      requiredCapabilities,
+    );
+    if (defaultModel) setModel(defaultModel);
+  }, [model, modelCatalog.models, requiredCapabilities]);
   const [messages, setMessages] = useState<IChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<IConversationMeta[]>([]);
@@ -547,7 +567,7 @@ export function ChatView() {
   );
 
   const sendMessage = async (messageContent: string) => {
-    if (!API || isStreaming) return;
+    if (!API || isStreaming || !model || modelIncompatible) return;
 
     let messageAttachments: IChatMessageAttachment[] | undefined;
     let messagePayload: string | unknown[] = messageContent;
@@ -686,7 +706,7 @@ export function ChatView() {
   };
 
   const continueChat = async (toolApprovals: Record<string, boolean>) => {
-    if (!API || isStreaming || !conversationId) return;
+    if (!API || isStreaming || !conversationId || !model) return;
 
     // Recover any client tool results that were computed during the
     // pause — the server needs them alongside toolApprovals to build a
@@ -787,6 +807,7 @@ export function ChatView() {
   };
 
   const retryFromError = async () => {
+    if (!model) return;
     setMessages((prev) => {
       const updated = [...prev];
       const lastIdx = updated.length - 1;
@@ -1019,7 +1040,10 @@ export function ChatView() {
                                 {conv.title}
                               </span>
                               <span className="hidden text-[10px] text-muted-foreground/30 group-hover:hidden sm:inline">
-                                {MODEL_LABELS[conv.llmModel] ?? conv.llmModel}
+                                {modelDisplayName(
+                                  conv.llmModel,
+                                  modelCatalog.models,
+                                )}
                               </span>
                               <button
                                 onClick={(e) => deleteConversation(conv._id, e)}
@@ -1088,6 +1112,9 @@ export function ChatView() {
               onSend={handleSend}
               model={model}
               onModelChange={setModel}
+              modelCatalog={modelCatalog}
+              requiredCapabilities={requiredCapabilities}
+              modelIncompatible={modelIncompatible}
               disabled={isStreaming}
               streaming={isStreaming}
               onAbort={abort}
@@ -1182,7 +1209,10 @@ export function ChatView() {
                               {conv.title}
                             </span>
                             <span className="hidden text-[10px] text-muted-foreground/30 group-hover:hidden sm:inline">
-                              {MODEL_LABELS[conv.llmModel] ?? conv.llmModel}
+                              {modelDisplayName(
+                                conv.llmModel,
+                                modelCatalog.models,
+                              )}
                             </span>
                             <button
                               onClick={(e) => deleteConversation(conv._id, e)}
@@ -1343,11 +1373,16 @@ export function ChatView() {
           onSend={handleSend}
           model={model}
           onModelChange={setModel}
+          modelCatalog={modelCatalog}
+          requiredCapabilities={requiredCapabilities}
+          modelIncompatible={modelIncompatible}
           disabled={isStreaming}
           streaming={isStreaming}
           onAbort={abort}
           docked
-          modelLabel={MODEL_LABELS[model] ?? model}
+          modelLabel={
+            model ? modelDisplayName(model, modelCatalog.models) : undefined
+          }
           toolsEnabled={toolsEnabled}
           onToolsEnabledChange={setToolsEnabled}
           webSearchEnabled={webSearchEnabled}

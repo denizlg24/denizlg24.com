@@ -11,6 +11,13 @@ export const llmCatalogModelSchema = z.object({
   contextWindow: z.number().optional(),
   maxTokens: z.number().optional(),
   tags: z.array(z.string()),
+  /** Estimated USD per token; used for default-model selection, not display. */
+  pricing: z
+    .object({
+      input: z.number().optional(),
+      output: z.number().optional(),
+    })
+    .optional(),
 });
 export type LlmCatalogModel = z.infer<typeof llmCatalogModelSchema>;
 

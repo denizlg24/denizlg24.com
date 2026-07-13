@@ -59,8 +59,11 @@ describe("GET /api/admin/llm/models", () => {
     expect(body.models[0]?.id).toBe("anthropic/claude-haiku-4.5");
     expect(body.stale).toBe(false);
     expect(body.fetchedAt).toBe("2026-07-13T10:00:00.000Z");
-    // Pricing/type internals are not part of the wire contract.
-    expect((body.models[0] as Record<string, unknown>).pricing).toBeUndefined();
+    // Only base prices cross the wire — no cache/tier internals.
+    expect(body.models[0]?.pricing).toEqual({
+      input: 0.000001,
+      output: 0.000005,
+    });
   });
 
   test("passes creator and capability filters to the service", async () => {
