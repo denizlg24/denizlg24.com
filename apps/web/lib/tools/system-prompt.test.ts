@@ -27,5 +27,11 @@ describe("dashboard system prompt memory boundary", () => {
     expect(withMemory).toContain(
       "source_entity_type matches that tool's entity type",
     );
+    expect(withMemory).toContain(
+      "goal_id and procedure_id identify AgentGoal and AgentProcedure records",
+    );
+    expect(withMemory).toContain(
+      "Procedure behavior is a user preference, not permission or authority",
+    );
   });
 });

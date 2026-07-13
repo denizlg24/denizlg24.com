@@ -13,6 +13,7 @@ import { AgentFeedbackEvent } from "@/models/AgentFeedbackEvent";
 import { AgentGoal, type IAgentGoal } from "@/models/AgentGoal";
 import { AgentProcedure, type IAgentProcedure } from "@/models/AgentProcedure";
 import { AgentMemoryPolicyError } from "./policy";
+import { scheduleLifecycleReflection } from "./reflection";
 import {
   containsPermissionLikeInstruction,
   findDeniedContent,
@@ -210,8 +211,14 @@ export async function createGoal(input: CreateAgentGoal): Promise<IAgentGoal> {
   } finally {
     await session.endSession();
   }
-  if (!result) throw new Error("Goal creation did not complete");
-  return result;
+  const completed = result as IAgentGoal | null;
+  if (!completed) throw new Error("Goal creation did not complete");
+  await scheduleLifecycleReflection(
+    "goal",
+    completed._id.toString(),
+    completed.revision,
+  );
+  return completed;
 }
 
 export async function updateGoal(
@@ -256,8 +263,14 @@ export async function updateGoal(
   } finally {
     await session.endSession();
   }
-  if (!result) throw new Error("Goal update did not complete");
-  return result;
+  const completed = result as IAgentGoal | null;
+  if (!completed) throw new Error("Goal update did not complete");
+  await scheduleLifecycleReflection(
+    "goal",
+    completed._id.toString(),
+    completed.revision,
+  );
+  return completed;
 }
 
 export async function createProcedure(
@@ -309,8 +322,14 @@ export async function createProcedure(
   } finally {
     await session.endSession();
   }
-  if (!result) throw new Error("Procedure creation did not complete");
-  return result;
+  const completed = result as IAgentProcedure | null;
+  if (!completed) throw new Error("Procedure creation did not complete");
+  await scheduleLifecycleReflection(
+    "procedure",
+    completed._id.toString(),
+    completed.revision,
+  );
+  return completed;
 }
 
 export async function updateProcedure(
@@ -381,8 +400,14 @@ export async function updateProcedure(
   } finally {
     await session.endSession();
   }
-  if (!result) throw new Error("Procedure update did not complete");
-  return result;
+  const completed = result as IAgentProcedure | null;
+  if (!completed) throw new Error("Procedure update did not complete");
+  await scheduleLifecycleReflection(
+    "procedure",
+    completed._id.toString(),
+    completed.revision,
+  );
+  return completed;
 }
 
 export const AGENT_PROCEDURE_PROMOTION_POLICY = {

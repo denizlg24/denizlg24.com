@@ -64,6 +64,33 @@ interface SelectedMemoryTraceCandidate {
   evidenceIds: string[];
 }
 
+interface SelectedDerivedTraceItem {
+  kind: "profile" | "goal" | "procedure";
+  id: string;
+  statement: string;
+}
+
+function selectedDerivedTraceItems(
+  trace: AgentRetrievalTrace,
+): SelectedDerivedTraceItem[] {
+  const derived = trace.filters.derivedContext;
+  if (typeof derived !== "object" || derived === null) return [];
+  const items = (derived as Record<string, unknown>).items;
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
+    const value = item as Record<string, unknown>;
+    if (
+      !["profile", "goal", "procedure"].includes(String(value.kind)) ||
+      typeof value.id !== "string" ||
+      typeof value.statement !== "string"
+    ) {
+      return [];
+    }
+    return [value as unknown as SelectedDerivedTraceItem];
+  });
+}
+
 function selectedTraceCandidates(
   trace: AgentRetrievalTrace,
 ): SelectedMemoryTraceCandidate[] {
@@ -185,6 +212,7 @@ function MemoryDisclosure({
   };
 
   const selected = trace ? selectedTraceCandidates(trace) : [];
+  const selectedDerived = trace ? selectedDerivedTraceItems(trace) : [];
 
   return (
     <Dialog
@@ -224,6 +252,25 @@ function MemoryDisclosure({
             </div>
           ) : (
             <div className="divide-y border-y">
+              {selectedDerived.map((item) => (
+                <div
+                  key={`${item.kind}:${item.id}`}
+                  className="min-w-0 space-y-2 py-4"
+                >
+                  <div className="text-[10px] uppercase text-muted-foreground">
+                    {item.kind}
+                  </div>
+                  <p className="break-words text-sm leading-6">
+                    {item.statement}
+                  </p>
+                  <p
+                    className="truncate font-mono text-[10px] text-muted-foreground/60"
+                    title={item.id}
+                  >
+                    {item.id}
+                  </p>
+                </div>
+              ))}
               {selected.map((candidate) => {
                 const isPending = pendingMemoryId === candidate.memoryId;
                 const feedback = recorded[candidate.memoryId];

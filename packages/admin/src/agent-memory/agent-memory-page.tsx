@@ -1,13 +1,20 @@
 "use client";
 
 import type {
+  AgentGoal,
   AgentMemory,
   AgentMemoryCandidate,
+  AgentMemoryRun,
   AgentMemorySettings,
+  AgentProcedure,
+  AgentReflectionOverview,
   AgentRetrievalTrace,
+  AgentUserModel,
+  AgentUserModelRevision,
 } from "@repo/schemas";
 import {
   agentMemoryListResponseSchema,
+  agentReflectionOverviewSchema,
   agentRetrievalTraceListResponseSchema,
 } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
@@ -29,8 +36,11 @@ import {
   ChevronDown,
   ChevronUp,
   CircleSlash,
+  History,
+  Play,
   RefreshCw,
   Search,
+  Undo2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -77,26 +87,37 @@ export function AgentMemoryPage() {
   const [candidates, setCandidates] = useState<AgentMemoryCandidate[]>([]);
   const [settings, setSettings] = useState<AgentMemorySettings | null>(null);
   const [traces, setTraces] = useState<AgentRetrievalTrace[]>([]);
+  const [reflection, setReflection] = useState<AgentReflectionOverview | null>(
+    null,
+  );
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [runningReflection, setRunningReflection] = useState(false);
+  const [rollingBackRevision, setRollingBackRevision] = useState<number | null>(
+    null,
+  );
 
   const load = useCallback(
     async (quiet = false) => {
       if (!quiet) setLoading(true);
       else setRefreshing(true);
       try {
-        const [overviewRaw, tracesRaw] = await Promise.all([
+        const [overviewRaw, tracesRaw, reflectionRaw] = await Promise.all([
           client.get<unknown>("agent-memory?limit=100"),
           client.get<unknown>("agent-memory/retrieval-traces?limit=100"),
+          client.get<unknown>("agent-memory/reflection"),
         ]);
         const overview = agentMemoryListResponseSchema.parse(overviewRaw);
         const traceList =
           agentRetrievalTraceListResponseSchema.parse(tracesRaw);
+        const reflectionOverview =
+          agentReflectionOverviewSchema.parse(reflectionRaw);
         setMemories(overview.memories);
         setCandidates(overview.candidates);
         setSettings(overview.settings);
         setTraces(traceList.traces);
+        setReflection(reflectionOverview);
         setSelectedTraceId((current) =>
           current && traceList.traces.some((trace) => trace.traceId === current)
             ? current
@@ -137,6 +158,35 @@ export function AgentMemoryPage() {
     }
   };
 
+  const runReflection = async () => {
+    setRunningReflection(true);
+    try {
+      await client.post("agent-memory/reflection", {});
+      toast.success("Reflection run completed");
+      await load(true);
+    } catch {
+      toast.error("Reflection run failed");
+    } finally {
+      setRunningReflection(false);
+    }
+  };
+
+  const rollbackProjection = async (revision: number) => {
+    setRollingBackRevision(revision);
+    try {
+      await client.post("agent-memory/user-model/rollback", {
+        targetRevision: revision,
+        reason: `Owner rollback to user-model revision ${revision}`,
+      });
+      toast.success(`Restored revision ${revision}`);
+      await load(true);
+    } catch {
+      toast.error("User-model rollback failed");
+    } finally {
+      setRollingBackRevision(null);
+    }
+  };
+
   if (loading) return <AgentMemorySkeleton />;
 
   const selectedTrace = traces.find(
@@ -165,12 +215,39 @@ export function AgentMemoryPage() {
         {settings && <GateStrip settings={settings} />}
 
         <Tabs defaultValue="memories" className="flex min-h-0 flex-col">
-          <TabsList variant="line">
+          <TabsList
+            variant="line"
+            className="w-full justify-start overflow-x-auto"
+          >
             <TabsTrigger value="memories">
               Memories <span className="tabular-nums">{memories.length}</span>
             </TabsTrigger>
             <TabsTrigger value="review">
               Review <span className="tabular-nums">{candidates.length}</span>
+            </TabsTrigger>
+            <TabsTrigger value="profile">
+              Profile{" "}
+              <span className="tabular-nums">
+                {reflection?.userModel?.revision ?? 0}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="goals">
+              Goals{" "}
+              <span className="tabular-nums">
+                {reflection?.goals.length ?? 0}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="procedures">
+              Procedures{" "}
+              <span className="tabular-nums">
+                {reflection?.procedures.length ?? 0}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="runs">
+              Runs{" "}
+              <span className="tabular-nums">
+                {reflection?.runs.length ?? 0}
+              </span>
             </TabsTrigger>
             <TabsTrigger value="traces">
               Traces <span className="tabular-nums">{traces.length}</span>
@@ -186,6 +263,29 @@ export function AgentMemoryPage() {
               candidates={candidates}
               onDecide={decideCandidate}
             />
+          </TabsContent>
+
+          <TabsContent value="profile" className="mt-3">
+            <ProfilePanel
+              model={reflection?.userModel ?? null}
+              revisions={reflection?.revisions ?? []}
+              running={runningReflection}
+              rollingBackRevision={rollingBackRevision}
+              onRun={runReflection}
+              onRollback={rollbackProjection}
+            />
+          </TabsContent>
+
+          <TabsContent value="goals" className="mt-3">
+            <GoalTable goals={reflection?.goals ?? []} />
+          </TabsContent>
+
+          <TabsContent value="procedures" className="mt-3">
+            <ProcedureTable procedures={reflection?.procedures ?? []} />
+          </TabsContent>
+
+          <TabsContent value="runs" className="mt-3">
+            <RunTable runs={reflection?.runs ?? []} />
           </TabsContent>
 
           <TabsContent value="traces" className="mt-3 min-h-0">
@@ -331,6 +431,273 @@ function CandidateTable({
                     <X />
                   </Button>
                 </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function revisionDiff(
+  revision: AgentUserModelRevision,
+  previous?: AgentUserModelRevision,
+) {
+  const keys = (value?: AgentUserModelRevision) =>
+    new Set(
+      Object.values(value?.sections ?? {})
+        .flat()
+        .map((chunk) => chunk.key),
+    );
+  const currentKeys = keys(revision);
+  const previousKeys = keys(previous);
+  return {
+    added: [...currentKeys].filter((key) => !previousKeys.has(key)).length,
+    removed: [...previousKeys].filter((key) => !currentKeys.has(key)).length,
+  };
+}
+
+function ProfilePanel({
+  model,
+  revisions,
+  running,
+  rollingBackRevision,
+  onRun,
+  onRollback,
+}: {
+  model: AgentUserModel | null;
+  revisions: AgentUserModelRevision[];
+  running: boolean;
+  rollingBackRevision: number | null;
+  onRun: () => void;
+  onRollback: (revision: number) => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+        <div>
+          <p className="text-sm font-medium">
+            {model
+              ? `Projection revision ${model.revision}`
+              : "No projection yet"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {model
+              ? `Generated ${formatDate(model.generatedAt)}`
+              : "Run reflection to build the evidence-backed profile."}
+          </p>
+        </div>
+        <Button size="sm" onClick={onRun} disabled={running}>
+          {running ? <RefreshCw className="animate-spin" /> : <Play />}
+          Run reflection
+        </Button>
+      </div>
+
+      {model ? (
+        <div className="divide-y border-y">
+          {Object.entries(model.sections)
+            .filter(([, chunks]) => chunks.length > 0)
+            .map(([section, chunks]) => (
+              <section key={section} className="py-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-medium">{section}</h3>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {chunks.length}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {chunks.map((chunk) => (
+                    <div
+                      key={chunk.key}
+                      className="grid gap-1 text-sm sm:grid-cols-[minmax(0,1fr)_auto]"
+                    >
+                      <p className="min-w-0 break-words">{chunk.statement}</p>
+                      <span className="text-xs text-muted-foreground">
+                        {chunk.explicitness} / {percent(chunk.confidence)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
+        </div>
+      ) : (
+        <EmptyRow text="No derived profile" />
+      )}
+
+      <div>
+        <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+          <History className="size-4 text-muted-foreground" />
+          Revision history
+        </div>
+        {revisions.length === 0 ? (
+          <EmptyRow text="No profile revisions" />
+        ) : (
+          <div className="divide-y border-y">
+            {revisions.map((revision, index) => {
+              const diff = revisionDiff(revision, revisions[index + 1]);
+              const isCurrent = revision.revision === model?.revision;
+              return (
+                <div
+                  key={revision.id}
+                  className="flex min-w-0 items-center gap-3 py-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="font-medium">
+                        Revision {revision.revision}
+                      </span>
+                      <Badge variant="outline">{revision.createdBy}</Badge>
+                      {isCurrent && <Badge variant="secondary">current</Badge>}
+                    </div>
+                    <p
+                      className="truncate text-xs text-muted-foreground"
+                      title={revision.reason}
+                    >
+                      {formatDate(revision.createdAt)} / +{diff.added} / -
+                      {diff.removed} / {revision.reason}
+                    </p>
+                  </div>
+                  {!isCurrent && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title={`Restore revision ${revision.revision}`}
+                      onClick={() => onRollback(revision.revision)}
+                      disabled={rollingBackRevision !== null}
+                    >
+                      <Undo2
+                        className={
+                          rollingBackRevision === revision.revision
+                            ? "animate-pulse"
+                            : undefined
+                        }
+                      />
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GoalTable({ goals }: { goals: AgentGoal[] }) {
+  if (goals.length === 0) return <EmptyRow text="No tracked goals" />;
+  return (
+    <div className="overflow-x-auto border-y">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Goal</TableHead>
+            <TableHead>Kind</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Target</TableHead>
+            <TableHead className="text-right">Revision</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {goals.map((goal) => (
+            <TableRow key={goal.id}>
+              <TableCell className="max-w-xl whitespace-normal">
+                <p className="font-medium">{goal.title}</p>
+                {goal.description && (
+                  <p className="text-xs text-muted-foreground">
+                    {goal.description}
+                  </p>
+                )}
+              </TableCell>
+              <TableCell>{goal.kind}</TableCell>
+              <TableCell>
+                <Badge variant="outline">{goal.status}</Badge>
+              </TableCell>
+              <TableCell className="text-muted-foreground">
+                {goal.targetUntil ? formatDate(goal.targetUntil) : "-"}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {goal.revision}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function ProcedureTable({ procedures }: { procedures: AgentProcedure[] }) {
+  if (procedures.length === 0) return <EmptyRow text="No learned procedures" />;
+  return (
+    <div className="overflow-x-auto border-y">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Scope</TableHead>
+            <TableHead>Trigger</TableHead>
+            <TableHead>Behavior</TableHead>
+            <TableHead>Lifecycle</TableHead>
+            <TableHead className="text-right">Confidence</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {procedures.map((procedure) => (
+            <TableRow key={procedure.id}>
+              <TableCell className="max-w-48 whitespace-normal font-medium">
+                {procedure.scope}
+              </TableCell>
+              <TableCell className="max-w-xs whitespace-normal text-muted-foreground">
+                {procedure.trigger}
+              </TableCell>
+              <TableCell className="max-w-lg whitespace-normal">
+                {procedure.behavior}
+              </TableCell>
+              <TableCell>
+                <Badge variant="outline">{procedure.lifecycle}</Badge>
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {percent(procedure.confidence)}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function RunTable({ runs }: { runs: AgentMemoryRun[] }) {
+  if (runs.length === 0) return <EmptyRow text="No reflection runs" />;
+  return (
+    <div className="overflow-x-auto border-y">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Started</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="text-right">Inputs</TableHead>
+            <TableHead className="text-right">Outputs</TableHead>
+            <TableHead>Version</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {runs.map((run) => (
+            <TableRow key={run.id}>
+              <TableCell>{formatDate(run.startedAt)}</TableCell>
+              <TableCell>
+                <Badge variant="outline">{run.status}</Badge>
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {run.inputIds.length}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {run.outputIds.length}
+              </TableCell>
+              <TableCell className="font-mono text-xs text-muted-foreground">
+                {run.promptVersion}
               </TableCell>
             </TableRow>
           ))}

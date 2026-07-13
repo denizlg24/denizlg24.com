@@ -16,6 +16,11 @@ import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
 import { AgentRetrievalTrace } from "@/models/AgentRetrievalTrace";
 import { buildMemoryContext } from "./context";
+import {
+  buildDerivedUserContext,
+  combineAgentContexts,
+  type DerivedContextResult,
+} from "./derived-context";
 import { sourceRefIsExcluded } from "./policy";
 import { findDeniedContent } from "./security";
 import { getAgentMemorySettings } from "./settings";
@@ -401,7 +406,7 @@ export async function loadInjectedMemoryContext(
   traceId: string,
 ): Promise<string | null> {
   const trace = await AgentRetrievalTrace.findOne({ traceId, injected: true })
-    .select("candidates selectedRevisionIds tokenBudget")
+    .select("query candidates selectedRevisionIds tokenBudget")
     .lean();
   if (!trace) return null;
   const selectedIds = new Set(trace.selectedRevisionIds.map(String));
@@ -441,7 +446,23 @@ export async function loadInjectedMemoryContext(
       !evidenceState.invalidMemoryIds.has(current.id);
     return eligible && current ? [{ ...candidate, memory: current }] : [];
   });
-  return buildMemoryContext(stillEligible, trace.tokenBudget).context;
+  const derived =
+    settings.releaseGates.reflection &&
+    !trace.query.startsWith("[query redacted:")
+      ? await buildDerivedUserContext({
+          query: trace.query,
+          maxTokens: Math.min(800, Math.floor(trace.tokenBudget / 3)),
+          maxProfileItems: settings.retrieval.maxCoreItems,
+        })
+      : null;
+  const memoryBudget = Math.max(
+    0,
+    trace.tokenBudget - (derived?.estimatedTokens ?? 0),
+  );
+  return combineAgentContexts(
+    derived?.context ?? null,
+    buildMemoryContext(stillEligible, memoryBudget).context,
+  );
 }
 
 function toRetrievalMemory(raw: Record<string, unknown>): RetrievalMemory {
@@ -666,8 +687,23 @@ export async function retrieveMemoriesForChat(options: {
     },
   );
   const shouldInject = settings.releaseGates.chatMemory;
+  const derivedContext: DerivedContextResult | null =
+    shouldInject && settings.releaseGates.reflection && !deniedQuery
+      ? await buildDerivedUserContext({
+          query,
+          maxTokens: Math.min(
+            800,
+            Math.floor(settings.retrieval.maxTokens / 3),
+          ),
+          maxProfileItems: settings.retrieval.maxCoreItems,
+        })
+      : null;
+  const memoryContextBudget = Math.max(
+    0,
+    settings.retrieval.maxTokens - (derivedContext?.estimatedTokens ?? 0),
+  );
   const builtContext = shouldInject
-    ? buildMemoryContext(ranked.selected, settings.retrieval.maxTokens)
+    ? buildMemoryContext(ranked.selected, memoryContextBudget)
     : null;
   const selected = builtContext?.selected ?? ranked.selected;
   const contextExclusions: RetrievalExclusion[] =
@@ -677,8 +713,14 @@ export async function retrieveMemoriesForChat(options: {
       )?.memory.id,
       reason: "serialized-context-token-budget",
     })) ?? [];
-  const context = builtContext?.context ?? null;
+  const context = combineAgentContexts(
+    derivedContext?.context ?? null,
+    builtContext?.context ?? null,
+  );
   const injected = shouldInject && context !== null;
+  const estimatedTokens =
+    (derivedContext?.estimatedTokens ?? 0) +
+    (builtContext?.estimatedTokens ?? ranked.estimatedTokens);
   const traceId = randomUUID();
   await AgentRetrievalTrace.create({
     traceId,
@@ -696,6 +738,14 @@ export async function retrieveMemoriesForChat(options: {
       vectorIndex: AGENT_MEMORY_VECTOR_CONFIG.indexName,
       minimumScore: MINIMUM_RETRIEVAL_SCORE,
       queryRedacted: deniedQuery,
+      derivedContext: derivedContext
+        ? {
+            profileKeys: derivedContext.profileKeys,
+            goalIds: derivedContext.goalIds,
+            procedureIds: derivedContext.procedureIds,
+            items: derivedContext.items,
+          }
+        : null,
     },
     candidates: ranked.candidates.map(serializeCandidate),
     exclusions: [
@@ -708,15 +758,15 @@ export async function retrieveMemoriesForChat(options: {
       (item) => new mongoose.Types.ObjectId(item.memory.revisionId),
     ),
     tokenBudget: settings.retrieval.maxTokens,
-    estimatedTokens: builtContext?.estimatedTokens ?? ranked.estimatedTokens,
+    estimatedTokens,
     injected,
-    abstained: selected.length === 0,
+    abstained: selected.length === 0 && !derivedContext?.context,
   });
   return {
     traceId,
     selectedRevisionIds: selected.map((item) => item.memory.revisionId),
-    abstained: selected.length === 0,
-    estimatedTokens: builtContext?.estimatedTokens ?? ranked.estimatedTokens,
+    abstained: selected.length === 0 && !derivedContext?.context,
+    estimatedTokens,
     injected,
     context,
   };

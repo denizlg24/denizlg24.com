@@ -2,12 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import mongoose, { type ClientSession, Types } from "mongoose";
 import { connectDB } from "@/lib/mongodb";
 import { AgentAuditEvent } from "@/models/AgentAuditEvent";
-import { AgentGoal } from "@/models/AgentGoal";
+import { AgentGoal, type IAgentGoal } from "@/models/AgentGoal";
 import { AgentMemory, type IAgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryCandidate } from "@/models/AgentMemoryCandidate";
 import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { AgentMemoryRun } from "@/models/AgentMemoryRun";
-import { AgentProcedure } from "@/models/AgentProcedure";
+import { AgentProcedure, type IAgentProcedure } from "@/models/AgentProcedure";
 import {
   AGENT_USER_MODEL_SECTIONS,
   AgentUserModel,
@@ -105,6 +105,39 @@ export function projectChangedMemories(
   return sections;
 }
 
+function projectLifecycleState(
+  current: UserModelSections,
+  goals: IAgentGoal[],
+  procedures: IAgentProcedure[],
+): UserModelSections {
+  const sections = cloneSections(current);
+  sections["goals-concerns-opportunities"] = goals.map((goal) => ({
+    key: `goal:${goal._id.toString()}`,
+    statement: goal.description
+      ? `${goal.title}: ${goal.description}`
+      : goal.title,
+    evidenceIds: goal.progressEvidenceIds,
+    memoryIds: [],
+    confidence: 1,
+    explicitness: "explicit",
+    sensitivity: "personal",
+    validFrom: goal.targetFrom,
+    validUntil: goal.targetUntil,
+    lastConfirmedAt: goal.updatedAt,
+  }));
+  sections.procedures = procedures.map((procedure) => ({
+    key: `procedure:${procedure._id.toString()}`,
+    statement: `${procedure.trigger}: ${procedure.behavior}`,
+    evidenceIds: procedure.evidenceIds,
+    memoryIds: [],
+    confidence: procedure.confidence,
+    explicitness: procedure.explicit ? "explicit" : "inferred",
+    sensitivity: "personal",
+    lastConfirmedAt: procedure.updatedAt,
+  }));
+  return sections;
+}
+
 function comparableSections(sections: UserModelSections): string {
   return JSON.stringify(
     Object.fromEntries(
@@ -159,6 +192,7 @@ async function writeProjectionRevision(input: {
   changedMemoryIds: Types.ObjectId[];
   reason: string;
   createdBy: "reflection" | "rollback";
+  sourceMemoryRevision?: number;
 }): Promise<{ changed: boolean; revision: number; revisionId?: string }> {
   const session = await mongoose.startSession();
   let output: { changed: boolean; revision: number; revisionId?: string } = {
@@ -171,6 +205,7 @@ async function writeProjectionRevision(input: {
         await AgentUserModel.findById("singleton").session(session);
       if (
         current &&
+        input.createdBy === "reflection" &&
         comparableSections(cloneSections(current.sections)) ===
           comparableSections(input.sections)
       ) {
@@ -180,6 +215,7 @@ async function writeProjectionRevision(input: {
       const revision = (current?.revision ?? 0) + 1;
       const revisionId = new Types.ObjectId();
       const sourceMemoryRevision =
+        input.sourceMemoryRevision ??
         (current?.sourceMemoryRevision ?? 0) + input.changedMemoryIds.length;
       await AgentUserModelRevision.create(
         [
@@ -249,30 +285,41 @@ export async function processReflectionMemories(memoryIds: string[]) {
     startedAt: new Date(),
   });
   try {
-    const [changedMemories, current, pendingReview] = await Promise.all([
-      AgentMemory.find({ _id: { $in: boundedIds } }),
-      AgentUserModel.findById("singleton"),
-      AgentMemoryCandidate.find({
-        status: "pending",
-        $or: [
-          { conflictingMemoryIds: { $in: boundedIds } },
-          {
-            reviewFlags: {
-              $in: [
-                "conflict",
-                "weak-inference",
-                "identity-merge",
-                "permission-like",
-              ],
+    const [changedMemories, current, pendingReview, goals, procedures] =
+      await Promise.all([
+        AgentMemory.find({ _id: { $in: boundedIds } }),
+        AgentUserModel.findById("singleton"),
+        AgentMemoryCandidate.find({
+          status: "pending",
+          $or: [
+            { conflictingMemoryIds: { $in: boundedIds } },
+            {
+              reviewFlags: {
+                $in: [
+                  "conflict",
+                  "weak-inference",
+                  "identity-merge",
+                  "permission-like",
+                ],
+              },
             },
-          },
-        ],
-      })
-        .select("_id")
-        .limit(100)
-        .lean(),
-    ]);
-    const sections = projectChangedMemories(current?.sections, changedMemories);
+          ],
+        })
+          .select("_id")
+          .limit(100)
+          .lean(),
+        AgentGoal.find({ status: { $in: ["active", "paused"] } })
+          .sort({ targetUntil: 1, updatedAt: -1 })
+          .limit(200),
+        AgentProcedure.find({ lifecycle: "active" })
+          .sort({ confidence: -1, updatedAt: -1 })
+          .limit(200),
+      ]);
+    const sections = projectLifecycleState(
+      projectChangedMemories(current?.sections, changedMemories),
+      goals,
+      procedures,
+    );
     const projection = await writeProjectionRevision({
       sections,
       changedMemoryIds: changedMemories.map((memory) => memory._id),
@@ -314,6 +361,29 @@ export async function processReflectionJob(job: IAgentMemoryJob) {
   return processReflectionMemories(job.memoryIds.map(String));
 }
 
+export async function scheduleLifecycleReflection(
+  targetType: "goal" | "procedure",
+  targetId: string,
+  revision: number,
+) {
+  await connectDB();
+  return AgentMemoryJob.findOneAndUpdate(
+    { idempotencyKey: `reflection:${targetType}:${targetId}:${revision}` },
+    {
+      $setOnInsert: {
+        operation: "reflection",
+        evidenceIds: [],
+        memoryIds: [],
+        status: "pending",
+        attempts: 0,
+        availableAt: new Date(),
+        checkpoint: { targetType, targetId, revision },
+      },
+    },
+    { upsert: true, returnDocument: "after" },
+  );
+}
+
 function reflectionJobKey(memories: IAgentMemory[]): string {
   return createHash("sha256")
     .update(
@@ -343,6 +413,7 @@ export async function scheduleNextReflectionJob() {
   const lastJob = await AgentMemoryJob.findOne({
     operation: "reflection",
     status: "completed",
+    "checkpoint.throughUpdatedAt": { $type: "string" },
   })
     .sort({ createdAt: -1 })
     .select("checkpoint")
@@ -424,6 +495,7 @@ export async function rollbackUserModel(
     changedMemoryIds: target.changedMemoryIds,
     reason,
     createdBy: "rollback",
+    sourceMemoryRevision: target.sourceMemoryRevision,
   });
 }
 
