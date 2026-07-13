@@ -1,4 +1,5 @@
 import { agentMemoryDecisionSchema } from "@repo/schemas";
+import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import {
   archiveMemory,
@@ -8,8 +9,26 @@ import {
 } from "@/lib/agent-memory/governance";
 import { AgentMemoryPolicyError } from "@/lib/agent-memory/policy";
 import { serializeAgentMemory } from "@/lib/agent-memory/serialize";
+import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
-import type { IAgentMemory } from "@/models/AgentMemory";
+import { AgentMemory, type IAgentMemory } from "@/models/AgentMemory";
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ memoryId: string }> },
+) {
+  const authError = await requireAdmin(request);
+  if (authError) return authError;
+  const { memoryId } = await params;
+  await connectDB();
+  const memory = mongoose.isValidObjectId(memoryId)
+    ? await AgentMemory.findById(memoryId)
+    : null;
+  if (!memory) {
+    return NextResponse.json({ error: "Memory not found" }, { status: 404 });
+  }
+  return NextResponse.json({ memory: serializeAgentMemory(memory) });
+}
 
 export async function POST(
   request: NextRequest,

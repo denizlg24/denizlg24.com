@@ -5,6 +5,7 @@ import type {
   AgentMemoryStatus,
   AgentMemoryType,
   AgentSensitivity,
+  AgentSourceType,
   AgentTemporal,
   AgentTrust,
 } from "@repo/schemas";
@@ -24,8 +25,10 @@ import {
   AgentMemoryPolicyError,
   assertCandidateSafety,
   canAutomaticallyPromoteCandidate,
+  type PromotionPolicyOptions,
 } from "./policy";
 import { findDeniedContent } from "./security";
+import { getAgentMemorySettings } from "./settings";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
 type GovernanceActor = "user" | "policy";
@@ -345,6 +348,21 @@ export async function rejectFormationCandidate(options: {
   }
 }
 
+/** Policy decision for a pending candidate without writing anything. */
+export async function evaluateCandidatePromotion(
+  candidateId: string,
+): Promise<{ allowed: boolean; reason: string }> {
+  await connectDB();
+  const candidate = await AgentMemoryCandidate.findById(candidateId);
+  if (candidate?.status !== "pending") {
+    return { allowed: false, reason: "Candidate is not pending" };
+  }
+  return canAutomaticallyPromoteCandidate(
+    candidate,
+    await buildPromotionPolicyOptions(candidate.evidenceIds, null),
+  );
+}
+
 export async function tryAutomaticallyPromoteMemoryCandidate(options: {
   candidateId: string;
   reason: string;
@@ -355,18 +373,19 @@ export async function tryAutomaticallyPromoteMemoryCandidate(options: {
     return { promoted: false, reason: "Candidate is not pending" };
   }
   const session = await mongoose.startSession();
-  let evidenceCount = 0;
+  let promotionOptions: PromotionPolicyOptions;
   try {
-    evidenceCount = await independentTrustedEvidenceCount(
+    promotionOptions = await buildPromotionPolicyOptions(
       candidate.evidenceIds,
       session,
     );
   } finally {
     await session.endSession();
   }
-  const decision = canAutomaticallyPromoteCandidate(candidate, {
-    independentTrustedEvidenceCount: evidenceCount,
-  });
+  const decision = canAutomaticallyPromoteCandidate(
+    candidate,
+    promotionOptions,
+  );
   if (!decision.allowed) return { promoted: false, reason: decision.reason };
   await acceptMemoryCandidate({
     candidateId: candidate._id.toString(),
@@ -376,21 +395,34 @@ export async function tryAutomaticallyPromoteMemoryCandidate(options: {
   return { promoted: true, reason: decision.reason };
 }
 
-async function independentTrustedEvidenceCount(
+async function buildPromotionPolicyOptions(
   evidenceIds: string[],
-  session: ClientSession,
-): Promise<number> {
+  session: ClientSession | null,
+): Promise<PromotionPolicyOptions> {
+  const settings = await getAgentMemorySettings();
   const evidence = await AgentEvidenceEvent.find({
     eventId: { $in: evidenceIds },
-    trust: { $in: ["medium", "high", "highest"] },
     redactedAt: { $exists: false },
   })
-    .select("sourceType sourceRef.entityId")
+    .select("sourceType sourceRef.entityId trust")
     .session(session)
-    .lean<{ sourceType: string; sourceRef: { entityId: string } }[]>();
-  return new Set(
-    evidence.map((item) => `${item.sourceType}:${item.sourceRef.entityId}`),
-  ).size;
+    .lean<
+      {
+        sourceType: AgentSourceType;
+        sourceRef: { entityId: string };
+        trust: string;
+      }[]
+    >();
+  const trusted = evidence.filter((item) =>
+    ["medium", "high", "highest"].includes(item.trust),
+  );
+  return {
+    independentTrustedEvidenceCount: new Set(
+      trusted.map((item) => `${item.sourceType}:${item.sourceRef.entityId}`),
+    ).size,
+    evidenceSourceTypes: evidence.map((item) => item.sourceType),
+    promotion: settings.promotion,
+  };
 }
 
 export async function acceptMemoryCandidate(options: {
@@ -429,13 +461,10 @@ export async function acceptMemoryCandidate(options: {
       await assertEvidenceExists(candidate.evidenceIds, session);
 
       if (options.actor === "policy") {
-        const promotion = canAutomaticallyPromoteCandidate(candidate, {
-          independentTrustedEvidenceCount:
-            await independentTrustedEvidenceCount(
-              candidate.evidenceIds,
-              session,
-            ),
-        });
+        const promotion = canAutomaticallyPromoteCandidate(
+          candidate,
+          await buildPromotionPolicyOptions(candidate.evidenceIds, session),
+        );
         if (!promotion.allowed) {
           throw new AgentMemoryPolicyError(
             promotion.reason,

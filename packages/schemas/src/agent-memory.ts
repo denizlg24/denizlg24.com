@@ -432,6 +432,7 @@ export const agentMemoryRunSchema = z.object({
     "reflection",
     "evaluation",
     "backfill",
+    "insight",
   ]),
   status: z.enum(["running", "completed", "failed", "cancelled"]),
   model: z.string().optional(),
@@ -551,11 +552,17 @@ export const agentMemorySettingsSchema = z.object({
     maxInsightsPerDay: z.number().int().min(0).max(100),
     externalDelivery: z.boolean(),
   }),
+  promotion: z.object({
+    mode: z.enum(["conservative", "single-user"]),
+    emailReviewMaxConfidence: z.number().min(0).max(1),
+  }),
+  formationModel: z.string().trim().min(1).max(200).nullable(),
   maximumActionAutonomy: z.literal("prepare-only"),
   revision: z.number().int().positive(),
   updatedAt: isoDateSchema,
 });
 export type AgentMemorySettings = z.infer<typeof agentMemorySettingsSchema>;
+export type AgentPromotionPolicy = AgentMemorySettings["promotion"];
 
 export const updateAgentMemorySettingsSchema = agentMemorySettingsSchema
   .pick({
@@ -565,6 +572,8 @@ export const updateAgentMemorySettingsSchema = agentMemorySettingsSchema
     retention: true,
     reflectionSchedule: true,
     proactivity: true,
+    promotion: true,
+    formationModel: true,
     maximumActionAutonomy: true,
   })
   .partial();
@@ -578,6 +587,33 @@ export const setAgentReleaseGateSchema = z.object({
   verification: agentGateVerificationSchema.optional(),
 });
 export type SetAgentReleaseGate = z.infer<typeof setAgentReleaseGateSchema>;
+
+export const agentMemorySortSchema = z.enum([
+  "importance",
+  "confidence",
+  "recent",
+]);
+export type AgentMemorySort = z.infer<typeof agentMemorySortSchema>;
+
+export const agentCandidateSortSchema = z.enum(["confidence", "recent"]);
+export type AgentCandidateSort = z.infer<typeof agentCandidateSortSchema>;
+
+export const bulkAgentCandidateDecisionSchema = z.object({
+  action: z.enum(["accept", "dismiss"]),
+  candidateIds: z.array(z.string()).min(1).max(100),
+  reason: z.string().trim().min(1).max(2_000),
+});
+export type BulkAgentCandidateDecision = z.infer<
+  typeof bulkAgentCandidateDecisionSchema
+>;
+
+export const bulkAgentCandidateDecisionResponseSchema = z.object({
+  succeeded: z.number().int().nonnegative(),
+  failed: z.array(z.object({ candidateId: z.string(), error: z.string() })),
+});
+export type BulkAgentCandidateDecisionResponse = z.infer<
+  typeof bulkAgentCandidateDecisionResponseSchema
+>;
 
 export const agentMemoryDecisionSchema = z.object({
   action: z.enum([
@@ -642,13 +678,126 @@ export type AgentMemoryFeedbackResponse = z.infer<
   typeof agentMemoryFeedbackResponseSchema
 >;
 
+export const AGENT_INSIGHT_CATEGORIES = [
+  "goal-deadline",
+  "calendar-conflict",
+  "follow-up",
+  "memory-contradiction",
+  "repeated-failure",
+  "daily-briefing",
+] as const;
+export const agentInsightCategorySchema = z.enum(AGENT_INSIGHT_CATEGORIES);
+export type AgentInsightCategory = z.infer<typeof agentInsightCategorySchema>;
+
+export const agentInsightStatusSchema = z.enum([
+  "pending",
+  "delivered",
+  "dismissed",
+  "snoozed",
+  "expired",
+]);
+export type AgentInsightStatus = z.infer<typeof agentInsightStatusSchema>;
+
+export const agentInsightDeliverySchema = z.enum(["in-app", "silent-draft"]);
+export type AgentInsightDelivery = z.infer<typeof agentInsightDeliverySchema>;
+
+export const agentInsightSchema = z.object({
+  id: z.string(),
+  idempotencyKey: z.string().min(1).max(512),
+  category: z.string().min(1).max(100),
+  status: agentInsightStatusSchema,
+  title: z.string().min(1).max(512),
+  body: z.string().min(1).max(4_096),
+  triggerEvidenceIds: z.array(z.string()).max(100),
+  reason: z.string().min(1).max(2_000),
+  proposedAction: z.record(z.string(), z.unknown()).optional(),
+  expectedUsefulness: z.number().min(0).max(1),
+  urgency: z.number().min(0).max(1),
+  confidence: z.number().min(0).max(1),
+  interruptionCost: z.number().min(0).max(1),
+  delivery: agentInsightDeliverySchema,
+  expiresAt: isoDateSchema,
+  snoozedUntil: isoDateSchema.optional(),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+export type AgentInsight = z.infer<typeof agentInsightSchema>;
+
+export const agentInsightActionSchema = z
+  .object({
+    action: z.enum(["dismiss", "snooze", "useful", "delivered"]),
+    snoozedUntil: isoDateSchema.optional(),
+    reason: z.string().trim().min(1).max(2_000).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.action === "snooze" && !value.snoozedUntil) {
+      context.addIssue({
+        code: "custom",
+        path: ["snoozedUntil"],
+        message: "Snooze requires a snoozedUntil timestamp",
+      });
+    }
+  });
+export type AgentInsightAction = z.infer<typeof agentInsightActionSchema>;
+
+export const agentInsightListResponseSchema = z.object({
+  insights: z.array(agentInsightSchema),
+  stats: z.object({
+    pending: z.number().int().nonnegative(),
+    delivered: z.number().int().nonnegative(),
+    snoozed: z.number().int().nonnegative(),
+    dismissed: z.number().int().nonnegative(),
+    expired: z.number().int().nonnegative(),
+  }),
+});
+export type AgentInsightListResponse = z.infer<
+  typeof agentInsightListResponseSchema
+>;
+
 export const agentMemoryListResponseSchema = z.object({
   memories: z.array(agentMemorySchema),
   candidates: z.array(agentMemoryCandidateSchema),
   totalMemories: z.number().int().nonnegative(),
+  totalCandidates: z.number().int().nonnegative(),
   pendingCandidates: z.number().int().nonnegative(),
+  memoryPage: z.number().int().positive(),
+  candidatePage: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
   settings: agentMemorySettingsSchema,
 });
 export type AgentMemoryListResponse = z.infer<
   typeof agentMemoryListResponseSchema
+>;
+
+export const agentMemoryGraphNodeSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["memory", "entity"]),
+  label: z.string().max(200),
+  memoryType: agentMemoryTypeSchema.optional(),
+  status: agentMemoryStatusSchema.optional(),
+  entityType: z.string().optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  importance: z.number().min(0).max(1).optional(),
+  hasEmbedding: z.boolean().optional(),
+  count: z.number().int().nonnegative().optional(),
+  isOwner: z.boolean().optional(),
+});
+export type AgentMemoryGraphNode = z.infer<typeof agentMemoryGraphNodeSchema>;
+
+export const agentMemoryGraphLinkSchema = z.object({
+  source: z.string(),
+  target: z.string(),
+  type: z.enum(["entity", "similar", "contradiction", "supersession"]),
+  strength: z.number().min(0).max(1),
+});
+export type AgentMemoryGraphLink = z.infer<typeof agentMemoryGraphLinkSchema>;
+
+export const agentMemoryGraphResponseSchema = z.object({
+  nodes: z.array(agentMemoryGraphNodeSchema),
+  links: z.array(agentMemoryGraphLinkSchema),
+  embeddedCount: z.number().int().nonnegative(),
+  generatedAt: isoDateSchema,
+});
+export type AgentMemoryGraphResponse = z.infer<
+  typeof agentMemoryGraphResponseSchema
 >;

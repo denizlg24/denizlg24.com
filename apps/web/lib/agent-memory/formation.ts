@@ -340,7 +340,9 @@ export async function processFormationJob(
   };
   const inputHash = stableContentHash(input);
   const model =
-    process.env.AGENT_MEMORY_FORMATION_MODEL?.trim() || getSemanticModel();
+    settings.formationModel ||
+    process.env.AGENT_MEMORY_FORMATION_MODEL?.trim() ||
+    getSemanticModel();
   const run = await AgentMemoryRun.create({
     operation: "formation",
     status: "running",

@@ -1,5 +1,6 @@
 import type {
   AgentGoal as AgentGoalWire,
+  AgentInsight as AgentInsightWire,
   AgentMemoryCandidate as AgentMemoryCandidateWire,
   AgentMemoryRun as AgentMemoryRunWire,
   AgentMemorySettings as AgentMemorySettingsWire,
@@ -9,6 +10,7 @@ import type {
   AgentUserModel as AgentUserModelWire,
 } from "@repo/schemas";
 import type { IAgentGoal } from "@/models/AgentGoal";
+import type { IAgentInsight } from "@/models/AgentInsight";
 import type { IAgentMemory } from "@/models/AgentMemory";
 import type { IAgentMemoryCandidate } from "@/models/AgentMemoryCandidate";
 import type { IAgentMemoryRun } from "@/models/AgentMemoryRun";
@@ -69,6 +71,31 @@ export function serializeAgentGoal(goal: IAgentGoal): AgentGoalWire {
     revision: goal.revision,
     createdAt: goal.createdAt.toISOString(),
     updatedAt: goal.updatedAt.toISOString(),
+  };
+}
+
+export function serializeAgentInsight(
+  insight: IAgentInsight,
+): AgentInsightWire {
+  return {
+    id: insight._id.toString(),
+    idempotencyKey: insight.idempotencyKey,
+    category: insight.category,
+    status: insight.status,
+    title: insight.title,
+    body: insight.body,
+    triggerEvidenceIds: insight.triggerEvidenceIds,
+    reason: insight.reason,
+    proposedAction: insight.proposedAction,
+    expectedUsefulness: insight.expectedUsefulness,
+    urgency: insight.urgency,
+    confidence: insight.confidence,
+    interruptionCost: insight.interruptionCost,
+    delivery: insight.delivery,
+    expiresAt: insight.expiresAt.toISOString(),
+    snoozedUntil: iso(insight.snoozedUntil),
+    createdAt: insight.createdAt.toISOString(),
+    updatedAt: insight.updatedAt.toISOString(),
   };
 }
 
@@ -226,6 +253,8 @@ export function serializeAgentMemorySettings(
     | "retention"
     | "reflectionSchedule"
     | "proactivity"
+    | "promotion"
+    | "formationModel"
     | "maximumActionAutonomy"
     | "revision"
     | "updatedAt"
@@ -246,6 +275,8 @@ export function serializeAgentMemorySettings(
     retention: settings.retention,
     reflectionSchedule: settings.reflectionSchedule,
     proactivity: settings.proactivity,
+    promotion: settings.promotion,
+    formationModel: settings.formationModel,
     maximumActionAutonomy: settings.maximumActionAutonomy,
     revision: settings.revision,
     updatedAt: settings.updatedAt.toISOString(),

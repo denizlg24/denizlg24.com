@@ -17,6 +17,7 @@ export function operationIsEnabled(
   if (operation === "formation") return gates.formation;
   if (operation === "embedding") return gates.shadowRetrieval;
   if (operation === "reflection") return gates.reflection;
+  if (operation === "insight") return gates.proactivity;
   if (operation === "backfill") return gates.evidenceLedger;
   return gates.evidenceLedger;
 }

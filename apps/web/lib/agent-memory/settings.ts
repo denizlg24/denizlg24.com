@@ -46,6 +46,8 @@ type InternalSettings = Pick<
   | "retention"
   | "reflectionSchedule"
   | "proactivity"
+  | "promotion"
+  | "formationModel"
   | "maximumActionAutonomy"
   | "revision"
   | "createdAt"
@@ -80,6 +82,8 @@ export async function getAgentMemorySettings(): Promise<InternalSettings> {
     retrieval: { ...defaults.retrieval, ...settings.retrieval },
     retention: { ...defaults.retention, ...settings.retention },
     proactivity: { ...defaults.proactivity, ...settings.proactivity },
+    promotion: { ...defaults.promotion, ...settings.promotion },
+    formationModel: settings.formationModel ?? defaults.formationModel,
   };
 }
 

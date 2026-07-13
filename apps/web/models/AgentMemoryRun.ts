@@ -7,7 +7,8 @@ export interface IAgentMemoryRun {
     | "consolidation"
     | "reflection"
     | "evaluation"
-    | "backfill";
+    | "backfill"
+    | "insight";
   status: "running" | "completed" | "failed" | "cancelled";
   model?: string;
   promptVersion: string;
@@ -32,6 +33,7 @@ const AgentMemoryRunSchema = new Schema<IAgentMemoryRun>(
         "reflection",
         "evaluation",
         "backfill",
+        "insight",
       ],
       required: true,
     },

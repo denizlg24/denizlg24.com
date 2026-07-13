@@ -2,8 +2,12 @@
 
 import type {
   AgentGoal,
+  AgentInsight,
+  AgentInsightListResponse,
   AgentMemory,
   AgentMemoryCandidate,
+  AgentMemoryGraphResponse,
+  AgentMemoryListResponse,
   AgentMemoryRun,
   AgentMemorySettings,
   AgentProcedure,
@@ -13,13 +17,32 @@ import type {
   AgentUserModelRevision,
 } from "@repo/schemas";
 import {
+  agentInsightListResponseSchema,
+  agentMemoryGraphResponseSchema,
   agentMemoryListResponseSchema,
+  agentMemorySchema,
   agentReflectionOverviewSchema,
   agentRetrievalTraceListResponseSchema,
+  bulkAgentCandidateDecisionResponseSchema,
 } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { Checkbox } from "@repo/ui/checkbox";
 import { PageHeader } from "@repo/ui/page-header";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@repo/ui/sheet";
 import { Skeleton } from "@repo/ui/skeleton";
 import {
   Table,
@@ -29,23 +52,30 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import {
   BrainCircuit,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
-  CircleSlash,
+  Clock,
   History,
+  List,
+  Loader2,
+  Orbit,
   Play,
   RefreshCw,
   Search,
+  ThumbsUp,
   Undo2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import { MemoryGraph } from "./memory-graph";
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleString(undefined, {
@@ -81,41 +111,140 @@ export function AgentMemorySkeleton() {
   );
 }
 
+interface OverviewMeta {
+  totalMemories: number;
+  totalCandidates: number;
+  pendingCandidates: number;
+  memoryPage: number;
+  candidatePage: number;
+  pageSize: number;
+}
+
+interface OverviewQuery {
+  memoryPage: number;
+  candidatePage: number;
+  memoryStatus: string;
+  memoryType: string;
+  memorySort: string;
+  candidateSort: string;
+}
+
+const DEFAULT_OVERVIEW_QUERY: OverviewQuery = {
+  memoryPage: 1,
+  candidatePage: 1,
+  memoryStatus: "active",
+  memoryType: "all",
+  memorySort: "importance",
+  candidateSort: "confidence",
+};
+
 export function AgentMemoryPage() {
   const { client, slots } = useAdmin();
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [candidates, setCandidates] = useState<AgentMemoryCandidate[]>([]);
+  const [meta, setMeta] = useState<OverviewMeta | null>(null);
+  const [insights, setInsights] = useState<AgentInsight[]>([]);
+  const [insightStats, setInsightStats] = useState<
+    AgentInsightListResponse["stats"] | null
+  >(null);
   const [settings, setSettings] = useState<AgentMemorySettings | null>(null);
   const [traces, setTraces] = useState<AgentRetrievalTrace[]>([]);
   const [reflection, setReflection] = useState<AgentReflectionOverview | null>(
     null,
   );
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [selectedMemory, setSelectedMemory] = useState<AgentMemory | null>(
+    null,
+  );
+  const [view, setView] = useState<"graph" | "list">("graph");
+  const [section, setSection] = useState("inbox");
+  const [filters, setFilters] = useState<OverviewQuery>(DEFAULT_OVERVIEW_QUERY);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  const [bulkDeciding, setBulkDeciding] = useState<"accept" | "dismiss" | null>(
+    null,
+  );
+  const [graph, setGraph] = useState<AgentMemoryGraphResponse | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const graphRequestedRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [runningReflection, setRunningReflection] = useState(false);
   const [rollingBackRevision, setRollingBackRevision] = useState<number | null>(
     null,
   );
+  const queryRef = useRef<OverviewQuery>({ ...DEFAULT_OVERVIEW_QUERY });
+
+  const applyOverview = useCallback((overview: AgentMemoryListResponse) => {
+    setMemories(overview.memories);
+    setCandidates(overview.candidates);
+    setSettings(overview.settings);
+    setMeta({
+      totalMemories: overview.totalMemories,
+      totalCandidates: overview.totalCandidates,
+      pendingCandidates: overview.pendingCandidates,
+      memoryPage: overview.memoryPage,
+      candidatePage: overview.candidatePage,
+      pageSize: overview.pageSize,
+    });
+    setSelectedCandidateIds((prev) => {
+      if (prev.size === 0) return prev;
+      const ids = new Set(overview.candidates.map((candidate) => candidate.id));
+      return new Set([...prev].filter((id) => ids.has(id)));
+    });
+  }, []);
+
+  const fetchOverview = useCallback(async () => {
+    const query = queryRef.current;
+    const params = new URLSearchParams({
+      memoryPage: String(query.memoryPage),
+      candidatePage: String(query.candidatePage),
+      status: query.memoryStatus,
+      memorySort: query.memorySort,
+      candidateSort: query.candidateSort,
+    });
+    if (query.memoryType !== "all") params.set("memoryType", query.memoryType);
+    const overviewRaw = await client.get<unknown>(`agent-memory?${params}`);
+    applyOverview(agentMemoryListResponseSchema.parse(overviewRaw));
+  }, [client, applyOverview]);
+
+  const updateQuery = async (patch: Partial<OverviewQuery>) => {
+    if (
+      "memoryStatus" in patch ||
+      "memoryType" in patch ||
+      "memorySort" in patch
+    ) {
+      patch.memoryPage = 1;
+    }
+    if ("candidateSort" in patch) patch.candidatePage = 1;
+    Object.assign(queryRef.current, patch);
+    setFilters({ ...queryRef.current });
+    try {
+      await fetchOverview();
+    } catch {
+      toast.error("Failed to load list");
+    }
+  };
 
   const load = useCallback(
     async (quiet = false) => {
       if (!quiet) setLoading(true);
       else setRefreshing(true);
       try {
-        const [overviewRaw, tracesRaw, reflectionRaw] = await Promise.all([
-          client.get<unknown>("agent-memory?limit=100"),
+        const [, tracesRaw, reflectionRaw, insightsRaw] = await Promise.all([
+          fetchOverview(),
           client.get<unknown>("agent-memory/retrieval-traces?limit=100"),
           client.get<unknown>("agent-memory/reflection"),
+          client.get<unknown>("agent-memory/insights"),
         ]);
-        const overview = agentMemoryListResponseSchema.parse(overviewRaw);
         const traceList =
           agentRetrievalTraceListResponseSchema.parse(tracesRaw);
         const reflectionOverview =
           agentReflectionOverviewSchema.parse(reflectionRaw);
-        setMemories(overview.memories);
-        setCandidates(overview.candidates);
-        setSettings(overview.settings);
+        const insightList = agentInsightListResponseSchema.parse(insightsRaw);
+        setInsights(insightList.insights);
+        setInsightStats(insightList.stats);
         setTraces(traceList.traces);
         setReflection(reflectionOverview);
         setSelectedTraceId((current) =>
@@ -130,12 +259,50 @@ export function AgentMemoryPage() {
         setRefreshing(false);
       }
     },
-    [client],
+    [client, fetchOverview],
   );
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadGraph = useCallback(async () => {
+    graphRequestedRef.current = true;
+    setGraphLoading(true);
+    try {
+      const raw = await client.get<unknown>("agent-memory/graph");
+      setGraph(agentMemoryGraphResponseSchema.parse(raw));
+    } catch {
+      toast.error("Failed to load memory graph");
+    } finally {
+      setGraphLoading(false);
+    }
+  }, [client]);
+
+  useEffect(() => {
+    if (view === "graph" && !graphRequestedRef.current) void loadGraph();
+  }, [view, loadGraph]);
+
+  const openMemory = useCallback(
+    async (memoryId: string) => {
+      const local = memories.find((memory) => memory.id === memoryId);
+      if (local) {
+        setSelectedMemory(local);
+        return;
+      }
+      try {
+        const raw = await client.get<unknown>(
+          `agent-memory/memories/${memoryId}`,
+        );
+        setSelectedMemory(
+          agentMemorySchema.parse((raw as { memory?: unknown })?.memory),
+        );
+      } catch {
+        toast.error("Failed to load memory");
+      }
+    },
+    [client, memories],
+  );
 
   const decideCandidate = async (
     candidate: AgentMemoryCandidate,
@@ -152,9 +319,115 @@ export function AgentMemoryPage() {
       toast.success(
         action === "accept" ? "Memory accepted" : "Candidate dismissed",
       );
-      await load(true);
+      setSelectedCandidateIds((prev) => {
+        const next = new Set(prev);
+        next.delete(candidate.id);
+        return next;
+      });
+      await fetchOverview();
     } catch {
       toast.error("Memory review action failed");
+    }
+  };
+
+  const toggleCandidate = (candidateId: string) => {
+    setSelectedCandidateIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(candidateId)) next.delete(candidateId);
+      else next.add(candidateId);
+      return next;
+    });
+  };
+
+  const togglePageSelection = (selectAll: boolean) => {
+    setSelectedCandidateIds(
+      selectAll
+        ? new Set(candidates.map((candidate) => candidate.id))
+        : new Set(),
+    );
+  };
+
+  const decideSelected = async (action: "accept" | "dismiss") => {
+    const candidateIds = [...selectedCandidateIds];
+    if (candidateIds.length === 0) return;
+    setBulkDeciding(action);
+    try {
+      const raw = await client.post<unknown>("agent-memory/candidates/bulk", {
+        action,
+        candidateIds,
+        reason:
+          action === "accept"
+            ? "Bulk accepted from agent memory review"
+            : "Bulk dismissed from agent memory review",
+      });
+      const result = bulkAgentCandidateDecisionResponseSchema.parse(raw);
+      const verb = action === "accept" ? "Accepted" : "Dismissed";
+      if (result.failed.length > 0) {
+        toast.warning(
+          `${verb} ${result.succeeded} candidates; ${result.failed.length} failed`,
+        );
+      } else {
+        toast.success(`${verb} ${result.succeeded} candidates`);
+      }
+      setSelectedCandidateIds(new Set());
+      await fetchOverview();
+    } catch {
+      toast.error("Bulk review action failed");
+    } finally {
+      setBulkDeciding(null);
+    }
+  };
+
+  const actOnInsight = async (
+    insight: AgentInsight,
+    action: "dismiss" | "snooze" | "useful",
+  ) => {
+    try {
+      let snoozedUntil: string | undefined;
+      if (action === "snooze") {
+        const snoozeMs = Math.min(
+          Date.now() + 24 * 60 * 60 * 1_000,
+          new Date(insight.expiresAt).getTime() - 60_000,
+        );
+        if (snoozeMs <= Date.now()) {
+          toast.error("Insight expires too soon to snooze");
+          return;
+        }
+        snoozedUntil = new Date(snoozeMs).toISOString();
+      }
+      await client.patch(`agent-memory/insights/${insight.id}`, {
+        action,
+        snoozedUntil,
+      });
+      toast.success(
+        action === "useful"
+          ? "Marked as useful"
+          : action === "snooze"
+            ? "Insight snoozed"
+            : "Insight dismissed",
+      );
+      await load(true);
+    } catch {
+      toast.error("Insight action failed");
+    }
+  };
+
+  const updateSettings = async (
+    patch: Record<string, unknown>,
+    reason: string,
+  ) => {
+    try {
+      const raw = await client.patch<unknown>("agent-memory/settings", {
+        settings: patch,
+        reason,
+      });
+      const parsed = (raw as { settings?: unknown })?.settings;
+      if (parsed) {
+        setSettings(parsed as AgentMemorySettings);
+      }
+      toast.success("Settings updated");
+    } catch {
+      toast.error("Settings update failed");
     }
   };
 
@@ -193,6 +466,18 @@ export function AgentMemoryPage() {
     (trace) => trace.traceId === selectedTraceId,
   );
 
+  const sectionOptions: [value: string, label: string, count?: number][] = [
+    ["inbox", "Inbox", insightStats?.pending],
+    ["memories", "Memories", meta?.totalMemories],
+    ["review", "Review", meta?.totalCandidates],
+    ["profile", "Profile", undefined],
+    ["goals", "Goals", reflection?.goals.length],
+    ["procedures", "Procedures", reflection?.procedures.length],
+    ["runs", "Runs", reflection?.runs.length],
+    ["traces", "Traces", traces.length],
+    ["settings", "Settings", undefined],
+  ];
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <PageHeader
@@ -203,7 +488,10 @@ export function AgentMemoryPage() {
         <Button
           size="icon"
           variant="ghost"
-          onClick={() => void load(true)}
+          onClick={() => {
+            void load(true);
+            if (graphRequestedRef.current) void loadGraph();
+          }}
           disabled={refreshing}
           title="Refresh memory data"
         >
@@ -211,127 +499,613 @@ export function AgentMemoryPage() {
         </Button>
       </PageHeader>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-8">
-        {settings && <GateStrip settings={settings} />}
-
-        <Tabs defaultValue="memories" className="flex min-h-0 flex-col">
-          <TabsList
-            variant="line"
-            className="w-full justify-start overflow-x-auto"
-          >
-            <TabsTrigger value="memories">
-              Memories <span className="tabular-nums">{memories.length}</span>
+      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+        <Tabs
+          value={view}
+          onValueChange={(value) => setView(value as "graph" | "list")}
+        >
+          <TabsList className="h-7!">
+            <TabsTrigger
+              value="graph"
+              className="h-5.5 px-2 text-xs"
+              title="Graph view"
+            >
+              <Orbit className="size-3.5" />
             </TabsTrigger>
-            <TabsTrigger value="review">
-              Review <span className="tabular-nums">{candidates.length}</span>
-            </TabsTrigger>
-            <TabsTrigger value="profile">
-              Profile{" "}
-              <span className="tabular-nums">
-                {reflection?.userModel?.revision ?? 0}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="goals">
-              Goals{" "}
-              <span className="tabular-nums">
-                {reflection?.goals.length ?? 0}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="procedures">
-              Procedures{" "}
-              <span className="tabular-nums">
-                {reflection?.procedures.length ?? 0}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="runs">
-              Runs{" "}
-              <span className="tabular-nums">
-                {reflection?.runs.length ?? 0}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="traces">
-              Traces <span className="tabular-nums">{traces.length}</span>
+            <TabsTrigger
+              value="list"
+              className="h-5.5 px-2 text-xs"
+              title="List view"
+            >
+              <List className="size-3.5" />
             </TabsTrigger>
           </TabsList>
-
-          <TabsContent value="memories" className="mt-3">
-            <MemoryTable memories={memories} />
-          </TabsContent>
-
-          <TabsContent value="review" className="mt-3">
-            <CandidateTable
-              candidates={candidates}
-              onDecide={decideCandidate}
-            />
-          </TabsContent>
-
-          <TabsContent value="profile" className="mt-3">
-            <ProfilePanel
-              model={reflection?.userModel ?? null}
-              revisions={reflection?.revisions ?? []}
-              running={runningReflection}
-              rollingBackRevision={rollingBackRevision}
-              onRun={runReflection}
-              onRollback={rollbackProjection}
-            />
-          </TabsContent>
-
-          <TabsContent value="goals" className="mt-3">
-            <GoalTable goals={reflection?.goals ?? []} />
-          </TabsContent>
-
-          <TabsContent value="procedures" className="mt-3">
-            <ProcedureTable procedures={reflection?.procedures ?? []} />
-          </TabsContent>
-
-          <TabsContent value="runs" className="mt-3">
-            <RunTable runs={reflection?.runs ?? []} />
-          </TabsContent>
-
-          <TabsContent value="traces" className="mt-3 min-h-0">
-            <TraceExplorer
-              traces={traces}
-              selected={selectedTrace}
-              onSelect={setSelectedTraceId}
-            />
-          </TabsContent>
         </Tabs>
+
+        {view === "list" ? (
+          <>
+            <Select value={section} onValueChange={setSection}>
+              <SelectTrigger className="h-7 w-44 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {sectionOptions.map(([value, label, count]) => (
+                  <SelectItem key={value} value={value} className="text-xs">
+                    {label}
+                    {count !== undefined ? ` · ${count}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {section === "memories" && (
+              <>
+                <Select
+                  value={filters.memoryStatus}
+                  onValueChange={(value) =>
+                    void updateQuery({ memoryStatus: value })
+                  }
+                >
+                  <SelectTrigger className="h-7 w-32 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active" className="text-xs">
+                      Active
+                    </SelectItem>
+                    <SelectItem value="superseded" className="text-xs">
+                      Superseded
+                    </SelectItem>
+                    <SelectItem value="archived" className="text-xs">
+                      Archived
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={filters.memoryType}
+                  onValueChange={(value) =>
+                    void updateQuery({ memoryType: value })
+                  }
+                >
+                  <SelectTrigger className="h-7 w-32 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">
+                      All types
+                    </SelectItem>
+                    <SelectItem value="core" className="text-xs">
+                      Core
+                    </SelectItem>
+                    <SelectItem value="semantic" className="text-xs">
+                      Semantic
+                    </SelectItem>
+                    <SelectItem value="episodic" className="text-xs">
+                      Episodic
+                    </SelectItem>
+                    <SelectItem value="reflection" className="text-xs">
+                      Reflection
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={filters.memorySort}
+                  onValueChange={(value) =>
+                    void updateQuery({ memorySort: value })
+                  }
+                >
+                  <SelectTrigger className="h-7 w-36 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="importance" className="text-xs">
+                      By importance
+                    </SelectItem>
+                    <SelectItem value="confidence" className="text-xs">
+                      By confidence
+                    </SelectItem>
+                    <SelectItem value="recent" className="text-xs">
+                      Most recent
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+
+            {section === "review" && (
+              <Select
+                value={filters.candidateSort}
+                onValueChange={(value) =>
+                  void updateQuery({ candidateSort: value })
+                }
+              >
+                <SelectTrigger className="h-7 w-36 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="confidence" className="text-xs">
+                    By confidence
+                  </SelectItem>
+                  <SelectItem value="recent" className="text-xs">
+                    Most recent
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </>
+        ) : (
+          graph && (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {graph.nodes.length} nodes · {graph.links.length} links ·{" "}
+              {graph.embeddedCount} embedded
+            </span>
+          )
+        )}
+
+        <div className="ml-auto">
+          {settings && <GateDots settings={settings} />}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {view === "graph" ? (
+          graph ? (
+            <MemoryGraph
+              nodes={graph.nodes}
+              links={graph.links}
+              onSelectMemory={openMemory}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {graphLoading ? (
+                <span className="flex items-center gap-2">
+                  <RefreshCw className="size-4 animate-spin" />
+                  Building memory graph…
+                </span>
+              ) : (
+                <Button variant="ghost" onClick={() => void loadGraph()}>
+                  Load memory graph
+                </Button>
+              )}
+            </div>
+          )
+        ) : (
+          <div className="h-full overflow-y-auto px-4 pt-3 pb-8">
+            {section === "inbox" && (
+              <InsightInbox
+                insights={insights}
+                proactivityEnabled={settings?.releaseGates.proactivity ?? false}
+                onAct={actOnInsight}
+              />
+            )}
+
+            {section === "memories" && (
+              <>
+                <MemoryTable memories={memories} onSelect={setSelectedMemory} />
+                {meta && (
+                  <PageFooter
+                    page={meta.memoryPage}
+                    pageSize={meta.pageSize}
+                    total={meta.totalMemories}
+                    label="memories"
+                    onChange={(page) => void updateQuery({ memoryPage: page })}
+                  />
+                )}
+              </>
+            )}
+
+            {section === "review" && (
+              <>
+                {selectedCandidateIds.size > 0 && (
+                  <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="tabular-nums text-muted-foreground">
+                      {selectedCandidateIds.size} selected
+                    </span>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs"
+                      disabled={bulkDeciding !== null}
+                      onClick={() => void decideSelected("accept")}
+                    >
+                      {bulkDeciding === "accept" ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Check className="size-3.5" />
+                      )}
+                      Accept selected
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      disabled={bulkDeciding !== null}
+                      onClick={() => void decideSelected("dismiss")}
+                    >
+                      {bulkDeciding === "dismiss" ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <X className="size-3.5" />
+                      )}
+                      Dismiss selected
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      disabled={bulkDeciding !== null}
+                      onClick={() => setSelectedCandidateIds(new Set())}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                )}
+                <CandidateTable
+                  candidates={candidates}
+                  selected={selectedCandidateIds}
+                  disabled={bulkDeciding !== null}
+                  onToggle={toggleCandidate}
+                  onTogglePage={togglePageSelection}
+                  onDecide={decideCandidate}
+                />
+                {meta && (
+                  <PageFooter
+                    page={meta.candidatePage}
+                    pageSize={meta.pageSize}
+                    total={meta.totalCandidates}
+                    label="candidates"
+                    onChange={(page) =>
+                      void updateQuery({ candidatePage: page })
+                    }
+                  />
+                )}
+              </>
+            )}
+
+            {section === "profile" && (
+              <ProfilePanel
+                model={reflection?.userModel ?? null}
+                revisions={reflection?.revisions ?? []}
+                running={runningReflection}
+                rollingBackRevision={rollingBackRevision}
+                onRun={runReflection}
+                onRollback={rollbackProjection}
+              />
+            )}
+
+            {section === "goals" && (
+              <GoalTable goals={reflection?.goals ?? []} />
+            )}
+
+            {section === "procedures" && (
+              <ProcedureTable procedures={reflection?.procedures ?? []} />
+            )}
+
+            {section === "runs" && <RunTable runs={reflection?.runs ?? []} />}
+
+            {section === "traces" && (
+              <TraceExplorer
+                traces={traces}
+                selected={selectedTrace}
+                onSelect={setSelectedTraceId}
+              />
+            )}
+
+            {section === "settings" && settings && (
+              <SettingsPanel settings={settings} onUpdate={updateSettings} />
+            )}
+          </div>
+        )}
+      </div>
+
+      <MemoryDetailSheet
+        memory={selectedMemory}
+        onClose={() => setSelectedMemory(null)}
+      />
+    </div>
+  );
+}
+
+function PageFooter({
+  page,
+  pageSize,
+  total,
+  label,
+  onChange,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  label: string;
+  onChange: (page: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  return (
+    <div className="flex items-center justify-between gap-3 py-2">
+      <span className="text-xs tabular-nums text-muted-foreground">
+        {total} {label} · page {page} of {totalPages}
+      </span>
+      <div className="flex gap-1">
+        <Button
+          size="icon"
+          variant="ghost"
+          title="Previous page"
+          disabled={page <= 1}
+          onClick={() => onChange(page - 1)}
+        >
+          <ChevronLeft />
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          title="Next page"
+          disabled={page >= totalPages}
+          onClick={() => onChange(page + 1)}
+        >
+          <ChevronRight />
+        </Button>
       </div>
     </div>
   );
 }
 
-function GateStrip({ settings }: { settings: AgentMemorySettings }) {
+function MemoryDetailSheet({
+  memory,
+  onClose,
+}: {
+  memory: AgentMemory | null;
+  onClose: () => void;
+}) {
+  return (
+    <Sheet open={memory !== null} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-lg">
+        {memory && (
+          <>
+            <SheetHeader>
+              <SheetTitle>Memory</SheetTitle>
+              <SheetDescription className="font-mono text-xs">
+                {memory.id} · revision {memory.revision}
+              </SheetDescription>
+            </SheetHeader>
+            <div className="space-y-5 px-4 pb-8">
+              <p className="whitespace-pre-line text-sm">{memory.statement}</p>
+
+              <div className="flex flex-wrap gap-1.5">
+                <Badge variant="outline">{memory.memoryType}</Badge>
+                <Badge variant="outline">{memory.status}</Badge>
+                <Badge variant="secondary">{memory.explicitness}</Badge>
+                <Badge variant="secondary">{memory.trust}</Badge>
+                <Badge variant="secondary">{memory.sensitivity}</Badge>
+                {memory.pinned && <Badge>pinned</Badge>}
+              </div>
+
+              <div className="flex flex-wrap gap-6 text-xs">
+                <Metric label="Confidence" value={percent(memory.confidence)} />
+                <Metric label="Importance" value={percent(memory.importance)} />
+                <Metric
+                  label="Evidence"
+                  value={String(memory.evidenceIds.length)}
+                />
+                <Metric
+                  label="Contradictions"
+                  value={String(memory.contradictionIds.length)}
+                />
+              </div>
+
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p>
+                  Valid{" "}
+                  {memory.temporal.validFrom
+                    ? `from ${formatDate(memory.temporal.validFrom)}`
+                    : "from unknown"}
+                  {memory.temporal.validUntil
+                    ? ` until ${formatDate(memory.temporal.validUntil)}`
+                    : ""}{" "}
+                  · precision {memory.temporal.precision}
+                </p>
+                {memory.temporal.condition && (
+                  <p>Condition: {memory.temporal.condition}</p>
+                )}
+                <p>
+                  Created {formatDate(memory.createdAt)} · updated{" "}
+                  {formatDate(memory.updatedAt)}
+                </p>
+                {memory.supersedesMemoryId && (
+                  <p className="font-mono">
+                    Supersedes {memory.supersedesMemoryId}
+                  </p>
+                )}
+              </div>
+
+              {memory.entityRefs.length > 0 && (
+                <div>
+                  <h3 className="mb-1.5 text-xs font-semibold uppercase text-muted-foreground">
+                    Linked entities
+                  </h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {memory.entityRefs.map((ref) => (
+                      <Badge
+                        key={`${ref.entityType}:${ref.entityId}`}
+                        variant="outline"
+                      >
+                        {ref.entityType}: {ref.label ?? ref.entityId}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {memory.evidenceIds.length > 0 && (
+                <div>
+                  <h3 className="mb-1.5 text-xs font-semibold uppercase text-muted-foreground">
+                    Evidence
+                  </h3>
+                  <div className="space-y-1 font-mono text-[11px] text-muted-foreground">
+                    {memory.evidenceIds.slice(0, 20).map((evidenceId) => (
+                      <p key={evidenceId} className="truncate">
+                        {evidenceId}
+                      </p>
+                    ))}
+                    {memory.evidenceIds.length > 20 && (
+                      <p>+{memory.evidenceIds.length - 20} more</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function GateDots({ settings }: { settings: AgentMemorySettings }) {
   const gates = [
-    ["A Evidence", settings.releaseGates.evidenceLedger],
-    ["B Formation", settings.releaseGates.formation],
-    ["C Shadow", settings.releaseGates.shadowRetrieval],
-    ["D Chat", settings.releaseGates.chatMemory],
-    ["E Reflection", settings.releaseGates.reflection],
-    ["F Proactivity", settings.releaseGates.proactivity],
+    ["A", "Evidence", settings.releaseGates.evidenceLedger],
+    ["B", "Formation", settings.releaseGates.formation],
+    ["C", "Shadow", settings.releaseGates.shadowRetrieval],
+    ["D", "Chat", settings.releaseGates.chatMemory],
+    ["E", "Reflection", settings.releaseGates.reflection],
+    ["F", "Proactivity", settings.releaseGates.proactivity],
   ] as const;
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b pb-3">
-      {gates.map(([label, enabled]) => (
-        <div key={label} className="flex items-center gap-1.5 text-xs">
-          <span
-            className={enabled ? "text-emerald-600" : "text-muted-foreground"}
-          >
-            {enabled ? (
-              <Check className="size-3.5" />
-            ) : (
-              <CircleSlash className="size-3.5" />
-            )}
-          </span>
-          <span>{label}</span>
-          <span className="text-muted-foreground">{gateLabel(enabled)}</span>
-        </div>
+    <div className="flex items-center gap-1.5">
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        Gates
+      </span>
+      {gates.map(([key, label, enabled]) => (
+        <span
+          key={key}
+          title={`Gate ${key} ${label}: ${gateLabel(enabled)}`}
+          className={`inline-block size-1.5 rounded-full ${
+            enabled ? "bg-emerald-600" : "bg-muted-foreground/30"
+          }`}
+        />
       ))}
     </div>
   );
 }
 
-function MemoryTable({ memories }: { memories: AgentMemory[] }) {
+const ACTIONABLE_INSIGHT_STATUSES = new Set([
+  "pending",
+  "delivered",
+  "snoozed",
+]);
+
+function InsightInbox({
+  insights,
+  proactivityEnabled,
+  onAct,
+}: {
+  insights: AgentInsight[];
+  proactivityEnabled: boolean;
+  onAct: (
+    insight: AgentInsight,
+    action: "dismiss" | "snooze" | "useful",
+  ) => void;
+}) {
+  if (insights.length === 0) {
+    return (
+      <EmptyRow
+        text={
+          proactivityEnabled
+            ? "No insights yet — the next sweep will fill the inbox"
+            : "Proactivity (Gate F) is disabled"
+        }
+      />
+    );
+  }
+  const ordered = [...insights].sort((left, right) => {
+    const leftOpen = left.status === "pending" ? 0 : 1;
+    const rightOpen = right.status === "pending" ? 0 : 1;
+    if (leftOpen !== rightOpen) return leftOpen - rightOpen;
+    return right.createdAt.localeCompare(left.createdAt);
+  });
+  return (
+    <div className="divide-y border-y">
+      {!proactivityEnabled && (
+        <p className="py-2 text-xs text-muted-foreground">
+          Proactivity (Gate F) is disabled — no new insights are generated.
+        </p>
+      )}
+      {ordered.map((insight) => {
+        const actionable = ACTIONABLE_INSIGHT_STATUSES.has(insight.status);
+        return (
+          <div key={insight.id} className="flex min-w-0 items-start gap-3 py-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-medium">{insight.title}</span>
+                <Badge variant="outline">{insight.category}</Badge>
+                {insight.delivery === "silent-draft" && (
+                  <Badge variant="secondary">draft</Badge>
+                )}
+                {insight.status !== "pending" && (
+                  <Badge variant="secondary">{insight.status}</Badge>
+                )}
+              </div>
+              <p className="mt-1 whitespace-pre-line text-sm">{insight.body}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {insight.reason}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {formatDate(insight.createdAt)} / expires{" "}
+                {formatDate(insight.expiresAt)} / urgency{" "}
+                <span className="tabular-nums">{percent(insight.urgency)}</span>{" "}
+                / confidence{" "}
+                <span className="tabular-nums">
+                  {percent(insight.confidence)}
+                </span>{" "}
+                / evidence{" "}
+                <span className="tabular-nums">
+                  {insight.triggerEvidenceIds.length}
+                </span>
+                {insight.snoozedUntil &&
+                  insight.status === "snoozed" &&
+                  ` / snoozed until ${formatDate(insight.snoozedUntil)}`}
+              </p>
+            </div>
+            {actionable && (
+              <div className="flex shrink-0 gap-1">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  title="Mark insight as useful"
+                  onClick={() => onAct(insight, "useful")}
+                >
+                  <ThumbsUp />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  title="Snooze insight for a day"
+                  onClick={() => onAct(insight, "snooze")}
+                >
+                  <Clock />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  title="Dismiss insight"
+                  onClick={() => onAct(insight, "dismiss")}
+                >
+                  <X />
+                </Button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MemoryTable({
+  memories,
+  onSelect,
+}: {
+  memories: AgentMemory[];
+  onSelect: (memory: AgentMemory) => void;
+}) {
   if (memories.length === 0) return <EmptyRow text="No active memories" />;
   return (
     <div className="overflow-x-auto border-y">
@@ -347,9 +1121,13 @@ function MemoryTable({ memories }: { memories: AgentMemory[] }) {
         </TableHeader>
         <TableBody>
           {memories.map((memory) => (
-            <TableRow key={memory.id}>
+            <TableRow
+              key={memory.id}
+              className="cursor-pointer"
+              onClick={() => onSelect(memory)}
+            >
               <TableCell className="max-w-xl whitespace-normal font-medium">
-                {memory.statement}
+                <p className="line-clamp-2">{memory.statement}</p>
               </TableCell>
               <TableCell>
                 <Badge variant="outline">{memory.memoryType}</Badge>
@@ -373,9 +1151,17 @@ function MemoryTable({ memories }: { memories: AgentMemory[] }) {
 
 function CandidateTable({
   candidates,
+  selected,
+  disabled,
+  onToggle,
+  onTogglePage,
   onDecide,
 }: {
   candidates: AgentMemoryCandidate[];
+  selected: ReadonlySet<string>;
+  disabled: boolean;
+  onToggle: (candidateId: string) => void;
+  onTogglePage: (selectAll: boolean) => void;
   onDecide: (
     candidate: AgentMemoryCandidate,
     action: "accept" | "dismiss",
@@ -383,11 +1169,22 @@ function CandidateTable({
 }) {
   if (candidates.length === 0)
     return <EmptyRow text="No candidates awaiting review" />;
+  const allSelected = candidates.every((candidate) =>
+    selected.has(candidate.id),
+  );
   return (
     <div className="overflow-x-auto border-y">
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-10">
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={(checked) => onTogglePage(checked === true)}
+                aria-label="Select all candidates on this page"
+                disabled={disabled}
+              />
+            </TableHead>
             <TableHead>Proposal</TableHead>
             <TableHead>Reason</TableHead>
             <TableHead>Flags</TableHead>
@@ -396,12 +1193,23 @@ function CandidateTable({
         </TableHeader>
         <TableBody>
           {candidates.map((candidate) => (
-            <TableRow key={candidate.id}>
+            <TableRow
+              key={candidate.id}
+              data-state={selected.has(candidate.id) ? "selected" : undefined}
+            >
+              <TableCell>
+                <Checkbox
+                  checked={selected.has(candidate.id)}
+                  onCheckedChange={() => onToggle(candidate.id)}
+                  aria-label="Select candidate"
+                  disabled={disabled}
+                />
+              </TableCell>
               <TableCell className="max-w-lg whitespace-normal font-medium">
-                {candidate.statement}
+                <p className="line-clamp-2">{candidate.statement}</p>
               </TableCell>
               <TableCell className="max-w-sm whitespace-normal text-muted-foreground">
-                {candidate.reason}
+                <p className="line-clamp-2">{candidate.reason}</p>
               </TableCell>
               <TableCell>
                 <div className="flex flex-wrap gap-1">
@@ -418,6 +1226,7 @@ function CandidateTable({
                     size="icon"
                     variant="ghost"
                     title="Accept candidate"
+                    disabled={disabled}
                     onClick={() => onDecide(candidate, "accept")}
                   >
                     <Check />
@@ -426,6 +1235,7 @@ function CandidateTable({
                     size="icon"
                     variant="ghost"
                     title="Dismiss candidate"
+                    disabled={disabled}
                     onClick={() => onDecide(candidate, "dismiss")}
                   >
                     <X />
@@ -879,6 +1689,184 @@ function TraceCandidate({
       >
         Evidence: {evidence}
       </p>
+    </div>
+  );
+}
+
+const FORMATION_MODEL_DEFAULT = "__default__";
+
+function SettingsPanel({
+  settings,
+  onUpdate,
+}: {
+  settings: AgentMemorySettings;
+  onUpdate: (patch: Record<string, unknown>, reason: string) => Promise<void>;
+}) {
+  const { client } = useAdmin();
+  const [models, setModels] = useState<{ id: string; name: string }[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await client.get<{
+          models?: { id: string; name: string; tags?: string[] }[];
+        }>("llm/models?requiredCapability=tool-use");
+        if (!cancelled) setModels(raw.models ?? []);
+      } catch {
+        // Catalog cold or unreachable — the free-form value still renders.
+      } finally {
+        if (!cancelled) setModelsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  const formationValue = settings.formationModel ?? FORMATION_MODEL_DEFAULT;
+  const knownModel = models.some(
+    (model) => model.id === settings.formationModel,
+  );
+
+  return (
+    <div className="max-w-2xl space-y-8">
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-sm font-medium">Formation model</h3>
+          <p className="text-xs text-muted-foreground">
+            LLM used to extract memory candidates from evidence.
+          </p>
+        </div>
+        <Select
+          value={formationValue}
+          onValueChange={(value) =>
+            void onUpdate(
+              {
+                formationModel:
+                  value === FORMATION_MODEL_DEFAULT ? null : value,
+              },
+              `Set formation model to ${value === FORMATION_MODEL_DEFAULT ? "server default" : value}`,
+            )
+          }
+        >
+          <SelectTrigger className="h-8 w-full max-w-md text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={FORMATION_MODEL_DEFAULT} className="text-xs">
+              Server default (semantic model)
+            </SelectItem>
+            {settings.formationModel && !knownModel && (
+              <SelectItem value={settings.formationModel} className="text-xs">
+                {settings.formationModel} (current)
+              </SelectItem>
+            )}
+            {models.map((model) => (
+              <SelectItem key={model.id} value={model.id} className="text-xs">
+                {model.name} · {model.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {modelsLoading && (
+          <p className="text-xs text-muted-foreground">
+            Loading model catalog…
+          </p>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-sm font-medium">Review policy</h3>
+          <p className="text-xs text-muted-foreground">
+            Single-user mode auto-accepts safe candidates and only queues
+            low-confidence email-only proposals for review. Conservative mode
+            restores the strict multi-flag review pipeline. Hard safety rules
+            (secrets, permission-like statements) always apply.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={settings.promotion.mode}
+            onValueChange={(value) =>
+              void onUpdate(
+                {
+                  promotion: { ...settings.promotion, mode: value },
+                },
+                `Set promotion mode to ${value}`,
+              )
+            }
+          >
+            <SelectTrigger className="h-8 w-44 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="single-user" className="text-xs">
+                Single-user
+              </SelectItem>
+              <SelectItem value="conservative" className="text-xs">
+                Conservative
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          {settings.promotion.mode === "single-user" && (
+            <Select
+              value={String(settings.promotion.emailReviewMaxConfidence)}
+              onValueChange={(value) =>
+                void onUpdate(
+                  {
+                    promotion: {
+                      ...settings.promotion,
+                      emailReviewMaxConfidence: Number(value),
+                    },
+                  },
+                  `Email review threshold set to ${value}`,
+                )
+              }
+            >
+              <SelectTrigger className="h-8 w-56 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0.5" className="text-xs">
+                  Review email below 50%
+                </SelectItem>
+                <SelectItem value="0.7" className="text-xs">
+                  Review email below 70%
+                </SelectItem>
+                <SelectItem value="0.85" className="text-xs">
+                  Review email below 85%
+                </SelectItem>
+                <SelectItem value="1" className="text-xs">
+                  Review all email memories
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-1 text-xs text-muted-foreground">
+        <p>
+          Reflection schedule:{" "}
+          <span className="font-mono">
+            {settings.reflectionSchedule ?? "manual"}
+          </span>{" "}
+          · Max insights/day:{" "}
+          <span className="tabular-nums">
+            {settings.proactivity.maxInsightsPerDay}
+          </span>{" "}
+          · Autonomy:{" "}
+          <span className="font-mono">{settings.maximumActionAutonomy}</span>
+        </p>
+        <p>
+          Settings revision{" "}
+          <span className="tabular-nums">{settings.revision}</span> · updated{" "}
+          {formatDate(settings.updatedAt)}
+        </p>
+      </section>
     </div>
   );
 }

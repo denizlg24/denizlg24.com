@@ -45,6 +45,11 @@ export interface IAgentMemorySettings extends Document<string> {
     maxInsightsPerDay: number;
     externalDelivery: boolean;
   };
+  promotion: {
+    mode: "conservative" | "single-user";
+    emailReviewMaxConfidence: number;
+  };
+  formationModel: string | null;
   maximumActionAutonomy: "prepare-only";
   revision: number;
   createdAt: Date;
@@ -79,6 +84,11 @@ export const DEFAULT_AGENT_MEMORY_SETTINGS = {
     maxInsightsPerDay: 5,
     externalDelivery: false,
   },
+  promotion: {
+    mode: "single-user" as const,
+    emailReviewMaxConfidence: 0.7,
+  },
+  formationModel: null,
   maximumActionAutonomy: "prepare-only" as const,
   revision: 1,
 };
@@ -129,6 +139,15 @@ const AgentMemorySettingsSchema = new Schema<IAgentMemorySettings>(
       maxInsightsPerDay: { type: Number, default: 5, min: 0, max: 100 },
       externalDelivery: { type: Boolean, default: false },
     },
+    promotion: {
+      mode: {
+        type: String,
+        enum: ["conservative", "single-user"],
+        default: "single-user",
+      },
+      emailReviewMaxConfidence: { type: Number, default: 0.7, min: 0, max: 1 },
+    },
+    formationModel: { type: String, default: null, maxlength: 200 },
     maximumActionAutonomy: {
       type: String,
       enum: ["prepare-only"],

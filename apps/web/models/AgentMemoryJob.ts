@@ -3,7 +3,13 @@ import { existingModel } from "./AgentMemoryCommon";
 
 export interface IAgentMemoryJob extends Document {
   idempotencyKey: string;
-  operation: "formation" | "reflection" | "embedding" | "backfill" | "deletion";
+  operation:
+    | "formation"
+    | "reflection"
+    | "embedding"
+    | "backfill"
+    | "deletion"
+    | "insight";
   evidenceIds: string[];
   memoryIds: mongoose.Types.ObjectId[];
   status:
@@ -29,7 +35,14 @@ const AgentMemoryJobSchema = new Schema<IAgentMemoryJob>(
     idempotencyKey: { type: String, required: true, maxlength: 512 },
     operation: {
       type: String,
-      enum: ["formation", "reflection", "embedding", "backfill", "deletion"],
+      enum: [
+        "formation",
+        "reflection",
+        "embedding",
+        "backfill",
+        "deletion",
+        "insight",
+      ],
       required: true,
     },
     evidenceIds: { type: [String], default: [] },

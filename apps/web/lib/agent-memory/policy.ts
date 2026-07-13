@@ -158,9 +158,19 @@ export function assertCandidateSafety(input: CandidatePolicyInput): void {
   }
 }
 
+export interface PromotionPolicyOptions {
+  independentTrustedEvidenceCount: number;
+  /** Source types of the candidate's cited evidence (for single-user mode). */
+  evidenceSourceTypes?: AgentSourceType[];
+  promotion?: {
+    mode: "conservative" | "single-user";
+    emailReviewMaxConfidence: number;
+  };
+}
+
 export function canAutomaticallyPromoteCandidate(
   input: CandidatePolicyInput,
-  options: { independentTrustedEvidenceCount: number },
+  options: PromotionPolicyOptions,
 ): { allowed: boolean; reason: string } {
   try {
     assertCandidateSafety(input);
@@ -168,6 +178,26 @@ export function canAutomaticallyPromoteCandidate(
     return {
       allowed: false,
       reason: error instanceof Error ? error.message : "Candidate rejected",
+    };
+  }
+
+  if (options.promotion?.mode === "single-user") {
+    const sources = options.evidenceSourceTypes ?? [];
+    const emailOnly =
+      sources.length > 0 &&
+      sources.every((sourceType) => sourceType === "email-triage");
+    if (
+      emailOnly &&
+      input.confidence < options.promotion.emailReviewMaxConfidence
+    ) {
+      return {
+        allowed: false,
+        reason: "Low-confidence email-only candidate requires review",
+      };
+    }
+    return {
+      allowed: true,
+      reason: "Single-user promotion policy auto-accepts safe candidates",
     };
   }
 

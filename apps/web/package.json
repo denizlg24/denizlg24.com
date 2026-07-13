@@ -5,6 +5,7 @@
   "scripts": {
     "agent-memory:indexes": "bun scripts/agent-memory-indexes.ts",
     "agent-memory:eval-retrieval": "bun scripts/eval-agent-memory-retrieval.ts",
+    "agent-memory:auto-accept": "bun scripts/agent-memory-auto-accept.ts",
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",

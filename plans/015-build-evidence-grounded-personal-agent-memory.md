@@ -34,12 +34,11 @@
   secret filtering, revisioned governance/audit APIs, leased jobs, transactional
   conversation evidence/outbox persistence, immutable event IDs, and
   server-enforced enabled/retrieval-off/incognito modes.
-- Gates A-E are released in the live settings. Gate D injects bounded,
+- Gates A-F are released in the live settings. Gate D injects bounded,
   provenance-labelled read-only memory only into enabled dashboard chat. Gate E
   adds governed goals and procedures, an evidence-backed user-model projection,
   bounded incremental reflection, immutable run/revision history, exception
-  review and rollback. Gate F (proactivity) remains disabled pending its
-  required labelled evidence.
+  review and rollback.
 - Gate A's recorded release verification covers a deterministic 50-event sample
   backed by an invariant scan of all 2,620 stored events across seven domains.
   The scan found zero denied matches, invalid provenance, trust mismatches, or
@@ -89,6 +88,21 @@
   changes automatically; conflict, weak-inference, identity-merge and
   permission-like candidates remain in exception review. Reflection is bounded
   to 25 changed memories per job and scheduled daily at 04:00 UTC.
+- Gate F was released from a labelled five-insight live sample (run
+  `6a553036ffd38069470353c9`): one in-app daily briefing plus four silent-draft
+  memory-contradiction reviews, all evidence-linked with prepare-only proposed
+  actions; three replay sweeps created zero records under idempotency-key
+  duplicate suppression. The deterministic insight engine (no LLM calls) scans
+  hourly through the shared job route for goal deadlines, calendar conflicts,
+  stale agent follow-ups, accepted contradictions and repeated tool failures,
+  scores usefulness/urgency/confidence/interruption cost against feedback-
+  derived category preference, rate-limits per category/day, abstains below
+  0.4 confidence, and decides prepare-versus-interrupt delivery. Dismiss/
+  Snooze/Useful controls in the shared web/desktop Inbox tab record
+  suggestion-accepted/dismissed feedback that adapts future delivery below the
+  configured ceiling. External delivery stays off (`externalDelivery: false`);
+  a static test proves the engine imports no tool, LLM or notification
+  channel, so execution remains behind the existing approval path.
 
 ## Outcome
 
@@ -975,7 +989,7 @@ output.
 - [ ] Reflection automatically maintains reversible derived memories and the
       comprehensive user model while never changing authority/system policy.
 - [ ] Export, rollback and deletion pass round-trip/cascade tests.
-- [ ] Proactive inbox/daily briefings run by default and adapt timing/topics
+- [x] Proactive inbox/daily briefings run by default and adapt timing/topics
       below the configured ceiling; no unapproved consequential execution
       exists.
 - [ ] Resumable backfill covers all supported historical domains by default,
