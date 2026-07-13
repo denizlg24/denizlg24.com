@@ -34,9 +34,11 @@
   secret filtering, revisioned governance/audit APIs, leased jobs, transactional
   conversation evidence/outbox persistence, immutable event IDs, and
   server-enforced enabled/retrieval-off/incognito modes.
-- Gates A-D are released in the live settings. Gate D now injects bounded,
-  provenance-labelled read-only memory only into enabled dashboard chat;
-  Gate E (reflection) and Gate F (proactivity) remain disabled pending their
+- Gates A-E are released in the live settings. Gate D injects bounded,
+  provenance-labelled read-only memory only into enabled dashboard chat. Gate E
+  adds governed goals and procedures, an evidence-backed user-model projection,
+  bounded incremental reflection, immutable run/revision history, exception
+  review and rollback. Gate F (proactivity) remains disabled pending its
   required labelled evidence.
 - Gate A's recorded release verification covers a deterministic 50-event sample
   backed by an invariant scan of all 2,620 stored events across seven domains.
@@ -78,6 +80,15 @@
   XML-escaped, independently budgeted, reconstructed safely across tool
   continuations, omitted from usage logs, attached to the assistant turn, and
   exposed through owner-only Useful/Not relevant/Correct/Forget controls.
+- Gate E was released after two manual passes over the same five-memory sample.
+  The first pass projected five chunks backed by three valid evidence events and
+  left one conflict candidate pending; the second pass produced no projection
+  write. Rolling back revision 1 created an auditable revision 2 with identical
+  section content and the exact prior source-memory checkpoint, and replay after
+  rollback was again idempotent. Only the verified user-model projection class
+  changes automatically; conflict, weak-inference, identity-merge and
+  permission-like candidates remain in exception review. Reflection is bounded
+  to 25 changed memories per job and scheduled daily at 04:00 UTC.
 
 ## Outcome
 
