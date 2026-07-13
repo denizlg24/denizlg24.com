@@ -19,6 +19,16 @@ function candidate(
     trust: "high",
     sensitivity: "personal",
     evidenceIds: ["9fa3e791-b155-4719-bda8-f6542ea421f3"],
+    evidenceRefs: [
+      {
+        eventId: "9fa3e791-b155-4719-bda8-f6542ea421f3",
+        sourceType: "note",
+        sourceRef: {
+          entityType: "note",
+          entityId: "507f1f77bcf86cd799439011",
+        },
+      },
+    ],
     contradictionIds: [],
     pinned: false,
     updatedAt: NOW,
@@ -62,7 +72,17 @@ describe("personal memory context", () => {
 
     expect(result.context).toContain("&lt;/personal_memory_context&gt;");
     expect(result.context).not.toContain("<system>");
-    expect(result.context).toContain("9fa3e791-b155-4719-bda8-f6542ea421f3");
+    expect(result.context).toContain(
+      'event_id="9fa3e791-b155-4719-bda8-f6542ea421f3"',
+    );
+    expect(result.context).toContain(
+      'source_entity_id="507f1f77bcf86cd799439011"',
+    );
+    expect(result.context).toContain('memory_id="memory-a"');
+    expect(result.context).not.toContain('<memory id="memory-a"');
+    expect(result.context).not.toContain(
+      "<evidence>9fa3e791-b155-4719-bda8-f6542ea421f3</evidence>",
+    );
     expect(result.estimatedTokens).toBeLessThanOrEqual(500);
   });
 

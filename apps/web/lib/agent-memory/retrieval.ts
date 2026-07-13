@@ -5,6 +5,8 @@ import type {
   AgentMemoryStatus,
   AgentMemoryType,
   AgentSensitivity,
+  AgentSourceRef,
+  AgentSourceType,
   AgentTrust,
 } from "@repo/schemas";
 import mongoose from "mongoose";
@@ -56,9 +58,16 @@ export interface RetrievalMemory {
   validFrom?: Date;
   validUntil?: Date;
   evidenceIds: string[];
+  evidenceRefs?: RetrievalEvidenceReference[];
   contradictionIds: string[];
   pinned: boolean;
   updatedAt: Date;
+}
+
+export interface RetrievalEvidenceReference {
+  eventId: string;
+  sourceType: AgentSourceType;
+  sourceRef: AgentSourceRef;
 }
 
 export interface RetrievalSignals {
@@ -316,6 +325,7 @@ function serializeCandidate(candidate: RankedRetrievalCandidate) {
     validFrom: candidate.memory.validFrom?.toISOString(),
     validUntil: candidate.memory.validUntil?.toISOString(),
     evidenceIds: candidate.memory.evidenceIds,
+    evidenceRefs: candidate.memory.evidenceRefs,
     contradictionIds: candidate.memory.contradictionIds,
     pinned: candidate.memory.pinned,
     updatedAt: candidate.memory.updatedAt.toISOString(),
@@ -412,20 +422,24 @@ export async function loadInjectedMemoryContext(
   ).map((item) =>
     toRetrievalMemory(item as unknown as Record<string, unknown>),
   );
-  const invalidEvidenceMemoryIds = await findInvalidEvidenceMemoryIds(
+  const evidenceState = await loadEvidenceState(
     currentMemories,
     settings.excludedSourceRefs,
   );
-  const currentById = new Map(
-    currentMemories.map((memory) => [memory.id, memory]),
+  const enrichedMemories = attachEvidenceReferences(
+    currentMemories,
+    evidenceState.referencesByEventId,
   );
-  const stillEligible = selected.filter((candidate) => {
+  const currentById = new Map(
+    enrichedMemories.map((memory) => [memory.id, memory]),
+  );
+  const stillEligible = selected.flatMap((candidate) => {
     const current = currentById.get(candidate.memory.id);
-    return (
+    const eligible =
       current?.revisionId === candidate.memory.revisionId &&
       hardFilterMemory(current) === null &&
-      !invalidEvidenceMemoryIds.has(current.id)
-    );
+      !evidenceState.invalidMemoryIds.has(current.id);
+    return eligible && current ? [{ ...candidate, memory: current }] : [];
   });
   return buildMemoryContext(stillEligible, trace.tokenBudget).context;
 }
@@ -538,31 +552,58 @@ async function loadCandidateSignals(
   });
 }
 
-async function findInvalidEvidenceMemoryIds(
+interface EvidenceState {
+  invalidMemoryIds: Set<string>;
+  referencesByEventId: Map<string, RetrievalEvidenceReference>;
+}
+
+function attachEvidenceReferences(
+  memories: RetrievalMemory[],
+  referencesByEventId: Map<string, RetrievalEvidenceReference>,
+): RetrievalMemory[] {
+  return memories.map((memory) => ({
+    ...memory,
+    evidenceRefs: memory.evidenceIds.flatMap((eventId) => {
+      const reference = referencesByEventId.get(eventId);
+      return reference ? [reference] : [];
+    }),
+  }));
+}
+
+async function loadEvidenceState(
   memories: RetrievalMemory[],
   excludedSourceRefs: Parameters<typeof sourceRefIsExcluded>[1],
-): Promise<Set<string>> {
+): Promise<EvidenceState> {
   const eventIds = [...new Set(memories.flatMap((item) => item.evidenceIds))];
   const evidence = await AgentEvidenceEvent.find({ eventId: { $in: eventIds } })
-    .select("eventId sourceRef memoryEligible redactedAt")
+    .select("eventId sourceType sourceRef memoryEligible redactedAt")
     .lean();
-  const validEvidenceIds = new Set(
-    evidence
-      .filter(
-        (item) =>
-          item.memoryEligible &&
-          !item.redactedAt &&
-          !sourceRefIsExcluded(item.sourceRef, excludedSourceRefs),
-      )
-      .map((item) => item.eventId),
+  const validEvidence = evidence.filter(
+    (item) =>
+      item.memoryEligible &&
+      !item.redactedAt &&
+      !sourceRefIsExcluded(item.sourceRef, excludedSourceRefs),
   );
-  return new Set(
-    memories
-      .filter((memory) =>
-        memory.evidenceIds.some((eventId) => !validEvidenceIds.has(eventId)),
-      )
-      .map((memory) => memory.id),
-  );
+  const validEvidenceIds = new Set(validEvidence.map((item) => item.eventId));
+  return {
+    invalidMemoryIds: new Set(
+      memories
+        .filter((memory) =>
+          memory.evidenceIds.some((eventId) => !validEvidenceIds.has(eventId)),
+        )
+        .map((memory) => memory.id),
+    ),
+    referencesByEventId: new Map(
+      validEvidence.map((item) => [
+        item.eventId,
+        {
+          eventId: item.eventId,
+          sourceType: item.sourceType,
+          sourceRef: item.sourceRef,
+        },
+      ]),
+    ),
+  };
 }
 
 export interface ChatMemoryRetrievalResult {
@@ -597,13 +638,16 @@ export async function retrieveMemoriesForChat(options: {
   const memories = rawMemories.map((item) =>
     toRetrievalMemory(item as unknown as Record<string, unknown>),
   );
-  const invalidEvidenceIds = await findInvalidEvidenceMemoryIds(
+  const evidenceState = await loadEvidenceState(
     memories,
     settings.excludedSourceRefs,
   );
   const evidenceExclusions: RetrievalExclusion[] = [];
-  const eligible = memories.filter((memory) => {
-    if (!invalidEvidenceIds.has(memory.id)) return true;
+  const eligible = attachEvidenceReferences(
+    memories,
+    evidenceState.referencesByEventId,
+  ).filter((memory) => {
+    if (!evidenceState.invalidMemoryIds.has(memory.id)) return true;
     evidenceExclusions.push({
       memoryId: memory.id,
       source: "evidence",

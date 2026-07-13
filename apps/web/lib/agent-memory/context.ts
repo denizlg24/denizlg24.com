@@ -20,8 +20,8 @@ function estimateTokens(value: string): number {
 function serializeMemory(candidate: RankedRetrievalCandidate): string {
   const { memory } = candidate;
   const attributes = [
-    `id="${escapeXml(memory.id)}"`,
-    `revision="${escapeXml(memory.revisionId)}"`,
+    `memory_id="${escapeXml(memory.id)}"`,
+    `memory_revision_id="${escapeXml(memory.revisionId)}"`,
     `type="${memory.memoryType}"`,
     `explicitness="${memory.explicitness}"`,
     `confidence="${memory.confidence.toFixed(2)}"`,
@@ -34,8 +34,28 @@ function serializeMemory(candidate: RankedRetrievalCandidate): string {
       : []),
     ...(memory.contradictionIds.length > 0 ? ['conflicted="true"'] : []),
   ];
-  const evidence = memory.evidenceIds.map(escapeXml).join(",");
-  return `  <memory ${attributes.join(" ")}>\n    <statement>${escapeXml(memory.statement)}</statement>\n    <evidence>${evidence}</evidence>\n  </memory>\n`;
+  const refsByEventId = new Map(
+    memory.evidenceRefs?.map((reference) => [reference.eventId, reference]),
+  );
+  const evidence = memory.evidenceIds
+    .map((eventId) => {
+      const reference = refsByEventId.get(eventId);
+      if (!reference) {
+        return `    <evidence event_id="${escapeXml(eventId)}" provenance_only="true" />`;
+      }
+      const evidenceAttributes = [
+        `event_id="${escapeXml(eventId)}"`,
+        `source_type="${escapeXml(reference.sourceType)}"`,
+        `source_entity_type="${escapeXml(reference.sourceRef.entityType)}"`,
+        `source_entity_id="${escapeXml(reference.sourceRef.entityId)}"`,
+        ...(reference.sourceRef.revision
+          ? [`source_revision="${escapeXml(reference.sourceRef.revision)}"`]
+          : []),
+      ];
+      return `    <evidence ${evidenceAttributes.join(" ")} />`;
+    })
+    .join("\n");
+  return `  <memory ${attributes.join(" ")}>\n    <statement>${escapeXml(memory.statement)}</statement>\n${evidence}\n  </memory>\n`;
 }
 
 const CONTEXT_ORDER: Record<
