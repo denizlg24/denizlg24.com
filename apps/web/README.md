@@ -1,5 +1,29 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## LLM environment
+
+All LLM traffic goes through the Vercel AI Gateway via the central service in
+`lib/llm-service.ts`. Direct provider keys (`ANTHROPIC_API_KEY`,
+`SEMANTIC_LLM_API_KEY`/`SEMANTIC_LLM_BASE_URL`) are no longer read; after the
+48-hour rollback window following cutover, rotate/revoke them if unused
+elsewhere.
+
+- `AI_GATEWAY_API_KEY` — server-only Gateway key. Validated lazily when a
+  generation/token-counting call starts; model discovery works without it.
+  Never expose it to browser code.
+- `SEMANTIC_LLM_MODEL` — optional, fully qualified Gateway id for the
+  semantic/topic classification jobs (default `deepseek/deepseek-v3.2`).
+- `LLM_UNATTENDED_MODEL` — optional, fully qualified Gateway id for unattended
+  text jobs such as note categorization (default
+  `anthropic/claude-haiku-4.5`).
+- `LLM_LIVE_TESTS=1` — opt-in switch for the live Gateway contract tests in
+  `lib/llm-live.test.ts` (requires a real, scoped `AI_GATEWAY_API_KEY`; never
+  enable in untrusted PR CI).
+
+Model selection UIs and jobs validate models against the live catalog
+(`GET https://ai-gateway.vercel.sh/v1/models`); configure Gateway budgets and
+model/provider allowlists in the Vercel dashboard.
+
 ## Getting Started
 
 First, run the development server:
