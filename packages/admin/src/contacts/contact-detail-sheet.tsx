@@ -141,7 +141,7 @@ export function ContactDetailSheet({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
-          className="w-full max-w-full! overflow-x-auto overflow-y-auto max-h-screen!"
+          className="w-full max-w-full! overflow-x-auto overflow-y-auto max-h-[calc(100vh-var(--titlebar-inset,0px))]!"
         >
           <SheetHeader>
             <div className="flex items-center gap-2">

@@ -75,6 +75,21 @@ export function pickDefaultModel(
   models: LlmCatalogModel[],
   requiredCapabilities: string[],
 ): string | null {
+  const preferredDefaults = [
+    "openai/gpt-5.6-luna",
+    "anthropic/claude-opus-4.8",
+  ];
+
+  for (const preferred of preferredDefaults) {
+    const entry = models.find((model) => model.id === preferred);
+    if (
+      entry &&
+      requiredCapabilities.every((tag) => entry.tags.includes(tag))
+    ) {
+      return entry.id;
+    }
+  }
+
   const eligible = models.filter((model) =>
     requiredCapabilities.every((tag) => model.tags.includes(tag)),
   );

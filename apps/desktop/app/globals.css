@@ -8,6 +8,10 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* Height of the custom desktop title bar (matches layout.tsx pt-8 / h-8).
+     Shared @repo/ui overlays read this so full-height sheets/drawers start
+     below the macOS traffic lights; web leaves it unset (falls back to 0px). */
+  --titlebar-inset: 2rem;
   /* Your palette with accent-strong + foreground swapped */
   --background: #f9f8f6;
   --surface: #f1f3e0;
