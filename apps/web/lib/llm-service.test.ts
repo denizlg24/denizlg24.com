@@ -91,9 +91,10 @@ let nextMessageContent: () => unknown[] = () => [
 ];
 let nextCompletion: () => Response = () => completionResponse('{"ok":true}');
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    ...init,
+    status: init?.status ?? 200,
     headers: { "content-type": "application/json" },
   });
 }
@@ -426,6 +427,38 @@ describe("generateJson", () => {
       outputTokens: 50,
       userPrompt: "[redacted]",
     });
+  });
+
+  test("retries without JSON mode when the model rejects response_format", async () => {
+    let attempt = 0;
+    nextCompletion = () => {
+      attempt += 1;
+      return attempt === 1
+        ? jsonResponse(
+            {
+              error: {
+                message: "Invalid input",
+                param: "response_format",
+              },
+            },
+            { status: 400 },
+          )
+        : completionResponse('{"keywords":["fallback"]}');
+    };
+
+    const result = await generateJson<{ keywords: string[] }>({
+      purpose: "semantic",
+      source: "semantic-keyword-llm",
+      system: "Return JSON.",
+      user: "user",
+    });
+
+    expect(result.json).toEqual({ keywords: ["fallback"] });
+    expect(recordedRequests).toHaveLength(2);
+    expect(recordedRequests[0]?.body.response_format).toEqual({
+      type: "json_object",
+    });
+    expect(recordedRequests[1]?.body.response_format).toBeUndefined();
   });
 
   test("resolves json null for unparseable content", async () => {
