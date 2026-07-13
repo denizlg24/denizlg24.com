@@ -9,6 +9,10 @@ import {
   leaseNextMemoryJob,
   requeueMemoryJob,
 } from "@/lib/agent-memory/jobs";
+import {
+  processReflectionJob,
+  scheduleNextReflectionJob,
+} from "@/lib/agent-memory/reflection";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
 
 const MAX_JOBS_PER_REQUEST = 10;
@@ -16,12 +20,15 @@ const ACTIVE_OPERATIONS: IAgentMemoryJob["operation"][] = [
   "embedding",
   "formation",
   "backfill",
+  "reflection",
 ];
 
 export function preferredOperationsForSlot(
   index: number,
 ): IAgentMemoryJob["operation"][] {
-  return index % 2 === 0 ? ["embedding"] : ["formation", "backfill"];
+  if (index % 3 === 0) return ["embedding"];
+  if (index % 3 === 1) return ["formation", "backfill"];
+  return ["reflection"];
 }
 
 async function leaseScheduledJob(workerId: string, index: number) {
@@ -41,6 +48,7 @@ async function processJob(job: IAgentMemoryJob) {
   if (job.operation === "backfill") return processBackfillJob(job);
   if (job.operation === "formation") return processFormationJob(job);
   if (job.operation === "embedding") return processEmbeddingJob(job);
+  if (job.operation === "reflection") return processReflectionJob(job);
   throw new Error(`No agent-memory handler for ${job.operation}`);
 }
 
@@ -51,6 +59,7 @@ export async function POST(request: Request) {
   }
 
   const workerId = `job-route:${randomUUID()}`;
+  await scheduleNextReflectionJob();
   let completed = 0;
   let failed = 0;
   const results: unknown[] = [];

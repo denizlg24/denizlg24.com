@@ -1,12 +1,22 @@
 import type {
+  AgentGoal as AgentGoalWire,
   AgentMemoryCandidate as AgentMemoryCandidateWire,
+  AgentMemoryRun as AgentMemoryRunWire,
   AgentMemorySettings as AgentMemorySettingsWire,
   AgentMemory as AgentMemoryWire,
+  AgentProcedure as AgentProcedureWire,
+  AgentUserModelRevision as AgentUserModelRevisionWire,
+  AgentUserModel as AgentUserModelWire,
 } from "@repo/schemas";
+import type { IAgentGoal } from "@/models/AgentGoal";
 import type { IAgentMemory } from "@/models/AgentMemory";
 import type { IAgentMemoryCandidate } from "@/models/AgentMemoryCandidate";
+import type { IAgentMemoryRun } from "@/models/AgentMemoryRun";
 import type { IAgentMemorySettings } from "@/models/AgentMemorySettings";
+import type { IAgentProcedure } from "@/models/AgentProcedure";
 import type { IAgentRetrievalTrace } from "@/models/AgentRetrievalTrace";
+import type { IAgentUserModel } from "@/models/AgentUserModel";
+import type { IAgentUserModelRevision } from "@/models/AgentUserModelRevision";
 
 function iso(value: Date | string | undefined): string | undefined {
   if (!value) return undefined;
@@ -21,6 +31,116 @@ function serializeTemporal(temporal: IAgentMemory["temporal"]) {
     condition: temporal.condition,
     timezone: temporal.timezone,
   };
+}
+
+function serializeSections(
+  sections: IAgentUserModel["sections"] | IAgentUserModelRevision["sections"],
+) {
+  return Object.fromEntries(
+    Object.entries(sections).map(([section, chunks]) => [
+      section,
+      chunks.map((chunk) => ({
+        ...chunk,
+        memoryIds: chunk.memoryIds.map(String),
+        validFrom: iso(chunk.validFrom),
+        validUntil: iso(chunk.validUntil),
+        lastConfirmedAt: iso(chunk.lastConfirmedAt),
+      })),
+    ]),
+  );
+}
+
+export function serializeAgentGoal(goal: IAgentGoal): AgentGoalWire {
+  return {
+    id: goal._id.toString(),
+    title: goal.title,
+    description: goal.description,
+    kind: goal.kind,
+    status: goal.status,
+    motivation: goal.motivation,
+    targetFrom: iso(goal.targetFrom),
+    targetUntil: iso(goal.targetUntil),
+    constraints: goal.constraints,
+    dependencyIds: goal.dependencyIds.map(String),
+    progressEvidenceIds: goal.progressEvidenceIds,
+    relatedEntities: goal.relatedEntities as AgentGoalWire["relatedEntities"],
+    pauseOrAbandonReason: goal.pauseOrAbandonReason,
+    provenance: goal.provenance as AgentGoalWire["provenance"],
+    revision: goal.revision,
+    createdAt: goal.createdAt.toISOString(),
+    updatedAt: goal.updatedAt.toISOString(),
+  };
+}
+
+export function serializeAgentProcedure(
+  procedure: IAgentProcedure,
+): AgentProcedureWire {
+  return {
+    id: procedure._id.toString(),
+    lifecycle: procedure.lifecycle,
+    scope: procedure.scope,
+    trigger: procedure.trigger,
+    behavior: procedure.behavior,
+    exceptions: procedure.exceptions,
+    supportingFeedbackIds: procedure.supportingFeedbackIds.map(String),
+    evidenceIds: procedure.evidenceIds,
+    confidence: procedure.confidence,
+    explicit: procedure.explicit,
+    promotionReason: procedure.promotionReason,
+    retirementReason: procedure.retirementReason,
+    revision: procedure.revision,
+    createdAt: procedure.createdAt.toISOString(),
+    updatedAt: procedure.updatedAt.toISOString(),
+  };
+}
+
+export function serializeAgentMemoryRun(
+  run: IAgentMemoryRun & { _id: unknown },
+): AgentMemoryRunWire {
+  return {
+    id: String(run._id),
+    operation: run.operation,
+    status: run.status,
+    model: run.model,
+    promptVersion: run.promptVersion,
+    schemaVersion: run.schemaVersion,
+    inputIds: run.inputIds,
+    outputIds: run.outputIds,
+    usage: run.usage,
+    error: run.error,
+    startedAt: new Date(run.startedAt).toISOString(),
+    completedAt: iso(run.completedAt),
+  };
+}
+
+export function serializeAgentUserModel(
+  model: IAgentUserModel,
+): AgentUserModelWire {
+  return {
+    id: "singleton",
+    currentRevisionId: model.currentRevisionId.toString(),
+    revision: model.revision,
+    sections: serializeSections(model.sections),
+    sourceMemoryRevision: model.sourceMemoryRevision,
+    generatedAt: model.generatedAt.toISOString(),
+    createdAt: model.createdAt.toISOString(),
+    updatedAt: model.updatedAt.toISOString(),
+  } as AgentUserModelWire;
+}
+
+export function serializeAgentUserModelRevision(
+  revision: IAgentUserModelRevision,
+): AgentUserModelRevisionWire {
+  return {
+    id: revision._id.toString(),
+    revision: revision.revision,
+    sections: serializeSections(revision.sections),
+    sourceMemoryRevision: revision.sourceMemoryRevision,
+    changedMemoryIds: revision.changedMemoryIds.map(String),
+    reason: revision.reason,
+    createdBy: revision.createdBy,
+    createdAt: revision.createdAt.toISOString(),
+  } as AgentUserModelRevisionWire;
 }
 
 export function serializeAgentMemory(memory: IAgentMemory): AgentMemoryWire {

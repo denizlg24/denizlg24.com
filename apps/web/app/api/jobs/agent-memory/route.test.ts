@@ -20,10 +20,11 @@ describe("POST /api/jobs/agent-memory", () => {
     expect(response.status).toBe(401);
   });
 
-  test("reserves alternating worker capacity for embeddings", () => {
+  test("reserves worker capacity for embeddings, formation, and reflection", () => {
     expect(preferredOperationsForSlot(0)).toEqual(["embedding"]);
     expect(preferredOperationsForSlot(1)).toEqual(["formation", "backfill"]);
-    expect(preferredOperationsForSlot(8)).toEqual(["embedding"]);
-    expect(preferredOperationsForSlot(9)).toEqual(["formation", "backfill"]);
+    expect(preferredOperationsForSlot(2)).toEqual(["reflection"]);
+    expect(preferredOperationsForSlot(8)).toEqual(["reflection"]);
+    expect(preferredOperationsForSlot(9)).toEqual(["embedding"]);
   });
 });

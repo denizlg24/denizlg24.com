@@ -147,6 +147,21 @@ function assertVerification(
       "gate-disabled",
     );
   }
+
+  if (gate === "E") {
+    const metrics = verification.metrics;
+    if (
+      metrics.provenanceCoverage !== 1 ||
+      metrics.idempotentReplay !== 1 ||
+      metrics.rollbackRestored !== 1 ||
+      metrics.unsafeAutomaticChanges !== 0
+    ) {
+      throw new AgentMemoryPolicyError(
+        "Gate E requires provenance, idempotency, rollback, and safety verification",
+        "gate-disabled",
+      );
+    }
+  }
 }
 
 function assertPrerequisiteRelease(

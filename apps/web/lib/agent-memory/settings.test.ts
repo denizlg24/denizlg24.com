@@ -185,6 +185,49 @@ describe("agent release gates", () => {
     ).toBe(true);
   });
 
+  test("enables Gate E only after reversible reflection verification", () => {
+    const current = {
+      ...disabled,
+      evidenceLedger: true,
+      formation: true,
+      shadowRetrieval: true,
+      chatMemory: true,
+    };
+    const priorVerifications = {
+      A: verification,
+      B: verification,
+      C: verification,
+      D: { ...verification, metrics: { baselineImproved: 1 } },
+    };
+    expect(() =>
+      planGateTransition(
+        current,
+        { gate: "E", enabled: true, verification },
+        { vectorBackendReady: true, priorVerifications },
+      ),
+    ).toThrow("provenance, idempotency, rollback, and safety");
+    expect(
+      planGateTransition(
+        current,
+        {
+          gate: "E",
+          enabled: true,
+          verification: {
+            ...verification,
+            sampleSize: 1,
+            metrics: {
+              provenanceCoverage: 1,
+              idempotentReplay: 1,
+              rollbackRestored: 1,
+              unsafeAutomaticChanges: 0,
+            },
+          },
+        },
+        { vectorBackendReady: true, priorVerifications },
+      ).reflection,
+    ).toBe(true);
+  });
+
   test("disabling a gate also disables every dependent gate", () => {
     const enabled: AgentReleaseGates = {
       evidenceLedger: true,

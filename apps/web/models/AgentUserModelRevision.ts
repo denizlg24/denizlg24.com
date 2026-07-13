@@ -1,9 +1,10 @@
 import mongoose, { type Document, Schema } from "mongoose";
 import { existingModel } from "./AgentMemoryCommon";
+import type { IAgentUserModelChunk } from "./AgentUserModel";
 
 export interface IAgentUserModelRevision extends Document {
   revision: number;
-  sections: Record<string, unknown[]>;
+  sections: Record<string, IAgentUserModelChunk[]>;
   sourceMemoryRevision: number;
   changedMemoryIds: mongoose.Types.ObjectId[];
   reason: string;

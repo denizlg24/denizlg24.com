@@ -289,6 +289,185 @@ export const agentMemorySchema = z.object({
 });
 export type AgentMemory = z.infer<typeof agentMemorySchema>;
 
+export const agentGoalStatusSchema = z.enum([
+  "suggested",
+  "active",
+  "paused",
+  "completed",
+  "abandoned",
+]);
+export const agentGoalSchema = z.object({
+  id: z.string(),
+  title: z.string().trim().min(1).max(512),
+  description: z.string().max(4_096).optional(),
+  kind: z.enum(["goal", "user-commitment", "agent-follow-up"]),
+  status: agentGoalStatusSchema,
+  motivation: z.string().max(2_000).optional(),
+  targetFrom: isoDateSchema.optional(),
+  targetUntil: isoDateSchema.optional(),
+  constraints: z.array(z.string().max(1_000)).max(50),
+  dependencyIds: z.array(z.string()).max(100),
+  progressEvidenceIds: z.array(z.string().uuid()).max(100),
+  relatedEntities: z.array(agentEntityRefSchema).max(50),
+  pauseOrAbandonReason: z.string().max(2_000).optional(),
+  provenance: agentSourceRefSchema,
+  revision: z.number().int().positive(),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+export type AgentGoal = z.infer<typeof agentGoalSchema>;
+
+export const createAgentGoalSchema = agentGoalSchema
+  .pick({
+    title: true,
+    description: true,
+    kind: true,
+    motivation: true,
+    targetFrom: true,
+    targetUntil: true,
+    constraints: true,
+    dependencyIds: true,
+    progressEvidenceIds: true,
+    relatedEntities: true,
+  })
+  .extend({
+    status: agentGoalStatusSchema.default("active"),
+  });
+export type CreateAgentGoal = z.infer<typeof createAgentGoalSchema>;
+export const updateAgentGoalSchema = createAgentGoalSchema.partial().extend({
+  pauseOrAbandonReason: z.string().trim().min(1).max(2_000).optional(),
+  reason: z.string().trim().min(1).max(2_000),
+});
+export type UpdateAgentGoal = z.infer<typeof updateAgentGoalSchema>;
+
+export const agentProcedureLifecycleSchema = z.enum([
+  "candidate",
+  "testing",
+  "active",
+  "retired",
+]);
+export const agentProcedureSchema = z.object({
+  id: z.string(),
+  lifecycle: agentProcedureLifecycleSchema,
+  scope: z.string().trim().min(1).max(1_000),
+  trigger: z.string().trim().min(1).max(2_000),
+  behavior: z.string().trim().min(1).max(4_096),
+  exceptions: z.array(z.string().max(1_000)).max(50),
+  supportingFeedbackIds: z.array(z.string()).max(100),
+  evidenceIds: z.array(z.string().uuid()).max(100),
+  confidence: z.number().min(0).max(1),
+  explicit: z.boolean(),
+  promotionReason: z.string().max(2_000).optional(),
+  retirementReason: z.string().max(2_000).optional(),
+  revision: z.number().int().positive(),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+export type AgentProcedure = z.infer<typeof agentProcedureSchema>;
+
+export const createAgentProcedureSchema = agentProcedureSchema
+  .pick({
+    scope: true,
+    trigger: true,
+    behavior: true,
+    exceptions: true,
+    supportingFeedbackIds: true,
+    evidenceIds: true,
+    confidence: true,
+    explicit: true,
+  })
+  .extend({ lifecycle: agentProcedureLifecycleSchema.optional() });
+export type CreateAgentProcedure = z.infer<typeof createAgentProcedureSchema>;
+export const updateAgentProcedureSchema = createAgentProcedureSchema
+  .partial()
+  .extend({
+    lifecycle: agentProcedureLifecycleSchema.optional(),
+    reason: z.string().trim().min(1).max(2_000),
+  });
+export type UpdateAgentProcedure = z.infer<typeof updateAgentProcedureSchema>;
+
+export const agentUserModelChunkSchema = z.object({
+  key: z.string().min(1).max(256),
+  statement: z.string().min(1).max(8_192),
+  evidenceIds: z.array(z.string().uuid()).max(100),
+  memoryIds: z.array(z.string()).max(100),
+  confidence: z.number().min(0).max(1),
+  explicitness: agentExplicitnessSchema,
+  sensitivity: agentSensitivitySchema.exclude(["denied"]),
+  validFrom: isoDateSchema.optional(),
+  validUntil: isoDateSchema.optional(),
+  lastConfirmedAt: isoDateSchema.optional(),
+});
+export const agentUserModelSchema = z.object({
+  id: z.literal("singleton"),
+  currentRevisionId: z.string(),
+  revision: z.number().int().positive(),
+  sections: z.record(z.string(), z.array(agentUserModelChunkSchema)),
+  sourceMemoryRevision: z.number().int().nonnegative(),
+  generatedAt: isoDateSchema,
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+export type AgentUserModel = z.infer<typeof agentUserModelSchema>;
+
+export const agentUserModelRevisionSchema = z.object({
+  id: z.string(),
+  revision: z.number().int().positive(),
+  sections: z.record(z.string(), z.array(agentUserModelChunkSchema)),
+  sourceMemoryRevision: z.number().int().nonnegative(),
+  changedMemoryIds: z.array(z.string()),
+  reason: z.string(),
+  createdBy: z.enum(["user", "policy", "reflection", "rollback"]),
+  createdAt: isoDateSchema,
+});
+export type AgentUserModelRevision = z.infer<
+  typeof agentUserModelRevisionSchema
+>;
+
+export const agentMemoryRunSchema = z.object({
+  id: z.string(),
+  operation: z.enum([
+    "formation",
+    "consolidation",
+    "reflection",
+    "evaluation",
+    "backfill",
+  ]),
+  status: z.enum(["running", "completed", "failed", "cancelled"]),
+  model: z.string().optional(),
+  promptVersion: z.string(),
+  schemaVersion: z.string(),
+  inputIds: z.array(z.string()),
+  outputIds: z.array(z.string()),
+  usage: z
+    .object({
+      inputTokens: z.number().nonnegative(),
+      outputTokens: z.number().nonnegative(),
+      costUsd: z.number().nonnegative(),
+    })
+    .optional(),
+  error: z.string().optional(),
+  startedAt: isoDateSchema,
+  completedAt: isoDateSchema.optional(),
+});
+export type AgentMemoryRun = z.infer<typeof agentMemoryRunSchema>;
+
+export const agentReflectionOverviewSchema = z.object({
+  goals: z.array(agentGoalSchema),
+  procedures: z.array(agentProcedureSchema),
+  runs: z.array(agentMemoryRunSchema),
+  userModel: agentUserModelSchema.nullable(),
+  revisions: z.array(agentUserModelRevisionSchema),
+});
+export type AgentReflectionOverview = z.infer<
+  typeof agentReflectionOverviewSchema
+>;
+
+export const rollbackAgentUserModelSchema = z.object({
+  targetRevision: z.number().int().positive(),
+  reason: z.string().trim().min(1).max(2_000),
+});
+
 export const agentRetrievalTraceSchema = z.object({
   traceId: z.string().uuid(),
   conversationId: z.string().optional(),

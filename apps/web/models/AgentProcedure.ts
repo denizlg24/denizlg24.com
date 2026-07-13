@@ -10,6 +10,7 @@ export interface IAgentProcedure extends Document {
   supportingFeedbackIds: mongoose.Types.ObjectId[];
   evidenceIds: string[];
   confidence: number;
+  explicit: boolean;
   promotionReason?: string;
   retirementReason?: string;
   revision: number;
@@ -34,6 +35,7 @@ const AgentProcedureSchema = new Schema<IAgentProcedure>(
     },
     evidenceIds: { type: [String], required: true },
     confidence: { type: Number, required: true, min: 0, max: 1 },
+    explicit: { type: Boolean, required: true, default: false },
     promotionReason: { type: String, maxlength: 2_000 },
     retirementReason: { type: String, maxlength: 2_000 },
     revision: { type: Number, required: true, default: 1, min: 1 },
