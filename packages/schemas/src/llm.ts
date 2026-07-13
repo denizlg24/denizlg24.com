@@ -1,5 +1,28 @@
 import { z } from "zod";
 
+// Compact catalog model exposed by GET /llm/models. Ids are fully qualified
+// Vercel AI Gateway ids (e.g. "anthropic/claude-haiku-4.5"); `creator` is the
+// model creator, not the serving provider. Capability tags come straight from
+// the Gateway catalog ("tool-use", "web-search", "reasoning", ...).
+export const llmCatalogModelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  creator: z.string(),
+  contextWindow: z.number().optional(),
+  maxTokens: z.number().optional(),
+  tags: z.array(z.string()),
+});
+export type LlmCatalogModel = z.infer<typeof llmCatalogModelSchema>;
+
+export const llmModelsResponseSchema = z.object({
+  models: z.array(llmCatalogModelSchema),
+  /** True when the catalog outlived its TTL because a refresh failed. */
+  stale: z.boolean(),
+  /** ISO timestamp of the last successful catalog fetch. */
+  fetchedAt: z.string(),
+});
+export type LlmModelsResponse = z.infer<typeof llmModelsResponseSchema>;
+
 export const llmUsageSchema = z.object({
   _id: z.string(),
   llmModel: z.string(),
