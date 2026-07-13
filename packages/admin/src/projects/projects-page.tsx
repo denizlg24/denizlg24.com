@@ -161,7 +161,7 @@ export function ProjectsPage({ newHref }: { newHref: string }) {
   const handleSaveOrder = async () => {
     setSavingOrder(true);
 
-    const ordered = projects.map((p, i) => ({ id: p._id, order: i }));
+    const ordered = projects.map((p, i) => ({ _id: p._id, order: i }));
     try {
       await client.patch<{ success: boolean }>("projects/reorder", {
         items: ordered,

@@ -95,17 +95,42 @@ function gateLabel(enabled: boolean): "on" | "off" {
 export function AgentMemorySkeleton() {
   const { slots } = useAdmin();
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <PageHeader
         leading={slots?.sidebarTrigger}
         icon={<BrainCircuit className="size-4 text-muted-foreground" />}
         title="Agent Memory"
-      />
-      <div className="flex flex-col gap-4 px-4 pt-4">
-        <Skeleton className="h-8 w-72" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
+      >
+        <Button size="icon" variant="ghost" title="Refresh memory data">
+          <RefreshCw />
+        </Button>
+      </PageHeader>
+
+      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+        <Tabs value={"graph"}>
+          <TabsList className="h-7!">
+            <TabsTrigger
+              value="graph"
+              className="h-5.5 px-2 text-xs"
+              title="Graph view"
+            >
+              <Orbit className="size-3.5" />
+            </TabsTrigger>
+            <TabsTrigger
+              value="list"
+              className="h-5.5 px-2 text-xs"
+              title="List view"
+            >
+              <List className="size-3.5" />
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        <span className="flex items-center gap-2">
+          <RefreshCw className="size-4 animate-spin" />
+          Building memory graph…
+        </span>
       </div>
     </div>
   );
