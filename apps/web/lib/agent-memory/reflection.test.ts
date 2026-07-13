@@ -39,10 +39,24 @@ describe("Gate E incremental user-model projection", () => {
 
   test("removes archived memories without changing unrelated chunks", () => {
     const active = memory();
-    const first = projectChangedMemories(undefined, [active]);
+    const unrelated = memory({
+      _id: new Types.ObjectId("507f1f77bcf86cd799439012"),
+      statement: "Deniz is building a portfolio site.",
+      entityRefs: [{ entityType: "project", entityId: "project-portfolio" }],
+      evidenceIds: ["1b2c3d4e-5f6a-7b8c-9d0e-1f2a3b4c5d6e"],
+    });
+    const first = projectChangedMemories(undefined, [active, unrelated]);
+    expect(first["education-career-skills"]).toHaveLength(1);
+    const unrelatedBefore = first["projects-responsibilities-ambitions"];
+    expect(unrelatedBefore).toHaveLength(1);
+
     const archived = memory({ status: "archived", revision: 2 });
     const second = projectChangedMemories(first, [archived]);
 
     expect(second["education-career-skills"]).toEqual([]);
+    // The unrelated project chunk must be preserved untouched.
+    expect(second["projects-responsibilities-ambitions"]).toEqual(
+      unrelatedBefore,
+    );
   });
 });

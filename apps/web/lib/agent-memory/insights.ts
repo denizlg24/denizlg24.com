@@ -792,10 +792,20 @@ export async function scheduleNextInsightJob(now = new Date()) {
   return { scheduled: true, jobId: job._id.toString() } as const;
 }
 
+// The inbox shows only actionable insights; dismissed/expired ones leave the
+// list (their totals still surface via the status-count aggregate below).
+const INBOX_INSIGHT_STATUSES: IAgentInsight["status"][] = [
+  "pending",
+  "delivered",
+  "snoozed",
+];
+
 export async function listAgentInsights() {
   await connectDB();
   const [insights, statusCounts] = await Promise.all([
-    AgentInsight.find().sort({ createdAt: -1 }).limit(200),
+    AgentInsight.find({ status: { $in: INBOX_INSIGHT_STATUSES } })
+      .sort({ createdAt: -1 })
+      .limit(200),
     AgentInsight.aggregate<{ _id: IAgentInsight["status"]; count: number }>([
       { $group: { _id: "$status", count: { $sum: 1 } } },
     ]),

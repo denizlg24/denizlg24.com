@@ -19,6 +19,9 @@ import { AgentMemoryCandidate } from "@/models/AgentMemoryCandidate";
 const dryRun = process.argv.includes("--dry-run");
 const limitArg = process.argv.find((arg) => arg.startsWith("--limit="));
 const limit = limitArg ? Number(limitArg.split("=")[1]) : Infinity;
+if (limitArg && (Number.isNaN(limit) || limit < 0)) {
+  throw new Error(`Invalid --limit value: ${limitArg}`);
+}
 
 await connectDB();
 const settings = await getAgentMemorySettings();

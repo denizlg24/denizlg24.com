@@ -6,6 +6,14 @@ import { requireAdmin } from "@/lib/require-admin";
 export async function GET(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  const graph = await loadAgentMemoryGraph();
-  return NextResponse.json(agentMemoryGraphResponseSchema.parse(graph));
+  try {
+    const graph = await loadAgentMemoryGraph();
+    return NextResponse.json(agentMemoryGraphResponseSchema.parse(graph));
+  } catch (error) {
+    console.error("Error loading agent memory graph:", error);
+    return NextResponse.json(
+      { error: "Failed to load agent memory graph" },
+      { status: 500 },
+    );
+  }
 }

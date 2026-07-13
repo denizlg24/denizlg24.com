@@ -113,7 +113,7 @@ export const agentSourceRefSchema = z.object({
 });
 export type AgentSourceRef = z.infer<typeof agentSourceRefSchema>;
 
-const isoDateSchema = z.string().datetime({ offset: true });
+const isoDateSchema = z.iso.datetime({ offset: true });
 
 export const agentTemporalSchema = z
   .object({
@@ -139,7 +139,7 @@ export const agentTemporalSchema = z
 export type AgentTemporal = z.infer<typeof agentTemporalSchema>;
 
 export const agentEvidenceEventSchema = z.object({
-  eventId: z.string().uuid(),
+  eventId: z.uuid(),
   idempotencyKey: z.string().trim().min(1).max(512),
   sourceType: agentSourceTypeSchema,
   sourceRef: agentSourceRefSchema,
@@ -186,8 +186,8 @@ export const agentMemoryCandidateSchema = z.object({
   sensitivity: agentSensitivitySchema,
   temporal: agentTemporalSchema,
   entityRefs: z.array(agentEntityRefSchema).max(50).default([]),
-  evidenceIds: z.array(z.string().uuid()).min(1).max(100),
-  contradictionEvidenceIds: z.array(z.string().uuid()).max(100).default([]),
+  evidenceIds: z.array(z.uuid()).min(1).max(100),
+  contradictionEvidenceIds: z.array(z.uuid()).max(100).default([]),
   conflictingMemoryIds: z.array(z.string()).max(100).default([]),
   extraction: z.object({
     model: z.string().min(1),
@@ -227,8 +227,8 @@ export const agentFormationCandidateSchema = z.object({
   sensitivity: agentSensitivitySchema,
   temporal: agentTemporalSchema,
   entityRefs: z.array(agentEntityRefSchema).max(50).default([]),
-  evidenceIds: z.array(z.string().uuid()).min(1).max(100),
-  contradictionEvidenceIds: z.array(z.string().uuid()).max(100).default([]),
+  evidenceIds: z.array(z.uuid()).min(1).max(100),
+  contradictionEvidenceIds: z.array(z.uuid()).max(100).default([]),
   conflictingMemoryIds: z.array(z.string()).max(100).default([]),
   reason: z.string().trim().min(1).max(4_096),
   reviewFlags: agentMemoryCandidateSchema.shape.reviewFlags,
@@ -256,7 +256,7 @@ export const agentMemoryRevisionSchema = z.object({
   sensitivity: agentSensitivitySchema,
   temporal: agentTemporalSchema,
   entityRefs: z.array(agentEntityRefSchema).max(50),
-  evidenceIds: z.array(z.string().uuid()).min(1).max(100),
+  evidenceIds: z.array(z.uuid()).min(1).max(100),
   contradictionIds: z.array(z.string()).max(100),
   supersedesMemoryId: z.string().optional(),
   createdBy: z.enum(["user", "agent", "policy", "rollback"]),
@@ -279,7 +279,7 @@ export const agentMemorySchema = z.object({
   sensitivity: agentSensitivitySchema,
   temporal: agentTemporalSchema,
   entityRefs: z.array(agentEntityRefSchema).max(50),
-  evidenceIds: z.array(z.string().uuid()).min(1).max(100),
+  evidenceIds: z.array(z.uuid()).min(1).max(100),
   contradictionIds: z.array(z.string()).max(100),
   supersedesMemoryId: z.string().optional(),
   pinned: z.boolean().default(false),
@@ -307,7 +307,7 @@ export const agentGoalSchema = z.object({
   targetUntil: isoDateSchema.optional(),
   constraints: z.array(z.string().max(1_000)).max(50),
   dependencyIds: z.array(z.string()).max(100),
-  progressEvidenceIds: z.array(z.string().uuid()).max(100),
+  progressEvidenceIds: z.array(z.uuid()).max(100),
   relatedEntities: z.array(agentEntityRefSchema).max(50),
   pauseOrAbandonReason: z.string().max(2_000).optional(),
   provenance: agentSourceRefSchema,
@@ -354,7 +354,7 @@ export const agentProcedureSchema = z.object({
   behavior: z.string().trim().min(1).max(4_096),
   exceptions: z.array(z.string().max(1_000)).max(50),
   supportingFeedbackIds: z.array(z.string()).max(100),
-  evidenceIds: z.array(z.string().uuid()).max(100),
+  evidenceIds: z.array(z.uuid()).max(100),
   confidence: z.number().min(0).max(1),
   explicit: z.boolean(),
   promotionReason: z.string().max(2_000).optional(),
@@ -389,7 +389,7 @@ export type UpdateAgentProcedure = z.infer<typeof updateAgentProcedureSchema>;
 export const agentUserModelChunkSchema = z.object({
   key: z.string().min(1).max(256),
   statement: z.string().min(1).max(8_192),
-  evidenceIds: z.array(z.string().uuid()).max(100),
+  evidenceIds: z.array(z.uuid()).max(100),
   memoryIds: z.array(z.string()).max(100),
   confidence: z.number().min(0).max(1),
   explicitness: agentExplicitnessSchema,
@@ -470,7 +470,7 @@ export const rollbackAgentUserModelSchema = z.object({
 });
 
 export const agentRetrievalTraceSchema = z.object({
-  traceId: z.string().uuid(),
+  traceId: z.uuid(),
   conversationId: z.string().optional(),
   requestId: z.string().optional(),
   purpose: z.string(),
@@ -643,7 +643,7 @@ export type AgentMemoryFeedbackKind = z.infer<
 
 export const createAgentMemoryFeedbackSchema = z
   .object({
-    feedbackId: z.string().uuid(),
+    feedbackId: z.uuid(),
     kind: agentMemoryFeedbackKindSchema,
     memoryId: z.string().optional(),
     correction: z.string().trim().min(1).max(8_192).optional(),
@@ -669,7 +669,7 @@ export type CreateAgentMemoryFeedback = z.infer<
 >;
 
 export const agentMemoryFeedbackResponseSchema = z.object({
-  feedbackId: z.string().uuid(),
+  feedbackId: z.uuid(),
   kind: agentMemoryFeedbackKindSchema,
   memoryIds: z.array(z.string()),
   resultingMemoryId: z.string().optional(),

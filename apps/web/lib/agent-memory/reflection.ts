@@ -135,6 +135,12 @@ function projectLifecycleState(
     sensitivity: "personal",
     lastConfirmedAt: procedure.updatedAt,
   }));
+  // Sort by key so DB-order ties don't produce spurious projection revisions,
+  // matching the stable ordering in projectChangedMemories.
+  sections["goals-concerns-opportunities"].sort((left, right) =>
+    left.key.localeCompare(right.key),
+  );
+  sections.procedures.sort((left, right) => left.key.localeCompare(right.key));
   return sections;
 }
 

@@ -15,7 +15,16 @@ export async function PATCH(
   if (!(await getAgentMemorySettings()).releaseGates.reflection) {
     return NextResponse.json({ error: "Gate E is disabled" }, { status: 409 });
   }
-  const parsed = updateAgentProcedureSchema.safeParse(await request.json());
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid procedure update" },
+      { status: 400 },
+    );
+  }
+  const parsed = updateAgentProcedureSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid procedure update" },

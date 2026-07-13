@@ -22,6 +22,19 @@ import {
 const MIN_PROCEDURE_SIGNALS = 3;
 const MIN_PROCEDURE_SESSIONS = 2;
 
+// Runs after the write transaction has already committed, so a failure here
+// must not surface as a failed write (which would prompt unsafe client retries
+// and duplicate creations). Log and swallow instead.
+async function safeScheduleLifecycleReflection(
+  ...args: Parameters<typeof scheduleLifecycleReflection>
+): Promise<void> {
+  try {
+    await scheduleLifecycleReflection(...args);
+  } catch (error) {
+    console.error("Failed to schedule lifecycle reflection", ...args, error);
+  }
+}
+
 async function audit(
   input: {
     action: string;
@@ -66,6 +79,21 @@ async function assertEvidence(eventIds: string[], session: ClientSession) {
   if (count !== unique.length) {
     throw new AgentMemoryPolicyError(
       "Goal or procedure cites missing or redacted evidence",
+      "invalid-provenance",
+    );
+  }
+}
+
+async function assertGoalsExist(goalIds: string[], session: ClientSession) {
+  if (goalIds.length === 0) return;
+  const ids = objectIds(goalIds, "goal dependency ID");
+  const unique = [...new Map(ids.map((id) => [id.toString(), id])).values()];
+  const count = await AgentGoal.countDocuments({
+    _id: { $in: unique },
+  }).session(session);
+  if (count !== unique.length) {
+    throw new AgentMemoryPolicyError(
+      "Goal dependency references a missing goal",
       "invalid-provenance",
     );
   }
@@ -187,6 +215,7 @@ export async function createGoal(input: CreateAgentGoal): Promise<IAgentGoal> {
   try {
     await session.withTransaction(async () => {
       await assertEvidence(input.progressEvidenceIds, session);
+      await assertGoalsExist(input.dependencyIds, session);
       const goalId = new Types.ObjectId();
       const goal = new AgentGoal({
         _id: goalId,
@@ -213,7 +242,7 @@ export async function createGoal(input: CreateAgentGoal): Promise<IAgentGoal> {
   }
   const completed = result as IAgentGoal | null;
   if (!completed) throw new Error("Goal creation did not complete");
-  await scheduleLifecycleReflection(
+  await safeScheduleLifecycleReflection(
     "goal",
     completed._id.toString(),
     completed.revision,
@@ -239,6 +268,7 @@ export async function updateGoal(
       const { reason, dependencyIds, progressEvidenceIds, ...fields } = input;
       if (progressEvidenceIds)
         await assertEvidence(progressEvidenceIds, session);
+      if (dependencyIds) await assertGoalsExist(dependencyIds, session);
       goal.set({
         ...fields,
         ...(dependencyIds
@@ -265,7 +295,7 @@ export async function updateGoal(
   }
   const completed = result as IAgentGoal | null;
   if (!completed) throw new Error("Goal update did not complete");
-  await scheduleLifecycleReflection(
+  await safeScheduleLifecycleReflection(
     "goal",
     completed._id.toString(),
     completed.revision,
@@ -324,7 +354,7 @@ export async function createProcedure(
   }
   const completed = result as IAgentProcedure | null;
   if (!completed) throw new Error("Procedure creation did not complete");
-  await scheduleLifecycleReflection(
+  await safeScheduleLifecycleReflection(
     "procedure",
     completed._id.toString(),
     completed.revision,
@@ -402,7 +432,7 @@ export async function updateProcedure(
   }
   const completed = result as IAgentProcedure | null;
   if (!completed) throw new Error("Procedure update did not complete");
-  await scheduleLifecycleReflection(
+  await safeScheduleLifecycleReflection(
     "procedure",
     completed._id.toString(),
     completed.revision,

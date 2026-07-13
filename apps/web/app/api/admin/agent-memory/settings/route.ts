@@ -37,6 +37,12 @@ export async function PATCH(request: NextRequest) {
       settings: serializeAgentMemorySettings(settings),
     });
   } catch (error) {
+    if (error instanceof AgentMemoryPolicyError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
       {
         error:

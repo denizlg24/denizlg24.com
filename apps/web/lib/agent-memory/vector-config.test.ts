@@ -57,4 +57,30 @@ describe("agent memory vector contract", () => {
       }),
     ).toBe(false);
   });
+
+  test("rejects an index whose vector matches but omits some filter paths", () => {
+    expect(
+      vectorIndexMatchesContract({
+        name: AGENT_MEMORY_VECTOR_CONFIG.indexName,
+        status: "READY",
+        queryable: true,
+        latestDefinition: {
+          fields: [
+            {
+              type: "vector",
+              path: AGENT_MEMORY_VECTOR_CONFIG.path,
+              numDimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
+              similarity: AGENT_MEMORY_VECTOR_CONFIG.similarity,
+              quantization: AGENT_MEMORY_VECTOR_CONFIG.quantization,
+            },
+            // Only the first contract filter path is present; the rest are missing.
+            {
+              type: "filter",
+              path: AGENT_MEMORY_VECTOR_CONFIG.filterPaths[0],
+            },
+          ],
+        },
+      }),
+    ).toBe(false);
+  });
 });

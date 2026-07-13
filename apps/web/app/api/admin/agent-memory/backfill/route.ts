@@ -7,12 +7,20 @@ import { requireAdmin } from "@/lib/require-admin";
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  const settings = await getAgentMemorySettings();
-  if (!settings.releaseGates.evidenceLedger) {
+  try {
+    const settings = await getAgentMemorySettings();
+    if (!settings.releaseGates.evidenceLedger) {
+      return NextResponse.json(
+        { error: "Gate A must be enabled before scheduling backfill" },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json(await scheduleAgentMemoryBackfill());
+  } catch (error) {
+    console.error("Error scheduling agent memory backfill:", error);
     return NextResponse.json(
-      { error: "Gate A must be enabled before scheduling backfill" },
-      { status: 409 },
+      { error: "Failed to schedule backfill" },
+      { status: 500 },
     );
   }
-  return NextResponse.json(await scheduleAgentMemoryBackfill());
 }

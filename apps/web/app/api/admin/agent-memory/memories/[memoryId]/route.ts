@@ -51,10 +51,13 @@ export async function POST(
       memory = await archiveMemory({ memoryId, reason: parsed.data.reason });
     } else if (parsed.data.action === "delete") {
       memory = await deleteMemory({ memoryId, reason: parsed.data.reason });
-    } else if (
-      parsed.data.action === "rollback" &&
-      parsed.data.targetRevision
-    ) {
+    } else if (parsed.data.action === "rollback") {
+      if (!parsed.data.targetRevision) {
+        return NextResponse.json(
+          { error: "rollback requires a targetRevision" },
+          { status: 400 },
+        );
+      }
       memory = await rollbackMemory({
         memoryId,
         targetRevision: parsed.data.targetRevision,

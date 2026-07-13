@@ -11,7 +11,13 @@ export async function POST(request: NextRequest) {
   if (!(await getAgentMemorySettings()).releaseGates.reflection) {
     return NextResponse.json({ error: "Gate E is disabled" }, { status: 409 });
   }
-  const parsed = rollbackAgentUserModelSchema.safeParse(await request.json());
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid rollback" }, { status: 400 });
+  }
+  const parsed = rollbackAgentUserModelSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid rollback" }, { status: 400 });
   }

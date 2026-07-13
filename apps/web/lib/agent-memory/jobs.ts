@@ -56,6 +56,25 @@ export async function leaseNextMemoryJob(options: {
   );
 }
 
+// A worker that crashes after leasing a job for the MAX_ATTEMPTS-th time leaves
+// it stuck in `leased`: the lease query excludes it via `attempts < MAX_ATTEMPTS`
+// and nothing else moves it on. Dead-letter such orphaned leases once expired.
+export async function sweepOrphanedLeases(now = new Date()): Promise<number> {
+  await connectDB();
+  const result = await AgentMemoryJob.updateMany(
+    {
+      status: "leased",
+      leaseExpiresAt: { $lte: now },
+      attempts: { $gte: MAX_ATTEMPTS },
+    },
+    {
+      $set: { status: "dead-letter", completedAt: now },
+      $unset: { leaseOwner: 1, leaseExpiresAt: 1 },
+    },
+  );
+  return result.modifiedCount;
+}
+
 export async function completeMemoryJob(
   jobId: string,
   workerId: string,

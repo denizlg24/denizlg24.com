@@ -92,6 +92,25 @@ function getAttachmentDescription(att: IChatAttachment): string {
   return formatAttachmentSize(att.file.size);
 }
 
+const MEMORY_MODE_COPY: Record<
+  AgentMemoryMode,
+  { label: string; helper: string }
+> = {
+  enabled: {
+    label: "Memory on",
+    helper: "Learns from this chat and can use relevant memory.",
+  },
+  "retrieval-off": {
+    label: "Learning only",
+    helper: "Learns from this chat without using memory in replies.",
+  },
+  incognito: {
+    label: "Incognito",
+    helper: "Creates no evidence, feedback, memory, or retrieval trace.",
+  },
+};
+const MEMORY_MODES = Object.keys(MEMORY_MODE_COPY) as AgentMemoryMode[];
+
 export function ChatInput({
   value,
   onChange,
@@ -346,21 +365,19 @@ export function ChatInput({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent align="start">
-                      <SelectItem value="enabled">Memory on</SelectItem>
-                      <SelectItem value="retrieval-off">
-                        Learning only
-                      </SelectItem>
-                      <SelectItem value="incognito" disabled={incognitoLocked}>
-                        Incognito
-                      </SelectItem>
+                      {MEMORY_MODES.map((mode) => (
+                        <SelectItem
+                          key={mode}
+                          value={mode}
+                          disabled={mode === "incognito" && incognitoLocked}
+                        >
+                          {MEMORY_MODE_COPY[mode].label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <p className="text-xs leading-4 text-muted-foreground">
-                    {memoryMode === "enabled"
-                      ? "Learns from this chat and can use relevant memory."
-                      : memoryMode === "retrieval-off"
-                        ? "Learns from this chat without using memory in replies."
-                        : "Creates no evidence, feedback, memory, or retrieval trace."}
+                    {MEMORY_MODE_COPY[memoryMode].helper}
                   </p>
                   {incognitoLocked && memoryMode !== "incognito" && (
                     <p className="text-xs leading-4 text-muted-foreground">
@@ -457,13 +474,7 @@ export function ChatInput({
         ) : (
           <Brain className="size-3" aria-hidden="true" />
         )}
-        <span>
-          {memoryMode === "enabled"
-            ? "Memory on"
-            : memoryMode === "retrieval-off"
-              ? "Learning only"
-              : "Incognito"}
-        </span>
+        <span>{MEMORY_MODE_COPY[memoryMode].label}</span>
       </div>
     </div>
   );

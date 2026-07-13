@@ -234,7 +234,8 @@ export async function probeAgentMemoryVectorBackend(): Promise<boolean> {
       .listSearchIndexes()
       .toArray();
     return indexes.some(vectorIndexMatchesContract);
-  } catch {
+  } catch (error) {
+    console.error("probeAgentMemoryVectorBackend failed", error);
     return false;
   }
 }

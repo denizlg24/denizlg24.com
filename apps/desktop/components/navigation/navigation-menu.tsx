@@ -266,7 +266,7 @@ export const GROUPS: NavGroup[] = [
     items: [
       {
         label: "Agent Memory",
-        href: "/agent-memory",
+        href: "/dashboard/agent-memory",
         icon: Brain,
       },
       {

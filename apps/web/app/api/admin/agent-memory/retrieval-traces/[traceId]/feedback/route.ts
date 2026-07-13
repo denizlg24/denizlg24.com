@@ -13,9 +13,16 @@ export async function POST(
 ) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  const parsed = createAgentMemoryFeedbackSchema.safeParse(
-    await request.json(),
-  );
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid memory feedback" },
+      { status: 400 },
+    );
+  }
+  const parsed = createAgentMemoryFeedbackSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid memory feedback" },

@@ -478,6 +478,11 @@ export const notesTools: ToolDefinition[] = [
     execute: async (input) => {
       await connectDB();
       const id = input.id as string;
+      if (!mongoose.isValidObjectId(id)) {
+        throw new Error(
+          "Invalid note ID. Use the _id returned by list_notes or search_notes.",
+        );
+      }
       const note = await Note.findById(id);
       if (!note) throw new Error("Note not found");
       await redactAgentMemorySource({ entityType: "note", entityId: id });

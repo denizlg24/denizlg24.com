@@ -55,6 +55,27 @@ function ids(value: unknown, max = 50): string[] {
   return value.slice(0, max).map(String);
 }
 
+// Caps array length and truncates string values inside each item so structured
+// fields keep the same bounded-snapshot guarantee as the scalar fields above.
+function boundedRecords(
+  value: unknown,
+  maxItems = 50,
+  maxChars = 2_000,
+): unknown[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, maxItems).map((item) => {
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      return Object.fromEntries(
+        Object.entries(item as Record<string, unknown>).map(([key, val]) => [
+          key.slice(0, 200),
+          typeof val === "string" ? val.slice(0, maxChars) : val,
+        ]),
+      );
+    }
+    return typeof item === "string" ? item.slice(0, maxChars) : item;
+  });
+}
+
 function compactRecord(kind: AgentDomainKind, raw: Record<string, unknown>) {
   if (kind === "note") {
     return {
@@ -120,8 +141,8 @@ function compactRecord(kind: AgentDomainKind, raw: Record<string, unknown>) {
       status: raw.status,
       startsOn: raw.startsOn,
       endsOn: raw.endsOn,
-      customFields: raw.customFields,
-      manualDeadlines: raw.manualDeadlines,
+      customFields: boundedRecords(raw.customFields),
+      manualDeadlines: boundedRecords(raw.manualDeadlines),
     };
   }
   if (kind === "journal") {
@@ -148,8 +169,8 @@ function compactRecord(kind: AgentDomainKind, raw: Record<string, unknown>) {
       ? String(raw.matchedCourseId)
       : undefined,
     matchedCourseName: text(raw.matchedCourseName, 500),
-    suggestedTasks: raw.suggestedTasks,
-    suggestedEvents: raw.suggestedEvents,
+    suggestedTasks: boundedRecords(raw.suggestedTasks),
+    suggestedEvents: boundedRecords(raw.suggestedEvents),
     userStatus: raw.userStatus,
     triagedAt: raw.triagedAt,
   };

@@ -79,6 +79,12 @@ export async function PATCH(
       )
         .lean()
         .exec();
+      if (!project) {
+        return NextResponse.json(
+          { error: "Project not found" },
+          { status: 404 },
+        );
+      }
       await observeDomainRecordSafely("project", project);
       revalidateProjectsContent();
       return NextResponse.json(

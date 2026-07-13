@@ -59,7 +59,9 @@ export const AgentUserModelChunkSchema = new Schema<IAgentUserModelChunk>(
     },
     sensitivity: {
       type: String,
-      enum: AGENT_SENSITIVITIES.slice(0, 4),
+      enum: AGENT_SENSITIVITIES.filter(
+        (sensitivity) => sensitivity !== "denied",
+      ),
       required: true,
     },
     validFrom: { type: Date },

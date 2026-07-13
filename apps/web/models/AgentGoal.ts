@@ -1,3 +1,4 @@
+import type { AgentEntityRef, AgentSourceRef } from "@repo/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
 import {
   AgentEntityRefSchema,
@@ -16,9 +17,9 @@ export interface IAgentGoal extends Document {
   constraints: string[];
   dependencyIds: mongoose.Types.ObjectId[];
   progressEvidenceIds: string[];
-  relatedEntities: unknown[];
+  relatedEntities: AgentEntityRef[];
   pauseOrAbandonReason?: string;
-  provenance: unknown;
+  provenance: AgentSourceRef;
   revision: number;
   createdAt: Date;
   updatedAt: Date;

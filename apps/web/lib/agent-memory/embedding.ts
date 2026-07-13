@@ -31,6 +31,9 @@ export async function processEmbeddingJob(
       memory.status !== "active" ||
       findDeniedContent(memory.statement).length > 0
     ) {
+      // Drop any previously-stored vector so an inactive/superseded or
+      // retroactively-denied memory stops being retrievable.
+      await AgentMemoryEmbedding.deleteMany({ memoryId: memory._id });
       skipped += 1;
       continue;
     }
@@ -51,35 +54,45 @@ export async function processEmbeddingJob(
       skipped += 1;
       continue;
     }
-    const result = await embedText({
-      purpose: "agent-memory-embedding",
-      source: "agent-memory-revision-embedding",
-      model: AGENT_MEMORY_VECTOR_CONFIG.model,
-      dimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
-      value: memory.statement,
-    });
-    await AgentMemoryEmbedding.updateOne(
-      {
-        memoryRevisionId: memory.currentRevisionId,
-        model: result.model,
-      },
-      {
-        $set: {
-          memoryId: memory._id,
-          dimensions: result.dimensions,
-          vector: result.vector,
-          contentHash: stableContentHash(memory.statement),
-          sensitivity: memory.sensitivity,
-          status: memory.status,
-          memoryType: memory.memoryType,
-          validUntil: memory.temporal.validUntil
-            ? new Date(memory.temporal.validUntil)
-            : null,
+    try {
+      const result = await embedText({
+        purpose: "agent-memory-embedding",
+        source: "agent-memory-revision-embedding",
+        model: AGENT_MEMORY_VECTOR_CONFIG.model,
+        dimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
+        value: memory.statement,
+      });
+      await AgentMemoryEmbedding.updateOne(
+        {
+          memoryRevisionId: memory.currentRevisionId,
+          model: result.model,
         },
-      },
-      { upsert: true },
-    );
-    embedded += 1;
+        {
+          $set: {
+            memoryId: memory._id,
+            dimensions: result.dimensions,
+            vector: result.vector,
+            contentHash: stableContentHash(memory.statement),
+            sensitivity: memory.sensitivity,
+            status: memory.status,
+            memoryType: memory.memoryType,
+            validUntil: memory.temporal.validUntil
+              ? new Date(memory.temporal.validUntil)
+              : null,
+          },
+        },
+        { upsert: true },
+      );
+      embedded += 1;
+    } catch (error) {
+      // Isolate per-memory failures so one bad embedding call doesn't abort the
+      // whole batch and force a full retry of already-embedded memories.
+      console.error(
+        `Failed to embed agent memory ${memory._id.toString()}:`,
+        error,
+      );
+      skipped += 1;
+    }
   }
   return { embedded, skipped };
 }

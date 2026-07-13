@@ -275,13 +275,17 @@ export async function loadAgentMemoryGraph() {
     memoryId: { $in: memories.map((memory) => memory._id) },
   })
     .select("+vector")
-    .sort({ createdAt: 1 })
+    .sort({ createdAt: -1 })
     .limit(MAX_GRAPH_EMBEDDINGS)
     .lean();
-  // Ascending order + map overwrite keeps only the latest vector per memory.
+  // Descending order + keep-first retains the newest embeddings within the cap
+  // and the latest vector per memory.
   const latestByMemory = new Map<string, number[]>();
   for (const doc of embeddingDocs) {
-    latestByMemory.set(doc.memoryId.toString(), doc.vector);
+    const memoryId = doc.memoryId.toString();
+    if (!latestByMemory.has(memoryId)) {
+      latestByMemory.set(memoryId, doc.vector);
+    }
   }
 
   const graph = buildAgentMemoryGraph(
