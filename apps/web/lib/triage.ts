@@ -64,7 +64,7 @@ const ASSIGNMENT_TYPES: CourseAssignmentType[] = [
 
 type TriageBodyMode = "classification" | "extraction";
 
-interface ClassificationResult {
+export interface ClassificationResult {
   category: TriageCategory;
   confidence: number;
   summary: string;
@@ -72,7 +72,7 @@ interface ClassificationResult {
   needsEventExtraction: boolean;
 }
 
-interface ExtractionResult {
+export interface ExtractionResult {
   tasks: {
     title: string;
     description?: string;
@@ -103,7 +103,7 @@ interface ExtractionResult {
 
 interface FullTriageResult extends ClassificationResult, ExtractionResult {}
 
-interface CompactKanbanTarget {
+export interface CompactKanbanTarget {
   key: string;
   boardId: string;
   boardTitle: string;
@@ -125,7 +125,7 @@ interface CourseTargetEvent {
   date: string;
 }
 
-interface CourseTarget {
+export interface CourseTarget {
   key: string;
   courseId: string;
   name: string;
@@ -146,13 +146,13 @@ interface TriageRunStats {
   errors: number;
 }
 
-interface TriageEmailContext {
+export interface TriageEmailContext {
   subject: string;
   from: { name: string | undefined; address: string }[];
   date: Date;
 }
 
-interface PrefilterEmailCandidate {
+export interface PrefilterEmailCandidate {
   _id: string;
   subject: string;
   from: TriageEmailContext["from"];
@@ -546,7 +546,7 @@ function getToolInput(
   return undefined;
 }
 
-async function runPrefilter(
+export async function runPrefilter(
   model: string,
   emails: PrefilterEmailCandidate[],
 ): Promise<string[]> {
@@ -1006,7 +1006,7 @@ function buildExtractionTool(
   };
 }
 
-async function runClassification(
+export async function runClassification(
   model: string,
   email: TriageEmailContext,
   body: { text: string; html: string },
@@ -1074,7 +1074,7 @@ async function runClassification(
   return result;
 }
 
-async function runExtraction(
+export async function runExtraction(
   model: string,
   email: TriageEmailContext,
   body: {

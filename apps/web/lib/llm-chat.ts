@@ -224,6 +224,23 @@ export function hasPendingToolContinuation(
   return frame.toolUseBlocks.some((toolUse) => !resultMap.has(toolUse.id));
 }
 
+// Minimal structural view of an Anthropic message stream so the agent loop
+// can run against an injected transport (service adapter or test fake).
+export interface AgentMessageStream
+  extends AsyncIterable<Anthropic.MessageStreamEvent> {
+  emitted(event: "connect"): Promise<unknown>;
+  finalMessage(): Promise<Anthropic.Message>;
+  abort(): void;
+}
+
+export interface AgentTransport {
+  streamMessages(params: Anthropic.MessageStreamParams): AgentMessageStream;
+}
+
+const defaultTransport: AgentTransport = {
+  streamMessages: (params) => anthropic.messages.stream(params),
+};
+
 interface AgenticStreamParams {
   system: string;
   messages: Anthropic.MessageParam[];
@@ -236,6 +253,12 @@ interface AgenticStreamParams {
     messages: Anthropic.MessageParam[],
     tokenUsage?: TokenUsage,
   ) => Promise<void>;
+  // Seams owned by the LLM service; defaults preserve current behavior.
+  transport?: AgentTransport;
+  maxTokens?: number;
+  useAdaptiveThinking?: boolean;
+  computeCost?: typeof calculateCost;
+  logUsage?: (...args: Parameters<typeof logLlmUsage>) => void | Promise<void>;
 }
 
 export function createAgenticSSEStream({
@@ -247,6 +270,11 @@ export function createAgenticSSEStream({
   toolApprovals,
   clientToolResults,
   onPersist,
+  transport = defaultTransport,
+  maxTokens: maxTokensOverride,
+  useAdaptiveThinking,
+  computeCost = calculateCost,
+  logUsage = logLlmUsage,
 }: AgenticStreamParams): ReadableStream {
   const encoder = new TextEncoder();
   let totalInputTokens = 0;
@@ -254,7 +282,7 @@ export function createAgenticSSEStream({
   let totalCacheCreationInputTokens = 0;
   let totalCacheReadInputTokens = 0;
   let iterations = 0;
-  let activeStream: ReturnType<typeof anthropic.messages.stream> | null = null;
+  let activeStream: AgentMessageStream | null = null;
   let aborted = false;
 
   return new ReadableStream({
@@ -291,13 +319,13 @@ export function createAgenticSSEStream({
           cacheCreationInputTokens: totalCacheCreationInputTokens,
           cacheReadInputTokens: totalCacheReadInputTokens,
         };
-        const costUsd = calculateCost(
+        const costUsd = computeCost(
           model,
           totalInputTokens,
           totalOutputTokens,
           cacheUsage,
         );
-        logLlmUsage({
+        logUsage({
           llmModel: model,
           inputTokens: totalInputTokens,
           outputTokens: totalOutputTokens,
@@ -520,7 +548,8 @@ export function createAgenticSSEStream({
         }
 
         // ===== Main agentic loop =====
-        const useThinking = supportsAdaptiveThinking(model);
+        const useThinking =
+          useAdaptiveThinking ?? supportsAdaptiveThinking(model);
         const cachedSystem: Anthropic.TextBlockParam[] = [
           {
             type: "text",
@@ -533,7 +562,7 @@ export function createAgenticSSEStream({
           if (aborted) return;
           iterations++;
 
-          const maxTokens = getMaxTokens(model);
+          const maxTokens = maxTokensOverride ?? getMaxTokens(model);
           let streamStarted = false;
 
           for (
@@ -542,7 +571,7 @@ export function createAgenticSSEStream({
             rateLimitAttempt++
           ) {
             try {
-              activeStream = anthropic.messages.stream({
+              activeStream = transport.streamMessages({
                 model: model as Anthropic.Model,
                 max_tokens: maxTokens,
                 system: cachedSystem,

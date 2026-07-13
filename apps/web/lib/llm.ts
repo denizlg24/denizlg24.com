@@ -8,6 +8,9 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 export const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
+  // Resolve fetch at call time so runtime fetch replacements (tests, tracing)
+  // are honored even though the client is constructed at import time.
+  fetch: (input, init) => globalThis.fetch(input, init),
 });
 
 // Cost per 1M tokens (USD)
