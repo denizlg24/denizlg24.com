@@ -315,6 +315,12 @@ function convertApiMessagesToDisplay(
       if (displayMsg.tokenUsage) {
         prevDisplay.tokenUsage = displayMsg.tokenUsage;
       }
+      if (displayMsg.retrievalTraceId) {
+        prevDisplay.retrievalTraceId = displayMsg.retrievalTraceId;
+      }
+      if (displayMsg.memoryInjected !== undefined) {
+        prevDisplay.memoryInjected = displayMsg.memoryInjected;
+      }
       continue;
     }
 

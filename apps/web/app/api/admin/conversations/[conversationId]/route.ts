@@ -1,9 +1,4 @@
-import { randomUUID } from "node:crypto";
-import {
-  agentMemoryModeSchema,
-  chatMessageSchema,
-  type IChatMessage,
-} from "@repo/schemas";
+import { agentMemoryModeSchema, chatMessageSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import {
   deleteConversation,
@@ -13,37 +8,7 @@ import {
   updateConversationMessages,
 } from "@/lib/conversations";
 import { requireAdmin } from "@/lib/require-admin";
-import type {
-  IConversationMessage,
-  StoredContentBlock,
-} from "@/models/Conversation";
-
-function isStoredContentBlock(value: unknown): value is StoredContentBlock {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "type" in value &&
-    typeof value.type === "string"
-  );
-}
-
-function toStoredMessage(message: IChatMessage): IConversationMessage | null {
-  const createdAt = new Date(message.createdAt);
-  if (Number.isNaN(createdAt.getTime())) return null;
-  if (
-    Array.isArray(message.content) &&
-    !message.content.every(isStoredContentBlock)
-  ) {
-    return null;
-  }
-  return {
-    eventId: message.eventId ?? randomUUID(),
-    role: message.role,
-    content: message.content,
-    tokenUsage: message.tokenUsage,
-    createdAt,
-  };
-}
+import { toStoredMessage } from "./message-storage";
 
 export async function GET(
   request: NextRequest,

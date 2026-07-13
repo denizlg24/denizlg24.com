@@ -203,14 +203,14 @@ function MemoryDisclosure({
           <span>Memory used</span>
         </button>
       </DialogTrigger>
-      <DialogContent className="max-h-[min(80vh,48rem)] min-w-0 overflow-hidden p-0 sm:max-w-2xl">
+      <DialogContent className="grid max-h-[min(80dvh,48rem)] min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-2xl">
         <DialogHeader className="border-b px-5 py-4">
           <DialogTitle className="text-base">Memory used</DialogTitle>
           <DialogDescription className="truncate font-mono text-[11px]">
             {traceId}
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-32 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-5 py-4">
           {loading ? (
             <div className="flex min-h-28 items-center justify-center text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
