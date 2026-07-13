@@ -1,5 +1,6 @@
 import { endOfDay, startOfDay } from "date-fns";
 import type mongoose from "mongoose";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { CalendarEvent } from "@/models/CalendarEvent";
 import type { IJournalLog, ILeanJournalLog } from "@/models/Journal";
 import { JournalLog } from "@/models/Journal";
@@ -115,6 +116,7 @@ export async function createJournal(data: {
       events: [],
       notes: [],
     });
+    await observeDomainRecordSafely("journal", journal.toObject());
     return serializeJournal(journal, timeZone);
   } catch (err) {
     console.error("Failed to create journal:", err);
@@ -134,6 +136,7 @@ export async function updateJournalContent(
       { returnDocument: "after" },
     );
     if (!updated) return null;
+    await observeDomainRecordSafely("journal", updated.toObject());
     return serializeJournal(updated, await getAppTimeZone());
   } catch (err) {
     console.error("Failed to update journal:", err);
@@ -189,6 +192,7 @@ export async function upsertJournalDayData(
         returnDocument: "after",
       });
       if (!updated) return null;
+      await observeDomainRecordSafely("journal", updated.toObject());
       return serializeJournal(updated, timeZone);
     }
 
@@ -199,6 +203,7 @@ export async function upsertJournalDayData(
       events: data.events ?? [],
       notes: data.notes ?? [],
     });
+    await observeDomainRecordSafely("journal", journal.toObject());
     return serializeJournal(journal, timeZone);
   } catch (err) {
     console.error("Failed to upsert journal day data:", err);

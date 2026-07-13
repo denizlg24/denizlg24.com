@@ -59,4 +59,19 @@ describe("agent memory domain evidence adapters", () => {
     expect(first.idempotencyKey).toBe(duplicate.idempotencyKey);
     expect(changed.idempotencyKey).not.toBe(first.idempotencyKey);
   });
+
+  test("captures journal text without copying whiteboard content", () => {
+    const evidence = buildDomainEvidence("journal", {
+      _id: "journal-1",
+      date: "2026-07-13T00:00:00.000Z",
+      content: "Finished the retrieval milestone.",
+      whiteboard: { _id: "board-1", elements: ["large", "payload"] },
+    });
+    expect(evidence).toMatchObject({
+      sourceType: "journal",
+      trust: "high",
+      sourceRef: { entityType: "journal", entityId: "journal-1" },
+    });
+    expect(evidence.snapshot).not.toContain("large");
+  });
 });

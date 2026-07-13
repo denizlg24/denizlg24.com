@@ -18,6 +18,7 @@ export type AgentDomainKind =
   | "person"
   | "project"
   | "course"
+  | "journal"
   | "email-triage";
 
 interface DomainPolicy {
@@ -121,6 +122,21 @@ function compactRecord(kind: AgentDomainKind, raw: Record<string, unknown>) {
       endsOn: raw.endsOn,
       customFields: raw.customFields,
       manualDeadlines: raw.manualDeadlines,
+    };
+  }
+  if (kind === "journal") {
+    return {
+      date: raw.date,
+      content: text(raw.content, 5_000),
+      eventIds: Array.isArray(raw.events)
+        ? raw.events
+            .slice(0, 50)
+            .map((event) => String(record(event)._id ?? ""))
+        : [],
+      noteIds: ids(raw.notes),
+      whiteboardId: record(raw.whiteboard)._id
+        ? String(record(raw.whiteboard)._id)
+        : undefined,
     };
   }
   return {
