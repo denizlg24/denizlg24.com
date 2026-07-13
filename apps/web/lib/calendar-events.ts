@@ -1,4 +1,6 @@
 import { endOfDay, startOfDay } from "date-fns";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
+import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
 import {
   CalendarEvent,
   type ICalendarEvent,
@@ -269,7 +271,9 @@ export const updateCalendarEvent = async ({
       },
     ).lean();
 
-    return updatedEvent ? serializeCalendarEvent(updatedEvent) : null;
+    if (!updatedEvent) return null;
+    await observeDomainRecordSafely("calendar", updatedEvent);
+    return serializeCalendarEvent(updatedEvent);
   } catch {
     return null;
   }
@@ -280,6 +284,8 @@ export const deleteCalendarEvent = async (id: string) => {
     await connectDB();
     const event = await CalendarEvent.findById(id).lean();
     if (!event) return false;
+
+    await redactAgentMemorySource({ entityType: "calendar", entityId: id });
 
     if (event.source) {
       await CalendarEvent.findByIdAndUpdate(id, {
@@ -318,6 +324,7 @@ export const createCalendarEvent = async (data: CalendarEventInput) => {
     }
 
     const savedEvent = await CalendarEvent.create(normalized);
+    await observeDomainRecordSafely("calendar", savedEvent.toObject());
     return serializeCalendarEvent(savedEvent.toObject());
   } catch (err) {
     console.log(err);

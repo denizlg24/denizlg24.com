@@ -1,5 +1,12 @@
+import { randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
+import type { AgentMemoryMode } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
+import {
+  type ChatMemoryRetrievalResult,
+  loadInjectedMemoryContext,
+  retrieveMemoriesForChat,
+} from "@/lib/agent-memory/retrieval";
 import {
   getConversation,
   updateConversationMessages,
@@ -125,6 +132,21 @@ function messageContentToStored(
   });
 }
 
+function messageTextForRetrieval(message: unknown): string {
+  if (typeof message === "string") return message;
+  if (!Array.isArray(message)) return "";
+  return message
+    .filter(
+      (block): block is { type: "text"; text: string } =>
+        !!block &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "text" &&
+        typeof (block as { text?: unknown }).text === "string",
+    )
+    .map((block) => block.text)
+    .join("\n");
+}
+
 export const POST = async (req: NextRequest) => {
   const adminError = await requireAdmin(req);
   if (adminError) return adminError;
@@ -189,10 +211,18 @@ export const POST = async (req: NextRequest) => {
 
     const messages: Anthropic.MessageParam[] = [];
     const existingTokenUsage = new Map<number, TokenUsage>();
+    const existingEventIds = new Map<number, string>();
+    const existingCreatedAt = new Map<number, Date>();
+    const existingRetrievalTraceIds = new Map<number, string>();
+    const existingMemoryInjected = new Map<number, boolean>();
+    let memoryMode: AgentMemoryMode = "enabled";
+    let inheritedRetrievalTraceId: string | undefined;
+    let inheritedMemoryInjected = false;
 
     if (conversationId) {
       const conversation = await getConversation(conversationId);
       if (conversation) {
+        memoryMode = conversation.memoryMode;
         for (const msg of conversation.messages) {
           const index = messages.length;
           messages.push({
@@ -202,6 +232,18 @@ export const POST = async (req: NextRequest) => {
           if (msg.tokenUsage) {
             existingTokenUsage.set(index, msg.tokenUsage);
           }
+          if (msg.eventId) existingEventIds.set(index, msg.eventId);
+          if (msg.retrievalTraceId) {
+            existingRetrievalTraceIds.set(index, msg.retrievalTraceId);
+            inheritedRetrievalTraceId = msg.retrievalTraceId;
+          }
+          if (msg.memoryInjected !== undefined) {
+            existingMemoryInjected.set(index, msg.memoryInjected);
+            if (msg.retrievalTraceId) {
+              inheritedMemoryInjected = msg.memoryInjected;
+            }
+          }
+          existingCreatedAt.set(index, msg.createdAt);
         }
       }
     }
@@ -241,7 +283,42 @@ export const POST = async (req: NextRequest) => {
       tools.push(webSearchTool);
     }
 
-    const system = buildSystemPrompt(await getAppTimeZone());
+    let memoryRetrieval: ChatMemoryRetrievalResult | null = null;
+    if (message) {
+      try {
+        memoryRetrieval = await retrieveMemoriesForChat({
+          conversationId,
+          requestId: randomUUID(),
+          query: messageTextForRetrieval(message),
+          memoryMode,
+        });
+      } catch (error) {
+        console.error("Agent memory retrieval failed", {
+          error: error instanceof Error ? error.message : "unknown error",
+        });
+      }
+    }
+    let personalMemoryContext = memoryRetrieval?.context ?? null;
+    if (!message && inheritedMemoryInjected && inheritedRetrievalTraceId) {
+      try {
+        personalMemoryContext = await loadInjectedMemoryContext(
+          inheritedRetrievalTraceId,
+        );
+      } catch (error) {
+        console.error("Agent memory continuation context failed", {
+          error: error instanceof Error ? error.message : "unknown error",
+        });
+      }
+    }
+    const activeRetrievalTraceId = message
+      ? memoryRetrieval?.traceId
+      : inheritedRetrievalTraceId;
+    const memoryInjected = message
+      ? (memoryRetrieval?.injected ?? false)
+      : inheritedMemoryInjected && personalMemoryContext !== null;
+    const timeZone = await getAppTimeZone();
+    const logSystemPrompt = buildSystemPrompt(timeZone);
+    const system = buildSystemPrompt(timeZone, personalMemoryContext);
 
     const onPersist = async (
       msgs: Anthropic.MessageParam[],
@@ -254,6 +331,7 @@ export const POST = async (req: NextRequest) => {
         const isLastAssistant = i === msgs.length - 1 && m.role === "assistant";
 
         return {
+          eventId: existingEventIds.get(i) ?? randomUUID(),
           role:
             m.role === "assistant" ? ("assistant" as const) : ("user" as const),
           content: messageContentToStored(m.content),
@@ -262,7 +340,17 @@ export const POST = async (req: NextRequest) => {
             : preserved
               ? { tokenUsage: preserved }
               : {}),
-          createdAt: new Date(),
+          ...(existingRetrievalTraceIds.get(i)
+            ? { retrievalTraceId: existingRetrievalTraceIds.get(i) }
+            : isLastAssistant && activeRetrievalTraceId
+              ? { retrievalTraceId: activeRetrievalTraceId }
+              : {}),
+          ...(existingMemoryInjected.has(i)
+            ? { memoryInjected: existingMemoryInjected.get(i) }
+            : isLastAssistant && activeRetrievalTraceId
+              ? { memoryInjected }
+              : {}),
+          createdAt: existingCreatedAt.get(i) ?? new Date(),
         };
       });
 
@@ -275,6 +363,7 @@ export const POST = async (req: NextRequest) => {
       purpose: "chat",
       source: "dashboard-chat",
       system,
+      logSystemPrompt,
       messages,
       model,
       tools: tools.length > 0 ? tools : undefined,
@@ -291,6 +380,12 @@ export const POST = async (req: NextRequest) => {
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
         "X-RateLimit-Remaining": String(remaining),
+        ...(activeRetrievalTraceId
+          ? { "X-Agent-Memory-Trace-Id": activeRetrievalTraceId }
+          : {}),
+        ...(activeRetrievalTraceId
+          ? { "X-Agent-Memory-Injected": String(memoryInjected) }
+          : {}),
       },
     });
   } catch (error) {

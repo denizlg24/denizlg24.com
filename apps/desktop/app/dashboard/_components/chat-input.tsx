@@ -12,10 +12,19 @@ import {
 } from "@repo/ui/attachment";
 import { Label } from "@repo/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/select";
 import { Spinner } from "@repo/ui/spinner";
 import { Switch } from "@repo/ui/switch";
 import {
   ArrowUp,
+  Brain,
+  EyeOff,
   FileText,
   Image,
   Paperclip,
@@ -33,7 +42,7 @@ import {
 } from "react";
 import { ModelSelector } from "@/components/ui/model-selector";
 import type { ModelCatalogState } from "@/hooks/use-model-catalog";
-import type { IChatAttachment } from "@/lib/data-types";
+import type { AgentMemoryMode, IChatAttachment } from "@/lib/data-types";
 
 const ACCEPTED_TYPES =
   "image/jpeg,image/png,image/gif,image/webp,application/pdf";
@@ -83,6 +92,25 @@ function getAttachmentDescription(att: IChatAttachment): string {
   return formatAttachmentSize(att.file.size);
 }
 
+const MEMORY_MODE_COPY: Record<
+  AgentMemoryMode,
+  { label: string; helper: string }
+> = {
+  enabled: {
+    label: "Memory on",
+    helper: "Learns from this chat and can use relevant memory.",
+  },
+  "retrieval-off": {
+    label: "Learning only",
+    helper: "Learns from this chat without using memory in replies.",
+  },
+  incognito: {
+    label: "Incognito",
+    helper: "Creates no evidence, feedback, memory, or retrieval trace.",
+  },
+};
+const MEMORY_MODES = Object.keys(MEMORY_MODE_COPY) as AgentMemoryMode[];
+
 export function ChatInput({
   value,
   onChange,
@@ -101,6 +129,9 @@ export function ChatInput({
   onToolsEnabledChange,
   webSearchEnabled,
   onWebSearchEnabledChange,
+  memoryMode,
+  onMemoryModeChange,
+  incognitoLocked,
   attachments,
   onAttachmentsChange,
 }: {
@@ -121,6 +152,9 @@ export function ChatInput({
   onToolsEnabledChange?: (enabled: boolean) => void;
   webSearchEnabled?: boolean;
   onWebSearchEnabledChange?: (enabled: boolean) => void;
+  memoryMode: AgentMemoryMode;
+  onMemoryModeChange: (mode: AgentMemoryMode) => void;
+  incognitoLocked?: boolean;
   attachments?: IChatAttachment[];
   onAttachmentsChange?: (attachments: IChatAttachment[]) => void;
 }) {
@@ -317,6 +351,40 @@ export function ChatInput({
                   onRetry={modelCatalog.retry}
                   requiredCapabilities={requiredCapabilities}
                 />
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="memory-mode" className="text-sm">
+                    Memory
+                  </Label>
+                  <Select
+                    value={memoryMode}
+                    onValueChange={(value) =>
+                      onMemoryModeChange(value as AgentMemoryMode)
+                    }
+                  >
+                    <SelectTrigger id="memory-mode" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="start">
+                      {MEMORY_MODES.map((mode) => (
+                        <SelectItem
+                          key={mode}
+                          value={mode}
+                          disabled={mode === "incognito" && incognitoLocked}
+                        >
+                          {MEMORY_MODE_COPY[mode].label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs leading-4 text-muted-foreground">
+                    {MEMORY_MODE_COPY[memoryMode].helper}
+                  </p>
+                  {incognitoLocked && memoryMode !== "incognito" && (
+                    <p className="text-xs leading-4 text-muted-foreground">
+                      Start a new conversation to use Incognito.
+                    </p>
+                  )}
+                </div>
                 {onToolsEnabledChange && (
                   <div className="flex items-center justify-between">
                     <Label
@@ -396,6 +464,17 @@ export function ChatInput({
             </button>
           )}
         </div>
+      </div>
+      <div
+        className="mt-1.5 flex min-h-4 items-center justify-center gap-1.5 text-[11px] text-muted-foreground"
+        role="status"
+      >
+        {memoryMode === "incognito" ? (
+          <EyeOff className="size-3" aria-hidden="true" />
+        ) : (
+          <Brain className="size-3" aria-hidden="true" />
+        )}
+        <span>{MEMORY_MODE_COPY[memoryMode].label}</span>
       </div>
     </div>
   );

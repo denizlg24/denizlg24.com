@@ -1,4 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
+import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
 import { connectDB } from "@/lib/mongodb";
 import {
   getProjectById,
@@ -53,6 +55,7 @@ export async function PATCH(
           { status: 404 },
         );
       }
+      await observeDomainRecordSafely("project", project);
       revalidateProjectsContent();
       return NextResponse.json(
         { message: "Project visibility toggled successfully", project },
@@ -76,6 +79,13 @@ export async function PATCH(
       )
         .lean()
         .exec();
+      if (!project) {
+        return NextResponse.json(
+          { error: "Project not found" },
+          { status: 404 },
+        );
+      }
+      await observeDomainRecordSafely("project", project);
       revalidateProjectsContent();
       return NextResponse.json(
         { message: "Project featured status toggled successfully", project },
@@ -97,6 +107,7 @@ export async function PATCH(
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
+    await observeDomainRecordSafely("project", project);
     revalidateProjectsContent();
     return NextResponse.json(
       {
@@ -127,11 +138,13 @@ export async function DELETE(
   try {
     const { id } = await params;
     await connectDB();
-    const project = await Project.findByIdAndDelete(id);
+    const project = await Project.findById(id);
 
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
+    await redactAgentMemorySource({ entityType: "project", entityId: id });
+    await Project.deleteOne({ _id: id });
 
     revalidateProjectsContent();
     return NextResponse.json(

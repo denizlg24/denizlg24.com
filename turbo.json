@@ -7,6 +7,7 @@
   "globalDependencies": [".env"],
   "globalPassThroughEnv": [
     "ADMIN_SECRET",
+    "AGENT_MEMORY_JOB_BEARER_TOKEN",
     "AI_GATEWAY_API_KEY",
     "BETTER_AUTH_SECRET",
     "BETTER_AUTH_URL",

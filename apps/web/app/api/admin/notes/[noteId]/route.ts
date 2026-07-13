@@ -1,4 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
+import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
 import { connectDB } from "@/lib/mongodb";
 import { pruneGroupIds, serializeNote } from "@/lib/note-route-utils";
 import { requireAdmin } from "@/lib/require-admin";
@@ -84,6 +86,7 @@ async function updateNote(request: NextRequest, noteId: string) {
   if (!note) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  await observeDomainRecordSafely("note", note);
 
   return NextResponse.json({ note: serializeNote(note) }, { status: 200 });
 }
@@ -154,10 +157,12 @@ export async function DELETE(
     const { noteId } = await params;
     await connectDB();
 
-    const note = await Note.findByIdAndDelete(noteId).lean<ILeanNote>().exec();
+    const note = await Note.findById(noteId).lean<ILeanNote>().exec();
     if (!note) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
+    await redactAgentMemorySource({ entityType: "note", entityId: noteId });
+    await Note.deleteOne({ _id: noteId }).exec();
 
     await NoteEdge.deleteMany({
       $or: [{ from: note._id }, { to: note._id }],

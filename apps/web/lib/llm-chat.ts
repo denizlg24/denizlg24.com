@@ -240,6 +240,7 @@ export interface AgentTransport {
 
 interface AgenticStreamParams {
   system: string;
+  logSystemPrompt?: string;
   messages: Anthropic.MessageParam[];
   model: string;
   tools?: Anthropic.ToolUnion[];
@@ -273,6 +274,7 @@ interface AgenticStreamParams {
 
 export function createAgenticSSEStream({
   system,
+  logSystemPrompt,
   messages,
   model,
   tools,
@@ -340,7 +342,7 @@ export function createAgenticSSEStream({
           inputTokens: totalInputTokens,
           outputTokens: totalOutputTokens,
           costUsd,
-          systemPrompt: system,
+          systemPrompt: logSystemPrompt ?? system,
           userPrompt: source,
           source,
         });

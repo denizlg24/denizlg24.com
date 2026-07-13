@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { connectDB } from "@/lib/mongodb";
 import { getAllProjects, sanitizeProjectTopicGroups } from "@/lib/projects";
 import { revalidateProjectsContent } from "@/lib/public-content-revalidation";
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
       isFeatured: isFeatured !== undefined ? isFeatured : false,
       order,
     });
+    await observeDomainRecordSafely("project", project.toObject());
     revalidateProjectsContent();
     return NextResponse.json(
       {

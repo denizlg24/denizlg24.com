@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
+import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
 import { syncBirthdayEventsForPerson } from "@/lib/calendar-sync";
 import { connectDB } from "@/lib/mongodb";
 import {
@@ -189,6 +191,7 @@ export async function createPerson(
 
   const created = await Person.findById(person._id).lean<ILeanPerson>().exec();
   if (!created) throw new Error("Created person could not be reloaded");
+  await observeDomainRecordSafely("person", created);
   return serializePerson(created);
 }
 
@@ -240,6 +243,7 @@ export async function updatePerson(
     await syncBirthdayEventsForPerson(id, [year, year + 1, year + 2], person);
   }
 
+  await observeDomainRecordSafely("person", person);
   return serializePerson(person);
 }
 
@@ -247,8 +251,10 @@ export async function deletePerson(id: string): Promise<boolean> {
   if (!mongoose.Types.ObjectId.isValid(id)) return false;
   await connectDB();
 
-  const person = await Person.findByIdAndDelete(id).exec();
+  const person = await Person.findById(id).exec();
   if (!person) return false;
+  await redactAgentMemorySource({ entityType: "person", entityId: id });
+  await Person.deleteOne({ _id: id }).exec();
 
   await Promise.all([
     PersonEdge.deleteMany({ $or: [{ from: id }, { to: id }] }).exec(),

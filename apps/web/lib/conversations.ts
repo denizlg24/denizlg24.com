@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import type { AgentMemoryMode } from "@repo/schemas";
 import { Types } from "mongoose";
 import {
   Conversation,
@@ -5,6 +7,8 @@ import {
   type ILeanConversation,
   type StoredContentBlock,
 } from "@/models/Conversation";
+import { observeConversationMessages } from "./agent-memory/evidence";
+import { redactAgentMemorySource } from "./agent-memory/source-deletion";
 import { connectDB } from "./mongodb";
 import { isClientTool, isWriteTool } from "./tools/registry";
 
@@ -83,6 +87,7 @@ interface ConversationListRow {
   _id: Types.ObjectId;
   title: string;
   llmModel: string;
+  memoryMode: AgentMemoryMode;
   updatedAt: Date;
 }
 
@@ -139,7 +144,7 @@ export async function getAllConversations(options: ConversationListOptions) {
   const rowsLimit = options.limit + 1;
   const [conversations, totalRows] = await Promise.all([
     Conversation.find(query)
-      .select("title llmModel updatedAt")
+      .select("title llmModel memoryMode updatedAt")
       .sort({ updatedAt: -1, _id: -1 })
       .skip(effectiveOffset)
       .limit(rowsLimit)
@@ -158,6 +163,7 @@ export async function getAllConversations(options: ConversationListOptions) {
       _id: c._id.toString(),
       title: c.title,
       llmModel: c.llmModel,
+      memoryMode: c.memoryMode ?? "enabled",
       updatedAt: c.updatedAt.toISOString(),
     })),
     totalRows,
@@ -177,6 +183,7 @@ export async function getConversation(id: string) {
     _id: conversation._id.toString(),
     title: conversation.title,
     llmModel: conversation.llmModel,
+    memoryMode: conversation.memoryMode ?? "enabled",
     messages: withPendingActions(conversation.messages),
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
@@ -186,12 +193,14 @@ export async function getConversation(id: string) {
 export async function createConversation(data: {
   title: string;
   llmModel: string;
+  memoryMode?: AgentMemoryMode;
 }) {
   await connectDB();
 
   const conversation = await Conversation.create({
     title: data.title,
     llmModel: data.llmModel,
+    memoryMode: data.memoryMode ?? "enabled",
     messages: [],
   });
 
@@ -203,20 +212,88 @@ export async function updateConversationMessages(
   messages: ILeanConversation["messages"],
 ) {
   await connectDB();
+  const session = await Conversation.startSession();
+  try {
+    const conversation = await session.withTransaction(
+      async (): Promise<ILeanConversation | null> => {
+        const existing = await Conversation.findById(id)
+          .select("messages.eventId messages.createdAt memoryMode")
+          .session(session)
+          .lean<Pick<ILeanConversation, "messages" | "memoryMode">>();
+        if (!existing) return null;
 
-  const conversation = await Conversation.findByIdAndUpdate(
-    id,
-    { messages, updatedAt: new Date() },
-    { returnDocument: "after" },
-  ).lean();
+        const normalizedMessages = messages.map((message, index) => ({
+          ...message,
+          eventId:
+            existing.messages[index]?.eventId ??
+            message.eventId ??
+            randomUUID(),
+          createdAt: existing.messages[index]?.createdAt ?? message.createdAt,
+        }));
+        const updated = await Conversation.findByIdAndUpdate(
+          id,
+          { messages: normalizedMessages, updatedAt: new Date() },
+          { returnDocument: "after", session },
+        ).lean<ILeanConversation>();
+        if (!updated) return null;
+
+        const existingEventIds = new Set(
+          existing.messages.map((message) => message.eventId).filter(Boolean),
+        );
+        const newMessages = updated.messages.filter(
+          (message) =>
+            !!message.eventId && !existingEventIds.has(message.eventId),
+        );
+        if (newMessages.length > 0) {
+          await observeConversationMessages({
+            conversationId: id,
+            memoryMode: existing.memoryMode ?? "enabled",
+            messages: newMessages,
+            session,
+          });
+        }
+        return updated;
+      },
+    );
+    return conversation
+      ? { ...conversation, _id: conversation._id.toString() }
+      : null;
+  } finally {
+    await session.endSession();
+  }
+}
+
+export class IncognitoConversationConflictError extends Error {
+  constructor() {
+    super("Start a new conversation to use incognito mode");
+    this.name = "IncognitoConversationConflictError";
+  }
+}
+
+export async function updateConversationMemoryMode(
+  id: string,
+  memoryMode: AgentMemoryMode,
+) {
+  await connectDB();
+  const conversation = await Conversation.findById(id);
   if (!conversation) return null;
-
-  return { ...conversation, _id: conversation._id.toString() };
+  if (memoryMode === "incognito" && conversation.messages.length > 0) {
+    throw new IncognitoConversationConflictError();
+  }
+  conversation.memoryMode = memoryMode;
+  await conversation.save();
+  return { ...conversation.toObject(), _id: conversation._id.toString() };
 }
 
 export async function deleteConversation(id: string): Promise<boolean> {
   await connectDB();
 
+  const exists = await Conversation.exists({ _id: id });
+  if (!exists) return false;
+  await redactAgentMemorySource({
+    entityType: "conversation",
+    entityId: id,
+  });
   const result = await Conversation.deleteOne({ _id: id });
   return result.deletedCount > 0;
 }

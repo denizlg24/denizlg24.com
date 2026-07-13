@@ -24,6 +24,86 @@
 - **Category**: direction, architecture, security, data
 - **Planned at**: commit `a506766`, 2026-07-12
 
+### Implementation checkpoint (2026-07-13)
+
+- Work is on `feat/personal-agent-memory`; the implementation is split into
+  reviewable architecture, persistence, governance, embedding, formation,
+  retrieval, evaluation, console and source-adapter commits.
+- Step 0 and the Gate A foundation are implemented: architecture/threat model,
+  shared contracts, 16 separate persistence models and indexes, policy and
+  secret filtering, revisioned governance/audit APIs, leased jobs, transactional
+  conversation evidence/outbox persistence, immutable event IDs, and
+  server-enforced enabled/retrieval-off/incognito modes.
+- Gates A-F are released in the live settings. Gate D injects bounded,
+  provenance-labelled read-only memory only into enabled dashboard chat. Gate E
+  adds governed goals and procedures, an evidence-backed user-model projection,
+  bounded incremental reflection, immutable run/revision history, exception
+  review and rollback.
+- Gate A's recorded release verification covers a deterministic 50-event sample
+  backed by an invariant scan of all 2,620 stored events across seven domains.
+  The scan found zero denied matches, invalid provenance, trust mismatches, or
+  oversized snapshots; two credential-bearing source records were rejected
+  before persistence.
+- Gate A observation now covers conversations/tool results plus bounded note,
+  calendar, person, project, course, journal and email-triage mutation adapters.
+  Source deletion now transactionally redacts evidence and removes derived
+  candidates, memories, revisions, embeddings, traces, jobs, and downstream
+  projections for conversation and the seven backfilled domains. Feedback,
+  file/manual ingestion and additional canonical domains remain incomplete.
+- The prior Gate C STOP is resolved: `../deniz-cloud` now runs MongoDB Community
+  8.2.11 with self-managed `mongot`, and the live database accepts
+  `listSearchIndexes`. The application contract is
+  `agent_memory_embeddings.agent_memory_vector_v1` over `vector` (1,536d,
+  cosine, scalar quantization) with `model`, `sensitivity`, `status`,
+  `memoryType`, and `validUntil` filters. The live index is READY/queryable, the
+  exact contract matcher passes, and a real filtered vector query succeeds.
+- Gate B formation now uses a forced, schema-constrained tool result with strict
+  provenance/policy checks and redacted LLM usage logging. Its six-item live
+  release sample produced five safe active memories and correctly queued one
+  conflict for review, with zero denied, permission-like, or trust-escalated
+  outputs. Gate C hybrid retrieval was validated in non-injecting shadow mode
+  and now supplies Gate D with deterministic
+  scoring, hard filters, budgets, abstention, source-outage fallback, traces,
+  owner-only trace APIs and a shared web/desktop inspection console.
+- The seven-case `agent-memory-retrieval-v1` synthetic suite passes every
+  initial numeric Gate C threshold. Five live embeddings were written and a
+  real filtered vector retrieval returned five candidates without backend
+  fallback while recording `injected: false`. Historical backfill processed
+  2,622 records into 2,620 accepted evidence events; its remaining formation
+  jobs are queued for the bounded worker.
+- Gate D was released from owner-labelled trace
+  `8f1f3601-a2d5-4e31-9306-096c6a53c357`. A controlled same-model comparison
+  showed the no-memory baseline failing to answer within 300 output tokens,
+  while the memory context produced the complete evidence-grounded Calculus II
+  answer in 110 output tokens at lower measured cost. The injected context is
+  XML-escaped, independently budgeted, reconstructed safely across tool
+  continuations, omitted from usage logs, attached to the assistant turn, and
+  exposed through owner-only Useful/Not relevant/Correct/Forget controls.
+- Gate E was released after two manual passes over the same five-memory sample.
+  The first pass projected five chunks backed by three valid evidence events and
+  left one conflict candidate pending; the second pass produced no projection
+  write. Rolling back revision 1 created an auditable revision 2 with identical
+  section content and the exact prior source-memory checkpoint, and replay after
+  rollback was again idempotent. Only the verified user-model projection class
+  changes automatically; conflict, weak-inference, identity-merge and
+  permission-like candidates remain in exception review. Reflection is bounded
+  to 25 changed memories per job and scheduled daily at 04:00 UTC.
+- Gate F was released from a labelled five-insight live sample (run
+  `6a553036ffd38069470353c9`): one in-app daily briefing plus four silent-draft
+  memory-contradiction reviews, all evidence-linked with prepare-only proposed
+  actions; three replay sweeps created zero records under idempotency-key
+  duplicate suppression. The deterministic insight engine (no LLM calls) scans
+  hourly through the shared job route for goal deadlines, calendar conflicts,
+  stale agent follow-ups, accepted contradictions and repeated tool failures,
+  scores usefulness/urgency/confidence/interruption cost against feedback-
+  derived category preference, rate-limits per category/day, abstains below
+  0.4 confidence, and decides prepare-versus-interrupt delivery. Dismiss/
+  Snooze/Useful controls in the shared web/desktop Inbox tab record
+  suggestion-accepted/dismissed feedback that adapts future delivery below the
+  configured ceiling. External delivery stays off (`externalDelivery: false`);
+  a static test proves the engine imports no tool, LLM or notification
+  channel, so execution remains behind the existing approval path.
+
 ## Outcome
 
 Build a persistent personal-memory layer around the single `LlmService` from
@@ -885,8 +965,8 @@ output.
 
 ## Done criteria
 
-- [ ] Plan 014 is DONE and all memory LLM/embedding calls use its `LlmService`.
-- [ ] Evidence, candidates, active projections, revisions and embeddings are
+- [x] Plan 014 is DONE and all memory LLM/embedding calls use its `LlmService`.
+- [x] Evidence, candidates, active projections, revisions and embeddings are
       separate and linked by provenance.
 - [ ] `AgentUserModel` is a comprehensive, versioned and automatically updated
       projection spanning identity, life context, work, relationships,
@@ -904,17 +984,17 @@ output.
       similarity alone—and respects item/token budgets.
 - [ ] Memory is default-on for personal-chat requests except retrieval-off/
       incognito overrides and is labelled data, never authority.
-- [ ] Existing tool approval/client execution behavior is unchanged.
+- [x] Existing tool approval/client execution behavior is unchanged.
 - [ ] Goals and procedures have explicit lifecycle/status/provenance.
 - [ ] Reflection automatically maintains reversible derived memories and the
       comprehensive user model while never changing authority/system policy.
 - [ ] Export, rollback and deletion pass round-trip/cascade tests.
-- [ ] Proactive inbox/daily briefings run by default and adapt timing/topics
+- [x] Proactive inbox/daily briefings run by default and adapt timing/topics
       below the configured ceiling; no unapproved consequential execution
       exists.
 - [ ] Resumable backfill covers all supported historical domains by default,
       with progress, pause/cancel and exclusions.
-- [ ] Memory governance APIs/jobs require admin/job authorization and shared
+- [x] Memory governance APIs/jobs require admin/job authorization and shared
       Zod contracts.
 - [ ] Poisoning fixtures produce zero authority bypasses or instruction-derived
       procedures; descriptive external claims remain source-weighted and cannot

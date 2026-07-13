@@ -39,6 +39,8 @@ export interface StreamResult {
   pendingActions: IChatPendingAction[];
   clientToolResults: ClientToolResult[];
   paused?: boolean;
+  retrievalTraceId?: string;
+  memoryInjected?: boolean;
 }
 
 export interface StreamError {
@@ -123,6 +125,8 @@ export function useChatStream(API: denizApi | null) {
         body.clientToolResults ? [...body.clientToolResults] : [];
       let clientToolRequests: ClientToolRequest[] = [];
       let accumulated = "";
+      let retrievalTraceId: string | undefined;
+      let memoryInjected = false;
 
       const pushUpdate = () => setStreamSegments([...segments]);
 
@@ -260,6 +264,12 @@ export function useChatStream(API: denizApi | null) {
             setIsStreaming(false);
             return { error: result.message ?? "Request failed" };
           }
+
+          retrievalTraceId =
+            result.headers.get("x-agent-memory-trace-id") ?? retrievalTraceId;
+          memoryInjected =
+            result.headers.get("x-agent-memory-injected") === "true" ||
+            memoryInjected;
 
           reader = result.body?.getReader();
           if (!reader) {
@@ -416,6 +426,8 @@ export function useChatStream(API: denizApi | null) {
                   pendingActions,
                   clientToolResults: [...accumulatedClientToolResults],
                   paused: true,
+                  retrievalTraceId,
+                  memoryInjected,
                 };
               } else if (event.type === "done") {
                 setIsStreaming(false);
@@ -425,6 +437,8 @@ export function useChatStream(API: denizApi | null) {
                   segments: [...segments],
                   pendingActions,
                   clientToolResults: [...accumulatedClientToolResults],
+                  retrievalTraceId,
+                  memoryInjected,
                 };
               } else if (event.type === "error") {
                 setIsStreaming(false);
@@ -450,6 +464,8 @@ export function useChatStream(API: denizApi | null) {
               segments: [...segments],
               pendingActions,
               clientToolResults: [...accumulatedClientToolResults],
+              retrievalTraceId,
+              memoryInjected,
             };
       } catch (e) {
         setIsStreaming(false);

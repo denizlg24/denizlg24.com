@@ -69,6 +69,14 @@ const catalogModels = [
     tags: [],
     pricing: {},
   },
+  {
+    id: "openai/text-embedding-3-small",
+    name: "Text Embedding 3 Small",
+    owned_by: "openai",
+    type: "embedding",
+    tags: [],
+    pricing: { input: "0.00000002" },
+  },
 ];
 
 interface RecordedRequest {
@@ -83,9 +91,10 @@ let nextMessageContent: () => unknown[] = () => [
 ];
 let nextCompletion: () => Response = () => completionResponse('{"ok":true}');
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    ...init,
+    status: init?.status ?? 200,
     headers: { "content-type": "application/json" },
   });
 }
@@ -115,6 +124,13 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.includes("/chat/completions")) {
     return nextCompletion();
   }
+  if (url.includes("/embeddings")) {
+    const dimensions = Number(body.dimensions);
+    return jsonResponse({
+      data: [{ embedding: Array.from({ length: dimensions }, () => 0.25) }],
+      usage: { prompt_tokens: 12, total_tokens: 12 },
+    });
+  }
   if (url.includes("/messages")) {
     return jsonResponse({
       id: "msg_test",
@@ -136,6 +152,7 @@ afterAll(() => {
 const { __resetCatalogForTests } = await import("./llm-model-catalog");
 const {
   countTokens,
+  embedText,
   estimateCost,
   generateJson,
   generateText,
@@ -143,6 +160,7 @@ const {
   getSemanticModel,
   listModels,
   resolveLegacyAlias,
+  resolveEmbeddingModel,
   resolveModel,
   streamAgent,
 } = await import("./llm-service");
@@ -248,13 +266,44 @@ describe("credentials", () => {
   });
 });
 
+describe("embedText", () => {
+  test("resolves an embedding model, validates dimensions, and redacts logs", async () => {
+    const result = await embedText({
+      purpose: "agent-memory-embedding",
+      source: "agent-memory-query-embedding",
+      model: "openai/text-embedding-3-small",
+      dimensions: 1_536,
+      value: "private memory text",
+    });
+    expect(result.vector).toHaveLength(1_536);
+    expect(result.usage.inputTokens).toBe(12);
+    expect(result.usage.costUsd).toBeCloseTo(0.00000024, 12);
+    expect(recordedRequests.at(-1)?.body).toMatchObject({
+      model: "openai/text-embedding-3-small",
+      dimensions: 1_536,
+      input: "private memory text",
+    });
+    expect(llmUsageCreateMock.mock.calls[0]?.[0]).toMatchObject({
+      userPrompt: "[agent-memory embedding input redacted]",
+      source: "agent-memory-query-embedding",
+    });
+  });
+
+  test("rejects language models for embedding", async () => {
+    expect(
+      resolveEmbeddingModel("anthropic/claude-haiku-4.5"),
+    ).rejects.toBeInstanceOf(LlmModelError);
+  });
+});
+
 describe("generateText", () => {
   test("sends the resolved model, returns text, and logs usage", async () => {
     const result = await generateText({
       purpose: "note-categorize",
       source: "note-categorize",
       model: "claude-haiku-4-5-20251001",
-      system: "sys",
+      system: "private memory context",
+      logSystemPrompt: "redacted system prompt",
       prompt: "prompt",
       maxTokens: 4096,
     });
@@ -269,12 +318,14 @@ describe("generateText", () => {
     expect(request?.url).toContain("ai-gateway.vercel.sh");
     expect(request?.body.model).toBe("anthropic/claude-haiku-4.5");
     expect(request?.body.max_tokens).toBe(4096);
+    expect(request?.body.system).toBe("private memory context");
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(llmUsageCreateMock.mock.calls[0]?.[0]).toMatchObject({
       llmModel: "anthropic/claude-haiku-4.5",
       source: "note-categorize",
       costUsd: result.usage.costUsd,
+      systemPrompt: "redacted system prompt",
     });
   });
 });
@@ -363,6 +414,7 @@ describe("generateJson", () => {
       source: "semantic-keyword-llm",
       system: "sys",
       user: "user",
+      logUserPrompt: "[redacted]",
       temperature: 0.2,
     });
 
@@ -376,7 +428,40 @@ describe("generateJson", () => {
       llmModel: "deepseek/deepseek-v3.2",
       inputTokens: 100,
       outputTokens: 50,
+      userPrompt: "[redacted]",
     });
+  });
+
+  test("retries without JSON mode when the model rejects response_format", async () => {
+    let attempt = 0;
+    nextCompletion = () => {
+      attempt += 1;
+      return attempt === 1
+        ? jsonResponse(
+            {
+              error: {
+                message: "Invalid input",
+                param: "response_format",
+              },
+            },
+            { status: 400 },
+          )
+        : completionResponse('{"keywords":["fallback"]}');
+    };
+
+    const result = await generateJson<{ keywords: string[] }>({
+      purpose: "semantic",
+      source: "semantic-keyword-llm",
+      system: "Return JSON.",
+      user: "user",
+    });
+
+    expect(result.json).toEqual({ keywords: ["fallback"] });
+    expect(recordedRequests).toHaveLength(2);
+    expect(recordedRequests[0]?.body.response_format).toEqual({
+      type: "json_object",
+    });
+    expect(recordedRequests[1]?.body.response_format).toBeUndefined();
   });
 
   test("resolves json null for unparseable content", async () => {

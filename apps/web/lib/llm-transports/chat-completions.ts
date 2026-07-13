@@ -41,24 +41,37 @@ export async function requestChatCompletion({
     );
   }
 
-  const response = await fetch(GATEWAY_CHAT_COMPLETIONS_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      ...(temperature !== undefined ? { temperature } : {}),
-      ...(jsonObject ? { response_format: { type: "json_object" } } : {}),
-    }),
-  });
+  const send = (includeJsonObject: boolean) =>
+    fetch(GATEWAY_CHAT_COMPLETIONS_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        ...(temperature !== undefined ? { temperature } : {}),
+        ...(includeJsonObject
+          ? { response_format: { type: "json_object" } }
+          : {}),
+      }),
+    });
+
+  let response = await send(jsonObject);
+  let errorText = response.ok ? "" : await response.text().catch(() => "");
+  if (
+    jsonObject &&
+    response.status === 400 &&
+    errorText.toLowerCase().includes("response_format")
+  ) {
+    response = await send(false);
+    errorText = response.ok ? "" : await response.text().catch(() => "");
+  }
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
     throw new LlmTransportError(
-      `Chat completion request failed: ${response.status} ${text}`.trim(),
+      `Chat completion request failed: ${response.status} ${errorText}`.trim(),
       response.status,
     );
   }
