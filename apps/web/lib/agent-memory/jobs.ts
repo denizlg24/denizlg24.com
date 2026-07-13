@@ -82,6 +82,7 @@ export async function requeueMemoryJob(options: {
     {
       $set: {
         status: "pending",
+        attempts: 0,
         availableAt: options.now ?? new Date(),
         checkpoint: options.checkpoint,
       },
