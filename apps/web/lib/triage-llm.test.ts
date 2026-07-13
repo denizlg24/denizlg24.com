@@ -4,7 +4,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 // mocked at the network layer so these tests survive transport changes: any
 // POST that carries a forced tool_choice gets a canned Messages API response.
 
-process.env.ANTHROPIC_API_KEY ??= "test-anthropic-key";
 process.env.AI_GATEWAY_API_KEY ??= "test-gateway-key";
 
 const llmUsageCreateMock = mock(

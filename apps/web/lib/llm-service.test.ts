@@ -4,7 +4,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 // before generation, configurable defaults, lazy credential checks, usage
 // attribution, and cost estimation from catalog pricing.
 
-process.env.ANTHROPIC_API_KEY ??= "test-anthropic-key";
 process.env.AI_GATEWAY_API_KEY ??= "test-gateway-key";
 // The service's agent-loop dependency pulls the tools registry, whose module
 // graph asserts unrelated credentials at import time.

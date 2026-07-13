@@ -5,9 +5,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 // "Other" on any failure (saves must never break). Mocked at the network
 // layer so the tests survive transport changes.
 
-process.env.SEMANTIC_LLM_API_KEY ??= "test-semantic-key";
 process.env.AI_GATEWAY_API_KEY ??= "test-gateway-key";
-process.env.ANTHROPIC_API_KEY ??= "test-anthropic-key";
 
 const llmUsageCreateMock = mock(
   async (_entry: Record<string, unknown>) => ({}),

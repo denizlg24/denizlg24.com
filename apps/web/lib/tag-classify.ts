@@ -1,4 +1,4 @@
-import { calculateCost, logLlmUsage } from "@/lib/llm";
+import { generateJson } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { type TagContext, TagGroup } from "@/models/TagGroup";
 
@@ -32,42 +32,11 @@ const ALLOWED_PROJECT_GROUPS = new Set<string>([
   FALLBACK_GROUP,
 ]);
 
-const DEFAULT_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_MODEL = "deepseek-chat";
 const SOURCE = "tag-topic-classify";
 const PROJECT_SOURCE = "project-topic-classify";
 
-interface ChatResponse {
-  choices?: Array<{ message?: { content?: string } }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
-}
-
-function semanticModel() {
-  return process.env.SEMANTIC_LLM_MODEL?.trim() || DEFAULT_MODEL;
-}
-
-function semanticBaseUrl() {
-  return (
-    process.env.SEMANTIC_LLM_BASE_URL?.trim() || DEFAULT_BASE_URL
-  ).replace(/\/+$/, "");
-}
-
-function semanticApiKey() {
-  return process.env.SEMANTIC_LLM_API_KEY?.trim();
-}
-
 function normalizeTag(tag: string) {
   return tag.trim().toLowerCase();
-}
-
-function parseJsonObject<T>(text: string): T | null {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try {
-    return JSON.parse(match[0]) as T;
-  } catch {
-    return null;
-  }
 }
 
 // Fixed mode (blogs): the value must be one of the allowed groups.
@@ -77,55 +46,24 @@ function coerceFixedGroup(value: unknown): string {
     : FALLBACK_GROUP;
 }
 
-// Posts a chat-completion request to the semantic LLM and returns the parsed
-// JSON object from its response, logging usage. Returns null on any failure so
-// callers can degrade to a fallback instead of breaking the save.
+// Requests a JSON-object completion from the LLM service (configured
+// semantic model). Returns null on any failure — missing credentials,
+// transport errors — so callers degrade to a fallback instead of breaking
+// the save.
 async function requestJsonCompletion(
   system: string,
   user: string,
   source: string,
 ): Promise<Record<string, unknown> | null> {
-  const apiKey = semanticApiKey();
-  if (!apiKey) return null;
-  const model = semanticModel();
-
   try {
-    const response = await fetch(`${semanticBaseUrl()}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        temperature: 0,
-        response_format: { type: "json_object" },
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Classification request failed: ${response.status}`);
-    }
-
-    const json = (await response.json()) as ChatResponse;
-    const content = json.choices?.[0]?.message?.content ?? "";
-    const inputTokens = json.usage?.prompt_tokens ?? 0;
-    const outputTokens = json.usage?.completion_tokens ?? 0;
-    await logLlmUsage({
-      llmModel: model,
-      inputTokens,
-      outputTokens,
-      costUsd: calculateCost(model, inputTokens, outputTokens),
-      systemPrompt: system,
-      userPrompt: user,
+    const { json } = await generateJson<Record<string, unknown>>({
+      purpose: "topic-classify",
       source,
+      system,
+      user,
+      temperature: 0,
     });
-
-    return parseJsonObject<Record<string, unknown>>(content) ?? {};
+    return json ?? {};
   } catch (error) {
     console.error("Classification failed:", error);
     return null;

@@ -25,7 +25,6 @@ mock.module("@/lib/tools/registry", () => ({
 
 // The real @/lib/llm module loads (transport/cost/log seams are all injected
 // below); it only needs credentials at import time and a mocked Mongo layer.
-process.env.ANTHROPIC_API_KEY ??= "test-anthropic-key";
 process.env.AI_GATEWAY_API_KEY ??= "test-gateway-key";
 mock.module("@/lib/mongodb", () => ({ connectDB: async () => {} }));
 mock.module("@/models/LlmUsage", () => ({

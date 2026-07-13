@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 import mongoose, { type QueryFilter } from "mongoose";
-import { calculateCost, logLlmUsage } from "@/lib/llm";
+import {
+  generateJson,
+  getSemanticModel,
+  resolveLegacyAlias,
+} from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import {
   pruneGroupIds,
@@ -16,8 +20,6 @@ import { type ILeanNote, type INote, Note } from "@/models/Note";
 import { NoteEdge } from "@/models/NoteEdge";
 import { type ILeanNoteGroup, NoteGroup } from "@/models/NoteGroup";
 
-const DEFAULT_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_MODEL = "deepseek-chat";
 const SOURCE = "semantic-keyword-llm";
 const MAX_NOTE_CONTENT = 4000;
 const BULK_LIMIT = 200;
@@ -26,20 +28,6 @@ interface SemanticKeywordSyncOptions {
   force?: boolean;
   missingOnly?: boolean;
   limit?: number;
-}
-
-interface ChatMessage {
-  role: "system" | "user";
-  content: string;
-}
-
-interface ChatResponse {
-  choices?: Array<{ message?: { content?: string } }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  };
 }
 
 interface KeywordResult {
@@ -81,36 +69,7 @@ interface ClassifyResult {
 }
 
 function semanticModel() {
-  return process.env.SEMANTIC_LLM_MODEL?.trim() || DEFAULT_MODEL;
-}
-
-function semanticBaseUrl() {
-  return (
-    process.env.SEMANTIC_LLM_BASE_URL?.trim() || DEFAULT_BASE_URL
-  ).replace(/\/+$/, "");
-}
-
-function semanticApiKey() {
-  return process.env.SEMANTIC_LLM_API_KEY?.trim();
-}
-
-function requireSemanticApiKey() {
-  const apiKey = semanticApiKey();
-  if (!apiKey) {
-    throw new Error("SEMANTIC_LLM_API_KEY is not defined");
-  }
-  return apiKey;
-}
-
-function parseJsonObject<T>(text: string): T | null {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-
-  try {
-    return JSON.parse(match[0]) as T;
-  } catch {
-    return null;
-  }
+  return resolveLegacyAlias(getSemanticModel());
 }
 
 function normalizeTags(tags: unknown, max = 5) {
@@ -143,46 +102,26 @@ function clampConfidence(value: unknown) {
     : 0.65;
 }
 
-async function callSemanticLlm(messages: ChatMessage[]) {
+// Hard-failure policy: transport errors and empty responses from the service
+// throw, and unparseable JSON throws at each call site — a semantic run must
+// not silently produce empty classifications.
+async function callSemanticLlm<T>({
+  system,
+  user,
+}: {
+  system: string;
+  user: string;
+}) {
   const model = semanticModel();
-  const response = await fetch(`${semanticBaseUrl()}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${requireSemanticApiKey()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Semantic LLM request failed: ${response.status} ${text}`);
-  }
-
-  const json = (await response.json()) as ChatResponse;
-  const content = json.choices?.[0]?.message?.content;
-  if (!content) throw new Error("Semantic LLM returned no content");
-
-  const inputTokens = json.usage?.prompt_tokens ?? 0;
-  const outputTokens = json.usage?.completion_tokens ?? 0;
-  await logLlmUsage({
-    llmModel: model,
-    inputTokens,
-    outputTokens,
-    costUsd: calculateCost(model, inputTokens, outputTokens),
-    systemPrompt:
-      messages.find((message) => message.role === "system")?.content ?? "",
-    userPrompt:
-      messages.find((message) => message.role === "user")?.content ?? "",
+  const { json } = await generateJson<T>({
+    purpose: "semantic",
     source: SOURCE,
+    model,
+    system,
+    user,
+    temperature: 0.2,
   });
-
-  return { content, model, usage: json.usage };
+  return { json, model };
 }
 
 function compactNote(note: ILeanNote) {
@@ -290,18 +229,11 @@ function contentHash(note: ILeanNote, model: string) {
 async function generateKeywords(
   note: ILeanNote,
 ): Promise<KeywordResult & { model: string }> {
-  const { content, model } = await callSemanticLlm([
-    {
-      role: "system",
-      content:
-        'Extract concise semantic keywords for a personal knowledge note. Return JSON only: {"keywords": string[], "summary": string}. Keywords should be specific, lowercase, and useful for grouping.',
-    },
-    {
-      role: "user",
-      content: JSON.stringify({ note: compactNote(note) }),
-    },
-  ]);
-  const parsed = parseJsonObject<KeywordResult>(content);
+  const { json: parsed, model } = await callSemanticLlm<KeywordResult>({
+    system:
+      'Extract concise semantic keywords for a personal knowledge note. Return JSON only: {"keywords": string[], "summary": string}. Keywords should be specific, lowercase, and useful for grouping.',
+    user: JSON.stringify({ note: compactNote(note) }),
+  });
   if (!parsed) throw new Error("Semantic LLM returned invalid keyword JSON");
 
   return {
@@ -325,27 +257,20 @@ async function decideGroups({
   keywords: string[];
   summary: string;
 }) {
-  const { content } = await callSemanticLlm([
-    {
-      role: "system",
-      content:
-        'Classify a note into a personal knowledge graph using note keywords, current groups, candidate related notes, and current note metadata. Return JSON only: {"tags": string[], "joinGroupIds": string[], "newGroups": [{"name": string, "description"?: string, "parentName"?: string}], "groupUpdates": [{"groupId": string, "parentName"?: string | null, "rename"?: string}], "relatedNoteIds": string[], "reason": string, "confidence": number}. Prefer existing groups. Create at most one new group. Do not include ancestor groups when a child is more precise. relatedNoteIds must contain at most 3 candidate note IDs with strong direct conceptual overlap worth showing as an inter-note edge; do not include notes that are merely in the same broad group.',
-    },
-    {
-      role: "user",
-      content: JSON.stringify({
-        note: compactNote(note),
-        semantic: { keywords, summary },
-        existingGroups: compactGroups(groups),
-        candidateRelatedNotes: compactCandidateNotes(
-          note,
-          candidateNotes,
-          keywords,
-        ),
-      }),
-    },
-  ]);
-  const parsed = parseJsonObject<SemanticDecision>(content);
+  const { json: parsed } = await callSemanticLlm<SemanticDecision>({
+    system:
+      'Classify a note into a personal knowledge graph using note keywords, current groups, candidate related notes, and current note metadata. Return JSON only: {"tags": string[], "joinGroupIds": string[], "newGroups": [{"name": string, "description"?: string, "parentName"?: string}], "groupUpdates": [{"groupId": string, "parentName"?: string | null, "rename"?: string}], "relatedNoteIds": string[], "reason": string, "confidence": number}. Prefer existing groups. Create at most one new group. Do not include ancestor groups when a child is more precise. relatedNoteIds must contain at most 3 candidate note IDs with strong direct conceptual overlap worth showing as an inter-note edge; do not include notes that are merely in the same broad group.',
+    user: JSON.stringify({
+      note: compactNote(note),
+      semantic: { keywords, summary },
+      existingGroups: compactGroups(groups),
+      candidateRelatedNotes: compactCandidateNotes(
+        note,
+        candidateNotes,
+        keywords,
+      ),
+    }),
+  });
   if (!parsed)
     throw new Error("Semantic LLM returned invalid classification JSON");
 
