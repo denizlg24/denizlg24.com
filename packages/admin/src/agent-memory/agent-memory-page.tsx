@@ -26,6 +26,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import {
   BrainCircuit,
   Check,
+  ChevronDown,
+  ChevronUp,
   CircleSlash,
   RefreshCw,
   Search,
@@ -379,12 +381,14 @@ function TraceExplorer({
 
 function TraceDetail({ trace }: { trace: AgentRetrievalTrace }) {
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex min-w-0 max-w-full flex-col gap-5 overflow-hidden">
       <div>
-        <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
-          <Search className="size-3.5" />
-          <span>{trace.purpose}</span>
-          <span className="font-mono">{trace.traceId}</span>
+        <div className="mb-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+          <Search className="size-3.5 shrink-0" />
+          <span className="shrink-0">{trace.purpose}</span>
+          <span className="min-w-0 truncate font-mono" title={trace.traceId}>
+            {trace.traceId}
+          </span>
         </div>
         <p className="text-sm font-medium">{trace.query}</p>
       </div>
@@ -438,34 +442,76 @@ function TraceCandidates({
       </h3>
       {candidates.map((candidate, index) => {
         const revisionId = String(candidate.revisionId ?? "");
-        const score = typeof candidate.score === "number" ? candidate.score : 0;
         return (
-          <div
+          <TraceCandidate
             key={`${revisionId}-${index}`}
-            className="border-l-2 px-3 py-1.5"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <p className="text-sm">{String(candidate.statement ?? "")}</p>
-              <Badge
-                variant={
-                  selectedIds.includes(revisionId) ? "default" : "outline"
-                }
-              >
-                {score.toFixed(3)}
-              </Badge>
-            </div>
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-              {JSON.stringify(candidate.components ?? {})}
-            </p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Evidence:{" "}
-              {Array.isArray(candidate.evidenceIds)
-                ? candidate.evidenceIds.join(", ")
-                : "none"}
-            </p>
-          </div>
+            candidate={candidate}
+            selected={selectedIds.includes(revisionId)}
+          />
         );
       })}
+    </div>
+  );
+}
+
+function TraceCandidate({
+  candidate,
+  selected,
+}: {
+  candidate: Record<string, unknown>;
+  selected: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const score = typeof candidate.score === "number" ? candidate.score : 0;
+  const statement = String(candidate.statement ?? "");
+  const components = JSON.stringify(candidate.components ?? {});
+  const evidence = Array.isArray(candidate.evidenceIds)
+    ? candidate.evidenceIds.join(", ")
+    : "none";
+  const toggleLabel = expanded ? "Collapse candidate" : "Expand candidate";
+
+  return (
+    <div className="min-w-0 max-w-full overflow-hidden border-l-2 px-3 py-1.5">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2">
+        <p
+          className={`min-w-0 break-words text-sm ${expanded ? "" : "line-clamp-2"}`}
+        >
+          {statement}
+        </p>
+        <Badge variant={selected ? "default" : "outline"}>
+          {score.toFixed(3)}
+        </Badge>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7 shrink-0"
+          aria-label={toggleLabel}
+          title={toggleLabel}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? (
+            <ChevronUp className="size-3.5" />
+          ) : (
+            <ChevronDown className="size-3.5" />
+          )}
+        </Button>
+      </div>
+      {expanded ? (
+        <pre className="mt-1 max-w-full whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
+          {JSON.stringify(candidate.components ?? {}, null, 2)}
+        </pre>
+      ) : (
+        <p className="mt-1 max-w-full truncate font-mono text-[11px] text-muted-foreground">
+          {components}
+        </p>
+      )}
+      <p
+        className={`mt-1 max-w-full text-[11px] text-muted-foreground ${expanded ? "break-all" : "truncate"}`}
+      >
+        Evidence: {evidence}
+      </p>
     </div>
   );
 }
