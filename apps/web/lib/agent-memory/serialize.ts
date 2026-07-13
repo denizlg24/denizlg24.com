@@ -97,6 +97,18 @@ export function serializeAgentProcedure(
 export function serializeAgentMemoryRun(
   run: IAgentMemoryRun & { _id: unknown },
 ): AgentMemoryRunWire {
+  const usage = run.usage;
+  const serializedUsage =
+    usage &&
+    Number.isFinite(usage.inputTokens) &&
+    Number.isFinite(usage.outputTokens) &&
+    Number.isFinite(usage.costUsd)
+      ? {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          costUsd: usage.costUsd,
+        }
+      : undefined;
   return {
     id: String(run._id),
     operation: run.operation,
@@ -106,7 +118,7 @@ export function serializeAgentMemoryRun(
     schemaVersion: run.schemaVersion,
     inputIds: run.inputIds,
     outputIds: run.outputIds,
-    usage: run.usage,
+    usage: serializedUsage,
     error: run.error,
     startedAt: new Date(run.startedAt).toISOString(),
     completedAt: iso(run.completedAt),
