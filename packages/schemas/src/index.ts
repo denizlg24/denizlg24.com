@@ -1,3 +1,4 @@
+export * from "./agent-memory";
 export * from "./authenticator";
 export * from "./blog";
 export * from "./calendar";
