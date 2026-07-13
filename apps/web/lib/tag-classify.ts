@@ -15,25 +15,9 @@ export const TOPIC_GROUPS = [
 ] as const;
 export const FALLBACK_GROUP = "Other";
 
-// Fixed groups for projects. Unlike blog tags (classified one tag at a time),
-// projects are classified as a whole — title, subtitle, tags and body together —
-// because "Fullstack" vs "Frontend" is a property of the project, not of any
-// single tag. The LLM picks one or two of these per project.
-export const PROJECT_GROUPS = [
-  "Frontend",
-  "Fullstack",
-  "Infrastructure",
-  "Hardware/Software",
-] as const;
-
 const ALLOWED_GROUPS = new Set<string>([...TOPIC_GROUPS, FALLBACK_GROUP]);
-const ALLOWED_PROJECT_GROUPS = new Set<string>([
-  ...PROJECT_GROUPS,
-  FALLBACK_GROUP,
-]);
 
 const SOURCE = "tag-topic-classify";
-const PROJECT_SOURCE = "project-topic-classify";
 
 function normalizeTag(tag: string) {
   return tag.trim().toLowerCase();
@@ -134,56 +118,4 @@ export async function computeTopicGroups(
     if (group) groups.add(group);
   }
   return [...groups];
-}
-
-export interface ProjectClassificationInput {
-  title: string;
-  subtitle?: string;
-  tags?: string[];
-  markdown?: string;
-}
-
-// Body text only feeds the classifier signal; trimming keeps token cost bounded
-// for long write-ups without losing the lede that usually frames the project.
-const PROJECT_BODY_CHAR_LIMIT = 2000;
-
-function coerceProjectGroups(value: unknown): string[] {
-  if (!Array.isArray(value)) return [FALLBACK_GROUP];
-  const groups = [
-    ...new Set(
-      value.filter(
-        (group): group is string =>
-          typeof group === "string" && ALLOWED_PROJECT_GROUPS.has(group),
-      ),
-    ),
-  ];
-  return groups.length > 0 ? groups : [FALLBACK_GROUP];
-}
-
-// Classifies a whole project (not its tags individually) into one or two fixed
-// project groups. Degrades to the fallback group on any failure so saves never
-// break.
-export async function computeProjectTopicGroups(
-  input: ProjectClassificationInput,
-): Promise<string[]> {
-  const system = `You classify a software project into its topic group(s) for a personal site's project filter.
-Allowed groups: ${[...PROJECT_GROUPS, FALLBACK_GROUP].join(", ")}.
-- "Frontend": primarily UI/client work with no backend the author built.
-- "Fullstack": the author built both client and server/data layers.
-- "Infrastructure": DevOps, hosting, networking, monitoring, CI/CD, self-hosted services, storage/ops systems.
-- "Hardware/Software": embedded, IoT, firmware, or projects bridging physical hardware and code.
-Assign one or two groups, most specific first. Prefer "Fullstack" over "Frontend" when both apply; do not return both.
-When a project centrally involves self-hosting, DevOps, networking, or running/operating its own infrastructure, include "Infrastructure" even alongside "Fullstack". Add "Hardware/Software" alongside another group when physical hardware is involved.
-Use "${FALLBACK_GROUP}" only when none fit.
-Return ONLY a JSON object: { "groups": ["..."] }.`;
-  const user = JSON.stringify({
-    title: input.title,
-    subtitle: input.subtitle ?? "",
-    tags: input.tags ?? [],
-    body: (input.markdown ?? "").slice(0, PROJECT_BODY_CHAR_LIMIT),
-  });
-
-  const parsed = await requestJsonCompletion(system, user, PROJECT_SOURCE);
-  if (!parsed) return [FALLBACK_GROUP];
-  return coerceProjectGroups(parsed.groups);
 }

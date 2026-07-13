@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+export const DEFAULT_PROJECT_TOPIC_GROUPS = [
+  "Frontend",
+  "Fullstack",
+  "Infrastructure",
+  "Hardware/Software",
+  "Other",
+] as const;
+export type DefaultProjectTopicGroup =
+  (typeof DEFAULT_PROJECT_TOPIC_GROUPS)[number];
+
 export const sourceRepositorySchema = z.object({
   provider: z.literal("github"),
   owner: z.string(),

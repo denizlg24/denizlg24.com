@@ -26,15 +26,27 @@ interface TagAutocompleteProps {
   allowCreate?: boolean;
   searchPlaceholder?: string;
   emptyMessage?: string;
+  groupHeading?: string;
+  noun?: string;
+  normalizeValue?: (value: string) => string;
+  normalizeKey?: (value: string) => string;
 }
 
-function normalize(tag: string) {
+function defaultNormalizeValue(tag: string) {
   return tag.trim().toLowerCase();
 }
 
-function formatSelectionLabel(count: number, placeholder: string) {
+function defaultNormalizeKey(tag: string) {
+  return tag.trim().toLowerCase();
+}
+
+function formatSelectionLabel(
+  count: number,
+  placeholder: string,
+  noun: string,
+) {
   if (count <= 0) return placeholder;
-  return `${count} tag${count === 1 ? "" : "s"}`;
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 export function TagAutocomplete({
@@ -45,6 +57,10 @@ export function TagAutocomplete({
   allowCreate = true,
   searchPlaceholder = "Search or create...",
   emptyMessage = "No tags yet",
+  groupHeading = "Tags",
+  noun = "tag",
+  normalizeValue = defaultNormalizeValue,
+  normalizeKey = defaultNormalizeKey,
 }: TagAutocompleteProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -53,7 +69,7 @@ export function TagAutocomplete({
     const byKey = new Map<string, string>();
 
     for (const item of [...value, ...suggestions]) {
-      const key = normalize(item);
+      const key = normalizeKey(item);
       if (!key || byKey.has(key)) continue;
       byKey.set(key, item);
     }
@@ -62,20 +78,21 @@ export function TagAutocomplete({
   }, [suggestions, value]);
 
   const addTag = (raw: string) => {
-    const tag = normalize(raw);
+    const tag = normalizeValue(raw);
     if (!tag) return;
-    if (value.some((current) => normalize(current) === tag)) return;
+    const key = normalizeKey(tag);
+    if (value.some((current) => normalizeKey(current) === key)) return;
     onChange([...value, tag]);
     setQuery("");
   };
 
   const removeTag = (raw: string) => {
-    const key = normalize(raw);
-    onChange(value.filter((current) => normalize(current) !== key));
+    const key = normalizeKey(raw);
+    onChange(value.filter((current) => normalizeKey(current) !== key));
   };
 
   const toggleTag = (raw: string) => {
-    if (value.some((current) => normalize(current) === normalize(raw))) {
+    if (value.some((current) => normalizeKey(current) === normalizeKey(raw))) {
       removeTag(raw);
       return;
     }
@@ -86,8 +103,8 @@ export function TagAutocomplete({
   const showCreate =
     allowCreate &&
     query.trim().length > 0 &&
-    !options.some((option) => normalize(option) === normalize(query)) &&
-    !value.some((current) => normalize(current) === normalize(query));
+    !options.some((option) => normalizeKey(option) === normalizeKey(query)) &&
+    !value.some((current) => normalizeKey(current) === normalizeKey(query));
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -99,7 +116,7 @@ export function TagAutocomplete({
               className="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-dashed px-1.5 text-[10px] text-muted-foreground hover:border-solid hover:text-foreground"
             >
               <Plus className="size-2.5" />
-              {formatSelectionLabel(value.length, placeholder)}
+              {formatSelectionLabel(value.length, placeholder, noun)}
             </button>
           </PopoverTrigger>
         </div>
@@ -148,10 +165,10 @@ export function TagAutocomplete({
               )}
             </CommandEmpty>
             {options.length > 0 && (
-              <CommandGroup heading="Tags">
+              <CommandGroup heading={groupHeading}>
                 {options.map((option) => {
                   const selected = value.some(
-                    (current) => normalize(current) === normalize(option),
+                    (current) => normalizeKey(current) === normalizeKey(option),
                   );
 
                   return (

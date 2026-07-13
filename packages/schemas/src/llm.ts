@@ -65,6 +65,11 @@ export const llmModelBreakdownSchema = llmUsageBreakdownBase.extend({
 });
 export type LlmModelBreakdown = z.infer<typeof llmModelBreakdownSchema>;
 
+export const llmProviderBreakdownSchema = llmUsageBreakdownBase.extend({
+  provider: z.string(),
+});
+export type LlmProviderBreakdown = z.infer<typeof llmProviderBreakdownSchema>;
+
 export const llmSourceBreakdownSchema = llmUsageBreakdownBase.extend({
   source: z.string(),
 });
@@ -108,6 +113,7 @@ export const llmUsageResponseSchema = z.object({
   last7d: llmUsagePeriodStatsSchema,
   last24h: llmUsagePeriodStatsSchema,
   byModel: z.array(llmModelBreakdownSchema),
+  byProvider: z.array(llmProviderBreakdownSchema).optional().default([]),
   bySource: z.array(llmSourceBreakdownSchema),
   dailyBreakdown: z.array(llmDailyBreakdownSchema),
   recentRequests: llmRecentRequestsPageSchema,

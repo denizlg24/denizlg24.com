@@ -42,6 +42,19 @@ function serializeProject(project: SerializableProject): ILeanProject {
   };
 }
 
+export function sanitizeProjectTopicGroups(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+
+  return [
+    ...new Set(
+      input
+        .filter((group): group is string => typeof group === "string")
+        .map((group) => group.trim())
+        .filter((group) => group.length > 0 && group.length <= 80),
+    ),
+  ];
+}
+
 function normalizePublicUrl(url: string): string {
   const parsed = new URL(url.trim());
 

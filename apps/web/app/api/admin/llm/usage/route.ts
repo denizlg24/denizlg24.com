@@ -43,6 +43,7 @@ type UsageFacet = {
   last7d: SumAgg[];
   last24h: SumAgg[];
   byModel: GroupAgg[];
+  byProvider: GroupAgg[];
   bySource: GroupAgg[];
   dailyBreakdown: GroupAgg[];
 };
@@ -65,6 +66,16 @@ const sumGroup = {
 const groupBy = (field: string) => ({
   $group: {
     _id: field,
+    requests: { $sum: 1 },
+    inputTokens: { $sum: "$inputTokens" },
+    outputTokens: { $sum: "$outputTokens" },
+    cost: { $sum: "$costUsd" },
+  },
+});
+
+const groupByProvider = () => ({
+  $group: {
+    _id: { $arrayElemAt: [{ $split: ["$llmModel", "/"] }, 0] },
     requests: { $sum: 1 },
     inputTokens: { $sum: "$inputTokens" },
     outputTokens: { $sum: "$outputTokens" },
@@ -190,6 +201,7 @@ export async function GET(request: NextRequest) {
             ],
             last24h: [{ $match: { createdAt: { $gte: oneDayAgo } } }, sumGroup],
             byModel: [groupBy("$llmModel"), { $sort: { cost: -1 } }],
+            byProvider: [groupByProvider(), { $sort: { cost: -1 } }],
             bySource: [groupBy("$source"), { $sort: { cost: -1 } }],
             dailyBreakdown: [
               { $match: { createdAt: { $gte: thirtyDaysAgo } } },
@@ -234,6 +246,13 @@ export async function GET(request: NextRequest) {
         inputTokens: m.inputTokens,
         outputTokens: m.outputTokens,
         cost: m.cost,
+      })),
+      byProvider: (facet?.byProvider ?? []).map((p) => ({
+        provider: p._id,
+        requests: p.requests,
+        inputTokens: p.inputTokens,
+        outputTokens: p.outputTokens,
+        cost: p.cost,
       })),
       bySource: (facet?.bySource ?? []).map((s) => ({
         source: s._id,

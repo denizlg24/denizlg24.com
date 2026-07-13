@@ -1,6 +1,6 @@
 "use client";
 
-import type { IProject } from "@repo/schemas";
+import { DEFAULT_PROJECT_TOPIC_GROUPS, type IProject } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
@@ -27,9 +27,10 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FaGithub } from "react-icons/fa6";
 import { toast } from "sonner";
+import { TagAutocomplete } from "../notes/tag-autocomplete";
 import { useAdmin } from "../provider";
 
 const LINK_ICONS = [
@@ -58,6 +59,10 @@ export function ProjectForm({
   const [images, setImages] = useState<string[]>(project?.images ?? []);
   const [media, setMedia] = useState<string[]>(project?.media ?? []);
   const [tags, setTags] = useState<string[]>(project?.tags ?? []);
+  const [topicGroups, setTopicGroups] = useState<string[]>(
+    project?.topicGroups ?? [],
+  );
+  const [topicSuggestions, setTopicSuggestions] = useState<string[]>([]);
   const [links, setLinks] = useState<
     { label: string; url: string; icon: "external" | "github" | "notepad" }[]
   >(
@@ -95,6 +100,48 @@ export function ProjectForm({
       e.preventDefault();
       handleAddTag();
     }
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    client
+      .get<{ projects: IProject[] }>("projects")
+      .then((result) => {
+        if (!active) return;
+        const topics = result.projects.flatMap(
+          (item) => item.topicGroups ?? [],
+        );
+        setTopicSuggestions(topics);
+      })
+      .catch(() => {
+        if (active) setTopicSuggestions([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [client]);
+
+  const topicOptions = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...DEFAULT_PROJECT_TOPIC_GROUPS,
+          ...topicSuggestions,
+          ...topicGroups,
+        ]),
+      ].sort((left, right) => left.localeCompare(right)),
+    [topicGroups, topicSuggestions],
+  );
+
+  const handleTopicGroupsChange = (next: string[]) => {
+    setTopicGroups(next);
+    setTopicSuggestions((current) =>
+      [...new Set([...current, ...next])].sort((left, right) =>
+        left.localeCompare(right),
+      ),
+    );
   };
 
   const handleUpload = async (
@@ -159,6 +206,7 @@ export function ProjectForm({
       images,
       media,
       tags,
+      topicGroups,
       links,
       isActive,
       isFeatured,
@@ -248,6 +296,53 @@ export function ProjectForm({
                   type="button"
                   onClick={() => setTags(tags.filter((t) => t !== tag))}
                   className="hover:text-destructive transition-colors"
+                >
+                  <X className="size-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <Separator />
+
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-0.5">
+          <Label className="text-xs">Topics</Label>
+          <p className="text-xs text-muted-foreground">
+            Manual project filter topics. These are not inferred from tags.
+          </p>
+        </div>
+        <TagAutocomplete
+          value={topicGroups}
+          onChange={handleTopicGroupsChange}
+          suggestions={topicOptions}
+          placeholder="Add topic..."
+          searchPlaceholder="Search or create topic..."
+          emptyMessage="No topics found"
+          groupHeading="Topics"
+          noun="topic"
+          normalizeValue={(value) => value.trim()}
+          normalizeKey={(value) => value.trim().toLowerCase()}
+        />
+        {topicGroups.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {topicGroups.map((topic) => (
+              <Badge
+                key={topic}
+                variant="secondary"
+                className="gap-1 pr-1 text-xs"
+              >
+                {topic}
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleTopicGroupsChange(
+                      topicGroups.filter((item) => item !== topic),
+                    )
+                  }
+                  className="transition-colors hover:text-destructive"
                 >
                   <X className="size-3" />
                 </button>
