@@ -26,8 +26,9 @@
 
 ### Implementation checkpoint (2026-07-13)
 
-- Work is on `feat/personal-agent-memory` in commits `c99eaaf`, `2b0ad9a`, and
-  `538833a`.
+- Work is on `feat/personal-agent-memory`; the implementation is split into
+  reviewable architecture, persistence, governance, embedding, formation,
+  retrieval, evaluation, console and source-adapter commits.
 - Step 0 and the Gate A foundation are implemented: architecture/threat model,
   shared contracts, 16 separate persistence models and indexes, policy and
   secret filtering, revisioned governance/audit APIs, leased jobs, transactional
@@ -36,16 +37,26 @@
 - Every release flag remains off by default. Gate A can be enabled only with a
   recorded code/safety verification. Gate B additionally requires Gate A's
   deployed 50-event synthetic and representative owner-activity review.
-- Gate A rollout is not complete: only the conversation/tool-result adapter is
-  wired, deployment sampling has not run, and the remaining supported-domain
-  adapters are not implemented.
+- Gate A observation now covers conversations/tool results plus bounded note,
+  calendar, person, project, course and email-triage mutation adapters. Journal,
+  feedback, file/manual ingestion, source-deletion propagation, deployment
+  sampling and the required 50-event representative review remain incomplete.
 - The prior Gate C STOP is resolved: `../deniz-cloud` now runs MongoDB Community
   8.2.11 with self-managed `mongot`, and the live database accepts
   `listSearchIndexes`. The application contract is
   `agent_memory_embeddings.agent_memory_vector_v1` over `vector` (1,536d,
   cosine, scalar quantization) with `model`, `sensitivity`, `status`,
-  `memoryType`, and `validUntil` filters. Gates remain disabled pending their
-  sequential release verification.
+  `memoryType`, and `validUntil` filters. The live index is READY/queryable, the
+  exact contract matcher passes, and a real filtered vector query succeeds.
+- Gate B formation and governed embedding workers are implemented with strict
+  provenance/policy checks and redacted LLM usage logging. Gate C hybrid
+  retrieval is implemented in non-injecting shadow mode with deterministic
+  scoring, hard filters, budgets, abstention, source-outage fallback, traces,
+  owner-only trace APIs and a shared web/desktop inspection console.
+- The seven-case `agent-memory-retrieval-v1` synthetic suite passes every
+  initial numeric Gate C threshold. All live release gates remain off and all
+  live memory collections remain empty pending sequential Gate A/B samples and
+  owner-labelled shadow-trace review.
 
 ## Outcome
 

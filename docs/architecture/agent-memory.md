@@ -1,7 +1,7 @@
 # Agent memory architecture
 
-Status: accepted; Gate C infrastructure verified on 2026-07-13 and application
-rollout remains gated by evaluation.
+Status: accepted; Gate C infrastructure and synthetic evaluation verified on
+2026-07-13. Application rollout remains sequentially gated.
 
 ## Decision
 
@@ -19,17 +19,21 @@ client/write confirmation flow.
 
 The production datastore was upgraded to self-hosted MongoDB Community 8.2.11
 with the self-managed `mongot` process in `../deniz-cloud`. A direct `buildInfo`
-query reported `8.2.11`, and `listSearchIndexes` now succeeds. This resolves the
-prior MongoDB 7.0 vector-backend STOP without introducing another database or
-an unbounded application-memory scan.
+query reported `8.2.11`, and `listSearchIndexes` now succeeds. The deployed
+`agent_memory_vector_v1` index reports `READY` and `queryable: true`; the exact
+application contract matcher passes, and a filtered 1,536-dimensional
+`$vectorSearch` query completes successfully. This resolves the prior MongoDB
+7.0 vector-backend STOP without introducing another database or an unbounded
+application-memory scan.
 
 Decision:
 
 - Gates A-C may use the current MongoDB deployment after their release
   verification passes.
-- Gate C remains server-disabled until its index is READY and its retrieval
-  evaluation thresholds pass. Production code must not scan an unbounded
-  vector collection in application memory.
+- Gate C remains server-disabled until Gates A and B complete their release
+  samples and representative owner-labelled shadow traces pass review.
+  Production code never scans an unbounded vector collection in application
+  memory.
 - The vector index is `agent_memory_vector_v1` on
   `agent_memory_embeddings.vector`: 1,536 dimensions, cosine similarity,
   scalar quantization, with `model`, `sensitivity`, `status`, `memoryType`, and
@@ -197,7 +201,7 @@ All flags default false in a new deployment.
 `retrieval-off` learns but never injects, and `incognito` creates no evidence,
 jobs, candidates, embeddings, feedback, reflections or retrieval traces.
 
-## Retrieval contract (blocked at Gate C)
+## Retrieval contract (implemented; release-gated at Gate C)
 
 The deterministic pipeline hard-filters status, time, condition, exclusions,
 sensitivity and conflicts; unions structured, lexical and vector candidates;
@@ -236,6 +240,13 @@ The committed suite contains synthetic data only. Private owner-labelled data
 is never committed. CI uses deterministic model/embedding doubles; live model
 runs are opt-in and cost-capped.
 
+`cd apps/web && bun --env-file=../../.env run agent-memory:eval-retrieval` runs the
+versioned `agent-memory-retrieval-v1` fixture suite. The initial seven labelled
+cases currently report 1.0 provenance coverage, exclusion coverage, recall@10,
+temporal accuracy and abstention accuracy, with zero malicious selections and
+zero budget violations. These synthetic results do not replace the required
+owner-labelled release sample.
+
 Comparison modes are `no-memory`, `recent-conversation`, `full-context` where
 bounded, and `hybrid-retrieval`. Reports record dataset/schema/prompt versions,
 model IDs, budgets, latency, tokens, estimated cost and gate verdicts.
@@ -266,7 +277,7 @@ retrieval does not improve the labelled baseline or increases confident error.
   sample must pass before Gate B can be enabled.
 - Gate B also needs its own labelled formation/review sample before its flag is
   enabled.
-- Gate C requires the configured search index to report READY/queryable and the
-  vector contract plus evaluation thresholds to match before enablement.
+- The Gate C index and synthetic thresholds pass. Enablement still requires the
+  sequential Gate A/B releases and labelled production shadow-trace review.
 - External notifications and consequential delegated execution are not part of
   this architecture.
