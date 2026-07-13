@@ -38,8 +38,8 @@
   recorded code/safety verification. Gate B additionally requires Gate A's
   deployed 50-event synthetic and representative owner-activity review.
 - Gate A observation now covers conversations/tool results plus bounded note,
-  calendar, person, project, course and email-triage mutation adapters. Journal,
-  feedback, file/manual ingestion, source-deletion propagation, deployment
+  calendar, person, project, course, journal and email-triage mutation adapters.
+  Feedback, file/manual ingestion, source-deletion propagation, deployment
   sampling and the required 50-event representative review remain incomplete.
 - The prior Gate C STOP is resolved: `../deniz-cloud` now runs MongoDB Community
   8.2.11 with self-managed `mongot`, and the live database accepts
