@@ -18,6 +18,7 @@ import {
 } from "./AgentMemoryCommon";
 
 export interface IAgentMemoryCandidate extends Document {
+  candidateKey: string;
   statement: string;
   memoryType: AgentMemoryType;
   explicitness: AgentExplicitness;
@@ -49,6 +50,12 @@ export interface IAgentMemoryCandidate extends Document {
 
 const AgentMemoryCandidateSchema = new Schema<IAgentMemoryCandidate>(
   {
+    candidateKey: {
+      type: String,
+      required: true,
+      immutable: true,
+      maxlength: 64,
+    },
     statement: { type: String, required: true, maxlength: 8_192 },
     memoryType: { type: String, enum: AGENT_MEMORY_TYPES, required: true },
     explicitness: { type: String, enum: AGENT_EXPLICITNESS, required: true },
@@ -100,6 +107,7 @@ const AgentMemoryCandidateSchema = new Schema<IAgentMemoryCandidate>(
 );
 
 AgentMemoryCandidateSchema.index({ status: 1, reviewFlags: 1, createdAt: -1 });
+AgentMemoryCandidateSchema.index({ candidateKey: 1 }, { unique: true });
 AgentMemoryCandidateSchema.index({ evidenceIds: 1, status: 1 });
 AgentMemoryCandidateSchema.index({ memoryType: 1, status: 1, confidence: -1 });
 AgentMemoryCandidateSchema.index({

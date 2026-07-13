@@ -102,6 +102,24 @@ describe("agent memory security policy", () => {
     expect(result.allowed).toBe(true);
   });
 
+  test("allows high-confidence external descriptive memory without authority", () => {
+    expect(
+      canAutomaticallyPromoteCandidate(
+        {
+          statement: "An external calendar lists a conference in Porto.",
+          memoryType: "episodic",
+          explicitness: "hypothesis",
+          confidence: 0.94,
+          trust: "untrusted",
+          sensitivity: "personal",
+          evidenceIds: ["9fa3e791-b155-4719-bda8-f6542ea421f3"],
+          reviewFlags: [],
+        },
+        { independentTrustedEvidenceCount: 0 },
+      ).allowed,
+    ).toBe(true);
+  });
+
   test("matches exclusions at source or exact revision scope", () => {
     expect(
       sourceRefIsExcluded(

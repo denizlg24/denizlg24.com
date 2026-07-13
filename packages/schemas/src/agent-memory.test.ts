@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   agentEvidenceEventSchema,
+  agentFormationResultSchema,
   agentMemoryDecisionSchema,
   agentTemporalSchema,
 } from "./agent-memory";
@@ -50,6 +51,31 @@ describe("agent memory schemas", () => {
   test("requires a reason for governance decisions", () => {
     expect(
       agentMemoryDecisionSchema.safeParse({ action: "dismiss" }).success,
+    ).toBe(false);
+  });
+
+  test("accepts zero formation candidates and rejects uncited proposals", () => {
+    expect(agentFormationResultSchema.parse({ candidates: [] })).toEqual({
+      candidates: [],
+    });
+    expect(
+      agentFormationResultSchema.safeParse({
+        candidates: [
+          {
+            statement: "The user likes concise answers.",
+            memoryType: "semantic",
+            explicitness: "inferred",
+            confidence: 0.8,
+            importance: 0.5,
+            trust: "high",
+            sensitivity: "personal",
+            temporal: { precision: "unknown" },
+            evidenceIds: [],
+            reason: "Observed preference",
+            reviewFlags: [],
+          },
+        ],
+      }).success,
     ).toBe(false);
   });
 });

@@ -35,7 +35,22 @@ const GATE_FIELDS: Record<AgentReleaseGateName, keyof AgentReleaseGates> = {
 
 const GATE_ORDER: AgentReleaseGateName[] = ["A", "B", "C", "D", "E", "F"];
 
-type InternalSettings = Omit<IAgentMemorySettings, keyof Document>;
+type InternalSettings = Pick<
+  IAgentMemorySettings,
+  | "_id"
+  | "releaseGates"
+  | "gateVerifications"
+  | "enabledSources"
+  | "excludedSourceRefs"
+  | "retrieval"
+  | "retention"
+  | "reflectionSchedule"
+  | "proactivity"
+  | "maximumActionAutonomy"
+  | "revision"
+  | "createdAt"
+  | "updatedAt"
+>;
 
 function defaultSettings(): typeof DEFAULT_AGENT_MEMORY_SETTINGS & {
   createdAt: Date;
@@ -52,7 +67,35 @@ function defaultSettings(): typeof DEFAULT_AGENT_MEMORY_SETTINGS & {
 export async function getAgentMemorySettings(): Promise<InternalSettings> {
   await connectDB();
   const settings = await AgentMemorySettings.findById("singleton").lean();
-  return (settings ?? defaultSettings()) as InternalSettings;
+  const defaults = defaultSettings();
+  if (!settings) return defaults;
+  return {
+    ...defaults,
+    ...settings,
+    releaseGates: { ...defaults.releaseGates, ...settings.releaseGates },
+    gateVerifications: settings.gateVerifications ?? {},
+    enabledSources: settings.enabledSources ?? defaults.enabledSources,
+    excludedSourceRefs:
+      settings.excludedSourceRefs ?? defaults.excludedSourceRefs,
+    retrieval: { ...defaults.retrieval, ...settings.retrieval },
+    retention: { ...defaults.retention, ...settings.retention },
+    proactivity: { ...defaults.proactivity, ...settings.proactivity },
+  };
+}
+
+function assertVectorSettings(input: UpdateAgentMemorySettings) {
+  if (!input.retrieval) return;
+  if (
+    input.retrieval.embeddingModel !== AGENT_MEMORY_VECTOR_CONFIG.model ||
+    input.retrieval.embeddingDimensions !==
+      AGENT_MEMORY_VECTOR_CONFIG.dimensions ||
+    input.retrieval.vectorIndex !== AGENT_MEMORY_VECTOR_CONFIG.indexName
+  ) {
+    throw new AgentMemoryPolicyError(
+      "Embedding model, dimensions, and vector index are versioned deployment settings",
+      "conflict",
+    );
+  }
 }
 
 function assertVerification(
@@ -208,6 +251,7 @@ export async function updateAgentMemorySettings(
   reason: string,
 ): Promise<IAgentMemorySettings> {
   const parsed = updateAgentMemorySettingsSchema.parse(input);
+  assertVectorSettings(parsed);
   await connectDB();
   const session = await AgentMemorySettings.startSession();
   let result: IAgentMemorySettings | null = null;

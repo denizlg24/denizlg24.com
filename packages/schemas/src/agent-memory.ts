@@ -217,6 +217,31 @@ export const agentMemoryCandidateSchema = z.object({
 });
 export type AgentMemoryCandidate = z.infer<typeof agentMemoryCandidateSchema>;
 
+export const agentFormationCandidateSchema = z.object({
+  statement: z.string().trim().min(1).max(8_192),
+  memoryType: agentMemoryTypeSchema,
+  explicitness: agentExplicitnessSchema,
+  confidence: z.number().min(0).max(1),
+  importance: z.number().min(0).max(1),
+  trust: agentTrustSchema,
+  sensitivity: agentSensitivitySchema,
+  temporal: agentTemporalSchema,
+  entityRefs: z.array(agentEntityRefSchema).max(50).default([]),
+  evidenceIds: z.array(z.string().uuid()).min(1).max(100),
+  contradictionEvidenceIds: z.array(z.string().uuid()).max(100).default([]),
+  conflictingMemoryIds: z.array(z.string()).max(100).default([]),
+  reason: z.string().trim().min(1).max(4_096),
+  reviewFlags: agentMemoryCandidateSchema.shape.reviewFlags,
+});
+export type AgentFormationCandidate = z.infer<
+  typeof agentFormationCandidateSchema
+>;
+
+export const agentFormationResultSchema = z.object({
+  candidates: z.array(agentFormationCandidateSchema).max(20),
+});
+export type AgentFormationResult = z.infer<typeof agentFormationResultSchema>;
+
 export const agentMemoryRevisionSchema = z.object({
   id: z.string(),
   memoryId: z.string(),

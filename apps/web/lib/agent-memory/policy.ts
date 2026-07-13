@@ -174,13 +174,28 @@ export function canAutomaticallyPromoteCandidate(
   if (input.reviewFlags.length > 0) {
     return { allowed: false, reason: "Candidate requires exception review" };
   }
-  if (input.explicitness === "hypothesis") {
-    return { allowed: false, reason: "Hypotheses require review" };
-  }
   if (input.trust === "untrusted" && input.memoryType === "core") {
     return {
       allowed: false,
       reason: "Untrusted evidence cannot become core memory",
+    };
+  }
+  if (
+    input.trust === "untrusted" &&
+    ["semantic", "episodic"].includes(input.memoryType)
+  ) {
+    const allowed = input.confidence >= 0.9;
+    return {
+      allowed,
+      reason: allowed
+        ? "High-confidence external knowledge remains low-trust and source-scoped"
+        : "External knowledge is below the confidence threshold",
+    };
+  }
+  if (input.explicitness === "hypothesis") {
+    return {
+      allowed: false,
+      reason: "Trusted-source hypotheses require review",
     };
   }
   if (input.explicitness === "explicit") {

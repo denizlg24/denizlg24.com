@@ -1,6 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   AgentExplicitness,
+  AgentFormationCandidate,
   AgentMemoryStatus,
   AgentMemoryType,
   AgentSensitivity,
@@ -17,12 +18,15 @@ import {
   type IAgentMemoryCandidate,
 } from "@/models/AgentMemoryCandidate";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
+import { AgentMemoryJob } from "@/models/AgentMemoryJob";
 import { AgentMemoryRevision } from "@/models/AgentMemoryRevision";
 import {
   AgentMemoryPolicyError,
   assertCandidateSafety,
   canAutomaticallyPromoteCandidate,
 } from "./policy";
+import { findDeniedContent } from "./security";
+import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
 type GovernanceActor = "user" | "policy";
 type RevisionActor = "user" | "agent" | "policy" | "rollback";
@@ -119,7 +123,7 @@ async function assertEvidenceExists(
 async function audit(
   input: {
     action: string;
-    actor: "user" | "policy" | "system";
+    actor: "user" | "agent" | "policy" | "system";
     targetType: string;
     targetId: string;
     targetRevision?: number;
@@ -185,7 +189,191 @@ async function writeRevision(
     deletedAt: state.status === "deleted" ? new Date() : undefined,
   });
   await memory.save({ session });
+  await AgentMemoryEmbedding.updateMany(
+    { memoryId: memory._id },
+    {
+      $set: {
+        status: state.status,
+        sensitivity: state.sensitivity,
+        memoryType: state.memoryType,
+        validUntil: state.temporal.validUntil
+          ? new Date(state.temporal.validUntil)
+          : null,
+      },
+    },
+  ).session(session);
+  if (state.status === "active") {
+    await AgentMemoryJob.updateOne(
+      {
+        idempotencyKey: `embedding:${revisionId.toString()}:${AGENT_MEMORY_VECTOR_CONFIG.model}`,
+      },
+      {
+        $setOnInsert: {
+          operation: "embedding",
+          evidenceIds: state.evidenceIds,
+          memoryIds: [memory._id],
+          status: "pending",
+          attempts: 0,
+          availableAt: new Date(),
+        },
+      },
+      { upsert: true, session },
+    );
+  }
   return revision;
+}
+
+function candidateKey(
+  candidate: AgentFormationCandidate,
+  inputHash: string,
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        inputHash,
+        statement: candidate.statement.trim(),
+        evidenceIds: [...candidate.evidenceIds].sort(),
+      }),
+    )
+    .digest("hex");
+}
+
+export async function createMemoryCandidate(options: {
+  candidate: AgentFormationCandidate;
+  extraction: {
+    model: string;
+    promptVersion: string;
+    schemaVersion: string;
+    inputHash: string;
+    runId: Types.ObjectId;
+  };
+}): Promise<IAgentMemoryCandidate> {
+  if (
+    options.candidate.sensitivity === "denied" ||
+    findDeniedContent(options.candidate.statement).length > 0
+  ) {
+    throw new AgentMemoryPolicyError(
+      "Candidate contains denied secret material",
+      "denied-content",
+    );
+  }
+  await connectDB();
+  const key = candidateKey(options.candidate, options.extraction.inputHash);
+  const existing = await AgentMemoryCandidate.findOne({ candidateKey: key });
+  if (existing) return existing;
+
+  const session = await mongoose.startSession();
+  let result: IAgentMemoryCandidate | null = null;
+  try {
+    await session.withTransaction(async () => {
+      await assertEvidenceExists(options.candidate.evidenceIds, session);
+      const candidate = new AgentMemoryCandidate({
+        ...options.candidate,
+        candidateKey: key,
+        conflictingMemoryIds: options.candidate.conflictingMemoryIds.map(
+          (id) => new Types.ObjectId(id),
+        ),
+        extraction: options.extraction,
+        status: "pending",
+      });
+      await candidate.save({ session });
+      await audit(
+        {
+          action: "candidate.propose",
+          actor: "agent",
+          targetType: "candidate",
+          targetId: candidate._id.toString(),
+          reason: options.candidate.reason,
+          metadata: {
+            evidenceIds: options.candidate.evidenceIds,
+            reviewFlags: options.candidate.reviewFlags,
+            runId: options.extraction.runId.toString(),
+          },
+        },
+        session,
+      );
+      result = candidate;
+    });
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === 11000
+    ) {
+      const duplicate = await AgentMemoryCandidate.findOne({
+        candidateKey: key,
+      });
+      if (duplicate) return duplicate;
+    }
+    throw error;
+  } finally {
+    await session.endSession();
+  }
+  if (!result) throw new Error("Candidate proposal did not complete");
+  return result;
+}
+
+export async function rejectFormationCandidate(options: {
+  runId: Types.ObjectId;
+  reason: string;
+  code: string;
+  evidenceIds: string[];
+}): Promise<void> {
+  await connectDB();
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(() =>
+      audit(
+        {
+          action: "candidate.reject",
+          actor: "policy",
+          targetType: "formation-run",
+          targetId: options.runId.toString(),
+          reason: options.reason,
+          metadata: {
+            code: options.code,
+            evidenceIds: options.evidenceIds,
+          },
+          contentRedacted: true,
+        },
+        session,
+      ),
+    );
+  } finally {
+    await session.endSession();
+  }
+}
+
+export async function tryAutomaticallyPromoteMemoryCandidate(options: {
+  candidateId: string;
+  reason: string;
+}): Promise<{ promoted: boolean; reason: string }> {
+  await connectDB();
+  const candidate = await AgentMemoryCandidate.findById(options.candidateId);
+  if (candidate?.status !== "pending") {
+    return { promoted: false, reason: "Candidate is not pending" };
+  }
+  const session = await mongoose.startSession();
+  let evidenceCount = 0;
+  try {
+    evidenceCount = await independentTrustedEvidenceCount(
+      candidate.evidenceIds,
+      session,
+    );
+  } finally {
+    await session.endSession();
+  }
+  const decision = canAutomaticallyPromoteCandidate(candidate, {
+    independentTrustedEvidenceCount: evidenceCount,
+  });
+  if (!decision.allowed) return { promoted: false, reason: decision.reason };
+  await acceptMemoryCandidate({
+    candidateId: candidate._id.toString(),
+    actor: "policy",
+    reason: options.reason,
+  });
+  return { promoted: true, reason: decision.reason };
 }
 
 async function independentTrustedEvidenceCount(
