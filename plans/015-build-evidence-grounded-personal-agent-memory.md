@@ -24,6 +24,27 @@
 - **Category**: direction, architecture, security, data
 - **Planned at**: commit `a506766`, 2026-07-12
 
+### Implementation checkpoint (2026-07-13)
+
+- Work is on `feat/personal-agent-memory` in commits `c99eaaf`, `2b0ad9a`, and
+  `538833a`.
+- Step 0 and the Gate A foundation are implemented: architecture/threat model,
+  shared contracts, 16 separate persistence models and indexes, policy and
+  secret filtering, revisioned governance/audit APIs, leased jobs, transactional
+  conversation evidence/outbox persistence, immutable event IDs, and
+  server-enforced enabled/retrieval-off/incognito modes.
+- Every release flag remains off by default. Gate A can be enabled only with a
+  recorded code/safety verification. Gate B additionally requires Gate A's
+  deployed 50-event synthetic and representative owner-activity review.
+- Gate A rollout is not complete: only the conversation/tool-result adapter is
+  wired, deployment sampling has not run, and the remaining supported-domain
+  adapters are not implemented.
+- **STOP**: the configured production datastore is MongoDB Community 7.0.30.
+  It has no Search module and rejects `listSearchIndexes` with code 59. Gate C
+  therefore cannot meet the bounded production vector-search requirement
+  without an approved MongoDB 8.2+ upgrade, Atlas migration, or plan amendment.
+  Per this plan's STOP rules, Gates B-F were not implemented or enabled.
+
 ## Outcome
 
 Build a persistent personal-memory layer around the single `LlmService` from
@@ -885,8 +906,8 @@ output.
 
 ## Done criteria
 
-- [ ] Plan 014 is DONE and all memory LLM/embedding calls use its `LlmService`.
-- [ ] Evidence, candidates, active projections, revisions and embeddings are
+- [x] Plan 014 is DONE and all memory LLM/embedding calls use its `LlmService`.
+- [x] Evidence, candidates, active projections, revisions and embeddings are
       separate and linked by provenance.
 - [ ] `AgentUserModel` is a comprehensive, versioned and automatically updated
       projection spanning identity, life context, work, relationships,
@@ -904,7 +925,7 @@ output.
       similarity alone—and respects item/token budgets.
 - [ ] Memory is default-on for personal-chat requests except retrieval-off/
       incognito overrides and is labelled data, never authority.
-- [ ] Existing tool approval/client execution behavior is unchanged.
+- [x] Existing tool approval/client execution behavior is unchanged.
 - [ ] Goals and procedures have explicit lifecycle/status/provenance.
 - [ ] Reflection automatically maintains reversible derived memories and the
       comprehensive user model while never changing authority/system policy.
@@ -914,7 +935,7 @@ output.
       exists.
 - [ ] Resumable backfill covers all supported historical domains by default,
       with progress, pause/cancel and exclusions.
-- [ ] Memory governance APIs/jobs require admin/job authorization and shared
+- [x] Memory governance APIs/jobs require admin/job authorization and shared
       Zod contracts.
 - [ ] Poisoning fixtures produce zero authority bypasses or instruction-derived
       procedures; descriptive external claims remain source-weighted and cannot

@@ -262,10 +262,11 @@ retrieval does not improve the labelled baseline or increases confident error.
 - Formation, reflection, reindex and backfill jobs use leases, attempts,
   exponential backoff, dead-letter status, batch/time/token/cost limits and
   resumable checkpoints.
-- Gate A needs deployment sampling of at least 50 synthetic events plus a
-  representative owner-activity sample before its flag is enabled.
-- Gate B needs a labelled formation/review sample before its flag is enabled.
+- Gate A may be enabled after code/safety verification to deploy the evidence
+  ledger. Its 50-event synthetic plus representative owner-activity release
+  sample must pass before Gate B can be enabled.
+- Gate B also needs its own labelled formation/review sample before its flag is
+  enabled.
 - Gate C is blocked until the vector-backend decision above is resolved.
 - External notifications and consequential delegated execution are not part of
   this architecture.
-
