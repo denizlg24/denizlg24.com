@@ -122,6 +122,11 @@ const items = [
     icon: Server,
   },
   {
+    title: "Agent Memory",
+    url: "/admin/dashboard/agent-memory",
+    icon: Brain,
+  },
+  {
     title: "LLM Usage",
     url: "/admin/dashboard/llm-usage",
     icon: Brain,

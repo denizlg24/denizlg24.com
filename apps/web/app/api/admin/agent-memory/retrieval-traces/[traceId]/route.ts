@@ -1,3 +1,4 @@
+import { agentRetrievalTraceResponseSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { serializeAgentRetrievalTrace } from "@/lib/agent-memory/serialize";
 import { connectDB } from "@/lib/mongodb";
@@ -19,5 +20,9 @@ export async function GET(
       { status: 404 },
     );
   }
-  return NextResponse.json({ trace: serializeAgentRetrievalTrace(trace) });
+  return NextResponse.json(
+    agentRetrievalTraceResponseSchema.parse({
+      trace: serializeAgentRetrievalTrace(trace),
+    }),
+  );
 }

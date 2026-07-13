@@ -1,3 +1,4 @@
+import { agentRetrievalTraceListResponseSchema } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { serializeAgentRetrievalTrace } from "@/lib/agent-memory/serialize";
@@ -31,7 +32,9 @@ export async function GET(request: NextRequest) {
     .sort({ createdAt: -1 })
     .limit(parseLimit(request.nextUrl.searchParams.get("limit")))
     .lean();
-  return NextResponse.json({
-    traces: traces.map(serializeAgentRetrievalTrace),
-  });
+  return NextResponse.json(
+    agentRetrievalTraceListResponseSchema.parse({
+      traces: traces.map(serializeAgentRetrievalTrace),
+    }),
+  );
 }

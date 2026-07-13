@@ -265,6 +265,11 @@ export const GROUPS: NavGroup[] = [
     groupLabel: "App",
     items: [
       {
+        label: "Agent Memory",
+        href: "/agent-memory",
+        icon: Brain,
+      },
+      {
         label: "Token Usage",
         href: "/llm-usage",
         icon: Brain,

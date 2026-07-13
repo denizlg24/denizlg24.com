@@ -289,6 +289,32 @@ export const agentMemorySchema = z.object({
 });
 export type AgentMemory = z.infer<typeof agentMemorySchema>;
 
+export const agentRetrievalTraceSchema = z.object({
+  traceId: z.string().uuid(),
+  conversationId: z.string().optional(),
+  requestId: z.string().optional(),
+  purpose: z.string(),
+  query: z.string(),
+  filters: z.record(z.string(), z.unknown()),
+  candidates: z.array(z.record(z.string(), z.unknown())),
+  exclusions: z.array(z.record(z.string(), z.unknown())),
+  selectedRevisionIds: z.array(z.string()),
+  tokenBudget: z.number().int().nonnegative(),
+  estimatedTokens: z.number().int().nonnegative(),
+  injected: z.boolean(),
+  abstained: z.boolean(),
+  createdAt: isoDateSchema,
+});
+export type AgentRetrievalTrace = z.infer<typeof agentRetrievalTraceSchema>;
+
+export const agentRetrievalTraceListResponseSchema = z.object({
+  traces: z.array(agentRetrievalTraceSchema),
+});
+
+export const agentRetrievalTraceResponseSchema = z.object({
+  trace: agentRetrievalTraceSchema,
+});
+
 export const agentReleaseGatesSchema = z.object({
   evidenceLedger: z.boolean(),
   formation: z.boolean(),
