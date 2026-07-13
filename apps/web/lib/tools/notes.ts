@@ -1,3 +1,4 @@
+import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
 import { connectDB } from "@/lib/mongodb";
 import { pruneGroupIds } from "@/lib/note-route-utils";
 import { Note } from "@/models/Note";
@@ -464,8 +465,11 @@ export const notesTools: ToolDefinition[] = [
     category: "notes",
     execute: async (input) => {
       await connectDB();
-      const note = await Note.findByIdAndDelete(input.id as string);
+      const id = input.id as string;
+      const note = await Note.findById(id);
       if (!note) throw new Error("Note not found");
+      await redactAgentMemorySource({ entityType: "note", entityId: id });
+      await Note.deleteOne({ _id: id });
       const { NoteEdge } = await import("@/models/NoteEdge");
       await NoteEdge.deleteMany({
         $or: [{ from: note._id }, { to: note._id }],

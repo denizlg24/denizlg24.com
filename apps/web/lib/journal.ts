@@ -1,6 +1,7 @@
 import { endOfDay, startOfDay } from "date-fns";
 import type mongoose from "mongoose";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
+import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
 import { CalendarEvent } from "@/models/CalendarEvent";
 import type { IJournalLog, ILeanJournalLog } from "@/models/Journal";
 import { JournalLog } from "@/models/Journal";
@@ -147,6 +148,9 @@ export async function updateJournalContent(
 export async function deleteJournal(id: string): Promise<boolean> {
   try {
     await connectDB();
+    const journal = await JournalLog.findById(id).select("_id").lean();
+    if (!journal) return false;
+    await redactAgentMemorySource({ entityType: "journal", entityId: id });
     await JournalLog.findByIdAndDelete(id);
     return true;
   } catch {

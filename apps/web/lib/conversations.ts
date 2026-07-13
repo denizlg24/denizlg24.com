@@ -8,6 +8,7 @@ import {
   type StoredContentBlock,
 } from "@/models/Conversation";
 import { observeConversationMessages } from "./agent-memory/evidence";
+import { redactAgentMemorySource } from "./agent-memory/source-deletion";
 import { connectDB } from "./mongodb";
 import { isClientTool, isWriteTool } from "./tools/registry";
 
@@ -287,6 +288,12 @@ export async function updateConversationMemoryMode(
 export async function deleteConversation(id: string): Promise<boolean> {
   await connectDB();
 
+  const exists = await Conversation.exists({ _id: id });
+  if (!exists) return false;
+  await redactAgentMemorySource({
+    entityType: "conversation",
+    entityId: id,
+  });
   const result = await Conversation.deleteOne({ _id: id });
   return result.deletedCount > 0;
 }

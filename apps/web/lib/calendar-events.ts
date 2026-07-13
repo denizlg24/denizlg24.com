@@ -1,5 +1,6 @@
 import { endOfDay, startOfDay } from "date-fns";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
+import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
 import {
   CalendarEvent,
   type ICalendarEvent,
@@ -283,6 +284,8 @@ export const deleteCalendarEvent = async (id: string) => {
     await connectDB();
     const event = await CalendarEvent.findById(id).lean();
     if (!event) return false;
+
+    await redactAgentMemorySource({ entityType: "calendar", entityId: id });
 
     if (event.source) {
       await CalendarEvent.findByIdAndUpdate(id, {
