@@ -34,9 +34,10 @@
   secret filtering, revisioned governance/audit APIs, leased jobs, transactional
   conversation evidence/outbox persistence, immutable event IDs, and
   server-enforced enabled/retrieval-off/incognito modes.
-- Gates A and B are released in the live settings and Gate C is enabled in
-  non-injecting shadow mode. Gate D (chat injection), Gate E (reflection), and
-  Gate F (proactivity) remain disabled pending their required labelled evidence.
+- Gates A-D are released in the live settings. Gate D now injects bounded,
+  provenance-labelled read-only memory only into enabled dashboard chat;
+  Gate E (reflection) and Gate F (proactivity) remain disabled pending their
+  required labelled evidence.
 - Gate A's recorded release verification covers a deterministic 50-event sample
   backed by an invariant scan of all 2,620 stored events across seven domains.
   The scan found zero denied matches, invalid provenance, trust mismatches, or
@@ -59,8 +60,8 @@
   provenance/policy checks and redacted LLM usage logging. Its six-item live
   release sample produced five safe active memories and correctly queued one
   conflict for review, with zero denied, permission-like, or trust-escalated
-  outputs. Gate C hybrid
-  retrieval is implemented in non-injecting shadow mode with deterministic
+  outputs. Gate C hybrid retrieval was validated in non-injecting shadow mode
+  and now supplies Gate D with deterministic
   scoring, hard filters, budgets, abstention, source-outage fallback, traces,
   owner-only trace APIs and a shared web/desktop inspection console.
 - The seven-case `agent-memory-retrieval-v1` synthetic suite passes every
@@ -68,8 +69,15 @@
   real filtered vector retrieval returned five candidates without backend
   fallback while recording `injected: false`. Historical backfill processed
   2,622 records into 2,620 accepted evidence events; its remaining formation
-  jobs are queued for the bounded worker. Real owner-chat
-  shadow traces still need labelling before Gate D can be considered.
+  jobs are queued for the bounded worker.
+- Gate D was released from owner-labelled trace
+  `8f1f3601-a2d5-4e31-9306-096c6a53c357`. A controlled same-model comparison
+  showed the no-memory baseline failing to answer within 300 output tokens,
+  while the memory context produced the complete evidence-grounded Calculus II
+  answer in 110 output tokens at lower measured cost. The injected context is
+  XML-escaped, independently budgeted, reconstructed safely across tool
+  continuations, omitted from usage logs, attached to the assistant turn, and
+  exposed through owner-only Useful/Not relevant/Correct/Forget controls.
 
 ## Outcome
 
