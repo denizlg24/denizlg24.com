@@ -39,6 +39,28 @@ const TRUST_SCORE: Record<AgentTrust, number> = {
   highest: 5,
 };
 
+const SENSITIVITY_ORDER: AgentSensitivity[] = [
+  "standard",
+  "personal",
+  "sensitive",
+  "restricted",
+  "denied",
+];
+
+export function leastTrusted(values: AgentTrust[]): AgentTrust {
+  return values.reduce((least, value) =>
+    TRUST_SCORE[value] < TRUST_SCORE[least] ? value : least,
+  );
+}
+
+export function mostSensitive(values: AgentSensitivity[]): AgentSensitivity {
+  return values.reduce((most, value) =>
+    SENSITIVITY_ORDER.indexOf(value) > SENSITIVITY_ORDER.indexOf(most)
+      ? value
+      : most,
+  );
+}
+
 const SOURCE_POLICY: Record<
   AgentSourceType,
   { actors: AgentActor[]; maximumTrust: AgentTrust }

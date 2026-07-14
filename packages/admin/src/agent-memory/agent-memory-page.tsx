@@ -18,7 +18,6 @@ import type {
 } from "@repo/schemas";
 import {
   agentInsightListResponseSchema,
-  agentMemoryGraphResponseSchema,
   agentMemoryListResponseSchema,
   agentMemorySchema,
   agentReflectionOverviewSchema,
@@ -75,6 +74,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import { fetchAgentMemoryGraph } from "./graph-prefetch";
 import { MemoryGraph } from "./memory-graph";
 
 function formatDate(value: string): string {
@@ -291,18 +291,21 @@ export function AgentMemoryPage() {
     void load();
   }, [load]);
 
-  const loadGraph = useCallback(async () => {
-    graphRequestedRef.current = true;
-    setGraphLoading(true);
-    try {
-      const raw = await client.get<unknown>("agent-memory/graph");
-      setGraph(agentMemoryGraphResponseSchema.parse(raw));
-    } catch {
-      toast.error("Failed to load memory graph");
-    } finally {
-      setGraphLoading(false);
-    }
-  }, [client]);
+  const loadGraph = useCallback(
+    async (options: { force?: boolean } = {}) => {
+      graphRequestedRef.current = true;
+      setGraphLoading(true);
+      try {
+        // Served from the app-load prefetch cache when it is still warm.
+        setGraph(await fetchAgentMemoryGraph(client, options));
+      } catch {
+        toast.error("Failed to load memory graph");
+      } finally {
+        setGraphLoading(false);
+      }
+    },
+    [client],
+  );
 
   useEffect(() => {
     if (view === "graph" && !graphRequestedRef.current) void loadGraph();
@@ -329,10 +332,35 @@ export function AgentMemoryPage() {
     [client, memories],
   );
 
+  // Optimistically drop decided candidates from the inbox; the caller keeps a
+  // snapshot to restore on failure and a background refresh reconciles stats.
+  const removeCandidatesLocally = (candidateIds: string[]) => {
+    const ids = new Set(candidateIds);
+    setCandidates((prev) => prev.filter((item) => !ids.has(item.id)));
+    setSelectedCandidateIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setMeta((prev) =>
+      prev
+        ? {
+            ...prev,
+            totalCandidates: Math.max(0, prev.totalCandidates - ids.size),
+            pendingCandidates: Math.max(0, prev.pendingCandidates - ids.size),
+          }
+        : prev,
+    );
+  };
+
   const decideCandidate = async (
     candidate: AgentMemoryCandidate,
     action: "accept" | "dismiss",
   ) => {
+    const previousCandidates = candidates;
+    const previousSelection = selectedCandidateIds;
+    const previousMeta = meta;
+    removeCandidatesLocally([candidate.id]);
     try {
       await client.post(`agent-memory/candidates/${candidate.id}`, {
         action,
@@ -344,13 +372,11 @@ export function AgentMemoryPage() {
       toast.success(
         action === "accept" ? "Memory accepted" : "Candidate dismissed",
       );
-      setSelectedCandidateIds((prev) => {
-        const next = new Set(prev);
-        next.delete(candidate.id);
-        return next;
-      });
-      await fetchOverview();
+      void fetchOverview();
     } catch {
+      setCandidates(previousCandidates);
+      setSelectedCandidateIds(previousSelection);
+      setMeta(previousMeta);
       toast.error("Memory review action failed");
     }
   };
@@ -375,7 +401,11 @@ export function AgentMemoryPage() {
   const decideSelected = async (action: "accept" | "dismiss") => {
     const candidateIds = [...selectedCandidateIds];
     if (candidateIds.length === 0) return;
+    const previousCandidates = candidates;
+    const previousSelection = selectedCandidateIds;
+    const previousMeta = meta;
     setBulkDeciding(action);
+    removeCandidatesLocally(candidateIds);
     try {
       const raw = await client.post<unknown>("agent-memory/candidates/bulk", {
         action,
@@ -394,9 +424,12 @@ export function AgentMemoryPage() {
       } else {
         toast.success(`${verb} ${result.succeeded} candidates`);
       }
-      setSelectedCandidateIds(new Set());
-      await fetchOverview();
+      // Background reconcile: restores any failed candidates and fixes counts.
+      void fetchOverview();
     } catch {
+      setCandidates(previousCandidates);
+      setSelectedCandidateIds(previousSelection);
+      setMeta(previousMeta);
       toast.error("Bulk review action failed");
     } finally {
       setBulkDeciding(null);
@@ -407,19 +440,33 @@ export function AgentMemoryPage() {
     insight: AgentInsight,
     action: "dismiss" | "snooze" | "useful",
   ) => {
-    try {
-      let snoozedUntil: string | undefined;
-      if (action === "snooze") {
-        const snoozeMs = Math.min(
-          Date.now() + 24 * 60 * 60 * 1_000,
-          new Date(insight.expiresAt).getTime() - 60_000,
-        );
-        if (snoozeMs <= Date.now()) {
-          toast.error("Insight expires too soon to snooze");
-          return;
-        }
-        snoozedUntil = new Date(snoozeMs).toISOString();
+    let snoozedUntil: string | undefined;
+    if (action === "snooze") {
+      const snoozeMs = Math.min(
+        Date.now() + 24 * 60 * 60 * 1_000,
+        new Date(insight.expiresAt).getTime() - 60_000,
+      );
+      if (snoozeMs <= Date.now()) {
+        toast.error("Insight expires too soon to snooze");
+        return;
       }
+      snoozedUntil = new Date(snoozeMs).toISOString();
+    }
+    // Optimistic: dismissed insights leave the list immediately, snoozed ones
+    // flip status in place; a background refresh reconciles stats.
+    const previousInsights = insights;
+    if (action === "dismiss") {
+      setInsights((prev) => prev.filter((item) => item.id !== insight.id));
+    } else if (action === "snooze") {
+      setInsights((prev) =>
+        prev.map((item) =>
+          item.id === insight.id
+            ? { ...item, status: "snoozed", snoozedUntil }
+            : item,
+        ),
+      );
+    }
+    try {
       await client.patch(`agent-memory/insights/${insight.id}`, {
         action,
         snoozedUntil,
@@ -431,8 +478,9 @@ export function AgentMemoryPage() {
             ? "Insight snoozed"
             : "Insight dismissed",
       );
-      await load(true);
+      void load(true);
     } catch {
+      setInsights(previousInsights);
       toast.error("Insight action failed");
     }
   };
@@ -515,7 +563,7 @@ export function AgentMemoryPage() {
           variant="ghost"
           onClick={() => {
             void load(true);
-            if (graphRequestedRef.current) void loadGraph();
+            if (graphRequestedRef.current) void loadGraph({ force: true });
           }}
           disabled={refreshing}
           title="Refresh memory data"
@@ -1869,6 +1917,121 @@ function SettingsPanel({
                 </SelectItem>
               </SelectContent>
             </Select>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-sm font-medium">Consolidation</h3>
+          <p className="text-xs text-muted-foreground">
+            A recurring sweep clusters near-duplicate memories, supersedes
+            outdated facts with their current version, and rewrites statements
+            to refer to the owner as “Admin”. Proposals at or above the
+            auto-apply threshold are applied by policy (revisioned and
+            rollbackable); everything below waits in the review inbox.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={settings.consolidation.enabled ? "enabled" : "disabled"}
+            onValueChange={(value) =>
+              void onUpdate(
+                {
+                  consolidation: {
+                    ...settings.consolidation,
+                    enabled: value === "enabled",
+                  },
+                },
+                `Consolidation ${value}`,
+              )
+            }
+          >
+            <SelectTrigger className="h-8 w-32 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="enabled" className="text-xs">
+                Enabled
+              </SelectItem>
+              <SelectItem value="disabled" className="text-xs">
+                Disabled
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          {settings.consolidation.enabled && (
+            <>
+              <Select
+                value={String(settings.consolidation.autoApplyThreshold)}
+                onValueChange={(value) =>
+                  void onUpdate(
+                    {
+                      consolidation: {
+                        ...settings.consolidation,
+                        autoApplyThreshold: Number(value),
+                      },
+                    },
+                    `Consolidation auto-apply threshold set to ${value}`,
+                  )
+                }
+              >
+                <SelectTrigger className="h-8 w-56 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0.5" className="text-xs">
+                    Auto-apply at 50% confidence
+                  </SelectItem>
+                  <SelectItem value="0.6" className="text-xs">
+                    Auto-apply at 60% confidence
+                  </SelectItem>
+                  <SelectItem value="0.7" className="text-xs">
+                    Auto-apply at 70% confidence
+                  </SelectItem>
+                  <SelectItem value="0.8" className="text-xs">
+                    Auto-apply at 80% confidence
+                  </SelectItem>
+                  <SelectItem value="0.9" className="text-xs">
+                    Auto-apply at 90% confidence
+                  </SelectItem>
+                  <SelectItem value="0.95" className="text-xs">
+                    Auto-apply at 95% confidence
+                  </SelectItem>
+                  <SelectItem value="1" className="text-xs">
+                    Auto-apply only at 100%
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={String(settings.consolidation.batchSize)}
+                onValueChange={(value) =>
+                  void onUpdate(
+                    {
+                      consolidation: {
+                        ...settings.consolidation,
+                        batchSize: Number(value),
+                      },
+                    },
+                    `Consolidation batch size set to ${value}`,
+                  )
+                }
+              >
+                <SelectTrigger className="h-8 w-44 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="20" className="text-xs">
+                    20 memories/run
+                  </SelectItem>
+                  <SelectItem value="40" className="text-xs">
+                    40 memories/run
+                  </SelectItem>
+                  <SelectItem value="80" className="text-xs">
+                    80 memories/run
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </>
           )}
         </div>
       </section>

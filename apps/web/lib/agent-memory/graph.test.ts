@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   buildAgentMemoryGraph,
   type GraphMemoryInput,
+  type GraphSimilarityInput,
   ownerRefMatcher,
-  similarityLinks,
 } from "./graph";
 
 function memory(overrides: Partial<GraphMemoryInput> = {}): GraphMemoryInput {
@@ -20,43 +20,10 @@ function memory(overrides: Partial<GraphMemoryInput> = {}): GraphMemoryInput {
   };
 }
 
-describe("agent memory graph similarity links", () => {
-  test("links nearest neighbors above the threshold, deduplicated", () => {
-    const links = similarityLinks([
-      { memoryId: "a", vector: [1, 0, 0] },
-      { memoryId: "b", vector: [0.9, 0.1, 0] },
-      { memoryId: "c", vector: [0, 1, 0] },
-      { memoryId: "d", vector: [0, 0, 1] },
-    ]);
-    const keys = links.map((link) => `${link.source}:${link.target}`);
-    expect(keys).toContain("a:b");
-    expect(keys).not.toContain("a:d");
-    expect(new Set(keys).size).toBe(keys.length);
-    for (const link of links) {
-      expect(link.type).toBe("similar");
-      expect(link.strength).toBeGreaterThanOrEqual(0.35);
-    }
-  });
-
-  test("respects topK per node", () => {
-    const links = similarityLinks(
-      [
-        { memoryId: "hub", vector: [1, 0] },
-        { memoryId: "n1", vector: [0.99, 0.01] },
-        { memoryId: "n2", vector: [0.98, 0.02] },
-        { memoryId: "n3", vector: [0.97, 0.03] },
-      ],
-      { topK: 1 },
-    );
-    const hubLinks = links.filter(
-      (link) => link.source === "hub" || link.target === "hub",
-    );
-    expect(hubLinks.length).toBeLessThanOrEqual(3);
-    expect(
-      hubLinks.some((link) => link.source === "n1" || link.target === "n1"),
-    ).toBe(true);
-  });
-});
+const NO_SIMILARITY: GraphSimilarityInput = {
+  embeddedMemoryIds: [],
+  similarLinks: [],
+};
 
 describe("agent memory graph builder", () => {
   test("creates entity nodes only for shared entities and links members", () => {
@@ -74,7 +41,7 @@ describe("agent memory graph builder", () => {
           entityRefs: [{ entityType: "person", entityId: "p1", label: "Ana" }],
         }),
       ],
-      [],
+      NO_SIMILARITY,
     );
     const entityNodes = graph.nodes.filter((node) => node.kind === "entity");
     expect(entityNodes).toHaveLength(1);
@@ -92,10 +59,32 @@ describe("agent memory graph builder", () => {
         memory({ id: "m1", contradictionIds: ["m2", "missing"] }),
         memory({ id: "m2", supersedesMemoryId: "m1" }),
       ],
-      [],
+      NO_SIMILARITY,
     );
     const types = graph.links.map((link) => link.type).sort();
     expect(types).toEqual(["contradiction", "supersession"]);
+  });
+
+  test("keeps precomputed similar links only between present nodes, deduplicated", () => {
+    const graph = buildAgentMemoryGraph(
+      [memory({ id: "m1" }), memory({ id: "m2" })],
+      {
+        embeddedMemoryIds: ["m1", "m2"],
+        similarLinks: [
+          { source: "m1", target: "m2", type: "similar", strength: 0.8 },
+          { source: "m2", target: "m1", type: "similar", strength: 0.7 },
+          { source: "m1", target: "gone", type: "similar", strength: 0.9 },
+        ],
+      },
+    );
+    const similar = graph.links.filter((link) => link.type === "similar");
+    expect(similar).toHaveLength(1);
+    expect(similar[0]).toEqual({
+      source: "m1",
+      target: "m2",
+      type: "similar",
+      strength: 0.8,
+    });
   });
 
   test("merges scattered owner person refs into one highlighted owner node", () => {
@@ -161,7 +150,7 @@ describe("agent memory graph builder", () => {
           ],
         }),
       ],
-      [],
+      NO_SIMILARITY,
       owner,
     );
     const ownerNodes = graph.nodes.filter((node) => node.isOwner);
@@ -172,7 +161,7 @@ describe("agent memory graph builder", () => {
   });
 
   test("always emits the owner node even without owner-linked memories", () => {
-    const graph = buildAgentMemoryGraph([memory()], [], {
+    const graph = buildAgentMemoryGraph([memory()], NO_SIMILARITY, {
       name: "Deniz Gunes",
       email: "denizlg24@gmail.com",
     });
@@ -183,10 +172,7 @@ describe("agent memory graph builder", () => {
   test("marks embedded memories and truncates long labels", () => {
     const graph = buildAgentMemoryGraph(
       [memory({ id: "m1", statement: "x".repeat(200) }), memory({ id: "m2" })],
-      [
-        { memoryId: "m1", vector: [1, 0] },
-        { memoryId: "ghost", vector: [0, 1] },
-      ],
+      { embeddedMemoryIds: ["m1", "ghost"], similarLinks: [] },
     );
     expect(graph.embeddedCount).toBe(1);
     const m1 = graph.nodes.find((node) => node.id === "m1");
