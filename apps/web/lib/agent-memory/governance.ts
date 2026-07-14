@@ -487,10 +487,32 @@ export async function acceptMemoryCandidate(options: {
         }
       }
 
+      // Consolidation candidates replace their whole conflicting set: the new
+      // memory supersedes every listed source instead of contradicting it.
+      const consolidates = candidate.reviewFlags.includes("consolidation");
+      const consolidatedSources: IAgentMemory[] = [];
+      if (consolidates) {
+        for (const conflictingId of candidate.conflictingMemoryIds) {
+          const source = await AgentMemory.findOne({
+            _id: conflictingId,
+            status: "active",
+          }).session(session);
+          if (source) consolidatedSources.push(source);
+        }
+      }
+
       const memory = new AgentMemory({ _id: new Types.ObjectId() });
+      const baseState = candidateToRevisionState(candidate, superseded?._id);
       const revision = await writeRevision(
         memory,
-        candidateToRevisionState(candidate, superseded?._id),
+        consolidates
+          ? {
+              ...baseState,
+              contradictionIds: [],
+              supersedesMemoryId:
+                superseded?._id ?? consolidatedSources[0]?._id,
+            }
+          : baseState,
         options.actor,
         options.reason,
         session,
@@ -502,6 +524,16 @@ export async function acceptMemoryCandidate(options: {
           { ...memoryToRevisionState(superseded), status: "superseded" },
           options.actor,
           `Superseded by memory ${memory._id.toString()}: ${options.reason}`,
+          session,
+        );
+      }
+      for (const source of consolidatedSources) {
+        if (superseded && source._id.equals(superseded._id)) continue;
+        await writeRevision(
+          source,
+          { ...memoryToRevisionState(source), status: "superseded" },
+          options.actor,
+          `Consolidated into memory ${memory._id.toString()}: ${options.reason}`,
           session,
         );
       }
@@ -588,6 +620,7 @@ async function reviseExistingMemory(options: {
   memoryId: string;
   action: "edit" | "archive" | "rollback" | "delete";
   reason: string;
+  actor?: GovernanceActor;
   buildState: (
     memory: IAgentMemory,
     session: ClientSession,
@@ -613,10 +646,11 @@ async function reviseExistingMemory(options: {
         ...state,
         reviewFlags: [],
       });
+      const actor = options.actor ?? "user";
       const revision = await writeRevision(
         memory,
         state,
-        options.action === "rollback" ? "rollback" : "user",
+        options.action === "rollback" ? "rollback" : actor,
         options.reason,
         session,
       );
@@ -628,7 +662,7 @@ async function reviseExistingMemory(options: {
       await audit(
         {
           action: `memory.${options.action}`,
-          actor: "user",
+          actor,
           targetType: "memory",
           targetId: memory._id.toString(),
           targetRevision: revision,
@@ -650,6 +684,7 @@ export async function editMemory(options: {
   memoryId: string;
   statement: string;
   reason: string;
+  actor?: GovernanceActor;
 }): Promise<IAgentMemory> {
   return reviseExistingMemory({
     ...options,

@@ -2,11 +2,8 @@ import type { AgentMemoryGraphLink, AgentMemoryGraphNode } from "@repo/schemas";
 import { connectDB } from "@/lib/mongodb";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
+import { AgentMemorySimilarity } from "@/models/AgentMemorySimilarity";
 
-const MAX_GRAPH_MEMORIES = 5_000;
-const MAX_GRAPH_EMBEDDINGS = 2_000;
-const SIMILARITY_TOP_K = 3;
-const MIN_SIMILARITY = 0.35;
 const MIN_ENTITY_MEMBERS = 2;
 const LABEL_LENGTH = 140;
 
@@ -22,9 +19,11 @@ export interface GraphMemoryInput {
   supersedesMemoryId?: string;
 }
 
-export interface GraphEmbeddingInput {
-  memoryId: string;
-  vector: number[];
+export interface GraphSimilarityInput {
+  /** Memories that currently have a stored embedding. */
+  embeddedMemoryIds: string[];
+  /** Precomputed similarity links (maintained by the embedding/consolidation jobs). */
+  similarLinks: AgentMemoryGraphLink[];
 }
 
 export interface GraphOwnerInput {
@@ -73,67 +72,9 @@ export function ownerRefMatcher(
     (matchesValue(ref.entityId) || matchesValue(ref.label));
 }
 
-function normalize(vector: number[]): Float64Array {
-  const out = new Float64Array(vector.length);
-  let norm = 0;
-  for (const value of vector) norm += value * value;
-  norm = Math.sqrt(norm) || 1;
-  for (let i = 0; i < vector.length; i += 1) out[i] = (vector[i] ?? 0) / norm;
-  return out;
-}
-
-export function similarityLinks(
-  embeddings: GraphEmbeddingInput[],
-  options: { topK?: number; minSimilarity?: number } = {},
-): AgentMemoryGraphLink[] {
-  const topK = options.topK ?? SIMILARITY_TOP_K;
-  const minSimilarity = options.minSimilarity ?? MIN_SIMILARITY;
-  const normalized = embeddings.map((embedding) => ({
-    memoryId: embedding.memoryId,
-    vector: normalize(embedding.vector),
-  }));
-
-  const byPair = new Map<string, AgentMemoryGraphLink>();
-  for (let i = 0; i < normalized.length; i += 1) {
-    const left = normalized[i];
-    if (!left) continue;
-    const neighbors: { memoryId: string; similarity: number }[] = [];
-    for (let j = 0; j < normalized.length; j += 1) {
-      if (i === j) continue;
-      const right = normalized[j];
-      if (!right || right.vector.length !== left.vector.length) continue;
-      let dot = 0;
-      for (let d = 0; d < left.vector.length; d += 1) {
-        dot += (left.vector[d] ?? 0) * (right.vector[d] ?? 0);
-      }
-      if (dot >= minSimilarity) {
-        neighbors.push({ memoryId: right.memoryId, similarity: dot });
-      }
-    }
-    neighbors.sort((a, b) => b.similarity - a.similarity);
-    for (const neighbor of neighbors.slice(0, topK)) {
-      const [source, target] = [left.memoryId, neighbor.memoryId].sort();
-      if (!source || !target) continue;
-      const key = `${source}:${target}`;
-      const existing = byPair.get(key);
-      if (!existing || existing.strength < neighbor.similarity) {
-        byPair.set(key, {
-          source,
-          target,
-          type: "similar",
-          strength: Math.min(1, neighbor.similarity),
-        });
-      }
-    }
-  }
-  return [...byPair.values()].sort((a, b) =>
-    `${a.source}:${a.target}`.localeCompare(`${b.source}:${b.target}`),
-  );
-}
-
 export function buildAgentMemoryGraph(
   memories: GraphMemoryInput[],
-  embeddings: GraphEmbeddingInput[],
+  similarity: GraphSimilarityInput,
   owner?: GraphOwnerInput,
 ): {
   nodes: AgentMemoryGraphNode[];
@@ -141,10 +82,9 @@ export function buildAgentMemoryGraph(
   embeddedCount: number;
 } {
   const memoryIds = new Set(memories.map((memory) => memory.id));
-  const embedded = embeddings.filter((embedding) =>
-    memoryIds.has(embedding.memoryId),
+  const embeddedIds = new Set(
+    similarity.embeddedMemoryIds.filter((memoryId) => memoryIds.has(memoryId)),
   );
-  const embeddedIds = new Set(embedded.map((embedding) => embedding.memoryId));
 
   const nodes: AgentMemoryGraphNode[] = memories.map((memory) => ({
     id: memory.id,
@@ -160,18 +100,22 @@ export function buildAgentMemoryGraph(
     hasEmbedding: embeddedIds.has(memory.id),
   }));
 
-  const links: AgentMemoryGraphLink[] = similarityLinks(embedded);
-  const linkKeys = new Set(
-    links.map((link) => `${link.type}:${link.source}:${link.target}`),
-  );
+  const links: AgentMemoryGraphLink[] = [];
+  const linkKeys = new Set<string>();
   const pushLink = (link: AgentMemoryGraphLink) => {
     const [source, target] = [link.source, link.target].sort();
     if (!source || !target || source === target) return;
+    if (!memoryIds.has(source) && !source.startsWith("entity:")) return;
+    if (!memoryIds.has(target) && !target.startsWith("entity:")) return;
     const key = `${link.type}:${source}:${target}`;
     if (linkKeys.has(key)) return;
     linkKeys.add(key);
     links.push({ ...link, source, target });
   };
+  for (const link of similarity.similarLinks) {
+    if (!memoryIds.has(link.source) || !memoryIds.has(link.target)) continue;
+    pushLink({ ...link, strength: Math.min(1, link.strength) });
+  }
 
   const isOwnerRef = owner ? ownerRefMatcher(owner) : () => false;
   const entityMembers = new Map<
@@ -247,7 +191,7 @@ export function buildAgentMemoryGraph(
     }
   }
 
-  return { nodes, links, embeddedCount: embedded.length };
+  return { nodes, links, embeddedCount: embeddedIds.size };
 }
 
 export async function loadAgentMemoryGraph() {
@@ -263,30 +207,20 @@ export async function loadAgentMemoryGraph() {
     ownerDoc?.name && ownerDoc?.email
       ? { name: ownerDoc.name, email: ownerDoc.email }
       : undefined;
-  const memories = await AgentMemory.find({ status: { $ne: "deleted" } })
-    .select(
-      "statement memoryType status confidence importance entityRefs contradictionIds supersedesMemoryId",
-    )
-    .sort({ createdAt: 1 })
-    .limit(MAX_GRAPH_MEMORIES)
-    .lean();
-
-  const embeddingDocs = await AgentMemoryEmbedding.find({
-    memoryId: { $in: memories.map((memory) => memory._id) },
-  })
-    .select("+vector")
-    .sort({ createdAt: -1 })
-    .limit(MAX_GRAPH_EMBEDDINGS)
-    .lean();
-  // Descending order + keep-first retains the newest embeddings within the cap
-  // and the latest vector per memory.
-  const latestByMemory = new Map<string, number[]>();
-  for (const doc of embeddingDocs) {
-    const memoryId = doc.memoryId.toString();
-    if (!latestByMemory.has(memoryId)) {
-      latestByMemory.set(memoryId, doc.vector);
-    }
-  }
+  // Similarity is precomputed by the embedding/consolidation jobs, so the
+  // graph is a plain read and stays uncapped.
+  const [memories, embeddedMemoryIds, similarityDocs] = await Promise.all([
+    AgentMemory.find({ status: { $ne: "deleted" } })
+      .select(
+        "statement memoryType status confidence importance entityRefs contradictionIds supersedesMemoryId",
+      )
+      .sort({ createdAt: 1 })
+      .lean(),
+    AgentMemoryEmbedding.distinct("memoryId"),
+    AgentMemorySimilarity.find()
+      .select("sourceMemoryId targetMemoryId strength")
+      .lean(),
+  ]);
 
   const graph = buildAgentMemoryGraph(
     memories.map((memory) => ({
@@ -300,10 +234,15 @@ export async function loadAgentMemoryGraph() {
       contradictionIds: (memory.contradictionIds ?? []).map(String),
       supersedesMemoryId: memory.supersedesMemoryId?.toString(),
     })),
-    [...latestByMemory.entries()].map(([memoryId, vector]) => ({
-      memoryId,
-      vector,
-    })),
+    {
+      embeddedMemoryIds: embeddedMemoryIds.map(String),
+      similarLinks: similarityDocs.map((doc) => ({
+        source: doc.sourceMemoryId.toString(),
+        target: doc.targetMemoryId.toString(),
+        type: "similar" as const,
+        strength: doc.strength,
+      })),
+    },
     owner,
   );
 

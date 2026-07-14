@@ -202,6 +202,7 @@ export const agentMemoryCandidateSchema = z.object({
     .array(
       z.enum([
         "conflict",
+        "consolidation",
         "weak-inference",
         "identity-merge",
         "permission-like",
@@ -241,6 +242,29 @@ export const agentFormationResultSchema = z.object({
   candidates: z.array(agentFormationCandidateSchema).max(20),
 });
 export type AgentFormationResult = z.infer<typeof agentFormationResultSchema>;
+
+export const agentConsolidationActionSchema = z.object({
+  /**
+   * "replace": supersede two or more memories with one surviving statement
+   * (duplicates or outdated facts). "rewrite": reword a single memory without
+   * changing its meaning (owner-naming cleanup).
+   */
+  action: z.enum(["replace", "rewrite"]),
+  memoryIds: z.array(z.string()).min(1).max(10),
+  statement: z.string().trim().min(1).max(8_192),
+  confidence: z.number().min(0).max(1),
+  reason: z.string().trim().min(1).max(4_096),
+});
+export type AgentConsolidationAction = z.infer<
+  typeof agentConsolidationActionSchema
+>;
+
+export const agentConsolidationResultSchema = z.object({
+  actions: z.array(agentConsolidationActionSchema).max(20),
+});
+export type AgentConsolidationResult = z.infer<
+  typeof agentConsolidationResultSchema
+>;
 
 export const agentMemoryRevisionSchema = z.object({
   id: z.string(),
@@ -556,6 +580,11 @@ export const agentMemorySettingsSchema = z.object({
     mode: z.enum(["conservative", "single-user"]),
     emailReviewMaxConfidence: z.number().min(0).max(1),
   }),
+  consolidation: z.object({
+    enabled: z.boolean(),
+    autoApplyThreshold: z.number().min(0).max(1),
+    batchSize: z.number().int().min(1).max(100),
+  }),
   formationModel: z.string().trim().min(1).max(200).nullable(),
   maximumActionAutonomy: z.literal("prepare-only"),
   revision: z.number().int().positive(),
@@ -573,6 +602,7 @@ export const updateAgentMemorySettingsSchema = agentMemorySettingsSchema
     reflectionSchedule: true,
     proactivity: true,
     promotion: true,
+    consolidation: true,
     formationModel: true,
     maximumActionAutonomy: true,
   })

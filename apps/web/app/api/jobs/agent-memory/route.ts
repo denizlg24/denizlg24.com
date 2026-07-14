@@ -1,6 +1,10 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { processBackfillJob } from "@/lib/agent-memory/backfill";
+import {
+  processConsolidationJob,
+  scheduleNextConsolidationJob,
+} from "@/lib/agent-memory/consolidation";
 import { processEmbeddingJob } from "@/lib/agent-memory/embedding";
 import { processFormationJob } from "@/lib/agent-memory/formation";
 import {
@@ -27,6 +31,7 @@ const ACTIVE_OPERATIONS: IAgentMemoryJob["operation"][] = [
   "backfill",
   "reflection",
   "insight",
+  "consolidation",
 ];
 
 export function preferredOperationsForSlot(
@@ -34,7 +39,7 @@ export function preferredOperationsForSlot(
 ): IAgentMemoryJob["operation"][] {
   if (index % 3 === 0) return ["embedding"];
   if (index % 3 === 1) return ["formation", "backfill"];
-  return ["reflection", "insight"];
+  return ["reflection", "insight", "consolidation"];
 }
 
 async function leaseScheduledJob(workerId: string, index: number) {
@@ -56,6 +61,7 @@ async function processJob(job: IAgentMemoryJob) {
   if (job.operation === "embedding") return processEmbeddingJob(job);
   if (job.operation === "reflection") return processReflectionJob(job);
   if (job.operation === "insight") return processInsightJob(job);
+  if (job.operation === "consolidation") return processConsolidationJob(job);
   throw new Error(`No agent-memory handler for ${job.operation}`);
 }
 
@@ -78,6 +84,7 @@ async function drainScheduledJobs(request: Request) {
   await sweepOrphanedLeases();
   await scheduleNextReflectionJob();
   await scheduleNextInsightJob();
+  await scheduleNextConsolidationJob();
   let completed = 0;
   let failed = 0;
   const results: unknown[] = [];
@@ -88,7 +95,7 @@ async function drainScheduledJobs(request: Request) {
       const result = await processJob(job);
       results.push(result);
       if (
-        job.operation === "backfill" &&
+        (job.operation === "backfill" || job.operation === "consolidation") &&
         "done" in result &&
         result.done === false &&
         "checkpoint" in result

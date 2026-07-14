@@ -7,6 +7,12 @@ import { stableContentHash } from "./evidence";
 import { sourceRefIsExcluded } from "./policy";
 import { findDeniedContent } from "./security";
 import { getAgentMemorySettings } from "./settings";
+import {
+  findSimilarMemories,
+  removeSimilarityLinks,
+  SIMILARITY_TOP_K,
+  upsertSimilarityLinks,
+} from "./similarity";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
 export async function processEmbeddingJob(
@@ -34,6 +40,7 @@ export async function processEmbeddingJob(
       // Drop any previously-stored vector so an inactive/superseded or
       // retroactively-denied memory stops being retrievable.
       await AgentMemoryEmbedding.deleteMany({ memoryId: memory._id });
+      await removeSimilarityLinks(memory._id);
       skipped += 1;
       continue;
     }
@@ -51,6 +58,7 @@ export async function processEmbeddingJob(
       )
     ) {
       await AgentMemoryEmbedding.deleteMany({ memoryId: memory._id });
+      await removeSimilarityLinks(memory._id);
       skipped += 1;
       continue;
     }
@@ -84,6 +92,20 @@ export async function processEmbeddingJob(
         { upsert: true },
       );
       embedded += 1;
+      try {
+        // Refresh the memory's precomputed graph links. The vector index is
+        // eventually consistent, so a miss here self-heals on the next
+        // consolidation sweep.
+        const neighbors = await findSimilarMemories(result.vector, {
+          limit: SIMILARITY_TOP_K + 1,
+        });
+        await upsertSimilarityLinks(memory._id, neighbors);
+      } catch (error) {
+        console.error(
+          `Failed to refresh similarity links for agent memory ${memory._id.toString()}:`,
+          error,
+        );
+      }
     } catch (error) {
       // Isolate per-memory failures so one bad embedding call doesn't abort the
       // whole batch and force a full retry of already-embedded memories.

@@ -49,6 +49,11 @@ export interface IAgentMemorySettings extends Document<string> {
     mode: "conservative" | "single-user";
     emailReviewMaxConfidence: number;
   };
+  consolidation: {
+    enabled: boolean;
+    autoApplyThreshold: number;
+    batchSize: number;
+  };
   formationModel: string | null;
   maximumActionAutonomy: "prepare-only";
   revision: number;
@@ -87,6 +92,11 @@ export const DEFAULT_AGENT_MEMORY_SETTINGS = {
   promotion: {
     mode: "single-user" as const,
     emailReviewMaxConfidence: 0.7,
+  },
+  consolidation: {
+    enabled: false,
+    autoApplyThreshold: 0.9,
+    batchSize: 40,
   },
   formationModel: null,
   maximumActionAutonomy: "prepare-only" as const,
@@ -146,6 +156,11 @@ const AgentMemorySettingsSchema = new Schema<IAgentMemorySettings>(
         default: "single-user",
       },
       emailReviewMaxConfidence: { type: Number, default: 0.7, min: 0, max: 1 },
+    },
+    consolidation: {
+      enabled: { type: Boolean, default: false },
+      autoApplyThreshold: { type: Number, default: 0.9, min: 0, max: 1 },
+      batchSize: { type: Number, default: 40, min: 1, max: 100 },
     },
     formationModel: { type: String, default: null, maxlength: 200 },
     maximumActionAutonomy: {
