@@ -10,8 +10,11 @@ import type {
   AgentMemoryListResponse,
   AgentMemoryRun,
   AgentMemorySettings,
+  AgentPersonDraft,
   AgentProcedure,
   AgentReflectionOverview,
+  AgentResourceSuggestion,
+  AgentResourceSuggestionListResponse,
   AgentRetrievalTrace,
   AgentUserModel,
   AgentUserModelRevision,
@@ -21,12 +24,15 @@ import {
   agentMemoryListResponseSchema,
   agentMemorySchema,
   agentReflectionOverviewSchema,
+  agentResourceSuggestionListResponseSchema,
   agentRetrievalTraceListResponseSchema,
   bulkAgentCandidateDecisionResponseSchema,
+  generateAgentResourceSuggestionsResponseSchema,
 } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
+import { Input } from "@repo/ui/input";
 import { PageHeader } from "@repo/ui/page-header";
 import {
   Select,
@@ -52,6 +58,7 @@ import {
   TableRow,
 } from "@repo/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { Textarea } from "@repo/ui/textarea";
 import {
   BrainCircuit,
   Check,
@@ -67,6 +74,7 @@ import {
   Play,
   RefreshCw,
   Search,
+  Sparkles,
   ThumbsUp,
   Undo2,
   X,
@@ -172,6 +180,11 @@ export function AgentMemoryPage() {
   const [insightStats, setInsightStats] = useState<
     AgentInsightListResponse["stats"] | null
   >(null);
+  const [suggestions, setSuggestions] = useState<AgentResourceSuggestion[]>([]);
+  const [suggestionStats, setSuggestionStats] = useState<
+    AgentResourceSuggestionListResponse["stats"] | null
+  >(null);
+  const [generatingSuggestions, setGeneratingSuggestions] = useState(false);
   const [settings, setSettings] = useState<AgentMemorySettings | null>(null);
   const [traces, setTraces] = useState<AgentRetrievalTrace[]>([]);
   const [reflection, setReflection] = useState<AgentReflectionOverview | null>(
@@ -257,12 +270,21 @@ export function AgentMemoryPage() {
       if (!quiet) setLoading(true);
       else setRefreshing(true);
       try {
-        const [, tracesRaw, reflectionRaw, insightsRaw] = await Promise.all([
-          fetchOverview(),
-          client.get<unknown>("agent-memory/retrieval-traces?limit=100"),
-          client.get<unknown>("agent-memory/reflection"),
-          client.get<unknown>("agent-memory/insights"),
-        ]);
+        const [, tracesRaw, reflectionRaw, insightsRaw, suggestionList] =
+          await Promise.all([
+            fetchOverview(),
+            client.get<unknown>("agent-memory/retrieval-traces?limit=100"),
+            client.get<unknown>("agent-memory/reflection"),
+            client.get<unknown>("agent-memory/insights"),
+            // Isolated: a failure or parse error here must not blank traces,
+            // reflection, and insights — keep the previous inbox instead.
+            client
+              .get<unknown>("agent-memory/resource-suggestions?status=pending")
+              .then((raw) =>
+                agentResourceSuggestionListResponseSchema.parse(raw),
+              )
+              .catch(() => null),
+          ]);
         const traceList =
           agentRetrievalTraceListResponseSchema.parse(tracesRaw);
         const reflectionOverview =
@@ -270,6 +292,10 @@ export function AgentMemoryPage() {
         const insightList = agentInsightListResponseSchema.parse(insightsRaw);
         setInsights(insightList.insights);
         setInsightStats(insightList.stats);
+        if (suggestionList) {
+          setSuggestions(suggestionList.suggestions);
+          setSuggestionStats(suggestionList.stats);
+        }
         setTraces(traceList.traces);
         setReflection(reflectionOverview);
         setSelectedTraceId((current) =>
@@ -292,16 +318,25 @@ export function AgentMemoryPage() {
   }, [load]);
 
   const loadGraph = useCallback(
-    async (options: { force?: boolean } = {}) => {
+    async (options: { force?: boolean; silent?: boolean } = {}) => {
       graphRequestedRef.current = true;
-      setGraphLoading(true);
+      if (!options.silent) setGraphLoading(true);
       try {
         // Served from the app-load prefetch cache when it is still warm.
-        setGraph(await fetchAgentMemoryGraph(client, options));
+        const next = await fetchAgentMemoryGraph(client, options);
+        // Keep the previous object when nothing changed so the force layout
+        // is not reheated by a no-op refresh (generatedAt always differs).
+        setGraph((prev) =>
+          prev &&
+          JSON.stringify({ nodes: prev.nodes, links: prev.links }) ===
+            JSON.stringify({ nodes: next.nodes, links: next.links })
+            ? prev
+            : next,
+        );
       } catch {
-        toast.error("Failed to load memory graph");
+        if (!options.silent) toast.error("Failed to load memory graph");
       } finally {
-        setGraphLoading(false);
+        if (!options.silent) setGraphLoading(false);
       }
     },
     [client],
@@ -309,6 +344,17 @@ export function AgentMemoryPage() {
 
   useEffect(() => {
     if (view === "graph" && !graphRequestedRef.current) void loadGraph();
+  }, [view, loadGraph]);
+
+  // Live refresh: keep the graph in sync with memory churn without ever
+  // flashing the loading state — unchanged data is dropped in loadGraph.
+  useEffect(() => {
+    if (view !== "graph") return;
+    const interval = setInterval(() => {
+      if (document.hidden || !graphRequestedRef.current) return;
+      void loadGraph({ force: true, silent: true });
+    }, 45_000);
+    return () => clearInterval(interval);
   }, [view, loadGraph]);
 
   const openMemory = useCallback(
@@ -485,6 +531,66 @@ export function AgentMemoryPage() {
     }
   };
 
+  const decideSuggestion = async (
+    suggestion: AgentResourceSuggestion,
+    action: "accept" | "dismiss",
+    draft?: AgentPersonDraft,
+  ) => {
+    // Optimistic: the decided suggestion leaves the list immediately; a
+    // background refresh reconciles stats and restores it on failure.
+    const previousSuggestions = suggestions;
+    const previousStats = suggestionStats;
+    setSuggestions((prev) => prev.filter((item) => item.id !== suggestion.id));
+    setSuggestionStats((prev) =>
+      prev ? { ...prev, pending: Math.max(0, prev.pending - 1) } : prev,
+    );
+    try {
+      await client.post(`agent-memory/resource-suggestions/${suggestion.id}`, {
+        action,
+        reason:
+          action === "accept"
+            ? "Accepted from resource suggestion review"
+            : "Dismissed from resource suggestion review",
+        ...(action === "accept" && draft ? { draft } : {}),
+      });
+      toast.success(
+        action === "accept"
+          ? `Created ${(draft ?? suggestion.draft).name}`
+          : "Suggestion dismissed",
+      );
+      void load(true);
+    } catch {
+      setSuggestions(previousSuggestions);
+      setSuggestionStats(previousStats);
+      toast.error("Suggestion decision failed");
+    }
+  };
+
+  const generateSuggestions = async (model?: string) => {
+    setGeneratingSuggestions(true);
+    try {
+      const raw = await client.post<unknown>(
+        "agent-memory/resource-suggestions",
+        model ? { model } : {},
+      );
+      const result = generateAgentResourceSuggestionsResponseSchema.parse(raw);
+      if (result.created === 0) {
+        toast.info(
+          `No new suggestions — ${result.skipped} entities skipped (already suggested, already in the directory, or too little to go on)`,
+        );
+      } else {
+        toast.success(
+          `${result.created} suggestion${result.created === 1 ? "" : "s"} ready for review`,
+        );
+      }
+      void load(true);
+    } catch {
+      toast.error("Suggestion generation failed");
+    } finally {
+      setGeneratingSuggestions(false);
+    }
+  };
+
   const updateSettings = async (
     patch: Record<string, unknown>,
     reason: string,
@@ -543,6 +649,7 @@ export function AgentMemoryPage() {
     ["inbox", "Inbox", insightStats?.pending],
     ["memories", "Memories", meta?.totalMemories],
     ["review", "Review", meta?.totalCandidates],
+    ["suggestions", "Suggestions", suggestionStats?.pending],
     ["profile", "Profile", undefined],
     ["goals", "Goals", reflection?.goals.length],
     ["procedures", "Procedures", reflection?.procedures.length],
@@ -832,6 +939,16 @@ export function AgentMemoryPage() {
                   />
                 )}
               </>
+            )}
+
+            {section === "suggestions" && (
+              <ResourceSuggestionInbox
+                suggestions={suggestions}
+                enabled={settings?.resourceSuggestions.enabled ?? false}
+                generating={generatingSuggestions}
+                onGenerate={generateSuggestions}
+                onDecide={decideSuggestion}
+              />
             )}
 
             {section === "profile" && (
@@ -1768,13 +1885,7 @@ function TraceCandidate({
 
 const FORMATION_MODEL_DEFAULT = "__default__";
 
-function SettingsPanel({
-  settings,
-  onUpdate,
-}: {
-  settings: AgentMemorySettings;
-  onUpdate: (patch: Record<string, unknown>, reason: string) => Promise<void>;
-}) {
+function useModelCatalog() {
   const { client } = useAdmin();
   const [models, setModels] = useState<{ id: string; name: string }[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
@@ -1797,6 +1908,223 @@ function SettingsPanel({
       cancelled = true;
     };
   }, [client]);
+
+  return { models, modelsLoading };
+}
+
+function ResourceSuggestionInbox({
+  suggestions,
+  enabled,
+  generating,
+  onGenerate,
+  onDecide,
+}: {
+  suggestions: AgentResourceSuggestion[];
+  enabled: boolean;
+  generating: boolean;
+  onGenerate: (model?: string) => void;
+  onDecide: (
+    suggestion: AgentResourceSuggestion,
+    action: "accept" | "dismiss",
+    draft?: AgentPersonDraft,
+  ) => void;
+}) {
+  const { models } = useModelCatalog();
+  const [modelOverride, setModelOverride] = useState(FORMATION_MODEL_DEFAULT);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={modelOverride} onValueChange={setModelOverride}>
+          <SelectTrigger className="h-7 w-64 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={FORMATION_MODEL_DEFAULT} className="text-xs">
+              Configured model
+            </SelectItem>
+            {models.map((model) => (
+              <SelectItem key={model.id} value={model.id} className="text-xs">
+                {model.name} · {model.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          size="sm"
+          className="h-7 text-xs"
+          disabled={generating}
+          onClick={() =>
+            onGenerate(
+              modelOverride === FORMATION_MODEL_DEFAULT
+                ? undefined
+                : modelOverride,
+            )
+          }
+        >
+          {generating ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="size-3.5" />
+          )}
+          Generate suggestions
+        </Button>
+        {!enabled && (
+          <span className="text-xs text-muted-foreground">
+            Daily sweep is off — enable it in settings or generate on demand.
+          </span>
+        )}
+      </div>
+
+      {suggestions.length === 0 ? (
+        <EmptyRow text="No pending suggestions — recurring people in memories surface here as ready-to-review person records" />
+      ) : (
+        <div className="divide-y border-y">
+          {suggestions.map((suggestion) => (
+            <SuggestionRow
+              key={suggestion.id}
+              suggestion={suggestion}
+              onDecide={onDecide}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SuggestionRow({
+  suggestion,
+  onDecide,
+}: {
+  suggestion: AgentResourceSuggestion;
+  onDecide: (
+    suggestion: AgentResourceSuggestion,
+    action: "accept" | "dismiss",
+    draft?: AgentPersonDraft,
+  ) => void;
+}) {
+  const [draft, setDraft] = useState<AgentPersonDraft>({
+    ...suggestion.draft,
+  });
+  // Mirror the server's completeness bar so an accept never bounces: full
+  // name (two tokens), relation to the owner, and notes.
+  const complete =
+    draft.name.trim().split(/\s+/).length >= 2 &&
+    draft.relationToOwner.trim().length > 0 &&
+    draft.notes.trim().length > 0;
+  const contact = [draft.email, draft.phone, draft.website, draft.placeMet]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div className="space-y-2 py-3">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-medium">{suggestion.entityLabel}</span>
+        <Badge variant="outline">{suggestion.resourceType}</Badge>
+        <span className="text-xs text-muted-foreground">
+          confidence{" "}
+          <span className="tabular-nums">{percent(suggestion.confidence)}</span>{" "}
+          · from{" "}
+          <span className="tabular-nums">{suggestion.memoryIds.length}</span>{" "}
+          memories · {suggestion.model}
+        </span>
+        <div className="ml-auto flex shrink-0 gap-1">
+          <Button
+            size="sm"
+            className="h-7 text-xs"
+            disabled={!complete}
+            title={
+              complete
+                ? "Create the person record"
+                : "Needs a full name, a relation to you, and notes"
+            }
+            onClick={() => onDecide(suggestion, "accept", draft)}
+          >
+            <Check className="size-3.5" />
+            Create person
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs"
+            onClick={() => onDecide(suggestion, "dismiss")}
+          >
+            <X className="size-3.5" />
+            Dismiss
+          </Button>
+        </div>
+      </div>
+      {suggestion.existingResourceMatches.length > 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-500">
+          Possible existing match:{" "}
+          {suggestion.existingResourceMatches
+            .map((match) => match.name)
+            .join(", ")}
+        </p>
+      )}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label
+          htmlFor={`suggestion-${suggestion.id}-name`}
+          className="space-y-1 text-xs text-muted-foreground"
+        >
+          Name
+          <Input
+            id={`suggestion-${suggestion.id}-name`}
+            value={draft.name}
+            className="h-7 text-xs"
+            onChange={(event) =>
+              setDraft((prev) => ({ ...prev, name: event.target.value }))
+            }
+          />
+        </label>
+        <label
+          htmlFor={`suggestion-${suggestion.id}-relation`}
+          className="space-y-1 text-xs text-muted-foreground"
+        >
+          Relation to you
+          <Input
+            id={`suggestion-${suggestion.id}-relation`}
+            value={draft.relationToOwner}
+            className="h-7 text-xs"
+            onChange={(event) =>
+              setDraft((prev) => ({
+                ...prev,
+                relationToOwner: event.target.value,
+              }))
+            }
+          />
+        </label>
+      </div>
+      <label
+        htmlFor={`suggestion-${suggestion.id}-notes`}
+        className="block space-y-1 text-xs text-muted-foreground"
+      >
+        Notes
+        <Textarea
+          id={`suggestion-${suggestion.id}-notes`}
+          value={draft.notes}
+          rows={3}
+          className="text-xs"
+          onChange={(event) =>
+            setDraft((prev) => ({ ...prev, notes: event.target.value }))
+          }
+        />
+      </label>
+      {contact && <p className="text-xs text-muted-foreground">{contact}</p>}
+      <p className="text-xs text-muted-foreground">{suggestion.reason}</p>
+    </div>
+  );
+}
+
+function SettingsPanel({
+  settings,
+  onUpdate,
+}: {
+  settings: AgentMemorySettings;
+  onUpdate: (patch: Record<string, unknown>, reason: string) => Promise<void>;
+}) {
+  const { models, modelsLoading } = useModelCatalog();
 
   const formationValue = settings.formationModel ?? FORMATION_MODEL_DEFAULT;
   const knownModel = models.some(
@@ -2033,6 +2361,89 @@ function SettingsPanel({
               </Select>
             </>
           )}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-sm font-medium">Resource suggestions</h3>
+          <p className="text-xs text-muted-foreground">
+            A recurring sweep drafts complete person records from people who
+            keep surfacing in memories (full name, relation to you, notes).
+            Drafts always wait in the Suggestions inbox for manual approval —
+            nothing is created automatically.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={
+              settings.resourceSuggestions.enabled ? "enabled" : "disabled"
+            }
+            onValueChange={(value) =>
+              void onUpdate(
+                {
+                  resourceSuggestions: {
+                    ...settings.resourceSuggestions,
+                    enabled: value === "enabled",
+                  },
+                },
+                `Resource suggestion sweep ${value}`,
+              )
+            }
+          >
+            <SelectTrigger className="h-8 w-32 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="enabled" className="text-xs">
+                Enabled
+              </SelectItem>
+              <SelectItem value="disabled" className="text-xs">
+                Disabled
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={
+              settings.resourceSuggestions.model ?? FORMATION_MODEL_DEFAULT
+            }
+            onValueChange={(value) =>
+              void onUpdate(
+                {
+                  resourceSuggestions: {
+                    ...settings.resourceSuggestions,
+                    model: value === FORMATION_MODEL_DEFAULT ? null : value,
+                  },
+                },
+                `Set resource suggestion model to ${value === FORMATION_MODEL_DEFAULT ? "server default" : value}`,
+              )
+            }
+          >
+            <SelectTrigger className="h-8 w-full max-w-md text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={FORMATION_MODEL_DEFAULT} className="text-xs">
+                Server default (semantic model)
+              </SelectItem>
+              {settings.resourceSuggestions.model &&
+                !models.some(
+                  (model) => model.id === settings.resourceSuggestions.model,
+                ) && (
+                  <SelectItem
+                    value={settings.resourceSuggestions.model}
+                    className="text-xs"
+                  >
+                    {settings.resourceSuggestions.model} (current)
+                  </SelectItem>
+                )}
+              {models.map((model) => (
+                <SelectItem key={model.id} value={model.id} className="text-xs">
+                  {model.name} · {model.id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </section>
 

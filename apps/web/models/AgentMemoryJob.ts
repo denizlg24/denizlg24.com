@@ -7,10 +7,12 @@ export interface IAgentMemoryJob extends Document {
     | "formation"
     | "reflection"
     | "embedding"
+    | "embedding-cleanup"
     | "backfill"
     | "deletion"
     | "insight"
-    | "consolidation";
+    | "consolidation"
+    | "resource-suggestion";
   evidenceIds: string[];
   memoryIds: mongoose.Types.ObjectId[];
   status:
@@ -40,10 +42,12 @@ const AgentMemoryJobSchema = new Schema<IAgentMemoryJob>(
         "formation",
         "reflection",
         "embedding",
+        "embedding-cleanup",
         "backfill",
         "deletion",
         "insight",
         "consolidation",
+        "resource-suggestion",
       ],
       required: true,
     },

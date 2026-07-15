@@ -266,6 +266,116 @@ export type AgentConsolidationResult = z.infer<
   typeof agentConsolidationResultSchema
 >;
 
+export const agentResourceSuggestionStatusSchema = z.enum([
+  "pending",
+  "accepted",
+  "dismissed",
+]);
+export type AgentResourceSuggestionStatus = z.infer<
+  typeof agentResourceSuggestionStatusSchema
+>;
+
+export const agentResourceSuggestionTypeSchema = z.enum(["person"]);
+export type AgentResourceSuggestionType = z.infer<
+  typeof agentResourceSuggestionTypeSchema
+>;
+
+/**
+ * A complete person record drafted from memories. The completeness bar is
+ * deliberate: a bare first name is not enough to create a person, so the
+ * draft requires a full name, how the person relates to the owner, and a
+ * notes summary of what the memories establish.
+ */
+export const agentPersonDraftSchema = z.object({
+  name: z.string().trim().min(1).max(256),
+  relationToOwner: z.string().trim().min(1).max(1_000),
+  notes: z.string().trim().min(1).max(8_192),
+  placeMet: z.string().trim().min(1).max(512).optional(),
+  email: z.string().trim().min(1).max(320).optional(),
+  phone: z.string().trim().min(1).max(64).optional(),
+  website: z.string().trim().min(1).max(2_048).optional(),
+});
+export type AgentPersonDraft = z.infer<typeof agentPersonDraftSchema>;
+
+export const agentResourceSuggestionSchema = z.object({
+  id: z.string(),
+  resourceType: agentResourceSuggestionTypeSchema,
+  entityKey: z.string().min(1).max(512),
+  entityLabel: z.string().min(1).max(256),
+  draft: agentPersonDraftSchema,
+  memoryIds: z.array(z.string()).min(1).max(100),
+  confidence: z.number().min(0).max(1),
+  reason: z.string().trim().min(1).max(4_096),
+  existingResourceMatches: z
+    .array(z.object({ resourceId: z.string(), name: z.string() }))
+    .max(10)
+    .default([]),
+  status: agentResourceSuggestionStatusSchema,
+  model: z.string().min(1).max(200),
+  decidedAt: isoDateSchema.optional(),
+  resultingResourceId: z.string().optional(),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+export type AgentResourceSuggestion = z.infer<
+  typeof agentResourceSuggestionSchema
+>;
+
+export const agentResourceSuggestionDraftResultSchema = z.object({
+  suggestions: z
+    .array(
+      z.object({
+        entityKey: z.string().min(1).max(512),
+        draft: agentPersonDraftSchema,
+        confidence: z.number().min(0).max(1),
+        reason: z.string().trim().min(1).max(4_096),
+      }),
+    )
+    .max(10),
+});
+export type AgentResourceSuggestionDraftResult = z.infer<
+  typeof agentResourceSuggestionDraftResultSchema
+>;
+
+export const generateAgentResourceSuggestionsSchema = z.object({
+  entityKey: z.string().trim().min(1).max(512).optional(),
+  model: z.string().trim().min(1).max(200).optional(),
+});
+export type GenerateAgentResourceSuggestions = z.infer<
+  typeof generateAgentResourceSuggestionsSchema
+>;
+
+export const agentResourceSuggestionDecisionSchema = z.object({
+  action: z.enum(["accept", "dismiss"]),
+  reason: z.string().trim().min(1).max(2_000),
+  draft: agentPersonDraftSchema.partial().optional(),
+});
+export type AgentResourceSuggestionDecision = z.infer<
+  typeof agentResourceSuggestionDecisionSchema
+>;
+
+export const agentResourceSuggestionListResponseSchema = z.object({
+  suggestions: z.array(agentResourceSuggestionSchema),
+  stats: z.object({
+    pending: z.number().int().nonnegative(),
+    accepted: z.number().int().nonnegative(),
+    dismissed: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+});
+export type AgentResourceSuggestionListResponse = z.infer<
+  typeof agentResourceSuggestionListResponseSchema
+>;
+
+export const generateAgentResourceSuggestionsResponseSchema = z.object({
+  created: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  suggestions: z.array(agentResourceSuggestionSchema),
+});
+export type GenerateAgentResourceSuggestionsResponse = z.infer<
+  typeof generateAgentResourceSuggestionsResponseSchema
+>;
+
 export const agentMemoryRevisionSchema = z.object({
   id: z.string(),
   memoryId: z.string(),
@@ -457,6 +567,7 @@ export const agentMemoryRunSchema = z.object({
     "evaluation",
     "backfill",
     "insight",
+    "resource-suggestion",
   ]),
   status: z.enum(["running", "completed", "failed", "cancelled"]),
   model: z.string().optional(),
@@ -585,6 +696,10 @@ export const agentMemorySettingsSchema = z.object({
     autoApplyThreshold: z.number().min(0).max(1),
     batchSize: z.number().int().min(1).max(100),
   }),
+  resourceSuggestions: z.object({
+    enabled: z.boolean(),
+    model: z.string().trim().min(1).max(200).nullable(),
+  }),
   formationModel: z.string().trim().min(1).max(200).nullable(),
   maximumActionAutonomy: z.literal("prepare-only"),
   revision: z.number().int().positive(),
@@ -603,6 +718,7 @@ export const updateAgentMemorySettingsSchema = agentMemorySettingsSchema
     proactivity: true,
     promotion: true,
     consolidation: true,
+    resourceSuggestions: true,
     formationModel: true,
     maximumActionAutonomy: true,
   })

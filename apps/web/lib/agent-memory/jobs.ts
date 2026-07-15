@@ -16,9 +16,11 @@ export function operationIsEnabled(
 ): boolean {
   if (operation === "formation") return gates.formation;
   if (operation === "embedding") return gates.shadowRetrieval;
+  if (operation === "embedding-cleanup") return gates.shadowRetrieval;
   if (operation === "reflection") return gates.reflection;
   if (operation === "insight") return gates.proactivity;
   if (operation === "backfill") return gates.evidenceLedger;
+  if (operation === "resource-suggestion") return gates.formation;
   return gates.evidenceLedger;
 }
 
