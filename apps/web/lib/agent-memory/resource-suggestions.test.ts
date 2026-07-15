@@ -6,7 +6,7 @@ import {
   personDraftIsComplete,
 } from "./resource-suggestions";
 
-const owner = { name: "Deniz Lopes Günes", email: "denizlolcsgo@gmail.com" };
+const owner = { name: "Deniz Lopes Günes", email: "owner@example.com" };
 
 function memory(
   id: string,

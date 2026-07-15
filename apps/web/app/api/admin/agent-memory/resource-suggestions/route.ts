@@ -30,9 +30,20 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  const parsed = generateAgentResourceSuggestionsSchema.safeParse(
-    await request.json().catch(() => ({})),
-  );
+  // An empty body triggers a default sweep; a non-empty body must be valid JSON.
+  const rawBody = (await request.text()).trim();
+  let body: unknown = {};
+  if (rawBody.length > 0) {
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid generation request" },
+        { status: 400 },
+      );
+    }
+  }
+  const parsed = generateAgentResourceSuggestionsSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid generation request" },

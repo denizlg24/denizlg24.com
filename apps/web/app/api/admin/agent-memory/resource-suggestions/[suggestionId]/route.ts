@@ -14,9 +14,8 @@ export async function POST(
 ) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  const parsed = agentResourceSuggestionDecisionSchema.safeParse(
-    await request.json(),
-  );
+  const body = await request.json().catch(() => null);
+  const parsed = agentResourceSuggestionDecisionSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid suggestion decision" },

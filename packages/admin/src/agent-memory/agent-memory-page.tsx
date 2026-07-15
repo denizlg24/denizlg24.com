@@ -270,27 +270,32 @@ export function AgentMemoryPage() {
       if (!quiet) setLoading(true);
       else setRefreshing(true);
       try {
-        const [, tracesRaw, reflectionRaw, insightsRaw, suggestionsRaw] =
+        const [, tracesRaw, reflectionRaw, insightsRaw, suggestionList] =
           await Promise.all([
             fetchOverview(),
             client.get<unknown>("agent-memory/retrieval-traces?limit=100"),
             client.get<unknown>("agent-memory/reflection"),
             client.get<unknown>("agent-memory/insights"),
-            client.get<unknown>(
-              "agent-memory/resource-suggestions?status=pending",
-            ),
+            // Isolated: a failure or parse error here must not blank traces,
+            // reflection, and insights — keep the previous inbox instead.
+            client
+              .get<unknown>("agent-memory/resource-suggestions?status=pending")
+              .then((raw) =>
+                agentResourceSuggestionListResponseSchema.parse(raw),
+              )
+              .catch(() => null),
           ]);
         const traceList =
           agentRetrievalTraceListResponseSchema.parse(tracesRaw);
         const reflectionOverview =
           agentReflectionOverviewSchema.parse(reflectionRaw);
         const insightList = agentInsightListResponseSchema.parse(insightsRaw);
-        const suggestionList =
-          agentResourceSuggestionListResponseSchema.parse(suggestionsRaw);
         setInsights(insightList.insights);
         setInsightStats(insightList.stats);
-        setSuggestions(suggestionList.suggestions);
-        setSuggestionStats(suggestionList.stats);
+        if (suggestionList) {
+          setSuggestions(suggestionList.suggestions);
+          setSuggestionStats(suggestionList.stats);
+        }
         setTraces(traceList.traces);
         setReflection(reflectionOverview);
         setSelectedTraceId((current) =>

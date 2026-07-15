@@ -45,7 +45,8 @@ const AgentResourceSuggestionSchema = new Schema<IAgentResourceSuggestion>(
     memoryIds: {
       type: [{ type: Schema.Types.ObjectId, ref: "AgentMemory" }],
       required: true,
-      validate: (v: mongoose.Types.ObjectId[]) => v.length > 0,
+      validate: (v: mongoose.Types.ObjectId[]) =>
+        v.length > 0 && v.length <= 100,
     },
     confidence: { type: Number, required: true, min: 0, max: 1 },
     reason: { type: String, required: true, maxlength: 4_096 },
@@ -75,6 +76,12 @@ const AgentResourceSuggestionSchema = new Schema<IAgentResourceSuggestion>(
 
 AgentResourceSuggestionSchema.index({ status: 1, createdAt: -1 });
 AgentResourceSuggestionSchema.index({ entityKey: 1, status: 1 });
+// At most one pending suggestion per entity: the read-before-insert generation
+// path can otherwise race two concurrent runs into duplicate pending rows.
+AgentResourceSuggestionSchema.index(
+  { entityKey: 1 },
+  { unique: true, partialFilterExpression: { status: "pending" } },
+);
 
 export const AgentResourceSuggestion =
   existingModel<IAgentResourceSuggestion>("AgentResourceSuggestion") ||

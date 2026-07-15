@@ -48,6 +48,15 @@ export interface PersonEntityCluster {
   memoryIds: string[];
 }
 
+function isDuplicateKeyError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: number }).code === 11000
+  );
+}
+
 function normalizeName(value: string): string {
   return value
     .normalize("NFD")
@@ -369,11 +378,14 @@ export async function generateResourceSuggestions(
       ) {
         continue;
       }
-      consumed.add(suggestion.entityKey);
-      const { matches } = matchExistingPeople(
+      const { exact, matches } = matchExistingPeople(
         [cluster.label, suggestion.draft.name],
         existingPeople,
       );
+      // The draft resolves to someone already in the directory — skip it
+      // rather than queue a suggestion that would duplicate the entry.
+      if (exact) continue;
+      consumed.add(suggestion.entityKey);
       // An on-demand regenerate replaces the pending suggestion it supersedes.
       if (options.entityKey) {
         await AgentResourceSuggestion.updateMany(
@@ -381,20 +393,31 @@ export async function generateResourceSuggestions(
           { $set: { status: "dismissed", decidedAt: new Date() } },
         );
       }
-      const doc = await AgentResourceSuggestion.create({
-        resourceType: "person",
-        entityKey: cluster.entityKey,
-        entityLabel: cluster.label,
-        draft: suggestion.draft,
-        memoryIds: cluster.memoryIds
-          .filter((memoryId) => Types.ObjectId.isValid(memoryId))
-          .map((memoryId) => new Types.ObjectId(memoryId)),
-        confidence: suggestion.confidence,
-        reason: suggestion.reason,
-        existingResourceMatches: matches,
-        status: "pending",
-        model,
-      });
+      let doc: IAgentResourceSuggestion;
+      try {
+        doc = await AgentResourceSuggestion.create({
+          resourceType: "person",
+          entityKey: cluster.entityKey,
+          entityLabel: cluster.label,
+          draft: suggestion.draft,
+          // Persist only the memory subset actually shown to the model so the
+          // stored provenance matches the prompt (and stays within bounds).
+          memoryIds: cluster.memoryIds
+            .slice(-MAX_MEMORIES_PER_ENTITY)
+            .filter((memoryId) => Types.ObjectId.isValid(memoryId))
+            .map((memoryId) => new Types.ObjectId(memoryId)),
+          confidence: suggestion.confidence,
+          reason: suggestion.reason,
+          existingResourceMatches: matches,
+          status: "pending",
+          model,
+        });
+      } catch (error) {
+        // A concurrent run already inserted a pending suggestion for this
+        // entity (unique partial index); treat it as skipped, not a failure.
+        if (isDuplicateKeyError(error)) continue;
+        throw error;
+      }
       created.push(doc);
     }
     skipped += clusters.length - consumed.size;
@@ -424,6 +447,16 @@ export async function generateResourceSuggestions(
 export async function processResourceSuggestionJob(
   _job: IAgentMemoryJob,
 ): Promise<{ created: number; skipped: number }> {
+  await connectDB();
+  const settings = await getAgentMemorySettings();
+  // Scheduling gated this, but a queued/retrying job can run after the feature
+  // was disabled — re-check at execution time so it doesn't keep generating.
+  if (
+    !settings.releaseGates.formation ||
+    !settings.resourceSuggestions.enabled
+  ) {
+    return { created: 0, skipped: 0 };
+  }
   const outcome = await generateResourceSuggestions();
   return { created: outcome.created, skipped: outcome.skipped };
 }
@@ -496,14 +529,12 @@ async function auditSuggestionDecision(
  * Find the owner's own entry in the people directory so the accepted person
  * can be linked to it. Matching mirrors the graph's owner detection.
  */
-async function findOwnerPersonId(
+function findOwnerPersonId(
   owner: GraphOwnerInput | undefined,
-): Promise<string | null> {
+  people: Pick<ILeanPerson, "_id" | "name" | "email">[],
+): string | null {
   if (!owner) return null;
   const isOwnerRef = ownerRefMatcher(owner);
-  const people = await Person.find()
-    .select("name email")
-    .lean<Pick<ILeanPerson, "_id" | "name" | "email">[]>();
   const match = people.find((person) =>
     isOwnerRef({
       entityType: "person",
@@ -555,39 +586,82 @@ export async function acceptResourceSuggestion(options: {
   }
 
   const owner = await loadOwner();
-  const ownerPersonId = await findOwnerPersonId(owner);
+  const people = await Person.find()
+    .select("name email")
+    .lean<Pick<ILeanPerson, "_id" | "name" | "email">[]>();
+  // A person with this exact name may have been created since the suggestion
+  // was generated — don't add a duplicate directory entry.
+  if (
+    matchExistingPeople(
+      [draft.name],
+      people.map((person) => ({ id: String(person._id), name: person.name })),
+    ).exact
+  ) {
+    throw new AgentMemoryPolicyError(
+      "A person with this name already exists in the directory",
+      "conflict",
+    );
+  }
+  const ownerPersonId = findOwnerPersonId(owner, people);
+
+  // Atomically claim the pending suggestion before creating the person so two
+  // concurrent accepts can't each create a person for the same suggestion.
+  const claimed = await AgentResourceSuggestion.findOneAndUpdate(
+    { _id: suggestion._id, status: "pending" },
+    { $set: { status: "accepted", draft, decidedAt: new Date() } },
+    { new: true },
+  );
+  if (!claimed) {
+    const current = await AgentResourceSuggestion.findById(options.suggestionId)
+      .select("status")
+      .lean();
+    throw new AgentMemoryPolicyError(
+      `Suggestion is already ${current?.status ?? "resolved"}`,
+      "conflict",
+    );
+  }
+
   const notes = ownerPersonId
     ? draft.notes
     : `${draft.notes}\n\nRelation to ${OWNER_REFERENCE}: ${draft.relationToOwner}`;
-  const person = await createPerson({
-    name: draft.name,
-    notes,
-    placeMet: draft.placeMet,
-    email: draft.email,
-    phone: draft.phone,
-    website: draft.website,
-    relations: ownerPersonId
-      ? [{ personId: ownerPersonId, reason: draft.relationToOwner }]
-      : [],
-  });
+  let person: Awaited<ReturnType<typeof createPerson>>;
+  try {
+    person = await createPerson({
+      name: draft.name,
+      notes,
+      placeMet: draft.placeMet,
+      email: draft.email,
+      phone: draft.phone,
+      website: draft.website,
+      relations: ownerPersonId
+        ? [{ personId: ownerPersonId, reason: draft.relationToOwner }]
+        : [],
+    });
+  } catch (error) {
+    // Release the claim so a failed creation can be retried.
+    await AgentResourceSuggestion.updateOne(
+      { _id: claimed._id, status: "accepted" },
+      { $set: { status: "pending" }, $unset: { decidedAt: "" } },
+    );
+    throw error;
+  }
   if (!person) {
+    await AgentResourceSuggestion.updateOne(
+      { _id: claimed._id, status: "accepted" },
+      { $set: { status: "pending" }, $unset: { decidedAt: "" } },
+    );
     throw new Error("Person creation from suggestion failed");
   }
 
-  suggestion.set({
-    status: "accepted",
-    draft,
-    decidedAt: new Date(),
-    resultingResourceId: person._id,
-  });
-  await suggestion.save();
+  claimed.set({ resultingResourceId: person._id });
+  await claimed.save();
   await auditSuggestionDecision(
-    suggestion,
+    claimed,
     "resource-suggestion.accept",
     options.reason,
-    { personId: person._id, entityKey: suggestion.entityKey },
+    { personId: person._id, entityKey: claimed.entityKey },
   );
-  return suggestion;
+  return claimed;
 }
 
 export async function dismissResourceSuggestion(options: {
