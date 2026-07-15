@@ -208,9 +208,10 @@ export async function loadAgentMemoryGraph() {
       ? { name: ownerDoc.name, email: ownerDoc.email }
       : undefined;
   // Similarity is precomputed by the embedding/consolidation jobs, so the
-  // graph is a plain read and stays uncapped.
+  // graph is a plain read and stays uncapped. Active only: superseded and
+  // archived memories are list-view material, not part of the live graph.
   const [memories, embeddedMemoryIds, similarityDocs] = await Promise.all([
-    AgentMemory.find({ status: { $ne: "deleted" } })
+    AgentMemory.find({ status: "active" })
       .select(
         "statement memoryType status confidence importance entityRefs contradictionIds supersedesMemoryId",
       )

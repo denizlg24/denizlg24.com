@@ -5,7 +5,11 @@ import {
   processConsolidationJob,
   scheduleNextConsolidationJob,
 } from "@/lib/agent-memory/consolidation";
-import { processEmbeddingJob } from "@/lib/agent-memory/embedding";
+import {
+  processEmbeddingCleanupJob,
+  processEmbeddingJob,
+  scheduleNextEmbeddingCleanupJob,
+} from "@/lib/agent-memory/embedding";
 import { processFormationJob } from "@/lib/agent-memory/formation";
 import {
   processInsightJob,
@@ -22,24 +26,30 @@ import {
   processReflectionJob,
   scheduleNextReflectionJob,
 } from "@/lib/agent-memory/reflection";
+import {
+  processResourceSuggestionJob,
+  scheduleNextResourceSuggestionJob,
+} from "@/lib/agent-memory/resource-suggestions";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
 
 const MAX_JOBS_PER_REQUEST = 10;
 const ACTIVE_OPERATIONS: IAgentMemoryJob["operation"][] = [
   "embedding",
+  "embedding-cleanup",
   "formation",
   "backfill",
   "reflection",
   "insight",
   "consolidation",
+  "resource-suggestion",
 ];
 
 export function preferredOperationsForSlot(
   index: number,
 ): IAgentMemoryJob["operation"][] {
-  if (index % 3 === 0) return ["embedding"];
+  if (index % 3 === 0) return ["embedding", "embedding-cleanup"];
   if (index % 3 === 1) return ["formation", "backfill"];
-  return ["reflection", "insight", "consolidation"];
+  return ["reflection", "insight", "consolidation", "resource-suggestion"];
 }
 
 async function leaseScheduledJob(workerId: string, index: number) {
@@ -59,9 +69,15 @@ async function processJob(job: IAgentMemoryJob) {
   if (job.operation === "backfill") return processBackfillJob(job);
   if (job.operation === "formation") return processFormationJob(job);
   if (job.operation === "embedding") return processEmbeddingJob(job);
+  if (job.operation === "embedding-cleanup") {
+    return processEmbeddingCleanupJob(job);
+  }
   if (job.operation === "reflection") return processReflectionJob(job);
   if (job.operation === "insight") return processInsightJob(job);
   if (job.operation === "consolidation") return processConsolidationJob(job);
+  if (job.operation === "resource-suggestion") {
+    return processResourceSuggestionJob(job);
+  }
   throw new Error(`No agent-memory handler for ${job.operation}`);
 }
 
@@ -85,6 +101,8 @@ async function drainScheduledJobs(request: Request) {
   await scheduleNextReflectionJob();
   await scheduleNextInsightJob();
   await scheduleNextConsolidationJob();
+  await scheduleNextResourceSuggestionJob();
+  await scheduleNextEmbeddingCleanupJob();
   let completed = 0;
   let failed = 0;
   const results: unknown[] = [];

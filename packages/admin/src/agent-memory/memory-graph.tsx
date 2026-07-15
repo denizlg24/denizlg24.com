@@ -13,6 +13,19 @@ import type { ForceGraphMethods, ForceGraphProps } from "react-force-graph-3d";
 
 type GraphRef = ForceGraphMethods<AgentMemoryGraphNode, AgentMemoryGraphLink>;
 
+/** The force engine writes position/velocity onto the node objects. */
+type PositionedNode = AgentMemoryGraphNode & {
+  x?: number;
+  y?: number;
+  z?: number;
+  vx?: number;
+  vy?: number;
+  vz?: number;
+  fx?: number;
+  fy?: number;
+  fz?: number;
+};
+
 const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
   ssr: false,
 }) as ComponentType<
@@ -108,18 +121,46 @@ export function MemoryGraph({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<GraphRef | null>(null);
+  const previousNodesRef = useRef(new Map<string, PositionedNode>());
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [theme, setTheme] = useState<Theme | null>(null);
 
   // Fresh copies: the force engine mutates node/link objects (x/y/z, source/
   // target become object refs), so never hand it the parsed response objects.
-  const graphData = useMemo(
-    () => ({
-      nodes: nodes.map((node) => ({ ...node })),
+  // Nodes that survive a live refresh inherit their previous position and
+  // velocity so the layout settles in place instead of re-exploding.
+  const graphData = useMemo(() => {
+    const previous = previousNodesRef.current;
+    const nextNodes = nodes.map((node) => {
+      const copy: PositionedNode = { ...node };
+      const existing = previous.get(node.id);
+      if (existing) {
+        copy.x = existing.x;
+        copy.y = existing.y;
+        copy.z = existing.z;
+        copy.vx = existing.vx;
+        copy.vy = existing.vy;
+        copy.vz = existing.vz;
+      }
+      // Pin the owner at the origin: the layout arranges around them and the
+      // camera's default look-at point keeps the Admin node centered.
+      if (node.isOwner) {
+        copy.fx = 0;
+        copy.fy = 0;
+        copy.fz = 0;
+      }
+      return copy;
+    });
+    // The engine keeps mutating these objects, so the map always reads the
+    // latest simulated positions on the next refresh.
+    previousNodesRef.current = new Map(
+      nextNodes.map((node) => [node.id, node]),
+    );
+    return {
+      nodes: nextNodes,
       links: links.map((link) => ({ ...link })),
-    }),
-    [nodes, links],
-  );
+    };
+  }, [nodes, links]);
 
   useEffect(() => {
     if (!containerRef.current) return;

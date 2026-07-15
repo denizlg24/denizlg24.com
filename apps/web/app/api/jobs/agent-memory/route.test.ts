@@ -21,18 +21,26 @@ describe("POST /api/jobs/agent-memory", () => {
   });
 
   test("reserves worker capacity for embeddings, formation, and reflection", () => {
-    expect(preferredOperationsForSlot(0)).toEqual(["embedding"]);
+    expect(preferredOperationsForSlot(0)).toEqual([
+      "embedding",
+      "embedding-cleanup",
+    ]);
     expect(preferredOperationsForSlot(1)).toEqual(["formation", "backfill"]);
     expect(preferredOperationsForSlot(2)).toEqual([
       "reflection",
       "insight",
       "consolidation",
+      "resource-suggestion",
     ]);
     expect(preferredOperationsForSlot(8)).toEqual([
       "reflection",
       "insight",
       "consolidation",
+      "resource-suggestion",
     ]);
-    expect(preferredOperationsForSlot(9)).toEqual(["embedding"]);
+    expect(preferredOperationsForSlot(9)).toEqual([
+      "embedding",
+      "embedding-cleanup",
+    ]);
   });
 });

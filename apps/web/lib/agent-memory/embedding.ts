@@ -1,8 +1,10 @@
 import { embedText } from "@/lib/llm-service";
+import { connectDB } from "@/lib/mongodb";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
-import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
+import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
+import { AgentMemorySimilarity } from "@/models/AgentMemorySimilarity";
 import { stableContentHash } from "./evidence";
 import { sourceRefIsExcluded } from "./policy";
 import { findDeniedContent } from "./security";
@@ -117,4 +119,97 @@ export async function processEmbeddingJob(
     }
   }
   return { embedded, skipped };
+}
+
+/**
+ * Vector-store hygiene. The embedding job only cleans up memories it is
+ * handed, so vectors linger when a memory is superseded/archived/deleted
+ * outside an embedding batch, and revision upserts leave the previous
+ * revision's vector behind. This sweep removes every vector that does not
+ * belong to the current revision of an active memory, plus similarity links
+ * touching anything outside that set.
+ */
+export async function processEmbeddingCleanupJob(
+  _job: IAgentMemoryJob,
+): Promise<{ removedEmbeddings: number; removedLinks: number }> {
+  await connectDB();
+  const embeddedIds = await AgentMemoryEmbedding.distinct("memoryId");
+  const activeDocs = await AgentMemory.find({
+    _id: { $in: embeddedIds },
+    status: "active",
+  })
+    .select("currentRevisionId")
+    .lean();
+  const activeIds = activeDocs.map((doc) => doc._id);
+  const activeSet = new Set(activeIds.map(String));
+
+  let removedEmbeddings = 0;
+  const staleIds = embeddedIds.filter((id) => !activeSet.has(String(id)));
+  if (staleIds.length > 0) {
+    const result = await AgentMemoryEmbedding.deleteMany({
+      memoryId: { $in: staleIds },
+    });
+    removedEmbeddings += result.deletedCount;
+  }
+  if (activeDocs.length > 0) {
+    const result = await AgentMemoryEmbedding.bulkWrite(
+      activeDocs.map((doc) => ({
+        deleteMany: {
+          filter: {
+            memoryId: doc._id,
+            memoryRevisionId: { $ne: doc.currentRevisionId },
+          },
+        },
+      })),
+      { ordered: false },
+    );
+    removedEmbeddings += result.deletedCount ?? 0;
+  }
+
+  const linkResult = await AgentMemorySimilarity.deleteMany({
+    $or: [
+      { sourceMemoryId: { $nin: activeIds } },
+      { targetMemoryId: { $nin: activeIds } },
+    ],
+  });
+  return { removedEmbeddings, removedLinks: linkResult.deletedCount };
+}
+
+export async function scheduleNextEmbeddingCleanupJob(now = new Date()) {
+  await connectDB();
+  const settings = await getAgentMemorySettings();
+  if (!settings.releaseGates.shadowRetrieval) {
+    return { scheduled: false, reason: "embedding-disabled" } as const;
+  }
+  const activeJob = await AgentMemoryJob.findOne({
+    operation: "embedding-cleanup",
+    status: { $in: ["pending", "leased", "retry"] },
+  })
+    .select("_id")
+    .lean();
+  if (activeJob) {
+    return { scheduled: false, reason: "active-job" } as const;
+  }
+  const key = `embedding-cleanup:sweep:${now.toISOString().slice(0, 10)}`;
+  const existing = await AgentMemoryJob.findOne({ idempotencyKey: key })
+    .select("_id")
+    .lean();
+  if (existing) {
+    return { scheduled: false, reason: "already-ran" } as const;
+  }
+  const job = await AgentMemoryJob.findOneAndUpdate(
+    { idempotencyKey: key },
+    {
+      $setOnInsert: {
+        operation: "embedding-cleanup",
+        evidenceIds: [],
+        memoryIds: [],
+        status: "pending",
+        attempts: 0,
+        availableAt: now,
+      },
+    },
+    { upsert: true, returnDocument: "after" },
+  );
+  return { scheduled: true, jobId: job._id.toString() } as const;
 }

@@ -31,6 +31,7 @@ export type LlmPurpose =
   | "hierarchy-draft"
   | "agent-memory-formation"
   | "agent-memory-consolidation"
+  | "agent-memory-resource-suggestion"
   | "agent-memory-embedding"
   | "agent-memory-retrieval";
 
@@ -49,6 +50,7 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   "hierarchy-draft": [],
   "agent-memory-formation": ["tool-use"],
   "agent-memory-consolidation": ["tool-use"],
+  "agent-memory-resource-suggestion": ["tool-use"],
   "agent-memory-embedding": [],
   "agent-memory-retrieval": [],
 };

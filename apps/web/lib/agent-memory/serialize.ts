@@ -6,6 +6,7 @@ import type {
   AgentMemorySettings as AgentMemorySettingsWire,
   AgentMemory as AgentMemoryWire,
   AgentProcedure as AgentProcedureWire,
+  AgentResourceSuggestion as AgentResourceSuggestionWire,
   AgentUserModelRevision as AgentUserModelRevisionWire,
   AgentUserModel as AgentUserModelWire,
 } from "@repo/schemas";
@@ -16,6 +17,7 @@ import type { IAgentMemoryCandidate } from "@/models/AgentMemoryCandidate";
 import type { IAgentMemoryRun } from "@/models/AgentMemoryRun";
 import type { IAgentMemorySettings } from "@/models/AgentMemorySettings";
 import type { IAgentProcedure } from "@/models/AgentProcedure";
+import type { IAgentResourceSuggestion } from "@/models/AgentResourceSuggestion";
 import type { IAgentRetrievalTrace } from "@/models/AgentRetrievalTrace";
 import type { IAgentUserModel } from "@/models/AgentUserModel";
 import type { IAgentUserModelRevision } from "@/models/AgentUserModelRevision";
@@ -242,6 +244,38 @@ export function serializeAgentMemoryCandidate(
   };
 }
 
+export function serializeAgentResourceSuggestion(
+  suggestion: IAgentResourceSuggestion,
+): AgentResourceSuggestionWire {
+  return {
+    id: suggestion._id.toString(),
+    resourceType: suggestion.resourceType,
+    entityKey: suggestion.entityKey,
+    entityLabel: suggestion.entityLabel,
+    draft: {
+      name: suggestion.draft.name,
+      relationToOwner: suggestion.draft.relationToOwner,
+      notes: suggestion.draft.notes,
+      placeMet: suggestion.draft.placeMet,
+      email: suggestion.draft.email,
+      phone: suggestion.draft.phone,
+      website: suggestion.draft.website,
+    },
+    memoryIds: suggestion.memoryIds.map(String),
+    confidence: suggestion.confidence,
+    reason: suggestion.reason,
+    existingResourceMatches: suggestion.existingResourceMatches.map(
+      (match) => ({ resourceId: match.resourceId, name: match.name }),
+    ),
+    status: suggestion.status,
+    model: suggestion.model,
+    decidedAt: iso(suggestion.decidedAt),
+    resultingResourceId: suggestion.resultingResourceId,
+    createdAt: suggestion.createdAt.toISOString(),
+    updatedAt: suggestion.updatedAt.toISOString(),
+  };
+}
+
 export function serializeAgentMemorySettings(
   settings: Pick<
     IAgentMemorySettings,
@@ -255,6 +289,7 @@ export function serializeAgentMemorySettings(
     | "proactivity"
     | "promotion"
     | "consolidation"
+    | "resourceSuggestions"
     | "formationModel"
     | "maximumActionAutonomy"
     | "revision"
@@ -278,6 +313,7 @@ export function serializeAgentMemorySettings(
     proactivity: settings.proactivity,
     promotion: settings.promotion,
     consolidation: settings.consolidation,
+    resourceSuggestions: settings.resourceSuggestions,
     formationModel: settings.formationModel,
     maximumActionAutonomy: settings.maximumActionAutonomy,
     revision: settings.revision,

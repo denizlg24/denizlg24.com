@@ -54,6 +54,10 @@ export interface IAgentMemorySettings extends Document<string> {
     autoApplyThreshold: number;
     batchSize: number;
   };
+  resourceSuggestions: {
+    enabled: boolean;
+    model: string | null;
+  };
   formationModel: string | null;
   maximumActionAutonomy: "prepare-only";
   revision: number;
@@ -97,6 +101,10 @@ export const DEFAULT_AGENT_MEMORY_SETTINGS = {
     enabled: false,
     autoApplyThreshold: 0.9,
     batchSize: 40,
+  },
+  resourceSuggestions: {
+    enabled: false,
+    model: null,
   },
   formationModel: null,
   maximumActionAutonomy: "prepare-only" as const,
@@ -161,6 +169,10 @@ const AgentMemorySettingsSchema = new Schema<IAgentMemorySettings>(
       enabled: { type: Boolean, default: false },
       autoApplyThreshold: { type: Number, default: 0.9, min: 0, max: 1 },
       batchSize: { type: Number, default: 40, min: 1, max: 100 },
+    },
+    resourceSuggestions: {
+      enabled: { type: Boolean, default: false },
+      model: { type: String, default: null, maxlength: 200 },
     },
     formationModel: { type: String, default: null, maxlength: 200 },
     maximumActionAutonomy: {
