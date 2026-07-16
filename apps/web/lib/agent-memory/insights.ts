@@ -7,7 +7,6 @@ import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentFeedbackEvent } from "@/models/AgentFeedbackEvent";
 import { AgentGoal } from "@/models/AgentGoal";
 import { AgentInsight, type IAgentInsight } from "@/models/AgentInsight";
-import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { AgentMemoryRun } from "@/models/AgentMemoryRun";
 import { CalendarEvent } from "@/models/CalendarEvent";
@@ -45,16 +44,6 @@ export interface InsightCalendarEventInput {
   isAllDay: boolean;
   status: string;
   suppressed?: boolean;
-}
-
-export interface InsightMemoryInput {
-  id: string;
-  statement: string;
-  revision: number;
-  status: string;
-  confidence: number;
-  contradictionIds: string[];
-  evidenceIds: string[];
 }
 
 export interface InsightFailureInput {
@@ -285,38 +274,6 @@ export function staleFollowUpInsights(
     }));
 }
 
-export function contradictionInsights(
-  now: Date,
-  memories: InsightMemoryInput[],
-): AgentInsightDraft[] {
-  return memories
-    .filter(
-      (memory) =>
-        memory.status === "active" && memory.contradictionIds.length > 0,
-    )
-    .map((memory) => ({
-      idempotencyKey: `insight:memory-contradiction:${memory.id}:${memory.revision}`,
-      category: "memory-contradiction" as const,
-      title: "Accepted memory has recorded contradictions".slice(0, 512),
-      body: `"${memory.statement.slice(0, 300)}" conflicts with ${memory.contradictionIds.length} other record(s). Review which statement is current.`.slice(
-        0,
-        4_096,
-      ),
-      triggerEvidenceIds: memory.evidenceIds.slice(0, MAX_TRIGGER_EVIDENCE),
-      reason: "An active memory carries unresolved contradiction links.",
-      proposedAction: {
-        kind: "review",
-        targetType: "memory",
-        targetIds: [memory.id, ...memory.contradictionIds.slice(0, 10)],
-      },
-      expectedUsefulness: 0.65,
-      urgency: 0.3,
-      confidence: clamp(memory.confidence * 0.9, 0, 1),
-      interruptionCost: 0.2,
-      expiresAt: new Date(now.getTime() + 7 * DAY_MS),
-    }));
-}
-
 export function repeatedFailureInsights(
   now: Date,
   failures: InsightFailureInput[],
@@ -539,57 +496,44 @@ export async function runInsightSweep(
   });
 
   try {
-    const [
-      goals,
-      events,
-      contradicted,
-      failures,
-      feedbackEvents,
-      todays,
-      pendingInsights,
-    ] = await Promise.all([
-      AgentGoal.find({ status: "active" })
-        .sort({ targetUntil: 1, updatedAt: -1 })
-        .limit(200)
-        .lean(),
-      CalendarEvent.find({
-        status: "scheduled",
-        date: {
-          $gte: startOfUtcDay(now),
-          $lte: new Date(now.getTime() + CALENDAR_LOOKAHEAD_DAYS * DAY_MS),
-        },
-      })
-        .limit(500)
-        .lean(),
-      AgentMemory.find({
-        status: "active",
-        "contradictionIds.0": { $exists: true },
-      })
-        .limit(100)
-        .lean(),
-      AgentFeedbackEvent.find({
-        kind: "tool-failed",
-        createdAt: {
-          $gte: new Date(now.getTime() - FAILURE_WINDOW_DAYS * DAY_MS),
-        },
-      })
-        .limit(500)
-        .lean(),
-      AgentFeedbackEvent.find({
-        kind: { $in: ["suggestion-accepted", "suggestion-dismissed"] },
-        createdAt: { $gte: new Date(now.getTime() - 30 * DAY_MS) },
-      })
-        .limit(1_000)
-        .select("kind boundedDiff")
-        .lean(),
-      AgentInsight.find({ createdAt: { $gte: startOfUtcDay(now) } })
-        .select("category")
-        .lean(),
-      AgentInsight.countDocuments({
-        status: "pending",
-        expiresAt: { $gt: now },
-      }),
-    ]);
+    const [goals, events, failures, feedbackEvents, todays, pendingInsights] =
+      await Promise.all([
+        AgentGoal.find({ status: "active" })
+          .sort({ targetUntil: 1, updatedAt: -1 })
+          .limit(200)
+          .lean(),
+        CalendarEvent.find({
+          status: "scheduled",
+          date: {
+            $gte: startOfUtcDay(now),
+            $lte: new Date(now.getTime() + CALENDAR_LOOKAHEAD_DAYS * DAY_MS),
+          },
+        })
+          .limit(500)
+          .lean(),
+        AgentFeedbackEvent.find({
+          kind: "tool-failed",
+          createdAt: {
+            $gte: new Date(now.getTime() - FAILURE_WINDOW_DAYS * DAY_MS),
+          },
+        })
+          .limit(500)
+          .lean(),
+        AgentFeedbackEvent.find({
+          kind: { $in: ["suggestion-accepted", "suggestion-dismissed"] },
+          createdAt: { $gte: new Date(now.getTime() - 30 * DAY_MS) },
+        })
+          .limit(1_000)
+          .select("kind boundedDiff")
+          .lean(),
+        AgentInsight.find({ createdAt: { $gte: startOfUtcDay(now) } })
+          .select("category")
+          .lean(),
+        AgentInsight.countDocuments({
+          status: "pending",
+          expiresAt: { $gt: now },
+        }),
+      ]);
 
     const goalInputs: InsightGoalInput[] = goals.map((goal) => ({
       id: goal._id.toString(),
@@ -608,15 +552,6 @@ export async function runInsightSweep(
       isAllDay: event.isAllDay,
       status: event.status,
       suppressed: event.source?.isSuppressed ?? false,
-    }));
-    const memoryInputs: InsightMemoryInput[] = contradicted.map((memory) => ({
-      id: memory._id.toString(),
-      statement: memory.statement,
-      revision: memory.revision,
-      status: memory.status,
-      confidence: memory.confidence,
-      contradictionIds: (memory.contradictionIds ?? []).map(String),
-      evidenceIds: memory.evidenceIds ?? [],
     }));
     const failureInputs: InsightFailureInput[] = failures.map((failure) => ({
       createdAt: new Date(failure.createdAt),
@@ -657,7 +592,6 @@ export async function runInsightSweep(
       ...goalDeadlineInsights(now, goalInputs),
       ...staleFollowUpInsights(now, goalInputs),
       ...calendarConflictInsights(now, eventInputs),
-      ...contradictionInsights(now, memoryInputs),
       ...repeatedFailureInsights(now, failureInputs),
       buildDailyBriefing(now, {
         goalsDueSoon: goalInputs.filter(
@@ -800,13 +734,22 @@ const INBOX_INSIGHT_STATUSES: IAgentInsight["status"][] = [
   "snoozed",
 ];
 
+// Contradictions moved out of the insight pipeline into their own inbox panel
+// backed by live memory links; legacy memory-contradiction insights would
+// double-count until their 7-day expiry, so the list and stats exclude them.
+const EXCLUDED_INSIGHT_CATEGORIES = ["memory-contradiction"];
+
 export async function listAgentInsights() {
   await connectDB();
   const [insights, statusCounts] = await Promise.all([
-    AgentInsight.find({ status: { $in: INBOX_INSIGHT_STATUSES } })
+    AgentInsight.find({
+      status: { $in: INBOX_INSIGHT_STATUSES },
+      category: { $nin: EXCLUDED_INSIGHT_CATEGORIES },
+    })
       .sort({ createdAt: -1 })
       .limit(200),
     AgentInsight.aggregate<{ _id: IAgentInsight["status"]; count: number }>([
+      { $match: { category: { $nin: EXCLUDED_INSIGHT_CATEGORIES } } },
       { $group: { _id: "$status", count: { $sum: 1 } } },
     ]),
   ]);

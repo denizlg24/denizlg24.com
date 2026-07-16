@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@repo/ui/dialog";
 import { formatDistanceToNow } from "date-fns";
-import { Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { PiCronHistoryEntry } from "@/lib/picron";
 
@@ -46,6 +46,79 @@ function StatusBadge({ status }: { status: number }) {
     <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 font-mono">
       {status}
     </Badge>
+  );
+}
+
+function tryFormatJson(value: string): string {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+function HistoryRow({ entry }: { entry: PiCronHistoryEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const detail = entry.error || entry.response;
+  const toggleLabel = expanded ? "Collapse log" : "Show full log";
+  return (
+    <>
+      <tr className="border-b last:border-0 align-top">
+        <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
+          {formatDistanceToNow(new Date(entry.started_at), {
+            addSuffix: true,
+          })}
+        </td>
+        <td className="py-2 pr-3">
+          <StatusBadge status={entry.status} />
+        </td>
+        <td className="py-2 pr-3 text-xs whitespace-nowrap">
+          {entry.duration_ms > 0 ? `${entry.duration_ms}ms` : "—"}
+        </td>
+        <td className="py-2 text-xs font-mono break-all max-w-xs">
+          {entry.error ? (
+            <span className="text-destructive line-clamp-2">{entry.error}</span>
+          ) : (
+            <span className="text-muted-foreground line-clamp-2">
+              {entry.response || "—"}
+            </span>
+          )}
+        </td>
+        <td className="py-2 pl-2 w-8">
+          {detail && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              aria-label={toggleLabel}
+              title={toggleLabel}
+              aria-expanded={expanded}
+              onClick={() => setExpanded((current) => !current)}
+            >
+              {expanded ? (
+                <ChevronUp className="size-3.5" />
+              ) : (
+                <ChevronDown className="size-3.5" />
+              )}
+            </Button>
+          )}
+        </td>
+      </tr>
+      {expanded && detail && (
+        <tr className="border-b last:border-0">
+          <td colSpan={5} className="py-2">
+            <pre
+              className={`max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] ${
+                entry.error ? "text-destructive" : "text-muted-foreground"
+              }`}
+            >
+              {tryFormatJson(detail)}
+            </pre>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -116,35 +189,14 @@ export function JobHistoryDialog({
                   <th className="text-left py-2 font-medium">
                     Response / Error
                   </th>
+                  <th className="py-2 pl-2 w-8">
+                    <span className="sr-only">Toggle full log</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {history.map((entry) => (
-                  <tr
-                    key={entry.id}
-                    className="border-b last:border-0 align-top"
-                  >
-                    <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
-                      {formatDistanceToNow(new Date(entry.started_at), {
-                        addSuffix: true,
-                      })}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <StatusBadge status={entry.status} />
-                    </td>
-                    <td className="py-2 pr-3 text-xs whitespace-nowrap">
-                      {entry.duration_ms > 0 ? `${entry.duration_ms}ms` : "—"}
-                    </td>
-                    <td className="py-2 text-xs font-mono break-all max-w-xs">
-                      {entry.error ? (
-                        <span className="text-destructive">{entry.error}</span>
-                      ) : (
-                        <span className="text-muted-foreground line-clamp-2">
-                          {entry.response || "—"}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
+                  <HistoryRow key={entry.id} entry={entry} />
                 ))}
               </tbody>
             </table>

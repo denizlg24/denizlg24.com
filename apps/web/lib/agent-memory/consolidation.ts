@@ -25,6 +25,7 @@ import {
   acceptMemoryCandidate,
   createMemoryCandidate,
   editMemory,
+  removeContradictionLinks,
 } from "./governance";
 import { AgentMemoryPolicyError, leastTrusted, mostSensitive } from "./policy";
 import { findDeniedContent } from "./security";
@@ -420,6 +421,7 @@ export async function processConsolidationJob(job: IAgentMemoryJob): Promise<{
   checkpoint?: Record<string, unknown>;
   scanned: number;
   linked: number;
+  prunedLinks: number;
   proposed: number;
   applied: number;
   rewritten: number;
@@ -443,6 +445,7 @@ export async function processConsolidationJob(job: IAgentMemoryJob): Promise<{
       done: true,
       scanned: 0,
       linked: 0,
+      prunedLinks: 0,
       proposed: 0,
       applied: 0,
       rewritten: 0,
@@ -483,6 +486,48 @@ export async function processConsolidationJob(job: IAgentMemoryJob): Promise<{
     }
   }
 
+  // Pass 1.5 — always: drop contradiction links that point at memories which
+  // are no longer active. Those conflicts are moot — the other side already
+  // left retrieval — and keeping them penalizes ranking and clutters review.
+  let prunedLinks = 0;
+  const linkTargets = new Set(
+    batch.flatMap((memory) =>
+      (memory.contradictionIds ?? []).map((id) => id.toString()),
+    ),
+  );
+  if (linkTargets.size > 0) {
+    const activeTargets = new Set(
+      (
+        await AgentMemory.find({
+          _id: { $in: [...linkTargets] },
+          status: "active",
+        })
+          .select("_id")
+          .lean()
+      ).map((doc) => doc._id.toString()),
+    );
+    for (const memory of batch) {
+      const stale = (memory.contradictionIds ?? [])
+        .map((id) => id.toString())
+        .filter((id) => !activeTargets.has(id));
+      if (stale.length === 0) continue;
+      try {
+        await removeContradictionLinks({
+          memoryId: memory._id.toString(),
+          targetMemoryIds: stale,
+          reason: "Contradiction link target is no longer an active memory",
+          actor: "policy",
+        });
+        prunedLinks += stale.length;
+      } catch (error) {
+        console.error(
+          `Contradiction pruning failed for ${memory._id.toString()}:`,
+          error,
+        );
+      }
+    }
+  }
+
   // Pass 2 — gated: LLM-backed duplicate/outdated cleanup and naming rewrites.
   let proposed = 0;
   let applied = 0;
@@ -520,6 +565,7 @@ export async function processConsolidationJob(job: IAgentMemoryJob): Promise<{
     checkpoint: { lastMemoryId: last?._id.toString() ?? null },
     scanned: batch.length,
     linked,
+    prunedLinks,
     proposed,
     applied,
     rewritten,

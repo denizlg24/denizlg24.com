@@ -193,6 +193,10 @@ export function prepareFormationCandidate(options: {
   candidate: AgentFormationCandidate;
   evidence: FormationEvidence[];
   activeMemoryIds: Set<string>;
+  /** Active memories whose validity window already closed — a newer statement
+   *  succeeds these rather than contradicting them, so conflict links to them
+   *  are dropped instead of stored. */
+  expiredMemoryIds?: Set<string>;
 }): AgentFormationCandidate {
   const evidenceById = new Map(
     options.evidence.map((item) => [item.eventId, item]),
@@ -226,6 +230,9 @@ export function prepareFormationCandidate(options: {
       );
     }
   }
+  const conflictingMemoryIds = options.candidate.conflictingMemoryIds.filter(
+    (memoryId) => !options.expiredMemoryIds?.has(memoryId),
+  );
 
   const reviewFlags = new Set(options.candidate.reviewFlags);
   if (containsPermissionLikeInstruction(options.candidate.statement)) {
@@ -247,6 +254,7 @@ export function prepareFormationCandidate(options: {
 
   return {
     ...options.candidate,
+    conflictingMemoryIds,
     trust,
     sensitivity: mostSensitive([
       options.candidate.sensitivity,
@@ -294,6 +302,16 @@ export async function processFormationJob(
     .lean();
   const activeMemoryIds = new Set(
     activeMemories.map((memory) => memory._id.toString()),
+  );
+  const formationStart = Date.now();
+  const expiredMemoryIds = new Set(
+    activeMemories
+      .filter(
+        (memory) =>
+          memory.temporal?.validUntil &&
+          new Date(memory.temporal.validUntil).getTime() < formationStart,
+      )
+      .map((memory) => memory._id.toString()),
   );
   const input = {
     evidence: evidence.map((item) => ({
@@ -357,6 +375,7 @@ export async function processFormationJob(
           candidate: rawCandidate,
           evidence,
           activeMemoryIds,
+          expiredMemoryIds,
         });
         const created = await createMemoryCandidate({
           candidate,

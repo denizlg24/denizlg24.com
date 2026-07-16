@@ -83,4 +83,31 @@ describe("formation candidate preparation", () => {
       }),
     ).toThrow("outside its bounded input");
   });
+
+  test("drops conflict links to memories whose validity window has closed", () => {
+    const expiredId = "665f1e2a9b3c4d5e6f708192";
+    const activeId = "665f1e2a9b3c4d5e6f708193";
+    const candidate = prepareFormationCandidate({
+      evidence,
+      activeMemoryIds: new Set([expiredId, activeId]),
+      expiredMemoryIds: new Set([expiredId]),
+      candidate: {
+        statement: "The user's courses concluded in June 2026.",
+        memoryType: "semantic",
+        explicitness: "explicit",
+        confidence: 0.9,
+        importance: 0.6,
+        trust: "untrusted",
+        sensitivity: "personal",
+        temporal: { precision: "unknown" },
+        entityRefs: [],
+        evidenceIds: [evidence[0]!.eventId],
+        contradictionEvidenceIds: [],
+        conflictingMemoryIds: [expiredId, activeId],
+        reason: "Semester ended",
+        reviewFlags: [],
+      },
+    });
+    expect(candidate.conflictingMemoryIds).toEqual([activeId]);
+  });
 });

@@ -1,11 +1,11 @@
 import { Skeleton } from "@repo/ui/skeleton";
-import { Brain } from "lucide-react";
+import { DollarSign } from "lucide-react";
 
 export default function Loading() {
   return (
     <div className="flex flex-col gap-2 pb-8">
       <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
-        <Brain className="size-4 text-muted-foreground" />
+        <DollarSign className="size-4 text-muted-foreground" />
         <span className="text-sm font-semibold flex-1">Token Usage</span>
       </div>
       <div className="px-4 flex flex-col gap-6 pt-3">

@@ -14,6 +14,7 @@ import {
   CalendarDays,
   ChevronRight,
   Clock,
+  DollarSign,
   FileText,
   FileUser,
   FolderGit2,
@@ -272,7 +273,7 @@ export const GROUPS: NavGroup[] = [
       {
         label: "Token Usage",
         href: "/llm-usage",
-        icon: Brain,
+        icon: DollarSign,
       },
       {
         label: "Settings",
