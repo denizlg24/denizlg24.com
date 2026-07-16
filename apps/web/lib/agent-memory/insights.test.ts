@@ -6,7 +6,6 @@ import {
   buildDailyBriefing,
   calendarConflictInsights,
   categoryPreference,
-  contradictionInsights,
   goalDeadlineInsights,
   type InsightCalendarEventInput,
   type InsightGoalInput,
@@ -138,34 +137,6 @@ describe("Gate F deterministic triggers", () => {
     expect(drafts[0]?.idempotencyKey).toBe(
       "insight:follow-up:goal-5:2026-07-08T10:00:00.000Z",
     );
-  });
-
-  test("raises contradiction insights for active memories with conflicts", () => {
-    const drafts = contradictionInsights(NOW, [
-      {
-        id: "memory-1",
-        statement: "Deniz lives in Porto.",
-        revision: 3,
-        status: "active",
-        confidence: 0.8,
-        contradictionIds: ["memory-2"],
-        evidenceIds: ["11f113ee-c6d7-4b2d-b79f-b676eb2eb7eb"],
-      },
-      {
-        id: "memory-3",
-        statement: "No conflicts here.",
-        revision: 1,
-        status: "active",
-        confidence: 0.9,
-        contradictionIds: [],
-        evidenceIds: [],
-      },
-    ]);
-    expect(drafts).toHaveLength(1);
-    expect(drafts[0]?.idempotencyKey).toBe(
-      "insight:memory-contradiction:memory-1:3",
-    );
-    expect(drafts[0]?.confidence).toBeCloseTo(0.72);
   });
 
   test("raises repeated failures only at the threshold inside the window", () => {

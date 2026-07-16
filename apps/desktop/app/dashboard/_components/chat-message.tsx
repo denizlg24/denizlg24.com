@@ -26,6 +26,7 @@ import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
 import { Marker, MarkerContent, MarkerIcon } from "@repo/ui/marker";
 import { Message, MessageContent, MessageFooter } from "@repo/ui/message";
 import { Spinner } from "@repo/ui/spinner";
+import { tryFormatJson } from "@repo/utils";
 import {
   Brain,
   Check,
@@ -670,14 +671,6 @@ function ToolGroupBlock({
       )}
     </div>
   );
-}
-
-function tryFormatJson(str: string): string {
-  try {
-    return JSON.stringify(JSON.parse(str), null, 2);
-  } catch {
-    return str;
-  }
 }
 
 function getTextContent(content: string | unknown[]): string {

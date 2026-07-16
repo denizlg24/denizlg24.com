@@ -5,6 +5,7 @@ import {
   archiveMemory,
   deleteMemory,
   editMemory,
+  resolveContradiction,
   rollbackMemory,
 } from "@/lib/agent-memory/governance";
 import { AgentMemoryPolicyError } from "@/lib/agent-memory/policy";
@@ -61,6 +62,18 @@ export async function POST(
       memory = await rollbackMemory({
         memoryId,
         targetRevision: parsed.data.targetRevision,
+        reason: parsed.data.reason,
+      });
+    } else if (parsed.data.action === "resolve-contradiction") {
+      if (!parsed.data.targetMemoryId) {
+        return NextResponse.json(
+          { error: "resolve-contradiction requires a targetMemoryId" },
+          { status: 400 },
+        );
+      }
+      memory = await resolveContradiction({
+        memoryId,
+        targetMemoryId: parsed.data.targetMemoryId,
         reason: parsed.data.reason,
       });
     } else if (parsed.data.statement) {

@@ -769,6 +769,7 @@ export const agentMemoryDecisionSchema = z.object({
     "supersede",
     "rollback",
     "delete",
+    "resolve-contradiction",
   ]),
   statement: z.string().trim().min(1).max(8_192).optional(),
   reason: z.string().trim().min(1).max(2_000),
@@ -913,6 +914,24 @@ export const agentMemoryListResponseSchema = z.object({
 });
 export type AgentMemoryListResponse = z.infer<
   typeof agentMemoryListResponseSchema
+>;
+
+export const agentMemoryContradictionGroupSchema = z.object({
+  memory: agentMemorySchema,
+  conflicts: z.array(agentMemorySchema),
+});
+export type AgentMemoryContradictionGroup = z.infer<
+  typeof agentMemoryContradictionGroupSchema
+>;
+
+export const agentMemoryContradictionListResponseSchema = z.object({
+  groups: z.array(agentMemoryContradictionGroupSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+});
+export type AgentMemoryContradictionListResponse = z.infer<
+  typeof agentMemoryContradictionListResponseSchema
 >;
 
 export const agentMemoryGraphNodeSchema = z.object({

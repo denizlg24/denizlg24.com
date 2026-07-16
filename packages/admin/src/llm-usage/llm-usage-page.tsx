@@ -23,7 +23,7 @@ import { Skeleton } from "@repo/ui/skeleton";
 import { TableSkeleton, TabStripSkeleton } from "@repo/ui/skeleton-blocks";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import type { ColumnDef, PaginationState } from "@tanstack/react-table";
-import { Brain } from "lucide-react";
+import { DollarSign } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
@@ -450,7 +450,7 @@ export function LlmUsageSkeleton() {
     <div className="flex flex-col gap-2 pb-8">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
         {slots?.sidebarTrigger}
-        <Brain className="size-4 text-muted-foreground" />
+        <DollarSign className="size-4 text-muted-foreground" />
         <span className="flex-1 text-sm font-semibold">Token Usage</span>
       </div>
       <div className="px-4 flex flex-col gap-6 pt-3">
@@ -678,7 +678,7 @@ export function LlmUsagePage() {
       <div className="flex flex-col gap-2 pb-8">
         <PageHeader
           leading={slots?.sidebarTrigger}
-          icon={<Brain className="size-4 text-muted-foreground" />}
+          icon={<DollarSign className="size-4 text-muted-foreground" />}
           title="Token Usage"
         />
         <div className="px-4 pt-12 text-center text-muted-foreground text-sm">
@@ -702,7 +702,7 @@ export function LlmUsagePage() {
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
       <PageHeader
         leading={slots?.sidebarTrigger}
-        icon={<Brain className="size-4 text-muted-foreground" />}
+        icon={<DollarSign className="size-4 text-muted-foreground" />}
         title="Token Usage"
       />
 

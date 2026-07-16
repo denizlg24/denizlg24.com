@@ -618,7 +618,7 @@ export async function dismissMemoryCandidate(options: {
 
 async function reviseExistingMemory(options: {
   memoryId: string;
-  action: "edit" | "archive" | "rollback" | "delete";
+  action: "edit" | "archive" | "rollback" | "delete" | "resolve-contradiction";
   reason: string;
   actor?: GovernanceActor;
   buildState: (
@@ -708,6 +708,66 @@ export async function archiveMemory(options: {
       status: "archived",
     }),
   });
+}
+
+export async function removeContradictionLinks(options: {
+  memoryId: string;
+  targetMemoryIds: string[];
+  reason: string;
+  actor?: GovernanceActor;
+}): Promise<IAgentMemory> {
+  const targets = new Set(options.targetMemoryIds.map(String));
+  return reviseExistingMemory({
+    memoryId: options.memoryId,
+    action: "resolve-contradiction",
+    reason: options.reason,
+    actor: options.actor,
+    buildState: (memory) => {
+      const remaining = memory.contradictionIds.filter(
+        (id) => !targets.has(id.toString()),
+      );
+      if (remaining.length === memory.contradictionIds.length) {
+        throw new AgentMemoryPolicyError(
+          "No matching contradiction link to resolve",
+          "conflict",
+        );
+      }
+      return {
+        ...memoryToRevisionState(memory),
+        contradictionIds: remaining,
+      };
+    },
+  });
+}
+
+export async function resolveContradiction(options: {
+  memoryId: string;
+  targetMemoryId: string;
+  reason: string;
+  actor?: GovernanceActor;
+}): Promise<IAgentMemory> {
+  const memory = await removeContradictionLinks({
+    memoryId: options.memoryId,
+    targetMemoryIds: [options.targetMemoryId],
+    reason: options.reason,
+    actor: options.actor,
+  });
+  // Clear the reverse link too when the other side holds one; its absence is
+  // not an error — links are recorded on whichever memory was formed last.
+  try {
+    await removeContradictionLinks({
+      memoryId: options.targetMemoryId,
+      targetMemoryIds: [options.memoryId],
+      reason: options.reason,
+      actor: options.actor,
+    });
+  } catch (error) {
+    if (!(error instanceof AgentMemoryPolicyError)) throw error;
+    // Only suppress the expected "conflict" code (missing reciprocal link).
+    // Rethrow "not-found" and all other policy error codes.
+    if (error.code !== "conflict") throw error;
+  }
+  return memory;
 }
 
 export async function rollbackMemory(options: {

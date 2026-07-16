@@ -6,6 +6,7 @@ import type {
   AgentInsightListResponse,
   AgentMemory,
   AgentMemoryCandidate,
+  AgentMemoryContradictionListResponse,
   AgentMemoryGraphResponse,
   AgentMemoryListResponse,
   AgentMemoryRun,
@@ -21,6 +22,7 @@ import type {
 } from "@repo/schemas";
 import {
   agentInsightListResponseSchema,
+  agentMemoryContradictionListResponseSchema,
   agentMemoryListResponseSchema,
   agentMemorySchema,
   agentReflectionOverviewSchema,
@@ -212,6 +214,7 @@ export function AgentMemoryPage() {
   const [rollingBackRevision, setRollingBackRevision] = useState<number | null>(
     null,
   );
+  const [contradictionRefreshGen, setContradictionRefreshGen] = useState(0);
   const queryRef = useRef<OverviewQuery>({ ...DEFAULT_OVERVIEW_QUERY });
 
   const applyOverview = useCallback((overview: AgentMemoryListResponse) => {
@@ -303,6 +306,8 @@ export function AgentMemoryPage() {
             ? current
             : (traceList.traces[0]?.traceId ?? null),
         );
+        // Propagate refresh to ContradictionPanel.
+        setContradictionRefreshGen((gen) => gen + 1);
       } catch {
         toast.error("Failed to load agent memory data");
       } finally {
@@ -852,11 +857,19 @@ export function AgentMemoryPage() {
         ) : (
           <div className="h-full overflow-y-auto px-4 pt-3 pb-8">
             {section === "inbox" && (
-              <InsightInbox
-                insights={insights}
-                proactivityEnabled={settings?.releaseGates.proactivity ?? false}
-                onAct={actOnInsight}
-              />
+              <>
+                <InsightInbox
+                  insights={insights}
+                  proactivityEnabled={
+                    settings?.releaseGates.proactivity ?? false
+                  }
+                  onAct={actOnInsight}
+                />
+                <ContradictionPanel
+                  onSelectMemory={setSelectedMemory}
+                  refreshGen={contradictionRefreshGen}
+                />
+              </>
             )}
 
             {section === "memories" && (
@@ -1194,7 +1207,12 @@ function InsightInbox({
     action: "dismiss" | "snooze" | "useful",
   ) => void;
 }) {
-  if (insights.length === 0) {
+  // Contradictions get their own authoritative panel below the insight list —
+  // hide the (rate-limited, legacy) insight duplicates of the same records.
+  const visible = insights.filter(
+    (insight) => insight.category !== "memory-contradiction",
+  );
+  if (visible.length === 0) {
     return (
       <EmptyRow
         text={
@@ -1205,7 +1223,7 @@ function InsightInbox({
       />
     );
   }
-  const ordered = [...insights].sort((left, right) => {
+  const ordered = [...visible].sort((left, right) => {
     const leftOpen = left.status === "pending" ? 0 : 1;
     const rightOpen = right.status === "pending" ? 0 : 1;
     if (leftOpen !== rightOpen) return leftOpen - rightOpen;
@@ -1285,6 +1303,212 @@ function InsightInbox({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function ContradictionPanel({
+  onSelectMemory,
+  refreshGen,
+}: {
+  onSelectMemory: (memory: AgentMemory) => void;
+  refreshGen: number;
+}) {
+  const { client } = useAdmin();
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState<AgentMemoryContradictionListResponse | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(false);
+    client
+      .get<unknown>(`agent-memory/contradictions?page=${page}`)
+      .then((raw) => {
+        if (!active) return;
+        const parsed =
+          agentMemoryContradictionListResponseSchema.safeParse(raw);
+        if (!parsed.success) {
+          setError(true);
+          return;
+        }
+        // Archiving the last group of a page can leave us past the end.
+        if (parsed.data.groups.length === 0 && parsed.data.page > 1) {
+          setPage((current) => Math.max(1, current - 1));
+          return;
+        }
+        setData(parsed.data);
+      })
+      .catch(() => {
+        if (active) {
+          setData(null);
+          setError(true);
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, page, refreshKey, refreshGen]);
+
+  const archive = async (memory: AgentMemory) => {
+    setResolvingId(memory.id);
+    try {
+      await client.post(`agent-memory/memories/${memory.id}`, {
+        action: "archive",
+        reason: "Archived while resolving a memory contradiction",
+      });
+      toast.success("Memory archived");
+      setRefreshKey((key) => key + 1);
+    } catch {
+      toast.error("Archive failed");
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  const resolveLink = async (memory: AgentMemory, conflict: AgentMemory) => {
+    setResolvingId(`${memory.id}:${conflict.id}`);
+    try {
+      await client.post(`agent-memory/memories/${memory.id}`, {
+        action: "resolve-contradiction",
+        targetMemoryId: conflict.id,
+        reason: "Owner marked the statements as compatible",
+      });
+      toast.success("Marked as not a conflict");
+      setRefreshKey((key) => key + 1);
+    } catch {
+      toast.error("Resolving the contradiction failed");
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  return (
+    <div className="mt-8">
+      <h3 className="text-xs font-semibold uppercase text-muted-foreground">
+        Memory contradictions
+      </h3>
+      <p className="mb-2 mt-1 text-xs text-muted-foreground">
+        Every active memory below conflicts with the records listed under it.
+        Open a statement for full detail, archive the outdated side, or mark the
+        pair as not a conflict when both statements are true.
+      </p>
+      {loading && !data ? (
+        <div className="space-y-2 border-y py-3">
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-4 w-1/2" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+      ) : error ? (
+        <p className="border-y py-3 text-sm text-destructive">
+          Failed to load contradictions
+        </p>
+      ) : !data || data.total === 0 ? (
+        <p className="border-y py-3 text-sm text-muted-foreground">
+          No unresolved memory contradictions
+        </p>
+      ) : (
+        <>
+          <div className="divide-y border-y">
+            {data.groups.map((group) => (
+              <div key={group.memory.id} className="py-3">
+                <div className="flex min-w-0 items-start gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onSelectMemory(group.memory)}
+                    className="min-w-0 flex-1 break-words text-left text-sm font-medium hover:underline"
+                  >
+                    {group.memory.statement}
+                  </button>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {percent(group.memory.confidence)}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 shrink-0 px-2 text-xs"
+                    disabled={resolvingId !== null}
+                    onClick={() => void archive(group.memory)}
+                  >
+                    {resolvingId === group.memory.id ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      "Archive"
+                    )}
+                  </Button>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  updated {formatDate(group.memory.updatedAt)} · conflicts with{" "}
+                  <span className="tabular-nums">{group.conflicts.length}</span>{" "}
+                  active record(s)
+                </p>
+                <div className="mt-2 space-y-2 border-l-2 pl-3">
+                  {group.conflicts.map((conflict) => (
+                    <div
+                      key={conflict.id}
+                      className="flex min-w-0 items-start gap-2"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onSelectMemory(conflict)}
+                        className="min-w-0 flex-1 break-words text-left text-sm hover:underline"
+                      >
+                        {conflict.statement}
+                      </button>
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {percent(conflict.confidence)}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 shrink-0 px-2 text-xs"
+                        disabled={resolvingId !== null}
+                        title="Both statements are true — remove the contradiction link"
+                        onClick={() => void resolveLink(group.memory, conflict)}
+                      >
+                        {resolvingId === `${group.memory.id}:${conflict.id}` ? (
+                          <Loader2 className="size-3 animate-spin" />
+                        ) : (
+                          "Not a conflict"
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 shrink-0 px-2 text-xs"
+                        disabled={resolvingId !== null}
+                        onClick={() => void archive(conflict)}
+                      >
+                        {resolvingId === conflict.id ? (
+                          <Loader2 className="size-3 animate-spin" />
+                        ) : (
+                          "Archive"
+                        )}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <PageFooter
+            page={data.page}
+            pageSize={data.pageSize}
+            total={data.total}
+            label="contradictions"
+            onChange={setPage}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -1681,29 +1905,69 @@ function RunTable({ runs }: { runs: AgentMemoryRun[] }) {
             <TableHead className="text-right">Inputs</TableHead>
             <TableHead className="text-right">Outputs</TableHead>
             <TableHead>Version</TableHead>
+            <TableHead className="w-10">
+              <span className="sr-only">Toggle full log</span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {runs.map((run) => (
-            <TableRow key={run.id}>
-              <TableCell>{formatDate(run.startedAt)}</TableCell>
-              <TableCell>
-                <Badge variant="outline">{run.status}</Badge>
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {run.inputIds.length}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {run.outputIds.length}
-              </TableCell>
-              <TableCell className="font-mono text-xs text-muted-foreground">
-                {run.promptVersion}
-              </TableCell>
-            </TableRow>
+            <RunRow key={run.id} run={run} />
           ))}
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+function RunRow({ run }: { run: AgentMemoryRun }) {
+  const [expanded, setExpanded] = useState(false);
+  const toggleLabel = expanded ? "Collapse run log" : "Show full run log";
+  return (
+    <>
+      <TableRow>
+        <TableCell>{formatDate(run.startedAt)}</TableCell>
+        <TableCell>
+          <Badge variant="outline">{run.status}</Badge>
+        </TableCell>
+        <TableCell className="text-right tabular-nums">
+          {run.inputIds.length}
+        </TableCell>
+        <TableCell className="text-right tabular-nums">
+          {run.outputIds.length}
+        </TableCell>
+        <TableCell className="font-mono text-xs text-muted-foreground">
+          {run.promptVersion}
+        </TableCell>
+        <TableCell className="w-10">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label={toggleLabel}
+            title={toggleLabel}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((current) => !current)}
+          >
+            {expanded ? (
+              <ChevronUp className="size-3.5" />
+            ) : (
+              <ChevronDown className="size-3.5" />
+            )}
+          </Button>
+        </TableCell>
+      </TableRow>
+      {expanded && (
+        <TableRow className="hover:bg-transparent">
+          <TableCell colSpan={6}>
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all border-l-2 pl-3 font-mono text-[11px] text-muted-foreground">
+              {JSON.stringify(run, null, 2)}
+            </pre>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }
 
@@ -1884,6 +2148,10 @@ function TraceCandidate({
 }
 
 const FORMATION_MODEL_DEFAULT = "__default__";
+const RETRIEVAL_MAX_ITEM_OPTIONS = [4, 8, 12, 20, 30, 50];
+const RETRIEVAL_MAX_TOKEN_OPTIONS = [
+  1_000, 1_500, 2_500, 4_000, 6_000, 8_000, 10_000,
+];
 
 function useModelCatalog() {
   const { client } = useAdmin();
@@ -2176,6 +2444,99 @@ function SettingsPanel({
             Loading model catalog…
           </p>
         )}
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-sm font-medium">Retrieval budget</h3>
+          <p className="text-xs text-muted-foreground">
+            Caps how much memory context is injected into a chat request: the
+            maximum number of retrieved memories and the serialized token budget
+            (shared with the derived profile context).
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={String(settings.retrieval.maxRetrievedItems)}
+            onValueChange={(value) =>
+              void onUpdate(
+                {
+                  retrieval: {
+                    ...settings.retrieval,
+                    maxRetrievedItems: Number(value),
+                  },
+                },
+                `Max injected memories set to ${value}`,
+              )
+            }
+          >
+            <SelectTrigger className="h-8 w-48 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {!RETRIEVAL_MAX_ITEM_OPTIONS.includes(
+                settings.retrieval.maxRetrievedItems,
+              ) && (
+                <SelectItem
+                  value={String(settings.retrieval.maxRetrievedItems)}
+                  className="text-xs"
+                >
+                  Up to {settings.retrieval.maxRetrievedItems} memories
+                  (current)
+                </SelectItem>
+              )}
+              {RETRIEVAL_MAX_ITEM_OPTIONS.map((option) => (
+                <SelectItem
+                  key={option}
+                  value={String(option)}
+                  className="text-xs"
+                >
+                  Up to {option} memories
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={String(settings.retrieval.maxTokens)}
+            onValueChange={(value) =>
+              void onUpdate(
+                {
+                  retrieval: {
+                    ...settings.retrieval,
+                    maxTokens: Number(value),
+                  },
+                },
+                `Retrieval token budget set to ${value}`,
+              )
+            }
+          >
+            <SelectTrigger className="h-8 w-48 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {!RETRIEVAL_MAX_TOKEN_OPTIONS.includes(
+                settings.retrieval.maxTokens,
+              ) && (
+                <SelectItem
+                  value={String(settings.retrieval.maxTokens)}
+                  className="text-xs"
+                >
+                  {settings.retrieval.maxTokens.toLocaleString()} tokens
+                  (current)
+                </SelectItem>
+              )}
+              {RETRIEVAL_MAX_TOKEN_OPTIONS.map((option) => (
+                <SelectItem
+                  key={option}
+                  value={String(option)}
+                  className="text-xs"
+                >
+                  {option.toLocaleString()} tokens
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </section>
 
       <section className="space-y-3">
