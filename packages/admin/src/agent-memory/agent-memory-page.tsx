@@ -214,6 +214,7 @@ export function AgentMemoryPage() {
   const [rollingBackRevision, setRollingBackRevision] = useState<number | null>(
     null,
   );
+  const [contradictionRefreshGen, setContradictionRefreshGen] = useState(0);
   const queryRef = useRef<OverviewQuery>({ ...DEFAULT_OVERVIEW_QUERY });
 
   const applyOverview = useCallback((overview: AgentMemoryListResponse) => {
@@ -305,6 +306,8 @@ export function AgentMemoryPage() {
             ? current
             : (traceList.traces[0]?.traceId ?? null),
         );
+        // Propagate refresh to ContradictionPanel.
+        setContradictionRefreshGen((gen) => gen + 1);
       } catch {
         toast.error("Failed to load agent memory data");
       } finally {
@@ -862,7 +865,10 @@ export function AgentMemoryPage() {
                   }
                   onAct={actOnInsight}
                 />
-                <ContradictionPanel onSelectMemory={setSelectedMemory} />
+                <ContradictionPanel
+                  onSelectMemory={setSelectedMemory}
+                  refreshGen={contradictionRefreshGen}
+                />
               </>
             )}
 
@@ -1303,8 +1309,10 @@ function InsightInbox({
 
 function ContradictionPanel({
   onSelectMemory,
+  refreshGen,
 }: {
   onSelectMemory: (memory: AgentMemory) => void;
+  refreshGen: number;
 }) {
   const { client } = useAdmin();
   const [page, setPage] = useState(1);
@@ -1312,19 +1320,24 @@ function ContradictionPanel({
     null,
   );
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setError(false);
     client
       .get<unknown>(`agent-memory/contradictions?page=${page}`)
       .then((raw) => {
         if (!active) return;
         const parsed =
           agentMemoryContradictionListResponseSchema.safeParse(raw);
-        if (!parsed.success) return;
+        if (!parsed.success) {
+          setError(true);
+          return;
+        }
         // Archiving the last group of a page can leave us past the end.
         if (parsed.data.groups.length === 0 && parsed.data.page > 1) {
           setPage((current) => Math.max(1, current - 1));
@@ -1333,7 +1346,10 @@ function ContradictionPanel({
         setData(parsed.data);
       })
       .catch(() => {
-        if (active) setData(null);
+        if (active) {
+          setData(null);
+          setError(true);
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -1341,7 +1357,7 @@ function ContradictionPanel({
     return () => {
       active = false;
     };
-  }, [client, page, refreshKey]);
+  }, [client, page, refreshKey, refreshGen]);
 
   const archive = async (memory: AgentMemory) => {
     setResolvingId(memory.id);
@@ -1392,6 +1408,10 @@ function ContradictionPanel({
           <Skeleton className="h-4 w-1/2" />
           <Skeleton className="h-4 w-2/3" />
         </div>
+      ) : error ? (
+        <p className="border-y py-3 text-sm text-destructive">
+          Failed to load contradictions
+        </p>
       ) : !data || data.total === 0 ? (
         <p className="border-y py-3 text-sm text-muted-foreground">
           No unresolved memory contradictions

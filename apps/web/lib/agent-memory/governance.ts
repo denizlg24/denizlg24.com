@@ -763,6 +763,9 @@ export async function resolveContradiction(options: {
     });
   } catch (error) {
     if (!(error instanceof AgentMemoryPolicyError)) throw error;
+    // Only suppress the expected "conflict" code (missing reciprocal link).
+    // Rethrow "not-found" and all other policy error codes.
+    if (error.code !== "conflict") throw error;
   }
   return memory;
 }

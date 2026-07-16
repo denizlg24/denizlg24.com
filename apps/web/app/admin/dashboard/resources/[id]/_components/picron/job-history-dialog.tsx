@@ -12,7 +12,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { PiCronHistoryEntry } from "@/lib/picron";
+import type { PiCronHistoryEntry } from "@repo/schemas";
 
 interface JobHistoryDialogProps {
   open: boolean;

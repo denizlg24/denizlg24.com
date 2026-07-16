@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
     conflictDocs.map((doc) => [doc._id.toString(), doc]),
   );
 
+  const seenPairs = new Set<string>();
   const groups = memories
     .map((memory) => ({
       memory: serializeAgentMemory(memory),
@@ -56,7 +57,31 @@ export async function GET(request: NextRequest) {
         .filter((doc): doc is NonNullable<typeof doc> => Boolean(doc))
         .map((doc) => serializeAgentMemory(doc)),
     }))
-    .filter((group) => group.conflicts.length > 0);
+    .filter((group) => group.conflicts.length > 0)
+    .filter((group) => {
+      // Deduplicate reciprocal pairs: each unordered pair (A,B) emitted once.
+      // Use lexicographic ordering for the pair key.
+      const memoryId = group.memory.id;
+      const hasUnseen = group.conflicts.some((conflict) => {
+        const conflictId = conflict.id;
+        const pairKey =
+          memoryId < conflictId
+            ? `${memoryId}:${conflictId}`
+            : `${conflictId}:${memoryId}`;
+        return !seenPairs.has(pairKey);
+      });
+      if (!hasUnseen) return false;
+      // Mark all pairs from this group as seen.
+      for (const conflict of group.conflicts) {
+        const conflictId = conflict.id;
+        const pairKey =
+          memoryId < conflictId
+            ? `${memoryId}:${conflictId}`
+            : `${conflictId}:${memoryId}`;
+        seenPairs.add(pairKey);
+      }
+      return true;
+    });
 
   return NextResponse.json({
     groups: groups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),

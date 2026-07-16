@@ -532,6 +532,7 @@ export async function runInsightSweep(
         AgentInsight.countDocuments({
           status: "pending",
           expiresAt: { $gt: now },
+          category: { $nin: EXCLUDED_INSIGHT_CATEGORIES },
         }),
       ]);
 

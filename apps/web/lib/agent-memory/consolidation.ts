@@ -496,16 +496,31 @@ export async function processConsolidationJob(job: IAgentMemoryJob): Promise<{
     ),
   );
   if (linkTargets.size > 0) {
-    const activeTargets = new Set(
-      (
-        await AgentMemory.find({
-          _id: { $in: [...linkTargets] },
-          status: "active",
-        })
-          .select("_id")
-          .lean()
-      ).map((doc) => doc._id.toString()),
+    // Validate ObjectIds before passing to mongoose query to prevent CastError.
+    const validTargets = [...linkTargets].filter((id) =>
+      mongoose.isValidObjectId(id),
     );
+    let activeTargets = new Set<string>();
+    if (validTargets.length > 0) {
+      try {
+        activeTargets = new Set(
+          (
+            await AgentMemory.find({
+              _id: { $in: validTargets },
+              status: "active",
+            })
+              .select("_id")
+              .lean()
+          ).map((doc) => doc._id.toString()),
+        );
+      } catch (error) {
+        console.error(
+          "Contradiction target lookup failed during consolidation:",
+          error,
+        );
+        // Continue with empty activeTargets set — all links will be marked stale.
+      }
+    }
     for (const memory of batch) {
       const stale = (memory.contradictionIds ?? [])
         .map((id) => id.toString())

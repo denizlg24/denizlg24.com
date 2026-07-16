@@ -10,15 +10,8 @@ import {
 } from "@repo/ui/dialog";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { tryFormatJson } from "../../lib/format";
 import { useAdmin } from "../../provider";
-
-function tryFormatJson(value: string): string {
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
-}
 
 function HistoryEntry({ entry }: { entry: PiCronHistoryEntry }) {
   const [expanded, setExpanded] = useState(false);
@@ -46,7 +39,7 @@ function HistoryEntry({ entry }: { entry: PiCronHistoryEntry }) {
         {expanded ? (
           <pre
             className={`mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] ${
-              entry.error ? "text-red-400/80" : "text-muted-foreground"
+              entry.error ? "text-destructive" : "text-muted-foreground"
             }`}
           >
             {tryFormatJson(detail)}
@@ -54,7 +47,7 @@ function HistoryEntry({ entry }: { entry: PiCronHistoryEntry }) {
         ) : (
           <>
             {entry.error && (
-              <p className="text-[11px] text-red-400/80 font-mono mt-1 truncate">
+              <p className="text-[11px] text-destructive font-mono mt-1 truncate">
                 {entry.error}
               </p>
             )}
