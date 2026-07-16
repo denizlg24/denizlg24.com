@@ -8,9 +8,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/dialog";
+import { tryFormatJson } from "@repo/utils";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { tryFormatJson } from "../../lib/format";
 import { useAdmin } from "../../provider";
 
 function HistoryEntry({ entry }: { entry: PiCronHistoryEntry }) {

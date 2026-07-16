@@ -1,5 +1,6 @@
 "use client";
 
+import type { PiCronHistoryEntry } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import {
@@ -9,10 +10,10 @@ import {
   DialogFooter,
   DialogTitle,
 } from "@repo/ui/dialog";
+import { tryFormatJson } from "@repo/utils";
 import { formatDistanceToNow } from "date-fns";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { PiCronHistoryEntry } from "@repo/schemas";
 
 interface JobHistoryDialogProps {
   open: boolean;
@@ -47,14 +48,6 @@ function StatusBadge({ status }: { status: number }) {
       {status}
     </Badge>
   );
-}
-
-function tryFormatJson(value: string): string {
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
 }
 
 function HistoryRow({ entry }: { entry: PiCronHistoryEntry }) {

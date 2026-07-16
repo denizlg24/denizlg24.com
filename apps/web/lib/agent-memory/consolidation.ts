@@ -9,7 +9,7 @@ import type {
   AgentTrust,
 } from "@repo/schemas";
 import { agentConsolidationResultSchema } from "@repo/schemas";
-import { Types } from "mongoose";
+import mongoose, { Types } from "mongoose";
 import {
   generateToolResult,
   getSemanticModel,

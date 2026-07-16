@@ -53,3 +53,11 @@ export function calculateReadingTime(content: string): number {
   const minutes = Math.ceil(wordCount / 200);
   return Math.max(1, minutes);
 }
+
+export function tryFormatJson(str: string): string {
+  try {
+    return JSON.stringify(JSON.parse(str), null, 2);
+  } catch {
+    return str;
+  }
+}
