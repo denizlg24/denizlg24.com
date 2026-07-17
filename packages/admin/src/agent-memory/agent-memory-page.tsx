@@ -139,7 +139,7 @@ export function AgentMemorySkeleton() {
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         <span className="flex items-center gap-2">
           <RefreshCw className="size-4 animate-spin" />
-          Building memory graph…
+          Loading memory data…
         </span>
       </div>
     </div>
@@ -644,7 +644,10 @@ export function AgentMemoryPage() {
     }
   };
 
-  if (loading) return <AgentMemorySkeleton />;
+  // The graph view only needs the (usually prefetched) graph response — never
+  // hold it hostage to the overview/traces/reflection round trips. The list
+  // view genuinely needs that data, so it keeps the skeleton.
+  if (loading && view !== "graph") return <AgentMemorySkeleton />;
 
   const selectedTrace = traces.find(
     (trace) => trace.traceId === selectedTraceId,
@@ -677,10 +680,12 @@ export function AgentMemoryPage() {
             void load(true);
             if (graphRequestedRef.current) void loadGraph({ force: true });
           }}
-          disabled={refreshing}
+          disabled={refreshing || loading}
           title="Refresh memory data"
         >
-          <RefreshCw className={refreshing ? "animate-spin" : undefined} />
+          <RefreshCw
+            className={refreshing || loading ? "animate-spin" : undefined}
+          />
         </Button>
       </PageHeader>
 
@@ -2148,6 +2153,7 @@ function TraceCandidate({
 }
 
 const FORMATION_MODEL_DEFAULT = "__default__";
+const QUERY_SUMMARY_MODEL_DISABLED = "__disabled__";
 const RETRIEVAL_MAX_ITEM_OPTIONS = [4, 8, 12, 20, 30, 50];
 const RETRIEVAL_MAX_TOKEN_OPTIONS = [
   1_000, 1_500, 2_500, 4_000, 6_000, 8_000, 10_000,
@@ -2444,6 +2450,62 @@ function SettingsPanel({
             Loading model catalog…
           </p>
         )}
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-sm font-medium">Retrieval summary model</h3>
+          <p className="text-xs text-muted-foreground">
+            Cheap model that keeps a rolling per-conversation topic summary so
+            short follow-up messages still retrieve relevant memories. Disabled
+            means retrieval uses only the latest message.
+          </p>
+        </div>
+        <Select
+          value={
+            settings.retrieval.querySummaryModel ?? QUERY_SUMMARY_MODEL_DISABLED
+          }
+          onValueChange={(value) =>
+            void onUpdate(
+              {
+                retrieval: {
+                  ...settings.retrieval,
+                  querySummaryModel:
+                    value === QUERY_SUMMARY_MODEL_DISABLED ? null : value,
+                },
+              },
+              `Set retrieval summary model to ${value === QUERY_SUMMARY_MODEL_DISABLED ? "disabled" : value}`,
+            )
+          }
+        >
+          <SelectTrigger className="h-8 w-full max-w-md text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem
+              value={QUERY_SUMMARY_MODEL_DISABLED}
+              className="text-xs"
+            >
+              Disabled (latest message only)
+            </SelectItem>
+            {settings.retrieval.querySummaryModel &&
+              !models.some(
+                (model) => model.id === settings.retrieval.querySummaryModel,
+              ) && (
+                <SelectItem
+                  value={settings.retrieval.querySummaryModel}
+                  className="text-xs"
+                >
+                  {settings.retrieval.querySummaryModel} (current)
+                </SelectItem>
+              )}
+            {models.map((model) => (
+              <SelectItem key={model.id} value={model.id} className="text-xs">
+                {model.name} · {model.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </section>
 
       <section className="space-y-3">

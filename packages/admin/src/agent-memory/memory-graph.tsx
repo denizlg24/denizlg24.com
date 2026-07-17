@@ -103,6 +103,11 @@ function nodeTooltip(node: AgentMemoryGraphNode, theme: Theme): string {
   </div>`;
 }
 
+// Module-level so settled layouts survive page navigations: remounting the
+// graph restores every node's last simulated position instead of re-running
+// the whole force layout from a random spread. Single-user app, one graph.
+let previousNodes = new Map<string, PositionedNode>();
+
 const LEGEND = [
   ["core", "Core"],
   ["semantic", "Semantic"],
@@ -121,16 +126,16 @@ export function MemoryGraph({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<GraphRef | null>(null);
-  const previousNodesRef = useRef(new Map<string, PositionedNode>());
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [theme, setTheme] = useState<Theme | null>(null);
 
   // Fresh copies: the force engine mutates node/link objects (x/y/z, source/
   // target become object refs), so never hand it the parsed response objects.
-  // Nodes that survive a live refresh inherit their previous position and
-  // velocity so the layout settles in place instead of re-exploding.
+  // Nodes that survive a live refresh or a remount inherit their previous
+  // position and velocity so the layout settles in place instead of
+  // re-exploding.
   const graphData = useMemo(() => {
-    const previous = previousNodesRef.current;
+    const previous = previousNodes;
     const nextNodes = nodes.map((node) => {
       const copy: PositionedNode = { ...node };
       const existing = previous.get(node.id);
@@ -153,9 +158,7 @@ export function MemoryGraph({
     });
     // The engine keeps mutating these objects, so the map always reads the
     // latest simulated positions on the next refresh.
-    previousNodesRef.current = new Map(
-      nextNodes.map((node) => [node.id, node]),
-    );
+    previousNodes = new Map(nextNodes.map((node) => [node.id, node]));
     return {
       nodes: nextNodes,
       links: links.map((link) => ({ ...link })),
@@ -260,8 +263,10 @@ export function MemoryGraph({
           }}
           linkOpacity={0.22}
           linkWidth={0}
-          warmupTicks={60}
-          cooldownTicks={200}
+          // No warmup: warmup ticks run synchronously and block first paint.
+          // The graph shows immediately and settles on screen instead.
+          warmupTicks={0}
+          cooldownTicks={260}
           onNodeClick={(node) => {
             if (node.kind === "memory") onSelectMemory(node.id);
           }}

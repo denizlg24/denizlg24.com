@@ -14,8 +14,9 @@ import { embedText } from "@/lib/llm-service";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
+import { AgentMemorySimilarity } from "@/models/AgentMemorySimilarity";
 import { AgentRetrievalTrace } from "@/models/AgentRetrievalTrace";
-import { buildMemoryContext } from "./context";
+import { buildMemoryContext, estimateMemoryContextTokens } from "./context";
 import {
   buildDerivedUserContext,
   combineAgentContexts,
@@ -24,6 +25,7 @@ import {
 import { sourceRefIsExcluded } from "./policy";
 import { findDeniedContent } from "./security";
 import { getAgentMemorySettings } from "./settings";
+import { scoreToCosine } from "./similarity";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
 const RETRIEVABLE_SENSITIVITIES: AgentSensitivity[] = [
@@ -33,6 +35,13 @@ const RETRIEVABLE_SENSITIVITIES: AgentSensitivity[] = [
   "restricted",
 ];
 const MINIMUM_RETRIEVAL_SCORE = 0.3;
+/** Top vector hits whose precomputed similarity neighbors join the candidate
+ *  pool with a decayed vector score. */
+const GRAPH_EXPANSION_SEEDS = 8;
+const GRAPH_EXPANSION_DECAY = 0.7;
+/** Link strength at which two memories are treated as saying the same thing,
+ *  so only the better-scored one is injected. */
+const NEAR_DUPLICATE_STRENGTH = 0.85;
 
 const TRUST_SCORE: Record<AgentTrust, number> = {
   highest: 1,
@@ -79,8 +88,6 @@ export interface RetrievalSignals {
   vector?: number;
   lexical?: number;
   structured?: number;
-  entityProximity?: number;
-  activeGoal?: number;
 }
 
 export interface RetrievalScoreComponents {
@@ -94,8 +101,6 @@ export interface RetrievalScoreComponents {
   recency: number;
   coreBoost: number;
   pinnedBoost: number;
-  entityBoost: number;
-  goalBoost: number;
   conflictPenalty: number;
   hypothesisPenalty: number;
 }
@@ -118,13 +123,24 @@ function clampScore(value: number | undefined): number {
   return Math.max(0, Math.min(1, value ?? 0));
 }
 
-function recencyScore(updatedAt: Date, now: Date): number {
-  const ageDays = Math.max(0, now.getTime() - updatedAt.getTime()) / 86_400_000;
-  return Math.exp(-ageDays / 180);
-}
+/** Days for the recency signal to decay to 1/e. Core identity facts do not
+ *  go stale with age; episodic memories describe moments and fade fastest. */
+const RECENCY_DECAY_DAYS: Record<AgentMemoryType, number | null> = {
+  core: null,
+  semantic: 180,
+  reflection: 90,
+  episodic: 45,
+};
 
-export function estimateMemoryTokens(statement: string): number {
-  return Math.max(1, Math.ceil(statement.length / 4) + 12);
+function recencyScore(
+  updatedAt: Date,
+  now: Date,
+  memoryType: AgentMemoryType,
+): number {
+  const decayDays = RECENCY_DECAY_DAYS[memoryType];
+  if (decayDays === null) return 1;
+  const ageDays = Math.max(0, now.getTime() - updatedAt.getTime()) / 86_400_000;
+  return Math.exp(-ageDays / decayDays);
 }
 
 export function scoreRetrievalCandidate(
@@ -140,11 +156,9 @@ export function scoreRetrievalCandidate(
     confidence: clampScore(memory.confidence) * 0.06,
     trust: TRUST_SCORE[memory.trust] * 0.04,
     explicitness: EXPLICITNESS_SCORE[memory.explicitness] * 0.03,
-    recency: recencyScore(memory.updatedAt, now) * 0.03,
+    recency: recencyScore(memory.updatedAt, now, memory.memoryType) * 0.03,
     coreBoost: memory.memoryType === "core" ? 0.06 : 0,
     pinnedBoost: memory.pinned ? 0.05 : 0,
-    entityBoost: clampScore(signals.entityProximity) * 0.04,
-    goalBoost: clampScore(signals.activeGoal) * 0.05,
     conflictPenalty: memory.contradictionIds.length > 0 ? 0.18 : 0,
     hypothesisPenalty: memory.explicitness === "hypothesis" ? 0.12 : 0,
   };
@@ -158,9 +172,7 @@ export function scoreRetrievalCandidate(
     components.explicitness +
     components.recency +
     components.coreBoost +
-    components.pinnedBoost +
-    components.entityBoost +
-    components.goalBoost;
+    components.pinnedBoost;
   const score = clampScore(
     positive - components.conflictPenalty - components.hypothesisPenalty,
   );
@@ -170,7 +182,7 @@ export function scoreRetrievalCandidate(
   return {
     memory,
     score,
-    estimatedTokens: estimateMemoryTokens(memory.statement),
+    estimatedTokens: estimateMemoryContextTokens(memory),
     components,
     reasons,
   };
@@ -203,6 +215,11 @@ export function rankAndBudgetRetrieval(
     now?: Date;
     allowedSensitivities?: AgentSensitivity[];
     minimumScore?: number;
+    /** Cap on selected memories with no query-relevance signal; only core or
+     *  pinned memories qualify for these always-on slots. */
+    maxCoreItems?: number;
+    /** memoryId → memoryId → link strength, for near-duplicate suppression. */
+    nearDuplicateStrengths?: Map<string, Map<string, number>>;
   },
 ): {
   candidates: RankedRetrievalCandidate[];
@@ -235,12 +252,51 @@ export function rankAndBudgetRetrieval(
 
   const selected: RankedRetrievalCandidate[] = [];
   let estimatedTokens = 0;
+  let relevanceFreeSelected = 0;
   const minimumScore = options.minimumScore ?? MINIMUM_RETRIEVAL_SCORE;
+  const maxCoreItems = options.maxCoreItems ?? Number.POSITIVE_INFINITY;
   for (const candidate of candidates) {
-    if (candidate.score < minimumScore) {
+    const hasQueryRelevance =
+      candidate.components.vector > 0 || candidate.components.lexical > 0;
+    if (!hasQueryRelevance) {
+      // Memories with no tie to the query only earn always-on core slots;
+      // structured/prior boosts alone should not put a memory in context.
+      const coreTier =
+        candidate.memory.memoryType === "core" || candidate.memory.pinned;
+      if (!coreTier) {
+        exclusions.push({
+          memoryId: candidate.memory.id,
+          reason: "no-relevance-signal",
+        });
+        continue;
+      }
+      if (relevanceFreeSelected >= maxCoreItems) {
+        exclusions.push({
+          memoryId: candidate.memory.id,
+          reason: "core-item-budget",
+        });
+        continue;
+      }
+    } else if (candidate.score < minimumScore) {
       exclusions.push({
         memoryId: candidate.memory.id,
         reason: "below-score-threshold",
+      });
+      continue;
+    }
+    const linkStrengths = options.nearDuplicateStrengths?.get(
+      candidate.memory.id,
+    );
+    if (
+      linkStrengths &&
+      selected.some(
+        (item) =>
+          (linkStrengths.get(item.memory.id) ?? 0) >= NEAR_DUPLICATE_STRENGTH,
+      )
+    ) {
+      exclusions.push({
+        memoryId: candidate.memory.id,
+        reason: "near-duplicate",
       });
       continue;
     }
@@ -257,6 +313,7 @@ export function rankAndBudgetRetrieval(
     }
     selected.push(candidate);
     estimatedTokens += candidate.estimatedTokens;
+    if (!hasQueryRelevance) relevanceFreeSelected += 1;
   }
   return { candidates, selected, exclusions, estimatedTokens };
 }
@@ -565,12 +622,87 @@ async function loadCandidateSignals(
           },
         },
       ]);
+      // Atlas reports cosine vectorSearchScore as (1 + cosine) / 2, so an
+      // unrelated memory still lands near 0.5. Convert back to cosine so the
+      // vector channel actually separates relevant from irrelevant memories.
       return vector.map((item) => ({
         memoryId: String(item.memoryId),
-        score: item.score,
+        score: scoreToCosine(item.score),
       }));
     },
   });
+}
+
+/**
+ * Spreads the vector signal of the strongest hits to their precomputed
+ * similarity neighbors, so related memories the query wording missed still
+ * enter the candidate pool (with a decayed score). Mutates `signals`.
+ */
+async function expandCandidateGraph(
+  signals: Map<string, CandidateSignals>,
+): Promise<void> {
+  const seeds = [...signals.entries()]
+    .filter(([, signal]) => (signal.vector ?? 0) > 0)
+    .sort((left, right) => (right[1].vector ?? 0) - (left[1].vector ?? 0))
+    .slice(0, GRAPH_EXPANSION_SEEDS);
+  if (seeds.length === 0) return;
+  const seedScores = new Map(
+    seeds.map(([id, signal]) => [id, signal.vector ?? 0]),
+  );
+  const seedIds = seeds.map(([id]) => new mongoose.Types.ObjectId(id));
+  const links = await AgentMemorySimilarity.find({
+    $or: [
+      { sourceMemoryId: { $in: seedIds } },
+      { targetMemoryId: { $in: seedIds } },
+    ],
+  })
+    .select("sourceMemoryId targetMemoryId strength")
+    .lean();
+  for (const link of links) {
+    const source = String(link.sourceMemoryId);
+    const target = String(link.targetMemoryId);
+    for (const [seed, neighbor] of [
+      [source, target],
+      [target, source],
+    ] as const) {
+      const seedVector = seedScores.get(seed);
+      if (seedVector === undefined) continue;
+      const derived = seedVector * link.strength * GRAPH_EXPANSION_DECAY;
+      const existing = signals.get(neighbor);
+      if ((existing?.vector ?? 0) >= derived) continue;
+      signals.set(neighbor, { ...existing, vector: derived });
+    }
+  }
+}
+
+/** Strong similarity links among the candidate set, both directions, for
+ *  near-duplicate suppression during selection. */
+async function loadNearDuplicateStrengths(
+  memoryIds: string[],
+): Promise<Map<string, Map<string, number>>> {
+  const strengths = new Map<string, Map<string, number>>();
+  if (memoryIds.length < 2) return strengths;
+  const objectIds = memoryIds.map((id) => new mongoose.Types.ObjectId(id));
+  const links = await AgentMemorySimilarity.find({
+    strength: { $gte: NEAR_DUPLICATE_STRENGTH },
+    sourceMemoryId: { $in: objectIds },
+    targetMemoryId: { $in: objectIds },
+  })
+    .select("sourceMemoryId targetMemoryId strength")
+    .lean();
+  for (const link of links) {
+    const source = String(link.sourceMemoryId);
+    const target = String(link.targetMemoryId);
+    for (const [from, to] of [
+      [source, target],
+      [target, source],
+    ] as const) {
+      const existing = strengths.get(from) ?? new Map<string, number>();
+      existing.set(to, Math.max(existing.get(to) ?? 0, link.strength));
+      strengths.set(from, existing);
+    }
+  }
+  return strengths;
 }
 
 interface EvidenceState {
@@ -654,6 +786,7 @@ export async function retrieveMemoriesForChat(options: {
   if (deniedQuery) {
     loaded.exclusions.push({ source: "vector", reason: "denied-query" });
   }
+  await expandCandidateGraph(loaded.signals);
   const ids = [...loaded.signals.keys()];
   const rawMemories = await AgentMemory.find({ _id: { $in: ids } }).lean();
   const memories = rawMemories.map((item) =>
@@ -684,6 +817,10 @@ export async function retrieveMemoriesForChat(options: {
     {
       maxItems: settings.retrieval.maxRetrievedItems,
       maxTokens: settings.retrieval.maxTokens,
+      maxCoreItems: settings.retrieval.maxCoreItems,
+      nearDuplicateStrengths: await loadNearDuplicateStrengths(
+        eligible.map((memory) => memory.id),
+      ),
     },
   );
   const shouldInject = settings.releaseGates.chatMemory;

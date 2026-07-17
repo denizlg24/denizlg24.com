@@ -37,6 +37,7 @@ export interface IAgentMemorySettings extends Document<string> {
     embeddingModel: string | null;
     embeddingDimensions: number | null;
     vectorIndex: string | null;
+    querySummaryModel: string | null;
   };
   retention: { terminalJobDays: number; retrievalTraceDays: number };
   reflectionSchedule: string | null;
@@ -85,6 +86,7 @@ export const DEFAULT_AGENT_MEMORY_SETTINGS = {
     embeddingModel: AGENT_MEMORY_VECTOR_CONFIG.model,
     embeddingDimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
     vectorIndex: AGENT_MEMORY_VECTOR_CONFIG.indexName,
+    querySummaryModel: null,
   },
   retention: { terminalJobDays: 30, retrievalTraceDays: 90 },
   reflectionSchedule: null,
@@ -146,6 +148,7 @@ const AgentMemorySettingsSchema = new Schema<IAgentMemorySettings>(
         type: String,
         default: AGENT_MEMORY_VECTOR_CONFIG.indexName,
       },
+      querySummaryModel: { type: String, default: null },
     },
     retention: {
       terminalJobDays: { type: Number, default: 30, min: 1, max: 365 },

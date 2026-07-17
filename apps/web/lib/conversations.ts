@@ -185,6 +185,7 @@ export async function getConversation(id: string) {
     llmModel: conversation.llmModel,
     memoryMode: conversation.memoryMode ?? "enabled",
     messages: withPendingActions(conversation.messages),
+    retrievalSummary: conversation.retrievalSummary,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
   };

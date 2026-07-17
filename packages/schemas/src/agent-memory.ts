@@ -676,6 +676,10 @@ export const agentMemorySettingsSchema = z.object({
     embeddingModel: z.string().nullable(),
     embeddingDimensions: z.number().int().positive().max(4_096).nullable(),
     vectorIndex: z.string().nullable(),
+    /** Cheap model that maintains each conversation's rolling retrieval-query
+     *  summary; null disables the summary and retrieval uses only the latest
+     *  message. */
+    querySummaryModel: z.string().nullable(),
   }),
   retention: z.object({
     terminalJobDays: z.number().int().min(1).max(365),
