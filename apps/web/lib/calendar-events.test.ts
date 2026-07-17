@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ILeanCalendarEvent } from "@/models/CalendarEvent";
+import { CalendarEventSchema } from "@/models/CalendarEvent";
 
 const connectDBMock = mock(async () => {});
 const eventLeanMock = mock(async (): Promise<unknown> => null);
@@ -19,6 +20,10 @@ mock.module("@/models/AppSettings", () => ({
   },
 }));
 mock.module("@/models/CalendarEvent", () => ({
+  // Preserve the real schema export: bun's mock.module swaps the module
+  // process-wide and never restores it, so later test files that import
+  // CalendarEventSchema (via models/Journal) would otherwise fail to link.
+  CalendarEventSchema,
   CalendarEvent: {
     findById: calendarEventFindByIdMock,
     findByIdAndUpdate: calendarEventFindByIdAndUpdateMock,

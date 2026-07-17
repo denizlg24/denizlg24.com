@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ILeanCalendarEvent } from "@/models/CalendarEvent";
+import { CalendarEventSchema } from "@/models/CalendarEvent";
 
 const connectDBMock = mock(async () => {});
 const decryptSecretMock = mock(() => "refresh-token");
@@ -103,6 +104,10 @@ mock.module("./google-calendar", () => ({
   sanitizeGoogleSyncError: sanitizeGoogleSyncErrorMock,
 }));
 mock.module("@/models/CalendarEvent", () => ({
+  // Preserve the real schema export: bun's mock.module swaps the module
+  // process-wide and never restores it, so later test files that import
+  // CalendarEventSchema (via models/Journal) would otherwise fail to link.
+  CalendarEventSchema,
   CalendarEvent: {
     findById: calendarEventFindByIdMock,
     findOne: calendarEventFindOneMock,
