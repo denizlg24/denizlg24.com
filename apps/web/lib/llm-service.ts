@@ -33,7 +33,8 @@ export type LlmPurpose =
   | "agent-memory-consolidation"
   | "agent-memory-resource-suggestion"
   | "agent-memory-embedding"
-  | "agent-memory-retrieval";
+  | "agent-memory-retrieval"
+  | "agent-memory-query-summary";
 
 // Catalog capabilities each purpose requires before a request is sent.
 // Per-request needs (tools/web search in chat) are added on top of these.
@@ -53,6 +54,7 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   "agent-memory-resource-suggestion": ["tool-use"],
   "agent-memory-embedding": [],
   "agent-memory-retrieval": [],
+  "agent-memory-query-summary": [],
 };
 
 // Compatibility only: resolves model ids stored before the Gateway migration

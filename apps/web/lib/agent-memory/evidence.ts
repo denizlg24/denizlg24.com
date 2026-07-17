@@ -29,6 +29,29 @@ export interface EvidenceObservationResult {
   reason?: string;
 }
 
+/**
+ * Formation is debounced per source entity: evidence arriving for the same
+ * entity within one window coalesces into a single job, so one LLM call sees
+ * the related events together instead of one call per message/save. The job
+ * only becomes leasable after the window closes (plus grace, so a job never
+ * gets leased while its window can still receive events).
+ */
+const FORMATION_DEBOUNCE_MS = 10 * 60_000;
+const FORMATION_LEASE_GRACE_MS = 30_000;
+
+export function formationJobKey(
+  sourceRef: AgentSourceRef,
+  occurredAtMs: number,
+): { key: string; availableAt: Date } {
+  const bucket = Math.floor(occurredAtMs / FORMATION_DEBOUNCE_MS);
+  return {
+    key: `formation:${sourceRef.entityType}:${sourceRef.entityId}:${bucket}`,
+    availableAt: new Date(
+      (bucket + 1) * FORMATION_DEBOUNCE_MS + FORMATION_LEASE_GRACE_MS,
+    ),
+  };
+}
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (!value || typeof value !== "object") return value;
@@ -147,19 +170,21 @@ export async function observeEvidence(options: {
       { session },
     );
     if (evidence.memoryEligible && options.enqueueFormation !== false) {
-      await AgentMemoryJob.create(
-        [
-          {
-            idempotencyKey: `formation:${eventId}`,
+      const job = formationJobKey(evidence.sourceRef, Date.now());
+      await AgentMemoryJob.findOneAndUpdate(
+        { idempotencyKey: job.key, status: "pending" },
+        {
+          $addToSet: { evidenceIds: eventId },
+          $setOnInsert: {
+            idempotencyKey: job.key,
             operation: "formation",
-            evidenceIds: [eventId],
             memoryIds: [],
             status: "pending",
             attempts: 0,
-            availableAt: new Date(),
+            availableAt: job.availableAt,
           },
-        ],
-        { session },
+        },
+        { upsert: true, session },
       );
     }
     await writeEvidenceAudit(eventId, evidence.sourceType, session);
@@ -185,7 +210,10 @@ export async function observeEvidence(options: {
       })
         .select("eventId")
         .lean<{ eventId: string }>();
-      return { status: "duplicate", eventId: duplicate?.eventId };
+      // Only report duplicate when the evidence itself already exists — a key
+      // collision elsewhere in the transaction (e.g. the formation job) must
+      // surface instead of silently dropping the evidence.
+      if (duplicate) return { status: "duplicate", eventId: duplicate.eventId };
     }
     throw error;
   } finally {

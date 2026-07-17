@@ -8,6 +8,7 @@ import type {
 import { agentFormationResultSchema } from "@repo/schemas";
 import { Types } from "mongoose";
 import {
+  embedText,
   generateToolResult,
   getSemanticModel,
   type LlmUsageResult,
@@ -29,8 +30,13 @@ import {
   mostSensitive,
   sourceRefIsExcluded,
 } from "./policy";
-import { containsPermissionLikeInstruction } from "./security";
+import {
+  containsPermissionLikeInstruction,
+  findDeniedContent,
+} from "./security";
 import { getAgentMemorySettings } from "./settings";
+import { findSimilarMemories } from "./similarity";
+import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
 const PROMPT_VERSION = "formation-v3";
 const SCHEMA_VERSION = "2";
@@ -264,6 +270,81 @@ export function prepareFormationCandidate(options: {
   };
 }
 
+const NOVELTY_MEMORY_SELECT =
+  "statement memoryType explicitness confidence temporal evidenceIds";
+const NOVELTY_NEAREST_LIMIT = 30;
+const NOVELTY_RECENT_LIMIT = 20;
+
+interface NoveltyContextMemory {
+  _id: Types.ObjectId;
+  statement: string;
+  memoryType: string;
+  explicitness: string;
+  confidence: number;
+  temporal?: { validFrom?: Date | string; validUntil?: Date | string };
+  evidenceIds: string[];
+}
+
+function recentActiveMemories(limit: number): Promise<NoveltyContextMemory[]> {
+  return AgentMemory.find({ status: "active" })
+    .select(NOVELTY_MEMORY_SELECT)
+    .sort({ updatedAt: -1 })
+    .limit(limit)
+    .lean<NoveltyContextMemory[]>();
+}
+
+/**
+ * Memories shown to the formation model as its dedup/conflict context. The
+ * semantically nearest active memories to the evidence text matter far more
+ * than whatever happens to be newest, so vector-search the evidence snapshot
+ * and top up with the most recent memories; recency-only is the fallback when
+ * embeddings are unavailable.
+ */
+async function loadNoveltyContextMemories(
+  evidence: { snapshot?: string }[],
+): Promise<NoveltyContextMemory[]> {
+  const snapshotText = evidence
+    .map((item) => item.snapshot ?? "")
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 8_192);
+  if (!snapshotText || findDeniedContent(snapshotText).length > 0) {
+    return recentActiveMemories(50);
+  }
+  try {
+    const embedded = await embedText({
+      purpose: "agent-memory-embedding",
+      source: "agent-memory-formation-novelty",
+      model: AGENT_MEMORY_VECTOR_CONFIG.model,
+      dimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
+      value: snapshotText,
+    });
+    const neighbors = await findSimilarMemories(embedded.vector, {
+      limit: NOVELTY_NEAREST_LIMIT,
+      minSimilarity: 0.2,
+    });
+    const nearest = await AgentMemory.find({
+      _id: { $in: neighbors.map((item) => new Types.ObjectId(item.memoryId)) },
+      status: "active",
+    })
+      .select(NOVELTY_MEMORY_SELECT)
+      .lean<NoveltyContextMemory[]>();
+    const seen = new Set(nearest.map((memory) => memory._id.toString()));
+    const merged = [...nearest];
+    for (const memory of await recentActiveMemories(NOVELTY_RECENT_LIMIT)) {
+      if (seen.has(memory._id.toString())) continue;
+      merged.push(memory);
+    }
+    return merged;
+  } catch (error) {
+    console.error(
+      "Agent memory formation novelty search failed; using recent memories:",
+      error,
+    );
+    return recentActiveMemories(50);
+  }
+}
+
 function formationSystemPrompt(): string {
   return `You extract durable personal-memory proposals from bounded evidence about this app's single owner.
 Write every statement in third person and refer to the owner as "${OWNER_REFERENCE}" — never "the user" and never the owner's name (e.g. "${OWNER_REFERENCE} prefers dark mode", not "The user prefers dark mode").
@@ -295,11 +376,7 @@ export async function processFormationJob(
   );
   if (evidence.length === 0) return { candidates: 0, promoted: 0, rejected: 0 };
 
-  const activeMemories = await AgentMemory.find({ status: "active" })
-    .select("statement memoryType explicitness confidence temporal evidenceIds")
-    .sort({ updatedAt: -1 })
-    .limit(50)
-    .lean();
+  const activeMemories = await loadNoveltyContextMemories(evidence);
   const activeMemoryIds = new Set(
     activeMemories.map((memory) => memory._id.toString()),
   );

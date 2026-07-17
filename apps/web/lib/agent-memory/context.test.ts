@@ -49,8 +49,6 @@ function candidate(
       recency: 0.03,
       coreBoost: 0,
       pinnedBoost: 0,
-      entityBoost: 0,
-      goalBoost: 0,
       conflictPenalty: 0,
       hypothesisPenalty: 0,
     },
@@ -73,17 +71,42 @@ describe("personal memory context", () => {
     expect(result.context).toContain("&lt;/personal_memory_context&gt;");
     expect(result.context).not.toContain("<system>");
     expect(result.context).toContain(
-      'event_id="9fa3e791-b155-4719-bda8-f6542ea421f3"',
-    );
-    expect(result.context).toContain(
       'source_entity_id="507f1f77bcf86cd799439011"',
     );
-    expect(result.context).toContain('memory_id="memory-a"');
-    expect(result.context).not.toContain('<memory id="memory-a"');
+    expect(result.context).toContain('source_entity_type="note"');
+    // Internal identifiers stay in the retrieval trace, not the prompt.
+    expect(result.context).not.toContain("memory_id");
+    expect(result.context).not.toContain("memory_revision_id");
     expect(result.context).not.toContain(
-      "<evidence>9fa3e791-b155-4719-bda8-f6542ea421f3</evidence>",
+      "9fa3e791-b155-4719-bda8-f6542ea421f3",
     );
     expect(result.estimatedTokens).toBeLessThanOrEqual(500);
+  });
+
+  test("deduplicates repeated sources and caps them per memory", () => {
+    const reference = (entityId: string, eventId: string) => ({
+      eventId,
+      sourceType: "note" as const,
+      sourceRef: { entityType: "note" as const, entityId },
+    });
+    const result = buildMemoryContext(
+      [
+        candidate({
+          evidenceIds: ["e1", "e2", "e3", "e4", "e5"],
+          evidenceRefs: [
+            reference("same-note", "e1"),
+            reference("same-note", "e2"),
+            reference("note-b", "e3"),
+            reference("note-c", "e4"),
+            reference("note-d", "e5"),
+          ],
+        }),
+      ],
+      500,
+    );
+    const sourceCount = (result.context?.match(/<source /g) ?? []).length;
+    expect(sourceCount).toBe(3);
+    expect(result.context).not.toContain("note-d");
   });
 
   test("orders core memory first and enforces the serialized token budget", () => {
@@ -105,10 +128,10 @@ describe("personal memory context", () => {
       300,
     );
 
-    expect(result.context?.indexOf("memory-core")).toBeLessThan(
-      result.context?.indexOf("memory-a") ?? -1,
+    expect(result.context?.indexOf("Lisbon")).toBeLessThan(
+      result.context?.indexOf("concise") ?? -1,
     );
-    expect(result.context).not.toContain("memory-large");
+    expect(result.context).not.toContain("A".repeat(50));
     expect(result.excludedRevisionIds).toContain("000000000000000000000003");
     expect(result.estimatedTokens).toBeLessThanOrEqual(300);
   });

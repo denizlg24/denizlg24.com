@@ -3,6 +3,10 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentMemoryMode } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import {
+  buildRetrievalQuery,
+  updateConversationRetrievalSummary,
+} from "@/lib/agent-memory/query-context";
+import {
   type ChatMemoryRetrievalResult,
   loadInjectedMemoryContext,
   retrieveMemoriesForChat,
@@ -218,11 +222,13 @@ export const POST = async (req: NextRequest) => {
     let memoryMode: AgentMemoryMode = "enabled";
     let inheritedRetrievalTraceId: string | undefined;
     let inheritedMemoryInjected = false;
+    let rollingRetrievalSummary: string | null = null;
 
     if (conversationId) {
       const conversation = await getConversation(conversationId);
       if (conversation) {
         memoryMode = conversation.memoryMode;
+        rollingRetrievalSummary = conversation.retrievalSummary?.text ?? null;
         for (const msg of conversation.messages) {
           const index = messages.length;
           messages.push({
@@ -289,7 +295,10 @@ export const POST = async (req: NextRequest) => {
         memoryRetrieval = await retrieveMemoriesForChat({
           conversationId,
           requestId: randomUUID(),
-          query: messageTextForRetrieval(message),
+          query: buildRetrievalQuery({
+            latestMessage: messageTextForRetrieval(message),
+            rollingSummary: rollingRetrievalSummary,
+          }),
           memoryMode,
         });
       } catch (error) {
@@ -320,6 +329,7 @@ export const POST = async (req: NextRequest) => {
     const logSystemPrompt = buildSystemPrompt(timeZone);
     const system = buildSystemPrompt(timeZone, personalMemoryContext);
 
+    let summaryRefreshed = false;
     const onPersist = async (
       msgs: Anthropic.MessageParam[],
       tokenUsage?: TokenUsage,
@@ -355,6 +365,27 @@ export const POST = async (req: NextRequest) => {
       });
 
       await updateConversationMessages(conversationId, messagesToStore);
+
+      // Refresh the rolling retrieval summary once per user turn, after the
+      // exchange is persisted; a summary failure never affects the response.
+      if (hasMessage && !summaryRefreshed) {
+        summaryRefreshed = true;
+        try {
+          await updateConversationRetrievalSummary({
+            conversationId,
+            memoryMode,
+            previousSummary: rollingRetrievalSummary,
+            turns: msgs.map((m) => ({
+              role: m.role === "assistant" ? "assistant" : "user",
+              text: messageTextForRetrieval(m.content),
+            })),
+          });
+        } catch (error) {
+          console.error("Agent memory query summary update failed", {
+            error: error instanceof Error ? error.message : "unknown error",
+          });
+        }
+      }
     };
 
     // Capability validation happens inside the service before any upstream
