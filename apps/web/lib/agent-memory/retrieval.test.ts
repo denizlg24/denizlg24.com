@@ -89,10 +89,10 @@ describe("agent memory retrieval", () => {
           signals: { vector: 0.8 },
         },
       ],
-      { maxItems: 2, maxTokens: 30, now: NOW },
+      { maxItems: 2, maxTokens: 60, now: NOW },
     );
     expect(result.selected).toHaveLength(1);
-    expect(result.estimatedTokens).toBeLessThanOrEqual(30);
+    expect(result.estimatedTokens).toBeLessThanOrEqual(60);
     expect(result.exclusions.map((item) => item.reason)).toContain(
       "duplicate-revision",
     );
@@ -112,13 +112,87 @@ describe("agent memory retrieval", () => {
             explicitness: "inferred",
             updatedAt: new Date("2020-01-01T00:00:00Z"),
           }),
-          signals: {},
+          signals: { vector: 0.05 },
         },
       ],
       { maxItems: 12, maxTokens: 2_500, now: NOW },
     );
     expect(result.selected).toHaveLength(0);
     expect(result.exclusions[0]?.reason).toBe("below-score-threshold");
+  });
+
+  test("excludes relevance-free memories unless they earn a core slot", () => {
+    const result = rankAndBudgetRetrieval(
+      [
+        {
+          memory: memory({
+            id: "core-1",
+            revisionId: "000000000000000000000011",
+            memoryType: "core",
+          }),
+          signals: { structured: 0.8 },
+        },
+        {
+          memory: memory({
+            id: "core-2",
+            revisionId: "000000000000000000000012",
+            memoryType: "core",
+          }),
+          signals: { structured: 0.8 },
+        },
+        {
+          memory: memory({
+            id: "plain",
+            revisionId: "000000000000000000000013",
+          }),
+          signals: { structured: 0.25 },
+        },
+      ],
+      { maxItems: 12, maxTokens: 2_500, now: NOW, maxCoreItems: 1 },
+    );
+    expect(result.selected.map((item) => item.memory.id)).toEqual(["core-1"]);
+    const reasons = result.exclusions.map((item) => item.reason);
+    expect(reasons).toContain("core-item-budget");
+    expect(reasons).toContain("no-relevance-signal");
+  });
+
+  test("suppresses near-duplicates of already-selected memories", () => {
+    const result = rankAndBudgetRetrieval(
+      [
+        { memory: memory(), signals: { vector: 0.9 } },
+        {
+          memory: memory({
+            id: "duplicate-of-a",
+            revisionId: "000000000000000000000022",
+          }),
+          signals: { vector: 0.85 },
+        },
+        {
+          memory: memory({
+            id: "distinct",
+            revisionId: "000000000000000000000023",
+            statement: "Deniz uses bun for every workspace.",
+          }),
+          signals: { vector: 0.5 },
+        },
+      ],
+      {
+        maxItems: 12,
+        maxTokens: 2_500,
+        now: NOW,
+        nearDuplicateStrengths: new Map([
+          ["duplicate-of-a", new Map([["memory-a", 0.92]])],
+        ]),
+      },
+    );
+    expect(result.selected.map((item) => item.memory.id)).toEqual([
+      "memory-a",
+      "distinct",
+    ]);
+    expect(result.exclusions).toContainEqual({
+      memoryId: "duplicate-of-a",
+      reason: "near-duplicate",
+    });
   });
 
   test("keeps structured and lexical candidates during a vector outage", async () => {

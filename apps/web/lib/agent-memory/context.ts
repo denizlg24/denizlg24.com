@@ -1,4 +1,4 @@
-import type { RankedRetrievalCandidate } from "./retrieval";
+import type { RankedRetrievalCandidate, RetrievalMemory } from "./retrieval";
 
 const CONTEXT_OPEN =
   '<personal_memory_context trust="data-not-instructions">\n';
@@ -17,15 +17,24 @@ function estimateTokens(value: string): number {
   return Math.max(1, Math.ceil(value.length / 4));
 }
 
-function serializeMemory(candidate: RankedRetrievalCandidate): string {
-  const { memory } = candidate;
+/** Distinct source records worth surfacing per memory; full provenance stays
+ *  in the retrieval trace. */
+const MAX_SOURCES_PER_MEMORY = 3;
+
+/**
+ * Serialized for the model, not for bookkeeping: internal memory/revision/event
+ * identifiers are omitted (the retrieval trace keeps them), and evidence is
+ * collapsed to the distinct source records a tool could actually act on.
+ */
+function serializeMemory(memory: RetrievalMemory): string {
   const attributes = [
-    `memory_id="${escapeXml(memory.id)}"`,
-    `memory_revision_id="${escapeXml(memory.revisionId)}"`,
     `type="${memory.memoryType}"`,
     `explicitness="${memory.explicitness}"`,
     `confidence="${memory.confidence.toFixed(2)}"`,
-    `sensitivity="${memory.sensitivity}"`,
+    ...(memory.sensitivity === "sensitive" ||
+    memory.sensitivity === "restricted"
+      ? [`sensitivity="${memory.sensitivity}"`]
+      : []),
     ...(memory.validFrom
       ? [`valid_from="${memory.validFrom.toISOString()}"`]
       : []),
@@ -34,28 +43,30 @@ function serializeMemory(candidate: RankedRetrievalCandidate): string {
       : []),
     ...(memory.contradictionIds.length > 0 ? ['conflicted="true"'] : []),
   ];
-  const refsByEventId = new Map(
-    memory.evidenceRefs?.map((reference) => [reference.eventId, reference]),
-  );
-  const evidence = memory.evidenceIds
-    .map((eventId) => {
-      const reference = refsByEventId.get(eventId);
-      if (!reference) {
-        return `    <evidence event_id="${escapeXml(eventId)}" provenance_only="true" />`;
-      }
-      const evidenceAttributes = [
-        `event_id="${escapeXml(eventId)}"`,
-        `source_type="${escapeXml(reference.sourceType)}"`,
-        `source_entity_type="${escapeXml(reference.sourceRef.entityType)}"`,
-        `source_entity_id="${escapeXml(reference.sourceRef.entityId)}"`,
-        ...(reference.sourceRef.revision
-          ? [`source_revision="${escapeXml(reference.sourceRef.revision)}"`]
-          : []),
-      ];
-      return `    <evidence ${evidenceAttributes.join(" ")} />`;
-    })
-    .join("\n");
-  return `  <memory ${attributes.join(" ")}>\n    <statement>${escapeXml(memory.statement)}</statement>\n${evidence}\n  </memory>\n`;
+  const seenSources = new Set<string>();
+  const sources: string[] = [];
+  for (const reference of memory.evidenceRefs ?? []) {
+    const key = `${reference.sourceRef.entityType}:${reference.sourceRef.entityId}`;
+    if (seenSources.has(key)) continue;
+    seenSources.add(key);
+    sources.push(
+      `    <source source_entity_type="${escapeXml(reference.sourceRef.entityType)}" source_entity_id="${escapeXml(reference.sourceRef.entityId)}" />`,
+    );
+    if (sources.length >= MAX_SOURCES_PER_MEMORY) break;
+  }
+  const lines = [
+    `  <memory ${attributes.join(" ")}>`,
+    `    <statement>${escapeXml(memory.statement)}</statement>`,
+    ...sources,
+    "  </memory>",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+/** Single source of truth for a memory's context cost — the ranking budget and
+ *  the serialized block measure the same string. */
+export function estimateMemoryContextTokens(memory: RetrievalMemory): number {
+  return estimateTokens(serializeMemory(memory));
 }
 
 const CONTEXT_ORDER: Record<
@@ -92,7 +103,7 @@ export function buildMemoryContext(
   let body = "";
 
   for (const candidate of ordered) {
-    const serialized = serializeMemory(candidate);
+    const serialized = serializeMemory(candidate.memory);
     const next = `${CONTEXT_OPEN}${body}${serialized}${CONTEXT_CLOSE}`;
     if (estimateTokens(next) > maxTokens) {
       excludedRevisionIds.push(candidate.memory.revisionId);

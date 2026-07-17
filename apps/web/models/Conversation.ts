@@ -35,11 +35,19 @@ export interface IConversationMessage {
   createdAt: Date;
 }
 
+export interface IConversationRetrievalSummary {
+  text: string;
+  updatedAt: Date;
+}
+
 export interface IConversation extends mongoose.Document {
   title: string;
   llmModel: string;
   memoryMode: AgentMemoryMode;
   messages: IConversationMessage[];
+  /** Rolling topic summary maintained by the query-summary model; used only
+   *  as memory-retrieval query context, never shown to the chat model. */
+  retrievalSummary?: IConversationRetrievalSummary;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -50,6 +58,7 @@ export interface ILeanConversation {
   llmModel: string;
   memoryMode: AgentMemoryMode;
   messages: IConversationMessage[];
+  retrievalSummary?: IConversationRetrievalSummary;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -85,6 +94,13 @@ const ConversationSchema = new mongoose.Schema<IConversation>(
       enum: ["enabled", "retrieval-off", "incognito"],
       default: "enabled",
       required: true,
+    },
+    retrievalSummary: {
+      type: {
+        text: { type: String, required: true, maxlength: 2_000 },
+        updatedAt: { type: Date, required: true },
+      },
+      default: undefined,
     },
   },
   { timestamps: true, minimize: false },
