@@ -1,5 +1,4 @@
 import type { AgentMemoryGraphResponse } from "@repo/schemas";
-import { agentMemoryGraphResponseSchema } from "@repo/schemas";
 import type { AdminClient } from "../client";
 
 // Module-level cache so the graph can be fetched once on app load and reused
@@ -16,12 +15,16 @@ export function fetchAgentMemoryGraph(
   client: AdminClient,
   options: { force?: boolean } = {},
 ): Promise<AgentMemoryGraphResponse> {
+  // Overlap the three.js/react-force-graph-3d chunk download with the data
+  // fetch — next/dynamic would otherwise only start it on first render.
+  void import("react-force-graph-3d").catch(() => {});
   if (cache && !options.force && Date.now() - cache.fetchedAt < MAX_AGE_MS) {
     return cache.promise;
   }
-  const promise = client
-    .get<unknown>("agent-memory/graph")
-    .then((raw) => agentMemoryGraphResponseSchema.parse(raw));
+  // The route validates against agentMemoryGraphResponseSchema before
+  // responding, so the payload is trusted as-is — re-parsing a large graph
+  // with zod here costs real main-thread time.
+  const promise = client.get<AgentMemoryGraphResponse>("agent-memory/graph");
   const entry = { promise, fetchedAt: Date.now() };
   cache = entry;
   promise.catch(() => {

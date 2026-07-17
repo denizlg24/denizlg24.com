@@ -139,7 +139,7 @@ export function AgentMemorySkeleton() {
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         <span className="flex items-center gap-2">
           <RefreshCw className="size-4 animate-spin" />
-          Building memory graph…
+          Loading memory data…
         </span>
       </div>
     </div>
@@ -644,7 +644,10 @@ export function AgentMemoryPage() {
     }
   };
 
-  if (loading) return <AgentMemorySkeleton />;
+  // The graph view only needs the (usually prefetched) graph response — never
+  // hold it hostage to the overview/traces/reflection round trips. The list
+  // view genuinely needs that data, so it keeps the skeleton.
+  if (loading && view !== "graph") return <AgentMemorySkeleton />;
 
   const selectedTrace = traces.find(
     (trace) => trace.traceId === selectedTraceId,
@@ -677,10 +680,12 @@ export function AgentMemoryPage() {
             void load(true);
             if (graphRequestedRef.current) void loadGraph({ force: true });
           }}
-          disabled={refreshing}
+          disabled={refreshing || loading}
           title="Refresh memory data"
         >
-          <RefreshCw className={refreshing ? "animate-spin" : undefined} />
+          <RefreshCw
+            className={refreshing || loading ? "animate-spin" : undefined}
+          />
         </Button>
       </PageHeader>
 
