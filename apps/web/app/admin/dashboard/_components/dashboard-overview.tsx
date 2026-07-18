@@ -11,10 +11,10 @@ import {
   AlertCircle,
   ArrowUpRight,
   Bell,
-  Brain,
   Calendar,
   Clock,
   Contact,
+  DollarSign,
   FolderGit2,
   MapPin,
   MessageSquare,
@@ -758,7 +758,7 @@ export function DashboardOverview() {
           >
             <Link href="/admin/dashboard/llm-usage" className="block group">
               <div className="flex items-center gap-2 mb-2">
-                <Brain className="w-3.5 h-3.5 text-foreground" />
+                <DollarSign className="w-3.5 h-3.5 text-foreground" />
                 <span className="text-xs text-foreground uppercase tracking-wider">
                   LLM Today
                 </span>

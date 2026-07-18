@@ -20,7 +20,7 @@ import type { IAgentProcedure } from "@/models/AgentProcedure";
 import type { IAgentResourceSuggestion } from "@/models/AgentResourceSuggestion";
 import type { IAgentRetrievalTrace } from "@/models/AgentRetrievalTrace";
 import type { IAgentUserModel } from "@/models/AgentUserModel";
-import type { IAgentUserModelRevision } from "@/models/AgentUserModelRevision";
+import type { ReflectionRevisionSummary } from "./reflection";
 
 function iso(value: Date | string | undefined): string | undefined {
   if (!value) return undefined;
@@ -37,9 +37,7 @@ function serializeTemporal(temporal: IAgentMemory["temporal"]) {
   };
 }
 
-function serializeSections(
-  sections: IAgentUserModel["sections"] | IAgentUserModelRevision["sections"],
-) {
+function serializeSections(sections: IAgentUserModel["sections"]) {
   return Object.fromEntries(
     Object.entries(sections).map(([section, chunks]) => [
       section,
@@ -170,18 +168,19 @@ export function serializeAgentUserModel(
 }
 
 export function serializeAgentUserModelRevision(
-  revision: IAgentUserModelRevision,
+  revision: ReflectionRevisionSummary,
 ): AgentUserModelRevisionWire {
   return {
     id: revision._id.toString(),
     revision: revision.revision,
-    sections: serializeSections(revision.sections),
+    chunksAdded: revision.chunksAdded,
+    chunksRemoved: revision.chunksRemoved,
     sourceMemoryRevision: revision.sourceMemoryRevision,
     changedMemoryIds: revision.changedMemoryIds.map(String),
     reason: revision.reason,
     createdBy: revision.createdBy,
     createdAt: revision.createdAt.toISOString(),
-  } as AgentUserModelRevisionWire;
+  };
 }
 
 export function serializeAgentMemory(memory: IAgentMemory): AgentMemoryWire {

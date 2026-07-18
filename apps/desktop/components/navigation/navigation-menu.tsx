@@ -9,6 +9,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   AlarmClock,
   Brain,
+  BrainCircuit,
   Briefcase,
   Calendar,
   CalendarDays,
@@ -268,7 +269,7 @@ export const GROUPS: NavGroup[] = [
       {
         label: "Agent Memory",
         href: "/agent-memory",
-        icon: Brain,
+        icon: BrainCircuit,
       },
       {
         label: "Token Usage",

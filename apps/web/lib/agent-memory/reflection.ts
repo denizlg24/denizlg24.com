@@ -520,18 +520,100 @@ export async function rollbackUserModel(
   });
 }
 
+export interface ReflectionRevisionSummary {
+  _id: mongoose.Types.ObjectId;
+  revision: number;
+  sourceMemoryRevision: number;
+  changedMemoryIds: mongoose.Types.ObjectId[];
+  reason: string;
+  createdBy: "user" | "policy" | "reflection" | "rollback";
+  createdAt: Date;
+  chunksAdded: number;
+  chunksRemoved: number;
+}
+
+const REVISION_HISTORY_LIMIT = 100;
+
+function diffRevisionKeys(
+  revisions: (Omit<
+    ReflectionRevisionSummary,
+    "chunksAdded" | "chunksRemoved"
+  > & {
+    sectionKeys: string[];
+  })[],
+): ReflectionRevisionSummary[] {
+  return revisions.slice(0, REVISION_HISTORY_LIMIT).map((revision, index) => {
+    const { sectionKeys, ...rest } = revision;
+    const currentKeys = new Set(sectionKeys);
+    const previousKeys = new Set(revisions[index + 1]?.sectionKeys ?? []);
+    return {
+      ...rest,
+      chunksAdded: [...currentKeys].filter((key) => !previousKeys.has(key))
+        .length,
+      chunksRemoved: [...previousKeys].filter((key) => !currentKeys.has(key))
+        .length,
+    };
+  });
+}
+
 export async function loadReflectionOverview() {
   await connectDB();
-  const [goals, procedures, runs, userModel, revisions] = await Promise.all([
+  const [goals, procedures, runs, userModel, revisionKeys] = await Promise.all([
     AgentGoal.find().sort({ status: 1, updatedAt: -1 }).limit(200),
     AgentProcedure.find().sort({ lifecycle: 1, confidence: -1 }).limit(200),
     AgentMemoryRun.find({ operation: { $in: ["reflection", "consolidation"] } })
       .sort({ startedAt: -1 })
       .limit(100),
     AgentUserModel.findById("singleton"),
-    AgentUserModelRevision.find().sort({ revision: -1 }).limit(100),
+    // Sections are ~0.5MB per revision and the overview only needs the diff
+    // counts between consecutive revisions — flatten to chunk keys inside
+    // Mongo (full snapshots never leave the database), then reduce to counts
+    // here so thousands of keys per revision never leave the server. One
+    // extra revision so the oldest shown one still has its diff baseline.
+    AgentUserModelRevision.aggregate<
+      Omit<ReflectionRevisionSummary, "chunksAdded" | "chunksRemoved"> & {
+        sectionKeys: string[];
+      }
+    >([
+      { $sort: { revision: -1 } },
+      { $limit: REVISION_HISTORY_LIMIT + 1 },
+      {
+        $project: {
+          revision: 1,
+          sourceMemoryRevision: 1,
+          changedMemoryIds: 1,
+          reason: 1,
+          createdBy: 1,
+          createdAt: 1,
+          sectionKeys: {
+            $reduce: {
+              input: { $objectToArray: { $ifNull: ["$sections", {}] } },
+              initialValue: [],
+              in: {
+                $concatArrays: [
+                  "$$value",
+                  {
+                    $map: {
+                      input: { $ifNull: ["$$this.v", []] },
+                      as: "chunk",
+                      in: "$$chunk.key",
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    ]),
   ]);
-  return { goals, procedures, runs, userModel, revisions };
+  return {
+    goals,
+    procedures,
+    runs,
+    userModel,
+    revisions: diffRevisionKeys(revisionKeys),
+  };
 }
 
 export const AGENT_REFLECTION_LIMITS = {

@@ -107,6 +107,14 @@ const AgentMemoryCandidateSchema = new Schema<IAgentMemoryCandidate>(
 );
 
 AgentMemoryCandidateSchema.index({ status: 1, reviewFlags: 1, createdAt: -1 });
+// Review list cursor pagination: one index per sort.
+AgentMemoryCandidateSchema.index({
+  status: 1,
+  confidence: -1,
+  createdAt: -1,
+  _id: 1,
+});
+AgentMemoryCandidateSchema.index({ status: 1, createdAt: -1, _id: 1 });
 AgentMemoryCandidateSchema.index({ candidateKey: 1 }, { unique: true });
 AgentMemoryCandidateSchema.index({ evidenceIds: 1, status: 1 });
 AgentMemoryCandidateSchema.index({ memoryType: 1, status: 1, confidence: -1 });

@@ -81,6 +81,11 @@ const AgentMemorySchema = new Schema<IAgentMemory>(
 );
 
 AgentMemorySchema.index({ status: 1, memoryType: 1, importance: -1 });
+// List view cursor pagination: one index per sort so page fetches walk the
+// index instead of sorting the collection in memory.
+AgentMemorySchema.index({ status: 1, importance: -1, updatedAt: -1, _id: 1 });
+AgentMemorySchema.index({ status: 1, confidence: -1, updatedAt: -1, _id: 1 });
+AgentMemorySchema.index({ status: 1, updatedAt: -1, _id: 1 });
 // Graph load: active memories sorted by creation (stable node order keeps the
 // client's no-change comparison from reheating the force layout).
 AgentMemorySchema.index({ status: 1, createdAt: 1 });

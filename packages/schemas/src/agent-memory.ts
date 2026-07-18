@@ -547,7 +547,11 @@ export type AgentUserModel = z.infer<typeof agentUserModelSchema>;
 export const agentUserModelRevisionSchema = z.object({
   id: z.string(),
   revision: z.number().int().positive(),
-  sections: z.record(z.string(), z.array(agentUserModelChunkSchema)),
+  // Chunk-key diff against the previous revision, computed server-side. Full
+  // sections stay in the DB — shipping them made the reflection overview
+  // payload grow by ~0.5MB per revision.
+  chunksAdded: z.number().int().nonnegative(),
+  chunksRemoved: z.number().int().nonnegative(),
   sourceMemoryRevision: z.number().int().nonnegative(),
   changedMemoryIds: z.array(z.string()),
   reason: z.string(),
@@ -911,8 +915,8 @@ export const agentMemoryListResponseSchema = z.object({
   totalMemories: z.number().int().nonnegative(),
   totalCandidates: z.number().int().nonnegative(),
   pendingCandidates: z.number().int().nonnegative(),
-  memoryPage: z.number().int().positive(),
-  candidatePage: z.number().int().positive(),
+  nextMemoryCursor: z.string().min(1).nullable(),
+  nextCandidateCursor: z.string().min(1).nullable(),
   pageSize: z.number().int().positive(),
   settings: agentMemorySettingsSchema,
 });
@@ -936,6 +940,43 @@ export const agentMemoryContradictionListResponseSchema = z.object({
 });
 export type AgentMemoryContradictionListResponse = z.infer<
   typeof agentMemoryContradictionListResponseSchema
+>;
+
+export const agentMemoryExploreRequestSchema = z.object({
+  query: z.string().trim().min(2).max(500),
+  limit: z.number().int().min(1).max(25).default(10),
+});
+export type AgentMemoryExploreRequest = z.infer<
+  typeof agentMemoryExploreRequestSchema
+>;
+
+export const agentMemoryExploreEventSchema = z.object({
+  eventId: z.uuid(),
+  sourceType: agentSourceTypeSchema,
+  sourceRef: agentSourceRefSchema,
+  snapshot: z.string().max(8_192).optional(),
+  occurredAt: isoDateSchema,
+  actor: agentActorSchema,
+  trust: agentTrustSchema,
+});
+export type AgentMemoryExploreEvent = z.infer<
+  typeof agentMemoryExploreEventSchema
+>;
+
+export const agentMemoryExploreHitSchema = z.object({
+  memory: agentMemorySchema,
+  score: z.number().min(0).max(1),
+  events: z.array(agentMemoryExploreEventSchema),
+});
+export type AgentMemoryExploreHit = z.infer<typeof agentMemoryExploreHitSchema>;
+
+export const agentMemoryExploreResponseSchema = z.object({
+  query: z.string(),
+  tookMs: z.number().nonnegative(),
+  results: z.array(agentMemoryExploreHitSchema),
+});
+export type AgentMemoryExploreResponse = z.infer<
+  typeof agentMemoryExploreResponseSchema
 >;
 
 export const agentMemoryGraphNodeSchema = z.object({

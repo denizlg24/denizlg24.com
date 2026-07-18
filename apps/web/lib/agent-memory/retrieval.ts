@@ -28,7 +28,7 @@ import { getAgentMemorySettings } from "./settings";
 import { scoreToCosine } from "./similarity";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
-const RETRIEVABLE_SENSITIVITIES: AgentSensitivity[] = [
+export const RETRIEVABLE_SENSITIVITIES: AgentSensitivity[] = [
   "standard",
   "personal",
   "sensitive",
