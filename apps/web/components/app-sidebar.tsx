@@ -1,12 +1,13 @@
 "use client";
 
 import {
-  Brain,
+  BrainCircuit,
   Briefcase,
   Calendar,
   CalendarDays,
   Clock,
   Contact,
+  DollarSign,
   FileText,
   FileUser,
   FolderGit2,
@@ -124,12 +125,12 @@ const items = [
   {
     title: "Agent Memory",
     url: "/admin/dashboard/agent-memory",
-    icon: Brain,
+    icon: BrainCircuit,
   },
   {
-    title: "LLM Usage",
+    title: "Token Usage",
     url: "/admin/dashboard/llm-usage",
-    icon: Brain,
+    icon: DollarSign,
   },
 ];
 

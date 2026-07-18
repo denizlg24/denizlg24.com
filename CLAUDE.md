@@ -1,5 +1,28 @@
 # denizlg24.com Monorepo
 
+## What this is
+
+A personal "life OS" with exactly one user: Deniz, who is the owner, the only
+admin, and the only person who ever sees any of it. The public portfolio site at
+denizlg24.com is the only outward-facing surface; everything else — the `/admin`
+dashboard in apps/web and the entire desktop app — is a private cockpit for
+running Deniz's own life and infrastructure: contacts, email, blog, projects,
+calendar, notes, kanban, resource/uptime monitoring, LLM usage, and an
+agent-memory system that forms, consolidates, and retrieves memories about him
+from his own data.
+
+Consequences of being single-user — these are hard rules for UI work:
+
+- **No explanatory copy.** Never add onboarding text, feature descriptions,
+  "how it works" blurbs, tooltips that explain mechanics, or marketing-style
+  labels. The owner built the feature; the UI assumes full context. Empty
+  states stay empty or show a bare count/dash, not instructions.
+- **Terse, data-dense surfaces win.** Prefer showing one more piece of data
+  over a sentence of prose.
+- **No multi-tenant thinking.** No roles, no per-user settings, no "your
+  account" language. Auth is a single admin gate; module-level caches keyed per
+  session (not per user) are fine.
+
 ## Structure
 
 Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at root).
