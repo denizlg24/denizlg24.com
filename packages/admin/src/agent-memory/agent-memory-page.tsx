@@ -77,6 +77,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Terminal,
   ThumbsUp,
   Undo2,
   X,
@@ -84,6 +85,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import { ExploreDock } from "./explore-dock";
 import { fetchAgentMemoryGraph } from "./graph-prefetch";
 import { MemoryGraph } from "./memory-graph";
 
@@ -133,6 +135,13 @@ export function AgentMemorySkeleton() {
             >
               <List className="size-3.5" />
             </TabsTrigger>
+            <TabsTrigger
+              value="explore"
+              className="h-5.5 px-2 text-xs"
+              title="Explore view"
+            >
+              <Terminal className="size-3.5" />
+            </TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -150,14 +159,14 @@ interface OverviewMeta {
   totalMemories: number;
   totalCandidates: number;
   pendingCandidates: number;
-  memoryPage: number;
-  candidatePage: number;
+  nextMemoryCursor: string | null;
+  nextCandidateCursor: string | null;
   pageSize: number;
 }
 
 interface OverviewQuery {
-  memoryPage: number;
-  candidatePage: number;
+  memoryCursor: string | null;
+  candidateCursor: string | null;
   memoryStatus: string;
   memoryType: string;
   memorySort: string;
@@ -165,8 +174,8 @@ interface OverviewQuery {
 }
 
 const DEFAULT_OVERVIEW_QUERY: OverviewQuery = {
-  memoryPage: 1,
-  candidatePage: 1,
+  memoryCursor: null,
+  candidateCursor: null,
   memoryStatus: "active",
   memoryType: "all",
   memorySort: "importance",
@@ -196,7 +205,7 @@ export function AgentMemoryPage() {
   const [selectedMemory, setSelectedMemory] = useState<AgentMemory | null>(
     null,
   );
-  const [view, setView] = useState<"graph" | "list">("graph");
+  const [view, setView] = useState<"graph" | "list" | "explore">("graph");
   const [section, setSection] = useState("inbox");
   const [filters, setFilters] = useState<OverviewQuery>(DEFAULT_OVERVIEW_QUERY);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<
@@ -225,8 +234,8 @@ export function AgentMemoryPage() {
       totalMemories: overview.totalMemories,
       totalCandidates: overview.totalCandidates,
       pendingCandidates: overview.pendingCandidates,
-      memoryPage: overview.memoryPage,
-      candidatePage: overview.candidatePage,
+      nextMemoryCursor: overview.nextMemoryCursor,
+      nextCandidateCursor: overview.nextCandidateCursor,
       pageSize: overview.pageSize,
     });
     setSelectedCandidateIds((prev) => {
@@ -236,15 +245,21 @@ export function AgentMemoryPage() {
     });
   }, []);
 
+  // Cursors of the pages before the current one, so "previous" can rewind
+  // without offset pagination. Page number = trail length + 1.
+  const memoryTrailRef = useRef<(string | null)[]>([]);
+  const candidateTrailRef = useRef<(string | null)[]>([]);
+
   const fetchOverview = useCallback(async () => {
     const query = queryRef.current;
     const params = new URLSearchParams({
-      memoryPage: String(query.memoryPage),
-      candidatePage: String(query.candidatePage),
       status: query.memoryStatus,
       memorySort: query.memorySort,
       candidateSort: query.candidateSort,
     });
+    if (query.memoryCursor) params.set("memoryCursor", query.memoryCursor);
+    if (query.candidateCursor)
+      params.set("candidateCursor", query.candidateCursor);
     if (query.memoryType !== "all") params.set("memoryType", query.memoryType);
     const overviewRaw = await client.get<unknown>(`agent-memory?${params}`);
     applyOverview(agentMemoryListResponseSchema.parse(overviewRaw));
@@ -256,9 +271,13 @@ export function AgentMemoryPage() {
       "memoryType" in patch ||
       "memorySort" in patch
     ) {
-      patch.memoryPage = 1;
+      patch.memoryCursor = null;
+      memoryTrailRef.current = [];
     }
-    if ("candidateSort" in patch) patch.candidatePage = 1;
+    if ("candidateSort" in patch) {
+      patch.candidateCursor = null;
+      candidateTrailRef.current = [];
+    }
     Object.assign(queryRef.current, patch);
     setFilters({ ...queryRef.current });
     try {
@@ -268,52 +287,89 @@ export function AgentMemoryPage() {
     }
   };
 
+  const turnPage = (list: "memory" | "candidate", direction: 1 | -1) => {
+    const isMemory = list === "memory";
+    const trail = isMemory ? memoryTrailRef.current : candidateTrailRef.current;
+    let cursor: string | null;
+    if (direction === 1) {
+      const next = isMemory
+        ? meta?.nextMemoryCursor
+        : meta?.nextCandidateCursor;
+      if (!next) return;
+      trail.push(
+        isMemory
+          ? queryRef.current.memoryCursor
+          : queryRef.current.candidateCursor,
+      );
+      cursor = next;
+    } else {
+      if (trail.length === 0) return;
+      cursor = trail.pop() ?? null;
+    }
+    void updateQuery(
+      isMemory ? { memoryCursor: cursor } : { candidateCursor: cursor },
+    );
+  };
+
   const load = useCallback(
     async (quiet = false) => {
       if (!quiet) setLoading(true);
       else setRefreshing(true);
-      try {
-        const [, tracesRaw, reflectionRaw, insightsRaw, suggestionList] =
-          await Promise.all([
-            fetchOverview(),
-            client.get<unknown>("agent-memory/retrieval-traces?limit=100"),
-            client.get<unknown>("agent-memory/reflection"),
-            client.get<unknown>("agent-memory/insights"),
-            // Isolated: a failure or parse error here must not blank traces,
-            // reflection, and insights — keep the previous inbox instead.
-            client
-              .get<unknown>("agent-memory/resource-suggestions?status=pending")
-              .then((raw) =>
-                agentResourceSuggestionListResponseSchema.parse(raw),
-              )
-              .catch(() => null),
-          ]);
-        const traceList =
-          agentRetrievalTraceListResponseSchema.parse(tracesRaw);
-        const reflectionOverview =
-          agentReflectionOverviewSchema.parse(reflectionRaw);
-        const insightList = agentInsightListResponseSchema.parse(insightsRaw);
-        setInsights(insightList.insights);
-        setInsightStats(insightList.stats);
-        if (suggestionList) {
-          setSuggestions(suggestionList.suggestions);
-          setSuggestionStats(suggestionList.stats);
+      // Traces and reflection are heavy payloads — populate them when they
+      // arrive instead of holding the whole list view hostage; the skeleton
+      // gate only waits for the overview.
+      const secondary = (async () => {
+        try {
+          const [tracesRaw, reflectionRaw, insightsRaw, suggestionList] =
+            await Promise.all([
+              client.get<unknown>("agent-memory/retrieval-traces?limit=100"),
+              client.get<unknown>("agent-memory/reflection"),
+              client.get<unknown>("agent-memory/insights"),
+              // Isolated: a failure or parse error here must not blank traces,
+              // reflection, and insights — keep the previous inbox instead.
+              client
+                .get<unknown>(
+                  "agent-memory/resource-suggestions?status=pending",
+                )
+                .then((raw) =>
+                  agentResourceSuggestionListResponseSchema.parse(raw),
+                )
+                .catch(() => null),
+            ]);
+          const traceList =
+            agentRetrievalTraceListResponseSchema.parse(tracesRaw);
+          const reflectionOverview =
+            agentReflectionOverviewSchema.parse(reflectionRaw);
+          const insightList = agentInsightListResponseSchema.parse(insightsRaw);
+          setInsights(insightList.insights);
+          setInsightStats(insightList.stats);
+          if (suggestionList) {
+            setSuggestions(suggestionList.suggestions);
+            setSuggestionStats(suggestionList.stats);
+          }
+          setTraces(traceList.traces);
+          setReflection(reflectionOverview);
+          setSelectedTraceId((current) =>
+            current &&
+            traceList.traces.some((trace) => trace.traceId === current)
+              ? current
+              : (traceList.traces[0]?.traceId ?? null),
+          );
+        } catch {
+          toast.error("Failed to load agent memory data");
         }
-        setTraces(traceList.traces);
-        setReflection(reflectionOverview);
-        setSelectedTraceId((current) =>
-          current && traceList.traces.some((trace) => trace.traceId === current)
-            ? current
-            : (traceList.traces[0]?.traceId ?? null),
-        );
+      })();
+      try {
+        await fetchOverview();
         // Propagate refresh to ContradictionPanel.
         setContradictionRefreshGen((gen) => gen + 1);
       } catch {
         toast.error("Failed to load agent memory data");
       } finally {
         setLoading(false);
-        setRefreshing(false);
       }
+      await secondary;
+      setRefreshing(false);
     },
     [client, fetchOverview],
   );
@@ -644,10 +700,10 @@ export function AgentMemoryPage() {
     }
   };
 
-  // The graph view only needs the (usually prefetched) graph response — never
-  // hold it hostage to the overview/traces/reflection round trips. The list
-  // view genuinely needs that data, so it keeps the skeleton.
-  if (loading && view !== "graph") return <AgentMemorySkeleton />;
+  // Only the list view needs the overview/traces/reflection round trips —
+  // never hold the graph (usually prefetched) or the explore dock (fetches
+  // per probe) hostage to them.
+  if (loading && view === "list") return <AgentMemorySkeleton />;
 
   const selectedTrace = traces.find(
     (trace) => trace.traceId === selectedTraceId,
@@ -692,7 +748,9 @@ export function AgentMemoryPage() {
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
         <Tabs
           value={view}
-          onValueChange={(value) => setView(value as "graph" | "list")}
+          onValueChange={(value) =>
+            setView(value as "graph" | "list" | "explore")
+          }
         >
           <TabsList className="h-7!">
             <TabsTrigger
@@ -708,6 +766,13 @@ export function AgentMemoryPage() {
               title="List view"
             >
               <List className="size-3.5" />
+            </TabsTrigger>
+            <TabsTrigger
+              value="explore"
+              className="h-5.5 px-2 text-xs"
+              title="Explore view"
+            >
+              <Terminal className="size-3.5" />
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -824,6 +889,7 @@ export function AgentMemoryPage() {
             )}
           </>
         ) : (
+          view === "graph" &&
           graph && (
             <span className="text-xs tabular-nums text-muted-foreground">
               {graph.nodes.length} nodes · {graph.links.length} links ·{" "}
@@ -859,6 +925,8 @@ export function AgentMemoryPage() {
               )}
             </div>
           )
+        ) : view === "explore" ? (
+          <ExploreDock onSelect={setSelectedMemory} />
         ) : (
           <div className="h-full overflow-y-auto px-4 pt-3 pb-8">
             {section === "inbox" && (
@@ -882,11 +950,12 @@ export function AgentMemoryPage() {
                 <MemoryTable memories={memories} onSelect={setSelectedMemory} />
                 {meta && (
                   <PageFooter
-                    page={meta.memoryPage}
+                    page={memoryTrailRef.current.length + 1}
                     pageSize={meta.pageSize}
                     total={meta.totalMemories}
                     label="memories"
-                    onChange={(page) => void updateQuery({ memoryPage: page })}
+                    hasNext={meta.nextMemoryCursor !== null}
+                    onTurn={(direction) => turnPage("memory", direction)}
                   />
                 )}
               </>
@@ -947,13 +1016,12 @@ export function AgentMemoryPage() {
                 />
                 {meta && (
                   <PageFooter
-                    page={meta.candidatePage}
+                    page={candidateTrailRef.current.length + 1}
                     pageSize={meta.pageSize}
                     total={meta.totalCandidates}
                     label="candidates"
-                    onChange={(page) =>
-                      void updateQuery({ candidatePage: page })
-                    }
+                    hasNext={meta.nextCandidateCursor !== null}
+                    onTurn={(direction) => turnPage("candidate", direction)}
                   />
                 )}
               </>
@@ -1018,13 +1086,15 @@ function PageFooter({
   pageSize,
   total,
   label,
-  onChange,
+  hasNext,
+  onTurn,
 }: {
   page: number;
   pageSize: number;
   total: number;
   label: string;
-  onChange: (page: number) => void;
+  hasNext: boolean;
+  onTurn: (direction: 1 | -1) => void;
 }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
@@ -1038,7 +1108,7 @@ function PageFooter({
           variant="ghost"
           title="Previous page"
           disabled={page <= 1}
-          onClick={() => onChange(page - 1)}
+          onClick={() => onTurn(-1)}
         >
           <ChevronLeft />
         </Button>
@@ -1046,8 +1116,8 @@ function PageFooter({
           size="icon"
           variant="ghost"
           title="Next page"
-          disabled={page >= totalPages}
-          onClick={() => onChange(page + 1)}
+          disabled={!hasNext}
+          onClick={() => onTurn(1)}
         >
           <ChevronRight />
         </Button>
@@ -1510,7 +1580,8 @@ function ContradictionPanel({
             pageSize={data.pageSize}
             total={data.total}
             label="contradictions"
-            onChange={setPage}
+            hasNext={data.page < Math.ceil(data.total / data.pageSize)}
+            onTurn={(direction) => setPage(data.page + direction)}
           />
         </>
       )}
@@ -1669,24 +1740,6 @@ function CandidateTable({
   );
 }
 
-function revisionDiff(
-  revision: AgentUserModelRevision,
-  previous?: AgentUserModelRevision,
-) {
-  const keys = (value?: AgentUserModelRevision) =>
-    new Set(
-      Object.values(value?.sections ?? {})
-        .flat()
-        .map((chunk) => chunk.key),
-    );
-  const currentKeys = keys(revision);
-  const previousKeys = keys(previous);
-  return {
-    added: [...currentKeys].filter((key) => !previousKeys.has(key)).length,
-    removed: [...previousKeys].filter((key) => !currentKeys.has(key)).length,
-  };
-}
-
 function ProfilePanel({
   model,
   revisions,
@@ -1764,8 +1817,7 @@ function ProfilePanel({
           <EmptyRow text="No profile revisions" />
         ) : (
           <div className="divide-y border-y">
-            {revisions.map((revision, index) => {
-              const diff = revisionDiff(revision, revisions[index + 1]);
+            {revisions.map((revision) => {
               const isCurrent = revision.revision === model?.revision;
               return (
                 <div
@@ -1784,8 +1836,8 @@ function ProfilePanel({
                       className="truncate text-xs text-muted-foreground"
                       title={revision.reason}
                     >
-                      {formatDate(revision.createdAt)} / +{diff.added} / -
-                      {diff.removed} / {revision.reason}
+                      {formatDate(revision.createdAt)} / +{revision.chunksAdded}{" "}
+                      / -{revision.chunksRemoved} / {revision.reason}
                     </p>
                   </div>
                   {!isCurrent && (
