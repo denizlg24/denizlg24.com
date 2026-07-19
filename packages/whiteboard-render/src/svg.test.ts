@@ -6,6 +6,19 @@ import {
   whiteboardToSvg,
   wrapText,
 } from "./svg";
+import { normalizeWhiteboardText } from "./text";
+
+describe("normalizeWhiteboardText", () => {
+  it("turns escaped newlines into real line breaks", () => {
+    expect(normalizeWhiteboardText("first\\nsecond\\r\\nthird")).toBe(
+      "first\nsecond\nthird",
+    );
+  });
+
+  it("preserves existing line breaks", () => {
+    expect(normalizeWhiteboardText("first\nsecond")).toBe("first\nsecond");
+  });
+});
 
 function el(partial: Partial<IWhiteboardElement>): IWhiteboardElement {
   return {
@@ -76,6 +89,10 @@ describe("wrapText", () => {
     const lines = wrapText("one two three\nfour", 60, 16, "sans", 400);
     expect(lines.length).toBeGreaterThan(2);
     expect(lines.at(-1)).toBe("four");
+  });
+
+  it("treats escaped newlines as explicit newlines", () => {
+    expect(wrapText("one\\ntwo", 200, 16, "sans", 400)).toEqual(["one", "two"]);
   });
 
   it("never drops words", () => {

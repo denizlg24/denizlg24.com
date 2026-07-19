@@ -105,7 +105,7 @@ export function WhiteboardLayersPanel({
                 <button
                   type="button"
                   onClick={(e) => onSelect(el.id, e.shiftKey || e.metaKey)}
-                  className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
+                  className="flex items-center gap-1.5 flex-1 min-w-0 text-left max-w-50"
                 >
                   <Icon className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate">{label}</span>

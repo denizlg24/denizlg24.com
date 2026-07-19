@@ -5,6 +5,7 @@ import {
   ARROW_HEAD_MAX_LENGTH,
   DEFAULT_FONT_FAMILY,
   HIGHLIGHTER_OPACITY,
+  normalizeWhiteboardText,
   TEXT_LINE_HEIGHT,
   TEXT_PADDING,
   WHITEBOARD_FONT_FAMILIES,
@@ -153,7 +154,7 @@ function TextElement({ element }: { element: IWhiteboardElement }) {
           padding: `${TEXT_PADDING}px`,
         }}
       >
-        {d.text}
+        {normalizeWhiteboardText(d.text)}
       </div>
     </foreignObject>
   );

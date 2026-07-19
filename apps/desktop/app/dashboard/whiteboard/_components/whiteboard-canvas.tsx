@@ -3,6 +3,7 @@
 import type { IWhiteboardBackground } from "@repo/schemas";
 import {
   DEFAULT_BOARD_BACKGROUND,
+  normalizeWhiteboardText,
   TEXT_LINE_HEIGHT,
   TEXT_PADDING,
   WHITEBOARD_FONT_FAMILIES,
@@ -207,7 +208,9 @@ function TextEditor({
   onCommit: (text: string, width: number, height: number) => void;
   onCancel: () => void;
 }) {
-  const [text, setText] = useState(box.initialText);
+  const [text, setText] = useState(() =>
+    normalizeWhiteboardText(box.initialText),
+  );
   const measureRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sizeRef = useRef({ w: box.width, h: box.height });

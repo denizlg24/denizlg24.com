@@ -25,6 +25,7 @@ import {
   TEXT_PADDING,
   WHITEBOARD_FONT_FAMILIES,
 } from "./constants";
+import { normalizeWhiteboardText } from "./text";
 
 export interface Bounds {
   x: number;
@@ -104,7 +105,7 @@ export function wrapText(
   measure: MeasureText = heuristicMeasure,
 ): string[] {
   const lines: string[] = [];
-  for (const paragraph of text.split("\n")) {
+  for (const paragraph of normalizeWhiteboardText(text).split("\n")) {
     if (paragraph === "") {
       lines.push("");
       continue;
