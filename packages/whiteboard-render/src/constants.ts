@@ -135,3 +135,14 @@ export const STICKY_COLORS: StickyColor[] = [
 
 export const ARROW_HEAD_MAX_LENGTH = 16;
 export const ARROW_HEAD_LENGTH_RATIO = 0.3;
+
+export const COMPONENT_DEFAULT_SIZES: Record<
+  string,
+  { width: number; height: number }
+> = {
+  "todo-list": { width: 280, height: 320 },
+  "sticky-note": { width: 240, height: 240 },
+  "quick-links": { width: 280, height: 320 },
+  "markdown-note": { width: 360, height: 400 },
+  "pdf-viewer": { width: 500, height: 650 },
+};

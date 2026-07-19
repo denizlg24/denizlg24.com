@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { APIError } from "@anthropic-ai/sdk";
 import { getToolByName, isClientTool, isWriteTool } from "@/lib/tools/registry";
+import { isToolImageResult } from "@/lib/tools/types";
 import type { TokenUsage } from "@/models/Conversation";
 
 // Internal agent-loop module. The LLM service owns transports, model limits,
@@ -82,6 +83,28 @@ async function runTool(
     }
 
     const result = await tool.execute(toolUse.input as Record<string, unknown>);
+    if (isToolImageResult(result)) {
+      const summary = JSON.stringify(result.summary);
+      return {
+        content: summary,
+        isError: false,
+        toolResult: {
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: result.mediaType,
+                data: result.base64,
+              },
+            },
+            { type: "text", text: summary },
+          ],
+        },
+      };
+    }
     const content = JSON.stringify(result);
     return {
       content,
