@@ -1,22 +1,14 @@
+import type { IWhiteboardBackground, IWhiteboardElement } from "@repo/schemas";
 import mongoose from "mongoose";
 
-export interface IWhiteboardElement {
-  id: string;
-  type: "drawing" | "component";
-  componentType?: string;
-  x: number;
-  y: number;
-  width?: number;
-  height?: number;
-  data: Record<string, unknown>;
-  zIndex: number;
-}
+export type { IWhiteboardBackground, IWhiteboardElement };
 
 export interface IWhiteboard {
   _id: unknown;
   name: string;
   elements: IWhiteboardElement[];
   viewState: { x: number; y: number; zoom: number };
+  background?: IWhiteboardBackground;
   order: number;
   createdAt: Date;
   updatedAt: Date;
@@ -28,6 +20,7 @@ export interface ILeanWhiteboard {
   name: string;
   elements: IWhiteboardElement[];
   viewState: { x: number; y: number; zoom: number };
+  background?: IWhiteboardBackground;
   order: number;
   createdAt: Date;
   updatedAt: Date;
@@ -50,6 +43,7 @@ const WhiteboardElementSchema = new mongoose.Schema(
     y: { type: Number, required: true },
     width: { type: Number },
     height: { type: Number },
+    rotation: { type: Number },
     data: { type: mongoose.Schema.Types.Mixed, default: {} },
     zIndex: { type: Number, default: 0 },
   },
@@ -64,6 +58,19 @@ export const WhiteboardSchema = new mongoose.Schema<IWhiteboard>(
       x: { type: Number, default: 0 },
       y: { type: Number, default: 0 },
       zoom: { type: Number, default: 1 },
+    },
+    background: {
+      type: new mongoose.Schema(
+        {
+          color: { type: String, required: true },
+          pattern: {
+            type: String,
+            enum: ["none", "dots", "grid", "lines"],
+          },
+        },
+        { _id: false },
+      ),
+      default: undefined,
     },
     order: { type: Number, default: 0, index: true },
     hasBeenCleared: { type: Boolean, default: false },
