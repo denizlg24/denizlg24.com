@@ -1,17 +1,38 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
-import type { IWhiteboardElement } from "@/lib/data-types";
 import type {
-  DrawingData,
-  ImageData,
+  IDrawingData,
+  IImageData,
+  IShapeData,
+  ITextData,
+  IWhiteboardElement,
+  TextFontFamily,
+} from "@repo/schemas";
+import { whiteboardElementKind } from "@repo/schemas";
+import { useCallback, useRef, useState } from "react";
+import {
+  anchorForHandle,
+  boundsOf,
+  centerOf,
+  eraserHitsElement,
+  handleAffectsX,
+  handleAffectsY,
+  hitTest,
+  marqueeHits,
+  reanchorRotated,
+  rotatePoint,
+  scaleElementAbout,
+  unionBounds,
+} from "@/lib/whiteboard-geometry";
+import type {
   ResizeHandle,
   SelectionRect,
-  ShapeData,
-  TextData,
+  TextBoxState,
+  TextDraft,
   ViewState,
   WhiteboardTool,
 } from "@/lib/whiteboard-types";
+
 import type { useWhiteboardHistory } from "./use-whiteboard-history";
 
 let _idCounter = 0;
@@ -20,436 +41,196 @@ function newId(): string {
   return `el_${Date.now()}_${_idCounter}`;
 }
 
-function screenToWorld(
-  sx: number,
-  sy: number,
-  view: ViewState,
-): { x: number; y: number } {
-  return {
-    x: (sx - view.x) / view.zoom,
-    y: (sy - view.y) / view.zoom,
-  };
+const MIN_SIZE = 8;
+const TEXT_MAX_WIDTH = 480;
+
+export interface DrawSettings {
+  color: string;
+  thickness: number;
+  highlighterThickness: number;
+  fill: string;
+  fontSize: number;
+  fontWeight: number;
+  fontFamily: TextFontFamily;
+  align: "left" | "center" | "right";
+  onSetBackground?: (color: string) => void;
 }
 
-function getElementBounds(el: IWhiteboardElement): {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-} {
-  const data = el.data as Record<string, unknown>;
-
-  if (data.points) {
-    const d = data as unknown as DrawingData;
-    if (d.points.length === 0) {
-      return { x: el.x, y: el.y, w: 0, h: 0 };
-    }
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-    for (const p of d.points) {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-    const t = (d.thickness ?? 2) / 2;
-    return {
-      x: el.x + minX - t,
-      y: el.y + minY - t,
-      w: maxX - minX + t * 2,
-      h: maxY - minY + t * 2,
-    };
-  }
-
-  if (data.shapeType) {
-    const d = data as unknown as ShapeData;
-    if (d.shapeType === "arrow") {
-      const x2 = d.x2 ?? 0;
-      const y2 = d.y2 ?? 0;
-      const t = (d.thickness ?? 2) / 2;
-      const minX = Math.min(0, x2) - t;
-      const minY = Math.min(0, y2) - t;
-      const maxX = Math.max(0, x2) + t;
-      const maxY = Math.max(0, y2) + t;
-      return {
-        x: el.x + minX,
-        y: el.y + minY,
-        w: maxX - minX,
-        h: maxY - minY,
-      };
-    }
-
-    return {
-      x: el.x,
-      y: el.y,
-      w: el.width ?? 0,
-      h: el.height ?? 0,
-    };
-  }
-
-  if (data.text !== undefined) {
-    const d = data as unknown as TextData;
-    const text = d.text as string;
-    const fontSize = d.fontSize ?? 16;
-
-    const estimatedWidth = Math.max(20, text.length * fontSize * 0.6);
-    const estimatedHeight = fontSize * 1.4;
-    return {
-      x: el.x,
-      y: el.y,
-      w: el.width ?? estimatedWidth,
-      h: el.height ?? estimatedHeight,
-    };
-  }
-
-  return {
-    x: el.x,
-    y: el.y,
-    w: el.width ?? 0,
-    h: el.height ?? 0,
-  };
-}
-
-function rectsOverlap(
-  a: { x: number; y: number; w: number; h: number },
-  b: { x: number; y: number; w: number; h: number },
-): boolean {
-  return (
-    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
-  );
-}
-
-function pointInElement(
-  wx: number,
-  wy: number,
-  el: IWhiteboardElement,
-  tolerance: number,
-): boolean {
-  const data = el.data as Record<string, unknown>;
-
-  if (data.points) {
-    const d = data as unknown as DrawingData;
-    if (d.points.length < 2) return false;
-    const strokeTol = tolerance + (d.thickness ?? 2) / 2;
-    for (let i = 1; i < d.points.length; i++) {
-      const p0 = d.points[i - 1];
-      const p1 = d.points[i];
-      const dist = pointToSegmentDist(
-        wx,
-        wy,
-        el.x + p0.x,
-        el.y + p0.y,
-        el.x + p1.x,
-        el.y + p1.y,
-      );
-      if (dist <= strokeTol) return true;
-    }
-    return false;
-  }
-
-  if (data.shapeType) {
-    const d = data as unknown as ShapeData;
-    const strokeTol = tolerance + (d.thickness ?? 2) / 2;
-
-    if (d.shapeType === "arrow") {
-      const x2 = d.x2 ?? 0;
-      const y2 = d.y2 ?? 0;
-      const dist = pointToSegmentDist(wx, wy, el.x, el.y, el.x + x2, el.y + y2);
-      return dist <= strokeTol;
-    }
-
-    if (d.shapeType === "circle") {
-      const w = el.width ?? 0;
-      const h = el.height ?? 0;
-      const cx = el.x + w / 2;
-      const cy = el.y + h / 2;
-      const rx = w / 2;
-      const ry = h / 2;
-      if (rx <= 0 || ry <= 0) return false;
-
-      const nx = (wx - cx) / rx;
-      const ny = (wy - cy) / ry;
-      const d2 = nx * nx + ny * ny;
-
-      const outerR = 1 + strokeTol / Math.min(rx, ry);
-      const innerR = Math.max(0, 1 - strokeTol / Math.min(rx, ry));
-      return d2 <= outerR * outerR && d2 >= innerR * innerR;
-    }
-
-    const bx = el.x;
-    const by = el.y;
-    const bw = el.width ?? 0;
-    const bh = el.height ?? 0;
-    const edges: [number, number, number, number][] = [
-      [bx, by, bx + bw, by],
-      [bx + bw, by, bx + bw, by + bh],
-      [bx + bw, by + bh, bx, by + bh],
-      [bx, by + bh, bx, by],
-    ];
-    for (const [ex1, ey1, ex2, ey2] of edges) {
-      const dist = pointToSegmentDist(wx, wy, ex1, ey1, ex2, ey2);
-      if (dist <= strokeTol) return true;
-    }
-    return false;
-  }
-
-  const b = getElementBounds(el);
-  return (
-    wx >= b.x - tolerance &&
-    wx <= b.x + b.w + tolerance &&
-    wy >= b.y - tolerance &&
-    wy <= b.y + b.h + tolerance
-  );
-}
-
-function lineSegmentIntersectsRect(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  rx: number,
-  ry: number,
-  rw: number,
-  rh: number,
-): boolean {
-  if (rw <= 0 || rh <= 0) return false;
-
-  if (x1 >= rx && x1 <= rx + rw && y1 >= ry && y1 <= ry + rh) return true;
-  if (x2 >= rx && x2 <= rx + rw && y2 >= ry && y2 <= ry + rh) return true;
-
-  const edges: [number, number, number, number][] = [
-    [rx, ry, rx + rw, ry],
-    [rx, ry + rh, rx + rw, ry + rh],
-    [rx, ry, rx, ry + rh],
-    [rx + rw, ry, rx + rw, ry + rh],
-  ];
-
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-
-  for (const [ex1, ey1, ex2, ey2] of edges) {
-    const edx = ex2 - ex1;
-    const edy = ey2 - ey1;
-    const denom = dx * edy - dy * edx;
-    if (Math.abs(denom) < 1e-10) continue;
-    const t = ((ex1 - x1) * edy - (ey1 - y1) * edx) / denom;
-    const u = ((ex1 - x1) * dy - (ey1 - y1) * dx) / denom;
-    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return true;
-  }
-
-  return false;
-}
-
-function pointToSegmentDist(
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-): number {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return Math.sqrt((px - ax) ** 2 + (py - ay) ** 2);
-  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
-  t = Math.max(0, Math.min(1, t));
-  const closestX = ax + t * dx;
-  const closestY = ay + t * dy;
-  return Math.sqrt((px - closestX) ** 2 + (py - closestY) ** 2);
-}
-
-function segmentToSegmentDist(
-  a1x: number,
-  a1y: number,
-  a2x: number,
-  a2y: number,
-  b1x: number,
-  b1y: number,
-  b2x: number,
-  b2y: number,
-): number {
-  const d1 = (b2x - b1x) * (a1y - b1y) - (b2y - b1y) * (a1x - b1x);
-  const d2 = (b2x - b1x) * (a2y - b1y) - (b2y - b1y) * (a2x - b1x);
-  const d3 = (a2x - a1x) * (b1y - a1y) - (a2y - a1y) * (b1x - a1x);
-  const d4 = (a2x - a1x) * (b2y - a1y) - (a2y - a1y) * (b2x - a1x);
-  if (d1 * d2 < 0 && d3 * d4 < 0) return 0;
-
-  return Math.min(
-    pointToSegmentDist(a1x, a1y, b1x, b1y, b2x, b2y),
-    pointToSegmentDist(a2x, a2y, b1x, b1y, b2x, b2y),
-    pointToSegmentDist(b1x, b1y, a1x, a1y, a2x, a2y),
-    pointToSegmentDist(b2x, b2y, a1x, a1y, a2x, a2y),
-  );
-}
-
-function eraserHitsElement(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  el: IWhiteboardElement,
-  tolerance: number,
-): boolean {
-  const data = el.data as Record<string, unknown>;
-
-  if (data.points) {
-    const d = data as unknown as DrawingData;
-    if (d.points.length < 2) return false;
-    const strokeTol = tolerance + (d.thickness ?? 2) / 2;
-    for (let i = 1; i < d.points.length; i++) {
-      const p0 = d.points[i - 1];
-      const p1 = d.points[i];
-      const dist = segmentToSegmentDist(
-        x1,
-        y1,
-        x2,
-        y2,
-        el.x + p0.x,
-        el.y + p0.y,
-        el.x + p1.x,
-        el.y + p1.y,
-      );
-      if (dist <= strokeTol) return true;
-    }
-    return false;
-  }
-
-  if (data.shapeType) {
-    const d = data as unknown as ShapeData;
-    const strokeTol = tolerance + (d.thickness ?? 2) / 2;
-
-    if (d.shapeType === "arrow") {
-      const ax2 = d.x2 ?? 0;
-      const ay2 = d.y2 ?? 0;
-      const dist = segmentToSegmentDist(
-        x1,
-        y1,
-        x2,
-        y2,
-        el.x,
-        el.y,
-        el.x + ax2,
-        el.y + ay2,
-      );
-      return dist <= strokeTol;
-    }
-
-    const bx = el.x;
-    const by = el.y;
-    const bw = el.width ?? 0;
-    const bh = el.height ?? 0;
-    const edges: [number, number, number, number][] = [
-      [bx, by, bx + bw, by],
-      [bx + bw, by, bx + bw, by + bh],
-      [bx + bw, by + bh, bx, by + bh],
-      [bx, by + bh, bx, by],
-    ];
-    for (const [ex1, ey1, ex2, ey2] of edges) {
-      const dist = segmentToSegmentDist(x1, y1, x2, y2, ex1, ey1, ex2, ey2);
-      if (dist <= strokeTol) return true;
-    }
-    return false;
-  }
-
-  const b = getElementBounds(el);
-  return lineSegmentIntersectsRect(
-    x1,
-    y1,
-    x2,
-    y2,
-    b.x - tolerance,
-    b.y - tolerance,
-    b.w + tolerance * 2,
-    b.h + tolerance * 2,
-  );
+function screenToWorld(sx: number, sy: number, view: ViewState) {
+  return { x: (sx - view.x) / view.zoom, y: (sy - view.y) / view.zoom };
 }
 
 export function useWhiteboardCanvas(
   history: ReturnType<typeof useWhiteboardHistory>,
 ) {
-  const { elements, addElements, removeElements, pushAction } = history;
+  const { elements, addElements, removeElements, updateElements, pushAction } =
+    history;
 
   const [viewState, setViewState] = useState<ViewState>({
     x: 0,
     y: 0,
     zoom: 1,
   });
-
   const [activeDrawing, setActiveDrawing] = useState<IWhiteboardElement | null>(
     null,
   );
-
   const [selectedElementIds, setSelectedElementIds] = useState<Set<string>>(
     new Set(),
   );
   const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(
     null,
   );
+  const [textBox, setTextBox] = useState<TextBoxState | null>(null);
+  const [textDraft, setTextDraft] = useState<TextDraft | null>(null);
 
   const isPanning = useRef(false);
   const panStart = useRef({ x: 0, y: 0 });
+  const spacePan = useRef(false);
 
   const isDrawing = useRef(false);
   const drawingRef = useRef<IWhiteboardElement | null>(null);
 
-  const isAreaSelecting = useRef(false);
-  const areaSelectStart = useRef({ x: 0, y: 0 });
+  const isMarquee = useRef(false);
+  const marqueeStart = useRef({ x: 0, y: 0 });
+  const marqueeBaseIds = useRef<Set<string>>(new Set());
 
-  const isDraggingSelection = useRef(false);
-  const dragSelectionStart = useRef({ x: 0, y: 0 });
-  const dragSelectionOriginals = useRef<IWhiteboardElement[]>([]);
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const dragOriginals = useRef<IWhiteboardElement[]>([]);
 
   const isErasing = useRef(false);
-  const eraserLastPos = useRef({ x: 0, y: 0 });
-  const eraserTouchedIds = useRef<Set<string>>(new Set());
+  const eraserLast = useRef({ x: 0, y: 0 });
+  const eraserTouched = useRef<Set<string>>(new Set());
 
   const isResizing = useRef(false);
   const resizeHandle = useRef<ResizeHandle | null>(null);
-  const resizeElementId = useRef<string | null>(null);
-  const resizeOriginal = useRef<IWhiteboardElement | null>(null);
+  const resizeOriginals = useRef<IWhiteboardElement[]>([]);
+  const resizeShift = useRef(false);
 
-  const [textBox, setTextBox] = useState<{
-    worldX: number;
-    worldY: number;
-    width: number;
-    height: number;
-  } | null>(null);
+  const isRotating = useRef(false);
+  const rotateOriginal = useRef<IWhiteboardElement | null>(null);
+  const rotateCenter = useRef({ x: 0, y: 0 });
+  const rotateStartAngle = useRef(0);
+  const rotateShift = useRef(false);
 
   const isDrawingTextBox = useRef(false);
+  /* Editing must start on pointer-up: mounting the editor during pointerdown
+     (while the SVG holds pointer capture) gets it blurred by the ensuing
+     pointerup, which instantly commits and closes it. */
+  const pendingEditId = useRef<string | null>(null);
   const textBoxOrigin = useRef({ x: 0, y: 0 });
+  const textStyle = useRef<{
+    color: string;
+    fontSize: number;
+    fontWeight: number;
+    fontFamily: TextFontFamily;
+    align: "left" | "center" | "right";
+  }>({
+    color: "#18181b",
+    fontSize: 24,
+    fontWeight: 400,
+    fontFamily: "handwriting",
+    align: "left",
+  });
 
-  const clipboardRef = useRef<IWhiteboardElement[]>([]);
-  const lastWorldPos = useRef({ x: 0, y: 0 });
+  const clipboard = useRef<IWhiteboardElement[]>([]);
+  const lastWorld = useRef({ x: 0, y: 0 });
+  const lastClick = useRef<{ id: string; t: number }>({ id: "", t: 0 });
 
   const getNextZIndex = useCallback((): number => {
     let max = 0;
-    for (const el of elements) {
-      if (el.zIndex > max) max = el.zIndex;
-    }
+    for (const el of elements) if (el.zIndex > max) max = el.zIndex;
     return max + 1;
   }, [elements]);
 
   const toWorld = useCallback(
     (e: React.PointerEvent | React.MouseEvent) => {
       const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
-      const sx = e.clientX - rect.left;
-      const sy = e.clientY - rect.top;
-      return screenToWorld(sx, sy, viewState);
+      return screenToWorld(
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+        viewState,
+      );
     },
     [viewState],
   );
 
+  const setSpacePan = useCallback((on: boolean) => {
+    spacePan.current = on;
+  }, []);
+
   const startResize = useCallback(
-    (elementId: string, handle: ResizeHandle) => {
-      const el = elements.find((e) => e.id === elementId);
-      if (!el) return;
+    (handle: ResizeHandle, shift: boolean) => {
+      const originals = elements.filter((el) => selectedElementIds.has(el.id));
+      if (originals.length === 0) return;
       isResizing.current = true;
       resizeHandle.current = handle;
-      resizeElementId.current = elementId;
-      resizeOriginal.current = { ...el };
+      resizeOriginals.current = originals.map((el) => ({ ...el }));
+      resizeShift.current = shift;
+    },
+    [elements, selectedElementIds],
+  );
+
+  const startRotate = useCallback(
+    (worldX: number, worldY: number) => {
+      if (selectedElementIds.size !== 1) return;
+      const id = [...selectedElementIds][0];
+      const orig = elements.find((el) => el.id === id);
+      if (!orig) return;
+      isRotating.current = true;
+      rotateOriginal.current = { ...orig };
+      const c = centerOf(boundsOf(orig, false));
+      rotateCenter.current = c;
+      rotateStartAngle.current = Math.atan2(worldY - c.y, worldX - c.x);
+    },
+    [elements, selectedElementIds],
+  );
+
+  const commitBucket = useCallback(
+    (wx: number, wy: number, settings: DrawSettings) => {
+      const tolerance = 6 / viewState.zoom;
+      const sorted = [...elements].sort((a, b) => b.zIndex - a.zIndex);
+      for (const el of sorted) {
+        if (whiteboardElementKind(el) !== "shape") continue;
+        if (!hitTest(el, wx, wy, tolerance)) continue;
+        const d = el.data as unknown as IShapeData;
+        if (d.shapeType === "arrow" || d.shapeType === "line") continue;
+        const after = {
+          ...el,
+          data: { ...d, fill: settings.color } as unknown as Record<
+            string,
+            unknown
+          >,
+        };
+        updateElements([after]);
+        return;
+      }
+      settings.onSetBackground?.(settings.color);
+    },
+    [elements, viewState.zoom, updateElements],
+  );
+
+  const beginEditText = useCallback(
+    (elementId: string) => {
+      const el = elements.find((e) => e.id === elementId);
+      if (!el || whiteboardElementKind(el) !== "text") return;
+      const d = el.data as unknown as ITextData;
+      setSelectedElementIds(new Set());
+      setTextBox({
+        worldX: el.x,
+        worldY: el.y,
+        width: el.width ?? 120,
+        height: el.height ?? d.fontSize * 1.4,
+        autoSize: false,
+        maxWidth: TEXT_MAX_WIDTH,
+        editingId: el.id,
+        color: d.color,
+        fontSize: d.fontSize,
+        fontWeight: d.fontWeight ?? 400,
+        fontFamily: d.fontFamily ?? "handwriting",
+        align: d.align ?? "left",
+        initialText: d.text,
+      });
     },
     [elements],
   );
@@ -458,82 +239,127 @@ export function useWhiteboardCanvas(
     (
       e: React.PointerEvent<SVGSVGElement>,
       tool: WhiteboardTool,
-      color: string,
-      thickness: number,
+      settings: DrawSettings,
     ) => {
       const svg = e.currentTarget;
       svg.setPointerCapture(e.pointerId);
       const w = toWorld(e);
+      lastWorld.current = w;
 
-      if (tool === "hand") {
+      if (spacePan.current || tool === "hand" || e.button === 1) {
         isPanning.current = true;
         panStart.current = { x: e.clientX, y: e.clientY };
         return;
       }
 
-      if (tool === "pointer") {
-        const tolerance = 8 / viewState.zoom;
-
-        const sorted = [...elements].sort((a, b) => b.zIndex - a.zIndex);
-        for (const el of sorted) {
-          if (pointInElement(w.x, w.y, el, tolerance)) {
-            if (selectedElementIds.has(el.id)) {
-              isDraggingSelection.current = true;
-              dragSelectionStart.current = { x: w.x, y: w.y };
-              dragSelectionOriginals.current = elements.filter((e) =>
-                selectedElementIds.has(e.id),
-              );
-              return;
-            }
-
-            setSelectedElementIds(new Set([el.id]));
-            isDraggingSelection.current = true;
-            dragSelectionStart.current = { x: w.x, y: w.y };
-            dragSelectionOriginals.current = [el];
-            return;
-          }
-        }
-
-        isAreaSelecting.current = true;
-        areaSelectStart.current = { x: w.x, y: w.y };
-        setSelectionRect({ x: w.x, y: w.y, width: 0, height: 0 });
-        setSelectedElementIds(new Set());
+      if (tool === "bucket") {
+        commitBucket(w.x, w.y, settings);
         return;
       }
 
-      if (tool === "select") {
-        isAreaSelecting.current = true;
-        areaSelectStart.current = { x: w.x, y: w.y };
+      if (tool === "pointer") {
+        const tolerance = 8 / viewState.zoom;
+        const additive = e.shiftKey;
+        const sorted = [...elements].sort((a, b) => b.zIndex - a.zIndex);
+        let hit: IWhiteboardElement | null = null;
+        for (const el of sorted) {
+          if (hitTest(el, w.x, w.y, tolerance)) {
+            hit = el;
+            break;
+          }
+        }
+
+        if (hit) {
+          const target = hit;
+          const now = Date.now();
+          if (
+            !additive &&
+            whiteboardElementKind(target) === "text" &&
+            lastClick.current.id === target.id &&
+            now - lastClick.current.t < 350
+          ) {
+            lastClick.current = { id: "", t: 0 };
+            pendingEditId.current = target.id;
+            return;
+          }
+          lastClick.current = { id: target.id, t: now };
+          if (additive) {
+            setSelectedElementIds((prev) => {
+              const next = new Set(prev);
+              if (next.has(target.id)) next.delete(target.id);
+              else next.add(target.id);
+              return next;
+            });
+            return;
+          }
+          const nextSel = selectedElementIds.has(target.id)
+            ? selectedElementIds
+            : new Set([target.id]);
+          if (!selectedElementIds.has(target.id))
+            setSelectedElementIds(nextSel);
+          isDragging.current = true;
+          dragStart.current = { x: w.x, y: w.y };
+          dragOriginals.current = elements.filter((el) => nextSel.has(el.id));
+          return;
+        }
+
+        isMarquee.current = true;
+        marqueeStart.current = { x: w.x, y: w.y };
+        marqueeBaseIds.current = additive
+          ? new Set(selectedElementIds)
+          : new Set();
+        if (!additive) setSelectedElementIds(new Set());
         setSelectionRect({ x: w.x, y: w.y, width: 0, height: 0 });
-        setSelectedElementIds(new Set());
         return;
       }
 
       if (tool === "eraser") {
         const tolerance = 2 / viewState.zoom;
         isErasing.current = true;
-        eraserLastPos.current = { x: w.x, y: w.y };
-        eraserTouchedIds.current = new Set();
-
+        eraserLast.current = { x: w.x, y: w.y };
+        eraserTouched.current = new Set();
         for (const el of elements) {
           if (eraserHitsElement(w.x, w.y, w.x, w.y, el, tolerance)) {
-            eraserTouchedIds.current.add(el.id);
+            eraserTouched.current.add(el.id);
           }
         }
         return;
       }
 
       if (tool === "text") {
+        const tolerance = 8 / viewState.zoom;
+        const existing = [...elements]
+          .sort((a, b) => b.zIndex - a.zIndex)
+          .find(
+            (el) =>
+              whiteboardElementKind(el) === "text" &&
+              hitTest(el, w.x, w.y, tolerance),
+          );
+        if (existing) {
+          pendingEditId.current = existing.id;
+          return;
+        }
         isDrawingTextBox.current = true;
         textBoxOrigin.current = { x: w.x, y: w.y };
-        setTextBox({ worldX: w.x, worldY: w.y, width: 0, height: 0 });
+        textStyle.current = {
+          color: settings.color,
+          fontSize: settings.fontSize,
+          fontWeight: settings.fontWeight,
+          fontFamily: settings.fontFamily,
+          align: settings.align,
+        };
+        setTextDraft({ x: w.x, y: w.y, width: 0, height: 0 });
         return;
       }
 
       isDrawing.current = true;
       const id = newId();
 
-      if (tool === "pen") {
+      if (tool === "pen" || tool === "highlighter") {
+        const thickness =
+          tool === "highlighter"
+            ? Math.max(settings.highlighterThickness, 2)
+            : Math.max(settings.thickness, 2);
         const el: IWhiteboardElement = {
           id,
           type: "drawing",
@@ -542,198 +368,164 @@ export function useWhiteboardCanvas(
           zIndex: getNextZIndex(),
           data: {
             points: [{ x: 0, y: 0 }],
-            color,
-            thickness: Math.max(thickness, 2),
-          } satisfies DrawingData as unknown as Record<string, unknown>,
+            color: settings.color,
+            thickness,
+            brush: tool === "highlighter" ? "highlighter" : "pen",
+          } satisfies IDrawingData as unknown as Record<string, unknown>,
         };
         drawingRef.current = el;
         setActiveDrawing(el);
         return;
       }
 
-      if (
-        tool === "square" ||
-        tool === "rectangle" ||
-        tool === "circle" ||
-        tool === "arrow"
-      ) {
-        const el: IWhiteboardElement = {
-          id,
-          type: "drawing",
-          x: w.x,
-          y: w.y,
-          width: 0,
-          height: 0,
-          zIndex: getNextZIndex(),
-          data: {
-            shapeType: tool,
-            color,
-            thickness: Math.max(thickness, 2),
-            x2: 0,
-            y2: 0,
-          } satisfies ShapeData as unknown as Record<string, unknown>,
-        };
-        drawingRef.current = el;
-        setActiveDrawing(el);
+      const shapeType =
+        tool === "rectangle"
+          ? "rectangle"
+          : tool === "square"
+            ? "square"
+            : tool === "circle"
+              ? "circle"
+              : tool === "line"
+                ? "line"
+                : "arrow";
+      const el: IWhiteboardElement = {
+        id,
+        type: "drawing",
+        x: w.x,
+        y: w.y,
+        width: 0,
+        height: 0,
+        zIndex: getNextZIndex(),
+        data: {
+          shapeType,
+          color: settings.color,
+          thickness: Math.max(settings.thickness, 2),
+          fill:
+            settings.fill && settings.fill !== "none"
+              ? settings.fill
+              : undefined,
+          x2: 0,
+          y2: 0,
+        } satisfies IShapeData as unknown as Record<string, unknown>,
+      };
+      drawingRef.current = el;
+      setActiveDrawing(el);
+    },
+    [
+      toWorld,
+      viewState.zoom,
+      elements,
+      selectedElementIds,
+      getNextZIndex,
+      commitBucket,
+    ],
+  );
+
+  const updateLive = useCallback(
+    (updated: IWhiteboardElement[]) => {
+      const map = new Map(updated.map((el) => [el.id, el]));
+      history.setElements((prev) => prev.map((el) => map.get(el.id) ?? el));
+    },
+    [history],
+  );
+
+  const applyResize = useCallback(
+    (w: { x: number; y: number }) => {
+      const handle = resizeHandle.current;
+      const originals = resizeOriginals.current;
+      if (!handle || originals.length === 0) return;
+      const isCorner = handleAffectsX(handle) && handleAffectsY(handle);
+
+      if (originals.length === 1 && originals[0]) {
+        const orig = originals[0];
+        const rot = orig.rotation ?? 0;
+        const ob = boundsOf(orig, false);
+        const oc = centerOf(ob);
+        const anchor = anchorForHandle(ob, handle);
+        const pl = rotatePoint(w.x, w.y, oc.x, oc.y, -rot);
+        const { sx, sy } = computeScale(
+          ob,
+          anchor,
+          handle,
+          pl,
+          resizeShift.current,
+        );
+        let scaled = scaleElementAbout(
+          orig,
+          anchor.x,
+          anchor.y,
+          sx,
+          sy,
+          isCorner,
+        );
+        scaled = reanchorRotated(orig, scaled, anchor.x, anchor.y);
+        updateLive([scaled]);
         return;
       }
+
+      const gb = unionBounds(originals);
+      if (!gb) return;
+      const anchor = anchorForHandle(gb, handle);
+      const { sx, sy } = computeScale(
+        gb,
+        anchor,
+        handle,
+        w,
+        resizeShift.current,
+      );
+      const scaled = originals.map((o) =>
+        scaleElementAbout(o, anchor.x, anchor.y, sx, sy, isCorner),
+      );
+      updateLive(scaled);
     },
-    [toWorld, viewState.zoom, elements, selectedElementIds, getNextZIndex],
+    [updateLive],
   );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent<SVGSVGElement>, _tool: WhiteboardTool) => {
-      const wp = toWorld(e);
-      lastWorldPos.current = wp;
+      const w = toWorld(e);
+      lastWorld.current = w;
 
       if (isPanning.current) {
         const dx = e.clientX - panStart.current.x;
         const dy = e.clientY - panStart.current.y;
         panStart.current = { x: e.clientX, y: e.clientY };
-        setViewState((prev) => ({
-          ...prev,
-          x: prev.x + dx,
-          y: prev.y + dy,
-        }));
+        setViewState((prev) => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
         return;
       }
 
-      if (isDraggingSelection.current) {
-        const w = toWorld(e);
-        const dx = w.x - dragSelectionStart.current.x;
-        const dy = w.y - dragSelectionStart.current.y;
-        const moved = dragSelectionOriginals.current.map((el) => ({
+      if (isRotating.current && rotateOriginal.current) {
+        const c = rotateCenter.current;
+        const angle = Math.atan2(w.y - c.y, w.x - c.x);
+        let deg =
+          (rotateOriginal.current.rotation ?? 0) +
+          ((angle - rotateStartAngle.current) * 180) / Math.PI;
+        if (rotateShift.current) deg = Math.round(deg / 15) * 15;
+        const next = { ...rotateOriginal.current, rotation: deg };
+        updateLive([next]);
+        return;
+      }
+
+      if (isResizing.current) {
+        applyResize(w);
+        return;
+      }
+
+      if (isDragging.current) {
+        const dx = w.x - dragStart.current.x;
+        const dy = w.y - dragStart.current.y;
+        const moved = dragOriginals.current.map((el) => ({
           ...el,
           x: el.x + dx,
           y: el.y + dy,
         }));
-
-        history.setElements((prev) => {
-          const movedMap = new Map(moved.map((m) => [m.id, m]));
-          return prev.map((el) => movedMap.get(el.id) ?? el);
-        });
+        updateLive(moved);
         return;
       }
 
-      if (
-        isResizing.current &&
-        resizeOriginal.current &&
-        resizeHandle.current
-      ) {
-        const w = toWorld(e);
-        const orig = resizeOriginal.current;
-        const handle = resizeHandle.current;
-        const origBounds = getElementBounds(orig);
-        const MIN_SIZE = 20;
-
-        const offsetX = origBounds.x - orig.x;
-        const offsetY = origBounds.y - orig.y;
-
-        let newBoundsX = origBounds.x;
-        let newBoundsY = origBounds.y;
-        let newW = origBounds.w;
-        let newH = origBounds.h;
-
-        if (handle === "top-left") {
-          newW = origBounds.x + origBounds.w - w.x;
-          newH = origBounds.y + origBounds.h - w.y;
-          newBoundsX = w.x;
-          newBoundsY = w.y;
-        } else if (handle === "top-right") {
-          newW = w.x - origBounds.x;
-          newH = origBounds.y + origBounds.h - w.y;
-          newBoundsY = w.y;
-        } else if (handle === "bottom-left") {
-          newW = origBounds.x + origBounds.w - w.x;
-          newH = w.y - origBounds.y;
-          newBoundsX = w.x;
-        } else if (handle === "bottom-right") {
-          newW = w.x - origBounds.x;
-          newH = w.y - origBounds.y;
-        }
-
-        if (newW < MIN_SIZE) {
-          if (handle === "top-left" || handle === "bottom-left") {
-            newBoundsX = origBounds.x + origBounds.w - MIN_SIZE;
-          }
-          newW = MIN_SIZE;
-        }
-        if (newH < MIN_SIZE) {
-          if (handle === "top-left" || handle === "top-right") {
-            newBoundsY = origBounds.y + origBounds.h - MIN_SIZE;
-          }
-          newH = MIN_SIZE;
-        }
-
-        const scaleX = origBounds.w > 0 ? newW / origBounds.w : 1;
-        const scaleY = origBounds.h > 0 ? newH / origBounds.h : 1;
-
-        const newElX = newBoundsX - offsetX * scaleX;
-        const newElY = newBoundsY - offsetY * scaleY;
-
-        const data = orig.data as Record<string, unknown>;
-        let updated: IWhiteboardElement;
-
-        if (data.points) {
-          const d = data as unknown as DrawingData;
-          if (d.points.length < 2) return;
-          const scaledPoints = d.points.map((p) => ({
-            x: p.x * scaleX,
-            y: p.y * scaleY,
-          }));
-          updated = {
-            ...orig,
-            x: newElX,
-            y: newElY,
-            data: {
-              ...d,
-              points: scaledPoints,
-            } as unknown as Record<string, unknown>,
-          };
-        } else if (data.shapeType) {
-          const d = data as unknown as ShapeData;
-          if (d.shapeType === "arrow") {
-            updated = {
-              ...orig,
-              x: newElX,
-              y: newElY,
-              width: newW,
-              height: newH,
-              data: {
-                ...d,
-                x2: (d.x2 ?? 0) * scaleX,
-                y2: (d.y2 ?? 0) * scaleY,
-              } as unknown as Record<string, unknown>,
-            };
-          } else {
-            updated = {
-              ...orig,
-              x: newBoundsX,
-              y: newBoundsY,
-              width: newW,
-              height: newH,
-            };
-          }
-        } else {
-          updated = {
-            ...orig,
-            x: newBoundsX,
-            y: newBoundsY,
-            width: newW,
-            height: newH,
-          };
-        }
-
-        history.setElements((prev) =>
-          prev.map((el) => (el.id === updated.id ? updated : el)),
-        );
-        return;
-      }
-
-      if (isAreaSelecting.current) {
-        const w = toWorld(e);
-        const sx = areaSelectStart.current.x;
-        const sy = areaSelectStart.current.y;
+      if (isMarquee.current) {
+        const sx = marqueeStart.current.x;
+        const sy = marqueeStart.current.y;
         const rect: SelectionRect = {
           x: Math.min(sx, w.x),
           y: Math.min(sy, w.y),
@@ -741,33 +533,39 @@ export function useWhiteboardCanvas(
           height: Math.abs(w.y - sy),
         };
         setSelectionRect(rect);
+        const next = new Set(marqueeBaseIds.current);
+        for (const el of elements) if (marqueeHits(el, rect)) next.add(el.id);
+        setSelectedElementIds(next);
         return;
       }
 
       if (isErasing.current) {
-        const w = toWorld(e);
         const tolerance = 2 / viewState.zoom;
-        const prevX = eraserLastPos.current.x;
-        const prevY = eraserLastPos.current.y;
-
         for (const el of elements) {
-          if (eraserTouchedIds.current.has(el.id)) continue;
-          if (eraserHitsElement(prevX, prevY, w.x, w.y, el, tolerance)) {
-            eraserTouchedIds.current.add(el.id);
+          if (eraserTouched.current.has(el.id)) continue;
+          if (
+            eraserHitsElement(
+              eraserLast.current.x,
+              eraserLast.current.y,
+              w.x,
+              w.y,
+              el,
+              tolerance,
+            )
+          ) {
+            eraserTouched.current.add(el.id);
           }
         }
-
-        eraserLastPos.current = { x: w.x, y: w.y };
+        eraserLast.current = { x: w.x, y: w.y };
         return;
       }
 
       if (isDrawingTextBox.current) {
-        const w = toWorld(e);
         const ox = textBoxOrigin.current.x;
         const oy = textBoxOrigin.current.y;
-        setTextBox({
-          worldX: Math.min(ox, w.x),
-          worldY: Math.min(oy, w.y),
+        setTextDraft({
+          x: Math.min(ox, w.x),
+          y: Math.min(oy, w.y),
           width: Math.abs(w.x - ox),
           height: Math.abs(w.y - oy),
         });
@@ -775,216 +573,162 @@ export function useWhiteboardCanvas(
       }
 
       if (isDrawing.current && drawingRef.current) {
-        const w = toWorld(e);
         const el = drawingRef.current;
-
-        if (
-          el.type === "drawing" &&
-          (el.data as unknown as DrawingData).points
-        ) {
-          const d = el.data as unknown as DrawingData;
-          const localX = w.x - el.x;
-          const localY = w.y - el.y;
+        const kind = whiteboardElementKind(el);
+        if (kind === "pen") {
+          const d = el.data as unknown as IDrawingData;
           const updated: IWhiteboardElement = {
             ...el,
             data: {
               ...d,
-              points: [...d.points, { x: localX, y: localY }],
+              points: [...d.points, { x: w.x - el.x, y: w.y - el.y }],
             } as unknown as Record<string, unknown>,
           };
           drawingRef.current = updated;
           setActiveDrawing(updated);
-        } else if (
-          el.type === "drawing" &&
-          (el.data as unknown as ShapeData).shapeType
-        ) {
-          const shapeData = el.data as unknown as ShapeData;
+        } else {
+          const s = el.data as unknown as IShapeData;
           const dx = w.x - el.x;
           const dy = w.y - el.y;
-
-          let width: number;
-          let height: number;
-
-          if (shapeData.shapeType === "square") {
+          let width = dx;
+          let height = dy;
+          if (s.shapeType === "square") {
             const size = Math.max(Math.abs(dx), Math.abs(dy));
             width = dx < 0 ? -size : size;
             height = dy < 0 ? -size : size;
-          } else {
-            width = dx;
-            height = dy;
           }
-
           const updated: IWhiteboardElement = {
             ...el,
             width: Math.abs(width),
             height: Math.abs(height),
             data: {
-              ...shapeData,
+              ...s,
               x2: width,
               y2: height,
             } as unknown as Record<string, unknown>,
           };
-
-          if (width < 0 || height < 0) {
+          if (
+            s.shapeType !== "arrow" &&
+            s.shapeType !== "line" &&
+            (width < 0 || height < 0)
+          ) {
             updated.x = el.x + Math.min(0, width);
             updated.y = el.y + Math.min(0, height);
-            if (shapeData.shapeType === "arrow") {
-              updated.data = {
-                ...shapeData,
-                x2: width,
-                y2: height,
-              } as unknown as Record<string, unknown>;
-              updated.x = el.x;
-              updated.y = el.y;
-            }
           }
-
           drawingRef.current = updated;
           setActiveDrawing(updated);
         }
       }
     },
-    [toWorld, viewState.zoom, elements, history],
+    [toWorld, viewState.zoom, elements, applyResize, updateLive],
+  );
+
+  const commitTransform = useCallback(
+    (originals: IWhiteboardElement[]) => {
+      if (originals.length === 0) return;
+      const current = elements.filter((el) =>
+        originals.some((o) => o.id === el.id),
+      );
+      const changed = current.some((cur) => {
+        const orig = originals.find((o) => o.id === cur.id);
+        return orig && JSON.stringify(orig) !== JSON.stringify(cur);
+      });
+      if (changed) {
+        pushAction({ type: "update", before: originals, after: current });
+      }
+    },
+    [elements, pushAction],
   );
 
   const onPointerUp = useCallback(
     (_e: React.PointerEvent<SVGSVGElement>, _tool: WhiteboardTool) => {
+      if (pendingEditId.current) {
+        const id = pendingEditId.current;
+        pendingEditId.current = null;
+        beginEditText(id);
+        return;
+      }
       if (isPanning.current) {
         isPanning.current = false;
         return;
       }
-
-      if (isErasing.current) {
-        isErasing.current = false;
-        if (eraserTouchedIds.current.size > 0) {
-          removeElements(eraserTouchedIds.current);
-        }
-        eraserTouchedIds.current = new Set();
+      if (isRotating.current) {
+        isRotating.current = false;
+        if (rotateOriginal.current) commitTransform([rotateOriginal.current]);
+        rotateOriginal.current = null;
         return;
       }
-
-      if (isDraggingSelection.current) {
-        isDraggingSelection.current = false;
-
-        const originals = dragSelectionOriginals.current;
-        if (originals.length > 0) {
-          const currentEls = elements.filter((el) =>
-            selectedElementIds.has(el.id),
-          );
-          const hasMoved = originals.some((orig) => {
-            const cur = currentEls.find((c) => c.id === orig.id);
-            return cur && (cur.x !== orig.x || cur.y !== orig.y);
-          });
-          if (hasMoved) {
-            pushAction({
-              type: "update",
-              before: originals,
-              after: currentEls,
-            });
-          }
-        }
-        dragSelectionOriginals.current = [];
-        return;
-      }
-
       if (isResizing.current) {
         isResizing.current = false;
-        const orig = resizeOriginal.current;
-        const elId = resizeElementId.current;
-        if (orig && elId) {
-          const current = elements.find((el) => el.id === elId);
-          if (
-            current &&
-            (current.x !== orig.x ||
-              current.y !== orig.y ||
-              current.width !== orig.width ||
-              current.height !== orig.height)
-          ) {
-            pushAction({
-              type: "update",
-              before: [orig],
-              after: [current],
-            });
-          }
-        }
+        commitTransform(resizeOriginals.current);
         resizeHandle.current = null;
-        resizeElementId.current = null;
-        resizeOriginal.current = null;
+        resizeOriginals.current = [];
         return;
       }
-
-      if (isAreaSelecting.current) {
-        isAreaSelecting.current = false;
-        if (selectionRect) {
-          const selBounds = {
-            x: selectionRect.x,
-            y: selectionRect.y,
-            w: selectionRect.width,
-            h: selectionRect.height,
-          };
-          const selected = new Set<string>();
-          for (const el of elements) {
-            const b = getElementBounds(el);
-            if (rectsOverlap(selBounds, b)) {
-              selected.add(el.id);
-            }
-          }
-          setSelectedElementIds(selected);
-        }
+      if (isDragging.current) {
+        isDragging.current = false;
+        commitTransform(dragOriginals.current);
+        dragOriginals.current = [];
+        return;
+      }
+      if (isMarquee.current) {
+        isMarquee.current = false;
         setSelectionRect(null);
         return;
       }
-
+      if (isErasing.current) {
+        isErasing.current = false;
+        if (eraserTouched.current.size > 0)
+          removeElements(eraserTouched.current);
+        eraserTouched.current = new Set();
+        return;
+      }
       if (isDrawingTextBox.current) {
         isDrawingTextBox.current = false;
-        setTextBox((prev) => {
-          if (!prev) return null;
-
-          const minW = 100;
-          const minH = 40;
-          return {
-            ...prev,
-            width: Math.max(prev.width, minW),
-            height: Math.max(prev.height, minH),
-          };
+        setTextDraft(null);
+        const style = textStyle.current;
+        const ox = textBoxOrigin.current;
+        const last = lastWorld.current;
+        const dw = Math.abs(last.x - ox.x);
+        const dh = Math.abs(last.y - ox.y);
+        const dragged = dw > 8 || dh > 8;
+        setTextBox({
+          worldX: dragged ? Math.min(ox.x, last.x) : ox.x,
+          worldY: dragged ? Math.min(ox.y, last.y) : ox.y,
+          width: dragged ? Math.max(dw, 40) : 40,
+          height: dragged
+            ? Math.max(dh, style.fontSize * 1.4)
+            : style.fontSize * 1.4,
+          autoSize: !dragged,
+          maxWidth: TEXT_MAX_WIDTH,
+          editingId: null,
+          color: style.color,
+          fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          fontFamily: style.fontFamily,
+          align: style.align,
+          initialText: "",
         });
         return;
       }
-
-      if (isDrawing.current) {
+      if (isDrawing.current && drawingRef.current) {
         isDrawing.current = false;
-        if (drawingRef.current) {
-          const el = drawingRef.current;
-
-          const d = el.data as unknown as DrawingData;
-          const s = el.data as unknown as ShapeData;
-          const hasSubstance =
-            (d.points && d.points.length > 1) ||
-            (s.shapeType &&
-              (Math.abs(el.width ?? 0) > 2 || Math.abs(el.height ?? 0) > 2));
-
-          if (hasSubstance) {
-            addElements([el]);
-          }
-          drawingRef.current = null;
-          setActiveDrawing(null);
-        }
-        return;
+        const el = drawingRef.current;
+        const kind = whiteboardElementKind(el);
+        const hasSubstance =
+          kind === "pen"
+            ? (el.data as unknown as IDrawingData).points.length > 1
+            : Math.abs(el.width ?? 0) > 2 || Math.abs(el.height ?? 0) > 2;
+        if (hasSubstance) addElements([el]);
+        drawingRef.current = null;
+        setActiveDrawing(null);
       }
     },
-    [
-      elements,
-      selectedElementIds,
-      selectionRect,
-      addElements,
-      pushAction,
-      removeElements,
-    ],
+    [addElements, removeElements, commitTransform, beginEditText],
   );
 
   const onWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
     e.preventDefault();
-
     if (e.ctrlKey || e.metaKey) {
       const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
       const mx = e.clientX - rect.left;
@@ -1009,75 +753,99 @@ export function useWhiteboardCanvas(
   }, []);
 
   const commitText = useCallback(
-    (text: string, color: string, fontSize: number) => {
-      if (!textBox || !text.trim()) {
-        setTextBox(null);
+    (text: string, width: number, height: number) => {
+      const box = textBox;
+      setTextBox(null);
+      if (!box) return;
+      const trimmed = text.replace(/\s+$/g, "");
+
+      if (box.editingId) {
+        const orig = elements.find((el) => el.id === box.editingId);
+        if (!orig) return;
+        if (!trimmed) {
+          removeElements(new Set([box.editingId]));
+          return;
+        }
+        const d = orig.data as unknown as ITextData;
+        const after: IWhiteboardElement = {
+          ...orig,
+          width,
+          height,
+          data: { ...d, text } as unknown as Record<string, unknown>,
+        };
+        updateElements([after]);
         return;
       }
+
+      if (!trimmed) return;
       const el: IWhiteboardElement = {
         id: newId(),
         type: "drawing",
-        x: textBox.worldX,
-        y: textBox.worldY,
-        width: textBox.width,
-        height: textBox.height,
+        x: box.worldX,
+        y: box.worldY,
+        width,
+        height,
         zIndex: getNextZIndex(),
         data: {
           text,
-          color,
-          fontSize,
-        } satisfies TextData as unknown as Record<string, unknown>,
+          color: box.color,
+          fontSize: box.fontSize,
+          fontWeight: box.fontWeight,
+          fontFamily: box.fontFamily,
+          align: box.align,
+        } satisfies ITextData as unknown as Record<string, unknown>,
       };
       addElements([el]);
-      setTextBox(null);
     },
-    [textBox, addElements, getNextZIndex],
+    [
+      textBox,
+      elements,
+      addElements,
+      updateElements,
+      removeElements,
+      getNextZIndex,
+    ],
   );
 
-  const findNonOverlappingPosition = useCallback(
-    (
-      targetW: number,
-      targetH: number,
-      preferX: number,
-      preferY: number,
-    ): { x: number; y: number } => {
-      const PADDING = 20;
-      const _candidate = { x: preferX, y: preferY, w: targetW, h: targetH };
+  const cancelText = useCallback(() => setTextBox(null), []);
 
-      const existingBounds = elements.map((el) => getElementBounds(el));
-
-      const overlaps = (cx: number, cy: number): boolean => {
-        const c = { x: cx, y: cy, w: targetW, h: targetH };
-        for (const b of existingBounds) {
-          if (rectsOverlap(c, b)) return true;
+  const findFreePosition = useCallback(
+    (tw: number, th: number, px: number, py: number) => {
+      const PAD = 20;
+      const existing = elements.map((el) => boundsOf(el, true));
+      const overlaps = (cx: number, cy: number) => {
+        for (const b of existing) {
+          if (
+            cx < b.x + b.width &&
+            cx + tw > b.x &&
+            cy < b.y + b.height &&
+            cy + th > b.y
+          )
+            return true;
         }
         return false;
       };
-
-      if (!overlaps(preferX, preferY)) {
-        return { x: preferX, y: preferY };
-      }
-
-      const step = PADDING + Math.max(targetW, targetH) * 0.5;
+      if (!overlaps(px, py)) return { x: px, y: py };
+      const step = PAD + Math.max(tw, th) * 0.5;
       for (let ring = 1; ring <= 20; ring++) {
-        const dist = ring * step;
-
-        for (let angle = 0; angle < 8; angle++) {
-          const rad = (angle / 8) * Math.PI * 2;
-          const cx = preferX + Math.cos(rad) * dist;
-          const cy = preferY + Math.sin(rad) * dist;
-          if (!overlaps(cx, cy)) {
-            return { x: cx, y: cy };
-          }
+        for (let a = 0; a < 8; a++) {
+          const rad = (a / 8) * Math.PI * 2;
+          const cx = px + Math.cos(rad) * ring * step;
+          const cy = py + Math.sin(rad) * ring * step;
+          if (!overlaps(cx, cy)) return { x: cx, y: cy };
         }
       }
-
-      return {
-        x: preferX + targetW + PADDING,
-        y: preferY,
-      };
+      return { x: px + tw + PAD, y: py };
     },
     [elements],
+  );
+
+  const viewportCenter = useCallback(
+    (w: number, h: number) => ({
+      x: (-viewState.x + window.innerWidth / 2) / viewState.zoom - w / 2,
+      y: (-viewState.y + window.innerHeight / 2) / viewState.zoom - h / 2,
+    }),
+    [viewState],
   );
 
   const addComponent = useCallback(
@@ -1086,20 +854,13 @@ export function useWhiteboardCanvas(
       defaultSize: { width: number; height: number },
       defaultData: Record<string, unknown>,
     ) => {
-      const centerX =
-        (-viewState.x + window.innerWidth / 2) / viewState.zoom -
-        defaultSize.width / 2;
-      const centerY =
-        (-viewState.y + window.innerHeight / 2) / viewState.zoom -
-        defaultSize.height / 2;
-
-      const pos = findNonOverlappingPosition(
+      const c = viewportCenter(defaultSize.width, defaultSize.height);
+      const pos = findFreePosition(
         defaultSize.width,
         defaultSize.height,
-        centerX,
-        centerY,
+        c.x,
+        c.y,
       );
-
       const el: IWhiteboardElement = {
         id: newId(),
         type: "component",
@@ -1114,7 +875,7 @@ export function useWhiteboardCanvas(
       addElements([el]);
       setSelectedElementIds(new Set([el.id]));
     },
-    [viewState, getNextZIndex, addElements, findNonOverlappingPosition],
+    [viewportCenter, findFreePosition, getNextZIndex, addElements],
   );
 
   const updateComponentData = useCallback(
@@ -1122,9 +883,8 @@ export function useWhiteboardCanvas(
       history.setElements((prev) => {
         const el = prev.find((e) => e.id === elementId);
         if (!el) return prev;
-        const before = el;
         const after = { ...el, data: newData };
-        pushAction({ type: "update", before: [before], after: [after] });
+        pushAction({ type: "update", before: [el], after: [after] });
         return prev.map((e) => (e.id === elementId ? after : e));
       });
     },
@@ -1135,8 +895,8 @@ export function useWhiteboardCanvas(
     (src: string) => {
       const img = new Image();
       img.onload = () => {
-        let w = img.naturalWidth;
-        let h = img.naturalHeight;
+        let w = img.naturalWidth || 200;
+        let h = img.naturalHeight || 200;
         const maxW = 800;
         const maxH = 600;
         if (w > maxW || h > maxH) {
@@ -1144,82 +904,87 @@ export function useWhiteboardCanvas(
           w = Math.round(w * scale);
           h = Math.round(h * scale);
         }
-
-        const centerX =
-          (-viewState.x + window.innerWidth / 2) / viewState.zoom - w / 2;
-        const centerY =
-          (-viewState.y + window.innerHeight / 2) / viewState.zoom - h / 2;
-
+        const c = viewportCenter(w, h);
         const el: IWhiteboardElement = {
           id: newId(),
           type: "drawing",
-          x: centerX,
-          y: centerY,
+          x: c.x,
+          y: c.y,
           width: w,
           height: h,
           zIndex: getNextZIndex(),
-          data: {
-            src,
-          } satisfies ImageData as unknown as Record<string, unknown>,
+          data: { src } satisfies IImageData as unknown as Record<
+            string,
+            unknown
+          >,
         };
         addElements([el]);
         setSelectedElementIds(new Set([el.id]));
       };
       img.src = src;
     },
-    [viewState, getNextZIndex, addElements],
+    [viewportCenter, getNextZIndex, addElements],
   );
 
   const copySelected = useCallback(() => {
     if (selectedElementIds.size === 0) return;
-    const selected = elements.filter((el) => selectedElementIds.has(el.id));
-    clipboardRef.current = structuredClone(selected);
+    clipboard.current = structuredClone(
+      elements.filter((el) => selectedElementIds.has(el.id)),
+    );
   }, [elements, selectedElementIds]);
 
   const pasteElements = useCallback(() => {
-    if (clipboardRef.current.length === 0) return;
-    isDraggingSelection.current = false;
-    dragSelectionOriginals.current = [];
-    setSelectedElementIds(new Set());
-
-    const items = clipboardRef.current;
+    if (clipboard.current.length === 0) return;
+    const items = clipboard.current;
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
     for (const el of items) {
-      const b = getElementBounds(el);
-      if (b.x < minX) minX = b.x;
-      if (b.y < minY) minY = b.y;
-      if (b.x + b.w > maxX) maxX = b.x + b.w;
-      if (b.y + b.h > maxY) maxY = b.y + b.h;
+      const b = boundsOf(el, true);
+      minX = Math.min(minX, b.x);
+      minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.width);
+      maxY = Math.max(maxY, b.y + b.height);
     }
-    const groupCx = (minX + maxX) / 2;
-    const groupCy = (minY + maxY) / 2;
-    const dx = lastWorldPos.current.x - groupCx;
-    const dy = lastWorldPos.current.y - groupCy;
-
+    const dx = lastWorld.current.x - (minX + maxX) / 2;
+    const dy = lastWorld.current.y - (minY + maxY) / 2;
+    let z = getNextZIndex();
     const pasted = items.map((el) => ({
       ...structuredClone(el),
       id: newId(),
       x: el.x + dx,
       y: el.y + dy,
-      zIndex: getNextZIndex(),
+      zIndex: z++,
     }));
     addElements(pasted);
     setSelectedElementIds(new Set(pasted.map((el) => el.id)));
   }, [getNextZIndex, addElements]);
 
-  const pasteImage = useCallback(
-    (src: string) => {
-      addImage(src);
-    },
-    [addImage],
-  );
+  const cutSelected = useCallback(() => {
+    if (selectedElementIds.size === 0) return;
+    copySelected();
+    removeElements(selectedElementIds);
+    setSelectedElementIds(new Set());
+  }, [selectedElementIds, copySelected, removeElements]);
 
-  const hasClipboard = useCallback(() => {
-    return clipboardRef.current.length > 0;
-  }, []);
+  const duplicateSelected = useCallback(() => {
+    if (selectedElementIds.size === 0) return;
+    const items = elements.filter((el) => selectedElementIds.has(el.id));
+    let z = getNextZIndex();
+    const dupes = items.map((el) => ({
+      ...structuredClone(el),
+      id: newId(),
+      x: el.x + 16,
+      y: el.y + 16,
+      zIndex: z++,
+    }));
+    addElements(dupes);
+    setSelectedElementIds(new Set(dupes.map((el) => el.id)));
+  }, [elements, selectedElementIds, getNextZIndex, addElements]);
+
+  const pasteImage = useCallback((src: string) => addImage(src), [addImage]);
+  const hasClipboard = useCallback(() => clipboard.current.length > 0, []);
 
   const deleteSelected = useCallback(() => {
     if (selectedElementIds.size === 0) return;
@@ -1227,9 +992,114 @@ export function useWhiteboardCanvas(
     setSelectedElementIds(new Set());
   }, [selectedElementIds, removeElements]);
 
-  const initializeView = useCallback((vs: ViewState) => {
-    setViewState(vs);
-  }, []);
+  const selectAll = useCallback(() => {
+    setSelectedElementIds(new Set(elements.map((el) => el.id)));
+  }, [elements]);
+
+  const nudgeSelected = useCallback(
+    (dx: number, dy: number) => {
+      if (selectedElementIds.size === 0) return;
+      const before = elements.filter((el) => selectedElementIds.has(el.id));
+      const after = before.map((el) => ({ ...el, x: el.x + dx, y: el.y + dy }));
+      updateElements(after);
+    },
+    [elements, selectedElementIds, updateElements],
+  );
+
+  const updateSelectedStyle = useCallback(
+    (mutate: (el: IWhiteboardElement) => IWhiteboardElement | null) => {
+      if (selectedElementIds.size === 0) return;
+      const before: IWhiteboardElement[] = [];
+      const after: IWhiteboardElement[] = [];
+      for (const el of elements) {
+        if (!selectedElementIds.has(el.id)) continue;
+        const next = mutate(el);
+        if (next && JSON.stringify(next) !== JSON.stringify(el)) {
+          before.push(el);
+          after.push(next);
+        }
+      }
+      if (after.length > 0) updateElements(after);
+    },
+    [elements, selectedElementIds, updateElements],
+  );
+
+  const reorderZ = useCallback(
+    (op: "front" | "back" | "forward" | "backward") => {
+      const ids = selectedElementIds;
+      if (ids.size === 0) return;
+      const sorted = [...elements].sort((a, b) => a.zIndex - b.zIndex);
+      let ordered: IWhiteboardElement[];
+      if (op === "front") {
+        ordered = [
+          ...sorted.filter((el) => !ids.has(el.id)),
+          ...sorted.filter((el) => ids.has(el.id)),
+        ];
+      } else if (op === "back") {
+        ordered = [
+          ...sorted.filter((el) => ids.has(el.id)),
+          ...sorted.filter((el) => !ids.has(el.id)),
+        ];
+      } else {
+        ordered = [...sorted];
+        const dir = op === "forward" ? 1 : -1;
+        const indices = ordered
+          .map((el, i) => ({ el, i }))
+          .filter(({ el }) => ids.has(el.id))
+          .map(({ i }) => i);
+        const iter = dir === 1 ? [...indices].reverse() : indices;
+        for (const i of iter) {
+          const j = i + dir;
+          if (j < 0 || j >= ordered.length) continue;
+          if (ids.has(ordered[j]?.id ?? "")) continue;
+          const a = ordered[i];
+          const b = ordered[j];
+          if (a && b) {
+            ordered[i] = b;
+            ordered[j] = a;
+          }
+        }
+      }
+      const changed: IWhiteboardElement[] = [];
+      ordered.forEach((el, i) => {
+        if (el.zIndex !== i) changed.push({ ...el, zIndex: i });
+      });
+      if (changed.length > 0) updateElements(changed);
+    },
+    [elements, selectedElementIds, updateElements],
+  );
+
+  const moveElementZ = useCallback(
+    (elementId: string, dir: "up" | "down") => {
+      const sorted = [...elements].sort((a, b) => a.zIndex - b.zIndex);
+      const i = sorted.findIndex((el) => el.id === elementId);
+      if (i < 0) return;
+      const j = dir === "up" ? i + 1 : i - 1;
+      if (j < 0 || j >= sorted.length) return;
+      const a = sorted[i];
+      const b = sorted[j];
+      if (!a || !b) return;
+      updateElements([
+        { ...a, zIndex: b.zIndex },
+        { ...b, zIndex: a.zIndex },
+      ]);
+    },
+    [elements, updateElements],
+  );
+
+  const deleteElement = useCallback(
+    (elementId: string) => {
+      removeElements(new Set([elementId]));
+      setSelectedElementIds((prev) => {
+        const next = new Set(prev);
+        next.delete(elementId);
+        return next;
+      });
+    },
+    [removeElements],
+  );
+
+  const initializeView = useCallback((vs: ViewState) => setViewState(vs), []);
 
   return {
     viewState,
@@ -1240,20 +1110,67 @@ export function useWhiteboardCanvas(
     selectionRect,
     textBox,
     setTextBox,
+    textDraft,
     onPointerDown,
     onPointerMove,
     onPointerUp,
     onWheel,
-    commitText,
-    deleteSelected,
-    initializeView,
+    setSpacePan,
     startResize,
+    startRotate,
+    beginEditText,
+    commitText,
+    cancelText,
     addComponent,
     updateComponentData,
     addImage,
     copySelected,
+    cutSelected,
     pasteElements,
     pasteImage,
+    duplicateSelected,
     hasClipboard,
+    deleteSelected,
+    deleteElement,
+    selectAll,
+    nudgeSelected,
+    updateSelectedStyle,
+    reorderZ,
+    moveElementZ,
+    initializeView,
   };
+}
+
+function computeScale(
+  ob: { x: number; y: number; width: number; height: number },
+  anchor: { x: number; y: number },
+  handle: ResizeHandle,
+  p: { x: number; y: number },
+  shift: boolean,
+): { sx: number; sy: number } {
+  const affX = handleAffectsX(handle);
+  const affY = handleAffectsY(handle);
+  const leftSide = handle === "nw" || handle === "w" || handle === "sw";
+  const topSide = handle === "nw" || handle === "n" || handle === "ne";
+
+  let newW = ob.width;
+  let newH = ob.height;
+  if (affX) {
+    newW = leftSide ? anchor.x - p.x : p.x - anchor.x;
+    newW = Math.max(MIN_SIZE, newW);
+  }
+  if (affY) {
+    newH = topSide ? anchor.y - p.y : p.y - anchor.y;
+    newH = Math.max(MIN_SIZE, newH);
+  }
+  let sx = ob.width > 0 ? newW / ob.width : 1;
+  let sy = ob.height > 0 ? newH / ob.height : 1;
+  if (!affX) sx = 1;
+  if (!affY) sy = 1;
+  if (shift && affX && affY) {
+    const s = Math.max(sx, sy);
+    sx = s;
+    sy = s;
+  }
+  return { sx, sy };
 }

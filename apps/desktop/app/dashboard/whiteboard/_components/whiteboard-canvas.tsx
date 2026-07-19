@@ -1,301 +1,366 @@
 "use client";
 
+import type { IWhiteboardBackground } from "@repo/schemas";
+import {
+  DEFAULT_BOARD_BACKGROUND,
+  TEXT_LINE_HEIGHT,
+  TEXT_PADDING,
+  WHITEBOARD_FONT_FAMILIES,
+} from "@repo/whiteboard-render";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { IWhiteboardElement } from "@/lib/data-types";
+import {
+  boundsOf,
+  centerOf,
+  RESIZE_CURSORS,
+  selectionBounds,
+} from "@/lib/whiteboard-geometry";
 import type {
-  DrawingData,
   ResizeHandle,
   SelectionRect,
-  ShapeData,
-  TextData,
+  TextBoxState,
+  TextDraft,
   ViewState,
   WhiteboardTool,
 } from "@/lib/whiteboard-types";
 import { templateRegistry } from "./templates";
 import { WhiteboardElement } from "./whiteboard-element";
 
-const GRID_SIZE = 40;
-
-function GridPattern({ zoom }: { zoom: number }) {
-  const scaledSize = GRID_SIZE * zoom;
-  if (scaledSize < 8) return null;
-
-  const opacity = Math.min(0.3, Math.max(0.05, (scaledSize - 8) / 80));
-
+function luminance(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m?.[1]) return 1;
+  const v = Number.parseInt(m[1], 16);
   return (
-    <defs>
-      <pattern
-        id="whiteboard-grid"
-        width={GRID_SIZE}
-        height={GRID_SIZE}
-        patternUnits="userSpaceOnUse"
-      >
-        <circle
-          cx={GRID_SIZE / 2}
-          cy={GRID_SIZE / 2}
-          r={0.8}
-          fill={`rgba(48, 54, 48, ${opacity})`}
-        />
-      </pattern>
-    </defs>
+    (0.2126 * ((v >> 16) & 0xff) +
+      0.7152 * ((v >> 8) & 0xff) +
+      0.0722 * (v & 0xff)) /
+    255
   );
 }
 
-function SelectionOverlay({
-  rect,
+function BoardBackground({
+  background,
   viewState,
 }: {
-  rect: SelectionRect;
+  background?: IWhiteboardBackground;
   viewState: ViewState;
 }) {
+  const color = background?.color ?? DEFAULT_BOARD_BACKGROUND;
+  const pattern = background?.pattern ?? "none";
+  const dark = luminance(color) < 0.45;
+  const stroke = dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)";
+  const size = pattern === "lines" ? 32 : 24;
+
   return (
-    <rect
-      x={rect.x}
-      y={rect.y}
-      width={rect.width}
-      height={rect.height}
-      fill="rgba(161, 188, 152, 0.15)"
-      stroke="var(--accent)"
-      strokeWidth={1 / viewState.zoom}
-      strokeDasharray={`${4 / viewState.zoom}`}
-    />
+    <>
+      <rect x={0} y={0} width="100%" height="100%" fill={color} />
+      {pattern !== "none" && (
+        <>
+          <defs>
+            <pattern
+              id="board-pattern"
+              width={size}
+              height={size}
+              patternUnits="userSpaceOnUse"
+            >
+              {pattern === "dots" && (
+                <circle cx={1.5} cy={1.5} r={1.2} fill={stroke} />
+              )}
+              {pattern === "grid" && (
+                <path
+                  d={`M ${size} 0 L 0 0 0 ${size}`}
+                  fill="none"
+                  stroke={stroke}
+                  strokeWidth={1}
+                />
+              )}
+              {pattern === "lines" && (
+                <line
+                  x1={0}
+                  y1={0.5}
+                  x2={size}
+                  y2={0.5}
+                  stroke={stroke}
+                  strokeWidth={1}
+                />
+              )}
+            </pattern>
+          </defs>
+          <rect
+            x={-viewState.x / viewState.zoom - 50000}
+            y={-viewState.y / viewState.zoom - 50000}
+            width={100000}
+            height={100000}
+            fill="url(#board-pattern)"
+            transform={`translate(${viewState.x}, ${viewState.y}) scale(${viewState.zoom})`}
+          />
+        </>
+      )}
+    </>
   );
 }
 
-function SelectedElementHighlight({
-  element,
+const HANDLES: { handle: ResizeHandle; fx: number; fy: number }[] = [
+  { handle: "nw", fx: 0, fy: 0 },
+  { handle: "n", fx: 0.5, fy: 0 },
+  { handle: "ne", fx: 1, fy: 0 },
+  { handle: "e", fx: 1, fy: 0.5 },
+  { handle: "se", fx: 1, fy: 1 },
+  { handle: "s", fx: 0.5, fy: 1 },
+  { handle: "sw", fx: 0, fy: 1 },
+  { handle: "w", fx: 0, fy: 0.5 },
+];
+
+function SelectionHandles({
+  bounds,
   zoom,
+  showRotate,
   onStartResize,
-  isPointerTool,
+  onStartRotate,
 }: {
-  element: IWhiteboardElement;
+  bounds: { x: number; y: number; width: number; height: number };
   zoom: number;
-  onStartResize: (elementId: string, handle: ResizeHandle) => void;
-  isPointerTool: boolean;
+  showRotate: boolean;
+  onStartResize: (handle: ResizeHandle, shift: boolean) => void;
+  onStartRotate: (e: React.PointerEvent) => void;
 }) {
-  const padding = 4 / zoom;
   const sw = 1.5 / zoom;
-  const handleSize = 8 / zoom;
-
-  const data = element.data as Record<string, unknown>;
-  let bx: number;
-  let by: number;
-  let bw: number;
-  let bh: number;
-
-  if (data.points) {
-    const points = data.points as { x: number; y: number }[];
-    if (points.length === 0) return null;
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-    for (const p of points) {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-    bx = element.x + minX - padding;
-    by = element.y + minY - padding;
-    bw = maxX - minX + padding * 2;
-    bh = maxY - minY + padding * 2;
-  } else {
-    const w = element.width ?? 0;
-    const h = element.height ?? 0;
-    bx = element.x - padding;
-    by = element.y - padding;
-    bw = w + padding * 2;
-    bh = h + padding * 2;
-  }
-
-  const handles: {
-    handle: ResizeHandle;
-    cx: number;
-    cy: number;
-    cursor: string;
-  }[] = [
-    { handle: "top-left", cx: bx, cy: by, cursor: "nwse-resize" },
-    { handle: "top-right", cx: bx + bw, cy: by, cursor: "nesw-resize" },
-    { handle: "bottom-left", cx: bx, cy: by + bh, cursor: "nesw-resize" },
-    { handle: "bottom-right", cx: bx + bw, cy: by + bh, cursor: "nwse-resize" },
-  ];
-
+  const hs = 8 / zoom;
+  const capture = (e: React.PointerEvent) => {
+    const svg = (e.target as SVGElement).ownerSVGElement;
+    if (svg) svg.setPointerCapture(e.pointerId);
+  };
+  const rotY = bounds.y - 24 / zoom;
+  const rotX = bounds.x + bounds.width / 2;
   return (
     <g>
       <rect
-        x={bx}
-        y={by}
-        width={bw}
-        height={bh}
+        x={bounds.x}
+        y={bounds.y}
+        width={bounds.width}
+        height={bounds.height}
         fill="none"
         stroke="var(--accent)"
         strokeWidth={sw}
         strokeDasharray={`${3 / zoom}`}
-        rx={2 / zoom}
       />
-      {isPointerTool &&
-        handles.map((h) => (
-          <rect
-            key={h.handle}
-            x={h.cx - handleSize / 2}
-            y={h.cy - handleSize / 2}
-            width={handleSize}
-            height={handleSize}
+      {showRotate && (
+        <>
+          <line
+            x1={rotX}
+            y1={bounds.y}
+            x2={rotX}
+            y2={rotY}
+            stroke="var(--accent)"
+            strokeWidth={sw}
+          />
+          <circle
+            cx={rotX}
+            cy={rotY}
+            r={hs / 1.4}
             fill="white"
             stroke="var(--accent)"
             strokeWidth={sw}
-            rx={1 / zoom}
-            style={{ cursor: h.cursor }}
+            style={{ cursor: "grab" }}
             onPointerDown={(e) => {
               e.stopPropagation();
-              const svg = (e.target as SVGElement).ownerSVGElement;
-              if (svg) svg.setPointerCapture(e.pointerId);
-              onStartResize(element.id, h.handle);
+              capture(e);
+              onStartRotate(e);
             }}
           />
-        ))}
+        </>
+      )}
+      {HANDLES.map((h) => (
+        <rect
+          key={h.handle}
+          x={bounds.x + bounds.width * h.fx - hs / 2}
+          y={bounds.y + bounds.height * h.fy - hs / 2}
+          width={hs}
+          height={hs}
+          fill="white"
+          stroke="var(--accent)"
+          strokeWidth={sw}
+          style={{ cursor: RESIZE_CURSORS[h.handle] }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            capture(e);
+            onStartResize(h.handle, e.shiftKey);
+          }}
+        />
+      ))}
     </g>
   );
 }
 
-export function getElementBoundsForCanvas(el: IWhiteboardElement): {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-} {
-  const data = el.data as Record<string, unknown>;
-
-  if (data.points) {
-    const d = data as unknown as DrawingData;
-    if (d.points.length === 0) return { x: el.x, y: el.y, w: 0, h: 0 };
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-    for (const p of d.points) {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-    const t = (d.thickness ?? 2) / 2;
-    return {
-      x: el.x + minX - t,
-      y: el.y + minY - t,
-      w: maxX - minX + t * 2,
-      h: maxY - minY + t * 2,
-    };
-  }
-
-  if (data.shapeType) {
-    const d = data as unknown as ShapeData;
-    if (d.shapeType === "arrow") {
-      const x2 = d.x2 ?? 0;
-      const y2 = d.y2 ?? 0;
-      const t = (d.thickness ?? 2) / 2;
-      const minX = Math.min(0, x2) - t;
-      const minY = Math.min(0, y2) - t;
-      const maxX = Math.max(0, x2) + t;
-      const maxY = Math.max(0, y2) + t;
-      return { x: el.x + minX, y: el.y + minY, w: maxX - minX, h: maxY - minY };
-    }
-    return { x: el.x, y: el.y, w: el.width ?? 0, h: el.height ?? 0 };
-  }
-
-  if (data.text !== undefined) {
-    const d = data as unknown as TextData;
-    const fontSize = d.fontSize ?? 16;
-    const text = d.text as string;
-    const estimatedWidth = Math.max(20, text.length * fontSize * 0.6);
-    return {
-      x: el.x,
-      y: el.y,
-      w: el.width ?? estimatedWidth,
-      h: el.height ?? fontSize * 1.4,
-    };
-  }
-
-  return { x: el.x, y: el.y, w: el.width ?? 0, h: el.height ?? 0 };
+function measureFont(box: TextBoxState) {
+  return WHITEBOARD_FONT_FAMILIES[box.fontFamily].css;
 }
 
-function getSelectionBoundingBox(
-  elements: IWhiteboardElement[],
-  selectedIds: Set<string>,
-): { x: number; y: number; w: number; h: number } | null {
-  if (selectedIds.size === 0) return null;
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-  let found = false;
-  for (const el of elements) {
-    if (!selectedIds.has(el.id)) continue;
-    found = true;
-    const b = getElementBoundsForCanvas(el);
-    if (b.x < minX) minX = b.x;
-    if (b.y < minY) minY = b.y;
-    if (b.x + b.w > maxX) maxX = b.x + b.w;
-    if (b.y + b.h > maxY) maxY = b.y + b.h;
-  }
-  if (!found) return null;
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+function TextEditor({
+  box,
+  viewState,
+  onCommit,
+  onCancel,
+}: {
+  box: TextBoxState;
+  viewState: ViewState;
+  onCommit: (text: string, width: number, height: number) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(box.initialText);
+  const measureRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sizeRef = useRef({ w: box.width, h: box.height });
+  const [worldSize, setWorldSize] = useState({ w: box.width, h: box.height });
+
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (!el) return;
+    const w = box.autoSize ? Math.max(40, el.offsetWidth) : box.width;
+    const h = Math.max(box.height, box.fontSize * 1.4, el.offsetHeight);
+    sizeRef.current = { w, h };
+    setWorldSize({ w, h });
+  }, [text, box.fontSize, box.width, box.height, box.autoSize]);
+
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+
+  const commit = () => onCommit(text, sizeRef.current.w, sizeRef.current.h);
+
+  return (
+    <div
+      className="absolute"
+      style={{
+        left: box.worldX * viewState.zoom + viewState.x,
+        top: box.worldY * viewState.zoom + viewState.y,
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <div
+        ref={measureRef}
+        aria-hidden
+        style={{
+          position: "absolute",
+          visibility: "hidden",
+          pointerEvents: "none",
+          whiteSpace: "pre-wrap",
+          width: box.autoSize ? "max-content" : box.width,
+          maxWidth: box.autoSize ? box.maxWidth : undefined,
+          fontSize: box.fontSize,
+          fontWeight: box.fontWeight,
+          fontFamily: measureFont(box),
+          lineHeight: TEXT_LINE_HEIGHT,
+          padding: TEXT_PADDING,
+          boxSizing: "border-box",
+        }}
+      >
+        {text === "" ? " " : text}
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        className="bg-transparent outline outline-1 outline-primary/60 resize-none overflow-hidden"
+        style={{
+          width: worldSize.w * viewState.zoom,
+          height: worldSize.h * viewState.zoom,
+          color: box.color,
+          fontSize: box.fontSize * viewState.zoom,
+          fontWeight: box.fontWeight,
+          fontFamily: measureFont(box),
+          textAlign: box.align,
+          lineHeight: TEXT_LINE_HEIGHT,
+          padding: TEXT_PADDING * viewState.zoom,
+          boxSizing: "border-box",
+        }}
+        onFocus={(e) => {
+          const v = e.target.value;
+          e.target.setSelectionRange(v.length, v.length);
+        }}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          }
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            commit();
+          }
+        }}
+        onBlur={commit}
+      />
+    </div>
+  );
 }
 
 export interface WhiteboardCanvasProps {
   elements: IWhiteboardElement[];
+  background?: IWhiteboardBackground;
   viewState: ViewState;
   selectedTool: WhiteboardTool;
   selectedElementIds: Set<string>;
   selectionRect: SelectionRect | null;
   activeDrawing: IWhiteboardElement | null;
-  textBox: {
-    worldX: number;
-    worldY: number;
-    width: number;
-    height: number;
-  } | null;
-  selectedColor: string;
-  selectedThickness: number;
+  textBox: TextBoxState | null;
+  textDraft?: TextDraft | null;
+  readOnly?: boolean;
   onPointerDown: (e: React.PointerEvent<SVGSVGElement>) => void;
   onPointerMove: (e: React.PointerEvent<SVGSVGElement>) => void;
   onPointerUp: (e: React.PointerEvent<SVGSVGElement>) => void;
   onWheel: (e: React.WheelEvent<SVGSVGElement>) => void;
-  onTextCommit: (text: string) => void;
-  onTextCancel: () => void;
-  onDeleteSelected: () => void;
-  onStartResize: (elementId: string, handle: ResizeHandle) => void;
-  onComponentDataChange: (
+  onDoubleClick?: (e: React.MouseEvent<SVGSVGElement>) => void;
+  onTextCommit?: (text: string, width: number, height: number) => void;
+  onTextCancel?: () => void;
+  onStartResize?: (handle: ResizeHandle, shift: boolean) => void;
+  onStartRotate?: (e: React.PointerEvent) => void;
+  onComponentDataChange?: (
     elementId: string,
     data: Record<string, unknown>,
   ) => void;
-  onComponentDelete: (elementId: string) => void;
+  onComponentDelete?: (elementId: string) => void;
 }
 
 export function WhiteboardCanvas({
   elements,
+  background,
   viewState,
   selectedTool,
   selectedElementIds,
   selectionRect,
   activeDrawing,
   textBox,
-  selectedColor,
-  selectedThickness,
+  textDraft,
+  readOnly,
   onPointerDown,
   onPointerMove,
   onPointerUp,
   onWheel,
+  onDoubleClick,
   onTextCommit,
   onTextCancel,
-  onDeleteSelected,
   onStartResize,
+  onStartRotate,
   onComponentDataChange,
   onComponentDelete,
 }: WhiteboardCanvasProps) {
-  const sorted = [...elements].sort((a, b) => a.zIndex - b.zIndex);
-  const selectionBBox = getSelectionBoundingBox(elements, selectedElementIds);
-  const isPointerTool = selectedTool === "pointer" || selectedTool === "select";
+  const editingId = textBox?.editingId ?? null;
+  const sorted = [...elements]
+    .filter((el) => el.id !== editingId)
+    .sort((a, b) => a.zIndex - b.zIndex);
+  const isPointerTool = selectedTool === "pointer";
+  const single =
+    selectedElementIds.size === 1
+      ? elements.find((el) => selectedElementIds.has(el.id))
+      : undefined;
+  const selBounds = single
+    ? boundsOf(single, false)
+    : selectionBounds(elements, selectedElementIds);
+  const selCenter = selBounds ? centerOf(selBounds) : null;
 
   return (
     <div className="relative w-full h-full">
@@ -306,16 +371,9 @@ export function WhiteboardCanvas({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onWheel={onWheel}
+        onDoubleClick={onDoubleClick}
       >
-        <GridPattern zoom={viewState.zoom} />
-        <rect
-          x={-viewState.x / viewState.zoom - 50000}
-          y={-viewState.y / viewState.zoom - 50000}
-          width={100000}
-          height={100000}
-          fill="url(#whiteboard-grid)"
-          transform={`translate(${viewState.x}, ${viewState.y}) scale(${viewState.zoom})`}
-        />
+        <BoardBackground background={background} viewState={viewState} />
 
         <g
           transform={`translate(${viewState.x}, ${viewState.y}) scale(${viewState.zoom})`}
@@ -326,21 +384,48 @@ export function WhiteboardCanvas({
 
           {activeDrawing && <WhiteboardElement element={activeDrawing} />}
 
-          {selectedElementIds.size > 0 &&
-            elements
-              .filter((el) => selectedElementIds.has(el.id))
-              .map((el) => (
-                <SelectedElementHighlight
-                  key={`sel-${el.id}`}
-                  element={el}
-                  zoom={viewState.zoom}
-                  onStartResize={onStartResize}
-                  isPointerTool={isPointerTool}
-                />
-              ))}
+          {!readOnly && selBounds && selectedElementIds.size > 0 && (
+            <g
+              transform={
+                single?.rotation && selCenter
+                  ? `rotate(${single.rotation} ${selCenter.x} ${selCenter.y})`
+                  : undefined
+              }
+            >
+              <SelectionHandles
+                bounds={selBounds}
+                zoom={viewState.zoom}
+                showRotate={isPointerTool && selectedElementIds.size === 1}
+                onStartResize={(h, shift) => onStartResize?.(h, shift)}
+                onStartRotate={(e) => onStartRotate?.(e)}
+              />
+            </g>
+          )}
 
           {selectionRect && (
-            <SelectionOverlay rect={selectionRect} viewState={viewState} />
+            <rect
+              x={selectionRect.x}
+              y={selectionRect.y}
+              width={selectionRect.width}
+              height={selectionRect.height}
+              fill="rgba(161, 188, 152, 0.15)"
+              stroke="var(--accent)"
+              strokeWidth={1 / viewState.zoom}
+              strokeDasharray={`${4 / viewState.zoom}`}
+            />
+          )}
+
+          {textDraft && (textDraft.width > 0 || textDraft.height > 0) && (
+            <rect
+              x={textDraft.x}
+              y={textDraft.y}
+              width={textDraft.width}
+              height={textDraft.height}
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth={1 / viewState.zoom}
+              strokeDasharray={`${4 / viewState.zoom}`}
+            />
           )}
         </g>
       </svg>
@@ -351,19 +436,14 @@ export function WhiteboardCanvas({
             el.type === "component" && !!el.componentType,
         )
         .map((el) => {
-          const templateDef = templateRegistry[el.componentType];
-          if (!templateDef) return null;
-
-          const TemplateComponent = templateDef.component;
+          const def = templateRegistry[el.componentType];
+          if (!def) return null;
+          const Template = def.component;
+          const w = el.width ?? def.defaultSize.width;
+          const h = el.height ?? def.defaultSize.height;
           const screenX = el.x * viewState.zoom + viewState.x;
           const screenY = el.y * viewState.zoom + viewState.y;
-          const screenW =
-            (el.width ?? templateDef.defaultSize.width) * viewState.zoom;
-          const screenH =
-            (el.height ?? templateDef.defaultSize.height) * viewState.zoom;
-
           const isSelected = selectedElementIds.has(el.id);
-
           return (
             <div
               key={`component-${el.id}`}
@@ -371,107 +451,45 @@ export function WhiteboardCanvas({
               style={{
                 left: screenX,
                 top: screenY,
-                width: screenW,
-                height: screenH,
-                pointerEvents: isPointerTool && isSelected ? "auto" : "none",
+                width: w * viewState.zoom,
+                height: h * viewState.zoom,
+                transform: el.rotation
+                  ? `rotate(${el.rotation}deg)`
+                  : undefined,
+                transformOrigin: "center",
+                pointerEvents:
+                  !readOnly && isPointerTool && isSelected ? "auto" : "none",
               }}
               onPointerDown={(e) => e.stopPropagation()}
             >
               <div
                 style={{
-                  width: el.width ?? templateDef.defaultSize.width,
-                  height: el.height ?? templateDef.defaultSize.height,
+                  width: w,
+                  height: h,
                   transform: `scale(${viewState.zoom})`,
                   transformOrigin: "top left",
                 }}
               >
-                <TemplateComponent
+                <Template
                   id={el.id}
                   data={el.data}
-                  onDataChange={(newData) =>
-                    onComponentDataChange(el.id, newData)
-                  }
-                  onDelete={() => onComponentDelete(el.id)}
-                  width={el.width ?? templateDef.defaultSize.width}
-                  height={el.height ?? templateDef.defaultSize.height}
+                  onDataChange={(d) => onComponentDataChange?.(el.id, d)}
+                  onDelete={() => onComponentDelete?.(el.id)}
+                  width={w}
+                  height={h}
                 />
               </div>
             </div>
           );
         })}
 
-      {textBox && (
-        <div
-          className="absolute"
-          style={{
-            left: textBox.worldX * viewState.zoom + viewState.x,
-            top: textBox.worldY * viewState.zoom + viewState.y,
-            width: textBox.width * viewState.zoom,
-            height: textBox.height * viewState.zoom,
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <textarea
-            // biome-ignore lint: autofocus is intentional for text tool
-            autoFocus
-            className="w-full h-full bg-transparent border border-primary/60 outline-none text-accent-strong resize-none p-1 rounded-sm"
-            style={{
-              color: selectedColor,
-              fontSize: `${Math.max(selectedThickness * 2, 16) * viewState.zoom}px`,
-              lineHeight: 1.3,
-            }}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                onTextCommit((e.target as HTMLTextAreaElement).value);
-              }
-              if (e.key === "Escape") {
-                onTextCancel();
-              }
-            }}
-            onBlur={(e) => {
-              if (e.target.value.trim()) {
-                onTextCommit(e.target.value);
-              } else {
-                onTextCancel();
-              }
-            }}
-          />
-        </div>
-      )}
-
-      {selectionBBox && selectedElementIds.size > 0 && (
-        <button
-          type="button"
-          className="absolute flex items-center justify-center w-5 h-5 rounded-full bg-destructive text-white hover:bg-destructive/80 shadow-sm transition-colors z-10"
-          style={{
-            left:
-              (selectionBBox.x + selectionBBox.w) * viewState.zoom +
-              viewState.x +
-              4,
-            top: selectionBBox.y * viewState.zoom + viewState.y - 10,
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDeleteSelected();
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          title="Delete selected"
-        >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          >
-            <line x1="2" y1="2" x2="8" y2="8" />
-            <line x1="8" y1="2" x2="2" y2="8" />
-          </svg>
-        </button>
+      {!readOnly && textBox && onTextCommit && onTextCancel && (
+        <TextEditor
+          box={textBox}
+          viewState={viewState}
+          onCommit={onTextCommit}
+          onCancel={onTextCancel}
+        />
       )}
     </div>
   );

@@ -1,69 +1,10 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
+import { STICKY_COLORS } from "@repo/whiteboard-render";
 import { Palette } from "lucide-react";
 import { useState } from "react";
 import type { TemplateProps } from ".";
-
-interface StickyColor {
-  name: string;
-  bg: string;
-  text: string;
-  border: string;
-  placeholder: string;
-  dot: string;
-}
-
-const STICKY_COLORS: StickyColor[] = [
-  {
-    name: "Sage",
-    bg: "#e8edd9",
-    text: "#3a4535",
-    border: "#c8d4b0",
-    placeholder: "#7a8a6e",
-    dot: "#a1bc98",
-  },
-  {
-    name: "Sand",
-    bg: "#ece6da",
-    text: "#4a3f30",
-    border: "#d4c9b5",
-    placeholder: "#8a7e6c",
-    dot: "#c4b69c",
-  },
-  {
-    name: "Clay",
-    bg: "#ecddd5",
-    text: "#4a3530",
-    border: "#d4bfb3",
-    placeholder: "#8a6e62",
-    dot: "#c09a8a",
-  },
-  {
-    name: "Fog",
-    bg: "#e2e4e0",
-    text: "#353835",
-    border: "#c5c9c2",
-    placeholder: "#6e756c",
-    dot: "#9aa397",
-  },
-  {
-    name: "Lavender",
-    bg: "#e4dfe8",
-    text: "#3a3540",
-    border: "#c6bdd0",
-    placeholder: "#7a7088",
-    dot: "#a899b8",
-  },
-  {
-    name: "Lichen",
-    bg: "#dce6e2",
-    text: "#2e3d38",
-    border: "#b5cdc4",
-    placeholder: "#627a72",
-    dot: "#89b0a4",
-  },
-];
 
 export const StickyNoteTemplate = ({
   width,

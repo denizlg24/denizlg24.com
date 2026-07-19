@@ -6,7 +6,6 @@ import type { ViewState } from "@/lib/whiteboard-types";
 import { WhiteboardCanvas } from "../../whiteboard/_components/whiteboard-canvas";
 
 const EMPTY_SET = new Set<string>();
-const noop = () => {};
 
 interface WhiteboardViewerProps {
   whiteboard: IWhiteboard;
@@ -71,24 +70,18 @@ export function WhiteboardViewer({ whiteboard }: WhiteboardViewerProps) {
     <div className="w-full h-full cursor-grab active:cursor-grabbing">
       <WhiteboardCanvas
         elements={whiteboard.elements}
+        background={whiteboard.background}
         viewState={viewState}
         selectedTool="hand"
         selectedElementIds={EMPTY_SET}
         selectionRect={null}
         activeDrawing={null}
         textBox={null}
-        selectedColor="#000000"
-        selectedThickness={4}
+        readOnly
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onWheel={onWheel}
-        onTextCommit={noop}
-        onTextCancel={noop}
-        onDeleteSelected={noop}
-        onStartResize={noop}
-        onComponentDataChange={noop}
-        onComponentDelete={noop}
       />
     </div>
   );
