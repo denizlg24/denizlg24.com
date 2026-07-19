@@ -1,5 +1,6 @@
 "use client";
 
+import type { IWhiteboardBackground } from "@repo/schemas";
 import { useCallback, useRef, useState } from "react";
 import type { IWhiteboardElement } from "@/lib/data-types";
 import type { HistoryEntry } from "@/lib/whiteboard-types";
@@ -11,11 +12,21 @@ export function useWhiteboardHistory(initialElements: IWhiteboardElement[]) {
     useState<IWhiteboardElement[]>(initialElements);
   const undoStack = useRef<HistoryEntry[]>([]);
   const redoStack = useRef<HistoryEntry[]>([]);
+  const backgroundApplier = useRef<
+    ((bg: IWhiteboardBackground) => void) | null
+  >(null);
 
   const [revision, setRevision] = useState(0);
 
   const canUndo = undoStack.current.length > 0;
   const canRedo = redoStack.current.length > 0;
+
+  const setBackgroundApplier = useCallback(
+    (fn: (bg: IWhiteboardBackground) => void) => {
+      backgroundApplier.current = fn;
+    },
+    [],
+  );
 
   const pushAction = useCallback((entry: HistoryEntry) => {
     undoStack.current.push(entry);
@@ -118,6 +129,8 @@ export function useWhiteboardHistory(initialElements: IWhiteboardElement[]) {
       return next;
     });
 
+    if (entry.background) backgroundApplier.current?.(entry.background.before);
+
     redoStack.current.push(entry);
     setRevision((r) => r + 1);
   }, []);
@@ -171,6 +184,8 @@ export function useWhiteboardHistory(initialElements: IWhiteboardElement[]) {
       return next;
     });
 
+    if (entry.background) backgroundApplier.current?.(entry.background.after);
+
     undoStack.current.push(entry);
     setRevision((r) => r + 1);
   }, []);
@@ -183,6 +198,7 @@ export function useWhiteboardHistory(initialElements: IWhiteboardElement[]) {
     updateElements,
     replaceAll,
     pushAction,
+    setBackgroundApplier,
     undo,
     redo,
     canUndo,

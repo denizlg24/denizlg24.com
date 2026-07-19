@@ -1,3 +1,5 @@
+export const runtime = "nodejs";
+
 import { agentMemoryGraphResponseSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { loadAgentMemoryGraph } from "@/lib/agent-memory/graph";

@@ -1,6 +1,17 @@
 "use client";
 
+import {
+  ARROW_HEAD_LENGTH_RATIO,
+  ARROW_HEAD_MAX_LENGTH,
+  DEFAULT_FONT_FAMILY,
+  HIGHLIGHTER_OPACITY,
+  normalizeWhiteboardText,
+  TEXT_LINE_HEIGHT,
+  TEXT_PADDING,
+  WHITEBOARD_FONT_FAMILIES,
+} from "@repo/whiteboard-render";
 import type { IWhiteboardElement } from "@/lib/data-types";
+import { boundsOf, centerOf } from "@/lib/whiteboard-geometry";
 import type {
   DrawingData,
   ImageData,
@@ -8,31 +19,34 @@ import type {
   TextData,
 } from "@/lib/whiteboard-types";
 
+export function penPathD(points: { x: number; y: number }[]): string {
+  const first = points[0];
+  if (!first) return "";
+  let d = `M ${first.x} ${first.y}`;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    if (!prev || !curr) continue;
+    d += ` Q ${prev.x} ${prev.y} ${(prev.x + curr.x) / 2} ${(prev.y + curr.y) / 2}`;
+  }
+  const last = points[points.length - 1];
+  if (last) d += ` L ${last.x} ${last.y}`;
+  return d;
+}
+
 function PenElement({ element }: { element: IWhiteboardElement }) {
   const d = element.data as unknown as DrawingData;
   if (!d.points || d.points.length < 2) return null;
-
-  let pathD = `M ${d.points[0].x} ${d.points[0].y}`;
-  for (let i = 1; i < d.points.length; i++) {
-    const prev = d.points[i - 1];
-    const curr = d.points[i];
-    const mx = (prev.x + curr.x) / 2;
-    const my = (prev.y + curr.y) / 2;
-    pathD += ` Q ${prev.x} ${prev.y} ${mx} ${my}`;
-  }
-
-  const last = d.points[d.points.length - 1];
-  pathD += ` L ${last.x} ${last.y}`;
-
   return (
     <g transform={`translate(${element.x}, ${element.y})`}>
       <path
-        d={pathD}
+        d={penPathD(d.points)}
         fill="none"
         stroke={d.color}
         strokeWidth={d.thickness}
         strokeLinecap="round"
         strokeLinejoin="round"
+        strokeOpacity={d.brush === "highlighter" ? HIGHLIGHTER_OPACITY : 1}
       />
     </g>
   );
@@ -42,18 +56,29 @@ function ShapeElement({ element }: { element: IWhiteboardElement }) {
   const d = element.data as unknown as ShapeData;
   const w = element.width ?? 0;
   const h = element.height ?? 0;
+  const fill = d.fill && d.fill !== "none" ? d.fill : "none";
 
-  if (d.shapeType === "arrow") {
+  if (d.shapeType === "arrow" || d.shapeType === "line") {
     const x2 = d.x2 ?? 0;
     const y2 = d.y2 ?? 0;
-
-    const angle = Math.atan2(y2, x2);
-    const headLen = Math.min(16, Math.sqrt(x2 * x2 + y2 * y2) * 0.3);
-    const a1x = x2 - headLen * Math.cos(angle - Math.PI / 6);
-    const a1y = y2 - headLen * Math.sin(angle - Math.PI / 6);
-    const a2x = x2 - headLen * Math.cos(angle + Math.PI / 6);
-    const a2y = y2 - headLen * Math.sin(angle + Math.PI / 6);
-
+    let head: React.ReactNode = null;
+    if (d.shapeType === "arrow") {
+      const angle = Math.atan2(y2, x2);
+      const headLen = Math.min(
+        ARROW_HEAD_MAX_LENGTH,
+        Math.sqrt(x2 * x2 + y2 * y2) * ARROW_HEAD_LENGTH_RATIO,
+      );
+      const a1x = x2 - headLen * Math.cos(angle - Math.PI / 6);
+      const a1y = y2 - headLen * Math.sin(angle - Math.PI / 6);
+      const a2x = x2 - headLen * Math.cos(angle + Math.PI / 6);
+      const a2y = y2 - headLen * Math.sin(angle + Math.PI / 6);
+      head = (
+        <polygon
+          points={`${x2},${y2} ${a1x},${a1y} ${a2x},${a2y}`}
+          fill={d.color}
+        />
+      );
+    }
     return (
       <g transform={`translate(${element.x}, ${element.y})`}>
         <line
@@ -65,24 +90,19 @@ function ShapeElement({ element }: { element: IWhiteboardElement }) {
           strokeWidth={d.thickness}
           strokeLinecap="round"
         />
-        <polygon
-          points={`${x2},${y2} ${a1x},${a1y} ${a2x},${a2y}`}
-          fill={d.color}
-        />
+        {head}
       </g>
     );
   }
 
   if (d.shapeType === "circle") {
-    const rx = w / 2;
-    const ry = h / 2;
     return (
       <ellipse
-        cx={element.x + rx}
-        cy={element.y + ry}
-        rx={rx}
-        ry={ry}
-        fill="none"
+        cx={element.x + w / 2}
+        cy={element.y + h / 2}
+        rx={w / 2}
+        ry={h / 2}
+        fill={fill}
         stroke={d.color}
         strokeWidth={d.thickness}
       />
@@ -95,7 +115,7 @@ function ShapeElement({ element }: { element: IWhiteboardElement }) {
       y={element.y}
       width={w}
       height={h}
-      fill="none"
+      fill={fill}
       stroke={d.color}
       strokeWidth={d.thickness}
       rx={d.shapeType === "square" ? 0 : 2}
@@ -107,33 +127,34 @@ function TextElement({ element }: { element: IWhiteboardElement }) {
   const d = element.data as unknown as TextData;
   const w = element.width ?? 100;
   const h = element.height ?? 40;
-
+  const family = WHITEBOARD_FONT_FAMILIES[d.fontFamily ?? DEFAULT_FONT_FAMILY];
   return (
     <foreignObject
       x={element.x}
       y={element.y}
       width={w}
       height={h}
-      style={{ overflow: "hidden" }}
+      style={{ overflow: "visible" }}
     >
       <div
         style={{
           width: "100%",
           height: "100%",
           color: d.color,
-          fontSize: `${d.fontSize ?? 16}px`,
-          lineHeight: 1.3,
-          fontFamily: "inherit",
+          fontSize: `${d.fontSize}px`,
+          fontWeight: d.fontWeight ?? 400,
+          fontFamily: family.css,
+          textAlign: d.align ?? "left",
+          lineHeight: TEXT_LINE_HEIGHT,
           wordWrap: "break-word",
           overflowWrap: "break-word",
-          overflow: "hidden",
           whiteSpace: "pre-wrap",
           userSelect: "none",
           pointerEvents: "none",
-          padding: "2px",
+          padding: `${TEXT_PADDING}px`,
         }}
       >
-        {d.text}
+        {normalizeWhiteboardText(d.text)}
       </div>
     </foreignObject>
   );
@@ -141,34 +162,40 @@ function TextElement({ element }: { element: IWhiteboardElement }) {
 
 function ImageElement({ element }: { element: IWhiteboardElement }) {
   const d = element.data as unknown as ImageData;
-  const w = element.width ?? 200;
-  const h = element.height ?? 200;
-
   return (
     <image
       href={d.src}
       x={element.x}
       y={element.y}
-      width={w}
-      height={h}
+      width={element.width ?? 200}
+      height={element.height ?? 200}
       preserveAspectRatio="none"
     />
   );
 }
 
 function ComponentElement({ element }: { element: IWhiteboardElement }) {
-  const w = element.width ?? 100;
-  const h = element.height ?? 60;
   return (
     <rect
       x={element.x}
       y={element.y}
-      width={w}
-      height={h}
+      width={element.width ?? 100}
+      height={element.height ?? 60}
       fill="transparent"
       stroke="none"
     />
   );
+}
+
+function inner(element: IWhiteboardElement): React.ReactNode {
+  const data = element.data as Record<string, unknown>;
+  if (element.type === "component")
+    return <ComponentElement element={element} />;
+  if (data.points) return <PenElement element={element} />;
+  if (data.shapeType) return <ShapeElement element={element} />;
+  if (data.text !== undefined) return <TextElement element={element} />;
+  if (data.src) return <ImageElement element={element} />;
+  return null;
 }
 
 export function WhiteboardElement({
@@ -176,24 +203,9 @@ export function WhiteboardElement({
 }: {
   element: IWhiteboardElement;
 }) {
-  const data = element.data as Record<string, unknown>;
-
-  if (element.type === "component") {
-    return <ComponentElement element={element} />;
-  }
-
-  if (data.points) {
-    return <PenElement element={element} />;
-  }
-  if (data.shapeType) {
-    return <ShapeElement element={element} />;
-  }
-  if (data.text !== undefined) {
-    return <TextElement element={element} />;
-  }
-  if (data.src) {
-    return <ImageElement element={element} />;
-  }
-
-  return null;
+  const body = inner(element);
+  if (!body) return null;
+  if (!element.rotation) return <>{body}</>;
+  const c = centerOf(boundsOf(element, false));
+  return <g transform={`rotate(${element.rotation} ${c.x} ${c.y})`}>{body}</g>;
 }

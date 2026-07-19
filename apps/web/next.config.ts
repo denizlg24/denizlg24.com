@@ -30,6 +30,7 @@ const nextConfig: NextConfig = {
     "pino",
     "thread-stream",
     "pino-pretty",
+    "@resvg/resvg-js",
   ],
 };
 

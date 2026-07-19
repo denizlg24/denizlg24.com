@@ -1,5 +1,6 @@
 "use client";
 
+import { normalizeWhiteboardText } from "@repo/whiteboard-render";
 import type { IWhiteboardElement } from "@/lib/data-types";
 import type { DrawingData, ShapeData, TextData } from "@/lib/whiteboard-types";
 
@@ -56,13 +57,14 @@ function getElementBounds(el: IWhiteboardElement): {
   if (data.text !== undefined) {
     const d = data as unknown as TextData;
     const fontSize = d.fontSize ?? 16;
-    const text = d.text as string;
-    const estimatedWidth = Math.max(20, text.length * fontSize * 0.6);
+    const lines = normalizeWhiteboardText(d.text as string).split("\n");
+    const longestLine = Math.max(0, ...lines.map((line) => line.length));
+    const estimatedWidth = Math.max(20, longestLine * fontSize * 0.6);
     return {
       x: el.x,
       y: el.y,
       w: el.width ?? estimatedWidth,
-      h: el.height ?? fontSize * 1.4,
+      h: el.height ?? lines.length * fontSize * 1.4,
     };
   }
 
@@ -187,17 +189,27 @@ function ShapePreview({ element }: { element: IWhiteboardElement }) {
 function TextPreview({ element }: { element: IWhiteboardElement }) {
   const d = element.data as unknown as TextData;
   const fontSize = d.fontSize ?? 16;
+  const lines = normalizeWhiteboardText(d.text).split("\n");
+  const x = element.x + 2;
 
   return (
     <text
-      x={element.x + 2}
+      x={x}
       y={element.y + fontSize}
       fill={d.color}
       fontSize={fontSize}
       fontFamily="inherit"
       style={{ userSelect: "none" }}
     >
-      {d.text}
+      {lines.map((line, index) => (
+        <tspan
+          key={`${index}-${line}`}
+          x={x}
+          dy={index === 0 ? 0 : fontSize * 1.2}
+        >
+          {line || "\u00a0"}
+        </tspan>
+      ))}
     </text>
   );
 }

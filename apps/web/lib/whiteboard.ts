@@ -1,6 +1,7 @@
 import {
   type ILeanWhiteboard,
   type ILeanWhiteboardMeta,
+  type IWhiteboardBackground,
   type IWhiteboardElement,
   Whiteboard,
 } from "@/models/Whiteboard";
@@ -60,6 +61,7 @@ export async function getTodayBoard() {
 export async function updateTodayBoard(data: {
   elements?: IWhiteboardElement[];
   viewState?: { x: number; y: number; zoom: number };
+  background?: IWhiteboardBackground;
 }): Promise<ILeanWhiteboard | null> {
   try {
     await connectDB();
@@ -80,9 +82,12 @@ export async function clearTodayBoard(manual = false): Promise<boolean> {
     await Whiteboard.findOneAndUpdate(
       { name: "Today", hasBeenCleared: false },
       {
-        elements: [],
-        viewState: { x: 0, y: 0, zoom: 1 },
-        hasBeenCleared: manual,
+        $set: {
+          elements: [],
+          viewState: { x: 0, y: 0, zoom: 1 },
+          hasBeenCleared: manual,
+        },
+        $unset: { background: 1 },
       },
     );
     return true;
@@ -135,6 +140,7 @@ export async function updateWhiteboard(
     name: string;
     elements: IWhiteboardElement[];
     viewState: { x: number; y: number; zoom: number };
+    background: IWhiteboardBackground;
     order: number;
   }>,
 ): Promise<ILeanWhiteboard | null> {

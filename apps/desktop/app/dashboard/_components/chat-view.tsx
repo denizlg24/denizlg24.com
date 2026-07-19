@@ -150,6 +150,22 @@ function groupConversationsByDate(
     .map((label) => ({ label, conversations: groups[label] }));
 }
 
+function storedToolResultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((block: any) =>
+        block?.type === "text"
+          ? block.text
+          : block?.type === "image"
+            ? "[rendered image]"
+            : JSON.stringify(block),
+      )
+      .join("\n");
+  }
+  return JSON.stringify(content);
+}
+
 function convertApiMessagesToDisplay(
   rawMessages: IConversation["messages"],
 ): IChatMessage[] {
@@ -179,10 +195,7 @@ function convertApiMessagesToDisplay(
                 (c: IChatToolCall) => c.toolId === result.tool_use_id,
               );
               if (tc) {
-                tc.result =
-                  typeof result.content === "string"
-                    ? result.content
-                    : JSON.stringify(result.content);
+                tc.result = storedToolResultText(result.content);
                 tc.isError = result.is_error ?? false;
                 tc.status = result.is_error ? "error" : "done";
               }
@@ -266,10 +279,7 @@ function convertApiMessagesToDisplay(
           if (seg.type !== "tool_group") continue;
           const tc = seg.calls.find((c) => c.toolId === result.tool_use_id);
           if (tc) {
-            tc.result =
-              typeof result.content === "string"
-                ? result.content
-                : JSON.stringify(result.content);
+            tc.result = storedToolResultText(result.content);
             tc.isError = result.is_error ?? false;
             tc.status = result.is_error ? "error" : "done";
           }

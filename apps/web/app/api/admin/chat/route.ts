@@ -21,120 +21,19 @@ import {
   LlmConfigurationError,
   LlmModelError,
 } from "@/lib/llm-errors";
+import {
+  messageContentToStored,
+  sanitizeStoredMessageContent,
+} from "@/lib/llm-message-storage";
 import { streamAgent } from "@/lib/llm-service";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { requireAdmin } from "@/lib/require-admin";
 import { getAppTimeZone } from "@/lib/timezone";
 import { getToolSchemas } from "@/lib/tools/registry";
 import { buildSystemPrompt } from "@/lib/tools/system-prompt";
-import type {
-  IConversationMessage,
-  StoredContentBlock,
-  TokenUsage,
-} from "@/models/Conversation";
+import type { IConversationMessage, TokenUsage } from "@/models/Conversation";
 
 export const maxDuration = 300;
-
-function sanitizeContentBlock(
-  block: StoredContentBlock,
-): Anthropic.ContentBlockParam | null {
-  switch (block.type) {
-    case "text":
-      if (!block.text) return null;
-      return { type: "text", text: block.text };
-    case "tool_use":
-      return {
-        type: "tool_use",
-        id: block.id ?? "",
-        name: block.name ?? "",
-        input: block.input ?? {},
-      };
-    case "server_tool_use":
-      return {
-        type: "server_tool_use",
-        id: block.id ?? "",
-        name: "web_search",
-        input: block.input ?? {},
-      };
-    case "tool_result": {
-      const result: Anthropic.ToolResultBlockParam = {
-        type: "tool_result",
-        tool_use_id: block.tool_use_id ?? "",
-      };
-      if (block.content !== undefined) {
-        result.content =
-          block.content as Anthropic.ToolResultBlockParam["content"];
-      }
-      if (block.is_error) {
-        result.is_error = true;
-      }
-      return result;
-    }
-    case "web_search_tool_result":
-      return {
-        type: "web_search_tool_result",
-        tool_use_id: block.tool_use_id ?? "",
-        content:
-          block.content as Anthropic.WebSearchToolResultBlockParam["content"],
-      };
-    default:
-      return null;
-  }
-}
-
-function sanitizeContent(
-  content: string | StoredContentBlock[],
-): string | Anthropic.ContentBlockParam[] {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return String(content);
-  const blocks = content
-    .map((block) => sanitizeContentBlock(block))
-    .filter((block): block is Anthropic.ContentBlockParam => block !== null);
-  if (blocks.length === 0) return "(empty)";
-  return blocks;
-}
-
-function messageContentToStored(
-  content: string | Anthropic.ContentBlockParam[],
-): string | StoredContentBlock[] {
-  if (typeof content === "string") return content;
-  return content.map((block): StoredContentBlock => {
-    switch (block.type) {
-      case "text":
-        return { type: "text", text: block.text };
-      case "tool_use":
-        return {
-          type: "tool_use",
-          id: block.id,
-          name: block.name,
-          input: block.input as Record<string, unknown>,
-        };
-      case "server_tool_use":
-        return {
-          type: "server_tool_use",
-          id: block.id,
-          name: block.name,
-          input: block.input as Record<string, unknown>,
-        };
-      case "tool_result":
-        return {
-          type: "tool_result",
-          tool_use_id: block.tool_use_id,
-          content:
-            typeof block.content === "string" ? block.content : undefined,
-          is_error: block.is_error ?? undefined,
-        };
-      case "web_search_tool_result":
-        return {
-          type: "web_search_tool_result",
-          tool_use_id: block.tool_use_id,
-          content: block.content,
-        };
-      default:
-        return { type: block.type };
-    }
-  });
-}
 
 function messageTextForRetrieval(message: unknown): string {
   if (typeof message === "string") return message;
@@ -233,7 +132,7 @@ export const POST = async (req: NextRequest) => {
           const index = messages.length;
           messages.push({
             role: msg.role,
-            content: sanitizeContent(msg.content),
+            content: sanitizeStoredMessageContent(msg.content),
           });
           if (msg.tokenUsage) {
             existingTokenUsage.set(index, msg.tokenUsage);

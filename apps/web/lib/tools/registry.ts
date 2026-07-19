@@ -13,7 +13,9 @@ import { projectsTools } from "./projects";
 import { resourceTools } from "./resources";
 import { timelineTools } from "./timeline";
 import { timetableTools } from "./timetable";
+import { todayBoardTools } from "./today-board";
 import type { ToolDefinition, ToolSchema } from "./types";
+import { whiteboardTools } from "./whiteboard";
 
 const allTools: ToolDefinition[] = [
   ...clientTools,
@@ -24,6 +26,8 @@ const allTools: ToolDefinition[] = [
   ...notesTools,
   ...calendarTools,
   ...timetableTools,
+  ...whiteboardTools,
+  ...todayBoardTools,
 
   // Academic
   ...coursesTools,

@@ -8,9 +8,13 @@ import {
   Circle,
   Eraser,
   Hand,
+  Highlighter,
   ImageIcon,
+  Layers,
   LineSquiggle,
+  Minus,
   MousePointer,
+  PaintBucket,
   Plus,
   RectangleHorizontal,
   Redo,
@@ -23,31 +27,32 @@ import { useRef } from "react";
 import { cn } from "@/lib/utils";
 import type { WhiteboardTool } from "@/lib/whiteboard-types";
 import { templateRegistry } from "./templates";
+import { ColorField } from "./whiteboard-color-picker";
 
-const COLORS = [
-  "#000000",
-  "#6366f1",
-  "#ec4899",
-  "#ef4444",
-  "#f97316",
-  "#eab308",
-  "#a1bc98",
-  "#14b8a6",
-  "#3b82f6",
-  "#64748b",
-] as const;
+const SHAPE_TOOLS: WhiteboardTool[] = [
+  "square",
+  "rectangle",
+  "circle",
+  "line",
+  "arrow",
+];
 
 export interface WhiteboardBottomBarProps {
   selectedTool: WhiteboardTool;
-  selectedThickness: number;
+  penThickness: number;
+  highlighterThickness: number;
   selectedColor: string;
+  recentColors: string[];
   canUndo: boolean;
   canRedo: boolean;
+  layersOpen: boolean;
   onToolChange: (tool: WhiteboardTool) => void;
-  onThicknessChange: (thickness: number) => void;
+  onPenThicknessChange: (t: number) => void;
+  onHighlighterThicknessChange: (t: number) => void;
   onColorChange: (color: string) => void;
   onUndo: () => void;
   onRedo: () => void;
+  onToggleLayers: () => void;
   onAddComponent: (
     componentType: string,
     defaultSize: { width: number; height: number },
@@ -56,70 +61,131 @@ export interface WhiteboardBottomBarProps {
   onImageUpload: (file: File) => void;
 }
 
+function ThicknessSlider({
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <PopoverContent
+      side="top"
+      align="center"
+      className="border rounded-full w-fit! px-1 py-1.5 bg-muted flex flex-col gap-1 items-center z-99!"
+    >
+      <div className="w-3.5 h-3.5 bg-primary rounded-full" />
+      <Slider
+        orientation="vertical"
+        min={min}
+        max={max}
+        value={[value]}
+        onValueChange={(e) => e[0] !== undefined && onChange(e[0])}
+        thumbClassName="bg-primary"
+        thumbSize={value > 16 ? 16 : value > 8 ? value : 8}
+      />
+      <div className="w-1 h-1 bg-primary rounded-full" />
+    </PopoverContent>
+  );
+}
+
 export function WhiteboardBottomBar({
   selectedTool,
-  selectedThickness,
+  penThickness,
+  highlighterThickness,
   selectedColor,
+  recentColors,
   canUndo,
   canRedo,
+  layersOpen,
   onToolChange,
-  onThicknessChange,
+  onPenThicknessChange,
+  onHighlighterThicknessChange,
   onColorChange,
   onUndo,
   onRedo,
+  onToggleLayers,
   onAddComponent,
   onImageUpload,
 }: WhiteboardBottomBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const shapeActive = SHAPE_TOOLS.includes(selectedTool);
+
   return (
-    <div className="absolute cursor-auto z-50 border bg-surface shadow-xs bottom-2 left-1/2 -translate-x-1/2 w-fit rounded-full py-2 px-3 flex flex-row items-center gap-2">
+    <div className="absolute cursor-auto z-40 border bg-surface shadow-xs bottom-2 left-1/2 -translate-x-1/2 w-fit max-w-[calc(100vw-1rem)] overflow-x-auto rounded-full py-2 px-3 flex flex-row items-center gap-2">
+      <Button
+        className={cn(selectedTool === "pointer" && "border-2 border-primary")}
+        onClick={() => onToolChange("pointer")}
+        size="icon-sm"
+        variant="outline"
+        title="Select — V"
+      >
+        <MousePointer />
+      </Button>
+
+      <Button
+        className={cn(selectedTool === "hand" && "border-2 border-primary")}
+        onClick={() => onToolChange("hand")}
+        size="icon-sm"
+        variant="outline"
+        title="Pan — hold Space"
+      >
+        <Hand />
+      </Button>
+
+      <div className="w-px h-5 bg-border" />
+
       <Popover>
         <PopoverTrigger onClick={() => onToolChange("pen")} asChild>
           <Button
             className={cn(selectedTool === "pen" && "border-2 border-primary")}
             size="icon-sm"
             variant="outline"
+            title="Pen — P"
           >
             <LineSquiggle />
           </Button>
         </PopoverTrigger>
-        <PopoverContent
-          side="top"
-          align="center"
-          className="border rounded-full w-fit! px-1 py-1.5 bg-muted flex flex-col gap-1 items-center z-99!"
-        >
-          <div className="w-3.5 h-3.5 bg-primary rounded-full" />
-          <Slider
-            orientation="vertical"
-            min={2}
-            max={24}
-            value={[selectedThickness]}
-            onValueChange={(e) => onThicknessChange(e[0])}
-            thumbClassName="bg-primary"
-            thumbSize={
-              selectedThickness > 16
-                ? 16
-                : selectedThickness > 8
-                  ? selectedThickness
-                  : 8
-            }
-          />
-          <div className="w-1 h-1 bg-primary rounded-full" />
-        </PopoverContent>
+        <ThicknessSlider
+          value={penThickness}
+          min={2}
+          max={24}
+          onChange={onPenThicknessChange}
+        />
+      </Popover>
+
+      <Popover>
+        <PopoverTrigger onClick={() => onToolChange("highlighter")} asChild>
+          <Button
+            className={cn(
+              selectedTool === "highlighter" && "border-2 border-primary",
+            )}
+            size="icon-sm"
+            variant="outline"
+            title="Highlighter — H"
+          >
+            <Highlighter />
+          </Button>
+        </PopoverTrigger>
+        <ThicknessSlider
+          value={highlighterThickness}
+          min={6}
+          max={40}
+          onChange={onHighlighterThicknessChange}
+        />
       </Popover>
 
       <Popover>
         <PopoverTrigger asChild>
           <Button
-            className={cn(
-              (selectedTool === "square" ||
-                selectedTool === "rectangle" ||
-                selectedTool === "circle" ||
-                selectedTool === "arrow") &&
-                "border-2 border-primary",
-            )}
+            className={cn(shapeActive && "border-2 border-primary")}
             size="icon-sm"
             variant="outline"
+            title="Shapes"
           >
             <Shapes />
           </Button>
@@ -130,36 +196,49 @@ export function WhiteboardBottomBar({
           className="border rounded-full w-fit! px-1 py-1.5 bg-muted flex flex-col gap-2 items-center z-99!"
         >
           <Button
-            className={cn(selectedTool === "square" && "border border-primary")}
-            onClick={() => onToolChange("square")}
-            variant="outline"
-            size="icon-xs"
-          >
-            <Square />
-          </Button>
-          <Button
             className={cn(
               selectedTool === "rectangle" && "border border-primary",
             )}
             onClick={() => onToolChange("rectangle")}
             variant="outline"
             size="icon-xs"
+            title="Rectangle — R"
           >
             <RectangleHorizontal />
+          </Button>
+          <Button
+            className={cn(selectedTool === "square" && "border border-primary")}
+            onClick={() => onToolChange("square")}
+            variant="outline"
+            size="icon-xs"
+            title="Square"
+          >
+            <Square />
           </Button>
           <Button
             className={cn(selectedTool === "circle" && "border border-primary")}
             onClick={() => onToolChange("circle")}
             variant="outline"
             size="icon-xs"
+            title="Ellipse — O"
           >
             <Circle />
+          </Button>
+          <Button
+            className={cn(selectedTool === "line" && "border border-primary")}
+            onClick={() => onToolChange("line")}
+            variant="outline"
+            size="icon-xs"
+            title="Line — L"
+          >
+            <Minus />
           </Button>
           <Button
             className={cn(selectedTool === "arrow" && "border border-primary")}
             onClick={() => onToolChange("arrow")}
             variant="outline"
             size="icon-xs"
+            title="Arrow — A"
           >
             <ArrowUpRight />
           </Button>
@@ -171,8 +250,29 @@ export function WhiteboardBottomBar({
         onClick={() => onToolChange("text")}
         size="icon-sm"
         variant="outline"
+        title="Text — T"
       >
         <TextCursorIcon />
+      </Button>
+
+      <Button
+        className={cn(selectedTool === "bucket" && "border-2 border-primary")}
+        onClick={() => onToolChange("bucket")}
+        size="icon-sm"
+        variant="outline"
+        title="Fill — B"
+      >
+        <PaintBucket />
+      </Button>
+
+      <Button
+        className={cn(selectedTool === "eraser" && "border-2 border-primary")}
+        onClick={() => onToolChange("eraser")}
+        size="icon-sm"
+        variant="outline"
+        title="Eraser — E"
+      >
+        <Eraser />
       </Button>
 
       <Button
@@ -195,65 +295,14 @@ export function WhiteboardBottomBar({
         }}
       />
 
-      <Button
-        className={cn(selectedTool === "eraser" && "border-2 border-primary")}
-        onClick={() => onToolChange("eraser")}
-        size="icon-sm"
-        variant="outline"
-      >
-        <Eraser />
-      </Button>
+      <div className="w-px h-5 bg-border" />
 
-      <div className="w-px h-5 bg-primary" />
-
-      <Button
-        className={cn(selectedTool === "hand" && "border-2 border-primary")}
-        onClick={() => onToolChange("hand")}
-        size="icon-sm"
-        variant="outline"
-      >
-        <Hand />
-      </Button>
-
-      <Button
-        className={cn(selectedTool === "pointer" && "border-2 border-primary")}
-        onClick={() => onToolChange("pointer")}
-        size="icon-sm"
-        variant="outline"
-      >
-        <MousePointer />
-      </Button>
-
-      <div className="w-px h-5 bg-primary" />
-
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button size="icon-sm" variant="outline">
-            <svg
-              style={{ backgroundColor: selectedColor }}
-              className="w-full h-full rounded-full"
-            />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          side="top"
-          align="center"
-          className="border rounded-full w-fit! px-1 py-1.5 bg-muted flex flex-col gap-2 items-center z-99!"
-        >
-          {COLORS.map((color) => (
-            <button
-              key={color}
-              type="button"
-              onClick={() => onColorChange(color)}
-              className={cn(
-                selectedColor === color && "border-primary!",
-                "w-4 h-4 rounded-full hover:shadow-xs border border-transparent hover:border-primary transition-all",
-              )}
-              style={{ backgroundColor: color }}
-            />
-          ))}
-        </PopoverContent>
-      </Popover>
+      <ColorField
+        value={selectedColor}
+        onChange={onColorChange}
+        recents={recentColors}
+        title="Color"
+      />
 
       <Button
         size="icon-sm"
@@ -263,7 +312,6 @@ export function WhiteboardBottomBar({
       >
         <Undo />
       </Button>
-
       <Button
         size="icon-sm"
         variant="outline"
@@ -275,7 +323,7 @@ export function WhiteboardBottomBar({
 
       <Popover>
         <PopoverTrigger asChild>
-          <Button size="icon-sm" variant="outline">
+          <Button size="icon-sm" variant="outline" title="Add component">
             <Plus />
           </Button>
         </PopoverTrigger>
@@ -302,6 +350,16 @@ export function WhiteboardBottomBar({
           })}
         </PopoverContent>
       </Popover>
+
+      <Button
+        className={cn(layersOpen && "border-2 border-primary")}
+        size="icon-sm"
+        variant="outline"
+        onClick={onToggleLayers}
+        title="Elements"
+      >
+        <Layers />
+      </Button>
     </div>
   );
 }
