@@ -1,3 +1,4 @@
+import { classifyNoteWithSemanticLlm } from "@/lib/semantic-llm";
 import type { ToolDefinition } from "./types";
 
 export const clientTools: ToolDefinition[] = [
@@ -20,5 +21,10 @@ export const clientTools: ToolDefinition[] = [
     isWrite: false,
     category: "notes",
     runtime: "client",
+    execute: async (input) => {
+      const noteId = typeof input.noteId === "string" ? input.noteId : "";
+      if (!noteId) throw new Error("noteId is required");
+      return classifyNoteWithSemanticLlm(noteId);
+    },
   },
 ];

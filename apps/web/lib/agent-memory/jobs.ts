@@ -21,6 +21,7 @@ export function operationIsEnabled(
   if (operation === "insight") return gates.proactivity;
   if (operation === "backfill") return gates.evidenceLedger;
   if (operation === "resource-suggestion") return gates.formation;
+  if (operation === "training") return true;
   return gates.evidenceLedger;
 }
 

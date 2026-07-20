@@ -27,6 +27,7 @@ const KNOWN_ROUTES = new Set([
   "/",
   "/dashboard",
   "/dashboard/agent-memory",
+  "/dashboard/agent-training",
   "/dashboard/blog",
   "/dashboard/blog/new",
   "/dashboard/blog/comments",

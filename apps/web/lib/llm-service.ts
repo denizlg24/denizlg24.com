@@ -34,7 +34,9 @@ export type LlmPurpose =
   | "agent-memory-resource-suggestion"
   | "agent-memory-embedding"
   | "agent-memory-retrieval"
-  | "agent-memory-query-summary";
+  | "agent-memory-query-summary"
+  | "agent-training"
+  | "agent-training-learning";
 
 // Catalog capabilities each purpose requires before a request is sent.
 // Per-request needs (tools/web search in chat) are added on top of these.
@@ -55,6 +57,8 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   "agent-memory-embedding": [],
   "agent-memory-retrieval": [],
   "agent-memory-query-summary": [],
+  "agent-training": ["tool-use"],
+  "agent-training-learning": ["tool-use"],
 };
 
 // Compatibility only: resolves model ids stored before the Gateway migration
@@ -729,6 +733,8 @@ export interface AgentStreamRequest extends LlmRequestContext {
   tools?: Anthropic.ToolUnion[];
   toolApprovals?: Record<string, boolean>;
   clientToolResults?: ClientToolResultInput[];
+  /** YOLO is reserved for explicitly pre-authorized unattended training runs. */
+  executionMode?: "interactive" | "yolo";
   onPersist?: (
     messages: Anthropic.MessageParam[],
     tokenUsage?: TokenUsage,
@@ -753,6 +759,7 @@ export async function streamAgent({
   tools,
   toolApprovals,
   clientToolResults,
+  executionMode = "interactive",
   onPersist,
   requireTools = false,
   requireWebSearch = false,
@@ -779,6 +786,7 @@ export async function streamAgent({
     source,
     toolApprovals,
     clientToolResults,
+    executionMode,
     onPersist,
     transport: {
       streamMessages: (params) => client.messages.stream(params),

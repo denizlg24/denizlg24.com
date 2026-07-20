@@ -15,7 +15,7 @@
 
 Protected assets include evidence snapshots, sensitive memories, the user
 model, feedback, retrieval queries/traces, Gateway credentials, job tokens and
-write approvals. Trust boundaries exist at every source adapter, the admin API,
+write approvals, and owner-authored YOLO training-task authorization. Trust boundaries exist at every source adapter, the admin API,
 the job route, model input/output, storage, retrieval context, export and the
 existing tool execution layer.
 
@@ -39,7 +39,9 @@ application fetched them successfully.
 | Retrieve | Vector similarity alone promotes poison | Structured/lexical/vector union, trust/conflict penalties and abstention | Sleeper and conflict fixtures |
 | Retrieve | Sensitive but irrelevant fact is disclosed | Purpose/sensitivity filter, least-context budgets, disclosure policy | Cross-topic sensitive fixture |
 | Apply | Memory closes delimiters or injects tool instructions | XML escaping, provenance labels and system data-not-authority clause | Delimiter fixture and prompt snapshot |
-| Apply | Memory bypasses a write/client approval | Existing registry and approval state remain the sole authority | Existing chat approval characterization tests |
+| Apply | Memory bypasses a write/client approval | Interactive chat remains approval-gated; only an authenticated persisted YOLO training task can select unattended execution | Interactive and YOLO characterization tests |
+| Train | Unattended retry duplicates an external/destructive write | Training failures complete without automatic full-run retry; manual rerun is explicit | Partial-failure run test |
+| Train | Tool audit stores a credential returned by a tool | Denied-content scan and bounded redaction for tool inputs/results and final output | Secret-like audit fixtures |
 | Apply | Agent follows a stale procedure | Validity/lifecycle filters, contradiction warnings and rollback | Retired procedure test |
 | Export | Unauthenticated/IDOR export leaks the user model | `requireAdmin`, singleton-owner scope, schema validation and audit | Route authorization tests |
 | Export | Deleted content remains in bundle | Immediate exclusion plus cascade/redaction before export | Post-delete export test |
@@ -51,9 +53,12 @@ application fetched them successfully.
 ## Information versus authority
 
 The only sources of execution authority remain code-defined tool registration,
-server authentication, the write-tool classification and explicit approval or
-client execution messages already used by the dashboard chat. Memory records
-have no permission, authorization, approval or safety-policy fields.
+server authentication, the write-tool classification, explicit interactive
+approval/client execution messages, and an authenticated owner-created
+training task whose persisted autonomy is exactly `yolo`. Memory records have
+no permission, authorization, approval or safety-policy fields. Training
+attachments and retrieved procedures cannot enable YOLO mode or expand its
+registered tool set.
 
 Candidate text matching permission-like requests is rejected or quarantined.
 Procedure scope can describe when a behavior is useful, but cannot declare a

@@ -13,6 +13,7 @@ const readExecuteMock = mock(async (input: Record<string, unknown>) => ({
 const writeExecuteMock = mock(async () => ({ written: true }));
 
 mock.module("@/lib/tools/registry", () => ({
+  getToolSchemas: () => [],
   getToolByName: (name: string) => {
     if (name === "read_tool") return { name, execute: readExecuteMock };
     if (name === "write_tool") return { name, execute: writeExecuteMock };
@@ -247,6 +248,32 @@ describe("createAgenticSSEStream", () => {
         content: JSON.stringify({ ok: true, echoed: { q: "x" } }),
       },
     ]);
+  });
+
+  test("executes write tools without pausing in yolo mode", async () => {
+    const transport = scriptedTransport([
+      { toolUses: [{ id: "tu_yolo", name: "write_tool", input: { id: "1" } }] },
+      { text: "Write complete" },
+    ]);
+    const persisted: Anthropic.MessageParam[][] = [];
+
+    const events = await collectEvents(
+      createAgenticSSEStream({
+        ...baseParams,
+        executionMode: "yolo",
+        transport,
+        logUsage: async () => {},
+        messages: [{ role: "user", content: "Do it" }],
+        onPersist: async (messages) => {
+          persisted.push(structuredClone(messages));
+        },
+      }),
+    );
+
+    expect(writeExecuteMock).toHaveBeenCalledTimes(1);
+    expect(events.some((event) => event.type === "paused")).toBe(false);
+    expect(events.at(-1)?.type).toBe("done");
+    expect(persisted[0]?.at(-1)?.role).toBe("user");
   });
 
   test("runs two parallel read tools into one ordered user turn", async () => {

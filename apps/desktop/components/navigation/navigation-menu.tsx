@@ -272,6 +272,11 @@ export const GROUPS: NavGroup[] = [
         icon: BrainCircuit,
       },
       {
+        label: "Agent Training",
+        href: "/agent-training",
+        icon: Brain,
+      },
+      {
         label: "Token Usage",
         href: "/llm-usage",
         icon: DollarSign,

@@ -270,6 +270,7 @@ interface AgenticStreamParams {
   source: string;
   toolApprovals?: Record<string, boolean>;
   clientToolResults?: ClientToolResultInput[];
+  executionMode?: "interactive" | "yolo";
   onPersist?: (
     messages: Anthropic.MessageParam[],
     tokenUsage?: TokenUsage,
@@ -304,6 +305,7 @@ export function createAgenticSSEStream({
   source,
   toolApprovals,
   clientToolResults,
+  executionMode = "interactive",
   onPersist,
   transport,
   maxTokens: maxTokensOverride,
@@ -744,7 +746,10 @@ export function createAgenticSSEStream({
           // path so reads, writes, and client results land in a single
           // user turn — Anthropic requires one tool_result per tool_use,
           // all in the same turn.
-          if (writeTools.length > 0 || clientTools.length > 0) {
+          if (
+            executionMode === "interactive" &&
+            (writeTools.length > 0 || clientTools.length > 0)
+          ) {
             for (const toolUse of toolUseBlocks) {
               send({
                 type: "tool_call",
@@ -780,7 +785,7 @@ export function createAgenticSSEStream({
             return;
           }
 
-          // Pure read path — execute all and continue the loop.
+          // Interactive reads and all YOLO-mode calls execute immediately.
           const toolResults: Anthropic.ToolResultBlockParam[] = [];
           for (const toolUse of toolUseBlocks) {
             send({
@@ -800,6 +805,9 @@ export function createAgenticSSEStream({
             toolResults.push(toolResult);
           }
           workingMessages.push({ role: "user", content: toolResults });
+          if (executionMode === "yolo") {
+            await safePersist(workingMessages);
+          }
         }
 
         // ===== Loop exited =====

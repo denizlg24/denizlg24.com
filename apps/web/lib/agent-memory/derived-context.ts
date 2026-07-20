@@ -64,7 +64,9 @@ export async function buildDerivedUserContext(options: {
       .lean(),
     AgentProcedure.find({ lifecycle: "active" })
       .sort({ confidence: -1, updatedAt: -1 })
-      .limit(25)
+      // Rank after loading the bounded active set so an older specialized
+      // procedure can still win for a matching request.
+      .limit(200)
       .lean(),
   ]);
   const queryTerms = terms(options.query);
