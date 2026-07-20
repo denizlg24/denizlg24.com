@@ -10,18 +10,21 @@ export async function PATCH(
 ) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  const parsed = updateAgentTrainingTaskSchema.safeParse(await request.json());
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid training task" },
-      { status: 400 },
-    );
-  }
   try {
+    const parsed = updateAgentTrainingTaskSchema.safeParse(
+      await request.json(),
+    );
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid training task", details: parsed.error.issues },
+        { status: 400 },
+      );
+    }
     const { taskId } = await params;
     const task = await updateTrainingTask(taskId, parsed.data);
     return NextResponse.json({ task: serializeTrainingTask(task) });
   } catch (error) {
+    console.error("[Agent Training] Task update failed", error);
     const message =
       error instanceof Error ? error.message : "Task update failed";
     return NextResponse.json(

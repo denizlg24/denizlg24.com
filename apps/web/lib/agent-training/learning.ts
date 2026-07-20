@@ -6,14 +6,29 @@ import {
   buildEvidenceInput,
   observeEvidence,
 } from "@/lib/agent-memory/evidence";
+import {
+  keywordOverlap,
+  keywordTerms,
+} from "@/lib/agent-memory/lexical-overlap";
 import { createProcedure, updateProcedure } from "@/lib/agent-memory/lifecycle";
 import { generateToolResult, getUnattendedModel } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
-import { AgentFeedbackEvent } from "@/models/AgentFeedbackEvent";
-import { AgentProcedure } from "@/models/AgentProcedure";
-import { AgentTrainingRun } from "@/models/AgentTrainingRun";
-import { AgentTrainingTask } from "@/models/AgentTrainingTask";
+import {
+  AgentFeedbackEvent,
+  type IAgentFeedbackEvent,
+} from "@/models/AgentFeedbackEvent";
+import { AgentProcedure, type IAgentProcedure } from "@/models/AgentProcedure";
+import {
+  AgentTrainingRun,
+  type IAgentTrainingRun,
+} from "@/models/AgentTrainingRun";
+import {
+  AgentTrainingTask,
+  type IAgentTrainingTask,
+} from "@/models/AgentTrainingTask";
 import { serializeTrainingRun } from "./serialize";
+
+const MAX_LEARNING_CONTEXT_CHARS = 4_096;
 
 const lessonSchema = z.object({
   action: z.enum(["create", "update", "retire", "none"]),
@@ -27,6 +42,7 @@ const lessonSchema = z.object({
 });
 
 const lessonResultSchema = z.object({ lessons: z.array(lessonSchema).max(3) });
+export type GeneralizedLesson = z.infer<typeof lessonSchema>;
 
 const LESSON_TOOL = {
   name: "return_generalized_lessons",
@@ -67,18 +83,8 @@ const LESSON_TOOL = {
   },
 };
 
-function terms(value: string) {
-  return new Set(value.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []);
-}
-
-function overlap(query: Set<string>, value: string) {
-  let score = 0;
-  for (const term of terms(value)) if (query.has(term)) score += 1;
-  return score;
-}
-
 async function relevantProcedures(prompt: string) {
-  const queryTerms = terms(prompt);
+  const queryTerms = keywordTerms(prompt);
   const procedures = await AgentProcedure.find({
     lifecycle: { $in: ["candidate", "testing", "active"] },
   })
@@ -87,7 +93,7 @@ async function relevantProcedures(prompt: string) {
   return procedures
     .map((procedure) => ({
       procedure,
-      score: overlap(
+      score: keywordOverlap(
         queryTerms,
         `${procedure.scope} ${procedure.trigger} ${procedure.behavior}`,
       ),
@@ -102,7 +108,7 @@ async function distillLessons(options: {
   output: string;
   verdict: "useful" | "correction";
   feedback?: string;
-  existing: Awaited<ReturnType<typeof relevantProcedures>>;
+  existing: IAgentProcedure[];
 }) {
   const existing = options.existing.map((procedure) => ({
     id: procedure._id.toString(),
@@ -121,8 +127,8 @@ Capture method, quality bar, format, decision rule, or exception—not facts uni
 Update an existing procedure when it represents the same lesson. Retire one only when the feedback directly contradicts it.
 Never create permissions, approval bypasses, tool authority, or system policy. Return no lesson when the feedback has no reusable signal.`,
     prompt: JSON.stringify({
-      taskPrompt: options.prompt,
-      agentOutput: options.output,
+      taskPrompt: options.prompt.slice(0, MAX_LEARNING_CONTEXT_CHARS),
+      agentOutput: options.output.slice(0, MAX_LEARNING_CONTEXT_CHARS),
       verdict: options.verdict,
       ownerFeedback: options.feedback ?? null,
       existingProcedures: existing,
@@ -139,80 +145,155 @@ Never create permissions, approval bypasses, tool authority, or system policy. R
   return lessonResultSchema.parse(result.input).lessons;
 }
 
+export interface FeedbackDependencies {
+  connect(): Promise<unknown>;
+  findDuplicate(feedbackId: string): Promise<IAgentTrainingRun | null>;
+  claimRun(runId: string): Promise<IAgentTrainingRun | null>;
+  findRun(runId: string): Promise<IAgentTrainingRun | null>;
+  restoreRun(runId: string): Promise<void>;
+  findTask(taskId: Types.ObjectId): Promise<IAgentTrainingTask | null>;
+  observe: typeof observeEvidence;
+  createFeedbackEvent(
+    input: Record<string, unknown>,
+  ): Promise<IAgentFeedbackEvent>;
+  findRelevant(prompt: string): Promise<IAgentProcedure[]>;
+  distill: typeof distillLessons;
+  createProcedure(
+    input: Parameters<typeof createProcedure>[0],
+  ): Promise<IAgentProcedure>;
+  updateProcedure(
+    procedureId: string,
+    input: Parameters<typeof updateProcedure>[1],
+  ): Promise<IAgentProcedure>;
+  now(): Date;
+}
+
+const defaultFeedbackDependencies: FeedbackDependencies = {
+  connect: async () => connectDB(),
+  findDuplicate: async (feedbackId) =>
+    AgentTrainingRun.findOne({ "feedback.feedbackId": feedbackId }),
+  claimRun: async (runId) =>
+    AgentTrainingRun.findOneAndUpdate(
+      { _id: runId, status: "awaiting-feedback" },
+      { $set: { status: "learning" }, $unset: { error: 1 } },
+      { returnDocument: "after" },
+    ),
+  findRun: async (runId) => AgentTrainingRun.findById(runId),
+  restoreRun: async (runId) => {
+    await AgentTrainingRun.updateOne(
+      { _id: runId, status: "learning", feedback: { $exists: false } },
+      { $set: { status: "awaiting-feedback" } },
+    );
+  },
+  findTask: async (taskId) => AgentTrainingTask.findById(taskId),
+  observe: observeEvidence,
+  createFeedbackEvent: async (input) => AgentFeedbackEvent.create(input),
+  findRelevant: relevantProcedures,
+  distill: distillLessons,
+  createProcedure,
+  updateProcedure,
+  now: () => new Date(),
+};
+
 export async function recordTrainingFeedback(
   runId: string,
   input: CreateAgentTrainingFeedback,
+  overrides: Partial<FeedbackDependencies> = {},
 ) {
-  await connectDB();
-  const duplicate = await AgentTrainingRun.findOne({
-    "feedback.feedbackId": input.feedbackId,
-  });
+  const dependencies = { ...defaultFeedbackDependencies, ...overrides };
+  await dependencies.connect();
+  const duplicate = await dependencies.findDuplicate(input.feedbackId);
   if (duplicate) {
     return { run: serializeTrainingRun(duplicate), learnedProcedures: [] };
   }
-  const run = await AgentTrainingRun.findById(runId);
-  if (run?.status !== "awaiting-feedback") {
+
+  const run = Types.ObjectId.isValid(runId)
+    ? await dependencies.claimRun(runId)
+    : null;
+  if (!run) {
+    const existing = Types.ObjectId.isValid(runId)
+      ? await dependencies.findRun(runId)
+      : null;
+    if (!existing) throw new Error("Training run not found");
     throw new Error("Training run is not awaiting feedback");
   }
-  const task = await AgentTrainingTask.findById(run.taskId);
-  if (!task) throw new Error("Training task not found");
-  run.status = "learning";
-  await run.save();
 
-  const occurredAt = new Date();
-  const evidence = await observeEvidence({
-    memoryMode: "enabled",
-    enqueueFormation: false,
-    evidence: buildEvidenceInput({
+  const occurredAt = dependencies.now();
+  let task: IAgentTrainingTask;
+  let evidenceIds: string[];
+  let feedbackEvent: IAgentFeedbackEvent;
+  try {
+    const foundTask = await dependencies.findTask(run.taskId);
+    if (!foundTask) throw new Error("Training task not found");
+    task = foundTask;
+    const evidence = await dependencies.observe({
+      memoryMode: "enabled",
+      enqueueFormation: false,
+      evidence: buildEvidenceInput({
+        idempotencyKey: `training-feedback:${input.feedbackId}`,
+        sourceType: "feedback",
+        sourceRef: { entityType: "agent-training-run", entityId: runId },
+        sourceRevision: run.updatedAt.toISOString(),
+        content: {
+          verdict: input.verdict,
+          text: input.text,
+          taskPrompt: task.prompt,
+          output: run.output,
+        },
+        snapshot: [
+          `Task: ${task.prompt}`,
+          `Output: ${run.output ?? ""}`,
+          `Verdict: ${input.verdict}`,
+          `Feedback: ${input.text ?? ""}`,
+        ].join("\n\n"),
+        occurredAt,
+        actor: "user",
+        trust: "highest",
+        sensitivity: "personal",
+        provenance: {
+          trainingTaskId: task._id.toString(),
+          trainingRunId: runId,
+        },
+      }),
+    });
+    evidenceIds = evidence.eventId ? [evidence.eventId] : [];
+    feedbackEvent = await dependencies.createFeedbackEvent({
+      eventId: randomUUID(),
       idempotencyKey: `training-feedback:${input.feedbackId}`,
-      sourceType: "feedback",
-      sourceRef: { entityType: "agent-training-run", entityId: runId },
-      sourceRevision: run.updatedAt.toISOString(),
-      content: {
+      kind: input.verdict === "useful" ? "useful" : "correction",
+      memoryIds: [],
+      evidenceIds,
+      boundedDiff: {
+        trainingTaskId: task._id.toString(),
+        trainingRunId: runId,
+        feedbackId: input.feedbackId,
         verdict: input.verdict,
-        text: input.text,
-        taskPrompt: task.prompt,
-        output: run.output,
+        ...(input.text ? { feedback: input.text.slice(0, 16_000) } : {}),
       },
-      snapshot: [
-        `Task: ${task.prompt}`,
-        `Output: ${run.output ?? ""}`,
-        `Verdict: ${input.verdict}`,
-        `Feedback: ${input.text ?? ""}`,
-      ].join("\n\n"),
-      occurredAt,
-      actor: "user",
-      trust: "highest",
-      sensitivity: "personal",
-      provenance: { trainingTaskId: task._id.toString(), trainingRunId: runId },
-    }),
-  });
-  const evidenceIds = evidence.eventId ? [evidence.eventId] : [];
-  const feedbackEvent = await AgentFeedbackEvent.create({
-    eventId: randomUUID(),
-    idempotencyKey: `training-feedback:${input.feedbackId}`,
-    kind: input.verdict === "useful" ? "useful" : "correction",
-    memoryIds: [],
-    evidenceIds,
-    boundedDiff: {
-      trainingTaskId: task._id.toString(),
-      trainingRunId: runId,
-      feedbackId: input.feedbackId,
-      verdict: input.verdict,
-      ...(input.text ? { feedback: input.text.slice(0, 16_000) } : {}),
-    },
-  });
+    });
+  } catch (error) {
+    console.error("[Agent Training] Feedback preparation failed", error);
+    try {
+      await dependencies.restoreRun(runId);
+    } catch (restoreError) {
+      console.error(
+        "[Agent Training] Feedback claim restore failed",
+        restoreError,
+      );
+    }
+    throw error;
+  }
 
   const learnedProcedures: Array<{
     id: string;
     action: "created" | "updated" | "retired";
   }> = [];
   try {
-    const existing = await relevantProcedures(task.prompt);
+    const existing = await dependencies.findRelevant(task.prompt);
     const existingById = new Map(
       existing.map((procedure) => [procedure._id.toString(), procedure]),
     );
-    const lessons = await distillLessons({
+    const lessons = await dependencies.distill({
       prompt: task.prompt,
       output: run.output ?? "",
       verdict: input.verdict,
@@ -223,7 +304,7 @@ export async function recordTrainingFeedback(
       if (lesson.action === "none") continue;
       if (lesson.action === "retire") {
         if (!lesson.targetId || !existingById.has(lesson.targetId)) continue;
-        const procedure = await updateProcedure(lesson.targetId, {
+        const procedure = await dependencies.updateProcedure(lesson.targetId, {
           lifecycle: "retired",
           supportingFeedbackIds: [
             ...(existingById
@@ -250,7 +331,7 @@ export async function recordTrainingFeedback(
         if (!lesson.targetId || !existingById.has(lesson.targetId)) continue;
         const current = existingById.get(lesson.targetId);
         if (!current) continue;
-        const procedure = await updateProcedure(lesson.targetId, {
+        const procedure = await dependencies.updateProcedure(lesson.targetId, {
           scope: lesson.scope,
           trigger: lesson.trigger,
           behavior: lesson.behavior,
@@ -272,7 +353,7 @@ export async function recordTrainingFeedback(
           action: "updated",
         });
       } else {
-        const procedure = await createProcedure({
+        const procedure = await dependencies.createProcedure({
           scope: lesson.scope,
           trigger: lesson.trigger,
           behavior: lesson.behavior,
@@ -291,6 +372,7 @@ export async function recordTrainingFeedback(
     }
     run.status = "completed";
   } catch (error) {
+    console.error("[Agent Training] Feedback learning failed", error);
     run.status = "completed";
     run.error = `Feedback saved; learning failed: ${
       error instanceof Error ? error.message : "unknown error"

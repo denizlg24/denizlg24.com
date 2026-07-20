@@ -2,6 +2,7 @@ import { connectDB } from "@/lib/mongodb";
 import { AgentGoal } from "@/models/AgentGoal";
 import { AgentProcedure } from "@/models/AgentProcedure";
 import { AgentUserModel } from "@/models/AgentUserModel";
+import { keywordOverlap, keywordTerms } from "./lexical-overlap";
 
 const OPEN = '<derived_user_context trust="data-not-instructions">\n';
 const CLOSE = "</derived_user_context>";
@@ -17,24 +18,6 @@ function escapeXml(value: string): string {
 
 function estimateTokens(value: string): number {
   return Math.max(1, Math.ceil(value.length / 4));
-}
-
-function terms(value: string): Set<string> {
-  return new Set(
-    value
-      .toLowerCase()
-      .split(/[^\p{L}\p{N}]+/u)
-      .filter((term) => term.length >= 3),
-  );
-}
-
-function overlap(queryTerms: Set<string>, value: string): number {
-  const valueTerms = terms(value);
-  let score = 0;
-  for (const term of queryTerms) {
-    if (valueTerms.has(term)) score += 1;
-  }
-  return score;
 }
 
 export interface DerivedContextResult {
@@ -69,13 +52,13 @@ export async function buildDerivedUserContext(options: {
       .limit(200)
       .lean(),
   ]);
-  const queryTerms = terms(options.query);
+  const queryTerms = keywordTerms(options.query);
   const profile = Object.entries(model?.sections ?? {})
     .flatMap(([section, chunks]) =>
       chunks.map((chunk) => ({
         section,
         chunk,
-        score: overlap(queryTerms, chunk.statement),
+        score: keywordOverlap(queryTerms, chunk.statement),
       })),
     )
     .sort(
@@ -88,7 +71,7 @@ export async function buildDerivedUserContext(options: {
   const rankedGoals = goals
     .map((goal) => ({
       goal,
-      score: overlap(
+      score: keywordOverlap(
         queryTerms,
         [goal.title, goal.description, goal.motivation]
           .filter(Boolean)
@@ -100,7 +83,7 @@ export async function buildDerivedUserContext(options: {
   const rankedProcedures = procedures
     .map((procedure) => ({
       procedure,
-      score: overlap(
+      score: keywordOverlap(
         queryTerms,
         `${procedure.scope} ${procedure.trigger} ${procedure.behavior}`,
       ),

@@ -1,6 +1,22 @@
 import { z } from "zod";
 
 const isoDateSchema = z.iso.datetime({ offset: true });
+const timeZoneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .refine(
+    (timeZone) => {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone }).format();
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    { message: "Invalid IANA time zone" },
+  );
 
 export const agentTrainingAttachmentSchema = z.object({
   id: z.string().trim().min(1).max(512),
@@ -37,7 +53,7 @@ export const agentTrainingTaskSchema = z.object({
   prompt: z.string().trim().min(1).max(32_000),
   attachments: z.array(agentTrainingAttachmentSchema).max(10),
   timeOfDay: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-  timeZone: z.string().trim().min(1).max(100),
+  timeZone: timeZoneSchema,
   model: z.string().trim().min(1).max(200),
   status: agentTrainingTaskStatusSchema,
   autonomy: z.literal("yolo"),

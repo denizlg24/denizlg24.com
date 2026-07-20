@@ -17,6 +17,7 @@ export async function POST(
       { status: 202 },
     );
   } catch (error) {
+    console.error("[Agent Training] Run enqueue failed", error);
     const message =
       error instanceof Error ? error.message : "Run enqueue failed";
     return NextResponse.json(

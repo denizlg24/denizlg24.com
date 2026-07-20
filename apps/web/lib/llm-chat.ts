@@ -130,6 +130,22 @@ async function runTool(
   }
 }
 
+function unsupportedClientToolResult(
+  toolUse: Anthropic.ToolUseBlock,
+): ToolRunResult {
+  const content = `Error: Client tool "${toolUse.name}" is unavailable during unattended execution.`;
+  return {
+    content,
+    isError: true,
+    toolResult: {
+      type: "tool_result",
+      tool_use_id: toolUse.id,
+      content,
+      is_error: true,
+    },
+  };
+}
+
 function deniedResult(
   toolUse: Anthropic.ToolUseBlock,
 ): Anthropic.ToolResultBlockParam {
@@ -794,7 +810,10 @@ export function createAgenticSSEStream({
               toolId: toolUse.id,
               input: toolUse.input as Record<string, unknown>,
             });
-            const { content, isError, toolResult } = await runTool(toolUse);
+            const { content, isError, toolResult } =
+              executionMode === "yolo" && isClientTool(toolUse.name)
+                ? unsupportedClientToolResult(toolUse)
+                : await runTool(toolUse);
             send({
               type: "tool_result",
               toolId: toolUse.id,

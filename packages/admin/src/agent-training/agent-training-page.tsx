@@ -223,8 +223,7 @@ export function AgentTrainingPage() {
     }
     setUploading(true);
     try {
-      const uploaded: AgentTrainingAttachment[] = [];
-      for (const file of files) {
+      const validated = files.map((file) => {
         const mimeType =
           file.type === "application/pdf" ||
           file.name.toLowerCase().endsWith(".pdf")
@@ -243,6 +242,13 @@ export function AgentTrainingPage() {
         if (file.size > MAX_ATTACHMENT_BYTES) {
           throw new Error(`${file.name}: exceeds 10 MB`);
         }
+        return {
+          file,
+          mimeType: mimeType as AgentTrainingAttachment["mimeType"],
+        };
+      });
+      const uploaded: AgentTrainingAttachment[] = [];
+      for (const { file, mimeType } of validated) {
         const body = new FormData();
         body.append("file", file);
         const result = await client.upload<{
@@ -256,7 +262,7 @@ export function AgentTrainingPage() {
           url: result.url,
           name: file.name,
           size: result.size,
-          mimeType: mimeType as AgentTrainingAttachment["mimeType"],
+          mimeType,
         });
       }
       setForm((current) => ({

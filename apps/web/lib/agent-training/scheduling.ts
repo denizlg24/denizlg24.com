@@ -106,16 +106,23 @@ export async function scheduleDueTrainingRuns(now = new Date()) {
   }).limit(50);
   let scheduled = 0;
   for (const task of tasks) {
-    const scheduledFor = task.nextRunAt ?? now;
-    await enqueueRun({ task, trigger: "scheduled", scheduledFor });
-    task.lastRunAt = scheduledFor;
-    task.nextRunAt = nextDailyOccurrence({
-      timeOfDay: task.timeOfDay,
-      timeZone: task.timeZone,
-      after: scheduledFor,
-    });
-    await task.save();
-    scheduled += 1;
+    try {
+      const scheduledFor = task.nextRunAt ?? now;
+      await enqueueRun({ task, trigger: "scheduled", scheduledFor });
+      task.lastRunAt = scheduledFor;
+      task.nextRunAt = nextDailyOccurrence({
+        timeOfDay: task.timeOfDay,
+        timeZone: task.timeZone,
+        after: now,
+      });
+      await task.save();
+      scheduled += 1;
+    } catch (error) {
+      console.error("[Agent Training] Failed to schedule task", {
+        taskId: task._id.toString(),
+        error,
+      });
+    }
   }
   return { scheduled };
 }

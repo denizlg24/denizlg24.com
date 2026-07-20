@@ -4,13 +4,18 @@ import {
   buildDerivedUserContext,
   combineAgentContexts,
 } from "@/lib/agent-memory/derived-context";
+import { AGENT_MEMORY_JOB_LEASE_MS } from "@/lib/agent-memory/jobs";
 import { buildRetrievalQuery } from "@/lib/agent-memory/query-context";
 import { retrieveMemoriesForChat } from "@/lib/agent-memory/retrieval";
 import { findDeniedContent } from "@/lib/agent-memory/security";
 import { streamAgent } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { getAppTimeZone } from "@/lib/timezone";
-import { getToolSchemas, isWriteTool } from "@/lib/tools/registry";
+import {
+  getToolSchemas,
+  isClientTool,
+  isWriteTool,
+} from "@/lib/tools/registry";
 import { buildSystemPrompt } from "@/lib/tools/system-prompt";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import {
@@ -147,12 +152,30 @@ export async function processTrainingJob(job: IAgentMemoryJob) {
     AgentTrainingTask.findById(taskId),
   ]);
   if (!run || !task) return { failed: true, reason: "training-record-missing" };
-  if (["awaiting-feedback", "learning", "completed"].includes(run.status)) {
+  if (
+    ["awaiting-feedback", "learning", "completed", "failed"].includes(
+      run.status,
+    )
+  ) {
     return { skipped: true, runId: run._id.toString() };
   }
 
+  const now = new Date();
+  if (run.status === "running") {
+    const staleBefore = now.getTime() - AGENT_MEMORY_JOB_LEASE_MS;
+    if (run.startedAt && run.startedAt.getTime() > staleBefore) {
+      return { skipped: true, runId: run._id.toString() };
+    }
+    run.status = "failed";
+    run.error =
+      "Unattended run was interrupted after execution began; review partial side effects before running it again.";
+    run.completedAt = now;
+    await run.save();
+    return { failed: true, runId: run._id.toString(), error: run.error };
+  }
+
   run.status = "running";
-  run.startedAt = new Date();
+  run.startedAt = now;
   run.error = undefined;
   await run.save();
 
@@ -183,11 +206,13 @@ export async function processTrainingJob(job: IAgentMemoryJob) {
       ),
       { executionMode: "yolo" },
     );
-    const tools = getToolSchemas().map((schema) => ({
-      name: schema.name,
-      description: schema.description,
-      input_schema: schema.input_schema,
-    }));
+    const tools = getToolSchemas()
+      .filter((schema) => !isClientTool(schema.name))
+      .map((schema) => ({
+        name: schema.name,
+        description: schema.description,
+        input_schema: schema.input_schema,
+      }));
     const stream = await streamAgent({
       purpose: "agent-training",
       source: `agent-training:${task._id.toString()}:${run._id.toString()}`,

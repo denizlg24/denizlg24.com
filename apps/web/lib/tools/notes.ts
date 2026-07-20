@@ -283,7 +283,7 @@ export const notesTools: ToolDefinition[] = [
     schema: {
       name: "create_note",
       description:
-        "Create a new note. URL is optional. Do not invent groupIds or tags during creation; leave semantic grouping/tagging to the semantic_classify_note client tool unless the user explicitly provided groups or tags.",
+        "Create a new note. URL is optional. Do not invent groupIds or tags during creation; leave semantic grouping/tagging to semantic_classify_note unless the user explicitly provided groups or tags.",
       input_schema: {
         type: "object",
         properties: {

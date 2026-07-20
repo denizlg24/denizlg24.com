@@ -11,23 +11,31 @@ export async function POST(
 ) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  const parsed = createAgentTrainingFeedbackSchema.safeParse(
-    await request.json(),
-  );
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid training feedback" },
-      { status: 400 },
-    );
-  }
   try {
+    const parsed = createAgentTrainingFeedbackSchema.safeParse(
+      await request.json(),
+    );
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid training feedback", details: parsed.error.issues },
+        { status: 400 },
+      );
+    }
     const { runId } = await params;
     return NextResponse.json(await recordTrainingFeedback(runId, parsed.data));
   } catch (error) {
+    console.error("[Agent Training] Feedback request failed", error);
     const message = error instanceof Error ? error.message : "Feedback failed";
     return NextResponse.json(
       { error: message },
-      { status: message.includes("not awaiting") ? 409 : 400 },
+      {
+        status:
+          message === "Training run not found"
+            ? 404
+            : message.includes("not awaiting")
+              ? 409
+              : 400,
+      },
     );
   }
 }

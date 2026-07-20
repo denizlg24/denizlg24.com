@@ -24,4 +24,15 @@ describe("agent training contracts", () => {
       }).success,
     ).toBe(false);
   });
+
+  test("rejects invalid IANA time zones", () => {
+    expect(
+      createAgentTrainingTaskSchema.safeParse({
+        name: "Daily writing drill",
+        prompt: "Draft a project update.",
+        timeOfDay: "09:00",
+        timeZone: "America/Fake",
+      }).success,
+    ).toBe(false);
+  });
 });

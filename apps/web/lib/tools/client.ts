@@ -20,7 +20,7 @@ export const clientTools: ToolDefinition[] = [
     },
     isWrite: false,
     category: "notes",
-    runtime: "client",
+    runtime: "server",
     execute: async (input) => {
       const noteId = typeof input.noteId === "string" ? input.noteId : "";
       if (!noteId) throw new Error("noteId is required");
