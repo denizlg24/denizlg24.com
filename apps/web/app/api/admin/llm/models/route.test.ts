@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { llmModelsResponseSchema } from "@repo/schemas";
 import { NextRequest, NextResponse } from "next/server";
 import { CatalogUnavailableError } from "@/lib/llm-errors";
+import {
+  getModelCatalogResponse,
+  type ModelCatalogRouteDependencies,
+} from "./route";
 
 const requireAdminMock = mock(async () => null as NextResponse | null);
-mock.module("@/lib/require-admin", () => ({
-  requireAdmin: requireAdminMock,
-}));
 
 const listModelsMock = mock(
   async (_filter?: { creator?: string; requiredTags?: string[] }) => ({
@@ -26,11 +27,13 @@ const listModelsMock = mock(
     fetchedAt: new Date("2026-07-13T10:00:00Z"),
   }),
 );
-mock.module("@/lib/llm-service", () => ({
+const dependencies: ModelCatalogRouteDependencies = {
+  requireAdmin: requireAdminMock,
   listModels: listModelsMock,
-}));
+};
 
-const { GET } = await import("./route");
+const GET = (request: NextRequest) =>
+  getModelCatalogResponse(request, dependencies);
 
 function buildRequest(query = ""): NextRequest {
   return new NextRequest(`http://localhost/api/admin/llm/models${query}`);

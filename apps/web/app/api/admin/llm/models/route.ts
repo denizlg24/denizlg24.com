@@ -10,8 +10,21 @@ import { requireAdmin } from "@/lib/require-admin";
 
 const ALLOWED_QUERY_KEYS = new Set(["creator", "requiredCapability"]);
 
-export const GET = async (req: NextRequest) => {
-  const adminError = await requireAdmin(req);
+export interface ModelCatalogRouteDependencies {
+  requireAdmin(request?: NextRequest): Promise<NextResponse | null>;
+  listModels: typeof listModels;
+}
+
+const defaultDependencies: ModelCatalogRouteDependencies = {
+  requireAdmin,
+  listModels,
+};
+
+export const getModelCatalogResponse = async (
+  req: NextRequest,
+  dependencies: ModelCatalogRouteDependencies = defaultDependencies,
+) => {
+  const adminError = await dependencies.requireAdmin(req);
   if (adminError) return adminError;
 
   const params = req.nextUrl.searchParams;
@@ -28,7 +41,7 @@ export const GET = async (req: NextRequest) => {
   const requiredTags = params.getAll("requiredCapability");
 
   try {
-    const { models, stale, fetchedAt } = await listModels({
+    const { models, stale, fetchedAt } = await dependencies.listModels({
       creator,
       requiredTags,
     });
@@ -69,3 +82,5 @@ export const GET = async (req: NextRequest) => {
     );
   }
 };
+
+export const GET = (req: NextRequest) => getModelCatalogResponse(req);
