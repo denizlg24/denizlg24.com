@@ -4,7 +4,7 @@ import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { getAgentMemorySettings } from "./settings";
 
 const MAX_ATTEMPTS = 5;
-const LEASE_MS = 2 * 60 * 1_000;
+export const AGENT_MEMORY_JOB_LEASE_MS = 2 * 60 * 1_000;
 
 export function retryDelayMs(attempt: number): number {
   return Math.min(60 * 60 * 1_000, 5_000 * 2 ** Math.max(0, attempt - 1));
@@ -21,6 +21,7 @@ export function operationIsEnabled(
   if (operation === "insight") return gates.proactivity;
   if (operation === "backfill") return gates.evidenceLedger;
   if (operation === "resource-suggestion") return gates.formation;
+  if (operation === "training") return true;
   return gates.evidenceLedger;
 }
 
@@ -50,7 +51,7 @@ export async function leaseNextMemoryJob(options: {
       $set: {
         status: "leased",
         leaseOwner: options.workerId,
-        leaseExpiresAt: new Date(now.getTime() + LEASE_MS),
+        leaseExpiresAt: new Date(now.getTime() + AGENT_MEMORY_JOB_LEASE_MS),
       },
       $inc: { attempts: 1 },
     },

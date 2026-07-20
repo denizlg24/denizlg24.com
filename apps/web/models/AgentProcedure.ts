@@ -44,6 +44,7 @@ const AgentProcedureSchema = new Schema<IAgentProcedure>(
 );
 
 AgentProcedureSchema.index({ lifecycle: 1, scope: 1, confidence: -1 });
+AgentProcedureSchema.index({ lifecycle: 1, confidence: -1, updatedAt: -1 });
 AgentProcedureSchema.index({ evidenceIds: 1, lifecycle: 1 });
 
 export const AgentProcedure =

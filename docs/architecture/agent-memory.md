@@ -13,7 +13,10 @@ jobs, retrieval traces and audit records remain separate collections.
 Memory is information, never authority. It can affect an answer only after the
 retrieval gates are enabled. It cannot add a tool, change a tool classification,
 approve a write, modify the system safety policy, or suppress the existing
-client/write confirmation flow.
+client/write confirmation flow. Agent training is a separate, explicit
+authorization boundary: an authenticated owner-created training task carries
+`autonomy: "yolo"` and pre-authorizes registered tools for its unattended runs.
+Retrieved memory still cannot create or widen that authorization.
 
 ## Deployment capability decision
 
@@ -113,6 +116,38 @@ erDiagram
 | `agent_audit_events` | Non-content mutation and privacy audit | Append-only tombstones allowed |
 | `agent_memory_settings` | Singleton policy, gates, budgets, exclusions | Revisioned settings updates |
 | `agent_insights` | Proactive suggestion/draft inbox | Mutable delivery lifecycle |
+| `agent_training_tasks` | Owner-authored recurring prompt, attachments, schedule and YOLO authorization | Revisioned task state |
+| `agent_training_runs` | Immutable occurrence, bounded tool audit, output and owner feedback | Operational state followed by append-only feedback result |
+
+## Agent training loop
+
+```mermaid
+flowchart LR
+  T[Owner training task] --> S[Daily scheduler]
+  S --> Y[YOLO agent run]
+  Y --> O[Output + tool audit]
+  O --> F[Owner feedback]
+  F --> D[Lesson distillation]
+  D --> P[Active AgentProcedure]
+  P --> R[Similarity retrieval]
+  R --> Y
+  R --> C[Normal chat]
+```
+
+Training tasks run daily in their configured IANA timezone and can also be
+queued manually. Images and PDFs are stored as attachment metadata and supplied
+to the model on every occurrence. YOLO mode executes server and client-runtime
+tool definitions without per-call approval; its authority comes only from the
+persisted authenticated task. Runs record bounded inputs/results with
+secret-like values redacted. A failed run is never automatically retried,
+because already-completed writes may not be idempotent.
+
+Feedback is explicit highest-trust evidence. A forced-schema model operation
+distils up to three reusable procedures, preferring updates to relevant active
+procedures over duplicates. Procedures remain data—not permissions—and use the
+existing lifecycle, audit, reflection and retrieval paths. Procedure retrieval
+ranks across a bounded set of 200 active procedures before applying the prompt
+budget, so older specialized learning remains available.
 
 ## Common vocabulary
 

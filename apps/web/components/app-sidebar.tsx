@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Brain,
   BrainCircuit,
   Briefcase,
   Calendar,
@@ -126,6 +127,11 @@ const items = [
     title: "Agent Memory",
     url: "/admin/dashboard/agent-memory",
     icon: BrainCircuit,
+  },
+  {
+    title: "Agent Training",
+    url: "/admin/dashboard/agent-training",
+    icon: Brain,
   },
   {
     title: "Token Usage",

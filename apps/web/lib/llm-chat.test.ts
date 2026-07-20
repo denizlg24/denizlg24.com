@@ -11,12 +11,14 @@ const readExecuteMock = mock(async (input: Record<string, unknown>) => ({
   echoed: input,
 }));
 const writeExecuteMock = mock(async () => ({ written: true }));
+const clientExecuteMock = mock(async () => ({ classified: true }));
 
 mock.module("@/lib/tools/registry", () => ({
+  getToolSchemas: () => [],
   getToolByName: (name: string) => {
     if (name === "read_tool") return { name, execute: readExecuteMock };
     if (name === "write_tool") return { name, execute: writeExecuteMock };
-    if (name === "client_tool") return { name };
+    if (name === "client_tool") return { name, execute: clientExecuteMock };
     return undefined;
   },
   isClientTool: (name: string) => name === "client_tool",
@@ -160,6 +162,7 @@ const baseParams = {
 beforeEach(() => {
   readExecuteMock.mockClear();
   writeExecuteMock.mockClear();
+  clientExecuteMock.mockClear();
 });
 
 describe("createAgenticSSEStream", () => {
@@ -247,6 +250,56 @@ describe("createAgenticSSEStream", () => {
         content: JSON.stringify({ ok: true, echoed: { q: "x" } }),
       },
     ]);
+  });
+
+  test("executes write tools without pausing in yolo mode", async () => {
+    const transport = scriptedTransport([
+      { toolUses: [{ id: "tu_yolo", name: "write_tool", input: { id: "1" } }] },
+      { text: "Write complete" },
+    ]);
+    const persisted: Anthropic.MessageParam[][] = [];
+
+    const events = await collectEvents(
+      createAgenticSSEStream({
+        ...baseParams,
+        executionMode: "yolo",
+        transport,
+        logUsage: async () => {},
+        messages: [{ role: "user", content: "Do it" }],
+        onPersist: async (messages) => {
+          persisted.push(structuredClone(messages));
+        },
+      }),
+    );
+
+    expect(writeExecuteMock).toHaveBeenCalledTimes(1);
+    expect(events.some((event) => event.type === "paused")).toBe(false);
+    expect(events.at(-1)?.type).toBe("done");
+    expect(persisted[0]?.at(-1)?.role).toBe("user");
+  });
+
+  test("rejects client tools in yolo mode without executing them", async () => {
+    const transport = scriptedTransport([
+      { toolUses: [{ id: "tu_client", name: "client_tool", input: {} }] },
+      { text: "Client tool skipped" },
+    ]);
+
+    const events = await collectEvents(
+      createAgenticSSEStream({
+        ...baseParams,
+        executionMode: "yolo",
+        transport,
+        logUsage: () => {},
+        messages: [{ role: "user", content: "Classify" }],
+      }),
+    );
+
+    expect(clientExecuteMock).not.toHaveBeenCalled();
+    expect(events.some((event) => event.type === "paused")).toBe(false);
+    const resultTurn = transport.calls[1]?.messages.at(-1);
+    const result = (resultTurn?.content as Anthropic.ToolResultBlockParam[])[0];
+    expect(result?.is_error).toBe(true);
+    expect(result?.content).toContain("unavailable during unattended");
   });
 
   test("runs two parallel read tools into one ordered user turn", async () => {

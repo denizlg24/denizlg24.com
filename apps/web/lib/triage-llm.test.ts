@@ -1,10 +1,12 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { __resetCatalogForTests } from "./llm-model-catalog";
 
 // Characterization tests for the three forced-tool triage phases. The LLM is
 // mocked at the network layer so these tests survive transport changes: any
 // POST that carries a forced tool_choice gets a canned Messages API response.
 
 process.env.AI_GATEWAY_API_KEY ??= "test-gateway-key";
+const MODEL = "anthropic/claude-haiku-4.5";
 
 const llmUsageCreateMock = mock(
   async (_entry: Record<string, unknown>) => ({}),
@@ -45,6 +47,25 @@ function messageResponse(toolName: string): Response {
 
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input instanceof Request ? input.url : input);
+  if (url.includes("/v1/models")) {
+    return new Response(
+      JSON.stringify({
+        object: "list",
+        data: [
+          {
+            id: MODEL,
+            name: "Claude Haiku 4.5",
+            owned_by: "anthropic",
+            type: "language",
+            tags: ["tool-use"],
+            context_window: 200_000,
+            max_tokens: 64_000,
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }
   const rawBody =
     input instanceof Request ? await input.text() : String(init?.body ?? "");
   if (rawBody) {
@@ -57,6 +78,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 }) as typeof fetch;
 
 afterAll(() => {
+  __resetCatalogForTests();
   globalThis.fetch = realFetch;
 });
 
@@ -67,8 +89,6 @@ type TriageEmailContext = import("./triage").TriageEmailContext;
 type ClassificationResult = import("./triage").ClassificationResult;
 type CompactKanbanTarget = import("./triage").CompactKanbanTarget;
 type CourseTarget = import("./triage").CourseTarget;
-
-const MODEL = "anthropic/claude-haiku-4.5";
 
 const email: TriageEmailContext = {
   subject: "Project deadline moved",
@@ -83,6 +103,7 @@ function lastRequest(): RecordedRequest {
 }
 
 beforeEach(() => {
+  __resetCatalogForTests();
   recordedRequests = [];
   nextToolInput = undefined;
   omitToolUseBlock = false;
