@@ -1,0 +1,12 @@
+{
+  "extends": "@repo/typescript-config/react-library.json",
+  "compilerOptions": {
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "outDir": "dist",
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}
