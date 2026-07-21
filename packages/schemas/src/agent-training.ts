@@ -70,7 +70,6 @@ export const createAgentTrainingTaskSchema = agentTrainingTaskSchema
     prompt: true,
     attachments: true,
     timeOfDay: true,
-    timeZone: true,
     model: true,
   })
   .extend({

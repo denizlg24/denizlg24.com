@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { AgentInsightCategory } from "@repo/schemas";
+import { addDays, format, startOfDay } from "date-fns";
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/mongodb";
+import { dateKeyInTz, getAppTimeZone, inTz } from "@/lib/timezone";
 import { AgentAuditEvent } from "@/models/AgentAuditEvent";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentFeedbackEvent } from "@/models/AgentFeedbackEvent";
@@ -94,16 +96,16 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-export function utcDayKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
+export function dayKey(date: Date, timeZone: string): string {
+  return dateKeyInTz(date, timeZone);
 }
 
-function startOfUtcDay(date: Date): Date {
-  return new Date(`${utcDayKey(date)}T00:00:00.000Z`);
+function startOfLocalDay(date: Date, timeZone: string): Date {
+  return new Date(startOfDay(inTz(date, timeZone)).getTime());
 }
 
-function endOfUtcDay(date: Date): Date {
-  return new Date(startOfUtcDay(date).getTime() + DAY_MS);
+function startOfNextLocalDay(date: Date, timeZone: string): Date {
+  return new Date(startOfDay(addDays(inTz(date, timeZone), 1)).getTime());
 }
 
 export function isoWeekKey(date: Date): string {
@@ -123,13 +125,14 @@ function eventEnd(event: InsightCalendarEventInput): Date {
   );
 }
 
-function timeLabel(date: Date): string {
-  return date.toISOString().slice(0, 16).replace("T", " ");
+function timeLabel(date: Date, timeZone: string): string {
+  return format(inTz(date, timeZone), "yyyy-MM-dd HH:mm");
 }
 
 export function goalDeadlineInsights(
   now: Date,
   goals: InsightGoalInput[],
+  timeZone: string,
 ): AgentInsightDraft[] {
   const horizon = now.getTime() + GOAL_LOOKAHEAD_DAYS * DAY_MS;
   return goals
@@ -144,10 +147,10 @@ export function goalDeadlineInsights(
       const targetUntil = goal.targetUntil as Date;
       const daysLeft = (targetUntil.getTime() - now.getTime()) / DAY_MS;
       return {
-        idempotencyKey: `insight:goal-deadline:${goal.id}:${utcDayKey(targetUntil)}`,
+        idempotencyKey: `insight:goal-deadline:${goal.id}:${dayKey(targetUntil, timeZone)}`,
         category: "goal-deadline" as const,
         title: `Goal deadline approaching: ${goal.title}`.slice(0, 512),
-        body: `"${goal.title}" is due ${timeLabel(targetUntil)} UTC (${Math.ceil(daysLeft)} day(s) left).`.slice(
+        body: `"${goal.title}" is due ${timeLabel(targetUntil, timeZone)} (${Math.ceil(daysLeft)} day(s) left).`.slice(
           0,
           4_096,
         ),
@@ -173,6 +176,7 @@ export function goalDeadlineInsights(
 export function calendarConflictInsights(
   now: Date,
   events: InsightCalendarEventInput[],
+  timeZone: string,
 ): AgentInsightDraft[] {
   const horizon = now.getTime() + CALENDAR_LOOKAHEAD_DAYS * DAY_MS;
   const candidates = events
@@ -208,7 +212,7 @@ export function calendarConflictInsights(
           0,
           512,
         ),
-        body: `"${first.title}" (${timeLabel(first.date)} - ${timeLabel(eventEnd(first))} UTC) overlaps "${second.title}" (${timeLabel(second.date)} - ${timeLabel(eventEnd(second))} UTC).`.slice(
+        body: `"${first.title}" (${timeLabel(first.date, timeZone)} - ${timeLabel(eventEnd(first), timeZone)}) overlaps "${second.title}" (${timeLabel(second.date, timeZone)} - ${timeLabel(eventEnd(second), timeZone)}).`.slice(
           0,
           4_096,
         ),
@@ -239,6 +243,7 @@ export function calendarConflictInsights(
 export function staleFollowUpInsights(
   now: Date,
   goals: InsightGoalInput[],
+  timeZone: string,
 ): AgentInsightDraft[] {
   const staleBefore = now.getTime() - FOLLOW_UP_STALE_DAYS * DAY_MS;
   return goals
@@ -252,7 +257,7 @@ export function staleFollowUpInsights(
       idempotencyKey: `insight:follow-up:${goal.id}:${goal.updatedAt.toISOString()}`,
       category: "follow-up" as const,
       title: `Unresolved follow-up: ${goal.title}`.slice(0, 512),
-      body: `The agent follow-up "${goal.title}" has had no progress since ${timeLabel(goal.updatedAt)} UTC.`.slice(
+      body: `The agent follow-up "${goal.title}" has had no progress since ${timeLabel(goal.updatedAt, timeZone)}.`.slice(
         0,
         4_096,
       ),
@@ -325,13 +330,14 @@ export function buildDailyBriefing(
     todaysEvents: InsightCalendarEventInput[];
     pendingInsights: number;
   },
+  timeZone: string,
 ): AgentInsightDraft {
   const lines: string[] = [];
   if (input.todaysEvents.length > 0) {
     lines.push(`Today's calendar (${input.todaysEvents.length}):`);
     for (const event of input.todaysEvents.slice(0, 5)) {
       lines.push(
-        `- ${event.isAllDay ? "all day" : timeLabel(event.date).slice(11)} ${event.title}`,
+        `- ${event.isAllDay ? "all day" : timeLabel(event.date, timeZone).slice(11)} ${event.title}`,
       );
     }
   } else {
@@ -343,7 +349,7 @@ export function buildDailyBriefing(
     );
     for (const goal of input.goalsDueSoon.slice(0, 3)) {
       lines.push(
-        `- ${goal.title}${goal.targetUntil ? ` (due ${utcDayKey(goal.targetUntil)})` : ""}`,
+        `- ${goal.title}${goal.targetUntil ? ` (due ${dayKey(goal.targetUntil, timeZone)})` : ""}`,
       );
     }
   } else {
@@ -355,9 +361,9 @@ export function buildDailyBriefing(
       : "The insight inbox is clear.",
   );
   return {
-    idempotencyKey: `insight:daily-briefing:${utcDayKey(now)}`,
+    idempotencyKey: `insight:daily-briefing:${dayKey(now, timeZone)}`,
     category: "daily-briefing",
-    title: `Daily briefing — ${utcDayKey(now)}`,
+    title: `Daily briefing — ${dayKey(now, timeZone)}`,
     body: lines.join("\n").slice(0, 4_096),
     triggerEvidenceIds: [],
     reason: "Scheduled daily summary of calendar, goals, and open insights.",
@@ -365,7 +371,7 @@ export function buildDailyBriefing(
     urgency: 0.5,
     confidence: 1,
     interruptionCost: 0.1,
-    expiresAt: endOfUtcDay(now),
+    expiresAt: startOfNextLocalDay(now, timeZone),
   };
 }
 
@@ -472,6 +478,7 @@ export async function runInsightSweep(
     return { ran: false, reason: "proactivity-disabled" } as const;
   }
   await connectDB();
+  const timeZone = await getAppTimeZone();
 
   const woken = await AgentInsight.updateMany(
     { status: "snoozed", snoozedUntil: { $lte: now }, expiresAt: { $gt: now } },
@@ -505,7 +512,7 @@ export async function runInsightSweep(
         CalendarEvent.find({
           status: "scheduled",
           date: {
-            $gte: startOfUtcDay(now),
+            $gte: startOfLocalDay(now, timeZone),
             $lte: new Date(now.getTime() + CALENDAR_LOOKAHEAD_DAYS * DAY_MS),
           },
         })
@@ -526,7 +533,9 @@ export async function runInsightSweep(
           .limit(1_000)
           .select("kind boundedDiff")
           .lean(),
-        AgentInsight.find({ createdAt: { $gte: startOfUtcDay(now) } })
+        AgentInsight.find({
+          createdAt: { $gte: startOfLocalDay(now, timeZone) },
+        })
           .select("category")
           .lean(),
         AgentInsight.countDocuments({
@@ -589,25 +598,31 @@ export async function runInsightSweep(
     }
 
     const horizon = now.getTime() + GOAL_LOOKAHEAD_DAYS * DAY_MS;
+    const startOfToday = startOfLocalDay(now, timeZone).getTime();
+    const startOfTomorrow = startOfNextLocalDay(now, timeZone).getTime();
     const drafts: AgentInsightDraft[] = [
-      ...goalDeadlineInsights(now, goalInputs),
-      ...staleFollowUpInsights(now, goalInputs),
-      ...calendarConflictInsights(now, eventInputs),
+      ...goalDeadlineInsights(now, goalInputs, timeZone),
+      ...staleFollowUpInsights(now, goalInputs, timeZone),
+      ...calendarConflictInsights(now, eventInputs, timeZone),
       ...repeatedFailureInsights(now, failureInputs),
-      buildDailyBriefing(now, {
-        goalsDueSoon: goalInputs.filter(
-          (goal) =>
-            goal.targetUntil &&
-            goal.targetUntil.getTime() > now.getTime() &&
-            goal.targetUntil.getTime() <= horizon,
-        ),
-        todaysEvents: eventInputs.filter(
-          (event) =>
-            event.date.getTime() >= startOfUtcDay(now).getTime() &&
-            event.date.getTime() < endOfUtcDay(now).getTime(),
-        ),
-        pendingInsights,
-      }),
+      buildDailyBriefing(
+        now,
+        {
+          goalsDueSoon: goalInputs.filter(
+            (goal) =>
+              goal.targetUntil &&
+              goal.targetUntil.getTime() > now.getTime() &&
+              goal.targetUntil.getTime() <= horizon,
+          ),
+          todaysEvents: eventInputs.filter(
+            (event) =>
+              event.date.getTime() >= startOfToday &&
+              event.date.getTime() < startOfTomorrow,
+          ),
+          pendingInsights,
+        },
+        timeZone,
+      ),
     ];
 
     const conflictEventIds = [
