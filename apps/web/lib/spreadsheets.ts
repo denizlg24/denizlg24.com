@@ -111,11 +111,10 @@ export async function fetchBookFromStorage(
   fileId: string,
   legacyUrl?: string,
 ): Promise<FortuneSheetBook> {
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      fileId,
-    )
-  ) {
+  // S3 object keys are prefixed paths (e.g. `spreadsheets/name-<uuid>.json`),
+  // so they contain a slash. Pre-migration rows stored a bare deniz-cloud file
+  // id and are read through their still-served legacy URL instead.
+  if (!fileId.includes("/")) {
     if (!legacyUrl) {
       throw new Error("Legacy spreadsheet is missing a readable URL");
     }

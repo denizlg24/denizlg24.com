@@ -1,86 +1,45 @@
 import "server-only";
 
-const STORAGE_TUS_VERSION = "1.0.0";
-const FILE_LOOKUP_PAGE_SIZE = 100;
-const folderCache = new Map<string, StorageFolder>();
+import {
+  CreateBucketCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadBucketCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 
-type StorageBucket = "image" | "file" | "spreadsheet";
+export type StorageBucket = "image" | "file" | "spreadsheet";
 
 interface StorageConfig {
-  apiKey: string;
-  baseUrl: string;
-  imageUploadPath: string;
-  fileUploadPath: string;
-  spreadsheetPath: string;
-}
-
-interface StorageApiErrorBody {
-  error?: {
-    code?: string;
-    message?: string;
-  };
-}
-
-interface StorageApiResponse<T> {
-  data: T;
-}
-
-interface RootFoldersResponse {
-  projectRoot: StorageFolder;
-}
-
-interface FolderContentsResponse {
-  folder: StorageFolder;
-  subfolders: StorageFolder[];
-  files: StorageFileSummary[];
-}
-
-interface ShareTokenResponse {
-  token: string;
-}
-
-interface DeleteResponse {
-  id: string;
-}
-
-interface StorageFolder {
-  id: string;
-  path: string;
-  name: string;
-  parentId?: string;
-}
-
-interface StorageFileSummary {
-  id: string;
-  filename: string;
-  path: string;
-  mimeType: string;
-  sizeBytes: number;
-  tier?: string;
-  createdAt: string;
-  updatedAt: string;
+  endpoint: string;
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+  imagePrefix: string;
+  filePrefix: string;
+  spreadsheetPrefix: string;
 }
 
 export interface StoredFile {
+  /** S3 object key — used as the durable handle for delete/download. */
   id: string;
   filename: string;
+  /** Same as `id`; kept for callers that persisted a `path` field. */
   path: string;
   mimeType: string;
   sizeBytes: number;
+  /** Absolute URL that streams the object through the public `/api/file` proxy. */
   publicUrl: string;
-  shareToken: string;
 }
 
-class StorageApiHttpError extends Error {
-  status: number;
-  code?: string;
-
-  constructor(message: string, status: number, code?: string) {
-    super(message);
-    this.name = "StorageApiHttpError";
-    this.status = status;
-    this.code = code;
-  }
+export interface StorageObjectStream {
+  body: ReadableStream<Uint8Array>;
+  contentType: string;
+  contentLength?: number;
+  etag?: string;
+  lastModified?: Date;
 }
 
 function requireEnv(name: string): string {
@@ -95,69 +54,95 @@ function trimSlashes(value: string): string {
   return value.replace(/^\/+|\/+$/g, "");
 }
 
-function normalizeStorageName(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .replace(/_+/g, "_");
-}
-
 function getStorageConfig(): StorageConfig {
   return {
-    apiKey: requireEnv("STORAGE_API_KEY"),
-    baseUrl: requireEnv("STORAGE_API_URL").replace(/\/+$/, ""),
-    imageUploadPath: trimSlashes(
+    endpoint: requireEnv("STORAGE_S3_ENDPOINT").replace(/\/+$/, ""),
+    region: process.env.STORAGE_S3_REGION?.trim() || "eu-west-1",
+    accessKeyId: requireEnv("STORAGE_S3_ACCESS_KEY_ID"),
+    secretAccessKey: requireEnv("STORAGE_S3_SECRET_ACCESS_KEY"),
+    bucket: requireEnv("STORAGE_S3_BUCKET"),
+    imagePrefix: trimSlashes(
       process.env.STORAGE_IMAGE_UPLOAD_PATH ?? "uploads/images",
     ),
-    fileUploadPath: trimSlashes(
+    filePrefix: trimSlashes(
       process.env.STORAGE_FILE_UPLOAD_PATH ?? "uploads/files",
     ),
-    spreadsheetPath: trimSlashes(
+    spreadsheetPrefix: trimSlashes(
       process.env.STORAGE_SPREADSHEET_UPLOAD_PATH ?? "spreadsheets",
     ),
   };
 }
 
-function getBucketPath(bucket: StorageBucket): string {
+let cachedClient: S3Client | null = null;
+
+function getClient(): S3Client {
+  if (cachedClient) return cachedClient;
   const config = getStorageConfig();
-  switch (bucket) {
-    case "image":
-      return config.imageUploadPath;
-    case "file":
-      return config.fileUploadPath;
-    case "spreadsheet":
-      return config.spreadsheetPath;
+  cachedClient = new S3Client({
+    endpoint: config.endpoint,
+    region: config.region,
+    // deniz-cloud only implements path-style addressing (no virtual-host).
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey,
+    },
+  });
+  return cachedClient;
+}
+
+let ensureBucketPromise: Promise<void> | null = null;
+
+async function ensureBucket(): Promise<void> {
+  if (ensureBucketPromise) return ensureBucketPromise;
+
+  ensureBucketPromise = (async () => {
+    const client = getClient();
+    const { bucket } = getStorageConfig();
+    try {
+      await client.send(new HeadBucketCommand({ Bucket: bucket }));
+    } catch (error) {
+      if (isNotFound(error)) {
+        await client.send(new CreateBucketCommand({ Bucket: bucket }));
+        return;
+      }
+      throw error;
+    }
+  })();
+
+  try {
+    await ensureBucketPromise;
+  } catch (error) {
+    // Allow a later call to retry if bucket setup failed transiently.
+    ensureBucketPromise = null;
+    throw error;
   }
 }
 
-function getAuthHeaders(extra?: HeadersInit): HeadersInit {
-  return {
-    "X-API-Key": getStorageConfig().apiKey,
-    ...extra,
+function isNotFound(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const err = error as {
+    name?: string;
+    $metadata?: { httpStatusCode?: number };
   };
+  return (
+    err.name === "NotFound" ||
+    err.name === "NoSuchKey" ||
+    err.name === "NoSuchBucket" ||
+    err.$metadata?.httpStatusCode === 404
+  );
 }
 
-function encodeTusMetadata(
-  metadata: Record<string, string | undefined>,
-): string {
-  return Object.entries(metadata)
-    .filter(([, value]) => Boolean(value))
-    .map(
-      ([key, value]) =>
-        `${key} ${Buffer.from(value as string).toString("base64")}`,
-    )
-    .join(",");
-}
-
-function withStorageUrl(path: string): string {
-  const { baseUrl } = getStorageConfig();
-  return path.startsWith("http") ? path : `${baseUrl}${path}`;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function getBucketPrefix(bucket: StorageBucket): string {
+  const config = getStorageConfig();
+  switch (bucket) {
+    case "image":
+      return config.imagePrefix;
+    case "file":
+      return config.filePrefix;
+    case "spreadsheet":
+      return config.spreadsheetPrefix;
+  }
 }
 
 function splitFilename(name: string): { base: string; extension: string } {
@@ -168,257 +153,50 @@ function splitFilename(name: string): { base: string; extension: string } {
   }
   return {
     base: trimmed.slice(0, dotIndex),
-    extension: trimmed.slice(dotIndex),
+    extension: trimmed.slice(dotIndex).toLowerCase(),
   };
 }
 
-function makeUniqueFilename(name: string): string {
-  const { base, extension } = splitFilename(name);
-  return `${base}-${crypto.randomUUID()}${extension}`;
+function slugifyBase(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "file";
 }
 
-async function parseStorageError(
-  response: Response,
-): Promise<StorageApiHttpError> {
-  let code: string | undefined;
-  let message = `Storage API request failed with status ${response.status}`;
-
-  try {
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json")) {
-      const body = (await response.json()) as StorageApiErrorBody;
-      code = body.error?.code;
-      message = body.error?.message ?? message;
-    } else {
-      const text = await response.text();
-      if (text.trim()) {
-        message = text.trim();
-      }
-    }
-  } catch {}
-
-  return new StorageApiHttpError(message, response.status, code);
+function buildObjectKey(bucket: StorageBucket, filename: string): string {
+  const { base, extension } = splitFilename(filename);
+  return `${getBucketPrefix(bucket)}/${slugifyBase(base)}-${crypto.randomUUID()}${extension}`;
 }
 
-async function storageJsonRequest<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<T> {
-  const response = await fetch(withStorageUrl(path), init);
-  if (!response.ok) {
-    throw await parseStorageError(response);
-  }
-
-  const body = (await response.json()) as StorageApiResponse<T>;
-  return body.data;
-}
-
-async function storageRawRequest(
-  path: string,
-  init?: RequestInit,
-): Promise<Response> {
-  const response = await fetch(withStorageUrl(path), init);
-  if (!response.ok) {
-    throw await parseStorageError(response);
-  }
-  return response;
-}
-
-async function getProjectRoot(): Promise<StorageFolder> {
-  const cached = folderCache.get("__root__");
-  if (cached) return cached;
-
-  const data = await storageJsonRequest<RootFoldersResponse>(
-    "/api/folders/roots",
-    {
-      headers: getAuthHeaders(),
-    },
-  );
-
-  folderCache.set("__root__", data.projectRoot);
-  return data.projectRoot;
-}
-
-async function listFolderContents(
-  folderId: string,
-): Promise<FolderContentsResponse> {
-  const params = new URLSearchParams({
-    page: "1",
-    limit: String(FILE_LOOKUP_PAGE_SIZE),
-  });
-
-  return storageJsonRequest<FolderContentsResponse>(
-    `/api/folders/${folderId}/contents?${params.toString()}`,
-    {
-      headers: getAuthHeaders(),
-    },
+function siteBaseUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ||
+    "https://denizlg24.com"
   );
 }
 
-async function createFolder(
-  parentId: string,
-  name: string,
-): Promise<StorageFolder> {
-  const normalizedName = normalizeStorageName(name);
-
-  try {
-    return await storageJsonRequest<StorageFolder>("/api/folders", {
-      method: "POST",
-      headers: getAuthHeaders({
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({ name, parentId }),
-    });
-  } catch (error) {
-    if (
-      error instanceof StorageApiHttpError &&
-      error.status === 409 &&
-      error.code === "FOLDER_EXISTS"
-    ) {
-      const contents = await listFolderContents(parentId);
-      const existing = contents.subfolders.find(
-        (folder) => folder.name === normalizedName,
-      );
-      if (existing) {
-        return existing;
-      }
-    }
-
-    throw error;
-  }
+function buildPublicUrl(key: string): string {
+  const encoded = key
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `${siteBaseUrl()}/api/file/${encoded}`;
 }
 
-async function ensureFolder(relativePath: string): Promise<StorageFolder> {
-  const normalizedPath = trimSlashes(relativePath);
-  if (!normalizedPath) {
-    return getProjectRoot();
-  }
-
-  const cached = folderCache.get(normalizedPath);
-  if (cached) return cached;
-
-  let currentFolder = await getProjectRoot();
-  let currentPath = "";
-
-  for (const rawSegment of normalizedPath.split("/")) {
-    const segment = rawSegment.trim();
-    if (!segment) continue;
-    const normalizedSegment = normalizeStorageName(segment);
-
-    currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-    const currentCached = folderCache.get(currentPath);
-    if (currentCached) {
-      currentFolder = currentCached;
-      continue;
-    }
-
-    const contents = await listFolderContents(currentFolder.id);
-    let nextFolder = contents.subfolders.find(
-      (folder) => folder.name === normalizedSegment,
-    );
-
-    if (!nextFolder) {
-      nextFolder = await createFolder(currentFolder.id, segment);
-    }
-
-    folderCache.set(currentPath, nextFolder);
-    currentFolder = nextFolder;
-  }
-
-  return currentFolder;
-}
-
-async function createUploadSession(
-  file: File,
-  targetFolder: StorageFolder,
-  filename: string,
-): Promise<string> {
-  const response = await fetch(withStorageUrl("/api/uploads"), {
-    method: "POST",
-    headers: getAuthHeaders({
-      "Tus-Resumable": STORAGE_TUS_VERSION,
-      "Upload-Length": String(file.size),
-      "Upload-Metadata": encodeTusMetadata({
-        filename,
-        filetype: file.type || "application/octet-stream",
-        targetFolder: targetFolder.path,
-      }),
-    }),
-  });
-
-  if (!response.ok) {
-    throw await parseStorageError(response);
-  }
-
-  const location = response.headers.get("Location");
-  if (!location) {
-    throw new Error("Storage API did not return an upload location");
-  }
-
-  return withStorageUrl(location);
-}
-
-async function finalizeUpload(uploadUrl: string, file: File): Promise<void> {
-  const payload = await file.arrayBuffer();
-  const response = await fetch(uploadUrl, {
-    method: "PATCH",
-    headers: getAuthHeaders({
-      "Tus-Resumable": STORAGE_TUS_VERSION,
-      "Upload-Offset": "0",
-      "Content-Type": "application/offset+octet-stream",
-    }),
-    body: payload,
-  });
-
-  if (!response.ok) {
-    throw await parseStorageError(response);
-  }
-}
-
-async function createShareUrl(
-  fileId: string,
-): Promise<{ token: string; url: string }> {
-  const data = await storageJsonRequest<ShareTokenResponse>(
-    `/api/files/${fileId}/share`,
-    {
-      method: "POST",
-      headers: getAuthHeaders({
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({ expiresIn: "never" }),
-    },
-  );
-
-  return {
-    token: data.token,
-    url: withStorageUrl(`/api/share/${encodeURIComponent(data.token)}`),
-  };
-}
-
-async function findUploadedFile(
-  folderId: string,
-  previousFileIds: Set<string>,
-  filenameHint: string,
-  sizeBytes: number,
-): Promise<StorageFileSummary> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const contents = await listFolderContents(folderId);
-    const newFile =
-      contents.files.find((file) => !previousFileIds.has(file.id)) ??
-      contents.files.find((file) => file.filename === filenameHint) ??
-      contents.files.find(
-        (file) => file.sizeBytes === sizeBytes && !previousFileIds.has(file.id),
-      );
-
-    if (newFile) {
-      return newFile;
-    }
-
-    await delay(150 * (attempt + 1));
-  }
-
-  throw new Error(
-    "Storage upload completed, but the uploaded file could not be resolved",
+/**
+ * True when `key` sits under a bucket whose contents may be streamed by the
+ * public `/api/file` proxy. Spreadsheet objects hold private admin JSON and are
+ * deliberately excluded.
+ */
+export function isPubliclyServableKey(key: string): boolean {
+  const config = getStorageConfig();
+  const normalized = trimSlashes(key);
+  return (
+    normalized.startsWith(`${config.imagePrefix}/`) ||
+    normalized.startsWith(`${config.filePrefix}/`)
   );
 }
 
@@ -426,59 +204,87 @@ export async function uploadFileToStorage(
   file: File,
   bucket: StorageBucket,
 ): Promise<StoredFile> {
-  const targetFolder = await ensureFolder(getBucketPath(bucket));
-  const existingFiles = await listFolderContents(targetFolder.id);
-  const previousFileIds = new Set(
-    existingFiles.files.map((existing) => existing.id),
+  await ensureBucket();
+
+  const key = buildObjectKey(bucket, file.name || "upload");
+  const mimeType = file.type || "application/octet-stream";
+  // deniz-cloud rejects `aws-chunked` streaming payloads, so the body must be
+  // fully buffered — the SDK then signs an ordinary PUT with a real hash.
+  const body = new Uint8Array(await file.arrayBuffer());
+
+  await getClient().send(
+    new PutObjectCommand({
+      Bucket: getStorageConfig().bucket,
+      Key: key,
+      Body: body,
+      ContentType: mimeType,
+      ContentLength: body.byteLength,
+    }),
   );
-
-  let storedFilename = file.name || "upload";
-  let uploadUrl: string;
-
-  try {
-    uploadUrl = await createUploadSession(file, targetFolder, storedFilename);
-  } catch (error) {
-    if (error instanceof StorageApiHttpError && error.status === 409) {
-      storedFilename = makeUniqueFilename(storedFilename);
-      uploadUrl = await createUploadSession(file, targetFolder, storedFilename);
-    } else {
-      throw error;
-    }
-  }
-
-  await finalizeUpload(uploadUrl, file);
-
-  const uploadedFile = await findUploadedFile(
-    targetFolder.id,
-    previousFileIds,
-    storedFilename,
-    file.size,
-  );
-  const share = await createShareUrl(uploadedFile.id);
 
   return {
-    id: uploadedFile.id,
-    filename: uploadedFile.filename,
-    path: uploadedFile.path,
-    mimeType: uploadedFile.mimeType,
-    sizeBytes: uploadedFile.sizeBytes,
-    publicUrl: share.url,
-    shareToken: share.token,
+    id: key,
+    filename: file.name || key.split("/").pop() || key,
+    path: key,
+    mimeType,
+    sizeBytes: file.size,
+    publicUrl: buildPublicUrl(key),
   };
 }
 
-export async function deleteFileFromStorage(fileId: string): Promise<void> {
-  await storageJsonRequest<DeleteResponse>(`/api/files/${fileId}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(),
-  });
+export async function deleteFileFromStorage(key: string): Promise<void> {
+  try {
+    await getClient().send(
+      new DeleteObjectCommand({
+        Bucket: getStorageConfig().bucket,
+        Key: key,
+      }),
+    );
+  } catch (error) {
+    // Deleting an already-missing object is a no-op, not a failure.
+    if (isNotFound(error)) return;
+    throw error;
+  }
 }
 
-export async function downloadJsonFromStorage<T>(fileId: string): Promise<T> {
-  const response = await storageRawRequest(`/api/files/${fileId}/download`, {
-    headers: getAuthHeaders(),
-    cache: "no-store",
-  });
+export async function downloadJsonFromStorage<T>(key: string): Promise<T> {
+  const response = await getClient().send(
+    new GetObjectCommand({
+      Bucket: getStorageConfig().bucket,
+      Key: key,
+    }),
+  );
 
-  return (await response.json()) as T;
+  if (!response.Body) {
+    throw new Error(`Storage object has no body: ${key}`);
+  }
+
+  const text = await response.Body.transformToString();
+  return JSON.parse(text) as T;
+}
+
+export async function getStorageObject(
+  key: string,
+): Promise<StorageObjectStream | null> {
+  try {
+    const response = await getClient().send(
+      new GetObjectCommand({
+        Bucket: getStorageConfig().bucket,
+        Key: key,
+      }),
+    );
+
+    if (!response.Body) return null;
+
+    return {
+      body: response.Body.transformToWebStream(),
+      contentType: response.ContentType || "application/octet-stream",
+      contentLength: response.ContentLength,
+      etag: response.ETag,
+      lastModified: response.LastModified,
+    };
+  } catch (error) {
+    if (isNotFound(error)) return null;
+    throw error;
+  }
 }
