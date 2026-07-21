@@ -7,27 +7,23 @@ import { Button } from "@repo/ui/button";
 import { PageHeader } from "@repo/ui/page-header";
 import { Skeleton } from "@repo/ui/skeleton";
 import { HeaderBarSkeleton } from "@repo/ui/skeleton-blocks";
-import {
-  ExternalLink,
-  FileOutput,
-  FileUser,
-  Loader2,
-  RefreshCw,
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Document, Page, pdfjs } from "react-pdf";
+import { ExternalLink, FileUser, Loader2, RefreshCw } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { AdminClient } from "../client";
 import { AdminApiError } from "../client";
-import type { PlatformBridge } from "../platform";
 import { useAdmin } from "../provider";
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
-
-const MAX_PAGE_WIDTH = 800;
+// react-pdf pulls in pdfjs (pdf.mjs) which throws when evaluated during SSR, so
+// the preview loads client-only.
+const CvPdfPreview = dynamic(() => import("./cv-pdf-preview"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full min-h-80 items-center justify-center">
+      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+    </div>
+  ),
+});
 
 interface CompileCvResponse extends CvResponse {
   log: string;
@@ -50,118 +46,6 @@ function formatUpdatedAt(dateStr: string): string {
   });
 }
 
-function CvPdfPreview({
-  cv,
-  client,
-  platform,
-}: {
-  cv: ICvFile | null;
-  client: AdminClient;
-  platform: PlatformBridge;
-}) {
-  const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
-  const [previewError, setPreviewError] = useState(false);
-  const [numPages, setNumPages] = useState(0);
-  const [pageWidth, setPageWidth] = useState(0);
-  const previewRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!cv) {
-      setPdfData(null);
-      return;
-    }
-    let cancelled = false;
-    setPdfData(null);
-    setPreviewError(false);
-    setNumPages(0);
-    void (async () => {
-      try {
-        const response = await client.raw("cv/file");
-        const buffer = await response.arrayBuffer();
-        if (!cancelled) setPdfData(new Uint8Array(buffer));
-      } catch {
-        if (!cancelled) setPreviewError(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [client, cv]);
-
-  useEffect(() => {
-    const element = previewRef.current;
-    if (!element) return;
-    const update = () => setPageWidth(element.clientWidth);
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-
-  const pdfFile = useMemo(
-    () => (pdfData ? { data: pdfData } : null),
-    [pdfData],
-  );
-  const fallback = (
-    <div className="flex h-full min-h-80 items-center justify-center p-4 text-xs text-muted-foreground">
-      {cv ? (
-        <button
-          type="button"
-          className="underline underline-offset-2 transition-colors hover:text-foreground"
-          onClick={() => platform.openExternal(cv.url)}
-        >
-          Open PDF
-        </button>
-      ) : (
-        <FileOutput className="size-5 opacity-40" />
-      )}
-    </div>
-  );
-
-  return (
-    <div ref={previewRef} className="h-full min-h-80 overflow-y-auto">
-      {previewError ? (
-        fallback
-      ) : !cv ? (
-        fallback
-      ) : !pdfFile ? (
-        <div className="flex h-full min-h-80 items-center justify-center">
-          <Loader2 className="size-4 animate-spin text-muted-foreground" />
-        </div>
-      ) : (
-        <Document
-          key={cv.updatedAt}
-          file={pdfFile}
-          onLoadSuccess={({ numPages: total }) => setNumPages(total)}
-          onLoadError={() => setPreviewError(true)}
-          loading={
-            <div className="flex h-full min-h-80 items-center justify-center">
-              <Loader2 className="size-4 animate-spin text-muted-foreground" />
-            </div>
-          }
-          error={fallback}
-          className="flex flex-col items-center gap-3 p-3"
-        >
-          {Array.from({ length: numPages }, (_, index) => (
-            <Page
-              key={`page-${index + 1}`}
-              pageNumber={index + 1}
-              width={
-                pageWidth > 0
-                  ? Math.min(pageWidth - 24, MAX_PAGE_WIDTH)
-                  : undefined
-              }
-              renderTextLayer={false}
-              renderAnnotationLayer={false}
-              className="shadow-sm"
-            />
-          ))}
-        </Document>
-      )}
-    </div>
-  );
-}
-
 export function CvSkeleton() {
   return (
     <div className="flex h-full flex-col gap-2">
@@ -181,6 +65,7 @@ export function CvSkeleton() {
 export function CvPage() {
   const { client, platform, slots } = useAdmin();
   const [cv, setCv] = useState<ICvFile | null>(null);
+  const [draft, setDraft] = useState<ICvFile | null>(null);
   const [project, setProject] = useState<LatexProject | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -189,6 +74,7 @@ export function CvPage() {
     try {
       const result = await client.get<CvResponse>("cv");
       setCv(result.cv);
+      setDraft(result.draft);
       setProject(result.project ?? createDefaultLatexProject());
     } catch {
       setProject((current) => current ?? createDefaultLatexProject());
@@ -261,8 +147,9 @@ export function CvPage() {
                 nextProject,
               );
               setCv(result.cv);
+              setDraft(result.draft);
               setProject(result.project ?? nextProject);
-              toast.success("CV compiled and published");
+              toast.success("CV compiled");
               return { log: result.log };
             } catch (error) {
               if (error instanceof AdminApiError) {
@@ -274,8 +161,24 @@ export function CvPage() {
               throw error;
             }
           }}
-          compileLabel="Compile & publish"
-          preview={<CvPdfPreview cv={cv} client={client} platform={platform} />}
+          onPublish={async () => {
+            const result = await client.post<CvResponse>("cv/publish", {});
+            setCv(result.cv);
+            setDraft(result.draft);
+            setProject((current) => result.project ?? current);
+            toast.success("CV published");
+          }}
+          canPublish={draft !== null}
+          compileLabel="Compile"
+          publishLabel="Publish"
+          preview={
+            <CvPdfPreview
+              cv={cv}
+              draft={draft}
+              client={client}
+              platform={platform}
+            />
+          }
         />
       </div>
     </div>

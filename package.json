@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "agent-memory:migrate": "cd apps/web && bun --env-file=../../.env scripts/migrate-agent-memory.ts",
+    "papers:migrate": "cd apps/web && bun --env-file=../../.env scripts/migrate-papers-from-notes.ts",
     "build": "bun --env-file=.env turbo run build",
     "dev": "bun --env-file=.env turbo run dev",
     "lint": "bun --env-file=.env turbo run lint",

@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
       .exec();
     return NextResponse.json({
       cv: serializeCv(settings?.cv),
+      draft: serializeCv(settings?.cvDraft),
       project: settings?.cvProject ?? null,
     });
   } catch {
@@ -82,7 +83,11 @@ export async function PUT(request: NextRequest) {
     )
       .lean<ILeanAppSettings>()
       .exec();
-    return NextResponse.json({ cv: serializeCv(settings?.cv), project });
+    return NextResponse.json({
+      cv: serializeCv(settings?.cv),
+      draft: serializeCv(settings?.cvDraft),
+      project,
+    });
   } catch {
     return NextResponse.json(
       { error: "Failed to save CV source" },
@@ -176,7 +181,11 @@ export async function POST(request: NextRequest) {
 
     revalidatePath("/");
 
-    return NextResponse.json({ cv, project: settings?.cvProject ?? null });
+    return NextResponse.json({
+      cv,
+      draft: serializeCv(settings?.cvDraft),
+      project: settings?.cvProject ?? null,
+    });
   } catch (error) {
     const err = error as Error;
     console.error("Error uploading CV:", err);

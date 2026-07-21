@@ -3,7 +3,6 @@ import {
   type ILatexProject,
   latexProjectSchema,
 } from "@repo/schemas";
-import { revalidatePath } from "next/cache";
 import { type NextRequest, NextResponse } from "next/server";
 import {
   compileLatexProject,
@@ -24,7 +23,8 @@ export const maxDuration = 120;
 
 let compilationInFlight = false;
 
-function serializeCv(cv: IStoredCv): ICvFile {
+function serializeCv(cv: IStoredCv | null | undefined): ICvFile | null {
+  if (!cv) return null;
   return {
     url: cv.url,
     filename: cv.filename,
@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
         {
           $set: {
             cvProject: project,
-            cv: {
+            cvDraft: {
               url: uploaded.publicUrl,
               filename,
               size: uploaded.sizeBytes,
@@ -118,19 +118,25 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
-    if (!settings?.cv) {
+    if (!settings?.cvDraft) {
       await deleteFileFromStorage(uploaded.id).catch(() => undefined);
-      throw new Error("CV metadata was not persisted");
+      throw new Error("CV draft metadata was not persisted");
     }
-    if (previous?.cv?.storageKey && previous.cv.storageKey !== uploaded.id) {
-      await deleteFileFromStorage(previous.cv.storageKey).catch((error) => {
-        console.error("Failed to remove previous compiled CV", error);
+    // Drop the superseded draft object, but never the currently published one.
+    const staleDraftKey = previous?.cvDraft?.storageKey;
+    if (
+      staleDraftKey &&
+      staleDraftKey !== uploaded.id &&
+      staleDraftKey !== previous?.cv?.storageKey
+    ) {
+      await deleteFileFromStorage(staleDraftKey).catch((error) => {
+        console.error("Failed to remove previous CV draft", error);
       });
     }
 
-    revalidatePath("/");
     return NextResponse.json({
       cv: serializeCv(settings.cv),
+      draft: serializeCv(settings.cvDraft),
       project,
       log: compilation.log,
     });

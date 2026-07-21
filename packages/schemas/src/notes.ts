@@ -15,6 +15,7 @@ export const noteSchema = z.object({
   manualGroupIds: z.array(z.string()).optional(),
   status: z.enum(["open", "archived"]),
   class: z.string().optional(),
+  paperId: z.string().optional(),
   semanticKeywords: z.array(z.string()).optional(),
   semanticSummary: z.string().optional(),
   semanticModel: z.string().optional(),

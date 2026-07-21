@@ -6,6 +6,10 @@ export const webPlatform: PlatformBridge = {
     window.open(url, "_blank", "noopener,noreferrer");
   },
 
+  navigate(path) {
+    window.location.assign(`/admin/dashboard${path}`);
+  },
+
   async copyText(text) {
     await navigator.clipboard.writeText(text);
   },

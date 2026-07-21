@@ -6,6 +6,7 @@
  */
 export interface PlatformBridge {
   openExternal(url: string): void | Promise<void>;
+  navigate(path: string): void | Promise<void>;
   copyText(text: string): Promise<void>;
   notify(title: string, body?: string): void | Promise<void>;
   downloadFile(

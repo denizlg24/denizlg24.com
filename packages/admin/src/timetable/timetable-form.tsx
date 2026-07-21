@@ -122,7 +122,7 @@ export function TimetableForm({
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select day" />
                 </SelectTrigger>
-                <SelectContent className="z-99" position="popper">
+                <SelectContent position="popper">
                   {DAYS.map((day) => (
                     <SelectItem key={day.value} value={day.value}>
                       {day.label}
@@ -147,7 +147,7 @@ export function TimetableForm({
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select color" />
                 </SelectTrigger>
-                <SelectContent className="z-99" position="popper">
+                <SelectContent position="popper">
                   {TIMETABLE_COLORS.map((color) => (
                     <SelectItem key={color} value={color}>
                       <span className="flex items-center gap-2">
@@ -187,7 +187,7 @@ export function TimetableForm({
                     <SelectTrigger className="flex-1">
                       <SelectValue placeholder="HH" />
                     </SelectTrigger>
-                    <SelectContent className="z-99 max-h-48" position="popper">
+                    <SelectContent className="max-h-48" position="popper">
                       {Array.from({ length: 24 }, (_, i) => {
                         const val = String(i).padStart(2, "0");
                         return (
@@ -206,7 +206,7 @@ export function TimetableForm({
                     <SelectTrigger className="flex-1">
                       <SelectValue placeholder="MM" />
                     </SelectTrigger>
-                    <SelectContent className="z-99 max-h-48" position="popper">
+                    <SelectContent className="max-h-48" position="popper">
                       {Array.from({ length: 60 }, (_, i) => {
                         const val = String(i).padStart(2, "0");
                         return (
@@ -244,7 +244,7 @@ export function TimetableForm({
                     <SelectTrigger className="flex-1">
                       <SelectValue placeholder="HH" />
                     </SelectTrigger>
-                    <SelectContent className="z-99 max-h-48" position="popper">
+                    <SelectContent className="max-h-48" position="popper">
                       {Array.from({ length: 24 }, (_, i) => {
                         const val = String(i).padStart(2, "0");
                         return (
@@ -263,7 +263,7 @@ export function TimetableForm({
                     <SelectTrigger className="flex-1">
                       <SelectValue placeholder="MM" />
                     </SelectTrigger>
-                    <SelectContent className="z-99 max-h-48" position="popper">
+                    <SelectContent className="max-h-48" position="popper">
                       {Array.from({ length: 60 }, (_, i) => {
                         const val = String(i).padStart(2, "0");
                         return (

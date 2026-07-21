@@ -641,6 +641,15 @@ export default function NotesPage() {
     [notes, selectedId],
   );
 
+  useEffect(() => {
+    if (selectedNote?.paperId) {
+      setSelectedId(null);
+      router.push(
+        `/dashboard/papers?paper=${encodeURIComponent(selectedNote.paperId)}`,
+      );
+    }
+  }, [router, selectedNote?.paperId]);
+
   const selectedGroup = useMemo(
     () => groups.find((group) => group._id === selectedGroupId) ?? null,
     [groups, selectedGroupId],
@@ -682,6 +691,13 @@ export default function NotesPage() {
   }
 
   if (selectedNote) {
+    if (selectedNote.paperId) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
     return (
       <NoteDetail
         note={selectedNote}

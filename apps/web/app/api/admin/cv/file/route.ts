@@ -15,11 +15,12 @@ export async function GET(request: NextRequest) {
     const settings = await AppSettings.findById("singleton")
       .lean<ILeanAppSettings>()
       .exec();
-    if (!settings?.cv) {
+    const source = settings?.cvDraft ?? settings?.cv;
+    if (!source) {
       return NextResponse.json({ error: "No CV uploaded" }, { status: 404 });
     }
 
-    const upstream = await fetch(settings.cv.url, { cache: "no-store" });
+    const upstream = await fetch(source.url, { cache: "no-store" });
     if (!upstream.ok || !upstream.body) {
       return NextResponse.json(
         { error: "Failed to fetch CV from storage" },
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(upstream.body, {
       headers: {
         "content-type": "application/pdf",
-        "content-disposition": `inline; filename="${settings.cv.filename.replace(/["\r\n]/g, "")}"`,
+        "content-disposition": `inline; filename="${source.filename.replace(/["\r\n]/g, "")}"`,
         "cache-control": "no-store",
       },
     });

@@ -248,8 +248,10 @@
       "name": "@repo/latex-editor",
       "version": "0.0.0",
       "dependencies": {
+        "@codemirror/language": "^6.12.4",
         "@codemirror/state": "^6.5.2",
         "@codemirror/view": "^6.38.1",
+        "@lezer/highlight": "^1.2.3",
         "@repo/ui": "workspace:*",
         "@uiw/react-codemirror": "^4.25.11",
         "codemirror": "^6.0.2",

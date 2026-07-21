@@ -11,6 +11,21 @@ import { NoteEmbedding } from "@/models/NoteEmbedding";
 
 async function updateNote(request: NextRequest, noteId: string) {
   const body = await request.json();
+  const linkedPaper = await Note.exists({
+    _id: noteId,
+    paperId: { $exists: true },
+  });
+  if (
+    linkedPaper &&
+    ["title", "content", "url", "description", "tags", "class"].some(
+      (field) => body[field] !== undefined,
+    )
+  ) {
+    return NextResponse.json(
+      { error: "Edit paper metadata from the Papers page" },
+      { status: 409 },
+    );
+  }
   const update: Record<string, unknown> = {};
   const unset: Record<string, unknown> = {};
   let semanticAffectingChange = false;
@@ -160,6 +175,12 @@ export async function DELETE(
     const note = await Note.findById(noteId).lean<ILeanNote>().exec();
     if (!note) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (note.paperId) {
+      return NextResponse.json(
+        { error: "Delete linked papers from the Papers page" },
+        { status: 409 },
+      );
     }
     await redactAgentMemorySource({ entityType: "note", entityId: noteId });
     await Note.deleteOne({ _id: noteId }).exec();
