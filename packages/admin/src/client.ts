@@ -13,11 +13,17 @@
 
 export class AdminApiError extends Error {
   readonly code: number;
+  readonly details?: Record<string, unknown>;
 
-  constructor(message: string, code: number) {
+  constructor(
+    message: string,
+    code: number,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "AdminApiError";
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -92,7 +98,7 @@ async function buildError(res: Response): Promise<AdminApiError> {
         (data && typeof data.error === "string" && data.error) ||
         (data && typeof data.title === "string" && data.title) ||
         fallback;
-      return new AdminApiError(message, res.status);
+      return new AdminApiError(message, res.status, data ?? undefined);
     }
     const text = (await res.text()).trim();
     return new AdminApiError(
