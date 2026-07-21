@@ -17,6 +17,7 @@ export interface INote extends Document {
   manualGroupIds?: mongoose.Types.ObjectId[];
   status: NoteStatus;
   class?: string;
+  paperId?: mongoose.Types.ObjectId;
   semanticKeywords?: string[];
   semanticSummary?: string;
   semanticModel?: string;
@@ -43,6 +44,7 @@ export interface ILeanNote {
   manualGroupIds?: string[];
   status: NoteStatus;
   class?: string;
+  paperId?: mongoose.Types.ObjectId | string;
   semanticKeywords?: string[];
   semanticSummary?: string;
   semanticModel?: string;
@@ -89,6 +91,13 @@ const NoteSchema = new Schema<INote>(
       index: true,
     },
     class: { type: String, trim: true },
+    paperId: {
+      type: Schema.Types.ObjectId,
+      ref: "Paper",
+      index: true,
+      unique: true,
+      sparse: true,
+    },
     semanticKeywords: [{ type: String, trim: true }],
     semanticSummary: { type: String },
     semanticModel: { type: String },

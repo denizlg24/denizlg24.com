@@ -12,6 +12,7 @@ export * from "./journal";
 export * from "./kanban";
 export * from "./llm";
 export * from "./notes";
+export * from "./paper";
 export * from "./people";
 export * from "./project";
 export * from "./resource";

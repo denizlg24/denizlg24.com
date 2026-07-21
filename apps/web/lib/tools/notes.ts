@@ -193,6 +193,7 @@ export const notesTools: ToolDefinition[] = [
         tags: note.tags,
         groupIds: (note.groupIds ?? []).map(String),
         status: note.status,
+        paperId: note.paperId ? String(note.paperId) : undefined,
         updatedAt: note.updatedAt,
       }));
     },
@@ -235,6 +236,7 @@ export const notesTools: ToolDefinition[] = [
         tags: note.tags,
         groupIds: (note.groupIds ?? []).map(String),
         status: note.status,
+        paperId: note.paperId ? String(note.paperId) : undefined,
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,
       };
@@ -275,6 +277,7 @@ export const notesTools: ToolDefinition[] = [
         preview: note.content.slice(0, 200),
         url: note.url,
         status: note.status,
+        paperId: note.paperId ? String(note.paperId) : undefined,
         updatedAt: note.updatedAt,
       }));
     },
@@ -408,6 +411,18 @@ export const notesTools: ToolDefinition[] = [
       await connectDB();
       const data: Record<string, unknown> = {};
       let semanticClassificationRequired = false;
+      const linkedPaper = await Note.exists({
+        _id: input.id as string,
+        paperId: { $exists: true },
+      });
+      if (
+        linkedPaper &&
+        ["title", "content", "description", "url", "tags", "class"].some(
+          (field) => input[field] !== undefined,
+        )
+      ) {
+        throw new Error("Edit paper metadata with update_paper");
+      }
       if (input.title !== undefined) {
         data.title = input.title;
         semanticClassificationRequired = true;
@@ -485,6 +500,9 @@ export const notesTools: ToolDefinition[] = [
       }
       const note = await Note.findById(id);
       if (!note) throw new Error("Note not found");
+      if (note.paperId) {
+        throw new Error("Delete linked papers with delete_paper");
+      }
       await redactAgentMemorySource({ entityType: "note", entityId: id });
       await Note.deleteOne({ _id: id });
       const { NoteEdge } = await import("@/models/NoteEdge");

@@ -8,6 +8,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import {
   AlarmClock,
+  BookOpen,
   Brain,
   BrainCircuit,
   Briefcase,
@@ -208,6 +209,11 @@ export const GROUPS: NavGroup[] = [
         label: "Notes",
         href: "/notes",
         icon: FileText,
+      },
+      {
+        label: "Papers",
+        href: "/papers",
+        icon: BookOpen,
       },
       {
         label: "People",

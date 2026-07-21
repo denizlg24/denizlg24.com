@@ -8,6 +8,7 @@ import { emailTools } from "./email";
 import { kanbanTools } from "./kanban";
 import { notesTools } from "./notes";
 import { nowTools } from "./now";
+import { papersTools } from "./papers";
 import { peopleTools } from "./people";
 import { projectsTools } from "./projects";
 import { resourceTools } from "./resources";
@@ -31,6 +32,7 @@ const allTools: ToolDefinition[] = [
 
   // Academic
   ...coursesTools,
+  ...papersTools,
 
   // People
   ...peopleTools,

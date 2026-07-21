@@ -12,6 +12,10 @@ export const desktopPlatform: PlatformBridge = {
     window.open(url, "_blank", "noopener,noreferrer");
   },
 
+  navigate(path) {
+    window.location.assign(`/dashboard${path}`);
+  },
+
   async copyText(text) {
     if (isTauri()) {
       const { writeText } = await import(

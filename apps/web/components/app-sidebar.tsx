@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BookOpen,
   Brain,
   BrainCircuit,
   Briefcase,
@@ -77,6 +78,11 @@ const items = [
     title: "Notes",
     url: "/admin/dashboard/notes",
     icon: FileText,
+  },
+  {
+    title: "Papers",
+    url: "/admin/dashboard/papers",
+    icon: BookOpen,
   },
   {
     title: "Comments",

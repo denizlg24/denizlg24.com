@@ -7,6 +7,9 @@ export interface UrlMetadata {
   favicon?: string;
   image?: string;
   siteName?: string;
+  doi?: string;
+  arxivId?: string;
+  pdfUrl?: string;
 }
 
 const META_TIMEOUT_MS = 8000;
@@ -54,6 +57,25 @@ function resolveUrl(base: string, href: string): string {
   } catch {
     return href;
   }
+}
+
+export function extractAcademicMetadata(
+  html: string,
+  baseUrl: string,
+): Pick<UrlMetadata, "arxivId" | "doi" | "pdfUrl"> {
+  const doi =
+    matchMeta(html, "name", "citation_doi") ||
+    matchMeta(html, "name", "dc.identifier") ||
+    matchMeta(html, "name", "eprints.id_number");
+  const arxivId =
+    matchMeta(html, "name", "citation_arxiv_id") ||
+    matchMeta(html, "name", "arxiv.identifier");
+  const citationPdf = matchMeta(html, "name", "citation_pdf_url");
+  return {
+    doi,
+    arxivId,
+    pdfUrl: citationPdf ? resolveUrl(baseUrl, citationPdf) : undefined,
+  };
 }
 
 export async function fetchUrlMetadata(rawUrl: string): Promise<UrlMetadata> {
@@ -115,6 +137,7 @@ export async function fetchUrlMetadata(rawUrl: string): Promise<UrlMetadata> {
   const twDesc = matchMeta(html, "name", "twitter:description");
   const twImage = matchMeta(html, "name", "twitter:image");
   const metaDesc = matchMeta(html, "name", "description");
+  const academic = extractAcademicMetadata(html, url);
 
   const title = ogTitle || twTitle || matchTitle(html) || hostname;
   const description = ogDesc || twDesc || metaDesc;
@@ -127,5 +150,13 @@ export async function fetchUrlMetadata(rawUrl: string): Promise<UrlMetadata> {
 
   const favicon = await fetchFavicon(url);
 
-  return { url, title, description, favicon, image, siteName };
+  return {
+    url,
+    title,
+    description,
+    favicon,
+    image,
+    siteName,
+    ...academic,
+  };
 }

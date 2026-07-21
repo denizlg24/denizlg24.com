@@ -1,3 +1,4 @@
+import type { CreatePaperInput } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
@@ -10,6 +11,19 @@ import {
   serializeGroup,
   serializeNote,
 } from "@/lib/note-route-utils";
+import {
+  normalizeArxivId,
+  normalizeDoi,
+  serializePaper,
+} from "@/lib/paper-citations";
+import { remotePdfFromUrl } from "@/lib/paper-files";
+import {
+  isAcademicPaperProviderUrl,
+  isSemanticScholarPaperUrl,
+  resolvePaperMetadata,
+  resolvePaperMetadataByTitle,
+} from "@/lib/paper-metadata";
+import { createPaperWithLinkedNote, ensurePaperNote } from "@/lib/paper-notes";
 import { requireAdmin } from "@/lib/require-admin";
 import {
   type ILeanKnowledgeSemanticRun,
@@ -19,6 +33,7 @@ import { KnowledgeSemanticSuggestion } from "@/models/KnowledgeSemanticSuggestio
 import { type ILeanNote, Note } from "@/models/Note";
 import { type ILeanNoteEdge, NoteEdge } from "@/models/NoteEdge";
 import { type ILeanNoteGroup, NoteGroup } from "@/models/NoteGroup";
+import { type ILeanPaper, Paper } from "@/models/Paper";
 
 function pickString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0
@@ -127,6 +142,9 @@ export async function POST(request: NextRequest) {
           favicon: pickString(providedMeta.favicon),
           image: pickString(providedMeta.image),
           siteName: pickString(providedMeta.siteName),
+          doi: pickString(providedMeta.doi),
+          arxivId: pickString(providedMeta.arxivId),
+          pdfUrl: pickString(providedMeta.pdfUrl),
         };
       } else if (!skipMetadataFetch) {
         metadata = await fetchUrlMetadata(url);
@@ -190,6 +208,120 @@ export async function POST(request: NextRequest) {
       typeof body.publishedDate === "string"
         ? new Date(body.publishedDate)
         : undefined;
+
+    const doi = url
+      ? normalizeDoi(url) || normalizeDoi(metadata?.doi ?? "")
+      : undefined;
+    const arxivId = url
+      ? normalizeArxivId(url) || normalizeArxivId(metadata?.arxivId ?? "")
+      : undefined;
+    const detectedPdf = url
+      ? remotePdfFromUrl(metadata?.pdfUrl ?? url)
+      : undefined;
+    const semanticScholarUrl = url && isSemanticScholarPaperUrl(url);
+    const academicProviderUrl = url && isAcademicPaperProviderUrl(url);
+    if (url && (doi || arxivId || detectedPdf || academicProviderUrl)) {
+      const identityFilters = [
+        ...(doi ? [{ doi }] : []),
+        ...(arxivId ? [{ arxivId }] : []),
+      ];
+      const existingPaper = identityFilters.length
+        ? await Paper.findOne({ $or: identityFilters })
+            .lean<ILeanPaper>()
+            .exec()
+        : null;
+      if (existingPaper) {
+        const linkedNote = await ensurePaperNote(existingPaper);
+        const existingGroups = await NoteGroup.find()
+          .sort({ name: 1 })
+          .lean<ILeanNoteGroup[]>()
+          .exec();
+        return NextResponse.json(
+          {
+            note: serializeNote(linkedNote),
+            paper: serializePaper(existingPaper),
+            groups: existingGroups.map(serializeGroup),
+            edges: [],
+          },
+          { status: 200 },
+        );
+      }
+
+      let academicMetadata: Awaited<
+        ReturnType<typeof resolvePaperMetadata>
+      > | null = null;
+      const academicIdentifier =
+        doi || arxivId || (semanticScholarUrl ? url : undefined);
+      if (academicIdentifier) {
+        try {
+          academicMetadata = await resolvePaperMetadata(academicIdentifier);
+        } catch (error) {
+          console.error(
+            "Paper metadata lookup failed during note import:",
+            error,
+          );
+        }
+      }
+      if (!academicMetadata && academicProviderUrl) {
+        try {
+          academicMetadata = await resolvePaperMetadataByTitle(title);
+        } catch (error) {
+          console.error("Paper title lookup failed during note import:", error);
+        }
+      }
+
+      const paperInput: CreatePaperInput = {
+        ...(academicMetadata ?? {
+          title,
+          authors: [],
+          type: arxivId ? "preprint" : "article",
+          metadataSource: "manual",
+        }),
+        title: manualTitle ?? academicMetadata?.title ?? title,
+        abstract:
+          manualContent.trim() ||
+          academicMetadata?.abstract ||
+          manualDescription ||
+          metadata?.description,
+        doi: academicMetadata?.doi ?? doi,
+        arxivId: academicMetadata?.arxivId ?? arxivId,
+        url: academicMetadata?.url ?? metadata?.url ?? url,
+        pdf: detectedPdf ?? academicMetadata?.pdf,
+        tags,
+        readingStatus: status === "archived" ? "read" : "unread",
+      };
+      const created = await createPaperWithLinkedNote(paperInput, {
+        note: {
+          content: manualContent || academicMetadata?.abstract || "",
+          description:
+            manualDescription ??
+            academicMetadata?.abstract ??
+            metadata?.description,
+          groupIds: prunedGroupIds,
+          manualGroupIds: prunedGroupIds,
+          publishedDate:
+            publishedDate && !Number.isNaN(publishedDate.getTime())
+              ? publishedDate
+              : undefined,
+          status,
+          url,
+        },
+      });
+      const paperGroups = await NoteGroup.find()
+        .sort({ name: 1 })
+        .lean<ILeanNoteGroup[]>()
+        .exec();
+      await observeDomainRecordSafely("note", created.note);
+      return NextResponse.json(
+        {
+          note: serializeNote(created.note),
+          paper: serializePaper(created.paper),
+          groups: paperGroups.map(serializeGroup),
+          edges: [],
+        },
+        { status: 201 },
+      );
+    }
 
     const note = await Note.create({
       title,
