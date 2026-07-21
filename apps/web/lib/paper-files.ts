@@ -3,9 +3,10 @@ import type { PaperFile } from "@repo/schemas";
 export function remotePdfFromUrl(url: string): PaperFile | undefined {
   try {
     const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
     const isPdf =
       parsed.pathname.toLowerCase().endsWith(".pdf") ||
-      (parsed.hostname.toLowerCase().endsWith("arxiv.org") &&
+      ((hostname === "arxiv.org" || hostname.endsWith(".arxiv.org")) &&
         parsed.pathname.toLowerCase().startsWith("/pdf/"));
     if (!isPdf) return undefined;
     const fallback = parsed.pathname.split("/").filter(Boolean).at(-1);

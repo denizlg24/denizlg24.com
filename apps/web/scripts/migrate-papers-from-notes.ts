@@ -192,13 +192,16 @@ async function inputForNote(
     console.error(
       `[papers:migrate] using manual metadata for note ${String(note._id)}`,
     );
-    return manual;
+    return { ...manual, pdf: manual.pdf ?? pagePdf };
   }
   return {
     ...manual,
     ...metadata,
     title: note.title || metadata.title,
     abstract: metadata.abstract || manual.abstract,
+    doi: metadata.doi ?? manual.doi,
+    arxivId: metadata.arxivId ?? manual.arxivId,
+    url: metadata.url ?? manual.url,
     tags: note.tags,
     readingStatus: manual.readingStatus,
     pdf: manual.pdf ?? metadata.pdf ?? pagePdf,

@@ -12,20 +12,26 @@ export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
 
-  const parsed = resolvePaperMetadataSchema.safeParse(await request.json());
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Enter a DOI, arXiv identifier, or Semantic Scholar URL" },
-      { status: 400 },
-    );
-  }
-
   try {
+    const parsed = resolvePaperMetadataSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Enter a DOI, arXiv identifier, or Semantic Scholar URL" },
+        { status: 400 },
+      );
+    }
+
     const metadata = resolvedPaperMetadataSchema.parse(
       await resolvePaperMetadata(parsed.data.identifier),
     );
     return NextResponse.json({ metadata });
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json(
+        { error: "Enter a DOI, arXiv identifier, or Semantic Scholar URL" },
+        { status: 400 },
+      );
+    }
     const message =
       error instanceof Error ? error.message : "Metadata lookup failed";
     const status = /Enter a DOI|Invalid/.test(message)

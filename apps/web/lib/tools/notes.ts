@@ -409,20 +409,17 @@ export const notesTools: ToolDefinition[] = [
     category: "notes",
     execute: async (input) => {
       await connectDB();
+      const id = input.id as string;
+      const touchesRestricted = [
+        "title",
+        "content",
+        "description",
+        "url",
+        "tags",
+        "class",
+      ].some((field) => input[field] !== undefined);
       const data: Record<string, unknown> = {};
       let semanticClassificationRequired = false;
-      const linkedPaper = await Note.exists({
-        _id: input.id as string,
-        paperId: { $exists: true },
-      });
-      if (
-        linkedPaper &&
-        ["title", "content", "description", "url", "tags", "class"].some(
-          (field) => input[field] !== undefined,
-        )
-      ) {
-        throw new Error("Edit paper metadata with update_paper");
-      }
       if (input.title !== undefined) {
         data.title = input.title;
         semanticClassificationRequired = true;
@@ -456,10 +453,19 @@ export const notesTools: ToolDefinition[] = [
       }
       if (semanticClassificationRequired) data.semanticStatus = "stale";
 
-      const note = await Note.findByIdAndUpdate(input.id as string, data, {
-        returnDocument: "after",
-      }).lean();
-      if (!note) throw new Error("Note not found");
+      const note = await Note.findOneAndUpdate(
+        touchesRestricted
+          ? { _id: id, paperId: { $exists: false } }
+          : { _id: id },
+        data,
+        { returnDocument: "after" },
+      ).lean();
+      if (!note) {
+        if (touchesRestricted && (await Note.exists({ _id: id }))) {
+          throw new Error("Edit paper metadata with update_paper");
+        }
+        throw new Error("Note not found");
+      }
       return {
         _id: note._id.toString(),
         title: note.title,
@@ -498,13 +504,17 @@ export const notesTools: ToolDefinition[] = [
           "Invalid note ID. Use the _id returned by list_notes or search_notes.",
         );
       }
-      const note = await Note.findById(id);
-      if (!note) throw new Error("Note not found");
-      if (note.paperId) {
-        throw new Error("Delete linked papers with delete_paper");
+      const note = await Note.findOneAndDelete({
+        _id: id,
+        paperId: { $exists: false },
+      });
+      if (!note) {
+        if (await Note.exists({ _id: id })) {
+          throw new Error("Delete linked papers with delete_paper");
+        }
+        throw new Error("Note not found");
       }
       await redactAgentMemorySource({ entityType: "note", entityId: id });
-      await Note.deleteOne({ _id: id });
       const { NoteEdge } = await import("@/models/NoteEdge");
       await NoteEdge.deleteMany({
         $or: [{ from: note._id }, { to: note._id }],

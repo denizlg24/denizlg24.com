@@ -35,6 +35,8 @@ import { type ILeanNoteEdge, NoteEdge } from "@/models/NoteEdge";
 import { type ILeanNoteGroup, NoteGroup } from "@/models/NoteGroup";
 import { type ILeanPaper, Paper } from "@/models/Paper";
 
+export const maxDuration = 30;
+
 function pickString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()

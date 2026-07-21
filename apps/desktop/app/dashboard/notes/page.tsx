@@ -643,6 +643,7 @@ export default function NotesPage() {
 
   useEffect(() => {
     if (selectedNote?.paperId) {
+      setSelectedId(null);
       router.push(
         `/dashboard/papers?paper=${encodeURIComponent(selectedNote.paperId)}`,
       );

@@ -46,12 +46,12 @@ export const paperHighlightSchema = z.object({
   text: z.string().trim().min(1).max(20_000),
   note: z.string().max(20_000).optional(),
   color: paperHighlightColorSchema.default("yellow"),
-  createdAt: z.string(),
+  createdAt: z.iso.datetime(),
 });
 export type PaperHighlight = z.infer<typeof paperHighlightSchema>;
 
 export const paperFileSchema = z.object({
-  url: z.string().url(),
+  url: z.url(),
   storageKey: z.string().max(1_000).optional(),
   fileName: z.string().max(500),
   mimeType: z.literal("application/pdf"),
@@ -117,7 +117,7 @@ export const paperMutationSchema = z.object({
   type: paperTypeSchema.optional(),
   readingStatus: paperReadingStatusSchema.optional(),
   year: z.number().int().min(1000).max(3000).nullable().optional(),
-  publishedDate: z.string().datetime().nullable().optional(),
+  publishedDate: z.iso.datetime().nullable().optional(),
   venue: optionalTrimmedString(1_000),
   publisher: optionalTrimmedString(1_000),
   volume: optionalTrimmedString(100),
@@ -140,17 +140,17 @@ export const paperMutationSchema = z.object({
   metadataSource: z
     .enum(["manual", "crossref", "arxiv", "semantic_scholar"])
     .optional(),
-  metadataFetchedAt: z.string().datetime().nullable().optional(),
+  metadataFetchedAt: z.iso.datetime().nullable().optional(),
 });
 export type PaperMutation = z.infer<typeof paperMutationSchema>;
 
 export const createPaperSchema = paperMutationSchema.extend({
   title: z.string().trim().min(1).max(1_000),
   year: z.number().int().min(1000).max(3000).optional(),
-  publishedDate: z.string().datetime().optional(),
+  publishedDate: z.iso.datetime().optional(),
   citationCount: z.number().int().nonnegative().optional(),
   pdf: paperFileSchema.optional(),
-  metadataFetchedAt: z.string().datetime().optional(),
+  metadataFetchedAt: z.iso.datetime().optional(),
 });
 export type CreatePaperInput = z.infer<typeof createPaperSchema>;
 

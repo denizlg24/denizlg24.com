@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   findMatchingCrossrefWork,
+  isSemanticScholarPaperUrl,
   mapCrossrefWork,
   mapSemanticScholarPaper,
   parseArxivFeed,
@@ -78,5 +79,17 @@ describe("paper metadata", () => {
     expect(
       findMatchingCrossrefWork("Unrelated architecture research", works),
     ).toBeUndefined();
+  });
+
+  it("matches Semantic Scholar hosts on a domain boundary, rejecting spoofs", () => {
+    expect(
+      isSemanticScholarPaperUrl("https://www.semanticscholar.org/paper/abc123"),
+    ).toBe(true);
+    expect(
+      isSemanticScholarPaperUrl("https://semanticscholar.org/paper/abc123"),
+    ).toBe(true);
+    expect(
+      isSemanticScholarPaperUrl("https://notsemanticscholar.org/paper/abc123"),
+    ).toBe(false);
   });
 });

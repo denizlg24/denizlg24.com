@@ -86,7 +86,7 @@ export interface SemanticScholarPaper {
 
 function stripMarkup(value: string): string {
   return value
-    .replace(/<[^>]*>/g, " ")
+    .replace(/<\/?[a-zA-Z][^>]*>/g, " ")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&")
@@ -258,8 +258,10 @@ export function parseArxivFeed(xml: string): ResolvedPaperMetadata {
 export function isSemanticScholarPaperUrl(value: string): boolean {
   try {
     const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
     return (
-      url.hostname.toLowerCase().endsWith("semanticscholar.org") &&
+      (hostname === "semanticscholar.org" ||
+        hostname.endsWith(".semanticscholar.org")) &&
       url.pathname.toLowerCase().startsWith("/paper/")
     );
   } catch {
@@ -407,7 +409,7 @@ export async function resolvePaperMetadata(
     if (response.status === 404) throw new Error("DOI not found");
     if (!response.ok) throw new Error("Crossref lookup failed");
     const payload = (await response.json()) as { message?: CrossrefWork };
-    if (!payload.message) throw new Error("Invalid Crossref response");
+    if (!payload.message) throw new Error("Crossref returned an empty record");
     return mapCrossrefWork(payload.message);
   }
 

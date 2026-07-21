@@ -6,6 +6,7 @@ import {
   type ResolvedPaperMetadata,
 } from "@repo/schemas";
 import mongoose from "mongoose";
+import type { z } from "zod";
 import { connectDB } from "@/lib/mongodb";
 import { serializePaper } from "@/lib/paper-citations";
 import { remotePdfFromUrl } from "@/lib/paper-files";
@@ -43,7 +44,13 @@ function stringAuthors(input: unknown): PaperAuthor[] | undefined {
   );
 }
 
-function validationError(message: string): never {
+function validationError(message: string, error?: z.ZodError): never {
+  if (error) {
+    const detail = error.issues
+      .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
+      .join("; ");
+    throw new Error(`${message}: ${detail}`);
+  }
   throw new Error(message);
 }
 
@@ -241,7 +248,8 @@ export const papersTools: ToolDefinition[] = [
         readingStatus: input.readingStatus,
         pdf,
       });
-      if (!parsed.success) return validationError("Invalid paper fields");
+      if (!parsed.success)
+        return validationError("Invalid paper fields", parsed.error);
       const { paper } = await createPaperWithLinkedNote(parsed.data);
       return serializePaper(paper);
     },
@@ -299,7 +307,8 @@ export const papersTools: ToolDefinition[] = [
         authors: stringAuthors(input.authors),
       };
       const parsed = paperMutationSchema.safeParse(candidate);
-      if (!parsed.success) return validationError("Invalid paper update");
+      if (!parsed.success)
+        return validationError("Invalid paper update", parsed.error);
       const paper = await Paper.findByIdAndUpdate(
         id,
         await preparePaperUpdate(parsed.data),
@@ -344,7 +353,8 @@ export const papersTools: ToolDefinition[] = [
         color: input.color ?? "yellow",
         createdAt: new Date().toISOString(),
       });
-      if (!parsed.success) return validationError("Invalid paper highlight");
+      if (!parsed.success)
+        return validationError("Invalid paper highlight", parsed.error);
       await connectDB();
       const paper = await Paper.findByIdAndUpdate(
         id,
@@ -407,9 +417,18 @@ export const papersTools: ToolDefinition[] = [
       await connectDB();
       const paper = await Paper.findByIdAndDelete(id).lean<ILeanPaper>().exec();
       if (!paper) throw new Error("Paper not found");
-      await deleteLinkedPaperNote(paper);
-      if (paper.pdf?.storageKey)
-        await deleteFileFromStorage(paper.pdf.storageKey);
+      try {
+        await deleteLinkedPaperNote(paper);
+      } catch (err) {
+        console.error(`Failed to delete linked note for paper ${id}`, err);
+      }
+      if (paper.pdf?.storageKey) {
+        try {
+          await deleteFileFromStorage(paper.pdf.storageKey);
+        } catch (err) {
+          console.error(`Failed to delete stored PDF for paper ${id}`, err);
+        }
+      }
       return { success: true };
     },
   },

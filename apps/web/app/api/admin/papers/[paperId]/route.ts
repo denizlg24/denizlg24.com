@@ -1,6 +1,6 @@
 import { paperMutationSchema } from "@repo/schemas";
 import mongoose from "mongoose";
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import { serializePaper } from "@/lib/paper-citations";
 import { deleteLinkedPaperNote, syncPaperNote } from "@/lib/paper-notes";
@@ -82,8 +82,10 @@ export async function PATCH(request: NextRequest, context: PaperRouteContext) {
     const previousKey = previous.pdf?.storageKey;
     const nextKey = paper.pdf?.storageKey;
     if (previousKey && previousKey !== nextKey) {
-      deleteFileFromStorage(previousKey).catch((error) =>
-        console.error("Failed to delete replaced paper PDF:", error),
+      after(() =>
+        deleteFileFromStorage(previousKey).catch((error) =>
+          console.error("Failed to delete replaced paper PDF:", error),
+        ),
       );
     }
     return NextResponse.json({ paper: serializePaper(paper) });

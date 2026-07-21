@@ -45,4 +45,18 @@ describe("paper citation helpers", () => {
     expect(bibtex).toContain("Research \\& Notes");
     expect(bibtex).toContain("archivePrefix = {arXiv}");
   });
+
+  it("escapes backslashes without corrupting the brace group", () => {
+    const bibtex = generateBibtex({
+      title: "Windows C:\\Users Study",
+      authors: [{ literal: "Ada Lovelace" }],
+      type: "article",
+      year: 2026,
+      isbn: [],
+      issn: [],
+      citationKey: "lovelace2026windows",
+    });
+    expect(bibtex).toContain("\\textbackslash{}");
+    expect(bibtex).not.toContain("\\textbackslash\\{\\}");
+  });
 });

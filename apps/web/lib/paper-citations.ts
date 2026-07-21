@@ -68,13 +68,15 @@ export function generateCitationKey(input: {
 }
 
 function escapeBibtex(value: string): string {
+  const BACKSLASH_TOKEN = "\u0000";
   return value
-    .replace(/\\/g, "\\textbackslash{}")
+    .replace(/\\/g, BACKSLASH_TOKEN)
     .replace(/([&_%#])/g, "\\$1")
     .replace(/{/g, "\\{")
     .replace(/}/g, "\\}")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .replaceAll(BACKSLASH_TOKEN, "\\textbackslash{}");
 }
 
 function bibtexType(type: PaperType): string {
