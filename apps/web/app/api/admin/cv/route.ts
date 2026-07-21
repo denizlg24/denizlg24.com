@@ -1,7 +1,12 @@
-import type { ICvFile } from "@repo/schemas";
+import {
+  type ICvFile,
+  type ILatexProject,
+  latexProjectSchema,
+} from "@repo/schemas";
 import { revalidatePath } from "next/cache";
 import { type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
+import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
 import { deleteFileFromStorage, uploadFileToStorage } from "@/lib/storage-api";
 import {
@@ -34,7 +39,10 @@ export async function GET(request: NextRequest) {
     const settings = await AppSettings.findById("singleton")
       .lean<ILeanAppSettings>()
       .exec();
-    return NextResponse.json({ cv: serializeCv(settings?.cv) });
+    return NextResponse.json({
+      cv: serializeCv(settings?.cv),
+      project: settings?.cvProject ?? null,
+    });
   } catch {
     return NextResponse.json(
       { error: "Internal Server Error" },
@@ -43,7 +51,50 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function PUT(request: NextRequest) {
+  if (isCrossOriginCookieRequest(request)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  const authError = await requireAdmin(request);
+  if (authError) return authError;
+
+  const declaredLength = Number(request.headers.get("content-length") ?? 0);
+  if (declaredLength > 5 * 1024 * 1024) {
+    return NextResponse.json({ error: "Project exceeds 4MB" }, { status: 413 });
+  }
+
+  let project: ILatexProject;
+  try {
+    project = latexProjectSchema.parse(await request.json());
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid LaTeX project" },
+      { status: 400 },
+    );
+  }
+
+  try {
+    await connectDB();
+    const settings = await AppSettings.findByIdAndUpdate(
+      "singleton",
+      { $set: { cvProject: project } },
+      { upsert: true, new: true },
+    )
+      .lean<ILeanAppSettings>()
+      .exec();
+    return NextResponse.json({ cv: serializeCv(settings?.cv), project });
+  } catch {
+    return NextResponse.json(
+      { error: "Failed to save CV source" },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
+  if (isCrossOriginCookieRequest(request)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const authError = await requireAdmin(request);
   if (authError) return authError;
 
@@ -125,7 +176,7 @@ export async function POST(request: NextRequest) {
 
     revalidatePath("/");
 
-    return NextResponse.json({ cv });
+    return NextResponse.json({ cv, project: settings?.cvProject ?? null });
   } catch (error) {
     const err = error as Error;
     console.error("Error uploading CV:", err);

@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   reactCompiler: true,
   transpilePackages: [
     "@repo/admin",
+    "@repo/latex-editor",
     "@repo/schemas",
     "@repo/utils",
     "@repo/ui",
@@ -25,6 +26,7 @@ const nextConfig: NextConfig = {
     ],
   },
   serverExternalPackages: [
+    "node-latex-compiler",
     "imapflow",
     "mailparser",
     "pino",
@@ -32,6 +34,11 @@ const nextConfig: NextConfig = {
     "pino-pretty",
     "@resvg/resvg-js",
   ],
+  outputFileTracingIncludes: {
+    "/api/admin/cv/compile": [
+      "./node_modules/@node-latex-compiler/bin-linux-x64/bin/tectonic",
+    ],
+  },
 };
 
 export default nextConfig;
