@@ -32,8 +32,11 @@ export interface LatexEditorProps {
   onChange: (project: LatexProject) => void;
   onCompile: (project: LatexProject) => Promise<LatexCompileResult>;
   onSave?: (project: LatexProject) => Promise<void>;
+  onPublish?: () => Promise<void>;
+  canPublish?: boolean;
   preview?: ReactNode;
   className?: string;
   compileLabel?: string;
+  publishLabel?: string;
   disabled?: boolean;
 }

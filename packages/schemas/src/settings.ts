@@ -118,6 +118,7 @@ export type ICvFile = z.infer<typeof cvFileSchema>;
 
 export const cvResponseSchema = z.object({
   cv: cvFileSchema.nullable(),
+  draft: cvFileSchema.nullable(),
   project: latexProjectSchema.nullable(),
 });
 export type CvResponse = z.infer<typeof cvResponseSchema>;

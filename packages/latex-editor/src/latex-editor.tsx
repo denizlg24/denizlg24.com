@@ -3,8 +3,15 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { Button } from "@repo/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@repo/ui/dropdown-menu";
 import { Input } from "@repo/ui/input";
 import {
+  type PanelImperativeHandle,
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
@@ -12,12 +19,12 @@ import {
 import { ScrollArea } from "@repo/ui/scroll-area";
 import { cn } from "@repo/ui/utils";
 import CodeMirror from "@uiw/react-codemirror";
-import { latex } from "codemirror-lang-latex";
 import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
   CircleCheck,
+  CloudUpload,
   Code2,
   File,
   FileCode2,
@@ -25,11 +32,12 @@ import {
   FileOutput,
   Folder,
   FolderOpen,
-  FolderPlus,
   FolderUp,
   Loader2,
   PanelBottomClose,
   PanelBottomOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   Plus,
   Save,
@@ -48,6 +56,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { latexSupport } from "./latex-language";
 import {
   addProjectEntry,
   basename,
@@ -62,12 +71,26 @@ import {
   sortProjectEntries,
   updateFileContent,
 } from "./project";
+import { appEditorTheme } from "./theme";
 import type {
   LatexEditorProps,
   LatexFileEntry,
   LatexProject,
   LatexProjectEntry,
 } from "./types";
+
+function useIsDarkTheme() {
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => setIsDark(root.classList.contains("dark"));
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return isDark;
+}
 
 interface PendingEntry {
   kind: "file" | "folder";
@@ -188,11 +211,15 @@ export function LatexEditor({
   onChange,
   onCompile,
   onSave,
+  onPublish,
+  canPublish = false,
   preview,
   className,
   compileLabel = "Compile",
+  publishLabel = "Publish",
   disabled = false,
 }: LatexEditorProps) {
+  const isDark = useIsDarkTheme();
   const initialFile = project.entries.find(
     (entry): entry is LatexFileEntry => entry.kind === "file",
   );
@@ -214,13 +241,16 @@ export function LatexEditor({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingName, setRenamingName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [compiling, setCompiling] = useState(false);
   const [compileLog, setCompileLog] = useState("");
   const [compileError, setCompileError] = useState<string | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const importFolderInputRef = useRef<HTMLInputElement>(null);
   const tabListRef = useRef<HTMLDivElement>(null);
+  const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null);
 
   const filesById = useMemo(
     () =>
@@ -320,6 +350,49 @@ export function LatexEditor({
       setCompiling(false);
     }
   };
+
+  const publish = useCallback(async () => {
+    if (!onPublish || disabled || publishing || !canPublish) return;
+    setPublishing(true);
+    try {
+      await onPublish();
+    } finally {
+      setPublishing(false);
+    }
+  }, [canPublish, disabled, onPublish, publishing]);
+
+  const toggleSidebar = () => {
+    const panel = sidebarPanelRef.current;
+    if (!panel) return;
+    if (panel.isCollapsed()) panel.expand();
+    else panel.collapse();
+  };
+
+  const texFileCount = useMemo(
+    () =>
+      project.entries.filter(
+        (entry) => entry.kind === "file" && /\.tex$/i.test(entry.path),
+      ).length,
+    [project.entries],
+  );
+
+  const editorExtensions = useMemo(
+    () => [
+      ...appEditorTheme(isDark),
+      ...(activeFile?.path.match(/\.(tex|cls|sty)$/i)
+        ? [
+            latexSupport({
+              fileName: activeFile.path,
+              isMainFile: activeFile.path === project.mainFile,
+              isMultiFile: texFileCount > 1,
+            }),
+          ]
+        : []),
+      EditorView.lineWrapping,
+      EditorState.tabSize.of(2),
+    ],
+    [activeFile?.path, isDark, project.mainFile, texFileCount],
+  );
 
   const selectedEntry = project.entries.find(
     (entry) => entry.id === selectedEntryId,
@@ -436,6 +509,16 @@ export function LatexEditor({
       />
 
       <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-muted/30 px-2">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={
+            sidebarCollapsed ? "Show file explorer" : "Hide file explorer"
+          }
+          onClick={toggleSidebar}
+        >
+          {sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+        </Button>
         <div className="flex min-w-0 items-center gap-2 px-1">
           <div className="flex size-6 items-center justify-center rounded bg-foreground text-background">
             <Code2 className="size-3.5" />
@@ -462,6 +545,7 @@ export function LatexEditor({
           )}
           <Button
             size="sm"
+            variant="secondary"
             className="h-7 gap-1.5 px-3 text-xs"
             disabled={disabled || compiling || !project.mainFile}
             onClick={() => void compile()}
@@ -469,53 +553,88 @@ export function LatexEditor({
             {compiling ? <Loader2 className="animate-spin" /> : <Play />}
             {compiling ? "Compiling" : compileLabel}
           </Button>
+          {onPublish && (
+            <Button
+              size="sm"
+              className="h-7 gap-1.5 px-3 text-xs"
+              disabled={disabled || publishing || !canPublish}
+              onClick={() => void publish()}
+            >
+              {publishing ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <CloudUpload />
+              )}
+              {publishing ? "Publishing" : publishLabel}
+            </Button>
+          )}
         </div>
       </div>
 
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-        <ResizablePanel defaultSize="18%" minSize="13%" maxSize="30%">
+        <ResizablePanel
+          panelRef={sidebarPanelRef}
+          collapsible
+          collapsedSize={0}
+          defaultSize="18%"
+          minSize="13%"
+          maxSize="30%"
+          onResize={(size) => setSidebarCollapsed(size.asPercentage <= 0.5)}
+        >
           <div className="flex h-full min-w-0 flex-col border-r bg-muted/15">
             <div className="flex h-9 shrink-0 items-center border-b px-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 Project
               </span>
               <div className="ml-auto flex items-center">
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="New file"
-                  disabled={disabled}
-                  onClick={() => startCreate("file")}
-                >
-                  <Plus />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="New folder"
-                  disabled={disabled}
-                  onClick={() => startCreate("folder")}
-                >
-                  <FolderPlus />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Import files"
-                  disabled={disabled}
-                  onClick={() => importInputRef.current?.click()}
-                >
-                  <Upload />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Import folder"
-                  disabled={disabled}
-                  onClick={() => importFolderInputRef.current?.click()}
-                >
-                  <FolderUp />
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="Create"
+                      disabled={disabled}
+                    >
+                      <Plus />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => startCreate("file")}>
+                      <FileCode2 />
+                      New file
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => startCreate("folder")}>
+                      <Folder />
+                      New folder
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="Upload"
+                      disabled={disabled}
+                    >
+                      <Upload />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onSelect={() => importInputRef.current?.click()}
+                    >
+                      <Upload />
+                      Upload files
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => importFolderInputRef.current?.click()}
+                    >
+                      <FolderUp />
+                      Upload folder
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
             <ScrollArea className="min-h-0 flex-1 py-1">
@@ -659,10 +778,10 @@ export function LatexEditor({
         <ResizableHandle />
 
         <ResizablePanel defaultSize="47%" minSize="25%">
-          <div className="flex h-full min-w-0 flex-col bg-[#111315] text-[#d9dde3]">
+          <div className="flex h-full min-w-0 flex-col bg-card text-foreground">
             <div
               ref={tabListRef}
-              className="flex h-9 shrink-0 items-end overflow-x-auto border-b border-white/10 bg-[#17191c] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              className="flex h-9 shrink-0 items-end overflow-x-auto border-b bg-muted/40 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               onWheel={(event) => {
                 if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
                 event.currentTarget.scrollLeft += event.deltaY;
@@ -675,10 +794,10 @@ export function LatexEditor({
                   type="button"
                   data-active={activeFileId === file.id}
                   className={cn(
-                    "group flex h-9 max-w-48 shrink-0 items-center gap-1.5 border-r border-white/10 px-2.5 text-[11px]",
+                    "group flex h-9 max-w-48 shrink-0 items-center gap-1.5 border-r px-2.5 text-[11px]",
                     activeFileId === file.id
-                      ? "border-t-2 border-t-emerald-500 bg-[#111315] text-white"
-                      : "text-white/55 hover:bg-white/5 hover:text-white/80",
+                      ? "border-t-2 border-t-primary bg-card text-foreground"
+                      : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
                   )}
                   onClick={() => openFile(file)}
                 >
@@ -698,14 +817,8 @@ export function LatexEditor({
                   value={activeFile.content}
                   height="100%"
                   className="h-full [&_.cm-editor]:h-full [&_.cm-scroller]:font-mono"
-                  theme="dark"
-                  extensions={[
-                    ...(activeFile.path.match(/\.(tex|cls|sty)$/i)
-                      ? [latex()]
-                      : []),
-                    EditorView.lineWrapping,
-                    EditorState.tabSize.of(2),
-                  ]}
+                  theme="none"
+                  extensions={editorExtensions}
                   basicSetup={{
                     autocompletion: true,
                     bracketMatching: true,
@@ -721,7 +834,7 @@ export function LatexEditor({
                   }
                 />
               ) : (
-                <div className="flex h-full items-center justify-center text-xs text-white/35">
+                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
                   {activeFile ? `${basename(activeFile.path)} · binary` : "—"}
                 </div>
               )}
@@ -752,10 +865,10 @@ export function LatexEditor({
         </ResizablePanel>
       </ResizablePanelGroup>
 
-      <div className="shrink-0 border-t bg-[#0c0e10] text-[#c9ced6]">
+      <div className="shrink-0 border-t bg-muted/40 text-muted-foreground">
         <button
           type="button"
-          className="flex h-7 w-full items-center gap-2 px-3 text-[10px] uppercase tracking-[0.12em] text-white/55 hover:bg-white/5"
+          className="flex h-7 w-full items-center gap-2 px-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
           onClick={() => setConsoleOpen((current) => !current)}
         >
           {consoleOpen ? (
@@ -767,18 +880,18 @@ export function LatexEditor({
           <span className="ml-auto flex items-center gap-1 normal-case tracking-normal">
             {compileError ? (
               <>
-                <CircleAlert className="size-3 text-red-400" /> failed
+                <CircleAlert className="size-3 text-destructive" /> failed
               </>
             ) : compileLog ? (
               <>
-                <CircleCheck className="size-3 text-emerald-400" /> compiled
+                <CircleCheck className="size-3 text-primary" /> compiled
               </>
             ) : null}
           </span>
         </button>
         {consoleOpen && (
-          <ScrollArea className="h-32 border-t border-white/10">
-            <pre className="whitespace-pre-wrap break-words p-3 font-mono text-[10px] leading-4 text-white/65">
+          <ScrollArea className="h-32 border-t">
+            <pre className="whitespace-pre-wrap break-words p-3 font-mono text-[10px] leading-4 text-muted-foreground">
               {compileError ?? compileLog ?? ""}
             </pre>
           </ScrollArea>
