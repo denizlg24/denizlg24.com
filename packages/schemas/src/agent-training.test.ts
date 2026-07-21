@@ -11,7 +11,6 @@ describe("agent training contracts", () => {
         name: "Daily writing drill",
         prompt: "Draft a project update.",
         timeOfDay: "09:00",
-        timeZone: "Europe/Lisbon",
       }),
     ).toMatchObject({ attachments: [] });
   });
@@ -21,17 +20,6 @@ describe("agent training contracts", () => {
       createAgentTrainingFeedbackSchema.safeParse({
         feedbackId: crypto.randomUUID(),
         verdict: "correction",
-      }).success,
-    ).toBe(false);
-  });
-
-  test("rejects invalid IANA time zones", () => {
-    expect(
-      createAgentTrainingTaskSchema.safeParse({
-        name: "Daily writing drill",
-        prompt: "Draft a project update.",
-        timeOfDay: "09:00",
-        timeZone: "America/Fake",
       }).success,
     ).toBe(false);
   });

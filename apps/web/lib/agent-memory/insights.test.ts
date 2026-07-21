@@ -6,16 +6,17 @@ import {
   buildDailyBriefing,
   calendarConflictInsights,
   categoryPreference,
+  dayKey,
   goalDeadlineInsights,
   type InsightCalendarEventInput,
   type InsightGoalInput,
   isoWeekKey,
   repeatedFailureInsights,
   staleFollowUpInsights,
-  utcDayKey,
 } from "./insights";
 
 const NOW = new Date("2026-07-13T09:00:00.000Z");
+const TZ = "Europe/Lisbon";
 
 function goal(overrides: Partial<InsightGoalInput> = {}): InsightGoalInput {
   return {
@@ -64,7 +65,7 @@ function draft(overrides: Partial<AgentInsightDraft> = {}): AgentInsightDraft {
 
 describe("Gate F deterministic triggers", () => {
   test("raises an approaching goal deadline inside the lookahead window", () => {
-    const drafts = goalDeadlineInsights(NOW, [goal()]);
+    const drafts = goalDeadlineInsights(NOW, [goal()], TZ);
     expect(drafts).toHaveLength(1);
     expect(drafts[0]?.idempotencyKey).toBe(
       "insight:goal-deadline:goal-1:2026-07-16",
@@ -78,15 +79,19 @@ describe("Gate F deterministic triggers", () => {
 
   test("ignores distant, past, and non-active goal deadlines", () => {
     expect(
-      goalDeadlineInsights(NOW, [
-        goal({ targetUntil: new Date("2026-08-30T00:00:00.000Z") }),
-        goal({
-          id: "goal-2",
-          targetUntil: new Date("2026-07-10T00:00:00.000Z"),
-        }),
-        goal({ id: "goal-3", status: "paused" }),
-        goal({ id: "goal-4", targetUntil: undefined }),
-      ]),
+      goalDeadlineInsights(
+        NOW,
+        [
+          goal({ targetUntil: new Date("2026-08-30T00:00:00.000Z") }),
+          goal({
+            id: "goal-2",
+            targetUntil: new Date("2026-07-10T00:00:00.000Z"),
+          }),
+          goal({ id: "goal-3", status: "paused" }),
+          goal({ id: "goal-4", targetUntil: undefined }),
+        ],
+        TZ,
+      ),
     ).toHaveLength(0);
   });
 
@@ -97,27 +102,39 @@ describe("Gate F deterministic triggers", () => {
       date: new Date("2026-07-14T10:30:00.000Z"),
       endDate: new Date("2026-07-14T11:30:00.000Z"),
     });
-    const drafts = calendarConflictInsights(NOW, [overlap, calendarEvent()]);
+    const drafts = calendarConflictInsights(
+      NOW,
+      [overlap, calendarEvent()],
+      TZ,
+    );
     expect(drafts).toHaveLength(1);
     expect(drafts[0]?.idempotencyKey).toBe(
       "insight:calendar-conflict:event-a:event-b",
     );
-    const reversed = calendarConflictInsights(NOW, [calendarEvent(), overlap]);
+    const reversed = calendarConflictInsights(
+      NOW,
+      [calendarEvent(), overlap],
+      TZ,
+    );
     expect(reversed[0]?.idempotencyKey).toBe(drafts[0]?.idempotencyKey);
   });
 
   test("does not flag back-to-back, all-day, or suppressed events", () => {
     expect(
-      calendarConflictInsights(NOW, [
-        calendarEvent(),
-        calendarEvent({
-          id: "event-b",
-          date: new Date("2026-07-14T11:00:00.000Z"),
-          endDate: new Date("2026-07-14T12:00:00.000Z"),
-        }),
-        calendarEvent({ id: "event-c", isAllDay: true }),
-        calendarEvent({ id: "event-d", suppressed: true }),
-      ]),
+      calendarConflictInsights(
+        NOW,
+        [
+          calendarEvent(),
+          calendarEvent({
+            id: "event-b",
+            date: new Date("2026-07-14T11:00:00.000Z"),
+            endDate: new Date("2026-07-14T12:00:00.000Z"),
+          }),
+          calendarEvent({ id: "event-c", isAllDay: true }),
+          calendarEvent({ id: "event-d", suppressed: true }),
+        ],
+        TZ,
+      ),
     ).toHaveLength(0);
   });
 
@@ -132,7 +149,7 @@ describe("Gate F deterministic triggers", () => {
       kind: "agent-follow-up",
       updatedAt: new Date("2026-07-12T10:00:00.000Z"),
     });
-    const drafts = staleFollowUpInsights(NOW, [stale, fresh]);
+    const drafts = staleFollowUpInsights(NOW, [stale, fresh], TZ);
     expect(drafts).toHaveLength(1);
     expect(drafts[0]?.idempotencyKey).toBe(
       "insight:follow-up:goal-5:2026-07-08T10:00:00.000Z",
@@ -159,20 +176,24 @@ describe("Gate F deterministic triggers", () => {
     );
   });
 
-  test("builds one deterministic daily briefing per UTC day", () => {
-    const briefing = buildDailyBriefing(NOW, {
-      goalsDueSoon: [goal()],
-      todaysEvents: [
-        calendarEvent({ date: new Date("2026-07-13T15:00:00.000Z") }),
-      ],
-      pendingInsights: 2,
-    });
+  test("builds one deterministic daily briefing per local day", () => {
+    const briefing = buildDailyBriefing(
+      NOW,
+      {
+        goalsDueSoon: [goal()],
+        todaysEvents: [
+          calendarEvent({ date: new Date("2026-07-13T15:00:00.000Z") }),
+        ],
+        pendingInsights: 2,
+      },
+      TZ,
+    );
     expect(briefing.idempotencyKey).toBe("insight:daily-briefing:2026-07-13");
-    expect(briefing.expiresAt).toEqual(new Date("2026-07-14T00:00:00.000Z"));
+    expect(briefing.expiresAt).toEqual(new Date("2026-07-13T23:00:00.000Z"));
     expect(briefing.body).toContain("Team sync");
     expect(briefing.body).toContain("Finish Calculus II revision");
     expect(briefing.body).toContain("2 insight(s) waiting");
-    expect(utcDayKey(NOW)).toBe("2026-07-13");
+    expect(dayKey(NOW, TZ)).toBe("2026-07-13");
   });
 });
 

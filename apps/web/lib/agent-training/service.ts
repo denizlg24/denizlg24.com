@@ -6,7 +6,7 @@ import { Types } from "mongoose";
 import { findDeniedContent } from "@/lib/agent-memory/security";
 import { getUnattendedModel } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
-import { isValidTimeZone } from "@/lib/timezone";
+import { getAppTimeZone } from "@/lib/timezone";
 import { AgentTrainingRun } from "@/models/AgentTrainingRun";
 import { AgentTrainingTask } from "@/models/AgentTrainingTask";
 import { nextDailyOccurrence } from "./scheduling";
@@ -37,10 +37,6 @@ export async function loadTrainingOverview() {
   };
 }
 
-function assertTimeZone(timeZone: string) {
-  if (!isValidTimeZone(timeZone)) throw new Error("Invalid time zone");
-}
-
 function assertSafePrompt(prompt: string) {
   if (findDeniedContent(prompt).length > 0) {
     throw new Error("Training prompt contains secret-like content");
@@ -48,18 +44,19 @@ function assertSafePrompt(prompt: string) {
 }
 
 export async function createTrainingTask(input: CreateAgentTrainingTask) {
-  assertTimeZone(input.timeZone);
   assertSafePrompt(input.prompt);
   await connectDB();
+  const timeZone = await getAppTimeZone();
   const { model, ...fields } = input;
   const task = await AgentTrainingTask.create({
     ...fields,
+    timeZone,
     llmModel: model ?? getUnattendedModel(),
     status: "active",
     autonomy: "yolo",
     nextRunAt: nextDailyOccurrence({
       timeOfDay: input.timeOfDay,
-      timeZone: input.timeZone,
+      timeZone,
     }),
   });
   return task;
@@ -71,13 +68,13 @@ export async function updateTrainingTask(
 ) {
   if (!Types.ObjectId.isValid(taskId))
     throw new Error("Training task not found");
-  if (input.timeZone) assertTimeZone(input.timeZone);
   if (input.prompt) assertSafePrompt(input.prompt);
   await connectDB();
   const task = await AgentTrainingTask.findById(taskId);
   if (!task) throw new Error("Training task not found");
   const { model, ...fields } = input;
   task.set({ ...fields, ...(model ? { llmModel: model } : {}) });
+  task.timeZone = await getAppTimeZone();
   if (task.status === "active") {
     task.nextRunAt = nextDailyOccurrence({
       timeOfDay: task.timeOfDay,

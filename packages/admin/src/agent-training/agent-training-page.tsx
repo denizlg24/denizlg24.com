@@ -52,7 +52,6 @@ interface TaskForm {
   name: string;
   prompt: string;
   timeOfDay: string;
-  timeZone: string;
   model: string;
   attachments: AgentTrainingAttachment[];
 }
@@ -62,8 +61,6 @@ function emptyForm(): TaskForm {
     name: "",
     prompt: "",
     timeOfDay: "09:00",
-    timeZone:
-      Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Lisbon",
     model: "",
     attachments: [],
   };
@@ -74,7 +71,6 @@ function taskToForm(task: AgentTrainingTask): TaskForm {
     name: task.name,
     prompt: task.prompt,
     timeOfDay: task.timeOfDay,
-    timeZone: task.timeZone,
     model: task.model,
     attachments: task.attachments,
   };
@@ -287,7 +283,6 @@ export function AgentTrainingPage() {
         name: form.name.trim(),
         prompt: form.prompt.trim(),
         timeOfDay: form.timeOfDay,
-        timeZone: form.timeZone.trim(),
         attachments: form.attachments,
         ...(form.model.trim() ? { model: form.model.trim() } : {}),
       };
@@ -738,34 +733,19 @@ export function AgentTrainingPage() {
                 }
               />
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="training-time">Daily</Label>
-                <Input
-                  id="training-time"
-                  type="time"
-                  value={form.timeOfDay}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      timeOfDay: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="grid gap-1.5 sm:col-span-2">
-                <Label htmlFor="training-zone">Time zone</Label>
-                <Input
-                  id="training-zone"
-                  value={form.timeZone}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      timeZone: event.target.value,
-                    }))
-                  }
-                />
-              </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="training-time">Daily</Label>
+              <Input
+                id="training-time"
+                type="time"
+                value={form.timeOfDay}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    timeOfDay: event.target.value,
+                  }))
+                }
+              />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="training-model">Model</Label>
