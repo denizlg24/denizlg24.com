@@ -1,5 +1,7 @@
 "use client";
 
+import { LatexEditor, type LatexProject } from "@repo/latex-editor";
+import { createDefaultLatexProject } from "@repo/latex-editor/project";
 import type { CvResponse, ICvFile } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import { PageHeader } from "@repo/ui/page-header";
@@ -7,14 +9,17 @@ import { Skeleton } from "@repo/ui/skeleton";
 import { HeaderBarSkeleton } from "@repo/ui/skeleton-blocks";
 import {
   ExternalLink,
+  FileOutput,
   FileUser,
   Loader2,
   RefreshCw,
-  Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import { toast } from "sonner";
+import type { AdminClient } from "../client";
+import { AdminApiError } from "../client";
+import type { PlatformBridge } from "../platform";
 import { useAdmin } from "../provider";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -22,8 +27,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_PAGE_WIDTH = 800;
+
+interface CompileCvResponse extends CvResponse {
+  log: string;
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -42,51 +50,20 @@ function formatUpdatedAt(dateStr: string): string {
   });
 }
 
-export function CvSkeleton() {
-  return (
-    <div className="flex h-full flex-col gap-2">
-      <HeaderBarSkeleton
-        icon={<FileUser className="size-4 text-muted-foreground" />}
-        title="CV"
-        actions={["w-20", "w-28"]}
-      />
-      <div className="px-4 flex flex-1 flex-col gap-4 pt-3 pb-4">
-        <Skeleton className="h-5 w-64" />
-        <Skeleton className="w-full flex-1 min-h-[400px] rounded-md" />
-      </div>
-    </div>
-  );
-}
-
-export function CvPage() {
-  const { client, platform, slots } = useAdmin();
-
-  const [cv, setCv] = useState<ICvFile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [uploading, setUploading] = useState(false);
+function CvPdfPreview({
+  cv,
+  client,
+  platform,
+}: {
+  cv: ICvFile | null;
+  client: AdminClient;
+  platform: PlatformBridge;
+}) {
   const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
   const [previewError, setPreviewError] = useState(false);
   const [numPages, setNumPages] = useState(0);
   const [pageWidth, setPageWidth] = useState(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
-
-  const fetchCv = useCallback(async () => {
-    try {
-      const result = await client.get<CvResponse>("cv");
-      setCv(result.cv);
-    } catch {
-      toast.error("Failed to load CV");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [client]);
-
-  useEffect(() => {
-    fetchCv();
-  }, [fetchCv]);
 
   useEffect(() => {
     if (!cv) {
@@ -97,11 +74,11 @@ export function CvPage() {
     setPdfData(null);
     setPreviewError(false);
     setNumPages(0);
-    (async () => {
+    void (async () => {
       try {
-        const res = await client.raw("cv/file");
-        const buf = await res.arrayBuffer();
-        if (!cancelled) setPdfData(new Uint8Array(buf));
+        const response = await client.raw("cv/file");
+        const buffer = await response.arrayBuffer();
+        if (!cancelled) setPdfData(new Uint8Array(buffer));
       } catch {
         if (!cancelled) setPreviewError(true);
       }
@@ -112,184 +89,194 @@ export function CvPage() {
   }, [client, cv]);
 
   useEffect(() => {
-    const el = previewRef.current;
-    if (!el) return;
-    const update = () => setPageWidth(el.clientWidth);
+    const element = previewRef.current;
+    if (!element) return;
+    const update = () => setPageWidth(element.clientWidth);
     update();
     const observer = new ResizeObserver(update);
-    observer.observe(el);
+    observer.observe(element);
     return () => observer.disconnect();
-  }, [cv]);
+  }, []);
 
   const pdfFile = useMemo(
     () => (pdfData ? { data: pdfData } : null),
     [pdfData],
   );
-
-  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-
-    const isPdf =
-      file.type === "application/pdf" ||
-      file.name.toLowerCase().endsWith(".pdf");
-    if (!isPdf) {
-      toast.error("Only PDF files are allowed");
-      return;
-    }
-    if (file.size > MAX_FILE_SIZE) {
-      toast.error("File exceeds 10MB limit");
-      return;
-    }
-
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const result = await client.upload<CvResponse>("cv", formData);
-      setCv(result.cv);
-      toast.success("CV updated");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to upload CV",
-      );
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  if (loading) {
-    return <CvSkeleton />;
-  }
-
-  const previewFallback = (
-    <div className="flex h-full min-h-[400px] items-center justify-center p-4 text-sm text-muted-foreground">
-      <span>
-        Preview unavailable &mdash;{" "}
+  const fallback = (
+    <div className="flex h-full min-h-80 items-center justify-center p-4 text-xs text-muted-foreground">
+      {cv ? (
         <button
           type="button"
-          className="underline underline-offset-2 hover:text-foreground transition-colors"
-          onClick={() => cv && platform.openExternal(cv.url)}
+          className="underline underline-offset-2 transition-colors hover:text-foreground"
+          onClick={() => platform.openExternal(cv.url)}
         >
-          open externally
+          Open PDF
         </button>
-        .
-      </span>
+      ) : (
+        <FileOutput className="size-5 opacity-40" />
+      )}
     </div>
   );
 
   return (
-    <div className="flex flex-col gap-2 pb-8 h-full">
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="application/pdf,.pdf"
-        className="hidden"
-        onChange={handleFileSelected}
-      />
+    <div ref={previewRef} className="h-full min-h-80 overflow-y-auto">
+      {previewError ? (
+        fallback
+      ) : !cv ? (
+        fallback
+      ) : !pdfFile ? (
+        <div className="flex h-full min-h-80 items-center justify-center">
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <Document
+          key={cv.updatedAt}
+          file={pdfFile}
+          onLoadSuccess={({ numPages: total }) => setNumPages(total)}
+          onLoadError={() => setPreviewError(true)}
+          loading={
+            <div className="flex h-full min-h-80 items-center justify-center">
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            </div>
+          }
+          error={fallback}
+          className="flex flex-col items-center gap-3 p-3"
+        >
+          {Array.from({ length: numPages }, (_, index) => (
+            <Page
+              key={`page-${index + 1}`}
+              pageNumber={index + 1}
+              width={
+                pageWidth > 0
+                  ? Math.min(pageWidth - 24, MAX_PAGE_WIDTH)
+                  : undefined
+              }
+              renderTextLayer={false}
+              renderAnnotationLayer={false}
+              className="shadow-sm"
+            />
+          ))}
+        </Document>
+      )}
+    </div>
+  );
+}
 
+export function CvSkeleton() {
+  return (
+    <div className="flex h-full flex-col gap-2">
+      <HeaderBarSkeleton
+        icon={<FileUser className="size-4 text-muted-foreground" />}
+        title="CV"
+        actions={["w-20"]}
+      />
+      <div className="flex flex-1 flex-col gap-3 px-4 pt-3 pb-4">
+        <Skeleton className="h-4 w-56" />
+        <Skeleton className="min-h-[620px] w-full flex-1 rounded-lg" />
+      </div>
+    </div>
+  );
+}
+
+export function CvPage() {
+  const { client, platform, slots } = useAdmin();
+  const [cv, setCv] = useState<ICvFile | null>(null);
+  const [project, setProject] = useState<LatexProject | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchCv = useCallback(async () => {
+    try {
+      const result = await client.get<CvResponse>("cv");
+      setCv(result.cv);
+      setProject(result.project ?? createDefaultLatexProject());
+    } catch {
+      setProject((current) => current ?? createDefaultLatexProject());
+      toast.error("Failed to load CV");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [client]);
+
+  useEffect(() => {
+    void fetchCv();
+  }, [fetchCv]);
+
+  if (loading || !project) return <CvSkeleton />;
+
+  return (
+    <div className="flex h-full flex-col gap-2 pb-4">
       <PageHeader
         leading={slots?.sidebarTrigger}
         icon={<FileUser className="size-4 text-muted-foreground" />}
         title="CV"
       >
+        {cv && (
+          <div className="hidden items-baseline gap-2 text-[10px] text-muted-foreground md:flex">
+            <span className="font-medium text-foreground">{cv.filename}</span>
+            <span className="tabular-nums">
+              {formatBytes(cv.size)} · {formatUpdatedAt(cv.updatedAt)}
+            </span>
+          </div>
+        )}
+        {cv && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Open CV"
+            onClick={() => platform.openExternal(cv.url)}
+          >
+            <ExternalLink />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 text-xs gap-1.5"
+          className="h-8 text-xs"
           disabled={refreshing}
           onClick={() => {
             setRefreshing(true);
-            fetchCv();
+            void fetchCv();
           }}
         >
-          <RefreshCw
-            className={refreshing ? "size-3.5 animate-spin" : "size-3.5"}
-          />
+          <RefreshCw className={refreshing ? "animate-spin" : ""} />
           Refresh
-        </Button>
-
-        <Button
-          size="sm"
-          className="h-8 text-xs gap-1.5"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-        >
-          {uploading ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Upload className="size-3.5" />
-          )}
-          {uploading ? "Uploading..." : cv ? "Replace PDF" : "Upload PDF"}
         </Button>
       </PageHeader>
 
-      <div className="px-4 flex flex-col gap-4 pt-3 pb-4 flex-1 min-h-0">
-        {cv ? (
-          <>
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{cv.filename}</span>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                  title="Open CV"
-                  onClick={() => platform.openExternal(cv.url)}
-                >
-                  <ExternalLink className="size-3.5" />
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground tabular-nums">
-                {formatBytes(cv.size)} &middot; {formatUpdatedAt(cv.updatedAt)}
-              </p>
-            </div>
-
-            <div
-              ref={previewRef}
-              className="flex-1 min-h-[400px] overflow-y-auto rounded-md border bg-muted/20"
-            >
-              {previewError ? (
-                previewFallback
-              ) : !pdfFile ? (
-                <div className="flex h-full min-h-[400px] items-center justify-center">
-                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <Document
-                  key={cv.updatedAt}
-                  file={pdfFile}
-                  onLoadSuccess={({ numPages: total }) => setNumPages(total)}
-                  onLoadError={() => setPreviewError(true)}
-                  loading={
-                    <div className="flex h-full min-h-[400px] items-center justify-center">
-                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                    </div>
-                  }
-                  error={previewFallback}
-                  className="flex flex-col items-center gap-3 py-3"
-                >
-                  {Array.from({ length: numPages }, (_, i) => (
-                    <Page
-                      key={`page-${i + 1}`}
-                      pageNumber={i + 1}
-                      width={
-                        pageWidth > 0
-                          ? Math.min(pageWidth - 24, MAX_PAGE_WIDTH)
-                          : undefined
-                      }
-                      renderTextLayer={false}
-                      renderAnnotationLayer={false}
-                      className="shadow-sm"
-                    />
-                  ))}
-                </Document>
-              )}
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">No CV uploaded yet.</p>
-        )}
+      <div className="flex min-h-0 flex-1 px-4 pt-1">
+        <LatexEditor
+          project={project}
+          onChange={setProject}
+          onSave={async (nextProject) => {
+            const result = await client.put<CvResponse>("cv", nextProject);
+            setProject(result.project ?? nextProject);
+            toast.success("Source saved");
+          }}
+          onCompile={async (nextProject) => {
+            try {
+              const result = await client.post<CompileCvResponse>(
+                "cv/compile",
+                nextProject,
+              );
+              setCv(result.cv);
+              setProject(result.project ?? nextProject);
+              toast.success("CV compiled and published");
+              return { log: result.log };
+            } catch (error) {
+              if (error instanceof AdminApiError) {
+                const log = error.details?.log;
+                if (typeof log === "string" && log.trim()) {
+                  throw new Error(log);
+                }
+              }
+              throw error;
+            }
+          }}
+          compileLabel="Compile & publish"
+          preview={<CvPdfPreview cv={cv} client={client} platform={platform} />}
+        />
       </div>
     </div>
   );

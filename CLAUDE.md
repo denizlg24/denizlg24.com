@@ -114,9 +114,12 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 - `POST /upload` → FormData with "file" field → `{ url, hash }` (Pinata, images only, max 5MB)
 
 ### CV
-- `GET /cv` → `{ cv: ICvFile | null }` (stored on the AppSettings singleton)
+- `GET /cv` → `{ cv: ICvFile | null, project: LatexProject | null }` (metadata and LaTeX source are stored on the AppSettings singleton)
 - `GET /cv/file` → PDF bytes proxied from storage (admin preview renders these via react-pdf; webviews can't embed remote PDFs natively)
-- `POST /cv` → FormData with "file" field (PDF only, max 10MB) → uploads to storage "file" bucket, saves url/filename/size, revalidates `/` → `{ cv }`
+- `PUT /cv` → validates and saves a multi-file LaTeX project draft without publishing it
+- `POST /cv/compile` → validates and compiles the LaTeX project with sandboxed Tectonic, uploads the generated PDF to the storage `file` bucket, persists source and metadata, and revalidates `/`
+- `POST /cv` remains as the legacy PDF upload endpoint
+- The reusable editor workspace lives in `packages/latex-editor`; it supports files, folders, tabs, binary assets, a compile log, and a PDF preview slot
 - Public homepage resume button reads the stored URL via `lib/cv.ts` `getCvUrl()`, falling back to the bundled `/assets/DenizGunesCV2026.pdf`; shared admin UI is `packages/admin/src/cv/cv-page.tsx`
 
 ### LLM Usage

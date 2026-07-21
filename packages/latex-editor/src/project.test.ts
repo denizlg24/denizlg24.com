@@ -6,6 +6,7 @@ import {
   createFolderEntry,
   removeProjectEntry,
   renameProjectEntry,
+  sortProjectEntries,
 } from "./project";
 
 describe("LaTeX project operations", () => {
@@ -41,5 +42,23 @@ describe("LaTeX project operations", () => {
     expect(() => addProjectEntry(project, createFileEntry("main.tex"))).toThrow(
       "already exists",
     );
+  });
+
+  it("keeps descendants beside their parent folder", () => {
+    const entries = [
+      createFileEntry("main.tex"),
+      createFileEntry("sections/work.tex"),
+      createFolderEntry("sections"),
+      createFileEntry("assets/photo.png"),
+      createFolderEntry("assets"),
+    ];
+
+    expect(sortProjectEntries(entries).map((entry) => entry.path)).toEqual([
+      "assets",
+      "assets/photo.png",
+      "sections",
+      "sections/work.tex",
+      "main.tex",
+    ]);
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
+import { createDefaultLatexProject } from "../../../packages/latex-editor/src/project";
 
 mock.module("server-only", () => ({}));
 
@@ -34,6 +35,11 @@ describe("compileLatexProject", () => {
       ],
     });
 
+    expect(result.pdf.subarray(0, 5).toString()).toBe("%PDF-");
+  }, 60_000);
+
+  it("compiles the default CV template", async () => {
+    const result = await compileLatexProject(createDefaultLatexProject());
     expect(result.pdf.subarray(0, 5).toString()).toBe("%PDF-");
   }, 60_000);
 });

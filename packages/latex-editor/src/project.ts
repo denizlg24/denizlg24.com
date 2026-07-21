@@ -95,11 +95,35 @@ export function isTextFile(path: string): boolean {
 export function sortProjectEntries(
   entries: LatexProjectEntry[],
 ): LatexProjectEntry[] {
+  const folderPaths = new Set(
+    entries
+      .filter((entry) => entry.kind === "folder")
+      .map((entry) => entry.path),
+  );
   return [...entries].sort((left, right) => {
-    if (left.kind !== right.kind) return left.kind === "folder" ? -1 : 1;
-    return left.path.localeCompare(right.path, undefined, {
-      sensitivity: "base",
-    });
+    if (right.path.startsWith(`${left.path}/`)) return -1;
+    if (left.path.startsWith(`${right.path}/`)) return 1;
+    const leftParts = left.path.split("/");
+    const rightParts = right.path.split("/");
+    const sharedLength = Math.min(leftParts.length, rightParts.length);
+    for (let index = 0; index < sharedLength; index++) {
+      if (leftParts[index] === rightParts[index]) continue;
+      const leftPath = leftParts.slice(0, index + 1).join("/");
+      const rightPath = rightParts.slice(0, index + 1).join("/");
+      const leftIsFolder =
+        index < leftParts.length - 1 || folderPaths.has(leftPath);
+      const rightIsFolder =
+        index < rightParts.length - 1 || folderPaths.has(rightPath);
+      if (leftIsFolder !== rightIsFolder) return leftIsFolder ? -1 : 1;
+      return (leftParts[index] ?? "").localeCompare(
+        rightParts[index] ?? "",
+        undefined,
+        {
+          sensitivity: "base",
+        },
+      );
+    }
+    return left.path.localeCompare(right.path);
   });
 }
 

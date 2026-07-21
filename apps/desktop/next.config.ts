@@ -11,6 +11,7 @@ const nextConfig: NextConfig = {
   reactCompiler: true,
   transpilePackages: [
     "@repo/admin",
+    "@repo/latex-editor",
     "@repo/schemas",
     "@repo/utils",
     "@repo/ui",
