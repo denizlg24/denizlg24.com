@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @source "../../../packages/ui/src";
 @source "../../../packages/admin/src/**/*.{ts,tsx}";
+@source "../../../packages/latex-editor/src/**/*.{ts,tsx}";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));

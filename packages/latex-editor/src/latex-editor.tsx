@@ -26,6 +26,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  FolderUp,
   Loader2,
   PanelBottomClose,
   PanelBottomOpen,
@@ -39,6 +40,7 @@ import {
 } from "lucide-react";
 import {
   type ChangeEvent,
+  Fragment,
   type KeyboardEvent,
   useCallback,
   useEffect,
@@ -49,6 +51,7 @@ import {
 import {
   addProjectEntry,
   basename,
+  childInsertionIndex,
   createFileEntry,
   createFolderEntry,
   dirname,
@@ -69,6 +72,48 @@ import type {
 interface PendingEntry {
   kind: "file" | "folder";
   parent: string;
+}
+
+interface PendingEntryInputProps {
+  entry: PendingEntry;
+  name: string;
+  onCancel: () => void;
+  onNameChange: (name: string) => void;
+  onSubmit: () => void;
+}
+
+function PendingEntryInput({
+  entry,
+  name,
+  onCancel,
+  onNameChange,
+  onSubmit,
+}: PendingEntryInputProps) {
+  return (
+    <div
+      className="flex h-7 items-center gap-1 pr-2"
+      style={{
+        paddingLeft: `${entry.parent.split("/").filter(Boolean).length * 12 + 21}px`,
+      }}
+    >
+      {entry.kind === "folder" ? (
+        <Folder className="size-3.5 shrink-0 text-amber-600" />
+      ) : (
+        <FileCode2 className="size-3.5 shrink-0" />
+      )}
+      <Input
+        autoFocus
+        value={name}
+        className="h-5 min-w-0 rounded-sm px-1 text-xs"
+        onChange={(event) => onNameChange(event.target.value)}
+        onBlur={onSubmit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") onSubmit();
+          if (event.key === "Escape") onCancel();
+        }}
+      />
+    </div>
+  );
 }
 
 const MAX_IMPORTED_FILE_BYTES = 2 * 1024 * 1024;
@@ -174,6 +219,8 @@ export function LatexEditor({
   const [compileError, setCompileError] = useState<string | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const importFolderInputRef = useRef<HTMLInputElement>(null);
+  const tabListRef = useRef<HTMLDivElement>(null);
 
   const filesById = useMemo(
     () =>
@@ -205,12 +252,26 @@ export function LatexEditor({
     const file = filesById.get(id);
     return file ? [file] : [];
   });
+  const pendingInsertIndex = pendingEntry
+    ? childInsertionIndex(visibleEntries, pendingEntry.parent)
+    : -1;
+
+  useEffect(() => {
+    const folderInput = importFolderInputRef.current;
+    folderInput?.setAttribute("webkitdirectory", "");
+    folderInput?.setAttribute("directory", "");
+  }, []);
 
   useEffect(() => {
     if (activeFileId && filesById.has(activeFileId)) return;
     const next = filesById.values().next().value as LatexFileEntry | undefined;
     setActiveFileId(next?.id ?? "");
   }, [activeFileId, filesById]);
+
+  useEffect(() => {
+    const activeTab = tabListRef.current?.querySelector('[data-active="true"]');
+    activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeFileId, openFiles.length]);
 
   const openFile = useCallback((file: LatexFileEntry) => {
     setActiveFileId(file.id);
@@ -271,6 +332,10 @@ export function LatexEditor({
   const startCreate = (kind: PendingEntry["kind"]) => {
     setPendingEntry({ kind, parent: selectedParent });
     setPendingName(kind === "file" ? "section.tex" : "folder");
+    const parent = foldersByPath.get(selectedParent);
+    if (parent) {
+      setExpanded((current) => new Set(current).add(parent.id));
+    }
   };
 
   const submitCreate = () => {
@@ -362,6 +427,13 @@ export function LatexEditor({
         className="hidden"
         onChange={handleImportedFiles}
       />
+      <input
+        ref={importFolderInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleImportedFiles}
+      />
 
       <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-muted/30 px-2">
         <div className="flex min-w-0 items-center gap-2 px-1">
@@ -380,7 +452,7 @@ export function LatexEditor({
             <Button
               size="sm"
               variant="ghost"
-              className="h-7 text-xs"
+              className="h-7 gap-1.5 px-2.5 text-xs"
               disabled={disabled || saving}
               onClick={() => void save()}
             >
@@ -390,7 +462,7 @@ export function LatexEditor({
           )}
           <Button
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 gap-1.5 px-3 text-xs"
             disabled={disabled || compiling || !project.mainFile}
             onClick={() => void compile()}
           >
@@ -435,143 +507,150 @@ export function LatexEditor({
                 >
                   <Upload />
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Import folder"
+                  disabled={disabled}
+                  onClick={() => importFolderInputRef.current?.click()}
+                >
+                  <FolderUp />
+                </Button>
               </div>
             </div>
             <ScrollArea className="min-h-0 flex-1 py-1">
-              {visibleEntries.map((entry) => {
+              {visibleEntries.map((entry, index) => {
                 const Icon = fileIcon(entry);
                 const depth = entry.path.split("/").length - 1;
                 const isExpanded = expanded.has(entry.id);
                 const isSelected = selectedEntryId === entry.id;
                 return (
-                  <div
-                    key={entry.id}
-                    className={cn(
-                      "group flex h-7 min-w-0 cursor-default items-center gap-1 pr-1 text-xs",
-                      isSelected
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-accent/50",
-                    )}
-                    style={{ paddingLeft: `${depth * 12 + 5}px` }}
-                    onClick={() => {
-                      setSelectedEntryId(entry.id);
-                      if (entry.kind === "file") openFile(entry);
-                    }}
-                    onDoubleClick={() => {
-                      setRenamingId(entry.id);
-                      setRenamingName(basename(entry.path));
-                    }}
-                  >
-                    {entry.kind === "folder" ? (
-                      <button
-                        type="button"
-                        className="flex size-4 shrink-0 items-center justify-center"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setExpanded((current) => {
-                            const next = new Set(current);
-                            if (next.has(entry.id)) next.delete(entry.id);
-                            else next.add(entry.id);
-                            return next;
-                          });
-                        }}
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="size-3" />
-                        ) : (
-                          <ChevronRight className="size-3" />
-                        )}
-                      </button>
-                    ) : (
-                      <span className="size-4 shrink-0" />
-                    )}
-                    {entry.kind === "folder" && isExpanded ? (
-                      <FolderOpen className="size-3.5 shrink-0 text-amber-600" />
-                    ) : (
-                      <Icon
-                        className={cn(
-                          "size-3.5 shrink-0",
-                          entry.kind === "folder" && "text-amber-600",
-                        )}
+                  <Fragment key={entry.id}>
+                    {pendingEntry && index === pendingInsertIndex && (
+                      <PendingEntryInput
+                        entry={pendingEntry}
+                        name={pendingName}
+                        onCancel={() => setPendingEntry(null)}
+                        onNameChange={setPendingName}
+                        onSubmit={submitCreate}
                       />
                     )}
-                    {renamingId === entry.id ? (
-                      <Input
-                        autoFocus
-                        value={renamingName}
-                        className="h-5 min-w-0 rounded-sm px-1 text-xs"
-                        onChange={(event) =>
-                          setRenamingName(event.target.value)
-                        }
-                        onBlur={() => submitRename(entry)}
-                        onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-                          if (event.key === "Enter") submitRename(entry);
-                          if (event.key === "Escape") setRenamingId(null);
-                        }}
-                      />
-                    ) : (
-                      <span className="min-w-0 flex-1 truncate">
-                        {basename(entry.path)}
-                      </span>
-                    )}
-                    {project.mainFile === entry.path && (
-                      <Star className="size-3 fill-current text-amber-500" />
-                    )}
-                    <div className="hidden items-center group-hover:flex">
-                      {entry.kind === "file" && entry.path.endsWith(".tex") && (
+                    <div
+                      className={cn(
+                        "group flex h-7 min-w-0 cursor-default items-center gap-1 pr-1 text-xs",
+                        isSelected
+                          ? "bg-accent text-accent-foreground"
+                          : "hover:bg-accent/50",
+                      )}
+                      style={{ paddingLeft: `${depth * 12 + 5}px` }}
+                      onClick={() => {
+                        setSelectedEntryId(entry.id);
+                        if (entry.kind === "file") openFile(entry);
+                      }}
+                      onDoubleClick={() => {
+                        setRenamingId(entry.id);
+                        setRenamingName(basename(entry.path));
+                      }}
+                    >
+                      {entry.kind === "folder" ? (
+                        <button
+                          type="button"
+                          className="flex size-4 shrink-0 items-center justify-center"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setExpanded((current) => {
+                              const next = new Set(current);
+                              if (next.has(entry.id)) next.delete(entry.id);
+                              else next.add(entry.id);
+                              return next;
+                            });
+                          }}
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="size-3" />
+                          ) : (
+                            <ChevronRight className="size-3" />
+                          )}
+                        </button>
+                      ) : (
+                        <span className="size-4 shrink-0" />
+                      )}
+                      {entry.kind === "folder" && isExpanded ? (
+                        <FolderOpen className="size-3.5 shrink-0 text-amber-600" />
+                      ) : (
+                        <Icon
+                          className={cn(
+                            "size-3.5 shrink-0",
+                            entry.kind === "folder" && "text-amber-600",
+                          )}
+                        />
+                      )}
+                      {renamingId === entry.id ? (
+                        <Input
+                          autoFocus
+                          value={renamingName}
+                          className="h-5 min-w-0 rounded-sm px-1 text-xs"
+                          onChange={(event) =>
+                            setRenamingName(event.target.value)
+                          }
+                          onBlur={() => submitRename(entry)}
+                          onKeyDown={(
+                            event: KeyboardEvent<HTMLInputElement>,
+                          ) => {
+                            if (event.key === "Enter") submitRename(entry);
+                            if (event.key === "Escape") setRenamingId(null);
+                          }}
+                        />
+                      ) : (
+                        <span className="min-w-0 flex-1 truncate">
+                          {basename(entry.path)}
+                        </span>
+                      )}
+                      {project.mainFile === entry.path && (
+                        <Star className="size-3 fill-current text-amber-500" />
+                      )}
+                      <div className="hidden items-center group-hover:flex">
+                        {entry.kind === "file" &&
+                          entry.path.endsWith(".tex") &&
+                          project.mainFile !== entry.path && (
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              className="size-5"
+                              aria-label="Set main file"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onChange({ ...project, mainFile: entry.path });
+                              }}
+                            >
+                              <Star />
+                            </Button>
+                          )}
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          className="size-5"
-                          aria-label="Set main file"
+                          className="size-5 text-muted-foreground hover:text-destructive"
+                          aria-label="Delete"
                           onClick={(event) => {
                             event.stopPropagation();
-                            onChange({ ...project, mainFile: entry.path });
+                            deleteEntry(entry);
                           }}
                         >
-                          <Star />
+                          <Trash2 />
                         </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="size-5 text-muted-foreground hover:text-destructive"
-                        aria-label="Delete"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          deleteEntry(entry);
-                        }}
-                      >
-                        <Trash2 />
-                      </Button>
+                      </div>
                     </div>
-                  </div>
+                  </Fragment>
                 );
               })}
-              {pendingEntry && (
-                <div
-                  className="flex h-7 items-center gap-1 pr-2"
-                  style={{
-                    paddingLeft: `${pendingEntry.parent.split("/").filter(Boolean).length * 12 + 21}px`,
-                  }}
-                >
-                  {pendingEntry.kind === "folder" ? (
-                    <Folder className="size-3.5 shrink-0 text-amber-600" />
-                  ) : (
-                    <FileCode2 className="size-3.5 shrink-0" />
-                  )}
-                  <Input
-                    autoFocus
-                    value={pendingName}
-                    className="h-5 min-w-0 rounded-sm px-1 text-xs"
-                    onChange={(event) => setPendingName(event.target.value)}
-                    onBlur={submitCreate}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") submitCreate();
-                      if (event.key === "Escape") setPendingEntry(null);
-                    }}
-                  />
-                </div>
+              {pendingEntry && pendingInsertIndex >= visibleEntries.length && (
+                <PendingEntryInput
+                  entry={pendingEntry}
+                  name={pendingName}
+                  onCancel={() => setPendingEntry(null)}
+                  onNameChange={setPendingName}
+                  onSubmit={submitCreate}
+                />
               )}
             </ScrollArea>
           </div>
@@ -581,11 +660,20 @@ export function LatexEditor({
 
         <ResizablePanel defaultSize="47%" minSize="25%">
           <div className="flex h-full min-w-0 flex-col bg-[#111315] text-[#d9dde3]">
-            <div className="flex h-9 shrink-0 items-end overflow-x-auto border-b border-white/10 bg-[#17191c]">
+            <div
+              ref={tabListRef}
+              className="flex h-9 shrink-0 items-end overflow-x-auto border-b border-white/10 bg-[#17191c] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              onWheel={(event) => {
+                if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+                event.currentTarget.scrollLeft += event.deltaY;
+                event.preventDefault();
+              }}
+            >
               {openFiles.map((file) => (
                 <button
                   key={file.id}
                   type="button"
+                  data-active={activeFileId === file.id}
                   className={cn(
                     "group flex h-9 max-w-48 shrink-0 items-center gap-1.5 border-r border-white/10 px-2.5 text-[11px]",
                     activeFileId === file.id

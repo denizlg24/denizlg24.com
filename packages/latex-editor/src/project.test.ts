@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   addProjectEntry,
+  childInsertionIndex,
   createDefaultLatexProject,
   createFileEntry,
   createFolderEntry,
@@ -60,5 +61,18 @@ describe("LaTeX project operations", () => {
       "sections/work.tex",
       "main.tex",
     ]);
+  });
+
+  it("inserts a pending child after its folder contents", () => {
+    const entries = sortProjectEntries([
+      createFileEntry("main.tex"),
+      createFileEntry("sections/work.tex"),
+      createFolderEntry("sections"),
+      createFileEntry("sections/education.tex"),
+      createFileEntry("trailing.tex"),
+    ]);
+
+    expect(childInsertionIndex(entries, "sections")).toBe(3);
+    expect(entries[3]?.path).toBe("main.tex");
   });
 });

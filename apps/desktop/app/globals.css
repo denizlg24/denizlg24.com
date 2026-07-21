@@ -4,6 +4,7 @@
 @import "../public/fonts/excalifont/excalifont.css";
 @source "../../../packages/ui/src/**/*.{ts,tsx}";
 @source "../../../packages/admin/src/**/*.{ts,tsx}";
+@source "../../../packages/latex-editor/src/**/*.{ts,tsx}";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));

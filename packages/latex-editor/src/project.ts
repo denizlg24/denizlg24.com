@@ -127,6 +127,24 @@ export function sortProjectEntries(
   });
 }
 
+export function childInsertionIndex(
+  entries: LatexProjectEntry[],
+  parentPath: string,
+): number {
+  if (!parentPath) return entries.length;
+  const parentIndex = entries.findIndex((entry) => entry.path === parentPath);
+  if (parentIndex < 0) return entries.length;
+  const prefix = `${parentPath}/`;
+  let insertionIndex = parentIndex + 1;
+  while (
+    insertionIndex < entries.length &&
+    entries[insertionIndex]?.path.startsWith(prefix)
+  ) {
+    insertionIndex += 1;
+  }
+  return insertionIndex;
+}
+
 export function addProjectEntry(
   project: LatexProject,
   entry: LatexProjectEntry,
