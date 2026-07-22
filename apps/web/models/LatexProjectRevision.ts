@@ -35,7 +35,6 @@ const LatexProjectRevisionSchema = new Schema<ILatexProjectRevisionDocument>(
       type: Schema.Types.ObjectId,
       ref: "LatexProject",
       required: true,
-      index: true,
     },
     revision: { type: Number, required: true, min: 0 },
     name: { type: String, required: true, trim: true, maxlength: 100 },

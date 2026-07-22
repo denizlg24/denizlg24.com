@@ -11,6 +11,7 @@
     "test": "bun --env-file=.env turbo run test",
     "format-and-lint": "biome check .",
     "format-and-lint:fix": "biome check . --write",
+    "postinstall": "node scripts/fetch-tectonic.mjs",
     "prepare": "husky"
   },
   "devDependencies": {
