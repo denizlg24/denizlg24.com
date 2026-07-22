@@ -10,6 +10,7 @@ export interface StoredContentBlock {
   input?: Record<string, unknown>;
   tool_use_id?: string;
   content?: unknown;
+  source?: Record<string, unknown>;
   is_error?: boolean;
 }
 

@@ -120,7 +120,7 @@ export function PaperFormDialog({
   const [isbn, setIsbn] = useState("");
   const [issn, setIssn] = useState("");
   const [metadataSource, setMetadataSource] = useState<
-    "manual" | "crossref" | "arxiv" | "semantic_scholar"
+    "manual" | "crossref" | "arxiv" | "semantic_scholar" | "openalex"
   >("manual");
   const [metadataFetchedAt, setMetadataFetchedAt] = useState<string>();
   const [resolvedMetadata, setResolvedMetadata] =

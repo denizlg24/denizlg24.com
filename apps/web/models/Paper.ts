@@ -43,6 +43,10 @@ export interface IPaper extends Document {
   doi?: string;
   arxivId?: string;
   arxivCategory?: string;
+  openAlexId?: string;
+  isRetracted?: boolean;
+  openAccessStatus?: string;
+  license?: string;
   citationKey: string;
   citationCount?: number;
   url?: string;
@@ -51,7 +55,12 @@ export interface IPaper extends Document {
   tags: string[];
   noteIds: mongoose.Types.ObjectId[];
   highlights: IPaperHighlight[];
-  metadataSource: "manual" | "crossref" | "arxiv" | "semantic_scholar";
+  metadataSource:
+    | "manual"
+    | "crossref"
+    | "arxiv"
+    | "semantic_scholar"
+    | "openalex";
   metadataFetchedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -146,6 +155,10 @@ const PaperSchema = new Schema<IPaper>(
     doi: { type: String, trim: true, lowercase: true },
     arxivId: { type: String, trim: true, lowercase: true },
     arxivCategory: { type: String, trim: true, maxlength: 100 },
+    openAlexId: { type: String, trim: true, maxlength: 100 },
+    isRetracted: { type: Boolean, default: false },
+    openAccessStatus: { type: String, trim: true, maxlength: 100 },
+    license: { type: String, trim: true, maxlength: 200 },
     citationKey: {
       type: String,
       required: true,
@@ -171,7 +184,7 @@ const PaperSchema = new Schema<IPaper>(
     highlights: { type: [HighlightSchema], default: [] },
     metadataSource: {
       type: String,
-      enum: ["manual", "crossref", "arxiv", "semantic_scholar"],
+      enum: ["manual", "crossref", "arxiv", "semantic_scholar", "openalex"],
       default: "manual",
     },
     metadataFetchedAt: { type: Date },
@@ -181,6 +194,7 @@ const PaperSchema = new Schema<IPaper>(
 
 PaperSchema.index({ doi: 1 }, { unique: true, sparse: true });
 PaperSchema.index({ arxivId: 1 }, { unique: true, sparse: true });
+PaperSchema.index({ openAlexId: 1 }, { unique: true, sparse: true });
 PaperSchema.index({ citationKey: 1 }, { unique: true });
 PaperSchema.index({ updatedAt: -1 });
 PaperSchema.index({

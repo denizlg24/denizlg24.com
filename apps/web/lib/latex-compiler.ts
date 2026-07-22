@@ -3,12 +3,37 @@ import "server-only";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
-import type { ILatexProject } from "@repo/schemas";
+import { basename, dirname, join, posix, resolve, sep } from "node:path";
+import type { ILatexFileEntry, ILatexProject } from "@repo/schemas";
+import { Resvg } from "@resvg/resvg-js";
 import { createCompiler } from "node-latex-compiler";
 
 const COMPILE_TIMEOUT_MS = 90_000;
 const MAX_LOG_BYTES = 256 * 1024;
+const compileLocks = new Set<string>();
+const INCLUDE_SVG_PATTERN = /\\includesvg(?:\s*\[([^\]]*)\])?\s*\{([^{}]+)\}/g;
+const GRAPHICX_OPTIONS = new Set([
+  "angle",
+  "bb",
+  "clip",
+  "command",
+  "decodearray",
+  "draft",
+  "ext",
+  "height",
+  "interpolate",
+  "keepaspectratio",
+  "origin",
+  "page",
+  "pagebox",
+  "read",
+  "scale",
+  "totalheight",
+  "trim",
+  "type",
+  "viewport",
+  "width",
+]);
 
 interface CompilerWithPath {
   tectonicPath: string | null;
@@ -27,6 +52,24 @@ export class LatexCompilationError extends Error {
     super(message);
     this.name = "LatexCompilationError";
   }
+}
+
+/**
+ * Process-local admission control keyed by the logical document. Serverless
+ * instances can still compile independently, while requests handled by the
+ * same instance no longer block unrelated projects.
+ */
+export function tryAcquireLatexCompileLock(
+  projectKey: string,
+): (() => void) | null {
+  if (compileLocks.has(projectKey)) return null;
+  compileLocks.add(projectKey);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    compileLocks.delete(projectKey);
+  };
 }
 
 function resolveTectonicPath(): string {
@@ -74,6 +117,148 @@ async function writeProject(workspace: string, project: ILatexProject) {
         : Buffer.from(entry.content, "utf8");
     await writeFile(target, content, { flag: "wx" });
   }
+}
+
+function graphicxOptions(value: string | undefined): string {
+  if (!value) return "";
+  const options: string[] = [];
+  let current = "";
+  let depth = 0;
+  for (const character of value) {
+    if (character === "{") depth += 1;
+    if (character === "}") depth = Math.max(0, depth - 1);
+    if (character === "," && depth === 0) {
+      options.push(current);
+      current = "";
+    } else {
+      current += character;
+    }
+  }
+  options.push(current);
+  return options
+    .map((option) => option.trim())
+    .filter((option) => {
+      const key = option.split("=", 1)[0]?.trim().toLowerCase();
+      return key ? GRAPHICX_OPTIONS.has(key) : false;
+    })
+    .join(",");
+}
+
+function svgPathForReference(
+  reference: string,
+  sourcePath: string,
+  svgPaths: Set<string>,
+): string | null {
+  if (reference.includes("\\") || reference.includes("{")) return null;
+  const normalized = reference.replace(/^\.\//, "");
+  const withExtension = normalized.toLowerCase().endsWith(".svg")
+    ? normalized
+    : `${normalized}.svg`;
+  const candidates = [
+    posix.normalize(withExtension),
+    posix.normalize(posix.join(posix.dirname(sourcePath), withExtension)),
+  ];
+  for (const candidate of candidates) {
+    if (
+      candidate !== ".." &&
+      !candidate.startsWith("../") &&
+      svgPaths.has(candidate)
+    ) {
+      return candidate;
+    }
+  }
+  const targetName = posix.basename(withExtension).toLowerCase();
+  const basenameMatches = [...svgPaths].filter(
+    (path) => posix.basename(path).toLowerCase() === targetName,
+  );
+  return basenameMatches.length === 1 ? (basenameMatches[0] ?? null) : null;
+}
+
+async function prepareSvgAssets(
+  workspace: string,
+  project: ILatexProject,
+): Promise<void> {
+  const svgEntries = project.entries.filter(
+    (entry): entry is ILatexFileEntry =>
+      entry.kind === "file" && entry.path.toLowerCase().endsWith(".svg"),
+  );
+  if (!svgEntries.length) return;
+  const svgByPath = new Map(svgEntries.map((entry) => [entry.path, entry]));
+  const svgPaths = new Set(svgByPath.keys());
+  const existingPaths = new Set(project.entries.map((entry) => entry.path));
+  const generated = new Map<string, { path: string; png: Buffer }>();
+  const rewrittenSources: Array<{ path: string; content: string }> = [];
+
+  for (const entry of project.entries) {
+    if (
+      entry.kind !== "file" ||
+      entry.encoding !== "utf8" ||
+      !entry.path.match(/\.(?:tex|sty|cls)$/i) ||
+      !entry.content.includes("\\includesvg")
+    ) {
+      continue;
+    }
+    const content = entry.content.replace(
+      INCLUDE_SVG_PATTERN,
+      (original, rawOptions: string | undefined, rawReference: string) => {
+        const svgPath = svgPathForReference(
+          rawReference.trim(),
+          entry.path,
+          svgPaths,
+        );
+        if (!svgPath) return original;
+        let asset = generated.get(svgPath);
+        if (!asset) {
+          const svgEntry = svgByPath.get(svgPath);
+          if (!svgEntry) return original;
+          let generatedPath = `${svgPath}.png`;
+          if (existingPaths.has(generatedPath)) {
+            generatedPath = `${svgPath}.latex.png`;
+          }
+          try {
+            const svg = Buffer.from(
+              svgEntry.content,
+              svgEntry.encoding === "base64" ? "base64" : "utf8",
+            );
+            asset = {
+              path: generatedPath,
+              png: Buffer.from(
+                new Resvg(svg, {
+                  fitTo: { mode: "zoom", value: 2 },
+                  font: { loadSystemFonts: true },
+                })
+                  .render()
+                  .asPng(),
+              ),
+            };
+            generated.set(svgPath, asset);
+            existingPaths.add(generatedPath);
+          } catch {
+            throw new LatexCompilationError(
+              `Could not convert SVG asset ${svgPath}`,
+              "",
+            );
+          }
+        }
+        const options = graphicxOptions(rawOptions);
+        return `\\includegraphics${options ? `[${options}]` : ""}{${asset.path}}`;
+      },
+    );
+    if (content !== entry.content) {
+      rewrittenSources.push({ path: entry.path, content });
+    }
+  }
+
+  await Promise.all([
+    ...[...generated.values()].map(async (asset) => {
+      const target = workspacePath(workspace, asset.path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, asset.png, { flag: "wx" });
+    }),
+    ...rewrittenSources.map(({ path, content }) =>
+      writeFile(workspacePath(workspace, path), content, "utf8"),
+    ),
+  ]);
 }
 
 async function runTectonic(
@@ -152,6 +337,7 @@ export async function compileLatexProject(
   const workspace = await mkdtemp(join(tmpdir(), "deniz-latex-"));
   try {
     await writeProject(workspace, project);
+    await prepareSvgAssets(workspace, project);
     const log = await runTectonic(
       resolveTectonicPath(),
       workspace,

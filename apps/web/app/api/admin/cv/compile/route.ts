@@ -7,6 +7,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import {
   compileLatexProject,
   LatexCompilationError,
+  tryAcquireLatexCompileLock,
 } from "@/lib/latex-compiler";
 import { connectDB } from "@/lib/mongodb";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
@@ -20,8 +21,6 @@ import {
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-let compilationInFlight = false;
 
 function serializeCv(cv: IStoredCv | null | undefined): ICvFile | null {
   if (!cv) return null;
@@ -40,12 +39,6 @@ export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
 
-  if (compilationInFlight) {
-    return NextResponse.json(
-      { error: "A compilation is already running" },
-      { status: 409 },
-    );
-  }
   const declaredLength = Number(request.headers.get("content-length") ?? 0);
   if (declaredLength > 5 * 1024 * 1024) {
     return NextResponse.json({ error: "Project exceeds 4MB" }, { status: 413 });
@@ -61,7 +54,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  compilationInFlight = true;
+  const releaseCompileLock = tryAcquireLatexCompileLock("cv");
+  if (!releaseCompileLock) {
+    return NextResponse.json(
+      { error: "A compilation is already running" },
+      { status: 409 },
+    );
+  }
+
   try {
     await connectDB();
     const previous = await AppSettings.findById("singleton")
@@ -147,6 +147,6 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   } finally {
-    compilationInFlight = false;
+    releaseCompileLock();
   }
 }

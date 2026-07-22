@@ -424,9 +424,13 @@ export interface GenerateToolResultRequest extends LlmRequestContext {
   model: string;
   system: string;
   prompt: string;
+  /** Optional multimodal content; `prompt` remains the redacted/loggable text. */
+  content?: Anthropic.MessageParam["content"];
   tool: Anthropic.Tool;
   maxTokens: number;
   temperature?: number;
+  /** Redacted replacement for usage logs when the system prompt has private context. */
+  logSystemPrompt?: string;
   /** Override for the logged prompt (e.g. truncated or redacted variants). */
   logUserPrompt?: string;
 }
@@ -443,17 +447,27 @@ export async function generateToolResult({
   model,
   system,
   prompt,
+  content,
   tool,
   maxTokens,
   temperature,
+  logSystemPrompt,
   logUserPrompt,
 }: GenerateToolResultRequest): Promise<ToolResultOutcome> {
-  const resolved = await resolveModel({ model, purpose });
+  const resolved = await resolveModel({
+    model,
+    purpose,
+    requiredTags: ["tool-use"],
+  });
   const client = getGatewayAnthropicClient();
+  const outputLimit = Math.min(
+    maxTokens,
+    getModelLimits(resolved.catalogModel).maxOutput,
+  );
 
   const response = await client.messages.create({
     model: resolved.id as Anthropic.Model,
-    max_tokens: maxTokens,
+    max_tokens: outputLimit,
     ...(temperature !== undefined ? { temperature } : {}),
     system,
     tools: [tool],
@@ -462,7 +476,7 @@ export async function generateToolResult({
       name: tool.name,
       disable_parallel_tool_use: true,
     },
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content: content ?? prompt }],
   });
 
   let input: Record<string, unknown> | undefined;
@@ -493,7 +507,7 @@ export async function generateToolResult({
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     costUsd: usage.costUsd,
-    systemPrompt: system,
+    systemPrompt: logSystemPrompt ?? system,
     userPrompt: logUserPrompt ?? prompt,
     source,
   });

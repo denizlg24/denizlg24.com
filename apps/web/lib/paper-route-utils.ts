@@ -96,6 +96,9 @@ const OPTIONAL_STRING_FIELDS = [
   "edition",
   "language",
   "arxivCategory",
+  "openAlexId",
+  "openAccessStatus",
+  "license",
   "url",
 ] as const satisfies ReadonlyArray<keyof PaperMutation>;
 
@@ -110,6 +113,7 @@ export async function preparePaperUpdate(input: PaperMutation) {
     set.readingStatus = input.readingStatus;
   if (input.metadataSource !== undefined)
     set.metadataSource = input.metadataSource;
+  if (input.isRetracted !== undefined) set.isRetracted = input.isRetracted;
 
   for (const field of OPTIONAL_STRING_FIELDS) {
     const value = input[field];
