@@ -10,6 +10,7 @@ import {
   Clock,
   Contact,
   DollarSign,
+  FileCode2,
   FileText,
   FileUser,
   FolderGit2,
@@ -83,6 +84,11 @@ const items = [
     title: "Papers",
     url: "/admin/dashboard/papers",
     icon: BookOpen,
+  },
+  {
+    title: "LaTeX",
+    url: "/admin/dashboard/latex",
+    icon: FileCode2,
   },
   {
     title: "Comments",
