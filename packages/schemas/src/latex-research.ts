@@ -18,7 +18,7 @@ export const latexReferenceSuggestionSchema = z.object({
   isOpenAccess: z.boolean(),
   openAccessStatus: z.string().max(100).nullable(),
   license: z.string().max(200).nullable(),
-  url: z.string().url().nullable(),
+  url: z.url().nullable(),
   matchRationale: z.string().max(500),
   citationKey: z.string().max(200).nullable(),
   alreadyInPapers: z.boolean(),

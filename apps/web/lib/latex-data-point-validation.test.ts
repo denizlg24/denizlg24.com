@@ -84,4 +84,43 @@ describe("LaTeX data-point evidence validation", () => {
       ),
     ).toBeNull();
   });
+
+  it("rejects a value that is only a substring of a longer number", () => {
+    expect(
+      verifyLatexDataCandidate(
+        candidate({ value: "9" }),
+        new Map([[passage.id, passage]]),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects a unit that only occurs inside a longer token", () => {
+    const abstract = "The satellite orbits at 5 km altitude.";
+    const kmPassage: LatexEvidencePassage = {
+      ...passage,
+      text: abstract,
+      reference: { ...reference, abstract },
+    };
+    expect(
+      verifyLatexDataCandidate(
+        candidate({ value: "5", unit: "m", supportingPassage: abstract }),
+        new Map([[kmPassage.id, kmPassage]]),
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts a value and unit joined to adjacent tokens", () => {
+    const abstract = "The rover traveled 10km before nightfall.";
+    const kmPassage: LatexEvidencePassage = {
+      ...passage,
+      text: abstract,
+      reference: { ...reference, abstract },
+    };
+    expect(
+      verifyLatexDataCandidate(
+        candidate({ value: "10", unit: "km", supportingPassage: abstract }),
+        new Map([[kmPassage.id, kmPassage]]),
+      ),
+    ).toMatchObject({ value: "10", unit: "km", verified: true });
+  });
 });

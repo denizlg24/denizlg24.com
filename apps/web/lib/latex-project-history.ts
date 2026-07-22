@@ -21,6 +21,15 @@ function validId(value: string): boolean {
   return mongoose.Types.ObjectId.isValid(value);
 }
 
+function isDuplicateKeyError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === 11000
+  );
+}
+
 function serializeSummary(value: {
   _id: unknown;
   projectId: unknown;
@@ -96,18 +105,23 @@ export async function recordLatexProjectSnapshot(
 
   const initialTimestamp =
     !latest && action === "create" ? new Date(record.createdAt) : null;
-  await LatexProjectRevision.create({
-    projectId,
-    revision: record.revision,
-    name: record.name,
-    action,
-    compileCount: record.compileCount,
-    changedFiles,
-    project: record.project,
-    ...(initialTimestamp
-      ? { createdAt: initialTimestamp, updatedAt: initialTimestamp }
-      : {}),
-  });
+  try {
+    await LatexProjectRevision.create({
+      projectId,
+      revision: record.revision,
+      name: record.name,
+      action,
+      compileCount: record.compileCount,
+      changedFiles,
+      project: record.project,
+      ...(initialTimestamp
+        ? { createdAt: initialTimestamp, updatedAt: initialTimestamp }
+        : {}),
+    });
+  } catch (error) {
+    if (action === "create" && isDuplicateKeyError(error)) return;
+    throw error;
+  }
 }
 
 export async function listLatexProjectHistory(

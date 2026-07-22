@@ -247,7 +247,7 @@ export function createLatexInlineCompletionExtension(options: {
           suffix: source.slice(cursor, cursor + 1_000),
           paragraph: activeParagraph(source, cursor),
         };
-        const cacheKey = `${request.revision}:${options.filePath}:${cursor}:${request.prefix.slice(-120)}`;
+        const cacheKey = `${options.projectId}:${request.revision}:${options.filePath}:${cursor}:${request.prefix.slice(-120)}`;
         const cached = completionCache.get(cacheKey);
         if (cached) {
           this.view.dispatch({

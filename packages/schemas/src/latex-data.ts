@@ -11,6 +11,26 @@ export const latexDataSearchIntentSchema = z.object({
 });
 export type LatexDataSearchIntent = z.infer<typeof latexDataSearchIntentSchema>;
 
+export const latexRawDataCandidateSchema = z.object({
+  sourceId: z.string().min(1).max(100),
+  value: z.string().min(1).max(100),
+  unit: z.string().min(1).max(100),
+  population: z.string().max(500).nullable(),
+  geography: z.string().max(300).nullable(),
+  period: z.string().max(200).nullable(),
+  methodologyQualifier: z.string().max(1_000).nullable(),
+  supportingPassage: z.string().min(1).max(4_000),
+});
+export type RawLatexDataCandidate = z.infer<typeof latexRawDataCandidateSchema>;
+
+export const latexDataExtractionResultSchema = z.object({
+  intent: latexDataSearchIntentSchema,
+  candidates: z.array(latexRawDataCandidateSchema).max(30),
+});
+export type LatexDataExtractionResult = z.infer<
+  typeof latexDataExtractionResultSchema
+>;
+
 export const latexDataPointCandidateSchema = z.object({
   id: z.uuid(),
   value: z.string().trim().min(1).max(100),

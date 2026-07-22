@@ -5,12 +5,10 @@ import {
   type LatexDataPointSearchResponse,
   type LatexDataSearchIntent,
   type LatexReferenceSuggestion,
-  latexDataSearchIntentSchema,
+  latexDataExtractionResultSchema,
 } from "@repo/schemas";
-import { z } from "zod";
 import {
   type LatexEvidencePassage,
-  type RawLatexDataCandidate,
   verifiedLatexDataCandidates,
 } from "@/lib/latex-data-point-validation";
 import { localPaperSuggestion } from "@/lib/latex-references";
@@ -23,22 +21,6 @@ import { type ILeanPaper, Paper } from "@/models/Paper";
 const DEFAULT_DATA_MODEL = "openai/gpt-5.4-mini";
 const MAX_EVIDENCE_PASSAGES = 18;
 const MAX_PASSAGE_CHARACTERS = 5_000;
-
-const extractedCandidateSchema = z.object({
-  sourceId: z.string().min(1).max(100),
-  value: z.string().min(1).max(100),
-  unit: z.string().min(1).max(100),
-  population: z.string().max(500).nullable(),
-  geography: z.string().max(300).nullable(),
-  period: z.string().max(200).nullable(),
-  methodologyQualifier: z.string().max(1_000).nullable(),
-  supportingPassage: z.string().min(1).max(4_000),
-});
-
-const extractionResultSchema = z.object({
-  intent: latexDataSearchIntentSchema,
-  candidates: z.array(extractedCandidateSchema).max(30),
-});
 
 function fallbackIntent(query: string): LatexDataSearchIntent {
   return {
@@ -243,7 +225,7 @@ export async function searchLatexDataPoints(
     },
   });
 
-  const parsed = extractionResultSchema.safeParse(input);
+  const parsed = latexDataExtractionResultSchema.safeParse(input);
   if (!parsed.success) {
     return {
       intent: fallbackIntent(query),
@@ -253,7 +235,7 @@ export async function searchLatexDataPoints(
     };
   }
   const verified = verifiedLatexDataCandidates(
-    parsed.data.candidates as RawLatexDataCandidate[],
+    parsed.data.candidates,
     passages,
     limit,
   );

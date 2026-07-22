@@ -53,6 +53,10 @@ const LatexProjectRevisionSchema = new Schema<ILatexProjectRevisionDocument>(
 
 LatexProjectRevisionSchema.index({ projectId: 1, updatedAt: -1 });
 LatexProjectRevisionSchema.index({ projectId: 1, revision: -1 });
+LatexProjectRevisionSchema.index(
+  { projectId: 1 },
+  { unique: true, partialFilterExpression: { action: "create" } },
+);
 
 export const LatexProjectRevision: mongoose.Model<ILatexProjectRevisionDocument> =
   (mongoose.models.LatexProjectRevision as

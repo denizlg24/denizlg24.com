@@ -1,6 +1,7 @@
 import type {
   LatexDataPointCandidate,
   LatexReferenceSuggestion,
+  RawLatexDataCandidate,
 } from "@repo/schemas";
 
 export interface LatexEvidencePassage {
@@ -11,19 +12,36 @@ export interface LatexEvidencePassage {
   reference: LatexReferenceSuggestion;
 }
 
-export interface RawLatexDataCandidate {
-  sourceId: string;
-  value: string;
-  unit: string;
-  population: string | null;
-  geography: string | null;
-  period: string | null;
-  methodologyQualifier: string | null;
-  supportingPassage: string;
-}
-
 function normalizeEvidence(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+}
+
+type TokenClass = "letter" | "digit" | "other";
+
+function tokenClass(char: string): TokenClass {
+  if (/\p{L}/u.test(char)) return "letter";
+  if (/\p{N}/u.test(char)) return "digit";
+  return "other";
+}
+
+function includesToken(haystack: string, needle: string): boolean {
+  if (!needle) return false;
+  const firstClass = tokenClass(needle[0] ?? "");
+  const lastClass = tokenClass(needle[needle.length - 1] ?? "");
+  for (
+    let index = haystack.indexOf(needle);
+    index !== -1;
+    index = haystack.indexOf(needle, index + 1)
+  ) {
+    const before = index > 0 ? (haystack[index - 1] ?? "") : "";
+    const after = haystack[index + needle.length] ?? "";
+    const leftBounded =
+      firstClass === "other" || tokenClass(before) !== firstClass;
+    const rightBounded =
+      lastClass === "other" || tokenClass(after) !== lastClass;
+    if (leftBounded && rightBounded) return true;
+  }
+  return false;
 }
 
 function boundedNullable(value: string | null, length: number): string | null {
@@ -46,8 +64,8 @@ export function verifyLatexDataCandidate(
   const normalizedQuote = normalizeEvidence(quote);
   if (
     !normalizedSource.includes(normalizedQuote) ||
-    !normalizedQuote.includes(normalizeEvidence(value)) ||
-    !normalizedQuote.includes(normalizeEvidence(unit))
+    !includesToken(normalizedQuote, normalizeEvidence(value)) ||
+    !includesToken(normalizedQuote, normalizeEvidence(unit))
   ) {
     return null;
   }

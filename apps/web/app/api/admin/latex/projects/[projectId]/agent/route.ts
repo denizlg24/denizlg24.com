@@ -174,10 +174,13 @@ function editProposalForChange(options: {
     });
   }
   if (change.operation === "replace_lines" && requestedFile) {
+    if (change.startLine === undefined || change.endLine === undefined) {
+      return null;
+    }
     const range = lineRange(
       requestedFile.content,
-      change.startLine ?? 0,
-      change.endLine ?? 0,
+      change.startLine,
+      change.endLine,
     );
     if (!range) return null;
     const before = requestedFile.content.slice(range.from, range.to);

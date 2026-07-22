@@ -208,6 +208,12 @@ async function findOrCreatePaper(
   return paper;
 }
 
+function assertBibliographyTarget(file: ILatexFileEntry): void {
+  if (file.encoding !== "utf8" || !file.path.toLowerCase().endsWith(".bib")) {
+    throw new Error("Bibliography target must be a UTF-8 .bib file");
+  }
+}
+
 function addBibtex(
   project: ILatexProjectRecord["project"],
   bibliographyFile: string,
@@ -232,9 +238,7 @@ function addBibtex(
       ],
     };
   }
-  if (file.encoding !== "utf8" || !file.path.toLowerCase().endsWith(".bib")) {
-    throw new Error("Bibliography target must be a UTF-8 .bib file");
-  }
+  assertBibliographyTarget(file);
   const key = bibtex.match(/^@[^{]+\{\s*([^,]+)/)?.[1];
   if (
     key &&
@@ -266,6 +270,12 @@ export async function acceptLatexReference(
   paper: ReturnType<typeof serializePaper>;
 }> {
   await connectDB();
+  const current = await getLatexProject(projectId);
+  const targetFile = current.project.entries.find(
+    (entry): entry is ILatexFileEntry =>
+      entry.kind === "file" && entry.path === input.bibliographyFile,
+  );
+  if (targetFile) assertBibliographyTarget(targetFile);
   const paper = await findOrCreatePaper(input.suggestion);
   const serialized = serializePaper(paper);
   await LatexProjectReference.updateOne(
@@ -273,7 +283,6 @@ export async function acceptLatexReference(
     { $setOnInsert: { projectId, paperId: paper._id } },
     { upsert: true },
   ).exec();
-  const current = await getLatexProject(projectId);
   const projectWithBibtex = addBibtex(
     current.project,
     input.bibliographyFile,
