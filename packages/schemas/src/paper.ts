@@ -84,6 +84,10 @@ export const paperSchema = z.object({
   doi: z.string().optional(),
   arxivId: z.string().optional(),
   arxivCategory: z.string().optional(),
+  openAlexId: z.string().optional(),
+  isRetracted: z.boolean().optional(),
+  openAccessStatus: z.string().optional(),
+  license: z.string().optional(),
   citationKey: z.string(),
   citationCount: z.number().int().nonnegative().optional(),
   url: z.string().optional(),
@@ -92,7 +96,13 @@ export const paperSchema = z.object({
   tags: z.array(z.string()),
   noteIds: z.array(z.string()),
   highlights: z.array(paperHighlightSchema),
-  metadataSource: z.enum(["manual", "crossref", "arxiv", "semantic_scholar"]),
+  metadataSource: z.enum([
+    "manual",
+    "crossref",
+    "arxiv",
+    "semantic_scholar",
+    "openalex",
+  ]),
   metadataFetchedAt: z.string().optional(),
   bibtex: z.string(),
   createdAt: z.string(),
@@ -130,6 +140,10 @@ export const paperMutationSchema = z.object({
   doi: optionalTrimmedString(500),
   arxivId: optionalTrimmedString(100),
   arxivCategory: optionalTrimmedString(100),
+  openAlexId: optionalTrimmedString(100),
+  isRetracted: z.boolean().optional(),
+  openAccessStatus: optionalTrimmedString(100),
+  license: optionalTrimmedString(200),
   citationKey: optionalTrimmedString(200),
   citationCount: z.number().int().nonnegative().nullable().optional(),
   url: z.string().trim().url().max(2_000).or(z.literal("")).optional(),
@@ -138,7 +152,7 @@ export const paperMutationSchema = z.object({
   noteIds: z.array(z.string().trim().min(1).max(100)).max(1_000).optional(),
   highlights: z.array(paperHighlightSchema).max(10_000).optional(),
   metadataSource: z
-    .enum(["manual", "crossref", "arxiv", "semantic_scholar"])
+    .enum(["manual", "crossref", "arxiv", "semantic_scholar", "openalex"])
     .optional(),
   metadataFetchedAt: z.iso.datetime().nullable().optional(),
 });

@@ -6,13 +6,30 @@ import type {
 } from "./types";
 
 const TEXT_EXTENSIONS = new Set([
+  "asy",
+  "bbx",
   "bib",
+  "bst",
+  "cbx",
+  "cfg",
   "cls",
+  "clo",
   "csv",
   "def",
+  "dtx",
+  "inc",
+  "ins",
+  "ist",
+  "latex",
+  "lbx",
+  "lco",
+  "ldf",
+  "ltx",
+  "lua",
   "md",
   "sty",
   "tex",
+  "tikz",
   "txt",
 ]);
 

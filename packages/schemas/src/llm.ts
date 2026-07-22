@@ -1,5 +1,52 @@
 import { z } from "zod";
 
+export const llmProviderKindSchema = z.enum(["hosted", "ollama"]);
+export type LlmProviderKind = z.infer<typeof llmProviderKindSchema>;
+
+export const neutralLlmMessageSchema = z.object({
+  role: z.enum(["system", "user", "assistant", "tool"]),
+  content: z.string(),
+  toolCallId: z.string().optional(),
+});
+export type NeutralLlmMessage = z.infer<typeof neutralLlmMessageSchema>;
+
+export const neutralLlmToolSchema = z.object({
+  name: z.string().min(1).max(128),
+  description: z.string().max(2_000),
+  inputSchema: z.record(z.string(), z.unknown()),
+});
+export type NeutralLlmTool = z.infer<typeof neutralLlmToolSchema>;
+
+export const neutralLlmToolCallSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  input: z.record(z.string(), z.unknown()),
+});
+export type NeutralLlmToolCall = z.infer<typeof neutralLlmToolCallSchema>;
+
+export const neutralLlmStreamEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text_delta"), text: z.string() }),
+  z.object({ type: z.literal("tool_call"), call: neutralLlmToolCallSchema }),
+  z.object({
+    type: z.literal("usage"),
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+  }),
+  z.object({ type: z.literal("done"), reason: z.string().nullable() }),
+]);
+export type NeutralLlmStreamEvent = z.infer<typeof neutralLlmStreamEventSchema>;
+
+export const embeddingProfileSchema = z.object({
+  provider: llmProviderKindSchema,
+  model: z.string().min(1),
+  dimensions: z.number().int().positive().max(16_384),
+});
+export type EmbeddingProfile = z.infer<typeof embeddingProfileSchema>;
+
+export function embeddingProfileKey(profile: EmbeddingProfile): string {
+  return `${profile.provider}:${profile.model}:${profile.dimensions}`;
+}
+
 // Compact catalog model exposed by GET /llm/models. Ids are fully qualified
 // Vercel AI Gateway ids (e.g. "anthropic/claude-haiku-4.5"); `creator` is the
 // model creator, not the serving provider. Capability tags come straight from

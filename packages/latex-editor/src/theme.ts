@@ -58,7 +58,12 @@ export function appEditorTheme(dark: boolean): Extension[] {
   );
 
   const highlight = HighlightStyle.define([
-    { tag: t.comment, color: "var(--muted-foreground)", fontStyle: "italic" },
+    {
+      tag: t.comment,
+      color: "color-mix(in oklab, var(--foreground) 55%, var(--card))",
+      fontStyle: "italic",
+      opacity: "0.76",
+    },
     {
       tag: [
         t.keyword,
