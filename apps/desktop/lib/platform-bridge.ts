@@ -1,8 +1,11 @@
 import type { PlatformBridge } from "@repo/admin/platform";
+import { ModelSelector } from "@/components/ui/model-selector";
 import { isTauri } from "./platform";
+import { saveFile } from "./platform-fs";
 
 /** Desktop PlatformBridge: Tauri plugins inside the app, browser APIs in dev. */
 export const desktopPlatform: PlatformBridge = {
+  HostedModelSelector: ModelSelector,
   async openExternal(url) {
     if (isTauri()) {
       const { open } = await import("@tauri-apps/plugin-shell");
@@ -42,15 +45,57 @@ export const desktopPlatform: PlatformBridge = {
   },
 
   async downloadFile(filename, data, mimeType) {
-    const blob =
+    const bytes =
       typeof data === "string"
-        ? new Blob([data], { type: mimeType ?? "text/plain" })
-        : data;
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
-    URL.revokeObjectURL(url);
+        ? new TextEncoder().encode(data)
+        : new Uint8Array(await data.arrayBuffer());
+    await saveFile(filename, bytes, { mimeType });
+  },
+
+  localLlm: {
+    async listModels(signal) {
+      const { OllamaClient } = await import("./ollama");
+      const ollama = new OllamaClient();
+      const models = await ollama.listModels(signal);
+      return Promise.all(
+        models.map(async (model) => {
+          try {
+            const capabilities = await ollama.probeModel(model.model, signal);
+            return {
+              name: model.name,
+              model: model.model,
+              tools: capabilities.tools,
+              embedding: capabilities.embedding,
+            };
+          } catch {
+            return { name: model.name, model: model.model };
+          }
+        }),
+      );
+    },
+
+    async generate({ model, messages, tools, signal }) {
+      const { OllamaClient } = await import("./ollama");
+      let content = "";
+      const toolCalls: Array<{
+        name: string;
+        input: Record<string, unknown>;
+      }> = [];
+      for await (const event of new OllamaClient().chat({
+        model,
+        messages,
+        tools,
+        signal,
+      })) {
+        if (event.type === "text_delta") content += event.text;
+        if (event.type === "tool_call") {
+          toolCalls.push({ name: event.call.name, input: event.call.input });
+        }
+      }
+      if (!content.trim() && toolCalls.length === 0) {
+        throw new Error("Ollama returned an empty response");
+      }
+      return { content, toolCalls };
+    },
   },
 };

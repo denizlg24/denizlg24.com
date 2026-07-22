@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Clock,
   DollarSign,
+  FileCode2,
   FileText,
   FileUser,
   FolderGit2,
@@ -214,6 +215,11 @@ export const GROUPS: NavGroup[] = [
         label: "Papers",
         href: "/papers",
         icon: BookOpen,
+      },
+      {
+        label: "LaTeX",
+        href: "/latex",
+        icon: FileCode2,
       },
       {
         label: "People",

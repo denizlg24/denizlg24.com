@@ -31,6 +31,8 @@ const KNOWN_ROUTES = new Set([
   "/dashboard/blog",
   "/dashboard/blog/new",
   "/dashboard/blog/comments",
+  "/dashboard/latex",
+  "/dashboard/latex/project",
   "/dashboard/projects",
   "/dashboard/projects/new",
   "/dashboard/timeline",

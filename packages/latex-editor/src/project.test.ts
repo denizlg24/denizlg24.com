@@ -5,6 +5,7 @@ import {
   createDefaultLatexProject,
   createFileEntry,
   createFolderEntry,
+  isTextFile,
   removeProjectEntry,
   renameProjectEntry,
   sortProjectEntries,
@@ -74,5 +75,19 @@ describe("LaTeX project operations", () => {
 
     expect(childInsertionIndex(entries, "sections")).toBe(3);
     expect(entries[3]?.path).toBe("main.tex");
+  });
+
+  it("treats package, class, bibliography style, and support files as text", () => {
+    for (const path of [
+      "paper.sty",
+      "journal.cls",
+      "references.bst",
+      "citations.bbx",
+      "language.lbx",
+      "layout.tikz",
+      "config.cfg",
+    ]) {
+      expect(isTextFile(path)).toBe(true);
+    }
   });
 });

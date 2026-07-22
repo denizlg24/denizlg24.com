@@ -34,7 +34,9 @@ export const webPlatform: PlatformBridge = {
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = filename;
+    document.body.appendChild(anchor);
     anchor.click();
-    URL.revokeObjectURL(url);
+    anchor.remove();
+    globalThis.setTimeout(() => URL.revokeObjectURL(url), 1_000);
   },
 };
