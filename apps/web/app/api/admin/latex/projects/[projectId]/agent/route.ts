@@ -53,12 +53,55 @@ const agentToolChangeSchema = z.object({
   explanation: z.string().max(2_000).optional().default(""),
 });
 
+// Models occasionally emit `changes` as a JSON-encoded string or as a single
+// change object instead of an array; recover both shapes before validation so a
+// formatting quirk does not fail the whole turn.
+function coerceToolChanges(value: unknown): unknown {
+  let next = value;
+  if (typeof next === "string") {
+    const trimmed = next.trim();
+    if (trimmed === "") return [];
+    try {
+      next = JSON.parse(trimmed);
+    } catch {
+      return next;
+    }
+  }
+  if (next && typeof next === "object" && !Array.isArray(next)) {
+    return [next];
+  }
+  return next;
+}
+
 const agentToolResultSchema = z
   .object({
     response: z.string().trim().min(1).max(50_000),
-    changes: z.array(agentToolChangeSchema).max(12).optional().default([]),
+    changes: z
+      .preprocess(coerceToolChanges, z.array(agentToolChangeSchema).max(12))
+      .optional()
+      .default([]),
   })
   .passthrough();
+
+const agentResponseFallbackSchema = z
+  .object({ response: z.string().trim().min(1).max(50_000) })
+  .passthrough();
+
+// Keep the conversational reply even when the model's `changes` payload is
+// unrecoverable, rather than 503-ing and discarding the whole turn.
+function parseAgentToolResult(
+  input: unknown,
+): z.infer<typeof agentToolResultSchema> {
+  const parsed = agentToolResultSchema.safeParse(input);
+  if (parsed.success) return parsed.data;
+  const fallback = agentResponseFallbackSchema.safeParse(input);
+  if (!fallback.success) throw parsed.error;
+  console.warn(
+    "LaTeX agent returned an unparseable changes payload; dropping proposals",
+    parsed.error.issues,
+  );
+  return { response: fallback.data.response, changes: [] };
+}
 
 type AgentToolChange = z.infer<typeof agentToolChangeSchema>;
 const CHANGE_TOOL_NAME = "propose_latex_project_change";
@@ -755,7 +798,7 @@ export async function POST(
         },
       },
     });
-    const toolResult = agentToolResultSchema.parse(generated.input);
+    const toolResult = parseAgentToolResult(generated.input);
     const requestedFrom = Math.min(
       parsed.data.selectionFrom ?? parsed.data.cursor ?? 0,
       activeFile.content.length,
