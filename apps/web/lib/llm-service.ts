@@ -515,6 +515,187 @@ export async function generateToolResult({
   return { input, usage };
 }
 
+export interface ToolLoopServerTool {
+  tool: Anthropic.Tool;
+  /** Runs the model's tool call and returns the tool_result text. */
+  handler: (input: Record<string, unknown>) => Promise<string> | string;
+}
+
+export interface RunToolLoopRequest extends LlmRequestContext {
+  model: string;
+  system: string;
+  prompt: string;
+  /** Optional multimodal content; `prompt` remains the redacted/loggable text. */
+  content?: Anthropic.MessageParam["content"];
+  /** Read-only tools the model may call each round; executed server-side. */
+  serverTools: ToolLoopServerTool[];
+  /** Terminal tool: when the model calls it, its input is returned. */
+  outputTool: Anthropic.Tool;
+  maxTokens: number;
+  temperature?: number;
+  /** Model turns allowed before the terminal tool is forced. */
+  maxRounds?: number;
+  logSystemPrompt?: string;
+  logUserPrompt?: string;
+}
+
+export interface ToolLoopOutcome {
+  /** The terminal tool's input, or undefined when the model produced none. */
+  input: Record<string, unknown> | undefined;
+  usage: LlmUsageResult;
+  /** Model turns actually taken, including the forced terminal round. */
+  rounds: number;
+}
+
+const DEFAULT_TOOL_LOOP_ROUNDS = 6;
+const MAX_TOOL_LOOP_ROUNDS = 10;
+
+function firstToolUse(
+  content: Anthropic.ContentBlock[],
+  accept: (name: string) => boolean,
+): { id: string; name: string; input: Record<string, unknown> } | null {
+  for (const block of content) {
+    if (
+      block.type === "tool_use" &&
+      accept(block.name) &&
+      typeof block.input === "object" &&
+      block.input !== null
+    ) {
+      return {
+        id: block.id,
+        name: block.name,
+        input: block.input as Record<string, unknown>,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Single-shot forced-tool calls (`generateToolResult`) with a bounded read loop
+ * in front: the model may call the provided server tools to gather context, each
+ * result is fed back, and the terminal tool is forced on the final round so a
+ * structured result always comes back. The existing agent loop is untouched.
+ */
+export async function runToolLoop({
+  purpose,
+  source,
+  model,
+  system,
+  prompt,
+  content,
+  serverTools,
+  outputTool,
+  maxTokens,
+  temperature,
+  maxRounds,
+  logSystemPrompt,
+  logUserPrompt,
+}: RunToolLoopRequest): Promise<ToolLoopOutcome> {
+  const resolved = await resolveModel({
+    model,
+    purpose,
+    requiredTags: ["tool-use"],
+  });
+  const client = getGatewayAnthropicClient();
+  const outputLimit = Math.min(
+    maxTokens,
+    getModelLimits(resolved.catalogModel).maxOutput,
+  );
+  const readRounds = Math.min(
+    Math.max(maxRounds ?? DEFAULT_TOOL_LOOP_ROUNDS, 1),
+    MAX_TOOL_LOOP_ROUNDS,
+  );
+  const serverByName = new Map(
+    serverTools.map((entry) => [entry.tool.name, entry]),
+  );
+  const allTools = [...serverTools.map((entry) => entry.tool), outputTool];
+  const messages: Anthropic.MessageParam[] = [
+    { role: "user", content: content ?? prompt },
+  ];
+
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let toolInput: Record<string, unknown> | undefined;
+  let rounds = 0;
+
+  const call = async (force: boolean) => {
+    const response = await client.messages.create({
+      model: resolved.id as Anthropic.Model,
+      max_tokens: outputLimit,
+      ...(temperature !== undefined ? { temperature } : {}),
+      system,
+      tools: force ? [outputTool] : allTools,
+      tool_choice: force
+        ? {
+            type: "tool",
+            name: outputTool.name,
+            disable_parallel_tool_use: true,
+          }
+        : { type: "auto", disable_parallel_tool_use: true },
+      messages,
+    });
+    rounds += 1;
+    inputTokens += response.usage.input_tokens;
+    outputTokens += response.usage.output_tokens;
+    return response;
+  };
+
+  for (let round = 0; round < readRounds && !toolInput; round += 1) {
+    const response = await call(false);
+    const output = firstToolUse(
+      response.content,
+      (name) => name === outputTool.name,
+    );
+    if (output) {
+      toolInput = output.input;
+      break;
+    }
+    const read = firstToolUse(response.content, (name) =>
+      serverByName.has(name),
+    );
+    if (!read) break;
+    messages.push({ role: "assistant", content: response.content });
+    let result: string;
+    try {
+      result = (await serverByName.get(read.name)?.handler(read.input)) ?? "";
+    } catch (error) {
+      result = `Tool error: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    messages.push({
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: read.id, content: result }],
+    });
+  }
+
+  if (!toolInput) {
+    const response = await call(true);
+    const output = firstToolUse(
+      response.content,
+      (name) => name === outputTool.name,
+    );
+    if (output) toolInput = output.input;
+  }
+
+  const costUsd = estimateCost({
+    catalogModel: resolved.catalogModel,
+    inputTokens,
+    outputTokens,
+  });
+  const usage = { inputTokens, outputTokens, costUsd };
+  logLlmUsage({
+    llmModel: resolved.id,
+    inputTokens,
+    outputTokens,
+    costUsd,
+    systemPrompt: logSystemPrompt ?? system,
+    userPrompt: logUserPrompt ?? prompt,
+    source,
+  });
+
+  return { input: toolInput, usage, rounds };
+}
+
 export interface GenerateJsonRequest extends LlmRequestContext {
   /** Defaults to the configured semantic model. */
   model?: string;
