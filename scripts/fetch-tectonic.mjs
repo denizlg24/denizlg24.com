@@ -8,17 +8,25 @@
 //
 // The upstream x86_64-unknown-linux-musl release is a fully static ET_EXEC with
 // zero shared-object dependencies, so it runs anywhere. We overwrite the exact
-// file node-latex-compiler's resolver returns, which is also the path
-// next.config.ts traces into the function via outputFileTracingIncludes.
+// file node-latex-compiler's resolver returns (the real binary in the bun store,
+// which is also what gets traced into the function bundle).
 //
-// Runs from the root postinstall. No-ops off linux/x64 and when the target
-// already holds the patched binary, so repeated installs and local dev on other
-// platforms are unaffected.
+// Runs from the root postinstall. Best-effort by design: it no-ops off linux/x64
+// and when the target is already patched, and every failure path warns and exits
+// 0 so a resolution miss or a transient download error can never break the whole
+// deploy — it only overwrites after both checksums verify.
 
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 
 const TECTONIC_VERSION = "0.16.9";
@@ -28,6 +36,9 @@ const TARBALL_SHA256 =
 const BINARY_SHA256 =
   "397efac4cabf7dfa02f238fe23681215b535ea665e99ba27d123b8bc655b88cb";
 const BINARY_NAME = "tectonic";
+const BIN_PACKAGE_PREFIX = "@node-latex-compiler+bin-linux-x64@";
+
+const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 const sha256 = (buffer) => createHash("sha256").update(buffer).digest("hex");
 
@@ -35,28 +46,44 @@ function log(message) {
   process.stdout.write(`[fetch-tectonic] ${message}\n`);
 }
 
-function fail(message) {
+function warn(message) {
   process.stderr.write(`[fetch-tectonic] ${message}\n`);
-  process.exit(1);
 }
 
-function resolveTarget() {
-  const require = createRequire(import.meta.url);
+// node-latex-compiler is an apps/web dependency and is not hoisted to the repo
+// root, so we anchor resolution there and let its own resolver return the store
+// path of the bundled binary.
+function resolveViaPackage() {
   try {
+    const require = createRequire(join(REPO_ROOT, "apps/web/package.json"));
     const resolver = require("node-latex-compiler/lib/platform-resolver");
-    const resolved = resolver.resolveBundledTectonic();
-    if (resolved) return resolved;
-  } catch {
-    // fall through to direct package resolution
-  }
-  try {
-    const pkgJson = require.resolve(
-      "@node-latex-compiler/bin-linux-x64/package.json",
-    );
-    return join(dirname(pkgJson), "bin", BINARY_NAME);
+    return resolver.resolveBundledTectonic() || null;
   } catch {
     return null;
   }
+}
+
+// Fallback: scan the bun store directly for the linux bin package.
+function resolveViaStore() {
+  const storeDir = join(REPO_ROOT, "node_modules", ".bun");
+  let entries;
+  try {
+    entries = readdirSync(storeDir);
+  } catch {
+    return null;
+  }
+  const match = entries.find((entry) => entry.startsWith(BIN_PACKAGE_PREFIX));
+  if (!match) return null;
+  const candidate = join(
+    storeDir,
+    match,
+    "node_modules",
+    "@node-latex-compiler",
+    "bin-linux-x64",
+    "bin",
+    BINARY_NAME,
+  );
+  return existsSync(candidate) ? candidate : null;
 }
 
 function extractBinary(gzip) {
@@ -82,11 +109,12 @@ function extractBinary(gzip) {
 async function main() {
   if (process.platform !== "linux" || process.arch !== "x64") return;
 
-  const target = resolveTarget();
+  const target = resolveViaPackage() ?? resolveViaStore();
   if (!target) {
-    fail(
-      "@node-latex-compiler/bin-linux-x64 not found; cannot patch tectonic binary.",
+    warn(
+      "bundled linux tectonic not found; skipping patch (compile route may fail).",
     );
+    return;
   }
 
   if (existsSync(target) && sha256(readFileSync(target)) === BINARY_SHA256) {
@@ -95,27 +123,38 @@ async function main() {
   }
 
   log(`downloading ${TARBALL_URL}`);
-  const response = await fetch(TARBALL_URL);
-  if (!response.ok) {
-    fail(`download failed: HTTP ${response.status}`);
+  let tarball;
+  try {
+    const response = await fetch(TARBALL_URL);
+    if (!response.ok) {
+      warn(`download failed: HTTP ${response.status}; skipping patch.`);
+      return;
+    }
+    tarball = Buffer.from(await response.arrayBuffer());
+  } catch (error) {
+    warn(`download error: ${error?.message ?? error}; skipping patch.`);
+    return;
   }
-  const tarball = Buffer.from(await response.arrayBuffer());
+
   const tarballDigest = sha256(tarball);
   if (tarballDigest !== TARBALL_SHA256) {
-    fail(
-      `tarball sha256 mismatch: expected ${TARBALL_SHA256}, got ${tarballDigest}`,
+    warn(
+      `tarball sha256 mismatch (expected ${TARBALL_SHA256}, got ${tarballDigest}); skipping patch.`,
     );
+    return;
   }
 
   const binary = extractBinary(tarball);
   if (!binary) {
-    fail(`could not find '${BINARY_NAME}' entry in tarball.`);
+    warn(`could not find '${BINARY_NAME}' entry in tarball; skipping patch.`);
+    return;
   }
   const binaryDigest = sha256(binary);
   if (binaryDigest !== BINARY_SHA256) {
-    fail(
-      `binary sha256 mismatch: expected ${BINARY_SHA256}, got ${binaryDigest}`,
+    warn(
+      `binary sha256 mismatch (expected ${BINARY_SHA256}, got ${binaryDigest}); skipping patch.`,
     );
+    return;
   }
 
   writeFileSync(target, binary);
@@ -123,4 +162,6 @@ async function main() {
   log(`patched ${target}`);
 }
 
-main().catch((error) => fail(error?.stack ?? String(error)));
+main().catch((error) => {
+  warn(`unexpected error: ${error?.stack ?? error}; skipping patch.`);
+});
