@@ -93,6 +93,7 @@ export const calendarGoogleIntegrationStatusSchema = z.object({
   updatedAt: z.string().optional(),
   lastSyncAt: z.string().optional(),
   lastSyncError: z.string().optional(),
+  needsReauth: z.boolean().optional(),
   pendingSyncCount: z.number(),
   failedSyncCount: z.number(),
 });

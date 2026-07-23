@@ -19,7 +19,10 @@ import {
   createGoogleCalendarClient,
   GOOGLE_CALENDAR_DEFAULT_ID,
   GOOGLE_CALENDAR_PROVIDER,
+  GOOGLE_REAUTH_REQUIRED_MESSAGE,
   getGoogleApiErrorStatus,
+  isGoogleInvalidGrantError,
+  logGoogleCalendarError,
   sanitizeGoogleSyncError,
 } from "./google-calendar";
 import { connectDB } from "./mongodb";
@@ -42,6 +45,7 @@ export interface GoogleCalendarSyncResult {
   localEventId: string;
   remoteEventId?: string;
   error?: string;
+  reauthRequired?: boolean;
 }
 
 export interface GoogleCalendarInboundSyncResult {
@@ -338,7 +342,21 @@ async function markConnectionSyncSuccess() {
   await CalendarExternalConnection.findOneAndUpdate(
     { provider: GOOGLE_CALENDAR_PROVIDER },
     {
-      $set: { lastSyncAt: new Date() },
+      $set: { lastSyncAt: new Date(), needsReauth: false },
+      $unset: { lastSyncError: "" },
+    },
+  );
+}
+
+async function markConnectionReauthRequired(context: string, error: unknown) {
+  logGoogleCalendarError(context, error);
+  await CalendarExternalConnection.findOneAndUpdate(
+    { provider: GOOGLE_CALENDAR_PROVIDER },
+    {
+      $set: {
+        needsReauth: true,
+        lastSyncError: GOOGLE_REAUTH_REQUIRED_MESSAGE,
+      },
     },
   );
 }
@@ -539,6 +557,19 @@ async function syncUpsert(
     };
   } catch (error) {
     const message = sanitizeGoogleSyncError(error);
+    if (isGoogleInvalidGrantError(error)) {
+      await markConnectionReauthRequired("upsert", error);
+      await markPausedPending(localEventId, "upsert", remoteCalendarId);
+      return {
+        status: "failed",
+        action: "upsert",
+        localEventId,
+        remoteEventId,
+        error: message,
+        reauthRequired: true,
+      };
+    }
+
     await recordUpsertFailure({
       localEventId,
       remoteCalendarId,
@@ -587,6 +618,21 @@ async function syncDelete(
       }
 
       const message = sanitizeGoogleSyncError(error);
+      if (isGoogleInvalidGrantError(error)) {
+        await markConnectionReauthRequired("delete", error);
+        await CalendarExternalEventSync.findByIdAndUpdate(syncRow._id, {
+          $set: { pendingAction: "delete" },
+        });
+        return {
+          status: "failed",
+          action: "delete",
+          localEventId,
+          remoteEventId: syncRow.remoteEventId,
+          error: message,
+          reauthRequired: true,
+        };
+      }
+
       await CalendarExternalEventSync.findByIdAndUpdate(syncRow._id, {
         $set: {
           pendingAction: "delete",
@@ -769,13 +815,18 @@ export async function syncEventToGoogle(
     return { status: "skipped", action, localEventId };
   }
 
-  if (!connection.enabled) {
+  if (!connection.enabled || connection.needsReauth) {
     await markPausedPending(
       localEventId,
       action,
       connection.calendarId || GOOGLE_CALENDAR_DEFAULT_ID,
     );
-    return { status: "skipped", action, localEventId };
+    return {
+      status: "skipped",
+      action,
+      localEventId,
+      reauthRequired: connection.needsReauth === true,
+    };
   }
 
   if (action === "delete") return syncDelete(localEventId, connection);
@@ -795,7 +846,7 @@ export async function syncUpcomingGoogleEventsToCalendar({
   await getAppTimeZone();
 
   const connection = await getGoogleConnection();
-  if (!connection?.enabled) {
+  if (!connection?.enabled || connection.needsReauth) {
     return {
       totalCount: 0,
       importedCount: 0,
@@ -858,7 +909,11 @@ export async function syncUpcomingGoogleEventsToCalendar({
     }
   } catch (error) {
     result.failedCount++;
-    await markConnectionSyncFailure(sanitizeGoogleSyncError(error));
+    if (isGoogleInvalidGrantError(error)) {
+      await markConnectionReauthRequired("inbound sync", error);
+    } else {
+      await markConnectionSyncFailure(sanitizeGoogleSyncError(error));
+    }
   }
 
   return result;
@@ -889,11 +944,17 @@ export async function backfillManualEventsToGoogle({
   let failedCount = 0;
   let skippedCount = 0;
 
+  let reauthRequired = false;
+
   for (const event of events) {
     const result = await syncEventToGoogle(String(event._id), "upsert");
     if (result.status === "synced") syncedCount++;
     if (result.status === "failed") failedCount++;
     if (result.status === "skipped") skippedCount++;
+    if (result.reauthRequired) {
+      reauthRequired = true;
+      break;
+    }
   }
 
   return {
@@ -901,6 +962,7 @@ export async function backfillManualEventsToGoogle({
     syncedCount,
     failedCount,
     skippedCount,
+    reauthRequired,
   };
 }
 
@@ -923,12 +985,18 @@ export async function retryGoogleCalendarSyncFailures() {
   let failedCount = 0;
   let skippedCount = 0;
 
+  let reauthRequired = false;
+
   for (const row of rows) {
     const action = row.pendingAction ?? "upsert";
     const result = await syncEventToGoogle(String(row.localEventId), action);
     if (result.status === "synced") syncedCount++;
     if (result.status === "failed") failedCount++;
     if (result.status === "skipped") skippedCount++;
+    if (result.reauthRequired) {
+      reauthRequired = true;
+      break;
+    }
   }
 
   return {
@@ -936,5 +1004,6 @@ export async function retryGoogleCalendarSyncFailures() {
     syncedCount,
     failedCount,
     skippedCount,
+    reauthRequired,
   };
 }
