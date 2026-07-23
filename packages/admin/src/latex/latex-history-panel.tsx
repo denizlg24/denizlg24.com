@@ -17,22 +17,18 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@repo/ui/alert-dialog";
-import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { ScrollArea } from "@repo/ui/scroll-area";
-import {
-  Check,
-  ChevronRight,
-  Clock3,
-  Loader2,
-  RefreshCw,
-  RotateCcw,
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "@repo/ui/utils";
+import { FileDiff, GitCommitVertical, Loader2, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import type {
+  LatexHistoryDiffFile,
+  LatexHistoryPreview,
+} from "./latex-review-overlay";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -41,6 +37,18 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 
 function formatTimestamp(value: string): string {
   return dateFormatter.format(new Date(value));
+}
+
+function relativeTime(value: string): string {
+  const seconds = Math.round((Date.now() - new Date(value).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return formatTimestamp(value).split(",")[0] ?? formatTimestamp(value);
 }
 
 function actionLabel(action: LatexProjectHistorySummary["action"]): string {
@@ -52,44 +60,43 @@ function actionLabel(action: LatexProjectHistorySummary["action"]): string {
   }[action];
 }
 
-function utf8File(
+function utf8Content(
   project: ILatexProjectRecord["project"],
   path: string,
-): ILatexFileEntry | null {
+): string {
   const entry = project.entries.find(
     (candidate): candidate is ILatexFileEntry =>
       candidate.kind === "file" && candidate.path === path,
   );
-  return entry?.encoding === "utf8" ? entry : null;
+  return entry?.encoding === "utf8" ? entry.content : "";
 }
 
-function sourcePreview(value: string | undefined): string {
-  if (value === undefined) return "File not present in this version.";
-  if (value === "") return "Empty file.";
-  if (value.length <= 12_000) return value;
-  return `${value.slice(0, 12_000)}\n\n… Preview truncated`;
+interface HistoryDiffData {
+  snapshotId: string;
+  label: string;
+  sublabel: string;
+  files: LatexHistoryDiffFile[];
 }
 
 export function LatexHistoryPanel({
   record,
   onPrepareRestore,
   onRestore,
+  onPreview,
 }: {
   record: ILatexProjectRecord;
   onPrepareRestore: () => Promise<ILatexProjectRecord>;
   onRestore: (record: ILatexProjectRecord) => void;
+  onPreview?: (preview: LatexHistoryPreview | null) => void;
 }) {
   const { client } = useAdmin();
   const [revisions, setRevisions] = useState<LatexProjectHistorySummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<
-    LatexProjectHistoryDetailResponse["revision"] | null
-  >(null);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [diffData, setDiffData] = useState<HistoryDiffData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [loadingDiff, setLoadingDiff] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  const [historyGeneration, setHistoryGeneration] = useState(0);
+  const [pendingRestoreId, setPendingRestoreId] = useState<string | null>(null);
   const observedUpdatedAt = useRef(record.updatedAt);
 
   const loadHistory = useCallback(async () => {
@@ -99,11 +106,10 @@ export function LatexHistoryPanel({
         `latex/projects/${record._id}/history`,
       );
       setRevisions(response.revisions);
-      setHistoryGeneration((current) => current + 1);
       setSelectedId((current) =>
         current && response.revisions.some((entry) => entry._id === current)
           ? current
-          : (response.revisions[0]?._id ?? null),
+          : null,
       );
     } catch {
       toast.error("Failed to load project history");
@@ -125,76 +131,100 @@ export function LatexHistoryPanel({
 
   useEffect(() => {
     if (!selectedId) {
-      setDetail(null);
+      setDiffData(null);
       return;
     }
+    const summary = revisions.find((entry) => entry._id === selectedId);
+    if (!summary) return;
+    const previous =
+      revisions[revisions.findIndex((entry) => entry._id === selectedId) + 1];
     let cancelled = false;
-    setLoadingDetail(true);
-    void client
-      .get<LatexProjectHistoryDetailResponse>(
+    setLoadingDiff(true);
+    void Promise.all([
+      client.get<LatexProjectHistoryDetailResponse>(
         `latex/projects/${record._id}/history?snapshotId=${encodeURIComponent(selectedId)}`,
-      )
-      .then((response) => {
+      ),
+      previous
+        ? client.get<LatexProjectHistoryDetailResponse>(
+            `latex/projects/${record._id}/history?snapshotId=${encodeURIComponent(previous._id)}`,
+          )
+        : Promise.resolve(null),
+    ])
+      .then(([detail, previousDetail]) => {
         if (cancelled) return;
-        setDetail(response.revision);
-        setSelectedFile(
-          response.revision.changedFiles[0]?.path ??
-            response.revision.project.mainFile,
+        const files: LatexHistoryDiffFile[] = detail.revision.changedFiles.map(
+          (file) => ({
+            path: file.path,
+            status: file.status,
+            before: previousDetail
+              ? utf8Content(previousDetail.revision.project, file.path)
+              : "",
+            after: utf8Content(detail.revision.project, file.path),
+          }),
         );
+        setDiffData({
+          snapshotId: detail.revision._id,
+          label: actionLabel(detail.revision.action),
+          sublabel: `${formatTimestamp(detail.revision.updatedAt)} · rev ${detail.revision.revision}`,
+          files,
+        });
       })
       .catch(() => {
         if (!cancelled) toast.error("Failed to load this project version");
       })
       .finally(() => {
-        if (!cancelled) setLoadingDetail(false);
+        if (!cancelled) setLoadingDiff(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [client, historyGeneration, record._id, selectedId]);
+  }, [client, record._id, revisions, selectedId]);
 
-  const snapshotFile = useMemo(
-    () =>
-      detail && selectedFile ? utf8File(detail.project, selectedFile) : null,
-    [detail, selectedFile],
-  );
-  const currentFile = useMemo(
-    () => (selectedFile ? utf8File(record.project, selectedFile) : null),
-    [record.project, selectedFile],
+  const restore = useCallback(
+    async (snapshotId: string) => {
+      setRestoring(true);
+      try {
+        const prepared = await onPrepareRestore();
+        const response = await client.post<RestoreLatexProjectHistoryResponse>(
+          `latex/projects/${record._id}/history`,
+          { baseRevision: prepared.revision, snapshotId },
+        );
+        onRestore(response.project);
+        toast.success("Version restored");
+        setSelectedId(null);
+        await loadHistory();
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to restore version",
+        );
+      } finally {
+        setRestoring(false);
+        setPendingRestoreId(null);
+      }
+    },
+    [client, loadHistory, onPrepareRestore, onRestore, record._id],
   );
 
-  const restore = async () => {
-    if (!detail) return;
-    setRestoring(true);
-    try {
-      const prepared = await onPrepareRestore();
-      const response = await client.post<RestoreLatexProjectHistoryResponse>(
-        `latex/projects/${record._id}/history`,
-        { baseRevision: prepared.revision, snapshotId: detail._id },
-      );
-      onRestore(response.project);
-      toast.success(
-        `Restored version from ${formatTimestamp(detail.updatedAt)}`,
-      );
-      await loadHistory();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to restore version",
-      );
-    } finally {
-      setRestoring(false);
+  useEffect(() => {
+    if (!onPreview) return;
+    if (!diffData) {
+      onPreview(null);
+      return;
     }
-  };
+    onPreview({
+      ...diffData,
+      restore: () => setPendingRestoreId(diffData.snapshotId),
+      restoring,
+      close: () => setSelectedId(null),
+    });
+  }, [diffData, onPreview, restoring]);
+
+  useEffect(() => () => onPreview?.(null), [onPreview]);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
-        <div className="min-w-0">
-          <p className="truncate text-xs font-medium">Change history</p>
-          <p className="text-[9px] text-muted-foreground">
-            Edits are grouped into 30-second sessions.
-          </p>
-        </div>
+      <div className="flex h-9 shrink-0 items-center justify-between border-b px-3">
+        <span className="text-xs font-medium">History</span>
         <Button
           type="button"
           variant="ghost"
@@ -208,144 +238,106 @@ export function LatexHistoryPanel({
       </div>
 
       <ScrollArea className="min-h-0 min-w-0 flex-1">
-        <div className="min-w-0 divide-y">
-          <section aria-label="Version timeline" className="min-w-0">
-            {loading && revisions.length === 0 ? (
-              <div className="flex items-center justify-center gap-2 px-3 py-10 text-xs text-muted-foreground">
-                <Loader2 className="size-3.5 animate-spin" /> Loading history…
-              </div>
-            ) : null}
-            {revisions.map((revision) => {
-              const selected = revision._id === selectedId;
-              return (
-                <button
-                  key={revision._id}
-                  type="button"
-                  aria-pressed={selected}
-                  className="flex w-full min-w-0 items-start gap-2 border-b px-3 py-2 text-left hover:bg-muted/50 aria-pressed:bg-muted"
-                  onClick={() => setSelectedId(revision._id)}
-                >
-                  <Clock3 className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex min-w-0 items-center justify-between gap-2">
-                      <span className="truncate text-[11px] font-medium">
-                        {actionLabel(revision.action)}
-                      </span>
-                      <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
+        {loading && revisions.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 px-3 py-10 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" /> Loading history…
+          </div>
+        ) : null}
+        <div className="min-w-0">
+          {revisions.map((revision) => {
+            const selected = revision._id === selectedId;
+            const fileSummary =
+              revision.changedFiles.length > 0
+                ? revision.changedFiles
+                    .slice(0, 3)
+                    .map((file) => file.path.split("/").pop() ?? file.path)
+                    .join(", ") +
+                  (revision.changedFiles.length > 3
+                    ? ` +${revision.changedFiles.length - 3}`
+                    : "")
+                : "metadata only";
+            return (
+              <button
+                key={revision._id}
+                type="button"
+                aria-pressed={selected}
+                className={cn(
+                  "group flex w-full min-w-0 items-start gap-2 border-b px-3 py-2.5 text-left",
+                  selected ? "bg-muted" : "hover:bg-muted/50",
+                )}
+                onClick={() =>
+                  setSelectedId((current) =>
+                    current === revision._id ? null : revision._id,
+                  )
+                }
+              >
+                <GitCommitVertical
+                  className={cn(
+                    "mt-0.5 size-4 shrink-0",
+                    selected ? "text-primary" : "text-muted-foreground",
+                  )}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 items-baseline justify-between gap-2">
+                    <span className="truncate text-xs font-medium">
+                      {actionLabel(revision.action)}
                     </span>
                     <time
                       dateTime={revision.updatedAt}
-                      className="block text-[9px] text-muted-foreground"
+                      title={formatTimestamp(revision.updatedAt)}
+                      className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
                     >
-                      {formatTimestamp(revision.updatedAt)}
+                      {relativeTime(revision.updatedAt)}
                     </time>
-                    <span className="block truncate text-[9px] text-muted-foreground">
-                      {revision.changedFiles.length > 0
-                        ? revision.changedFiles
-                            .slice(0, 3)
-                            .map((file) => file.path)
-                            .join(", ")
-                        : "Project metadata"}
-                    </span>
                   </span>
-                </button>
-              );
-            })}
-          </section>
-
-          {detail ? (
-            <section className="min-w-0 space-y-3 p-3">
-              <div className="flex min-w-0 items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium">
-                    {formatTimestamp(detail.updatedAt)}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {actionLabel(detail.action)} · compile {detail.compileCount}
-                  </p>
-                </div>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 shrink-0 text-[10px]"
-                      disabled={restoring || loadingDetail}
-                    >
-                      {restoring ? (
-                        <Loader2 className="animate-spin" />
-                      ) : (
-                        <RotateCcw />
-                      )}
-                      Restore
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent size="sm">
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Restore this version?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Current source is saved to history first. Restoring
-                        creates a new timestamped version and does not erase the
-                        existing timeline.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => void restore()}>
-                        Restore version
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-
-              <div className="flex min-w-0 flex-wrap gap-1">
-                {detail.changedFiles.length > 0 ? (
-                  detail.changedFiles.map((file) => (
-                    <Button
-                      key={`${file.path}:${file.status}`}
-                      type="button"
-                      size="sm"
-                      variant={
-                        selectedFile === file.path ? "secondary" : "ghost"
-                      }
-                      className="h-6 min-w-0 max-w-full px-2 text-[9px]"
-                      onClick={() => setSelectedFile(file.path)}
-                    >
-                      {selectedFile === file.path ? <Check /> : null}
-                      <span className="truncate">{file.path}</span>
-                      <Badge variant="outline" className="text-[8px]">
-                        {file.status}
-                      </Badge>
-                    </Button>
-                  ))
-                ) : (
-                  <p className="text-[10px] text-muted-foreground">
-                    No source-file changes in this version.
-                  </p>
-                )}
-              </div>
-
-              {selectedFile ? (
-                <div className="min-w-0 overflow-hidden border">
-                  <div className="border-b bg-muted/40 px-2 py-1 text-[9px] font-medium">
-                    Version · {selectedFile}
-                  </div>
-                  <pre className="max-h-56 min-w-0 overflow-auto whitespace-pre p-2 font-mono text-[9px] leading-4 text-muted-foreground">
-                    {sourcePreview(snapshotFile?.content)}
-                  </pre>
-                  <div className="border-y bg-muted/40 px-2 py-1 text-[9px] font-medium">
-                    Current · {selectedFile}
-                  </div>
-                  <pre className="max-h-56 min-w-0 overflow-auto whitespace-pre p-2 font-mono text-[9px] leading-4 text-muted-foreground">
-                    {sourcePreview(currentFile?.content)}
-                  </pre>
-                </div>
-              ) : null}
-            </section>
-          ) : null}
+                  <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                    {revision.changedFiles.length > 0 ? (
+                      <FileDiff className="size-3 shrink-0" />
+                    ) : null}
+                    <span className="truncate font-mono">{fileSummary}</span>
+                    {selected && loadingDiff ? (
+                      <Loader2 className="ml-auto size-3 shrink-0 animate-spin" />
+                    ) : null}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </div>
+        {!loading && revisions.length === 0 ? (
+          <div className="px-3 py-10 text-center text-xs text-muted-foreground">
+            —
+          </div>
+        ) : null}
       </ScrollArea>
+
+      <AlertDialog
+        open={pendingRestoreId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRestoreId(null);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore this version?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The current source is saved to history first.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoring}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={restoring}
+              onClick={(event) => {
+                event.preventDefault();
+                if (pendingRestoreId) void restore(pendingRestoreId);
+              }}
+            >
+              {restoring ? "Restoring…" : "Restore"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

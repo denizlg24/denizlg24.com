@@ -19,23 +19,31 @@ import {
   latexProjectRecordSchema,
 } from "@repo/schemas";
 import { Alert, AlertDescription, AlertTitle } from "@repo/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
-import { PageHeader } from "@repo/ui/page-header";
 import { Skeleton } from "@repo/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { cn } from "@repo/ui/utils";
 import {
   ArrowLeft,
   CloudAlert,
   CloudCheck,
   CloudUpload,
   Download,
-  FileCode2,
   Loader2,
   Settings2,
   Sparkles,
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   type ReactNode,
@@ -64,11 +72,25 @@ import { LatexAgentPanel } from "./latex-agent-panel";
 import { LatexDataPanel } from "./latex-data-panel";
 import { LatexHistoryPanel } from "./latex-history-panel";
 import { LatexReferencePanel } from "./latex-reference-panel";
+import {
+  AgentReviewOverlay,
+  HistoryDiffOverlay,
+  type LatexAgentReviewState,
+  type LatexHistoryPreview,
+} from "./latex-review-overlay";
 
 const LatexProjectPdfPreview = dynamic(
   () =>
     import("./latex-project-pdf-preview").then(
       (module) => module.LatexProjectPdfPreview,
+    ),
+  { ssr: false },
+);
+
+const LatexAssetPdfPreview = dynamic(
+  () =>
+    import("./latex-project-pdf-preview").then(
+      (module) => module.LatexAssetPdfPreview,
     ),
   { ssr: false },
 );
@@ -102,6 +124,8 @@ function WorkspaceRightDock({
   onProjectChange,
   onSettingsChange,
   onApplyAgentEdit,
+  onReviewStateChange,
+  onHistoryPreview,
 }: {
   record: ILatexProjectRecord;
   pdf: ReactNode;
@@ -122,57 +146,45 @@ function WorkspaceRightDock({
     settings: Partial<LatexProjectSettings>,
   ) => Promise<ILatexProjectRecord>;
   onApplyAgentEdit: (proposal: LatexAgentEditProposal) => boolean;
+  onReviewStateChange: (state: LatexAgentReviewState | null) => void;
+  onHistoryPreview: (preview: LatexHistoryPreview | null) => void;
 }) {
   const [tab, setTab] = useState("pdf");
   const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
+  const tabs = [
+    { value: "pdf", label: "PDF" },
+    { value: "references", label: "Refs" },
+    { value: "data", label: "Data" },
+    { value: "agent", label: "Agent" },
+    { value: "history", label: "History" },
+  ];
   return (
     <Tabs
       value={tab}
       onValueChange={setTab}
       className="flex h-full flex-col gap-0"
     >
-      <div className="flex h-7 shrink-0 items-center overflow-hidden border-b">
+      <div className="flex h-9 shrink-0 items-center overflow-hidden border-b">
         <TabsList
           variant="line"
           aria-label="Project workspace"
-          className="h-full min-w-0 flex-1 justify-start gap-3 overflow-x-auto rounded-none border-0 px-2"
+          className="h-full min-w-0 flex-1 justify-start gap-4 overflow-x-auto rounded-none border-0 px-3"
         >
-          <TabsTrigger
-            value="pdf"
-            className="h-full flex-none px-0.5 text-[9px] after:bottom-0!"
-          >
-            PDF
-          </TabsTrigger>
-          <TabsTrigger
-            value="references"
-            className="h-full flex-none px-0.5 text-[9px] after:bottom-0!"
-          >
-            Refs
-          </TabsTrigger>
-          <TabsTrigger
-            value="data"
-            className="h-full flex-none px-0.5 text-[9px] after:bottom-0!"
-          >
-            Data
-          </TabsTrigger>
-          <TabsTrigger
-            value="agent"
-            className="h-full flex-none px-0.5 text-[9px] after:bottom-0!"
-          >
-            Agent
-          </TabsTrigger>
-          <TabsTrigger
-            value="history"
-            className="h-full flex-none px-0.5 text-[9px] after:bottom-0!"
-          >
-            History
-          </TabsTrigger>
+          {tabs.map((entry) => (
+            <TabsTrigger
+              key={entry.value}
+              value={entry.value}
+              className="h-full flex-none px-0.5 text-[11px] after:bottom-0!"
+            >
+              {entry.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
         <Button
           type="button"
           size="icon-sm"
           variant={agentSettingsOpen && tab === "agent" ? "secondary" : "ghost"}
-          className="h-full w-7 shrink-0 rounded-none"
+          className="h-full w-9 shrink-0 rounded-none"
           aria-label={
             agentSettingsOpen ? "Close agent settings" : "Open agent settings"
           }
@@ -188,7 +200,7 @@ function WorkspaceRightDock({
             setAgentSettingsOpen((current) => !current);
           }}
         >
-          <Settings2 className="size-3.5" />
+          <Settings2 className="size-4" />
         </Button>
       </div>
       <TabsContent value="pdf" className="mt-0 min-h-0 flex-1">
@@ -212,30 +224,36 @@ function WorkspaceRightDock({
           />
         ) : null}
       </TabsContent>
-      <TabsContent value="agent" className="mt-0 min-h-0 flex-1">
-        {tab === "agent" ? (
-          <LatexAgentPanel
-            record={record}
-            activeFile={activeFile}
-            cursor={cursor}
-            selection={selection}
-            localContext={agentContext}
-            onPrepare={onPrepareAgent}
-            onProjectChange={onProjectChange}
-            onSettingsChange={onSettingsChange}
-            onApplyEdit={onApplyAgentEdit}
-            settingsOpen={agentSettingsOpen}
-          />
-        ) : null}
+      <TabsContent
+        value="agent"
+        forceMount
+        className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
+      >
+        <LatexAgentPanel
+          record={record}
+          activeFile={activeFile}
+          cursor={cursor}
+          selection={selection}
+          localContext={agentContext}
+          onPrepare={onPrepareAgent}
+          onProjectChange={onProjectChange}
+          onSettingsChange={onSettingsChange}
+          onApplyEdit={onApplyAgentEdit}
+          onReviewStateChange={onReviewStateChange}
+          settingsOpen={agentSettingsOpen}
+        />
       </TabsContent>
-      <TabsContent value="history" className="mt-0 min-h-0 flex-1">
-        {tab === "history" ? (
-          <LatexHistoryPanel
-            record={record}
-            onPrepareRestore={onPrepareAgent}
-            onRestore={onProjectChange}
-          />
-        ) : null}
+      <TabsContent
+        value="history"
+        forceMount
+        className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
+      >
+        <LatexHistoryPanel
+          record={record}
+          onPrepareRestore={onPrepareAgent}
+          onRestore={onProjectChange}
+          onPreview={onHistoryPreview}
+        />
       </TabsContent>
     </Tabs>
   );
@@ -243,10 +261,12 @@ function WorkspaceRightDock({
 
 export function LatexWorkspaceSkeleton() {
   return (
-    <div className="flex h-full flex-col gap-2">
-      <Skeleton className="h-10 w-full" />
-      <div className="px-4">
-        <Skeleton className="min-h-[620px] w-full rounded-lg" />
+    <div className="flex h-full min-h-0 flex-col">
+      <Skeleton className="h-12 w-full shrink-0 rounded-none" />
+      <div className="flex min-h-0 flex-1 gap-px pt-px">
+        <Skeleton className="hidden h-full w-56 rounded-none md:block" />
+        <Skeleton className="h-full flex-1 rounded-none" />
+        <Skeleton className="hidden h-full w-80 rounded-none md:block" />
       </div>
     </div>
   );
@@ -654,6 +674,56 @@ export function LatexWorkspacePage({
     return editor.removeEntry(proposal.filePath);
   }, []);
 
+  const [agentReview, setAgentReview] = useState<LatexAgentReviewState | null>(
+    null,
+  );
+  const [reviewIndex, setReviewIndex] = useState(0);
+  const [historyPreview, setHistoryPreview] =
+    useState<LatexHistoryPreview | null>(null);
+  const [historyPath, setHistoryPath] = useState<string | null>(null);
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+
+  useEffect(() => {
+    if (saveState === "saved") return;
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [saveState]);
+
+  const saveAndLeave = async () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    try {
+      await saveNow();
+      router.push(listHref);
+    } catch {
+      toast.error("Save failed — resolve it before leaving");
+    }
+  };
+
+  const handleReviewStateChange = useCallback(
+    (state: LatexAgentReviewState | null) => {
+      setAgentReview(state);
+      if (!state) {
+        setReviewIndex(0);
+      } else {
+        setReviewIndex((current) =>
+          Math.min(current, state.proposals.length - 1),
+        );
+      }
+    },
+    [],
+  );
+
+  const handleHistoryPreview = useCallback(
+    (preview: LatexHistoryPreview | null) => {
+      setHistoryPreview(preview);
+      setHistoryPath(preview?.files[0]?.path ?? null);
+    },
+    [],
+  );
+
   const completionEnabled = record?.settings.inlineCompletionEnabled;
   const grammarDialect = record?.settings.grammarDialect;
   const editorExtensions = useMemo(() => {
@@ -688,110 +758,32 @@ export function LatexWorkspacePage({
 
   const saveLabel = {
     saved: "Cloud saved",
-    local: "Saved locally",
+    local: "Unsaved changes",
     saving: "Saving",
     conflict: "Local conflict",
     error: "Save failed",
   }[saveState];
 
-  return (
-    <div className="flex h-full flex-col gap-2 pb-4">
-      <PageHeader
-        leading={
-          <div className="flex items-center gap-1">
-            {slots?.sidebarTrigger}
-            <Button
-              asChild
-              variant="ghost"
-              size="icon-sm"
-              aria-label="All projects"
-            >
-              <Link href={listHref}>
-                <ArrowLeft />
-              </Link>
-            </Button>
-          </div>
-        }
-        icon={<FileCode2 className="size-4 text-muted-foreground" />}
-        title={record.name}
-        className="gap-1.5"
-      >
-        <span className="hidden h-8 items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
-          {saveState === "saving" ? (
-            <Loader2 className="size-3 animate-spin" />
-          ) : saveState === "saved" ? (
-            <CloudCheck className="size-3 text-primary" />
-          ) : saveState === "conflict" || saveState === "error" ? (
-            <CloudAlert className="size-3 text-destructive" />
-          ) : (
-            <CloudUpload className="size-3" />
-          )}
-          {saveLabel}
-        </span>
-        {completionEnabled ? (
-          <span className="hidden h-8 items-center gap-1 text-[11px] text-muted-foreground tabular-nums lg:flex">
-            {completionStatus === "processing" ? (
-              <>
-                <Loader2 className="size-3 animate-spin" /> Suggesting…
-              </>
-            ) : completionStatus === "ready" ? (
-              <>
-                <span className="size-1.5 rounded-full bg-primary" />
-                Suggestion
-                {completionLatency !== null
-                  ? ` ${completionLatency} ms`
-                  : " ready"}
-              </>
-            ) : completionLatency !== null ? (
-              <>Last suggestion {completionLatency} ms</>
-            ) : (
-              <>Inline suggestions</>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Request inline suggestion"
-              title="Request suggestion (Ctrl/Command + Shift + Space)"
-              disabled={completionStatus === "processing"}
-              onClick={() => completionTriggerRef.current?.()}
-            >
-              <Sparkles />
-            </Button>
-          </span>
-        ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 text-xs"
-          disabled={!record.compiledPdf || downloading !== null}
-          onClick={() => void download("pdf")}
-        >
-          {downloading === "pdf" ? (
-            <Loader2 className="animate-spin" />
-          ) : (
-            <Download />
-          )}
-          PDF
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 text-xs"
-          disabled={downloading !== null}
-          onClick={() => void download("source")}
-        >
-          {downloading === "source" ? (
-            <Loader2 className="animate-spin" />
-          ) : (
-            <Download />
-          )}
-          Source
-        </Button>
-      </PageHeader>
+  const overlay = agentReview ? (
+    <AgentReviewOverlay
+      review={agentReview}
+      index={reviewIndex}
+      onIndexChange={setReviewIndex}
+      project={project}
+    />
+  ) : historyPreview ? (
+    <HistoryDiffOverlay
+      preview={historyPreview}
+      activePath={historyPath}
+      onSelectPath={setHistoryPath}
+      onClose={historyPreview.close}
+    />
+  ) : undefined;
 
+  return (
+    <div className="flex h-full min-h-0 flex-col">
       {serverConflict ? (
-        <Alert variant="destructive" className="mx-4">
+        <Alert variant="destructive" className="rounded-none border-x-0">
           <CloudAlert />
           <AlertTitle>Cloud revision changed</AlertTitle>
           <AlertDescription className="flex flex-wrap items-center gap-2">
@@ -811,10 +803,121 @@ export function LatexWorkspacePage({
         </Alert>
       ) : null}
 
-      <div className="flex min-h-0 flex-1 px-4 pt-1">
+      <div className="flex min-h-0 flex-1">
         <LatexEditor
           ref={editorRef}
           project={project}
+          className="min-h-0 rounded-none border-0"
+          headerLeading={
+            <div className="flex items-center gap-0.5">
+              {slots?.sidebarTrigger}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="All projects"
+                onClick={() => {
+                  if (saveState === "saved") router.push(listHref);
+                  else setLeaveDialogOpen(true);
+                }}
+              >
+                <ArrowLeft />
+              </Button>
+            </div>
+          }
+          headerTrailing={
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "hidden items-center gap-1.5 text-[11px] sm:flex",
+                  saveState === "saved"
+                    ? "text-muted-foreground"
+                    : saveState === "conflict" || saveState === "error"
+                      ? "text-destructive"
+                      : "text-amber-600",
+                )}
+              >
+                {saveState === "saving" ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : saveState === "saved" ? (
+                  <CloudCheck className="size-3.5 text-primary" />
+                ) : saveState === "conflict" || saveState === "error" ? (
+                  <CloudAlert className="size-3.5 text-destructive" />
+                ) : (
+                  <CloudUpload className="size-3.5" />
+                )}
+                {saveLabel}
+              </span>
+              {completionEnabled ? (
+                <span className="hidden items-center gap-1 text-[11px] text-muted-foreground tabular-nums xl:flex">
+                  {completionStatus === "processing" ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" /> Suggesting…
+                    </>
+                  ) : completionStatus === "ready" ? (
+                    <>
+                      <span className="size-1.5 rounded-full bg-primary" />
+                      Suggestion
+                      {completionLatency !== null
+                        ? ` ${completionLatency} ms`
+                        : " ready"}
+                    </>
+                  ) : completionLatency !== null ? (
+                    <>Last suggestion {completionLatency} ms</>
+                  ) : (
+                    <>Inline suggestions</>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Request inline suggestion"
+                    title="Request suggestion (Ctrl/Command + Shift + Space)"
+                    disabled={completionStatus === "processing"}
+                    onClick={() => completionTriggerRef.current?.()}
+                  >
+                    <Sparkles />
+                  </Button>
+                </span>
+              ) : null}
+              <span className="flex items-center">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={!record.compiledPdf || downloading !== null}
+                  onClick={() => void download("pdf")}
+                >
+                  {downloading === "pdf" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <Download />
+                  )}
+                  PDF
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={downloading !== null}
+                  onClick={() => void download("source")}
+                >
+                  {downloading === "source" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <Download />
+                  )}
+                  Source
+                </Button>
+              </span>
+            </div>
+          }
+          overlay={overlay}
+          renderAsset={(file) =>
+            file.encoding === "base64" &&
+            file.path.toLowerCase().endsWith(".pdf") ? (
+              <LatexAssetPdfPreview content={file.content} />
+            ) : null
+          }
           extensions={editorExtensions}
           onChange={scheduleSave}
           onEditorStateChange={setEditorState}
@@ -880,12 +983,14 @@ export function LatexWorkspacePage({
               onProjectChange={applyAgentRecord}
               onSettingsChange={updateAgentSettings}
               onApplyAgentEdit={applyAgentEdit}
+              onReviewStateChange={handleReviewStateChange}
+              onHistoryPreview={handleHistoryPreview}
             />
           }
           rightDockTitle="Workspace"
           bottomDockLabel="Output"
           bottomDock={(output) => (
-            <pre className="h-full overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[10px] leading-4 text-muted-foreground">
+            <pre className="h-full overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-4.5 text-muted-foreground">
               {output.compileError ??
                 output.compileLog ??
                 "No compiler output yet."}
@@ -894,6 +999,30 @@ export function LatexWorkspacePage({
           compileLabel="Compile"
         />
       </div>
+
+      <AlertDialog open={leaveDialogOpen} onOpenChange={setLeaveDialogOpen}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              {serverConflict
+                ? "This draft conflicts with the cloud revision and only exists on this device."
+                : "The latest edits are not synced to the cloud yet."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <Button variant="outline" onClick={() => router.push(listHref)}>
+              Leave anyway
+            </Button>
+            {!serverConflict ? (
+              <AlertDialogAction onClick={() => void saveAndLeave()}>
+                Save &amp; leave
+              </AlertDialogAction>
+            ) : null}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

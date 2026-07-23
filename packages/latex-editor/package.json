@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/latex-editor.tsx",
+    "./diff-view": "./src/diff-view.tsx",
     "./context": "./src/context.ts",
     "./project": "./src/project.ts",
     "./templates": "./src/templates.ts",
@@ -16,6 +17,7 @@
   },
   "dependencies": {
     "@codemirror/language": "^6.12.4",
+    "@codemirror/merge": "^6.10.2",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.38.1",
     "@lezer/highlight": "^1.2.3",

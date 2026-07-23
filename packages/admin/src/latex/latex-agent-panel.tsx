@@ -52,6 +52,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import type { LatexAgentReviewState } from "./latex-review-overlay";
 
 const DEFAULT_HOSTED_MODEL = "anthropic/claude-sonnet-4.6";
 const DEFAULT_INLINE_MODEL = "openai/gpt-5.4-mini";
@@ -153,18 +154,21 @@ function changeStatusLabel(status: AgentChange["status"]): string {
 
 function ChangeStatusIcon({ status }: { status: AgentChange["status"] }) {
   if (status === "applied") {
-    return <Check aria-hidden="true" className="size-3 text-primary" />;
+    return <Check aria-hidden="true" className="size-3.5 text-primary" />;
   }
   if (status === "rejected") {
-    return <X aria-hidden="true" className="size-3 text-muted-foreground" />;
+    return <X aria-hidden="true" className="size-3.5 text-muted-foreground" />;
   }
   if (status === "failed") {
     return (
-      <TriangleAlert aria-hidden="true" className="size-3 text-destructive" />
+      <TriangleAlert aria-hidden="true" className="size-3.5 text-destructive" />
     );
   }
   return (
-    <CircleDashed aria-hidden="true" className="size-3 text-muted-foreground" />
+    <CircleDashed
+      aria-hidden="true"
+      className="size-3.5 text-muted-foreground"
+    />
   );
 }
 
@@ -176,7 +180,7 @@ function AgentChangeLog({ changes }: { changes: AgentChange[] }) {
       aria-label="Project change activity"
       aria-live="polite"
     >
-      <p className="mb-1 text-[10px] font-medium text-muted-foreground">
+      <p className="mb-1 text-[11px] font-medium text-muted-foreground">
         {changes.length === 1
           ? "1 Project Change"
           : `${changes.length} Project Changes`}
@@ -185,7 +189,7 @@ function AgentChangeLog({ changes }: { changes: AgentChange[] }) {
         {changes.map((change) => (
           <li
             key={change.id}
-            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 text-[10px]"
+            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 text-[11px]"
           >
             <ChangeStatusIcon status={change.status} />
             <span
@@ -511,93 +515,41 @@ function localEditProposals(
   return proposals;
 }
 
-function AgentEditReview({
-  proposal,
-  position,
-  total,
-  onApply,
-  onReject,
+function PendingReviewCard({
+  proposals,
   onApplyAll,
   onRejectAll,
 }: {
-  proposal: LatexAgentEditProposal;
-  position: number;
-  total: number;
-  onApply: () => void;
-  onReject: () => void;
+  proposals: LatexAgentEditProposal[];
   onApplyAll: () => void;
   onRejectAll: () => void;
 }) {
-  const before =
-    proposal.kind === "replace" || proposal.kind === "delete"
-      ? proposal.beforePreview || "(empty file)"
-      : proposal.kind === "rename"
-        ? proposal.filePath
-        : "(new file)";
-  const after =
-    proposal.kind === "replace"
-      ? proposal.replacement || "(empty replacement)"
-      : proposal.kind === "create"
-        ? proposal.content || "(empty file)"
-        : proposal.kind === "rename"
-          ? proposal.targetPath
-          : "(delete file)";
-
+  const files = [...new Set(proposals.map((proposal) => proposal.filePath))];
   return (
     <section
-      className="@container/review w-full min-w-0 max-w-full overflow-hidden border-y bg-muted/10 py-3"
-      aria-label="Proposed project change"
+      className="min-w-0 rounded-lg border bg-primary/5 p-3"
+      aria-label="Pending project changes"
     >
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-3">
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <p className="flex items-center gap-1.5 text-xs font-medium">
-            <FilePenLine aria-hidden="true" className="size-3.5" />
-            Review Project Change
-            {total > 1 ? (
-              <span className="font-normal text-muted-foreground">
-                {position} of {total}
-              </span>
-            ) : null}
-          </p>
-          <p
-            className="mt-0.5 truncate text-[10px] text-muted-foreground"
-            title={`${proposal.filePath} · ${proposal.explanation}`}
-          >
-            {proposal.filePath} · {proposal.explanation}
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-1 whitespace-nowrap">
-          <Button size="xs" variant="ghost" onClick={onReject}>
-            Reject
-          </Button>
-          <Button size="xs" onClick={onApply}>
-            Apply
-          </Button>
-        </div>
-      </div>
-      {total > 1 ? (
-        <div className="mt-2 flex items-center justify-end gap-1 border-t px-3 pt-2">
-          <Button size="xs" variant="ghost" onClick={onRejectAll}>
-            Reject All
-          </Button>
-          <Button size="xs" variant="outline" onClick={onApplyAll}>
-            Apply All
-          </Button>
-        </div>
-      ) : null}
-      <div className="mt-3 grid max-h-56 w-full min-w-0 max-w-full grid-cols-1 overflow-auto border-y font-mono text-[10px] @min-[520px]/review:grid-cols-2 @min-[520px]/review:divide-x">
-        <div className="min-w-0 bg-destructive/5">
-          <div className="border-b px-3 py-1 text-destructive">− Before</div>
-          <pre className="max-w-full whitespace-pre-wrap break-words px-3 py-2 text-muted-foreground">
-            {before}
-          </pre>
-        </div>
-        <div className="min-w-0 bg-primary/5">
-          <div className="border-b px-3 py-1 text-primary">+ After</div>
-          <pre className="max-w-full whitespace-pre-wrap break-words px-3 py-2 text-foreground">
-            {after}
-          </pre>
-        </div>
+      <p className="flex items-center gap-1.5 text-xs font-medium">
+        <FilePenLine aria-hidden="true" className="size-4 text-primary" />
+        {proposals.length === 1
+          ? "1 change to review"
+          : `${proposals.length} changes to review`}
+        <span className="font-normal text-muted-foreground">— in editor</span>
+      </p>
+      <p
+        className="mt-1 truncate font-mono text-[11px] text-muted-foreground"
+        title={files.join(", ")}
+      >
+        {files.join(", ")}
+      </p>
+      <div className="mt-2 flex items-center gap-1">
+        <Button size="xs" variant="ghost" onClick={onRejectAll}>
+          Reject all
+        </Button>
+        <Button size="xs" variant="outline" onClick={onApplyAll}>
+          Apply all
+        </Button>
       </div>
     </section>
   );
@@ -613,6 +565,7 @@ export function LatexAgentPanel({
   onProjectChange,
   onSettingsChange,
   onApplyEdit,
+  onReviewStateChange,
   settingsOpen,
 }: {
   record: ILatexProjectRecord;
@@ -626,6 +579,7 @@ export function LatexAgentPanel({
     settings: Partial<LatexProjectSettings>,
   ) => Promise<ILatexProjectRecord>;
   onApplyEdit: (proposal: LatexAgentEditProposal) => boolean;
+  onReviewStateChange?: (state: LatexAgentReviewState | null) => void;
   settingsOpen: boolean;
 }) {
   const { client, platform } = useAdmin();
@@ -1046,38 +1000,44 @@ export function LatexAgentPanel({
     }
   };
 
-  const removeProposal = (proposalId: string) => {
+  const removeProposal = useCallback((proposalId: string) => {
     setEditProposals((current) =>
       current.filter((proposal) => proposal.id !== proposalId),
     );
-  };
+  }, []);
 
-  const rejectProposal = (proposal: LatexAgentEditProposal) => {
-    removeProposal(proposal.id);
-    markChangeStatus(proposal.id, "rejected");
-  };
+  const rejectProposal = useCallback(
+    (proposal: LatexAgentEditProposal) => {
+      removeProposal(proposal.id);
+      markChangeStatus(proposal.id, "rejected");
+    },
+    [markChangeStatus, removeProposal],
+  );
 
-  const applyProposal = (proposal: LatexAgentEditProposal) => {
-    const applied = onApplyEdit(proposal);
-    removeProposal(proposal.id);
-    markChangeStatus(proposal.id, applied ? "applied" : "failed");
-    if (applied) {
-      toast.success("Applied agent change to the local draft");
-    } else {
-      toast.error(
-        "The target changed or is no longer valid. Ask the agent to retry this change.",
-      );
-    }
-  };
+  const applyProposal = useCallback(
+    (proposal: LatexAgentEditProposal) => {
+      const applied = onApplyEdit(proposal);
+      removeProposal(proposal.id);
+      markChangeStatus(proposal.id, applied ? "applied" : "failed");
+      if (applied) {
+        toast.success("Applied agent change to the local draft");
+      } else {
+        toast.error(
+          "The target changed or is no longer valid. Ask the agent to retry this change.",
+        );
+      }
+    },
+    [markChangeStatus, onApplyEdit, removeProposal],
+  );
 
-  const rejectAllProposals = () => {
+  const rejectAllProposals = useCallback(() => {
     for (const proposal of editProposals) {
       markChangeStatus(proposal.id, "rejected");
     }
     setEditProposals([]);
-  };
+  }, [editProposals, markChangeStatus]);
 
-  const applyAllProposals = () => {
+  const applyAllProposals = useCallback(() => {
     const ordered = [...editProposals].sort((left, right) => {
       if (
         left.kind === "replace" &&
@@ -1106,7 +1066,31 @@ export function LatexAgentPanel({
         `Applied ${appliedCount} of ${ordered.length} changes. Failed targets are marked in the chat.`,
       );
     }
-  };
+  }, [editProposals, markChangeStatus, onApplyEdit]);
+
+  useEffect(() => {
+    if (!onReviewStateChange) return;
+    onReviewStateChange(
+      editProposals.length > 0
+        ? {
+            proposals: editProposals,
+            apply: applyProposal,
+            reject: rejectProposal,
+            applyAll: applyAllProposals,
+            rejectAll: rejectAllProposals,
+          }
+        : null,
+    );
+  }, [
+    applyAllProposals,
+    applyProposal,
+    editProposals,
+    onReviewStateChange,
+    rejectAllProposals,
+    rejectProposal,
+  ]);
+
+  useEffect(() => () => onReviewStateChange?.(null), [onReviewStateChange]);
 
   const HostedModelSelector = platform.HostedModelSelector;
 
@@ -1114,7 +1098,7 @@ export function LatexAgentPanel({
     <div className="relative flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-hidden bg-background">
       {settingsOpen ? (
         <div className="grid shrink-0 items-start gap-4 border-b bg-muted/20 p-3 sm:grid-cols-[minmax(9rem,0.35fr)_minmax(0,1fr)]">
-          <div className="space-y-1 text-[10px] text-muted-foreground">
+          <div className="space-y-1 text-[11px] text-muted-foreground">
             <span>Provider</span>
             <Select
               value={provider}
@@ -1138,7 +1122,7 @@ export function LatexAgentPanel({
               </SelectContent>
             </Select>
           </div>
-          <div className="min-w-0 space-y-1 text-[10px] text-muted-foreground">
+          <div className="min-w-0 space-y-1 text-[11px] text-muted-foreground">
             <span>Generation model</span>
             {provider === "hosted" && HostedModelSelector ? (
               <HostedModelSelector
@@ -1174,7 +1158,7 @@ export function LatexAgentPanel({
               </Select>
             )}
           </div>
-          <div className="space-y-1 text-[10px] text-muted-foreground">
+          <div className="space-y-1 text-[11px] text-muted-foreground">
             <span>Personal memory</span>
             <Select
               value={settingsDraft.agentMemoryMode}
@@ -1192,7 +1176,7 @@ export function LatexAgentPanel({
             </Select>
           </div>
           {provider === "ollama" ? (
-            <div className="space-y-1 text-[10px] text-muted-foreground">
+            <div className="space-y-1 text-[11px] text-muted-foreground">
               <span>Embedding model</span>
               <Select
                 value={settingsDraft.embeddingModel ?? undefined}
@@ -1219,7 +1203,7 @@ export function LatexAgentPanel({
             </div>
           ) : null}
           {provider === "ollama" && localModelsError ? (
-            <div className="flex items-center gap-2 text-[10px] text-destructive sm:col-span-2">
+            <div className="flex items-center gap-2 text-[11px] text-destructive sm:col-span-2">
               {localModelsError}
               <Button
                 size="xs"
@@ -1230,7 +1214,7 @@ export function LatexAgentPanel({
               </Button>
             </div>
           ) : null}
-          <div className="min-w-0 space-y-1 border-t pt-3 text-[10px] text-muted-foreground sm:col-span-2">
+          <div className="min-w-0 space-y-1 border-t pt-3 text-[11px] text-muted-foreground sm:col-span-2">
             <span>Inline suggestion model</span>
             {HostedModelSelector ? (
               <HostedModelSelector
@@ -1294,19 +1278,11 @@ export function LatexAgentPanel({
               <Loader2 className="size-3.5 animate-spin" /> Thinking…
             </div>
           ) : null}
-          {editProposals[0] ? (
-            <AgentEditReview
-              proposal={editProposals[0]}
-              position={1}
-              total={editProposals.length}
-              onReject={() =>
-                rejectProposal(editProposals[0] as LatexAgentEditProposal)
-              }
-              onApply={() =>
-                applyProposal(editProposals[0] as LatexAgentEditProposal)
-              }
-              onRejectAll={rejectAllProposals}
+          {editProposals.length > 0 ? (
+            <PendingReviewCard
+              proposals={editProposals}
               onApplyAll={applyAllProposals}
+              onRejectAll={rejectAllProposals}
             />
           ) : null}
           <div ref={scrollEndRef} />

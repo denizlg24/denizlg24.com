@@ -16,6 +16,7 @@ const TEXT_EXTENSIONS = new Set([
   "clo",
   "csv",
   "def",
+  "dot",
   "dtx",
   "inc",
   "ins",
