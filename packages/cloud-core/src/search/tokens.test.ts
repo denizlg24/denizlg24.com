@@ -82,4 +82,15 @@ describe("project search credentials", () => {
       "outside project scope",
     );
   });
+
+  it("rejects out-of-scope rules before signing a tenant token", async () => {
+    await expect(
+      generateProjectToken({
+        apiKey: "key-for-token-signing",
+        apiKeyUid: randomUUID(),
+        projectName: "my-project",
+        searchRules: { other_users: null },
+      }),
+    ).rejects.toThrow("outside project scope");
+  });
 });

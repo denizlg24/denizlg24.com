@@ -2,20 +2,32 @@ import type { Context, MiddlewareHandler } from "hono";
 
 import { ValidationError } from "../errors";
 
+export interface RateLimitDecision {
+  allowed: boolean;
+  retryAfterMs: number;
+}
+
+export interface RateLimitStore {
+  /**
+   * Atomically consumes one request from a shared, TTL-backed counter.
+   * Production stores must bound retained keys to the configured window.
+   */
+  consume(
+    key: string,
+    max: number,
+    windowMs: number,
+  ): Promise<RateLimitDecision>;
+}
+
 export interface RateLimitOptions {
   /** Sliding time window in milliseconds. */
   windowMs: number;
-  /** Maximum requests per window and client address. */
+  /** Maximum requests per window and trusted identity. */
   max: number;
-}
-
-function getClientIp(context: Context): string {
-  return (
-    context.req.header("cf-connecting-ip") ??
-    context.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
-    context.req.header("x-real-ip") ??
-    "unknown"
-  );
+  /** Resolves identity from application-validated proxy or auth context. */
+  keyGenerator: (context: Context) => string | Promise<string>;
+  /** Shared atomic store used for production enforcement. */
+  store: RateLimitStore;
 }
 
 function validateRateLimitOptions(options: RateLimitOptions): void {
@@ -36,31 +48,25 @@ function validateRateLimitOptions(options: RateLimitOptions): void {
 export function rateLimit(options: RateLimitOptions): MiddlewareHandler {
   validateRateLimitOptions(options);
 
-  const hits = new Map<string, number[]>();
-  const cleanup = setInterval(() => {
-    const now = Date.now();
-    for (const [key, timestamps] of hits) {
-      const validTimestamps = timestamps.filter(
-        (timestamp) => now - timestamp < options.windowMs,
-      );
-      if (validTimestamps.length === 0) {
-        hits.delete(key);
-      } else {
-        hits.set(key, validTimestamps);
-      }
-    }
-  }, options.windowMs);
-  cleanup.unref();
-
   return async (context, next) => {
-    const ip = getClientIp(context);
-    const now = Date.now();
-    const timestamps = (hits.get(ip) ?? []).filter(
-      (timestamp) => now - timestamp < options.windowMs,
-    );
+    const key = await options.keyGenerator(context);
+    if (key.length === 0) {
+      throw new ValidationError(
+        "Rate limit key must not be empty",
+        "INVALID_RATE_LIMIT_KEY",
+      );
+    }
 
-    if (timestamps.length >= options.max) {
-      context.header("Retry-After", String(Math.ceil(options.windowMs / 1000)));
+    const decision = await options.store.consume(
+      key,
+      options.max,
+      options.windowMs,
+    );
+    if (!decision.allowed) {
+      context.header(
+        "Retry-After",
+        String(Math.max(1, Math.ceil(decision.retryAfterMs / 1000))),
+      );
       return context.json(
         {
           error: {
@@ -72,8 +78,6 @@ export function rateLimit(options: RateLimitOptions): MiddlewareHandler {
       );
     }
 
-    timestamps.push(now);
-    hits.set(ip, timestamps);
     await next();
   };
 }

@@ -2,19 +2,56 @@ import { describe, expect, it } from "bun:test";
 import { Hono } from "hono";
 
 import { ValidationError } from "../errors";
-import { rateLimit } from "./rate-limit";
+import {
+  type RateLimitDecision,
+  type RateLimitStore,
+  rateLimit,
+} from "./rate-limit";
+
+class MemoryRateLimitStore implements RateLimitStore {
+  private readonly hits = new Map<string, number[]>();
+
+  async consume(
+    key: string,
+    max: number,
+    windowMs: number,
+  ): Promise<RateLimitDecision> {
+    const now = Date.now();
+    const timestamps = (this.hits.get(key) ?? []).filter(
+      (timestamp) => now - timestamp < windowMs,
+    );
+    if (timestamps.length >= max) {
+      return {
+        allowed: false,
+        retryAfterMs: windowMs - (now - (timestamps[0] ?? now)),
+      };
+    }
+
+    timestamps.push(now);
+    this.hits.set(key, timestamps);
+    return { allowed: true, retryAfterMs: 0 };
+  }
+}
 
 function createApp(options: { windowMs: number; max: number }) {
   const app = new Hono();
-  app.use(rateLimit(options));
+  app.use(
+    rateLimit({
+      ...options,
+      keyGenerator: (context) =>
+        context.req.header("x-trusted-client-id") ?? "trusted-default",
+      store: new MemoryRateLimitStore(),
+    }),
+  );
   app.get("/test", (context) => context.json({ ok: true }));
   return app;
 }
 
-function requestFrom(ip: string): RequestInit {
+function requestFrom(clientId: string, forwardedIp?: string): RequestInit {
   return {
     headers: {
-      "cf-connecting-ip": ip,
+      "x-trusted-client-id": clientId,
+      ...(forwardedIp ? { "x-forwarded-for": forwardedIp } : {}),
     },
   };
 }
@@ -41,25 +78,25 @@ describe("rateLimit", () => {
     });
   });
 
-  it("tracks client addresses independently and honors header priority", async () => {
+  it("uses trusted keys and ignores spoofed forwarding headers", async () => {
     const app = createApp({ windowMs: 60_000, max: 1 });
 
     expect(
       (
         await app.request("/test", {
           headers: {
-            "cf-connecting-ip": "1.1.1.1",
+            "x-trusted-client-id": "client-a",
             "x-forwarded-for": "2.2.2.2, 3.3.3.3",
           },
         })
       ).status,
     ).toBe(200);
-    expect((await app.request("/test", requestFrom("4.4.4.4"))).status).toBe(
+    expect((await app.request("/test", requestFrom("client-b"))).status).toBe(
       200,
     );
-    expect((await app.request("/test", requestFrom("1.1.1.1"))).status).toBe(
-      429,
-    );
+    expect(
+      (await app.request("/test", requestFrom("client-a", "9.9.9.9"))).status,
+    ).toBe(429);
   });
 
   it("expires requests outside the sliding window", async () => {
@@ -78,9 +115,15 @@ describe("rateLimit", () => {
   });
 
   it("rejects invalid limiter configuration", () => {
-    expect(() => rateLimit({ windowMs: 0, max: 1 })).toThrow(ValidationError);
-    expect(() => rateLimit({ windowMs: 1000, max: -1 })).toThrow(
+    const baseOptions = {
+      keyGenerator: () => "client",
+      store: new MemoryRateLimitStore(),
+    };
+    expect(() => rateLimit({ ...baseOptions, windowMs: 0, max: 1 })).toThrow(
       ValidationError,
     );
+    expect(() =>
+      rateLimit({ ...baseOptions, windowMs: 1000, max: -1 }),
+    ).toThrow(ValidationError);
   });
 });

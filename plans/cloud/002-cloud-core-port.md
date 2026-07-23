@@ -128,8 +128,8 @@ decision.
   (`*_fkey`, `*_key`). The new Drizzle schema names these explicitly, including
   `UNIQUE(project_id, name)`, which existed in migration 0003 but was missing
   from the old TypeScript schema.
-- Latest Meilisearch (`0.60.0`) renamed the SDK class to `Meilisearch`.
-  `@repo/cloud-core` exports it as `MeiliSearch` to preserve the old package
-  import contract. Password/TOTP/recovery/JWT/session resolution remains
-  deferred to plan 003; scoped API-key services and scope propagation are
-  present here.
+- The `meilisearch` JavaScript SDK (`0.60.0`) renamed its client class to
+  `Meilisearch`. `@repo/cloud-core` exports it as `MeiliSearch` to preserve the
+  old package import contract. Password/TOTP/recovery/JWT/session resolution
+  remains deferred to plan 003; scoped API-key services and scope propagation
+  are present here.

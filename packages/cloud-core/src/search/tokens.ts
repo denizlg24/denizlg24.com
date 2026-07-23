@@ -1,6 +1,8 @@
 import type { Meilisearch } from "meilisearch";
 import { generateTenantToken } from "meilisearch/token";
 
+import { ValidationError } from "../errors";
+
 const DEFAULT_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 const PROJECT_KEY_ACTIONS = [
@@ -79,12 +81,18 @@ export async function generateProjectToken(config: {
   searchRules?: TenantSearchRules;
   expiresAt?: Date;
 }): Promise<string> {
+  const searchRules = config.searchRules ?? {
+    [`${config.projectName}_*`]: null,
+  };
+  const validationError = validateSearchRules(searchRules, config.projectName);
+  if (validationError) {
+    throw new ValidationError(validationError, "INVALID_SEARCH_RULES");
+  }
+
   return generateTenantToken({
     apiKey: config.apiKey,
     apiKeyUid: config.apiKeyUid,
-    searchRules: config.searchRules ?? {
-      [`${config.projectName}_*`]: null,
-    },
+    searchRules,
     expiresAt: config.expiresAt ?? new Date(Date.now() + DEFAULT_TOKEN_TTL_MS),
   });
 }

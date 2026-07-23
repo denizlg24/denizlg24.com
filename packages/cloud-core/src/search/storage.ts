@@ -27,7 +27,7 @@ export interface StorageSearchResult {
 }
 
 function deriveScope(path: string): "user" | "shared" {
-  return path.startsWith("/shared") ? "shared" : "user";
+  return path === "/shared" || path.startsWith("/shared/") ? "shared" : "user";
 }
 
 export async function ensureStorageSearchIndex(

@@ -48,4 +48,21 @@ describe("storage search documents", () => {
       }),
     ).toBeNull();
   });
+
+  it("requires the shared root to be a complete path segment", () => {
+    const document = buildFileDocument({
+      id: "private-file-id",
+      filename: "private.pdf",
+      path: "/sharedness/private.pdf",
+      ownerId: "user-id",
+      folderId: "folder-id",
+      mimeType: "application/pdf",
+      sizeBytes: 100,
+      tier: "ssd",
+      createdAt: DATE,
+      updatedAt: DATE,
+    });
+
+    expect(document.scope).toBe("user");
+  });
 });

@@ -40,9 +40,8 @@ seven old migrations, and compares that database with the new schema.
    bunx drizzle-kit push --config drizzle.config.ts --force
    ```
 
-3. Apply, in filename order, every SQL file from
-   `vendor/deniz-cloud/packages/shared/drizzle/` with `psql
-   -v ON_ERROR_STOP=1`.
+3. Apply, in filename order, every SQL file from the exported checkout's
+   `packages/shared/drizzle/` directory with `psql -v ON_ERROR_STOP=1`.
 
 4. From this package, compare without approving changes:
 

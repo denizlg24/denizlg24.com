@@ -41,25 +41,25 @@ describe("cloud API contracts", () => {
   });
 
   it("keeps password hashes and API key hashes out of safe payloads", () => {
-    expect(
-      safeUserSchema.safeParse({
-        id: "6a2150ee-03ea-4b5a-a67b-102788069cb4",
-        username: "deniz",
-        email: null,
-        passwordHash: "must-not-pass",
-        role: "superuser",
-        status: "active",
-        totpEnabled: true,
-        createdAt: NOW,
-        updatedAt: NOW,
-      }).success,
-    ).toBe(true);
+    const safeUser = safeUserSchema.parse({
+      id: "6a2150ee-03ea-4b5a-a67b-102788069cb4",
+      username: "deniz",
+      email: null,
+      passwordHash: "must-not-pass",
+      role: "superuser",
+      status: "active",
+      totpEnabled: true,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    expect(safeUser).not.toHaveProperty("passwordHash");
 
     const safeKey = safeApiKeySchema.parse({
       id: "a37d5cef-bdcc-48b7-97a8-45b85c3ef9bb",
       userId: "6a2150ee-03ea-4b5a-a67b-102788069cb4",
       projectId: "5211d914-5dd3-49e7-b388-488c06f8120c",
       name: "storage",
+      keyHash: "must-not-pass",
       keyPrefix: "abcdefgh",
       scopes: ["storage:read"],
       expiresAt: null,

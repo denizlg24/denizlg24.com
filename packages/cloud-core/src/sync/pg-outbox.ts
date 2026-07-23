@@ -143,7 +143,7 @@ export async function pollOutbox(
     }>
   >`
     SELECT id, op, row_id, payload
-    FROM ${sql(OUTBOX_TABLE)}
+    FROM ${sql(OUTBOX_SCHEMA)}.${sql(OUTBOX_TABLE)}
     WHERE table_schema = ${schema}
       AND table_name = ${table}
       AND id > ${sinceId}
@@ -166,7 +166,7 @@ export async function gcOutbox(
   uptoId: number,
 ): Promise<void> {
   await sql`
-    DELETE FROM ${sql(OUTBOX_TABLE)}
+    DELETE FROM ${sql(OUTBOX_SCHEMA)}.${sql(OUTBOX_TABLE)}
     WHERE table_schema = ${schema}
       AND table_name = ${table}
       AND id <= ${uptoId}
@@ -206,7 +206,7 @@ export async function getCurrentOutboxId(
 ): Promise<number> {
   const rows = await sql<Array<{ max: string | null }>>`
     SELECT COALESCE(MAX(id), 0)::text AS max
-    FROM ${sql(OUTBOX_TABLE)}
+    FROM ${sql(OUTBOX_SCHEMA)}.${sql(OUTBOX_TABLE)}
     WHERE table_schema = ${schema}
       AND table_name = ${table}
   `;

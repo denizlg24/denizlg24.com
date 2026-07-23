@@ -9,6 +9,7 @@ import type {
 
 import type { Database } from "../db";
 import type { ProjectCollection } from "../db/schema";
+import { coalesceIndexOperations, type IndexOperation } from "./batch";
 import {
   dropTrigger,
   ensureOutboxTable,
@@ -40,8 +41,7 @@ export interface PgClientFactory {
 }
 
 interface BatchBuffer {
-  upserts: Record<string, unknown>[];
-  deletes: string[];
+  operations: IndexOperation[];
   timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -169,8 +169,7 @@ export class SyncWorker {
     const abortController = new AbortController();
 
     this.buffers.set(collection.id, {
-      upserts: [],
-      deletes: [],
+      operations: [],
       timer: null,
     });
     this.streams.set(collection.id, stream);
@@ -291,8 +290,7 @@ export class SyncWorker {
     const abortController = new AbortController();
     this.abortControllers.set(collection.id, abortController);
     this.buffers.set(collection.id, {
-      upserts: [],
-      deletes: [],
+      operations: [],
       timer: null,
     });
 
@@ -441,18 +439,24 @@ export class SyncWorker {
         return;
       }
 
-      const upserts: Record<string, unknown>[] = [];
-      const deletes: string[] = [];
+      const operations: IndexOperation[] = [];
       for (const event of events) {
         if (event.op === "delete") {
-          deletes.push(event.rowId);
+          operations.push({ type: "delete", id: event.rowId });
         } else if (event.payload) {
-          upserts.push(
-            transformPgRow(event.payload, fresh.pgIdColumn, fresh.fieldMapping),
-          );
+          operations.push({
+            type: "upsert",
+            id: event.rowId,
+            document: transformPgRow(
+              event.payload,
+              fresh.pgIdColumn,
+              fresh.fieldMapping,
+            ),
+          });
         }
       }
 
+      const { upserts, deletes } = coalesceIndexOperations(operations);
       const index = this.meili.index(fresh.meiliIndexUid);
       if (upserts.length > 0) {
         await index.addDocuments(upserts);
@@ -467,7 +471,10 @@ export class SyncWorker {
       }
       await gcOutbox(sql, fresh.pgSchema, fresh.pgTable, lastEvent.id);
 
-      const documentCountDelta = upserts.length - deletes.length;
+      const documentCountDelta = operations.reduce(
+        (delta, operation) => delta + (operation.type === "upsert" ? 1 : -1),
+        0,
+      );
       await updateSyncStatus(this.db, fresh.id, {
         pgOutboxCursor: lastEvent.id,
         lastSyncedAt: new Date(),
@@ -561,19 +568,32 @@ export class SyncWorker {
     switch (event.operationType) {
       case "insert":
       case "replace":
-        buffer.upserts.push(
-          transformDocument(event.fullDocument, collection.fieldMapping),
-        );
+        buffer.operations.push({
+          type: "upsert",
+          id: String(event.documentKey._id),
+          document: transformDocument(
+            event.fullDocument,
+            collection.fieldMapping,
+          ),
+        });
         break;
       case "update":
         if (event.fullDocument) {
-          buffer.upserts.push(
-            transformDocument(event.fullDocument, collection.fieldMapping),
-          );
+          buffer.operations.push({
+            type: "upsert",
+            id: String(event.documentKey._id),
+            document: transformDocument(
+              event.fullDocument,
+              collection.fieldMapping,
+            ),
+          });
         }
         break;
       case "delete":
-        buffer.deletes.push(String(event.documentKey._id));
+        buffer.operations.push({
+          type: "delete",
+          id: String(event.documentKey._id),
+        });
         break;
     }
 
@@ -582,7 +602,7 @@ export class SyncWorker {
       resumeToken: resumeTokenRecord(event._id),
     });
 
-    const totalBuffered = buffer.upserts.length + buffer.deletes.length;
+    const totalBuffered = buffer.operations.length;
     if (totalBuffered >= this.batchSize) {
       await this.flushBuffer(collection.id, collection.meiliIndexUid);
     } else if (!buffer.timer) {
@@ -606,13 +626,13 @@ export class SyncWorker {
       buffer.timer = null;
     }
 
-    const upserts = buffer.upserts.splice(0);
-    const deletes = buffer.deletes.splice(0);
-    if (upserts.length === 0 && deletes.length === 0) {
+    const operations = buffer.operations.splice(0);
+    if (operations.length === 0) {
       return;
     }
 
     try {
+      const { upserts, deletes } = coalesceIndexOperations(operations);
       const index = this.meili.index(meiliIndexUid);
       if (upserts.length > 0) {
         await index.addDocuments(upserts);
@@ -622,7 +642,10 @@ export class SyncWorker {
       }
 
       const { updateSyncStatus } = await import("../services/collections");
-      const documentCountDelta = upserts.length - deletes.length;
+      const documentCountDelta = operations.reduce(
+        (delta, operation) => delta + (operation.type === "upsert" ? 1 : -1),
+        0,
+      );
       await updateSyncStatus(this.db, collectionId, {
         lastSyncedAt: new Date(),
         ...(documentCountDelta === 0 ? {} : { documentCountDelta }),
@@ -633,8 +656,7 @@ export class SyncWorker {
         `[SyncWorker] Failed to flush buffer for ${meiliIndexUid}:`,
         error,
       );
-      buffer.upserts.unshift(...upserts);
-      buffer.deletes.unshift(...deletes);
+      buffer.operations.unshift(...operations);
     }
   }
 

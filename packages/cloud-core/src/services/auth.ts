@@ -187,10 +187,14 @@ export async function validateApiKey(
     );
   }
 
-  await db
+  const [validatedKey] = await db
     .update(apiKeys)
     .set({ lastUsedAt: new Date() })
-    .where(and(eq(apiKeys.id, record.id), eq(apiKeys.keyHash, keyHash)));
+    .where(and(eq(apiKeys.id, record.id), eq(apiKeys.keyHash, keyHash)))
+    .returning({ id: apiKeys.id });
+  if (!validatedKey) {
+    throw new AuthenticationError("Invalid API key", "INVALID_API_KEY");
+  }
 
   return {
     user: toSafeUser(record.user),
