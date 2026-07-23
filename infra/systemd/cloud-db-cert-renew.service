@@ -1,0 +1,12 @@
+[Unit]
+Description=Renew and deploy deniz-cloud database TLS certificates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/certbot renew --quiet --deploy-hook /usr/local/lib/deniz-cloud/deploy-db-certs.sh
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/letsencrypt /etc/deniz-cloud/tls /var/lib/letsencrypt /var/log/letsencrypt /run/docker.sock

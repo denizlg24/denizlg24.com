@@ -1,0 +1,11 @@
+[Unit]
+Description=Twice-daily deniz-cloud database certificate renewal check
+
+[Timer]
+OnCalendar=*-*-* 00,12:17:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=cloud-db-cert-renew.service
+
+[Install]
+WantedBy=timers.target

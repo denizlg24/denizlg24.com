@@ -1,0 +1,12 @@
+[Unit]
+Description=Run deniz-cloud DDNS every five minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+Persistent=true
+RandomizedDelaySec=20s
+Unit=cloud-ddns.service
+
+[Install]
+WantedBy=timers.target

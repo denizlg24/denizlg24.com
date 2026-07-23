@@ -119,4 +119,8 @@ rehearsal is green.
 
 ## Drift log
 
-(record deviations here)
+- **From 011 (2026-07-23):** optional Redis TLS is exposed separately on
+  `redis.denizlg24.com:6381`; legacy plaintext remains on 6380, so existing
+  dependents do not change at cutover. The rehearsal must test both when TLS
+  is enabled. Adminer/mongo-express require the opt-in compose `tools` profile
+  and are not part of the default cutover `up`.

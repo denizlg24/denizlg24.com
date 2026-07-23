@@ -1,0 +1,381 @@
+name: ${COMPOSE_PROJECT_NAME:-deniz-cloud}
+
+networks:
+  app:
+    driver: bridge
+  docker-api:
+    driver: bridge
+    internal: true
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    networks: [app]
+    ports:
+      - target: 5432
+        published: "${POSTGRES_PORT:-5433}"
+        host_ip: "${DB_BIND_ADDRESS:-0.0.0.0}"
+        protocol: tcp
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-denizcloud}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_TLS_MODE: ${POSTGRES_TLS_MODE:-off}
+      POSTGRES_USER: ${POSTGRES_USER:-denizcloud}
+    entrypoint: ["/usr/local/bin/deniz-postgres-entrypoint.sh"]
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-64MB}
+      - -c
+      - work_mem=${POSTGRES_WORK_MEM:-4MB}
+      - -c
+      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-32MB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-256MB}
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-50}
+      - -c
+      - idle_in_transaction_session_timeout=${POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT:-60s}
+      - -c
+      - ssl=${POSTGRES_TLS_MODE:-off}
+      - -c
+      - ssl_cert_file=/tmp/postgres-fullchain.pem
+      - -c
+      - ssl_key_file=/tmp/postgres-privkey.pem
+      - -c
+      - log_connections=on
+      - -c
+      - log_disconnections=on
+      - -c
+      - "log_line_prefix=%m [%p] host=%h user=%u db=%d "
+    volumes:
+      - ${POSTGRES_DATA_DIR:?POSTGRES_DATA_DIR must point to the existing data directory}:/var/lib/postgresql/data
+      - ./scripts/postgres-entrypoint.sh:/usr/local/bin/deniz-postgres-entrypoint.sh:ro
+      - ${POSTGRES_TLS_DIR:-/etc/deniz-cloud/tls/postgres}:/run/db-tls:ro
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-192m}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging:
+      driver: journald
+      options:
+        tag: deniz-cloud-postgres
+
+  mongodb:
+    image: ${MONGO_IMAGE:-mongo:8.2.11}
+    networks: [app]
+    ports:
+      - target: 27017
+        published: "${MONGO_PORT:-27018}"
+        host_ip: "${DB_BIND_ADDRESS:-0.0.0.0}"
+        protocol: tcp
+    environment:
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?MONGO_INITDB_ROOT_PASSWORD is required}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-root}
+      MONGO_SEARCH_ENABLED: ${MONGO_SEARCH_ENABLED:-true}
+      MONGO_TLS_MODE: ${MONGO_TLS_MODE:-disabled}
+      MONGO_WIREDTIGER_CACHE_GB: ${MONGO_WIREDTIGER_CACHE_GB:-0.25}
+    entrypoint: ["/bin/bash", "/usr/local/bin/deniz-mongodb-entrypoint.sh"]
+    volumes:
+      - ${MONGO_DATA_DIR:?MONGO_DATA_DIR must point to the existing data directory}:/data/db
+      - ${MONGO_REPLICA_KEY_FILE:?MONGO_REPLICA_KEY_FILE is required}:/run/secrets/mongo-replica-keyfile:ro
+      - ./scripts/mongodb-entrypoint.sh:/usr/local/bin/deniz-mongodb-entrypoint.sh:ro
+      - ${MONGO_TLS_DIR:-/etc/deniz-cloud/tls/mongodb}:/run/db-tls:ro
+    mem_limit: ${MONGO_MEMORY_LIMIT:-384m}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test \"$$(cat /proc/1/comm)\" = mongod && mongosh --quiet --username \"$${MONGO_INITDB_ROOT_USERNAME}\" --password \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --eval \"quit(db.adminCommand({ ping: 1 }).ok === 1 ? 0 : 1)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    logging:
+      driver: journald
+      options:
+        tag: deniz-cloud-mongodb
+
+  mongo-init:
+    image: ${MONGO_IMAGE:-mongo:8.2.11}
+    networks: [app]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_PASS: ${MONGO_INITDB_ROOT_PASSWORD:?MONGO_INITDB_ROOT_PASSWORD is required}
+      MONGO_USER: ${MONGO_INITDB_ROOT_USERNAME:-root}
+      SEARCH_PASS: ${MONGOT_PASSWORD:?MONGOT_PASSWORD is required}
+      SEARCH_USER: mongot_search
+      SYNC_PASS: ${MONGO_SYNC_PASSWORD:?MONGO_SYNC_PASSWORD is required}
+      SYNC_USER: ${MONGO_SYNC_USER:-sync_reader}
+    entrypoint: ["/bin/bash", "/usr/local/bin/mongo-rs-prod-init.sh"]
+    volumes:
+      - ./scripts/mongo-rs-prod-init.sh:/usr/local/bin/mongo-rs-prod-init.sh:ro
+      - mongot-secrets:/run/mongot-secrets
+    restart: "no"
+
+  mongot:
+    image: ${MONGOT_IMAGE:-mongodb/mongodb-community-search:1.70.1}
+    networks: [app]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
+    environment:
+      MONGOT_JVM_FLAGS: ${MONGOT_JVM_FLAGS:--Xms64m -Xmx128m}
+    entrypoint:
+      - /bin/bash
+      - -c
+      - exec /mongot-community/mongot --config /mongot-community/config.default.yml --jvm-flags "$${MONGOT_JVM_FLAGS}"
+    volumes:
+      - ./scripts/mongot.yml:/mongot-community/config.default.yml:ro
+      - mongot-secrets:/etc/mongot/secrets:ro
+      - ${MONGOT_DATA_DIR:?MONGOT_DATA_DIR must point to the existing data directory}:/data/mongot
+    mem_limit: ${MONGOT_MEMORY_LIMIT:-192m}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://localhost:8080/ready >/dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    networks: [app]
+    ports:
+      - target: 6379
+        published: "${REDIS_PORT:-6380}"
+        host_ip: "${DB_BIND_ADDRESS:-0.0.0.0}"
+        protocol: tcp
+      - target: 6378
+        published: "${REDIS_TLS_PORT:-6381}"
+        host_ip: "${DB_BIND_ADDRESS:-0.0.0.0}"
+        protocol: tcp
+    environment:
+      REDIS_ACL_FILE: /data/users.acl
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-128mb}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDIS_TLS_MODE: ${REDIS_TLS_MODE:-disabled}
+    entrypoint: ["sh", "/usr/local/bin/redis-acl-entrypoint.sh"]
+    volumes:
+      - ${REDIS_DATA_DIR:?REDIS_DATA_DIR must point to the existing data directory}:/data
+      - ./scripts/redis-acl-entrypoint.sh:/usr/local/bin/redis-acl-entrypoint.sh:ro
+      - ${REDIS_TLS_DIR:-/etc/deniz-cloud/tls/redis}:/run/db-tls:ro
+    mem_limit: ${REDIS_MEMORY_LIMIT:-144m}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli -a \"$${REDIS_PASSWORD}\" ping 2>/dev/null | grep -q PONG",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: journald
+      options:
+        tag: deniz-cloud-redis
+
+  redis-acl-audit:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    networks: [app]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    entrypoint: ["sh", "/usr/local/bin/redis-acl-audit.sh"]
+    volumes:
+      - ./scripts/redis-acl-audit.sh:/usr/local/bin/redis-acl-audit.sh:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    mem_limit: ${REDIS_AUDIT_MEMORY_LIMIT:-16m}
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: deniz-cloud-redis-audit
+
+  meilisearch:
+    image: ${MEILI_IMAGE:-getmeili/meilisearch:v1.38}
+    networks: [app]
+    environment:
+      MEILI_ENV: ${MEILI_ENV:-production}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required}
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - ${MEILI_DATA_DIR:?MEILI_DATA_DIR must point to the existing data directory}:/meili_data
+    mem_limit: ${MEILI_MEMORY_LIMIT:-128m}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://localhost:7700/health >/dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  docker-proxy:
+    image: ${DOCKER_PROXY_IMAGE:-tecnativa/docker-socket-proxy:0.3.0}
+    networks: [docker-api]
+    environment:
+      ALLOW_RESTARTS: "1"
+      CONTAINERS: "1"
+      EXEC: "1"
+      INFO: "1"
+      LOG_LEVEL: warning
+      PING: "1"
+      POST: "1"
+      VERSION: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    mem_limit: ${DOCKER_PROXY_MEMORY_LIMIT:-24m}
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+    restart: unless-stopped
+
+  api:
+    image: ${API_IMAGE:-ghcr.io/denizlg24/deniz-cloud-api:latest}
+    networks: [app, docker-api]
+    ports:
+      - target: 3001
+        published: "${API_PORT:-3001}"
+        host_ip: "${API_BIND_ADDRESS:-127.0.0.1}"
+        protocol: tcp
+    environment:
+      APP_VERSION: ${API_VERSION:-latest}
+      BACKUP_DIR: /backups
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://api.denizlg24.com}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-.denizlg24.com}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DB_POOL_MAX: ${DB_POOL_MAX:-5}
+      DOCKER_HOST: tcp://docker-proxy:2375
+      HDD_DEVICES: ${HDD_DEVICES:-}
+      HDD_STORAGE_PATH: /data/hdd
+      MEILISEARCH_ADMIN_KEY: ${MEILI_MASTER_KEY}
+      MEILISEARCH_URL: http://meilisearch:7700
+      METRICS_NOTIFICATION_WEBHOOK_URL: ${METRICS_NOTIFICATION_WEBHOOK_URL:-}
+      MICROSD_DEVICE: ${MICROSD_DEVICE:-/dev/mmcblk0p2}
+      MONGODB_ADMIN_URI: ${MONGODB_ADMIN_URI:?MONGODB_ADMIN_URI is required}
+      MONGODB_URI: ${MONGODB_URI:?MONGODB_URI is required}
+      MONGOT_HEALTH_URL: http://mongot:8080
+      NODE_ENV: production
+      PORT: "3001"
+      REDIS_ADMIN_URL: ${REDIS_ADMIN_URL:?REDIS_ADMIN_URL is required}
+      REDIS_EXTERNAL_HOST: ${REDIS_EXTERNAL_HOST:-redis.denizlg24.com:6380}
+      REDIS_INTERNAL_HOST: redis:6379
+      REBOOT_SENTINEL_PATH: /host-control/reboot-requested
+      S3_ENDPOINT: ${S3_ENDPOINT:-https://api.denizlg24.com/v2}
+      S3_REGION: ${S3_REGION:-eu-west-1}
+      SSD_DEVICE: ${SSD_DEVICE:-/dev/nvme0n1p1}
+      SSD_STORAGE_PATH: /data/ssd
+      TERMINAL_SERVER_URL: ws://host.docker.internal:3003
+      TERMINAL_TICKET_SECRET: ${TERMINAL_TICKET_SECRET:?TERMINAL_TICKET_SECRET is required}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?TOTP_ENCRYPTION_KEY is required}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/rootfs:ro
+      - ${SSD_STORAGE_PATH:?SSD_STORAGE_PATH is required}:/data/ssd
+      - ${HDD_STORAGE_PATH:?HDD_STORAGE_PATH is required}:/data/hdd
+      - ${BACKUP_DIR:?BACKUP_DIR is required}:/backups
+      - ${HOST_CONTROL_DIR:-/var/lib/deniz-cloud}:/host-control
+    mem_limit: ${API_MEMORY_LIMIT:-450m}
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
+      mongot:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-acl-audit:
+        condition: service_started
+      meilisearch:
+        condition: service_healthy
+      docker-proxy:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bun -e \"const r=await fetch('http://localhost:3001/healthz');process.exit(r.ok?0:1)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  adminer:
+    image: ${ADMINER_IMAGE:-adminer:5.4.1}
+    profiles: [tools]
+    networks: [app]
+    ports:
+      - target: 8080
+        published: "${ADMINER_PORT:-8080}"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: ${ADMINER_MEMORY_LIMIT:-48m}
+    restart: unless-stopped
+
+  mongo-express:
+    image: ${MONGO_EXPRESS_IMAGE:-mongo-express:1.0.2-20-alpine3.19}
+    profiles: [tools]
+    networks: [app]
+    ports:
+      - target: 8081
+        published: "${MONGO_EXPRESS_PORT:-8081}"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    environment:
+      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASSWORD:?MONGO_EXPRESS_PASSWORD is required}
+      ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USERNAME:-admin}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME:-root}
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME:-root}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    mem_limit: ${MONGO_EXPRESS_MEMORY_LIMIT:-64m}
+    restart: unless-stopped
+
+volumes:
+  mongot-secrets:

@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for the deniz-cloud reboot sentinel
+
+[Path]
+PathExists=/var/lib/deniz-cloud/reboot-requested
+Unit=cloud-reboot.service
+
+[Install]
+WantedBy=multi-user.target

@@ -10,4 +10,25 @@ describe("GET /healthz", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: "ok", version: pkg.version });
   });
+
+  it("reports the deployed image version", async () => {
+    const previousVersion = process.env.APP_VERSION;
+    process.env.APP_VERSION = "test-sha";
+
+    try {
+      const res = await app.request("/healthz");
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        status: "ok",
+        version: "test-sha",
+      });
+    } finally {
+      if (previousVersion === undefined) {
+        delete process.env.APP_VERSION;
+      } else {
+        process.env.APP_VERSION = previousVersion;
+      }
+    }
+  });
 });

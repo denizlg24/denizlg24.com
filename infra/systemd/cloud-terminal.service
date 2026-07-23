@@ -1,0 +1,46 @@
+[Unit]
+Description=deniz-cloud persistent terminal service
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi-terminal
+Group=pi-terminal
+Environment=HOME=/var/lib/cloud-terminal
+Environment=TMUX_TMPDIR=/run/cloud-terminal
+EnvironmentFile=/etc/deniz-cloud/terminal.env
+ExecStart=/usr/local/bin/cloud-terminal
+Restart=on-failure
+RestartSec=3s
+
+StateDirectory=cloud-terminal
+StateDirectoryMode=0700
+RuntimeDirectory=cloud-terminal
+RuntimeDirectoryMode=0700
+WorkingDirectory=/var/lib/cloud-terminal
+
+CapabilityBoundingSet=
+LockPersonality=yes
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/cloud-terminal /run/cloud-terminal
+RemoveIPC=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
