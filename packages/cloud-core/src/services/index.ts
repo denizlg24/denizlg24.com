@@ -41,3 +41,11 @@ export {
   updateTask,
   updateTaskRun,
 } from "./tasks";
+export type {
+  SafeApiKeyRecord,
+  SafeProjectCollectionRecord,
+  SafeProjectRecord,
+  SafeScheduledTaskRecord,
+  SafeTaskRunRecord,
+  SafeUserRecord,
+} from "./types";

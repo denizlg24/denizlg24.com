@@ -72,7 +72,7 @@ its cron/timer into `infra/scripts/` (still needed for DB A-records).
 - Terminal binary: `bun build --compile --target=bun-linux-arm64` artifact
   uploaded + deployed by the same workflow.
 - Deploy job (environment `pi`, manual approval gate): connect tailnet via
-  `tailscale/github-action` (OAuth secrets), `ssh pi@<tailnet-name>`:
+  `tailscale/github-action` (OAuth secrets), `ssh denizlg24@<tailnet-name>`:
   `docker compose -f ... pull && up -d`, copy terminal binary + systemd
   reload, health-gate: poll `https://api.denizlg24.com/healthz` for new
   version, else exit 1 (compose keeps old containers unless pull succeeded —

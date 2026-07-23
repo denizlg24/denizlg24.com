@@ -28,9 +28,10 @@
    identically. Migrating consumers onto per-project credentials (and
    retiring the legacy row) is a post-cutover task on the change list, not
    a cutover blocker.
-5. Human users re-login (sessions dropped by design); passwords and TOTP
-   enrollments carry over; recovery codes are REISSUED (003) and delivered
-   to users from the migration report.
+5. Human users re-login (sessions dropped by design); passwords carry over,
+   but every user must complete a mandatory Better Auth TOTP re-enrollment.
+   Legacy TOTP secrets and recovery codes are not imported. Better Auth
+   generates new backup codes during enrollment, and users retain them then.
 6. Rollback to the old stack possible within minutes at any point before
    the "point of no return" (defined below as: first new-schema-only write).
 
@@ -38,8 +39,10 @@
 
 1. **Migration scripts** in `apps/api/scripts/` (all idempotent, `--dry-run`
    default, `--execute` flag, structured log to file):
-   - `migrate-users.ts` (exists from 003 — extend for full-fidelity run,
-     produce the recovery-codes report).
+   - `migrate-users.ts` (exists from 003 — extend for full-fidelity run;
+     preserve password hashes, mark every user TOTP-re-enrollment-required,
+     and report invalidated legacy TOTP/recovery material; never copy a
+     legacy TOTP secret into an active Better Auth enrollment).
    - `migrate-s3-legacy.ts` — reads the old env keypair, inserts the
      NULL-project `s3_credentials` row (encrypting the secret per 004);
      refuses to run twice.
@@ -78,8 +81,10 @@
    disable old scheduler crons.
 2. `pre-cutover-snapshot.ts --execute`.
 3. Apply new drizzle migrations; run `migrate-users.ts --execute`;
-   `migrate-verify.ts` → ALL GREEN or abort (rollback: restart old
-   containers — nothing destructive has happened).
+   `migrate-verify.ts` → ALL GREEN or abort. Confirm every migrated Better
+   Auth user has `twoFactorEnabled=false` and no migrated `auth_two_factor`
+   row. Rollback: restart old containers — legacy TOTP/recovery rows were
+   retained and nothing destructive has happened.
 4. Stop remaining old containers; `docker compose -f docker-compose.pi.yml
    up -d` (same volumes); install/enable host units (terminal, reboot-path);
    cloudflared ingress switch: `api.denizlg24.com` → api; remove old
@@ -97,9 +102,11 @@
    after the 48h soak, and only after reviewing a `--dry-run` report in the
    admin UI (first real pass moves data between disks; do it eyes-open, not
    during the cutover window).
-8. Update dependent projects' envs (change list), operator distributes new
-   recovery codes, 48h soak with dashboard watch + old repo left untouched
-   on disk.
+8. Update dependent projects' envs (change list). Require every human user
+   to sign in, re-scan a Better Auth TOTP QR code, verify it, and retain the
+   newly generated backup codes before normal API/admin access is enabled.
+   Then begin the 48h soak with dashboard watch + old repo left untouched on
+   disk.
 
 ## Verification (Half A session)
 
@@ -124,3 +131,14 @@ rehearsal is green.
   dependents do not change at cutover. The rehearsal must test both when TLS
   is enabled. Adminer/mongo-express require the opt-in compose `tools` profile
   and are not part of the default cutover `up`.
+- **From 003 (2026-07-23), operator decision:** legacy OTPAuth TOTP
+  enrollments are incompatible with standard Better Auth TOTP storage.
+  Cutover therefore mandates re-enrollment for every human user. The user
+  migration must not decrypt/copy legacy secrets or create active
+  `auth_two_factor` rows; it marks all Better Auth users unenrolled and flags
+  invalidated legacy TOTP/recovery material in the encrypted report. Legacy
+  rows remain unchanged only to preserve rollback before the point of no
+  return. The generated cutover runbook and verification script must include
+  an explicit all-users-unenrolled assertion, a re-scan/verify step, and user
+  retention of the new Better Auth backup codes. No recovery codes are
+  distributed from the migration report.

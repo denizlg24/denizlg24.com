@@ -121,13 +121,13 @@ jobs:
           scp \
             -o StrictHostKeyChecking=accept-new \
             cloud-infra.tgz \
-            "pi@${PI_HOST}:/tmp/cloud-infra.tgz"
-          ssh -o StrictHostKeyChecking=accept-new "pi@${PI_HOST}" \
-            "sudo install -d -o pi -g pi /opt/deniz-cloud && tar -xzf /tmp/cloud-infra.tgz -C /opt/deniz-cloud && rm -f /tmp/cloud-infra.tgz"
+            "denizlg24@${PI_HOST}:/tmp/cloud-infra.tgz"
+          ssh -o StrictHostKeyChecking=accept-new "denizlg24@${PI_HOST}" \
+            "sudo install -d -o denizlg24 -g denizlg24 /opt/deniz-cloud && tar -xzf /tmp/cloud-infra.tgz -C /opt/deniz-cloud && rm -f /tmp/cloud-infra.tgz"
 
       - name: Pull and deploy
         run: |
-          ssh -o StrictHostKeyChecking=accept-new "pi@${PI_HOST}" \
+          ssh -o StrictHostKeyChecking=accept-new "denizlg24@${PI_HOST}" \
             "cd /opt/deniz-cloud/infra/compose && test -f .env.pi && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml pull && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml up -d"
 
       - name: Health gate

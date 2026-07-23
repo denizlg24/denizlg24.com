@@ -295,7 +295,6 @@ services:
       SSD_STORAGE_PATH: /data/ssd
       TERMINAL_SERVER_URL: ws://host.docker.internal:3003
       TERMINAL_TICKET_SECRET: ${TERMINAL_TICKET_SECRET:?TERMINAL_TICKET_SECRET is required}
-      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?TOTP_ENCRYPTION_KEY is required}
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:

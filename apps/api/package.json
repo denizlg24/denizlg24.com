@@ -4,13 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "auth:migrate-users": "bun scripts/migrate-users.ts",
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
-    "hono": "^4.12.31"
+    "@better-auth/drizzle-adapter": "^1.6.25",
+    "@repo/cloud-core": "workspace:*",
+    "@repo/schemas": "workspace:*",
+    "better-auth": "^1.6.25",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.31",
+    "redis": "^6.1.0"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",

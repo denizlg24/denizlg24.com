@@ -18,7 +18,8 @@ export type LoginInput = z.infer<typeof loginInputSchema>;
 export const completeSignupInputSchema = z.object({
   username: z.string().min(1),
   email: z.email(),
-  password: z.string().min(1),
+  password: z.string().min(8).max(128),
+  token: z.string().min(1),
 });
 export type CompleteSignupInput = z.infer<typeof completeSignupInputSchema>;
 
@@ -35,6 +36,18 @@ export const createPendingUserInputSchema = z.object({
 export type CreatePendingUserInput = z.infer<
   typeof createPendingUserInputSchema
 >;
+
+export const pendingUserCreatedSchema = z.object({
+  signupToken: z.string(),
+  user: safeUserSchema,
+});
+export type PendingUserCreated = z.infer<typeof pendingUserCreatedSchema>;
+
+export const completeSignupResultSchema = z.object({
+  requiresTotpEnrollment: z.literal(true),
+  user: safeUserSchema,
+});
+export type CompleteSignupResult = z.infer<typeof completeSignupResultSchema>;
 
 export const totpSetupResultSchema = z.object({
   uri: z.string(),
