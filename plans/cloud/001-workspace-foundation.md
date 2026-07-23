@@ -144,6 +144,9 @@ Executed 2026-07-23 (opus 4.8). All verification commands pass. Deviations:
    `directConnection=true` (member host `mongodb:27017` only resolves inside the
    compose network). `mongot`/Meilisearch-sync and per-project Redis ACLs from the
    old compose are intentionally out of scope here (owned by 004/005/006/011).
+   The mongo image is pinned to `8.2.11` (default via `${MONGO_IMAGE}`) because
+   mongot vector indexes require >= 8.2.11 (operator correction 2026-07-23);
+   verified healthy + `rs.initiate` exit 0 on that tag.
 4. **Biome**: `biome.json` `files.includes` gains `!vendor` so Biome ignores the
    submodule, which ships its own `biome.json` (otherwise a nested-root error).
 5. **turbo.json** `build.outputs` gains `dist/**` so `apps/api`'s `bun build`

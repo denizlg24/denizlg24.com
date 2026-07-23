@@ -33,7 +33,7 @@ your plan's row when done (date + deviations). Executor = model that runs it.
     Button to prove the transpile path. They have **no `test` script yet** (008/009
     add real tests) — `bun test` exits 1 on zero tests.
   - Dev infra: `bun run cloud:dev:infra` (needs `infra/compose/.env.dev`, copy from
-    `.env.dev.example`). Brings up postgres:16 (:5433), mongo:8 single-node RS rs0
+    `.env.dev.example`). Brings up postgres:16 (:5433), mongo:8.2.11 single-node RS rs0
     (:27018, root auth, keyfile generated in-container), redis:7 (:6380, requirepass),
     meilisearch v1.38 (:7700, master key). All 4 reach healthy; a `mongo-init`
     one-shot does `rs.initiate`. **Host clients must use `directConnection=true`**
