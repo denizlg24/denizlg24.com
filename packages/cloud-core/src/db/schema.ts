@@ -251,6 +251,38 @@ export const apiKeys = pgTable(
   ],
 );
 
+export const s3Credentials = pgTable(
+  "s3_credentials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id"),
+    accessKeyId: varchar("access_key_id", { length: 64 })
+      .notNull()
+      .unique("s3_credentials_access_key_id_key"),
+    secretAccessKeyHash: varchar("secret_access_key_hash", {
+      length: 64,
+    }).notNull(),
+    encryptedSecretAccessKey: text("encrypted_secret_access_key").notNull(),
+    secretIv: text("secret_iv").notNull(),
+    secretAuthTag: text("secret_auth_tag").notNull(),
+    label: varchar("label", { length: 255 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("s3_credentials_project_id_idx").on(table.projectId),
+    index("s3_credentials_access_key_id_idx").on(table.accessKeyId),
+    foreignKey({
+      name: "s3_credentials_project_id_fkey",
+      columns: [table.projectId],
+      foreignColumns: [projects.id],
+    }).onDelete("cascade"),
+  ],
+);
+
 export const projectCollections = pgTable(
   "project_collections",
   {
@@ -488,6 +520,7 @@ export const projectsRelations = relations(projects, ({ many, one }) => ({
     references: [folders.id],
   }),
   apiKeys: many(apiKeys),
+  s3Credentials: many(s3Credentials),
   collections: many(projectCollections),
   databases: many(projectDatabases),
 }));
@@ -496,6 +529,13 @@ export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
   user: one(users, { fields: [apiKeys.userId], references: [users.id] }),
   project: one(projects, {
     fields: [apiKeys.projectId],
+    references: [projects.id],
+  }),
+}));
+
+export const s3CredentialsRelations = relations(s3Credentials, ({ one }) => ({
+  project: one(projects, {
+    fields: [s3Credentials.projectId],
     references: [projects.id],
   }),
 }));
@@ -570,6 +610,8 @@ export type Project = InferSelectModel<typeof projects>;
 export type NewProject = InferInsertModel<typeof projects>;
 export type ApiKey = InferSelectModel<typeof apiKeys>;
 export type NewApiKey = InferInsertModel<typeof apiKeys>;
+export type S3Credential = InferSelectModel<typeof s3Credentials>;
+export type NewS3Credential = InferInsertModel<typeof s3Credentials>;
 export type ProjectCollection = InferSelectModel<typeof projectCollections>;
 export type NewProjectCollection = InferInsertModel<typeof projectCollections>;
 export type ProjectDatabase = InferSelectModel<typeof projectDatabases>;

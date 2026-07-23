@@ -7,6 +7,7 @@ export interface StorageSearchDocument {
   id: string;
   name: string;
   path: string;
+  rootPath: string;
   type: "file" | "folder";
   ownerId: string;
   scope: "user" | "shared";
@@ -30,6 +31,11 @@ function deriveScope(path: string): "user" | "shared" {
   return path === "/shared" || path.startsWith("/shared/") ? "shared" : "user";
 }
 
+function deriveRootPath(path: string): string {
+  const separator = path.indexOf("/", 1);
+  return separator === -1 ? path : path.slice(0, separator);
+}
+
 export async function ensureStorageSearchIndex(
   meili: Meilisearch,
 ): Promise<void> {
@@ -43,7 +49,7 @@ export async function ensureStorageSearchIndex(
     .index(STORAGE_INDEX_UID)
     .updateSettings({
       searchableAttributes: ["name"],
-      filterableAttributes: ["ownerId", "type", "scope"],
+      filterableAttributes: ["ownerId", "rootPath", "type", "scope"],
       sortableAttributes: ["createdAt", "sizeBytes", "name"],
     })
     .waitTask();
@@ -65,6 +71,7 @@ export function buildFileDocument(file: {
     id: file.id,
     name: file.filename,
     path: file.path,
+    rootPath: deriveRootPath(file.path),
     type: "file",
     ownerId: file.ownerId,
     scope: deriveScope(file.path),
@@ -94,6 +101,7 @@ export function buildFolderDocument(folder: {
     id: folder.id,
     name: folder.name,
     path: folder.path,
+    rootPath: deriveRootPath(folder.path),
     type: "folder",
     ownerId: folder.ownerId,
     scope: deriveScope(folder.path),
@@ -130,6 +138,7 @@ export async function searchStorageIndex(
   options: {
     scope: "user" | "shared";
     ownerId?: string;
+    rootPath?: string;
     type?: "file" | "folder";
     page?: number;
     hitsPerPage?: number;
@@ -138,6 +147,9 @@ export async function searchStorageIndex(
   const filterParts = [`scope = "${options.scope}"`];
   if (options.scope === "user" && options.ownerId) {
     filterParts.push(`ownerId = "${options.ownerId}"`);
+  }
+  if (options.rootPath) {
+    filterParts.push(`rootPath = "${options.rootPath}"`);
   }
   if (options.type) {
     filterParts.push(`type = "${options.type}"`);

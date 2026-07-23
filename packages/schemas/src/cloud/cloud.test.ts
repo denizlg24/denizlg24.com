@@ -5,7 +5,7 @@ import {
   apiErrorResponseSchema,
   createCollectionInputSchema,
   createdApiKeySchema,
-  folderContentsSchema,
+  folderContentsResponseSchema,
   paginatedResponseSchema,
   safeApiKeySchema,
   safeProjectSchema,
@@ -132,15 +132,17 @@ describe("cloud API contracts", () => {
     ).toBe(0);
 
     expect(
-      folderContentsSchema.safeParse({
-        folder: {
-          id: "5f3a89bd-81a4-4640-b468-d387635a8835",
-          name: "root",
-          path: "/root",
-          parentId: null,
+      folderContentsResponseSchema.safeParse({
+        data: {
+          folder: {
+            id: "5f3a89bd-81a4-4640-b468-d387635a8835",
+            name: "root",
+            path: "/root",
+            parentId: null,
+          },
+          subfolders: [],
+          files: [],
         },
-        subfolders: [],
-        files: [],
         pagination: { page: 1, limit: 50, total: 0, totalPages: 0 },
       }).success,
     ).toBe(true);

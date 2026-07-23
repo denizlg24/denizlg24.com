@@ -10,6 +10,7 @@ import {
   projectDatabases,
   projects,
   recoveryCodes,
+  s3Credentials,
   scheduledTasks,
   sessions,
   storageTierEnum,
@@ -57,7 +58,7 @@ describe("cloud database schema", () => {
     ]);
   });
 
-  it("describes all thirteen production tables", () => {
+  it("describes the production tables plus project S3 credentials", () => {
     expect([
       users,
       sessions,
@@ -68,11 +69,12 @@ describe("cloud database schema", () => {
       projectCollections,
       projectDatabases,
       apiKeys,
+      s3Credentials,
       files,
       tusUploads,
       scheduledTasks,
       taskRuns,
-    ]).toHaveLength(13);
+    ]).toHaveLength(14);
   });
 
   it("preserves nullable and number-mode storage fields", () => {
