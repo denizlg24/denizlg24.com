@@ -593,7 +593,7 @@ export function whiteboardContentBounds(
 
 function relativeLuminance(hex: string): number {
   const match = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!match || !match[1]) return 1;
+  if (!match?.[1]) return 1;
   const value = Number.parseInt(match[1], 16);
   const r = ((value >> 16) & 0xff) / 255;
   const g = ((value >> 8) & 0xff) / 255;
