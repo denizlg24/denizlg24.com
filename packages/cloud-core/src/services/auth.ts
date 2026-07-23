@@ -6,6 +6,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "../db";
 import {
   apiKeys,
+  authUser,
   recoveryCodes,
   totpSecrets,
   type User,
@@ -90,7 +91,10 @@ export async function deleteUser(db: Database, userId: string): Promise<void> {
     throw new ForbiddenError("Cannot delete superuser accounts");
   }
 
-  await db.delete(users).where(eq(users.id, userId));
+  await db.transaction(async (tx) => {
+    await tx.delete(authUser).where(eq(authUser.id, userId));
+    await tx.delete(users).where(eq(users.id, userId));
+  });
 }
 
 export async function resetUserMfa(

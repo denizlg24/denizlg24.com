@@ -584,3 +584,5 @@ export type ScheduledTask = InferSelectModel<typeof scheduledTasks>;
 export type NewScheduledTask = InferInsertModel<typeof scheduledTasks>;
 export type TaskRun = InferSelectModel<typeof taskRuns>;
 export type NewTaskRun = InferInsertModel<typeof taskRuns>;
+
+export * from "./auth-schema";
