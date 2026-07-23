@@ -302,14 +302,20 @@ function convertApiMessagesToDisplay(
     };
 
     const prevDisplay = display[display.length - 1];
+    const prevRaw = rawMessages[i - 1];
+    const prevRawContent = prevRaw?.content;
+    const prevRawBlocks = Array.isArray(prevRawContent) ? prevRawContent : null;
     if (
       prevDisplay?.role === "assistant" &&
       prevDisplay.segments &&
       i >= 2 &&
-      rawMessages[i - 1]?.role === "user" &&
-      Array.isArray(rawMessages[i - 1]?.content) &&
-      (rawMessages[i - 1]?.content as any[]).every(
-        (block: any) => block.type === "tool_result",
+      prevRaw?.role === "user" &&
+      prevRawBlocks?.every(
+        (block) =>
+          typeof block === "object" &&
+          block !== null &&
+          "type" in block &&
+          block.type === "tool_result",
       )
     ) {
       prevDisplay.segments = [
