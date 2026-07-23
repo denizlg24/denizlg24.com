@@ -6,7 +6,7 @@ port-forward and Cloudflare Tunnel running. Nothing here stops or replaces the
 old deniz-cloud stack.
 
 The commands assume Ubuntu Server on the Pi, the Pi login user is `pi`, the
-Pi's Tailscale machine name is `deniz-cloud-pi`, and the approved home LAN route
+Pi's Tailscale machine name is `pi-cloud`, and the approved home LAN route
 is `192.168.1.0/24`.
 
 ## 1. Record the current recovery paths
@@ -65,7 +65,7 @@ Run the following command with the home LAN CIDR found in step 1:
 
 ```sh
 sudo tailscale up \
-  --hostname=deniz-cloud-pi \
+  --hostname=pi-cloud \
   --ssh \
   --advertise-routes=192.168.1.0/24
 ```
@@ -82,13 +82,13 @@ sudo tailscale ip -4
 sudo tailscale set --ssh
 ```
 
-`tailscale status` must list `deniz-cloud-pi` without an expired, stopped, or
+`tailscale status` must list `pi-cloud` without an expired, stopped, or
 offline state.
 
 ## 4. Approve and protect the Pi in the admin console
 
 1. Open the [Machines page](https://login.tailscale.com/admin/machines).
-2. Find `deniz-cloud-pi` and approve the device if device approval is enabled.
+2. Find `pi-cloud` and approve the device if device approval is enabled.
 3. Open the machine's route settings and approve `192.168.1.0/24`.
 4. Open the machine's ellipsis menu and select **Disable key expiry**. Reopen
    the menu and confirm it now offers **Enable key expiry**; that inverse action
@@ -157,8 +157,8 @@ macOS, Windows, iOS, and Android clients accept subnet routes by default.
 From the laptop while still on the home network:
 
 ```sh
-tailscale ping deniz-cloud-pi
-tailscale ssh pi@deniz-cloud-pi
+tailscale ping pi-cloud
+tailscale ssh denizlg24@pi-cloud
 ```
 
 Inside the Tailscale SSH session, verify the expected account and sudo access:
@@ -178,8 +178,8 @@ Confirm that the laptop is not using the home public Wi-Fi before testing.
 
 ```sh
 tailscale status
-tailscale ping deniz-cloud-pi
-tailscale ssh pi@deniz-cloud-pi
+tailscale ping pi-cloud
+tailscale ssh denizlg24@pi-cloud
 ```
 
 Then verify subnet routing against one known, powered-on LAN device:
@@ -190,8 +190,8 @@ ping <LAN_DEVICE_IP>
 
 The acceptance gate is:
 
-- `tailscale ping` reaches `deniz-cloud-pi` from the hotspot.
-- `tailscale ssh pi@deniz-cloud-pi` opens a shell from the hotspot.
+- `tailscale ping` reaches `pi-cloud` from the hotspot.
+- `tailscale ssh denizlg24@pi-cloud` opens a shell from the hotspot.
 - A known LAN address responds through the approved subnet route.
 - The phone shows connected in the Tailscale app on cellular data.
 
@@ -202,8 +202,8 @@ Passed on 2026-07-23:
 - Laptop: macOS, tested off-LAN.
 - Pi tailnet address: `100.89.155.9`.
 - Approved subnet route: `192.168.1.0/24`.
-- `tailscale ping deniz-cloud-pi`: passed.
-- `tailscale ssh pi@deniz-cloud-pi`: passed.
+- `tailscale ping pi-cloud`: passed.
+- `tailscale ssh denizlg24@pi-cloud`: passed.
 - Known LAN devices through the subnet route: reachable.
 
 The operator also confirmed the subnet route is approved in the Tailscale admin
@@ -245,7 +245,7 @@ reports that non-default settings must be restated:
 
 ```sh
 sudo tailscale up \
-  --hostname=deniz-cloud-pi \
+  --hostname=pi-cloud \
   --ssh \
   --advertise-routes=192.168.1.0/24 \
   --force-reauth

@@ -135,8 +135,8 @@ the immutable Git SHA and `latest` to
 required-reviewer protection plus:
 
 - secrets `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET`;
-- variable `PI_TAILNET_HOST=deniz-cloud-pi`;
-- a Tailscale `tag:ci` grant permitting TCP/22 to `deniz-cloud-pi` and
+- variable `PI_TAILNET_HOST=pi-cloud`;
+- a Tailscale `tag:ci` grant permitting TCP/22 to `pi-cloud` and
   Tailscale SSH as user `pi`.
 
 Never approve the production deploy job before plan 012's cutover window. The
