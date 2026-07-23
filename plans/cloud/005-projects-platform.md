@@ -115,4 +115,11 @@ report what the real contract is in the Drift log).
 
 ## Drift log
 
-(record deviations here)
+- **From 004 (2026-07-23):** `s3_credentials`, encrypted-secret helpers,
+  `issueS3Credential`, and the cached `S3CredentialResolver` now live in
+  `@repo/cloud-core/storage`. A project credential is restricted to the exact
+  S3 bucket matching its storage root slug (`/{slug}` → `{slug}`); a missing
+  or mismatched project storage-folder binding makes the credential invalid.
+  Create/rotate/revoke endpoints must invalidate the resolver immediately and
+  add the planned `storage:manage` scope, which 004 intentionally did not add
+  to the 003 scope enum.

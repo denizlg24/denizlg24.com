@@ -142,3 +142,12 @@ rehearsal is green.
   an explicit all-users-unenrolled assertion, a re-scan/verify step, and user
   retention of the new Better Auth backup codes. No recovery codes are
   distributed from the migration report.
+- **From 004 (2026-07-23):** Apply
+  `packages/cloud-core/drizzle/0002_massive_kang.sql` before starting the new
+  API. Preserve `JWT_SECRET` exactly for existing share links and configure
+  both old `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` values through the first
+  successful startup; startup idempotently creates the unrestricted
+  NULL-project credential and deliberately fails on a collision or secret
+  mismatch. Rehearsal/live verification must assert that row, run both 004
+  smoke scripts, and accept that old in-flight TUS rows are not resumed.
+  Project S3 credentials use the exact bucket named by the project slug.

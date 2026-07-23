@@ -8,7 +8,7 @@ your plan's row when done (date + deviations). Executor = model that runs it.
 | 001 | Workspace foundation (submodule, scaffolds, turbo, CI skeleton) | opus 4.8 | M | — | DONE 2026-07-23 (see Drift log in 001; deviations: Next apps use standalone create-next-app tsconfig like apps/web; `cloud:dev:infra` uses `--env-file`; mongo dev keyfile generated in-container + named volumes; biome `!vendor`; turbo build outputs +`dist/**`; cloud/storage have no `test` script yet) |
 | 002 | Cloud core port (`@repo/cloud-core`: schema, services, middleware) | gpt5.6 | L | 001 | DONE 2026-07-23 (exact Drizzle parity against historical pre-0001 schema + old 0001–0007; baseline committed; deviations: old fresh-install SQL already contained 0001–0003, so audit reconstructed `8e7862c^`; raw-SQL constraint names modeled explicitly; `meilisearch` SDK 0.60 client-class rename hidden behind legacy `MeiliSearch` alias; password/TOTP/JWT/session resolution remains in 003 as planned) |
 | 003 | Auth: better-auth + API keys + cross-subdomain sessions | gpt5.6 | L | 002 | DONE 2026-07-23 (Better Auth 1.6.25 + generated five-table forward migration; legacy Argon2id hashes preserved; pending signup, mandatory MFA enrollment, cross-subdomain sessions/CORS, Redis login limits, unified session/API-key middleware, and `@repo/cloud-auth-client` delivered. Deviations: operator chose mandatory TOTP re-enrollment because legacy OTPAuth secrets are incompatible with standard Better Auth behavior; no TOTP shim/secret import, legacy recovery codes invalidated, new backup codes issued at enrollment; client helper isolated from schemas. See 003/012 Drift logs.) |
-| 004 | Storage engine (files, TUS, S3 `/v2`, shares, tiering) | gpt5.6 | XL | 003 | TODO |
+| 004 | Storage engine (files, TUS, S3 `/v2`, shares, tiering) | gpt5.6 | XL | 003 | DONE 2026-07-23 (files/folders/search/share/Range, resumable TUS, store-only ZIP, legacy-compatible S3 including multipart, per-project encrypted credentials, atomic tiering/promotion, migration 0002, and live AWS SDK/TUS smokes delivered. Deviations: project S3 prefix maps to its exact slug bucket; legacy env credential migrates idempotently at startup; ZIP32 caps configurable archives below 4 GiB; OpenAPI regeneration deferred to 013. See 004 and affected-plan Drift logs.) |
 | 005 | Projects platform (provisioning PG/Mongo/Redis, search sync) | gpt5.6 | XL | 003 (004 for storage folders) | TODO |
 | 006 | Ops plane (scheduler, executors, metrics, health) | gpt5.6 | L | 003 | TODO |
 | 007 | Terminal service rewrite (hardened, tmux-persistent) | gpt5.6 | M | 006 | TODO |
@@ -21,6 +21,27 @@ your plan's row when done (date + deviations). Executor = model that runs it.
 
 ## Notes between sessions
 
+- **2026-07-23 (004 done)** — Storage is green. For plans
+  005/006/008/009/012/013:
+  - Apply `0002_massive_kang.sql`. Storage logic and S3 credential helpers are
+    exported from `@repo/cloud-core/storage`; canonical client contracts are
+    in `@repo/schemas/cloud`. Continue using 003's unified auth middleware.
+  - Project S3 credentials are restricted to the exact bucket named by the
+    project slug. Plan 005 owns issuance/rotation/revocation endpoints and
+    must invalidate the resolver after mutations. NULL-project credentials
+    retain unrestricted legacy behavior.
+  - `runTieringPass` and the promotion queue implement
+    copy → checksum verify → metadata compare/swap → source delete. Plan 006
+    owns the `tiering_pass` executor/schedule; plan 008 surfaces dry-run
+    reports. Keep real tiering disabled until 012's 48-hour soak.
+  - Preserve `JWT_SECRET` for share HMACs. Configure the old
+    `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` together through the first
+    new API startup so the idempotent NULL-project migration runs. Plan 012
+    reruns both smoke scripts; old in-flight TUS uploads may be discarded as
+    planned.
+  - Plan 009 consumes `/api/storage/*` and `/api/search`; the live TUS and
+    Range smokes pass. Plan 013 regenerates consolidated OpenAPI because 004
+    deferred the old generator.
 - **2026-07-23 (003 done)** — Auth is green. For plans 004/005/006/008/009:
   - Better Auth is mounted at `/api/auth/*`; `/api/me` returns the canonical
     `SafeUser`. Human sessions require an active Better Auth TOTP enrollment.

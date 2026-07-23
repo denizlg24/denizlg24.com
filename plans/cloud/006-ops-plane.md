@@ -114,4 +114,8 @@ profiling (>50MB steady-state for the sampler → simplify cadence, report).
 
 ## Drift log
 
-(record deviations here)
+- **From 004 (2026-07-23):** `runTieringPass`,
+  `createTieringRepository`, `PromotionQueue`, and `tieringReportSchema` are
+  exported from cloud-core. Register `tiering_pass` here, pass the storage
+  paths/watermark/age/size/batch config, expose dry-run reports for 008, and
+  keep the first real schedule disabled until 012's post-cutover soak.
