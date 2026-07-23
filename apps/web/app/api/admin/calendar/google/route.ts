@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
       updatedAt: iso(connection.updatedAt),
       lastSyncAt: iso(connection.lastSyncAt),
       lastSyncError: connection.lastSyncError,
+      needsReauth: connection.needsReauth ?? false,
       pendingSyncCount,
       failedSyncCount,
     },
@@ -108,6 +109,7 @@ export async function PATCH(request: NextRequest) {
       updatedAt: iso(connection.updatedAt),
       lastSyncAt: iso(connection.lastSyncAt),
       lastSyncError: connection.lastSyncError,
+      needsReauth: connection.needsReauth ?? false,
     },
     { status: 200 },
   );

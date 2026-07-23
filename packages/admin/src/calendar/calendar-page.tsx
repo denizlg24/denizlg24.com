@@ -213,6 +213,7 @@ export function CalendarPage() {
       getCachedGoogleCalendarStatus(),
     );
   const [googleSettingsOpen, setGoogleSettingsOpen] = useState(false);
+  const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
   const [googleCalendarId, setGoogleCalendarId] = useState("primary");
   const [googleMutating, setGoogleMutating] = useState(false);
   const [googleSyncing, setGoogleSyncing] = useState(false);
@@ -522,7 +523,6 @@ export function CalendarPage() {
   );
 
   const disconnectGoogleCalendar = useCallback(async () => {
-    if (!window.confirm("Disconnect Google Calendar?")) return;
     setGoogleMutating(true);
     try {
       await client.del<{ success: true }>("calendar/google");
@@ -538,6 +538,7 @@ export function CalendarPage() {
       setCachedGoogleCalendarStatus(disconnectedStatus);
       setGoogleCalendarId("primary");
       setGoogleSettingsOpen(false);
+      setDisconnectDialogOpen(false);
       toast.success("Google Calendar disconnected");
     } catch (error) {
       toast.error(
@@ -770,6 +771,14 @@ export function CalendarPage() {
     }
   }, []);
 
+  const googleButtonLabel = !googleStatus?.connected
+    ? "Connect Google Calendar"
+    : googleStatus.needsReauth
+      ? "Reconnect Google Calendar"
+      : googleStatus.enabled
+        ? "Google Calendar"
+        : "Google Paused";
+
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-4">
       <PageHeader
@@ -779,31 +788,23 @@ export function CalendarPage() {
       >
         <Button
           onClick={() => {
-            if (googleStatus?.connected) {
-              setGoogleSettingsOpen(true);
-            } else {
+            if (googleStatus?.needsReauth || !googleStatus?.connected) {
               void connectGoogleCalendar();
+            } else {
+              setGoogleSettingsOpen(true);
             }
           }}
           size="sm"
-          variant={googleStatus?.lastSyncError ? "destructive" : "outline"}
-          disabled={googleMutating}
-          title={
-            !googleStatus?.connected
-              ? "Connect Google Calendar"
-              : googleStatus.enabled
-                ? "Google Calendar"
-                : "Google Paused"
+          variant={
+            googleStatus?.needsReauth || googleStatus?.lastSyncError
+              ? "destructive"
+              : "outline"
           }
+          disabled={googleMutating}
+          title={googleButtonLabel}
         >
           {googleStatus?.lastSyncError ? <RefreshCw /> : <FaGoogle />}
-          <span className="hidden sm:inline">
-            {!googleStatus?.connected
-              ? "Connect Google Calendar"
-              : googleStatus.enabled
-                ? "Google Calendar"
-                : "Google Paused"}
-          </span>
+          <span className="hidden sm:inline">{googleButtonLabel}</span>
         </Button>
         <Button
           onClick={() => {
@@ -867,9 +868,19 @@ export function CalendarPage() {
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-muted-foreground">State</span>
                   <Badge
-                    variant={googleStatus.enabled ? "default" : "secondary"}
+                    variant={
+                      googleStatus.needsReauth
+                        ? "destructive"
+                        : googleStatus.enabled
+                          ? "default"
+                          : "secondary"
+                    }
                   >
-                    {googleStatus.enabled ? "Enabled" : "Paused"}
+                    {googleStatus.needsReauth
+                      ? "Reauth required"
+                      : googleStatus.enabled
+                        ? "Enabled"
+                        : "Paused"}
                   </Badge>
                 </div>
                 {googleStatus.lastSyncAt && (
@@ -886,6 +897,19 @@ export function CalendarPage() {
                 <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2.5 text-xs text-destructive">
                   {googleStatus.lastSyncError}
                 </div>
+              )}
+
+              {googleStatus.needsReauth && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => void connectGoogleCalendar()}
+                  disabled={googleMutating}
+                >
+                  <FaGoogle className="h-3.5 w-3.5" />
+                  Reconnect
+                </Button>
               )}
 
               <div className="space-y-1.5">
@@ -949,7 +973,7 @@ export function CalendarPage() {
                   type="button"
                   variant="destructive"
                   size="sm"
-                  onClick={disconnectGoogleCalendar}
+                  onClick={() => setDisconnectDialogOpen(true)}
                   disabled={googleMutating}
                 >
                   <X className="h-3.5 w-3.5" />
@@ -960,6 +984,37 @@ export function CalendarPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={disconnectDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !googleMutating) setDisconnectDialogOpen(false);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Synced events stay, but they stop updating in both directions.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={googleMutating}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={googleMutating}
+              onClick={(event) => {
+                event.preventDefault();
+                void disconnectGoogleCalendar();
+              }}
+            >
+              {googleMutating ? "Disconnecting…" : "Disconnect"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={viewEvent !== null}

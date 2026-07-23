@@ -91,8 +91,47 @@ export function getGoogleApiErrorStatus(error: unknown) {
   return undefined;
 }
 
+export const GOOGLE_REAUTH_REQUIRED_MESSAGE =
+  "Google rejected the stored refresh token (invalid_grant). Reconnect the account.";
+
+function getGoogleErrorReason(error: unknown) {
+  if (!error || typeof error !== "object") return undefined;
+  const data = (error as { response?: { data?: unknown } }).response?.data;
+  if (!data || typeof data !== "object") return undefined;
+
+  const { error: reason } = data as { error?: unknown };
+  if (typeof reason === "string") return reason;
+  if (reason && typeof reason === "object") {
+    const { message } = reason as { message?: unknown };
+    if (typeof message === "string") return message;
+  }
+
+  return undefined;
+}
+
+export function isGoogleInvalidGrantError(error: unknown) {
+  if (getGoogleErrorReason(error) === "invalid_grant") return true;
+  return error instanceof Error && error.message.includes("invalid_grant");
+}
+
 export function sanitizeGoogleSyncError(error: unknown) {
+  if (isGoogleInvalidGrantError(error)) return GOOGLE_REAUTH_REQUIRED_MESSAGE;
+
   const status = getGoogleApiErrorStatus(error);
+  const reason = getGoogleErrorReason(error);
+  if (status && reason) {
+    return `Google Calendar request failed with status ${status} (${reason})`;
+  }
   if (status) return `Google Calendar request failed with status ${status}`;
   return "Google Calendar request failed";
+}
+
+export function logGoogleCalendarError(context: string, error: unknown) {
+  const status = getGoogleApiErrorStatus(error);
+  const reason = getGoogleErrorReason(error);
+  console.error(
+    `[google-calendar] ${context}`,
+    JSON.stringify({ status, reason }),
+    error instanceof Error ? error.message : error,
+  );
 }

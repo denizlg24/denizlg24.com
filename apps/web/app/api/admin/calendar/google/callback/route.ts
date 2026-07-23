@@ -69,6 +69,7 @@ export async function GET(request: NextRequest) {
           scope: parseScope(tokens.scope),
           encryptedRefreshToken: encryptedRefreshToken(tokens.refresh_token),
           connectedAt: new Date(),
+          needsReauth: false,
         },
         $unset: { lastSyncError: "" },
       },

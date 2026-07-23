@@ -32,6 +32,10 @@ const getGoogleApiErrorStatusMock = mock((error: unknown) => {
   }
   return undefined;
 });
+const isGoogleInvalidGrantErrorMock = mock(
+  (error: unknown) =>
+    error instanceof Error && error.message.includes("invalid_grant"),
+);
 const sanitizeGoogleSyncErrorMock = mock((error: unknown) => {
   const status = getGoogleApiErrorStatusMock(error);
   return status
@@ -100,6 +104,10 @@ mock.module("./google-calendar", () => ({
   GOOGLE_CALENDAR_EVENTS_SCOPE:
     "https://www.googleapis.com/auth/calendar.events.owned",
   GOOGLE_CALENDAR_PROVIDER: "google",
+  GOOGLE_REAUTH_REQUIRED_MESSAGE:
+    "Google rejected the stored refresh token (invalid_grant). Reconnect the account.",
+  isGoogleInvalidGrantError: isGoogleInvalidGrantErrorMock,
+  logGoogleCalendarError: () => {},
   parseScope: () => ["https://www.googleapis.com/auth/calendar.events.owned"],
   sanitizeGoogleSyncError: sanitizeGoogleSyncErrorMock,
 }));
@@ -274,6 +282,30 @@ test("insert conflict falls back to patch and records success", async () => {
       }),
     }),
     { upsert: true },
+  );
+});
+
+test("invalid_grant flags the connection for reauth without recording a row error", async () => {
+  eventLeanMock.mockResolvedValue(manualEvent());
+  insertMock.mockRejectedValueOnce(new Error("invalid_grant"));
+  patchMock.mockRejectedValueOnce(new Error("invalid_grant"));
+
+  const result = await syncEventToGoogle(localEventId, "upsert");
+
+  expect(result.status).toBe("failed");
+  expect(result.reauthRequired).toBe(true);
+  expect(connectionFindOneAndUpdateMock).toHaveBeenCalledWith(
+    expect.objectContaining({ provider: "google" }),
+    expect.objectContaining({
+      $set: expect.objectContaining({ needsReauth: true }),
+    }),
+  );
+  expect(syncFindOneAndUpdateMock).not.toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({
+      $set: expect.objectContaining({ lastError: expect.anything() }),
+    }),
+    expect.anything(),
   );
 });
 

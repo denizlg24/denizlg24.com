@@ -12,6 +12,7 @@ export interface ICalendarExternalConnection extends Document {
   updatedAt: Date;
   lastSyncAt?: Date;
   lastSyncError?: string;
+  needsReauth?: boolean;
 }
 
 export interface ILeanCalendarExternalConnection {
@@ -26,6 +27,7 @@ export interface ILeanCalendarExternalConnection {
   updatedAt: Date;
   lastSyncAt?: Date;
   lastSyncError?: string;
+  needsReauth?: boolean;
 }
 
 const EncryptedSecretSchema = new Schema<EncryptedSecret>(
@@ -54,6 +56,7 @@ const CalendarExternalConnectionSchema =
       connectedAt: { type: Date, default: () => new Date() },
       lastSyncAt: { type: Date },
       lastSyncError: { type: String },
+      needsReauth: { type: Boolean, default: false },
     },
     { timestamps: true },
   );
