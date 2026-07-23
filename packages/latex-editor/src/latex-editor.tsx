@@ -2,6 +2,16 @@
 
 import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView, type ViewUpdate } from "@codemirror/view";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import {
   DropdownMenu,
@@ -400,6 +410,9 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
     const [pendingName, setPendingName] = useState("");
     const [renamingId, setRenamingId] = useState<string | null>(null);
     const [renamingName, setRenamingName] = useState("");
+    const [deleteTarget, setDeleteTarget] = useState<LatexProjectEntry | null>(
+      null,
+    );
     const [saving, setSaving] = useState(false);
     const [publishing, setPublishing] = useState(false);
     const [compiling, setCompiling] = useState(false);
@@ -788,10 +801,13 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
       }
     };
 
-    const deleteEntry = (entry: LatexProjectEntry) => {
-      if (!window.confirm(`Delete ${basename(entry.path)}?`)) return;
-      onChange(removeProjectEntry(project, entry.id));
-      setOpenFileIds((current) => current.filter((id) => id !== entry.id));
+    const confirmDelete = () => {
+      if (!deleteTarget) return;
+      onChange(removeProjectEntry(project, deleteTarget.id));
+      setOpenFileIds((current) =>
+        current.filter((id) => id !== deleteTarget.id),
+      );
+      setDeleteTarget(null);
     };
 
     const handleImportedFiles = async (
@@ -1124,7 +1140,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
                             aria-label="Delete"
                             onClick={(event) => {
                               event.stopPropagation();
-                              deleteEntry(entry);
+                              setDeleteTarget(entry);
                             }}
                           >
                             <Trash2 />
@@ -1363,6 +1379,32 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
               </ScrollArea>
             ))}
         </div>
+
+        <AlertDialog
+          open={deleteTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+        >
+          <AlertDialogContent size="sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Delete {deleteTarget ? basename(deleteTarget.path) : ""}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {deleteTarget?.kind === "folder"
+                  ? "The folder and everything inside it is removed from the project."
+                  : "The file is removed from the project."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmDelete}>
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   },

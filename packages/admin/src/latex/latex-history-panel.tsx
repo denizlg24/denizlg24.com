@@ -8,6 +8,16 @@ import type {
   LatexProjectHistorySummary,
   RestoreLatexProjectHistoryResponse,
 } from "@repo/schemas";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import { ScrollArea } from "@repo/ui/scroll-area";
 import { cn } from "@repo/ui/utils";
@@ -86,6 +96,7 @@ export function LatexHistoryPanel({
   const [loading, setLoading] = useState(true);
   const [loadingDiff, setLoadingDiff] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [pendingRestoreId, setPendingRestoreId] = useState<string | null>(null);
   const observedUpdatedAt = useRef(record.updatedAt);
 
   const loadHistory = useCallback(async () => {
@@ -171,13 +182,6 @@ export function LatexHistoryPanel({
 
   const restore = useCallback(
     async (snapshotId: string) => {
-      if (
-        !window.confirm(
-          "Restore this version? The current source is saved to history first.",
-        )
-      ) {
-        return;
-      }
       setRestoring(true);
       try {
         const prepared = await onPrepareRestore();
@@ -195,6 +199,7 @@ export function LatexHistoryPanel({
         );
       } finally {
         setRestoring(false);
+        setPendingRestoreId(null);
       }
     },
     [client, loadHistory, onPrepareRestore, onRestore, record._id],
@@ -208,11 +213,11 @@ export function LatexHistoryPanel({
     }
     onPreview({
       ...diffData,
-      restore: () => void restore(diffData.snapshotId),
+      restore: () => setPendingRestoreId(diffData.snapshotId),
       restoring,
       close: () => setSelectedId(null),
     });
-  }, [diffData, onPreview, restore, restoring]);
+  }, [diffData, onPreview, restoring]);
 
   useEffect(() => () => onPreview?.(null), [onPreview]);
 
@@ -305,6 +310,34 @@ export function LatexHistoryPanel({
           </div>
         ) : null}
       </ScrollArea>
+
+      <AlertDialog
+        open={pendingRestoreId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRestoreId(null);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore this version?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The current source is saved to history first.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoring}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={restoring}
+              onClick={(event) => {
+                event.preventDefault();
+                if (pendingRestoreId) void restore(pendingRestoreId);
+              }}
+            >
+              {restoring ? "Restoring…" : "Restore"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
