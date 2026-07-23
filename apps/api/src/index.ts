@@ -32,5 +32,8 @@ app.all("*", async (context) => {
   return (await runtimeApp).fetch(context.req.raw);
 });
 
-export default app;
+// Bun's default 10-second idle timeout aborts slow or paused large downloads.
+// Object.assign preserves Hono's request helper for tests while exposing the
+// Bun.serve option on the default export.
+export default Object.assign(app, { idleTimeout: 0 as const });
 export { createCloudApiApp } from "./app";

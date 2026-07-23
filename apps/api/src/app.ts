@@ -8,6 +8,9 @@ import {
   type RateLimitStore,
   rateLimit,
   requireRole,
+  type S3ApiConfig,
+  type StorageService,
+  s3Routes,
   toSafeUser,
   auth as unifiedAuth,
   users,
@@ -30,6 +33,7 @@ import {
   SignupCompletionError,
   serializeSafeUser,
 } from "./auth/users";
+import { storageRoutes, storageSearchRoutes } from "./storage/routes";
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_REQUESTS = 10;
@@ -48,6 +52,10 @@ export interface CloudApiOptions {
   isProduction: boolean;
   rateLimitStore: RateLimitStore;
   trustedOrigins: readonly string[];
+  storage?: {
+    service: StorageService;
+    s3: S3ApiConfig;
+  };
 }
 
 function clientIp(
@@ -132,9 +140,33 @@ export function createCloudApiApp(options: CloudApiOptions) {
   app.use(
     "/api/*",
     cors({
-      allowHeaders: ["Content-Type", "Authorization", "X-API-Key"],
-      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowHeaders: [
+        "Content-Type",
+        "Authorization",
+        "X-API-Key",
+        "Tus-Resumable",
+        "Upload-Length",
+        "Upload-Metadata",
+        "Upload-Offset",
+      ],
+      allowMethods: [
+        "GET",
+        "HEAD",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+      ],
       credentials: true,
+      exposeHeaders: [
+        "Location",
+        "Tus-Resumable",
+        "Tus-Version",
+        "Tus-Extension",
+        "Upload-Length",
+        "Upload-Offset",
+      ],
       maxAge: 600,
       origin: (origin) => (trustedOrigins.has(origin) ? origin : undefined),
     }),
@@ -386,6 +418,23 @@ export function createCloudApiApp(options: CloudApiOptions) {
   app.get("/api/me", authenticate, (context) =>
     context.json({ data: serializeSafeUser(context.get("user")) }),
   );
+
+  if (options.storage) {
+    app.use("/api/storage/*", async (context, next) => {
+      if (
+        context.req.method === "OPTIONS" ||
+        context.req.path.startsWith("/api/storage/share/")
+      ) {
+        return next();
+      }
+      return authenticate(context, next);
+    });
+    app.use("/api/search", authenticate);
+    app.use("/api/search/*", authenticate);
+    app.route("/api/storage", storageRoutes(options.storage.service));
+    app.route("/api/search", storageSearchRoutes(options.storage.service));
+    app.route("/v2", s3Routes(options.storage.s3));
+  }
 
   app.on(["GET", "POST"], "/api/auth/*", (context) =>
     options.auth.handler(context.req.raw),
