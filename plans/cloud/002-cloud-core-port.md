@@ -119,4 +119,17 @@ decision.
 
 ## Drift log
 
-(record deviations here)
+- **2026-07-23 — no API wire-contract changes.** The old fresh-install
+  `scripts/infra/postgres-schema.sql` already included the effects of
+  migrations 0001–0003, so it could not be used as the pre-migration base.
+  The parity audit reconstructed the schema from `8e7862c^`, applied all old
+  migrations 0001–0007, and then produced an exact `drizzle-kit push` no-diff.
+- Existing constraints created by raw old SQL use PostgreSQL-default names
+  (`*_fkey`, `*_key`). The new Drizzle schema names these explicitly, including
+  `UNIQUE(project_id, name)`, which existed in migration 0003 but was missing
+  from the old TypeScript schema.
+- The `meilisearch` JavaScript SDK (`0.60.0`) renamed its client class to
+  `Meilisearch`. `@repo/cloud-core` exports it as `MeiliSearch` to preserve the
+  old package import contract. Password/TOTP/recovery/JWT/session resolution
+  remains deferred to plan 003; scoped API-key services and scope propagation
+  are present here.
