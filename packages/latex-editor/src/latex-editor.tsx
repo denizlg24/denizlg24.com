@@ -32,7 +32,6 @@ import {
   CircleAlert,
   CircleCheck,
   CloudUpload,
-  Code2,
   File,
   FileCode2,
   FileImage,
@@ -146,9 +145,9 @@ function PendingEntryInput({
       }}
     >
       {entry.kind === "folder" ? (
-        <Folder className="size-3.5 shrink-0 text-amber-600" />
+        <Folder className="size-4 shrink-0 text-amber-600" />
       ) : (
-        <FileCode2 className="size-3.5 shrink-0" />
+        <FileCode2 className="size-4 shrink-0" />
       )}
       <Input
         autoFocus
@@ -246,6 +245,9 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
       onSave,
       onPublish,
       canPublish = false,
+      headerLeading,
+      headerTrailing,
+      overlay,
       preview,
       rightDock,
       rightDockTitle,
@@ -737,10 +739,11 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
           onChange={handleImportedFiles}
         />
 
-        <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-muted/30 px-2">
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/30 px-2">
+          {headerLeading}
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon-sm"
             aria-label={
               sidebarCollapsed ? "Show file explorer" : "Hide file explorer"
             }
@@ -749,17 +752,13 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
             {sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
           </Button>
           <div className="flex min-w-0 items-center gap-2 px-1">
-            <div className="flex size-6 items-center justify-center rounded bg-foreground text-background">
-              <Code2 className="size-3.5" />
-            </div>
+            <FileCode2 className="size-4 shrink-0 text-muted-foreground" />
             <span className="truncate text-sm font-semibold tracking-tight">
               {project.name}
             </span>
-            <span className="rounded border bg-background px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
-              TeX
-            </span>
           </div>
           <div className="ml-auto flex items-center gap-1">
+            {headerTrailing}
             {(rightDock || preview) && (
               <Sheet>
                 <SheetTrigger asChild>
@@ -788,7 +787,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-7 gap-1.5 px-2.5 text-xs"
+                className="h-8 gap-1.5 px-2.5 text-xs"
                 disabled={disabled || saving}
                 onClick={() => void save()}
               >
@@ -799,7 +798,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
             <Button
               size="sm"
               variant="secondary"
-              className="h-7 gap-1.5 px-3 text-xs"
+              className="h-8 gap-1.5 px-3 text-xs"
               disabled={disabled || compiling || !project.mainFile}
               onClick={() => void compile()}
             >
@@ -809,7 +808,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
             {onPublish && (
               <Button
                 size="sm"
-                className="h-7 gap-1.5 px-3 text-xs"
+                className="h-8 gap-1.5 px-3 text-xs"
                 disabled={disabled || publishing || !canPublish}
                 onClick={() => void publish()}
               >
@@ -942,20 +941,20 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
                             }}
                           >
                             {isExpanded ? (
-                              <ChevronDown className="size-3" />
+                              <ChevronDown className="size-3.5" />
                             ) : (
-                              <ChevronRight className="size-3" />
+                              <ChevronRight className="size-3.5" />
                             )}
                           </button>
                         ) : (
                           <span className="size-4 shrink-0" />
                         )}
                         {entry.kind === "folder" && isExpanded ? (
-                          <FolderOpen className="size-3.5 shrink-0 text-amber-600" />
+                          <FolderOpen className="size-4 shrink-0 text-amber-600" />
                         ) : (
                           <Icon
                             className={cn(
-                              "size-3.5 shrink-0",
+                              "size-4 shrink-0",
                               entry.kind === "folder" && "text-amber-600",
                             )}
                           />
@@ -982,7 +981,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
                           </span>
                         )}
                         {project.mainFile === entry.path && (
-                          <Star className="size-3 fill-current text-amber-500" />
+                          <Star className="size-3.5 fill-current text-amber-500" />
                         )}
                         <div className="hidden items-center group-hover:flex">
                           {entry.kind === "file" &&
@@ -1038,80 +1037,89 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
           <ResizableHandle />
 
           <ResizablePanel defaultSize="47%" minSize="25%">
-            <div className="flex h-full min-w-0 flex-col bg-card text-foreground">
-              <div
-                ref={tabListRef}
-                className="flex h-9 shrink-0 items-end overflow-x-auto border-b bg-muted/40 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                onWheel={(event) => {
-                  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-                  event.currentTarget.scrollLeft += event.deltaY;
-                  event.preventDefault();
-                }}
-              >
-                {openFiles.map((file) => (
-                  <button
-                    key={file.id}
-                    type="button"
-                    data-active={activeFileId === file.id}
-                    className={cn(
-                      "group flex h-9 max-w-48 shrink-0 items-center gap-1.5 border-r px-2.5 text-[11px]",
-                      activeFileId === file.id
-                        ? "border-t-2 border-t-primary bg-card text-foreground"
-                        : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-                    )}
-                    onClick={() => openFile(file)}
-                  >
-                    <FileCode2 className="size-3" />
-                    <span className="truncate">{basename(file.path)}</span>
-                    <X
-                      className="size-3 opacity-0 group-hover:opacity-100"
-                      onClick={(event) => closeTab(event, file.id)}
-                    />
-                  </button>
-                ))}
+            {overlay ? (
+              <div className="flex h-full min-w-0 flex-col bg-card text-foreground">
+                {overlay}
               </div>
-              <div className="min-h-0 flex-1">
-                {activeFile?.encoding === "utf8" ? (
-                  <CodeMirror
-                    key={activeFile.id}
-                    value={activeFile.content}
-                    height="100%"
-                    className="h-full [&_.cm-editor]:h-full [&_.cm-scroller]:font-mono"
-                    theme="none"
-                    extensions={editorExtensions}
-                    basicSetup={{
-                      autocompletion: true,
-                      bracketMatching: true,
-                      closeBrackets: true,
-                      foldGutter: true,
-                      highlightActiveLine: true,
-                      highlightSelectionMatches: true,
-                      lineNumbers: true,
-                    }}
-                    editable={!disabled}
-                    onCreateEditor={(view) => {
-                      editorViewRef.current = view;
-                      emitEditorState(view);
-                    }}
-                    onUpdate={(update: ViewUpdate) => {
-                      editorViewRef.current = update.view;
-                      if (update.docChanged || update.selectionSet) {
-                        emitEditorState(update.view);
+            ) : (
+              <div className="flex h-full min-w-0 flex-col bg-card text-foreground">
+                <div
+                  ref={tabListRef}
+                  className="flex h-10 shrink-0 items-end overflow-x-auto border-b bg-muted/40 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  onWheel={(event) => {
+                    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX))
+                      return;
+                    event.currentTarget.scrollLeft += event.deltaY;
+                    event.preventDefault();
+                  }}
+                >
+                  {openFiles.map((file) => (
+                    <button
+                      key={file.id}
+                      type="button"
+                      data-active={activeFileId === file.id}
+                      className={cn(
+                        "group flex h-10 max-w-52 shrink-0 items-center gap-1.5 border-r px-3 text-xs",
+                        activeFileId === file.id
+                          ? "border-t-2 border-t-primary bg-card text-foreground"
+                          : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+                      )}
+                      onClick={() => openFile(file)}
+                    >
+                      <FileCode2 className="size-3.5" />
+                      <span className="truncate">{basename(file.path)}</span>
+                      <X
+                        className="size-3.5 opacity-0 group-hover:opacity-100"
+                        onClick={(event) => closeTab(event, file.id)}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <div className="min-h-0 flex-1">
+                  {activeFile?.encoding === "utf8" ? (
+                    <CodeMirror
+                      key={activeFile.id}
+                      value={activeFile.content}
+                      height="100%"
+                      className="h-full [&_.cm-editor]:h-full [&_.cm-scroller]:font-mono"
+                      theme="none"
+                      extensions={editorExtensions}
+                      basicSetup={{
+                        autocompletion: true,
+                        bracketMatching: true,
+                        closeBrackets: true,
+                        foldGutter: true,
+                        highlightActiveLine: true,
+                        highlightSelectionMatches: true,
+                        lineNumbers: true,
+                      }}
+                      editable={!disabled}
+                      onCreateEditor={(view) => {
+                        editorViewRef.current = view;
+                        emitEditorState(view);
+                      }}
+                      onUpdate={(update: ViewUpdate) => {
+                        editorViewRef.current = update.view;
+                        if (update.docChanged || update.selectionSet) {
+                          emitEditorState(update.view);
+                        }
+                      }}
+                      onChange={(content) =>
+                        onChange(
+                          updateFileContent(project, activeFile.id, content),
+                        )
                       }
-                    }}
-                    onChange={(content) =>
-                      onChange(
-                        updateFileContent(project, activeFile.id, content),
-                      )
-                    }
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                    {activeFile ? `${basename(activeFile.path)} · binary` : "—"}
-                  </div>
-                )}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                      {activeFile
+                        ? `${basename(activeFile.path)} · binary`
+                        : "—"}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </ResizablePanel>
 
           <ResizableHandle withHandle className="hidden md:flex" />
@@ -1144,23 +1152,23 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
         <div className="shrink-0 border-t bg-muted/40 text-muted-foreground">
           <button
             type="button"
-            className="flex h-7 w-full items-center gap-2 px-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+            className="flex h-8 w-full items-center gap-2 px-3 text-[11px] uppercase tracking-[0.12em] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
             onClick={() => setConsoleOpen((current) => !current)}
           >
             {consoleOpen ? (
-              <PanelBottomClose className="size-3" />
+              <PanelBottomClose className="size-3.5" />
             ) : (
-              <PanelBottomOpen className="size-3" />
+              <PanelBottomOpen className="size-3.5" />
             )}
             {bottomDockLabel ?? "Output"}
             <span className="ml-auto flex items-center gap-1 normal-case tracking-normal">
               {compileError ? (
                 <>
-                  <CircleAlert className="size-3 text-destructive" /> failed
+                  <CircleAlert className="size-3.5 text-destructive" /> failed
                 </>
               ) : compileLog ? (
                 <>
-                  <CircleCheck className="size-3 text-primary" /> compiled
+                  <CircleCheck className="size-3.5 text-primary" /> compiled
                 </>
               ) : null}
               {consoleOpen && bottomDock ? (

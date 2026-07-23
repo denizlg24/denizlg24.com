@@ -76,6 +76,12 @@ export interface LatexEditorProps {
   onSave?: (project: LatexProject) => Promise<void>;
   onPublish?: () => Promise<void>;
   canPublish?: boolean;
+  /** Rendered at the far left of the editor header, before the project name. */
+  headerLeading?: ReactNode;
+  /** Rendered in the editor header between the name and the actions. */
+  headerTrailing?: ReactNode;
+  /** When set, replaces the code pane (tabs + editor) — used for diff review. */
+  overlay?: ReactNode;
   preview?: ReactNode;
   rightDock?: ReactNode;
   rightDockTitle?: ReactNode;
