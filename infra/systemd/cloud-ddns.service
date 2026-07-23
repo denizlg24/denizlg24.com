@@ -1,0 +1,13 @@
+[Unit]
+Description=Update deniz-cloud public database DNS records
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/deniz-cloud/ddns-update.sh
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/deniz-cloud

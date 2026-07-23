@@ -135,4 +135,17 @@ slower, allowed — record it).
 
 ## Drift log
 
-(record deviations here)
+- **2026-07-23 (partial, awaiting dependency/operator gates):** Redis 7 does
+  not emit failed `AUTH` attempts to its container log, so the Redis fail2ban
+  jail is fed by a 16 MiB, socket-less `redis-acl-audit` sidecar that reads and
+  clears `ACL LOG`; live verification confirmed the emitted remote-address
+  event. Optional Redis TLS is exposed on 6381 alongside unchanged plaintext
+  6380. Adminer and mongo-express are loopback-only and opt-in through the
+  `tools` compose profile.
+- **2026-07-23 (remaining):** Tailscale §1 passed. Plan finalization remains
+  gated on plans 004–006 for the endpoint-complete Pi staging rehearsal,
+  scripted mixed-protocol load pass, measured memory table, and final
+  socket-proxy/reboot environment contract; plan 007 for terminal compilation,
+  artifact deployment, and final unit verification; plus the first native
+  ARM64 GHCR workflow run and operator application/verification of §5
+  network/TLS and §6 Vercel projects. No production stack or DNS was changed.

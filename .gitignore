@@ -43,7 +43,11 @@ yarn-error.log*
 !.env.example
 # cloud dev infra (commit the example, ignore the real dev env)
 !infra/compose/.env.dev.example
+!infra/compose/.env.pi.example
+!infra/compose/.env.staging.example
 infra/compose/.env.dev
+infra/compose/.env.pi
+infra/compose/.env.staging
 # not part of this monorepo
 bookmark-extension/
 deniz-nutrition-api/
@@ -63,4 +67,3 @@ apps/desktop/src-tauri/target/
 
 # Envoy - Config
 !.envoy/config.toml
-

@@ -1,0 +1,7 @@
+[Unit]
+Description=Reboot the deniz-cloud host after an authenticated API request
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/rm -f /var/lib/deniz-cloud/reboot-requested
+ExecStart=/usr/bin/systemctl reboot

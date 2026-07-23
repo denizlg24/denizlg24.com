@@ -9,7 +9,10 @@ app.get("/", (c) => {
 });
 
 app.get("/healthz", (c) => {
-  return c.json({ status: "ok", version: pkg.version });
+  return c.json({
+    status: "ok",
+    version: process.env.APP_VERSION ?? pkg.version,
+  });
 });
 
 export default app;
