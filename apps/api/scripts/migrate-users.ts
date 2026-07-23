@@ -19,9 +19,10 @@ import {
 import { symmetricEncrypt } from "better-auth/crypto";
 import { and, eq, sql } from "drizzle-orm";
 
+import { signupTokenHash, signupTokenIdentifier } from "../src/auth/users";
+
 const MIGRATION_MARKER_ID = "cloud-migration:003-users";
 const MIGRATION_MARKER_IDENTIFIER = "cloud-migration:003";
-const SIGNUP_TOKEN_PREFIX = "cloud-signup:";
 const SIGNUP_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const REPORT_FORMAT_VERSION = 1;
 
@@ -86,10 +87,6 @@ export interface RunUserMigrationOptions {
 
 function placeholderEmail(user: User): string {
   return user.email ?? `${user.id}@missing-email.invalid`;
-}
-
-function signupTokenIdentifier(username: string): string {
-  return `${SIGNUP_TOKEN_PREFIX}${username.trim().toLowerCase()}`;
 }
 
 async function loadLegacyUsers(db: Database): Promise<LegacyUserRecord[]> {
@@ -285,14 +282,13 @@ async function applyUserMigration(
       await tx.delete(authTwoFactor).where(eq(authTwoFactor.userId, user.id));
 
       if (planned.signupToken) {
+        const signupTokenDigest = signupTokenHash(planned.signupToken);
         await tx
           .insert(authVerification)
           .values({
             id: `signup:${user.id}`,
             identifier: signupTokenIdentifier(user.username),
-            value: new Bun.CryptoHasher("sha256")
-              .update(planned.signupToken)
-              .digest("hex"),
+            value: signupTokenDigest,
             expiresAt: new Date(now.getTime() + SIGNUP_TOKEN_TTL_MS),
             createdAt: now,
             updatedAt: now,
@@ -300,9 +296,7 @@ async function applyUserMigration(
           .onConflictDoUpdate({
             target: authVerification.id,
             set: {
-              value: new Bun.CryptoHasher("sha256")
-                .update(planned.signupToken)
-                .digest("hex"),
+              value: signupTokenDigest,
               expiresAt: new Date(now.getTime() + SIGNUP_TOKEN_TTL_MS),
               updatedAt: now,
             },

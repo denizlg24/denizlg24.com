@@ -18,7 +18,17 @@ app.get("/healthz", (c) => {
 });
 
 app.all("*", async (context) => {
-  runtimeApp ??= createRuntimeApp();
+  if (!runtimeApp) {
+    const pending = createRuntimeApp();
+    runtimeApp = pending;
+    // Drop a rejected init from the cache so the next request can retry
+    // instead of replaying the same cold-start failure forever.
+    pending.catch(() => {
+      if (runtimeApp === pending) {
+        runtimeApp = undefined;
+      }
+    });
+  }
   return (await runtimeApp).fetch(context.req.raw);
 });
 

@@ -306,7 +306,9 @@ export function createCloudApiApp(options: CloudApiOptions) {
       typeof body.userId !== "string"
     ) {
       return context.json(
-        { code: "INVALID_USER_ID", message: "A user id is required" },
+        {
+          error: { code: "INVALID_USER_ID", message: "A user id is required" },
+        },
         400,
       );
     }
@@ -316,7 +318,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
     } catch (error) {
       if (error instanceof CloudCoreError) {
         return context.json(
-          { code: error.code, message: error.message },
+          { error: { code: error.code, message: error.message } },
           error.status,
         );
       }
@@ -335,7 +337,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
       body.newPassword.length > 128
     ) {
       return context.json(
-        { code: "INVALID_PASSWORD", message: "Invalid password" },
+        { error: { code: "INVALID_PASSWORD", message: "Invalid password" } },
         400,
       );
     }
@@ -363,11 +365,11 @@ export function createCloudApiApp(options: CloudApiOptions) {
     });
     if (!updated) {
       return context.json(
-        { code: "USER_NOT_FOUND", message: "User not found" },
+        { error: { code: "USER_NOT_FOUND", message: "User not found" } },
         404,
       );
     }
-    return context.json({ status: true });
+    return context.json({ success: true });
   });
   app.post("/api/auth/two-factor/disable", (context) =>
     context.json(

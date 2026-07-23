@@ -35,11 +35,11 @@ function normalizedUsername(username: string): string {
   return username.trim().toLowerCase();
 }
 
-function signupTokenHash(token: string): string {
+export function signupTokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-function signupTokenIdentifier(username: string): string {
+export function signupTokenIdentifier(username: string): string {
   return `${SIGNUP_TOKEN_PREFIX}${normalizedUsername(username)}`;
 }
 
@@ -130,7 +130,14 @@ export async function createPendingAuthUser(
     };
   } catch (error) {
     if (authUserId) {
-      await db.delete(authUser).where(eq(authUser.id, authUserId));
+      try {
+        await db.delete(authUser).where(eq(authUser.id, authUserId));
+      } catch (cleanupError) {
+        console.error(
+          "Failed to remove partially created auth user",
+          cleanupError,
+        );
+      }
     }
     throw error;
   }
@@ -234,16 +241,28 @@ export async function completePendingSignup(
     return activatedCredentialsUser;
   });
 
-  const signIn = await auth.api.signInUsername({
-    body: {
-      password: input.password,
-      username,
-    },
-    returnHeaders: true,
-  });
+  // The activation transaction is committed; a sign-in failure past this
+  // point must not surface as a signup failure or a retry would strand the
+  // already-active account behind the pending-status check.
+  let responseHeaders = new Headers();
+  try {
+    const signIn = await auth.api.signInUsername({
+      body: {
+        password: input.password,
+        username,
+      },
+      returnHeaders: true,
+    });
+    responseHeaders = signIn.headers;
+  } catch (error) {
+    console.error(
+      "Automatic sign-in after signup completion failed; account is active",
+      error,
+    );
+  }
 
   return {
-    responseHeaders: signIn.headers,
+    responseHeaders,
     result: {
       requiresTotpEnrollment: true,
       user: serializeSafeUser(toSafeUser(updatedUser)),

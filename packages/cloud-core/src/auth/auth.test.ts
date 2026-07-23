@@ -40,4 +40,41 @@ describe("legacy auth compatibility", () => {
       ),
     ).toBe("JBSWY3DPEHPK3PXP");
   });
+
+  it("rejects wrong keys and tampered ciphertext or auth tags", () => {
+    const encrypted = encryptLegacyTotpSecret(
+      "JBSWY3DPEHPK3PXP",
+      "legacy-encryption-key",
+    );
+    const flipFirstByte = (value: string): string => {
+      const bytes = Buffer.from(value, "base64");
+      bytes[0] = (bytes[0] ?? 0) ^ 0xff;
+      return bytes.toString("base64");
+    };
+
+    expect(() =>
+      decryptLegacyTotpSecret(
+        encrypted.encrypted,
+        encrypted.iv,
+        encrypted.authTag,
+        "wrong-encryption-key",
+      ),
+    ).toThrow();
+    expect(() =>
+      decryptLegacyTotpSecret(
+        flipFirstByte(encrypted.encrypted),
+        encrypted.iv,
+        encrypted.authTag,
+        "legacy-encryption-key",
+      ),
+    ).toThrow();
+    expect(() =>
+      decryptLegacyTotpSecret(
+        encrypted.encrypted,
+        encrypted.iv,
+        flipFirstByte(encrypted.authTag),
+        "legacy-encryption-key",
+      ),
+    ).toThrow();
+  });
 });

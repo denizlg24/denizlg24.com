@@ -14,7 +14,9 @@ import {
   users,
 } from "@repo/cloud-core";
 import { symmetricDecrypt } from "better-auth/crypto";
+import { eq } from "drizzle-orm";
 
+import { signupTokenIdentifier } from "../src/auth/users";
 import {
   type LegacyUserRecord,
   planUserMigration,
@@ -201,6 +203,18 @@ integrationTest(
     expect(report).toContain('"requiresTotpEnrollment":true');
     expect(report).not.toContain("freshBackupCodes");
     expect(report).toContain('"signupCompletionToken":');
+
+    const pendingRecord = records[1];
+    if (!pendingRecord) {
+      throw new Error("Missing pending user fixture");
+    }
+    const [signupVerification] = await db
+      .select()
+      .from(authVerification)
+      .where(eq(authVerification.id, `signup:${pendingRecord.user.id}`));
+    expect(signupVerification?.identifier).toBe(
+      signupTokenIdentifier(pendingRecord.user.username),
+    );
 
     const repeated = await runUserMigration({
       db,
