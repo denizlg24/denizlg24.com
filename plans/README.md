@@ -53,6 +53,18 @@ These are settled — executors and future advisors do not re-litigate:
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (reason) | REJECTED (rationale)
 
+## Cloud rewrite program (2026-07-23)
+
+The rewrite of the `deniz-cloud` home-server platform (Pi 5) into this
+monorepo lives in **`plans/cloud/`** with its own runbook
+(`plans/cloud/000-execution-runbook.md`), status table
+(`plans/cloud/README.md`), and per-agent assignments (gpt5.6 / fable 5 /
+opus 4.8). Deadline: production cutover by **2026-08-15**. It adds
+`apps/api`, `apps/cloud`, `apps/storage`, `apps/terminal`,
+`packages/cloud-core`, `packages/cloud-ui`, `infra/`, and a temporary
+read-only submodule at `vendor/deniz-cloud`. Do not start cloud plans from
+this table — use the cloud runbook.
+
 > **2026-06-17 reconcile pass** (`improve` re-audit @ `bbaedfe`): plans 001–007
 > all verified DONE. Promoted backlog items BUG-04→008, DEBT-02→009, SEC-04→010,
 > TEST-02/03→011 (their blockers, 005/007, are now complete). All four are
