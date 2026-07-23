@@ -297,7 +297,9 @@ describe("createAgenticSSEStream", () => {
     expect(clientExecuteMock).not.toHaveBeenCalled();
     expect(events.some((event) => event.type === "paused")).toBe(false);
     const resultTurn = transport.calls[1]?.messages.at(-1);
-    const result = (resultTurn?.content as Anthropic.ToolResultBlockParam[])[0];
+    const result = (
+      resultTurn?.content as Anthropic.ToolResultBlockParam[] | undefined
+    )?.[0];
     expect(result?.is_error).toBe(true);
     expect(result?.content).toContain("unavailable during unattended");
   });
@@ -325,9 +327,9 @@ describe("createAgenticSSEStream", () => {
     expect(readExecuteMock).toHaveBeenCalledTimes(2);
     const resultTurn = transport.calls[1]?.messages.at(-1);
     expect(resultTurn?.role).toBe("user");
-    const ids = (resultTurn?.content as Anthropic.ToolResultBlockParam[]).map(
-      (b) => b.tool_use_id,
-    );
+    const ids = (
+      resultTurn?.content as Anthropic.ToolResultBlockParam[] | undefined
+    )?.map((b) => b.tool_use_id);
     expect(ids).toEqual(["tu_a", "tu_b"]);
     expect(events.at(-1)?.type).toBe("done");
   });
@@ -426,7 +428,9 @@ describe("createAgenticSSEStream", () => {
     expect(toolResult?.isError).toBe(true);
     expect(toolResult?.result).toBe("User denied this action.");
     const resultTurn = transport.calls[0]?.messages.at(-1);
-    const block = (resultTurn?.content as Anthropic.ToolResultBlockParam[])[0];
+    const block = (
+      resultTurn?.content as Anthropic.ToolResultBlockParam[] | undefined
+    )?.[0];
     expect(block?.is_error).toBe(true);
   });
 
@@ -547,9 +551,9 @@ describe("createAgenticSSEStream", () => {
     expect(writeExecuteMock).toHaveBeenCalledTimes(1);
     const resultTurn = resumeTransport.calls[0]?.messages.at(-1);
     expect(resultTurn?.role).toBe("user");
-    const ids = (resultTurn?.content as Anthropic.ToolResultBlockParam[]).map(
-      (b) => b.tool_use_id,
-    );
+    const ids = (
+      resultTurn?.content as Anthropic.ToolResultBlockParam[] | undefined
+    )?.map((b) => b.tool_use_id);
     expect(ids).toEqual(["tu_r", "tu_w", "tu_c"]);
     expect(resumeEvents.at(-1)?.type).toBe("done");
   });
