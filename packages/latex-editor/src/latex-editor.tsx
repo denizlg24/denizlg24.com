@@ -205,19 +205,28 @@ function assetDataUri(file: LatexFileEntry): string | null {
 
 const MAX_DECODED_TEXT_CHARS = 500_000;
 
-function decodedBinaryText(content: string): string | null {
+function decodedBinaryText(
+  content: string,
+  limit = MAX_DECODED_TEXT_CHARS,
+): string | null {
   try {
     const binary = atob(content);
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
     return new TextDecoder("utf-8", { fatal: false })
       .decode(bytes)
-      .slice(0, MAX_DECODED_TEXT_CHARS);
+      .slice(0, limit);
   } catch {
     return null;
   }
 }
 
-function AssetPreview({ file }: { file: LatexFileEntry }) {
+function AssetPreview({
+  file,
+  onConvertToText,
+}: {
+  file: LatexFileEntry;
+  onConvertToText?: () => void;
+}) {
   const uri = assetDataUri(file);
   const name = basename(file.path);
   if (!uri) {
@@ -235,8 +244,19 @@ function AssetPreview({ file }: { file: LatexFileEntry }) {
         <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5">
           {text}
         </pre>
-        <div className="flex h-8 shrink-0 items-center border-t px-3 font-mono text-[11px] text-muted-foreground">
+        <div className="flex h-8 shrink-0 items-center gap-2 border-t px-3 font-mono text-[11px] text-muted-foreground">
           {file.path} · read-only
+          {onConvertToText ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              className="ml-auto font-sans"
+              onClick={onConvertToText}
+            >
+              Make editable
+            </Button>
+          ) : null}
         </div>
       </div>
     );
@@ -1206,7 +1226,32 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
                     />
                   ) : activeFile ? (
                     (renderAsset?.(activeFile) ?? (
-                      <AssetPreview file={activeFile} />
+                      <AssetPreview
+                        file={activeFile}
+                        onConvertToText={
+                          isTextFile(activeFile.path) && !disabled
+                            ? () => {
+                                const text = decodedBinaryText(
+                                  activeFile.content,
+                                  Number.POSITIVE_INFINITY,
+                                );
+                                if (text === null) return;
+                                onChange({
+                                  ...project,
+                                  entries: project.entries.map((entry) =>
+                                    entry.id === activeFile.id
+                                      ? {
+                                          ...entry,
+                                          encoding: "utf8" as const,
+                                          content: text,
+                                        }
+                                      : entry,
+                                  ),
+                                });
+                              }
+                            : undefined
+                        }
+                      />
                     ))
                   ) : (
                     <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
