@@ -1,0 +1,12 @@
+{
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "types": ["bun"],
+    "resolveJsonModule": true,
+    "outDir": "dist"
+  },
+  "include": ["src", "package.json"],
+  "exclude": ["node_modules", "dist"]
+}

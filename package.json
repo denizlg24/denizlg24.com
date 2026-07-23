@@ -5,6 +5,8 @@
     "agent-memory:migrate": "cd apps/web && bun --env-file=../../.env scripts/migrate-agent-memory.ts",
     "papers:migrate": "cd apps/web && bun --env-file=../../.env scripts/migrate-papers-from-notes.ts",
     "build": "bun --env-file=.env turbo run build",
+    "cloud:dev:infra": "docker compose --env-file infra/compose/.env.dev -f infra/compose/docker-compose.dev.yml up -d",
+    "cloud:dev:infra:down": "docker compose --env-file infra/compose/.env.dev -f infra/compose/docker-compose.dev.yml down",
     "dev": "bun --env-file=.env turbo run dev",
     "lint": "bun --env-file=.env turbo run lint",
     "check-types": "bun --env-file=.env turbo run typecheck",

@@ -67,7 +67,13 @@
         "NEXT_PUBLIC_GATEWAY_URL",
         "NEXT_PUBLIC_SITE_URL"
       ],
-      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "out/**"]
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "!.next/dev/**",
+        "out/**",
+        "dist/**"
+      ]
     },
     "lint": {
       "dependsOn": ["^lint"]

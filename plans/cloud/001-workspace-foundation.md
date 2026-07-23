@@ -123,4 +123,35 @@ repo's init approach.
 
 ## Drift log
 
-(record deviations here)
+Executed 2026-07-23 (opus 4.8). All verification commands pass. Deviations:
+
+1. **Next-app tsconfig**: `apps/cloud` and `apps/storage` keep the standalone
+   `create-next-app` tsconfig, mirroring `apps/web` (which does not extend
+   `@repo/typescript-config`). The plan's "wire in `@repo/typescript-config`" is
+   reconciled to the existing app's actual pattern. `@repo/ui` is wired as a
+   workspace dependency + `transpilePackages: ["@repo/ui"]` + a rendered `Button`
+   on each placeholder page (proves the transpile path). `globals.css` gains
+   `@source "../../../packages/ui/src"`.
+2. **`cloud:dev:infra` script** uses `docker compose --env-file infra/compose/.env.dev
+   -f infra/compose/docker-compose.dev.yml up -d` — the plan text omitted
+   `--env-file`, but the named `.env.dev` (not `.env`) is not auto-loaded without
+   it. Added a companion `cloud:dev:infra:down` script.
+3. **Mongo dev harness** diverges from the old repo's host-bind-mounted keyfile:
+   the keyfile is generated **inside the container** (`openssl rand`, chmod 400,
+   chown 999) and data uses **named volumes**, to avoid Windows/macOS bind-mount
+   permission failures. Single-node replica set `rs0` with root auth;
+   `mongo-init` one-shot runs `rs.initiate`. Host clients must connect with
+   `directConnection=true` (member host `mongodb:27017` only resolves inside the
+   compose network). `mongot`/Meilisearch-sync and per-project Redis ACLs from the
+   old compose are intentionally out of scope here (owned by 004/005/006/011).
+4. **Biome**: `biome.json` `files.includes` gains `!vendor` so Biome ignores the
+   submodule, which ships its own `biome.json` (otherwise a nested-root error).
+5. **turbo.json** `build.outputs` gains `dist/**` so `apps/api`'s `bun build`
+   output is cached.
+6. **No `test` script** on `apps/cloud`/`apps/storage` yet (no tests until
+   008/009; `bun test` exits 1 on zero test files). `@repo/cloud-core` has a smoke
+   test so its `test` script passes.
+7. **CI** (`ci.yml`) unchanged — `apps/api` builds with no env; the new
+   workspaces are covered by the root `bunx turbo build`. No placeholder env
+   needed. (A full local `bunx turbo build` still needs the root `.env` for
+   web/desktop — pre-existing.)
