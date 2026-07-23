@@ -41,6 +41,9 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+# cloud dev infra (commit the example, ignore the real dev env)
+!infra/compose/.env.dev.example
+infra/compose/.env.dev
 # not part of this monorepo
 bookmark-extension/
 deniz-nutrition-api/
