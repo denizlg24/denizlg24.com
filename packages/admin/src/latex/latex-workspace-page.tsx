@@ -291,6 +291,7 @@ export function LatexWorkspacePage({
   const projectRef = useRef<LatexProject | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savePromiseRef = useRef<Promise<ILatexProjectRecord> | null>(null);
+  const localPersistenceRef = useRef<Promise<void>>(Promise.resolve());
   const editorRef = useRef<LatexEditorHandle>(null);
   const [editorState, setEditorState] =
     useState<LatexEditorStateSnapshot | null>(null);
@@ -357,7 +358,11 @@ export function LatexWorkspacePage({
         project: next,
         updatedAt: new Date().toISOString(),
       };
-      void saveLatexDraft(draft).catch(() => undefined);
+      const operation = localPersistenceRef.current
+        .catch(() => undefined)
+        .then(() => saveLatexDraft(draft));
+      localPersistenceRef.current = operation;
+      return operation;
     },
     [projectId],
   );
@@ -382,10 +387,20 @@ export function LatexWorkspacePage({
           baseRevision: currentRecord.revision,
           project: nextProject,
         })
-        .then((response) => {
+        .then(async (response) => {
           applyRecord(response.project);
-          persistLocal(nextProject, response.project.revision);
-          setSaveState("saved");
+          const latestProject = projectRef.current ?? nextProject;
+          await persistLocal(latestProject, response.project.revision).catch(
+            () => undefined,
+          );
+          setSaveState(
+            sameProject(
+              projectRef.current ?? latestProject,
+              response.project.project,
+            )
+              ? "saved"
+              : "local",
+          );
           return response.project;
         })
         .catch((error: unknown) => {
@@ -421,7 +436,9 @@ export function LatexWorkspacePage({
       if (!current) return;
       projectRef.current = next;
       setProject(next);
-      persistLocal(next, current.revision);
+      void persistLocal(next, current.revision).catch(() => {
+        setSaveState("error");
+      });
       if (serverConflict) {
         setSaveState("conflict");
         return;
@@ -488,7 +505,10 @@ export function LatexWorkspacePage({
     applyRecord(response.project);
     projectRef.current = response.project.project;
     setProject(response.project.project);
-    persistLocal(response.project.project, response.project.revision);
+    void persistLocal(
+      response.project.project,
+      response.project.revision,
+    ).catch(() => undefined);
     setSaveState("saved");
     toast.success(`Added ${response.paper.citationKey} to ${bibliographyFile}`);
     return { citationKey: response.paper.citationKey };
@@ -603,7 +623,7 @@ export function LatexWorkspacePage({
       applyRecord(next);
       projectRef.current = next.project;
       setProject(next.project);
-      persistLocal(next.project, next.revision);
+      void persistLocal(next.project, next.revision).catch(() => undefined);
       setSaveState("saved");
     },
     [applyRecord, persistLocal],
@@ -935,7 +955,9 @@ export function LatexWorkspacePage({
                 { baseRevision: saved.revision, project: next },
               );
               applyRecord(response.project);
-              persistLocal(next, response.project.revision);
+              void persistLocal(next, response.project.revision).catch(
+                () => undefined,
+              );
               setSaveState("saved");
               toast.success("Project compiled");
               return { log: response.log };
@@ -946,7 +968,9 @@ export function LatexWorkspacePage({
                 );
                 if (failedProject.success) {
                   applyRecord(failedProject.data);
-                  persistLocal(next, failedProject.data.revision);
+                  void persistLocal(next, failedProject.data.revision).catch(
+                    () => undefined,
+                  );
                 }
                 const log = error.details?.log;
                 if (typeof log === "string" && log.trim()) {

@@ -35,7 +35,7 @@ import {
   SheetTrigger,
 } from "@repo/ui/sheet";
 import { cn } from "@repo/ui/utils";
-import CodeMirror from "@uiw/react-codemirror";
+import CodeMirror, { ExternalChange } from "@uiw/react-codemirror";
 import {
   ChevronDown,
   ChevronRight,
@@ -498,6 +498,14 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
       );
     }, []);
 
+    const commitProject = useCallback(
+      (next: LatexProject) => {
+        projectRef.current = next;
+        onChange(next);
+      },
+      [onChange],
+    );
+
     const emitEditorState = useCallback(
       (view: EditorView | null = editorViewRef.current) => {
         const selection = view?.state.selection.main;
@@ -543,7 +551,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
           try {
             const file = { ...createFileEntry(path), content };
             const next = withParentFolders(projectRef.current, file);
-            onChange(next);
+            commitProject(next);
             openFile(file);
             return true;
           } catch {
@@ -556,7 +564,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
           );
           if (!entry) return false;
           try {
-            onChange(
+            commitProject(
               renameProjectEntry(projectRef.current, entry.id, nextName),
             );
             return true;
@@ -569,7 +577,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
             (candidate) => candidate.path === path,
           );
           if (!entry) return false;
-          onChange(removeProjectEntry(projectRef.current, entry.id));
+          commitProject(removeProjectEntry(projectRef.current, entry.id));
           return true;
         },
         replaceSelection: (content) => {
@@ -590,8 +598,8 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
           expectedFingerprint,
           content,
         }) => {
-          const view = editorViewRef.current;
-          const currentFile = projectRef.current.entries.find(
+          const currentProject = projectRef.current;
+          const currentFile = currentProject.entries.find(
             (entry): entry is LatexFileEntry =>
               entry.kind === "file" && entry.path === filePath,
           );
@@ -605,6 +613,14 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
           ) {
             return false;
           }
+          const nextContent = `${currentFile.content.slice(0, from)}${content}${currentFile.content.slice(to)}`;
+          const nextProject = updateFileContent(
+            currentProject,
+            currentFile.id,
+            nextContent,
+          );
+          const candidateView = editorViewRef.current;
+          const view = candidateView?.dom.isConnected ? candidateView : null;
           if (view && currentFile.id === activeFile?.id) {
             if (
               to > view.state.doc.length ||
@@ -616,22 +632,15 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
             view.dispatch({
               changes: { from, to, insert: content },
               selection: { anchor: from + content.length },
+              annotations: ExternalChange.of(true),
             });
             view.focus();
-          } else {
-            const nextContent = `${currentFile.content.slice(0, from)}${content}${currentFile.content.slice(to)}`;
-            onChange(
-              updateFileContent(
-                projectRef.current,
-                currentFile.id,
-                nextContent,
-              ),
-            );
           }
+          commitProject(nextProject);
           return true;
         },
       }),
-      [activeFile?.id, forwardedRef, onChange, openFile],
+      [activeFile?.id, commitProject, forwardedRef, openFile],
     );
 
     const save = useCallback(async () => {
@@ -1235,8 +1244,12 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
                         }
                       }}
                       onChange={(content) =>
-                        onChange(
-                          updateFileContent(project, activeFile.id, content),
+                        commitProject(
+                          updateFileContent(
+                            projectRef.current,
+                            activeFile.id,
+                            content,
+                          ),
                         )
                       }
                     />

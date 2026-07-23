@@ -52,6 +52,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import { rebaseLatexAgentProposals } from "./latex-agent-proposals";
 import type { LatexAgentReviewState } from "./latex-review-overlay";
 
 const DEFAULT_HOSTED_MODEL = "anthropic/claude-sonnet-4.6";
@@ -1017,7 +1018,11 @@ export function LatexAgentPanel({
   const applyProposal = useCallback(
     (proposal: LatexAgentEditProposal) => {
       const applied = onApplyEdit(proposal);
-      removeProposal(proposal.id);
+      setEditProposals((current) =>
+        applied
+          ? rebaseLatexAgentProposals(current, proposal)
+          : current.filter((candidate) => candidate.id !== proposal.id),
+      );
       markChangeStatus(proposal.id, applied ? "applied" : "failed");
       if (applied) {
         toast.success("Applied agent change to the local draft");
@@ -1027,7 +1032,7 @@ export function LatexAgentPanel({
         );
       }
     },
-    [markChangeStatus, onApplyEdit, removeProposal],
+    [markChangeStatus, onApplyEdit],
   );
 
   const rejectAllProposals = useCallback(() => {
@@ -1038,24 +1043,20 @@ export function LatexAgentPanel({
   }, [editProposals, markChangeStatus]);
 
   const applyAllProposals = useCallback(() => {
-    const ordered = [...editProposals].sort((left, right) => {
-      if (
-        left.kind === "replace" &&
-        right.kind === "replace" &&
-        left.filePath === right.filePath
-      ) {
-        return right.from - left.from;
-      }
-      return 0;
-    });
+    let pending = [...editProposals];
     let appliedCount = 0;
-    for (const proposal of ordered) {
+    while (pending.length > 0) {
+      const proposal = pending[0];
+      if (!proposal) break;
       const applied = onApplyEdit(proposal);
       if (applied) appliedCount += 1;
       markChangeStatus(proposal.id, applied ? "applied" : "failed");
+      pending = applied
+        ? rebaseLatexAgentProposals(pending, proposal)
+        : pending.slice(1);
     }
     setEditProposals([]);
-    if (appliedCount === ordered.length) {
+    if (appliedCount === editProposals.length) {
       toast.success(
         appliedCount === 1
           ? "Applied 1 agent change"
@@ -1063,7 +1064,7 @@ export function LatexAgentPanel({
       );
     } else {
       toast.error(
-        `Applied ${appliedCount} of ${ordered.length} changes. Failed targets are marked in the chat.`,
+        `Applied ${appliedCount} of ${editProposals.length} changes. Failed targets are marked in the chat.`,
       );
     }
   }, [editProposals, markChangeStatus, onApplyEdit]);
