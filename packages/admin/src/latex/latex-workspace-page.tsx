@@ -19,9 +19,20 @@ import {
   latexProjectRecordSchema,
 } from "@repo/schemas";
 import { Alert, AlertDescription, AlertTitle } from "@repo/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import { Skeleton } from "@repo/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { cn } from "@repo/ui/utils";
 import {
   ArrowLeft,
   CloudAlert,
@@ -33,7 +44,6 @@ import {
   Sparkles,
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   type ReactNode,
@@ -73,6 +83,14 @@ const LatexProjectPdfPreview = dynamic(
   () =>
     import("./latex-project-pdf-preview").then(
       (module) => module.LatexProjectPdfPreview,
+    ),
+  { ssr: false },
+);
+
+const LatexAssetPdfPreview = dynamic(
+  () =>
+    import("./latex-project-pdf-preview").then(
+      (module) => module.LatexAssetPdfPreview,
     ),
   { ssr: false },
 );
@@ -663,6 +681,26 @@ export function LatexWorkspacePage({
   const [historyPreview, setHistoryPreview] =
     useState<LatexHistoryPreview | null>(null);
   const [historyPath, setHistoryPath] = useState<string | null>(null);
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+
+  useEffect(() => {
+    if (saveState === "saved") return;
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [saveState]);
+
+  const saveAndLeave = async () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    try {
+      await saveNow();
+      router.push(listHref);
+    } catch {
+      toast.error("Save failed — resolve it before leaving");
+    }
+  };
 
   const handleReviewStateChange = useCallback(
     (state: LatexAgentReviewState | null) => {
@@ -720,7 +758,7 @@ export function LatexWorkspacePage({
 
   const saveLabel = {
     saved: "Cloud saved",
-    local: "Saved locally",
+    local: "Unsaved changes",
     saving: "Saving",
     conflict: "Local conflict",
     error: "Save failed",
@@ -774,20 +812,30 @@ export function LatexWorkspacePage({
             <div className="flex items-center gap-0.5">
               {slots?.sidebarTrigger}
               <Button
-                asChild
                 variant="ghost"
                 size="icon-sm"
                 aria-label="All projects"
+                onClick={() => {
+                  if (saveState === "saved") router.push(listHref);
+                  else setLeaveDialogOpen(true);
+                }}
               >
-                <Link href={listHref}>
-                  <ArrowLeft />
-                </Link>
+                <ArrowLeft />
               </Button>
             </div>
           }
           headerTrailing={
             <div className="flex items-center gap-2">
-              <span className="hidden items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
+              <span
+                className={cn(
+                  "hidden items-center gap-1.5 text-[11px] sm:flex",
+                  saveState === "saved"
+                    ? "text-muted-foreground"
+                    : saveState === "conflict" || saveState === "error"
+                      ? "text-destructive"
+                      : "text-amber-600",
+                )}
+              >
                 {saveState === "saving" ? (
                   <Loader2 className="size-3.5 animate-spin" />
                 ) : saveState === "saved" ? (
@@ -864,6 +912,12 @@ export function LatexWorkspacePage({
             </div>
           }
           overlay={overlay}
+          renderAsset={(file) =>
+            file.encoding === "base64" &&
+            file.path.toLowerCase().endsWith(".pdf") ? (
+              <LatexAssetPdfPreview content={file.content} />
+            ) : null
+          }
           extensions={editorExtensions}
           onChange={scheduleSave}
           onEditorStateChange={setEditorState}
@@ -945,6 +999,30 @@ export function LatexWorkspacePage({
           compileLabel="Compile"
         />
       </div>
+
+      <AlertDialog open={leaveDialogOpen} onOpenChange={setLeaveDialogOpen}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              {serverConflict
+                ? "This draft conflicts with the cloud revision and only exists on this device."
+                : "The latest edits are not synced to the cloud yet."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <Button variant="outline" onClick={() => router.push(listHref)}>
+              Leave anyway
+            </Button>
+            {!serverConflict ? (
+              <AlertDialogAction onClick={() => void saveAndLeave()}>
+                Save &amp; leave
+              </AlertDialogAction>
+            ) : null}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

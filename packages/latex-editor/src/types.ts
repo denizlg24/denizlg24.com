@@ -82,6 +82,11 @@ export interface LatexEditorProps {
   headerTrailing?: ReactNode;
   /** When set, replaces the code pane (tabs + editor) — used for diff review. */
   overlay?: ReactNode;
+  /**
+   * Custom renderer for binary assets (e.g. a richer PDF viewer). Return null
+   * to fall back to the built-in preview.
+   */
+  renderAsset?: (file: LatexFileEntry) => ReactNode | null;
   preview?: ReactNode;
   rightDock?: ReactNode;
   rightDockTitle?: ReactNode;

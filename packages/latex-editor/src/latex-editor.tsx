@@ -168,7 +168,9 @@ const MAX_IMPORTED_FILE_BYTES = 2 * 1024 * 1024;
 
 function fileIcon(entry: LatexProjectEntry) {
   if (entry.kind === "folder") return Folder;
-  if (entry.path.match(/\.(png|jpe?g|gif|webp|pdf)$/i)) return FileImage;
+  if (entry.path.match(/\.(png|jpe?g|gif|webp|pdf|svg|avif|bmp|ico)$/i)) {
+    return FileImage;
+  }
   if (
     entry.path.match(
       /\.(tex|latex|ltx|bib|bst|cls|clo|sty|def|dtx|ins|cfg|lbx|bbx|cbx|tikz|lua|asy)$/i,
@@ -176,6 +178,97 @@ function fileIcon(entry: LatexProjectEntry) {
   )
     return FileCode2;
   return File;
+}
+
+const ASSET_MIME_TYPES: Record<string, string> = {
+  avif: "image/avif",
+  bmp: "image/bmp",
+  gif: "image/gif",
+  ico: "image/x-icon",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  pdf: "application/pdf",
+  png: "image/png",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+};
+
+function assetDataUri(file: LatexFileEntry): string | null {
+  const extension = basename(file.path).split(".").at(-1)?.toLowerCase();
+  const mime = extension ? ASSET_MIME_TYPES[extension] : undefined;
+  if (!mime) return null;
+  if (file.encoding === "base64") return `data:${mime};base64,${file.content}`;
+  return mime === "image/svg+xml"
+    ? `data:${mime};utf8,${encodeURIComponent(file.content)}`
+    : null;
+}
+
+const MAX_DECODED_TEXT_CHARS = 500_000;
+
+function decodedBinaryText(content: string): string | null {
+  try {
+    const binary = atob(content);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder("utf-8", { fatal: false })
+      .decode(bytes)
+      .slice(0, MAX_DECODED_TEXT_CHARS);
+  } catch {
+    return null;
+  }
+}
+
+function AssetPreview({ file }: { file: LatexFileEntry }) {
+  const uri = assetDataUri(file);
+  const name = basename(file.path);
+  if (!uri) {
+    const text =
+      file.encoding === "base64" ? decodedBinaryText(file.content) : null;
+    if (text === null) {
+      return (
+        <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+          {name} · binary
+        </div>
+      );
+    }
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5">
+          {text}
+        </pre>
+        <div className="flex h-8 shrink-0 items-center border-t px-3 font-mono text-[11px] text-muted-foreground">
+          {file.path} · read-only
+        </div>
+      </div>
+    );
+  }
+  if (uri.startsWith("data:application/pdf")) {
+    return (
+      <object
+        data={uri}
+        type="application/pdf"
+        aria-label={name}
+        className="h-full w-full"
+      >
+        <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+          {name} · PDF preview unavailable in this webview
+        </div>
+      </object>
+    );
+  }
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-[repeating-conic-gradient(var(--muted)_0%_25%,transparent_0%_50%)] bg-[length:16px_16px] p-4">
+        <img
+          src={uri}
+          alt={name}
+          className="max-h-full max-w-full object-contain"
+        />
+      </div>
+      <div className="flex h-8 shrink-0 items-center border-t px-3 font-mono text-[11px] text-muted-foreground">
+        {file.path}
+      </div>
+    </div>
+  );
 }
 
 function isEntryVisible(
@@ -248,6 +341,7 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
       headerLeading,
       headerTrailing,
       overlay,
+      renderAsset,
       preview,
       rightDock,
       rightDockTitle,
@@ -1110,11 +1204,13 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
                         )
                       }
                     />
+                  ) : activeFile ? (
+                    (renderAsset?.(activeFile) ?? (
+                      <AssetPreview file={activeFile} />
+                    ))
                   ) : (
                     <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                      {activeFile
-                        ? `${basename(activeFile.path)} · binary`
-                        : "—"}
+                      —
                     </div>
                   )}
                 </div>
