@@ -2,8 +2,13 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, open, rm, stat, statfs } from "node:fs/promises";
 import { dirname } from "node:path";
 
-export async function ensureDir(path: string): Promise<void> {
-  await mkdir(path, { recursive: true });
+/**
+ * Returns true only when this call actually created the directory. Callers that
+ * roll back on failure need that distinction: removing a directory that already
+ * existed would take another request's files with it.
+ */
+export async function ensureDir(path: string): Promise<boolean> {
+  return (await mkdir(path, { recursive: true })) !== undefined;
 }
 
 export async function deletePath(

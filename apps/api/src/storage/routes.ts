@@ -133,9 +133,14 @@ export function storageRoutes(service: StorageService) {
   });
   router.delete("/folders/:id", async (context) => {
     const id = context.req.param("id");
+    const recursive = context.req.query("recursive") === "true";
     try {
-      await service.deleteFolder(principal(context), id);
-      return context.json({ data: { id } });
+      const result = await service.deleteFolder(
+        principal(context),
+        id,
+        recursive,
+      );
+      return context.json({ data: { id, ...result } });
     } catch (error) {
       return serviceError(context, error);
     }
@@ -221,6 +226,15 @@ export function storageRoutes(service: StorageService) {
         await jsonBody(context),
       );
       return context.json({ data: { token } });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/share/:token/meta", async (context) => {
+    try {
+      return context.json({
+        data: await service.sharedMeta(context.req.param("token")),
+      });
     } catch (error) {
       return serviceError(context, error);
     }

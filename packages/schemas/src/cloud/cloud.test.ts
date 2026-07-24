@@ -143,6 +143,7 @@ describe("cloud API contracts", () => {
             path: "/root",
             parentId: null,
           },
+          ancestors: [],
           subfolders: [],
           files: [],
         },
