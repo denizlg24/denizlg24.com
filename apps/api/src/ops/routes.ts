@@ -92,12 +92,21 @@ export function opsRoutes(options: OpsRouteOptions) {
   );
 
   app.get("/tasks", async (context) => {
+    const pagination = paginationQuerySchema.parse({
+      page: context.req.query("page"),
+      limit: context.req.query("limit"),
+    });
     const [tasks, latestRuns] = await Promise.all([
-      listTasks(options.db, { page: 1, limit: 100 }),
+      listTasks(options.db, pagination),
       getLatestTaskRuns(options.db),
     ]);
     return context.json({
       data: { tasks: tasks.tasks, latestRuns },
+      pagination: {
+        ...pagination,
+        total: tasks.total,
+        totalPages: Math.ceil(tasks.total / pagination.limit),
+      },
     });
   });
 

@@ -237,7 +237,7 @@ services:
       retries: 10
 
   docker-proxy:
-    image: ${DOCKER_PROXY_IMAGE:-tecnativa/docker-socket-proxy:0.3.0}
+    image: ${DOCKER_PROXY_IMAGE:-ghcr.io/tecnativa/docker-socket-proxy:0.3.0}
     networks: [docker-api]
     environment:
       ALLOW_RESTARTS: "1"

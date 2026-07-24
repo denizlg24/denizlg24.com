@@ -154,10 +154,28 @@ async function readHostProc(path: string): Promise<string> {
   }
 }
 
-async function readCpuTemperature(): Promise<number | null> {
-  for (const root of ["/host/sys/class/thermal", "/sys/class/thermal"]) {
+export interface ThermalEntry {
+  name: string;
+  isDirectory(): boolean;
+}
+
+export interface TemperatureReader {
+  readdir(root: string): Promise<readonly ThermalEntry[]>;
+  readFile(path: string): Promise<string>;
+}
+
+const defaultTemperatureReader: TemperatureReader = {
+  readdir: (root) => readdir(root, { withFileTypes: true }),
+  readFile: (path) => readFile(path, "utf8"),
+};
+
+export async function readCpuTemperature(
+  reader: TemperatureReader = defaultTemperatureReader,
+  roots: readonly string[] = ["/host/sys/class/thermal", "/sys/class/thermal"],
+): Promise<number | null> {
+  for (const root of roots) {
     try {
-      const entries = await readdir(root, { withFileTypes: true });
+      const entries = await reader.readdir(root);
       const temperatures = await Promise.all(
         entries
           .filter(
@@ -165,7 +183,7 @@ async function readCpuTemperature(): Promise<number | null> {
               entry.isDirectory() && entry.name.startsWith("thermal_zone"),
           )
           .map(async (entry) => {
-            const raw = await readFile(`${root}/${entry.name}/temp`, "utf8");
+            const raw = await reader.readFile(`${root}/${entry.name}/temp`);
             const value = Number(raw.trim());
             return Number.isFinite(value) ? value / 1_000 : null;
           }),
@@ -197,6 +215,20 @@ async function readDf(): Promise<string> {
   }
   return stdout;
 }
+
+export interface HostCollectorDependencies {
+  now(): number;
+  readDf(): Promise<string>;
+  readProc(path: string): Promise<string>;
+  readTemperature(): Promise<number | null>;
+}
+
+const defaultHostCollectorDependencies: HostCollectorDependencies = {
+  now: Date.now,
+  readDf,
+  readProc: readHostProc,
+  readTemperature: readCpuTemperature,
+};
 
 function fallbackCpuCounters(): CpuCounters {
   const cpuInfo = cpus();
@@ -240,22 +272,33 @@ function diskInfo(
 }
 
 export class HostCollector {
+  private readonly dependencies: HostCollectorDependencies;
   private previousCpu: CpuCounters | null = null;
   private previousNetwork = new Map<string, NetworkCounters>();
   private previousNetworkAt: number | null = null;
 
-  constructor(private readonly devices: readonly string[]) {}
+  constructor(
+    private readonly devices: readonly string[],
+    dependencies: Partial<HostCollectorDependencies> = {},
+  ) {
+    this.dependencies = {
+      ...defaultHostCollectorDependencies,
+      ...dependencies,
+    };
+  }
 
   async collect(): Promise<
     Pick<OpsOverview, "cpu" | "memory" | "disks" | "network">
   > {
-    const now = Date.now();
+    const now = this.dependencies.now();
     const [cpuResult, memoryResult, loadResult, networkResult, dfResult, temp] =
       await Promise.all([
-        readHostProc("stat")
+        this.dependencies
+          .readProc("stat")
           .then(parseCpuStat)
           .catch(() => fallbackCpuCounters()),
-        readHostProc("meminfo")
+        this.dependencies
+          .readProc("meminfo")
           .then(parseMeminfo)
           .catch(() => {
             const totalBytes = totalmem();
@@ -268,16 +311,19 @@ export class HostCollector {
               usagePercent: totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0,
             };
           }),
-        readHostProc("loadavg")
+        this.dependencies
+          .readProc("loadavg")
           .then(parseLoadAverage)
           .catch(() => ({ load1: 0, load5: 0, load15: 0 })),
-        readHostProc("net/dev")
+        this.dependencies
+          .readProc("net/dev")
           .then(parseProcNetDev)
           .catch(() => []),
-        readDf()
+        this.dependencies
+          .readDf()
           .then(parseDf)
           .catch(() => new Map()),
-        readCpuTemperature(),
+        this.dependencies.readTemperature(),
       ]);
 
     const cpuDelta = this.previousCpu

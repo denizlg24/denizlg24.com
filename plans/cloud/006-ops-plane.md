@@ -124,7 +124,7 @@ profiling (>50MB steady-state for the sampler → simplify cadence, report).
   scheduler/executors, failure-notification throttling, superuser ops routes,
   authenticated component health, and a loopback-only dev socket proxy.
   Database backups stream Docker exec output directly to disk and were
-  restored into isolated PostgreSQL and MongoDB containers. A full curl smoke
+  restored into isolated PostgreSQL and MongoDB containers. A full HTTP smoke
   created and ran an audited one-off PostgreSQL backup and queried live metrics.
   The sampler stayed 32.1 MiB above baseline across ten cycles, below the 50 MiB
   STOP threshold.

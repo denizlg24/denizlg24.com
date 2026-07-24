@@ -55,7 +55,8 @@ hours and the seeded five-minute rollup task retains aggregates for 90 days.
 The seeded nightly tiering task is disabled until the cutover soak completes.
 Configure `BACKUP_DIR`, `DOCKER_HOST`, `REBOOT_SENTINEL_PATH`,
 `SSD_DEVICE`/`HDD_DEVICES`/`MICROSD_DEVICE`, and optionally
-`METRICS_NOTIFICATION_WEBHOOK_URL` and `TUNNEL_HEALTH_URL`.
+`METRICS_NOTIFICATION_WEBHOOK_URL`, `MONGOT_HEALTH_URL`, and
+`TUNNEL_HEALTH_URL`.
 
 Infrastructure-backed provisioning and crash-resume tests are opt-in:
 

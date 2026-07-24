@@ -2,11 +2,13 @@ import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 
 import {
+  HostCollector,
   parseCpuStat,
   parseDf,
   parseLoadAverage,
   parseMeminfo,
   parseProcNetDev,
+  readCpuTemperature,
 } from "./host";
 
 async function fixture(name: string): Promise<string> {
@@ -51,5 +53,99 @@ describe("host metric parsers", () => {
       availableBytes: 6_144_000_000,
     });
     expect(busybox.get("/dev/mmcblk0p2")?.usedBytes).toBe(6_144_000_000);
+  });
+
+  it("collects stateful CPU and network deltas and offline disks", async () => {
+    const procInputs = new Map<string, string[]>([
+      [
+        "stat",
+        [
+          "cpu 60 0 0 40 0 0 0 0\ncpu0 60 0 0 40 0 0 0 0\n",
+          "cpu 140 0 0 60 0 0 0 0\ncpu0 140 0 0 60 0 0 0 0\n",
+        ],
+      ],
+      [
+        "meminfo",
+        [
+          "MemTotal: 1000 kB\nMemAvailable: 250 kB\n",
+          "MemTotal: 1000 kB\nMemAvailable: 250 kB\n",
+        ],
+      ],
+      ["loadavg", ["0.1 0.2 0.3 1/10 1", "0.4 0.5 0.6 1/10 2"]],
+      [
+        "net/dev",
+        [
+          "Inter-| Receive | Transmit\n face |bytes |bytes\neth0: 100 0 0 0 0 0 0 0 200 0 0 0 0 0 0 0\n",
+          "Inter-| Receive | Transmit\n face |bytes |bytes\neth0: 300 0 0 0 0 0 0 0 500 0 0 0 0 0 0 0\n",
+        ],
+      ],
+    ]);
+    const times = [1_000, 2_000];
+    const collector = new HostCollector(["/dev/online", "/dev/missing"], {
+      now: () => times.shift() ?? 2_000,
+      readProc: async (path) => {
+        const value = procInputs.get(path)?.shift();
+        if (!value) throw new Error(`Missing mocked ${path}`);
+        return value;
+      },
+      readDf: async () =>
+        "Filesystem 1024-blocks Used Available Capacity Mounted on\n" +
+        "/dev/online 1000 400 600 40% /data\n",
+      readTemperature: async () => 42,
+    });
+
+    const first = await collector.collect();
+    const second = await collector.collect();
+
+    expect(first.cpu.usagePercent).toBe(60);
+    expect(first.network[0]).toEqual({
+      interface: "eth0",
+      rxBytesPerSecond: 0,
+      txBytesPerSecond: 0,
+    });
+    expect(second.cpu.usagePercent).toBe(80);
+    expect(second.network[0]).toEqual({
+      interface: "eth0",
+      rxBytesPerSecond: 200,
+      txBytesPerSecond: 300,
+    });
+    expect(second.cpu.temperatureCelsius).toBe(42);
+    expect(second.disks).toContainEqual(
+      expect.objectContaining({ device: "/dev/online", online: true }),
+    );
+    expect(second.disks).toContainEqual({
+      device: "/dev/missing",
+      totalBytes: 0,
+      usedBytes: 0,
+      availableBytes: 0,
+      usagePercent: 0,
+      online: false,
+    });
+  });
+
+  it("falls back to the container sysfs temperature root", async () => {
+    const roots: string[] = [];
+    const temperature = await readCpuTemperature(
+      {
+        readdir: async (root) => {
+          roots.push(root);
+          if (root === "/host/sys") throw new Error("host sysfs unavailable");
+          return [
+            {
+              name: "thermal_zone0",
+              isDirectory: () => true,
+            },
+          ];
+        },
+        readFile: async (path) => {
+          expect(path).toBe("/sys/thermal_zone0/temp");
+          return "42500\n";
+        },
+      },
+      ["/host/sys", "/sys"],
+    );
+
+    expect(roots).toEqual(["/host/sys", "/sys"]);
+    expect(temperature).toBe(42.5);
   });
 });

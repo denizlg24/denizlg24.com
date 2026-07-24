@@ -128,18 +128,18 @@ export class OpsHealthService {
         (disk) =>
           disk.online && 100 - disk.usagePercent < this.diskHeadroomPercent,
       );
-      if (constrained.length > 0) {
-        return {
-          status: "degraded",
-          latencyMs: performance.now() - startedAt,
-          message: `Low headroom: ${constrained.map((disk) => disk.device).join(", ")}`,
-        };
-      }
       if (offline.length > 0) {
         return {
           status: "down",
           latencyMs: performance.now() - startedAt,
           message: `Offline: ${offline.map((disk) => disk.device).join(", ")}`,
+        };
+      }
+      if (constrained.length > 0) {
+        return {
+          status: "degraded",
+          latencyMs: performance.now() - startedAt,
+          message: `Low headroom: ${constrained.map((disk) => disk.device).join(", ")}`,
         };
       }
       return {

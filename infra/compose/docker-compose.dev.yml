@@ -101,7 +101,7 @@ services:
       start_period: 10s
 
   docker-proxy:
-    image: ${DOCKER_PROXY_IMAGE:-tecnativa/docker-socket-proxy:0.3.0}
+    image: ${DOCKER_PROXY_IMAGE:-ghcr.io/tecnativa/docker-socket-proxy:0.3.0}
     ports:
       - "127.0.0.1:${DOCKER_PROXY_PORT:-23750}:2375"
     environment:

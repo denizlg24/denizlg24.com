@@ -110,7 +110,7 @@ function appendBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
 
 async function consumeDockerStream(
   body: ReadableStream<Uint8Array>,
-  onStdout: (chunk: Uint8Array) => void,
+  onStdout: (chunk: Uint8Array) => Promise<void> | void,
   captureStdout: boolean,
 ): Promise<{ stdout: Uint8Array[]; stderr: Uint8Array[] }> {
   const stdout: Uint8Array[] = [];
@@ -133,7 +133,7 @@ async function consumeDockerStream(
         const stream = pending[0];
         const payload = pending.slice(8, 8 + length);
         if (stream === 1) {
-          onStdout(payload);
+          await onStdout(payload);
           if (captureStdout) stdout.push(payload);
         } else if (stream === 2) {
           stderr.push(payload);
@@ -390,9 +390,9 @@ export class DockerClient {
       streamResult = await this.startExec(
         execId,
         options,
-        (chunk) => {
+        async (chunk) => {
           bytesWritten += chunk.byteLength;
-          writer.write(chunk);
+          await writer.write(chunk);
         },
         false,
       );

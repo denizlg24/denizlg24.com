@@ -159,7 +159,7 @@ describe("cloud API contracts", () => {
   it("bounds operations queries and backup filters", () => {
     const query = {
       series: ["host:cpu.usage_percent"],
-      from: "2026-07-23T00:00:00.000Z",
+      from: "2026-07-22T00:00:00.000Z",
       to: "2026-07-24T00:00:00.000Z",
       step: 30,
     };
@@ -167,7 +167,12 @@ describe("cloud API contracts", () => {
     expect(
       metricsQuerySchema.safeParse({
         ...query,
-        from: "2026-07-22T00:00:00.000Z",
+        from: "2026-01-01T00:00:00.000Z",
+      }).success,
+    ).toBe(false);
+    expect(
+      metricsQuerySchema.safeParse({
+        ...query,
         series: Array.from(
           { length: 50 },
           (_, index) => `host:metric.${index}`,

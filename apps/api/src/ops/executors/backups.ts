@@ -60,7 +60,7 @@ export async function executePostgresBackup(
       [
         "sh",
         "-c",
-        'set -o pipefail; PGPASSWORD="$POSTGRES_PASSWORD" pg_dumpall -U "$POSTGRES_USER" --clean --if-exists | gzip -c',
+        'tmp="$(mktemp -d)" || exit; trap \'rm -f "$tmp/dump"; rmdir "$tmp"\' EXIT HUP INT TERM; mkfifo "$tmp/dump" || exit; gzip -c <"$tmp/dump" & gzip_pid=$!; PGPASSWORD="$POSTGRES_PASSWORD" pg_dumpall -U "$POSTGRES_USER" --clean --if-exists >"$tmp/dump"; dump_status=$?; wait "$gzip_pid"; gzip_status=$?; [ "$dump_status" -eq 0 ] || exit "$dump_status"; exit "$gzip_status"',
       ],
       path,
     );

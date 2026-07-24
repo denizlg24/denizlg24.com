@@ -35,9 +35,40 @@ $smokePassword = "ops-smoke-password-006"
 $env:OPS_SMOKE_DATABASE_URL = $databaseUrl
 $env:OPS_SMOKE_PASSWORD = $smokePassword
 
+function Invoke-SmokeRequest {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Uri,
+    [string]$Method = "GET",
+    [Parameter(Mandatory = $true)]
+    [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
+    [string]$Body
+  )
+
+  $request = @{
+    Uri = $Uri
+    Method = $Method
+    WebSession = $Session
+    Headers = @{ Origin = "http://localhost:3000" }
+    TimeoutSec = 30
+  }
+  if ($PSBoundParameters.ContainsKey("Body")) {
+    $request.Body = $Body
+    $request.ContentType = "application/json"
+  }
+  $response = Invoke-WebRequest @request
+  if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 300) {
+    throw "$Method $Uri failed with HTTP $($response.StatusCode)"
+  }
+  return $response
+}
+
 $process = $null
 try {
   & bun apps/api/scripts/ops-smoke-user.ts setup
+  if ($LASTEXITCODE -ne 0) {
+    throw "ops-smoke-user.ts setup failed"
+  }
 
   $env:DATABASE_URL = $databaseUrl
   $env:REDIS_ADMIN_URL = $redisUrl
@@ -80,11 +111,17 @@ try {
 
   $ready = $false
   for ($attempt = 0; $attempt -lt 60; $attempt += 1) {
-    $code = & curl.exe -s -o NUL -w "%{http_code}" `
-      "http://127.0.0.1:13010/healthz"
-    if ($code -eq "200") {
-      $ready = $true
-      break
+    try {
+      $healthResponse = Invoke-WebRequest `
+        -Uri "http://127.0.0.1:13010/healthz" `
+        -Method Get `
+        -TimeoutSec 2
+      if ($healthResponse.StatusCode -eq 200) {
+        $ready = $true
+        break
+      }
+    } catch {
+      # The API may not have bound its port yet.
     }
     Start-Sleep -Milliseconds 500
   }
@@ -92,22 +129,22 @@ try {
     throw "API failed to start: $(Get-Content -Raw $stderr)"
   }
 
-  $cookie = Join-Path $smokeRoot "cookies.txt"
+  $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
   $signIn = @{
     username = "ops-smoke"
     password = $smokePassword
   } | ConvertTo-Json -Compress
-  & curl.exe -sS -c $cookie `
-    -H "Origin: http://localhost:3000" `
-    -H "Content-Type: application/json" `
-    --data-binary $signIn `
-    "http://127.0.0.1:13010/api/auth/sign-in/username" |
+  Invoke-SmokeRequest `
+    -Uri "http://127.0.0.1:13010/api/auth/sign-in/username" `
+    -Method Post `
+    -Session $session `
+    -Body $signIn |
     Out-Null
-  if ($LASTEXITCODE -ne 0) {
-    throw "Sign-in request failed"
-  }
 
   & bun apps/api/scripts/ops-smoke-user.ts activate
+  if ($LASTEXITCODE -ne 0) {
+    throw "ops-smoke-user.ts activate failed"
+  }
 
   $scheduledAt = (Get-Date).ToUniversalTime().AddHours(1).ToString("o")
   $taskBody = @{
@@ -116,30 +153,31 @@ try {
     scheduledAt = $scheduledAt
     config = @{ retentionCount = 1 }
   } | ConvertTo-Json -Compress
-  $taskJson = & curl.exe -sS -b $cookie `
-    -H "Origin: http://localhost:3000" `
-    -H "Content-Type: application/json" `
-    --data-binary $taskBody `
-    "http://127.0.0.1:13010/api/ops/tasks"
-  $task = $taskJson | ConvertFrom-Json
+  $taskResponse = Invoke-SmokeRequest `
+    -Uri "http://127.0.0.1:13010/api/ops/tasks" `
+    -Method Post `
+    -Session $session `
+    -Body $taskBody
+  $task = $taskResponse.Content | ConvertFrom-Json
   if (-not $task.data.id) {
-    throw "Task creation failed: $taskJson"
+    throw "Task creation failed: $($taskResponse.Content)"
   }
 
-  $triggerJson = & curl.exe -sS -b $cookie `
-    -H "Origin: http://localhost:3000" `
-    -X POST `
-    "http://127.0.0.1:13010/api/ops/tasks/$($task.data.id)/run"
-  $trigger = $triggerJson | ConvertFrom-Json
+  $triggerResponse = Invoke-SmokeRequest `
+    -Uri "http://127.0.0.1:13010/api/ops/tasks/$($task.data.id)/run" `
+    -Method Post `
+    -Session $session
+  $trigger = $triggerResponse.Content | ConvertFrom-Json
   if (-not $trigger.data.id) {
-    throw "Task trigger failed: $triggerJson"
+    throw "Task trigger failed: $($triggerResponse.Content)"
   }
 
   $completed = $false
   for ($attempt = 0; $attempt -lt 120; $attempt += 1) {
-    $runsJson = & curl.exe -sS -b $cookie `
-      "http://127.0.0.1:13010/api/ops/tasks/$($task.data.id)/runs"
-    $runs = $runsJson | ConvertFrom-Json
+    $runsResponse = Invoke-SmokeRequest `
+      -Uri "http://127.0.0.1:13010/api/ops/tasks/$($task.data.id)/runs" `
+      -Session $session
+    $runs = $runsResponse.Content | ConvertFrom-Json
     $status = $runs.data[0].status
     if ($status -eq "completed") {
       $completed = $true
@@ -161,19 +199,25 @@ try {
     throw "Backup artifact was not created"
   }
 
-  $metricsJson = & curl.exe -sS -b $cookie `
-    "http://127.0.0.1:13010/api/ops/metrics?series=host:cpu.usage_percent&step=30"
-  $metrics = $metricsJson | ConvertFrom-Json
+  $metricsResponse = Invoke-SmokeRequest `
+    -Uri (
+      "http://127.0.0.1:13010/api/ops/metrics" +
+      "?series=host:cpu.usage_percent&step=30"
+    ) `
+    -Session $session
+  $metrics = $metricsResponse.Content | ConvertFrom-Json
   if ($null -eq $metrics.data.series) {
-    throw "Metrics query failed: $metricsJson"
+    throw "Metrics query failed: $($metricsResponse.Content)"
   }
-  $overviewCode = & curl.exe -s -o NUL -w "%{http_code}" -b $cookie `
-    "http://127.0.0.1:13010/api/ops/overview"
+  $overviewResponse = Invoke-SmokeRequest `
+    -Uri "http://127.0.0.1:13010/api/ops/overview" `
+    -Session $session
 
   Write-Output (
     "task=$($task.data.id) run=$($trigger.data.id) status=completed " +
     "artifact=$($artifact.Name) metricsPoints=" +
-    "$($metrics.data.series[0].points.Count) overviewHttp=$overviewCode"
+    "$($metrics.data.series[0].points.Count) " +
+    "overviewHttp=$($overviewResponse.StatusCode)"
   )
 } finally {
   if ($process -and -not $process.HasExited) {
@@ -181,6 +225,7 @@ try {
     $process.WaitForExit()
   }
   & bun apps/api/scripts/ops-smoke-user.ts cleanup
+  $cleanupExitCode = $LASTEXITCODE
 
   if (Test-Path $smokeRoot) {
     $resolvedSmoke = (Resolve-Path $smokeRoot).Path
@@ -189,5 +234,8 @@ try {
       throw "Refusing to remove smoke directory outside workspace"
     }
     Remove-Item -LiteralPath $resolvedSmoke -Recurse -Force
+  }
+  if ($cleanupExitCode -ne 0) {
+    throw "ops-smoke-user.ts cleanup failed"
   }
 }

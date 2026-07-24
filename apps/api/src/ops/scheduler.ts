@@ -225,7 +225,6 @@ export class OpsScheduler {
         output: result.output.slice(-RUN_LOG_TAIL_LENGTH),
         metadata: result.metadata,
       });
-      await this.updateScheduleMetadata(task);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Task execution failed";
@@ -249,6 +248,9 @@ export class OpsScheduler {
     } finally {
       this.activeRuns.release(task.id);
     }
+    await this.updateScheduleMetadata(task).catch((error) => {
+      console.error("[scheduler] Failed to update schedule metadata", error);
+    });
   }
 
   private async updateScheduleMetadata(task: ScheduledTask): Promise<void> {
@@ -314,7 +316,9 @@ export class OpsScheduler {
       );
     for (const task of due) {
       await updateTask(this.options.db, task.id, { enabled: false });
-      void this.runTask(task.id);
+      void this.runTask(task.id).catch((error) => {
+        console.error("[scheduler] One-off task execution failed", error);
+      });
     }
   }
 }
