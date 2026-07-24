@@ -14,6 +14,17 @@ import { apiWsUrl } from "@/lib/env";
 
 const encoder = new TextEncoder();
 
+const TERMINAL_FONT_FAMILY =
+  '"FiraCode Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
+// Both faces must be resident before the first fit: xterm derives cell height
+// from the measured font, and fitting against a fallback yields a row count
+// that no longer fits once the real face swaps in — the overflowing last row
+// (tmux's status bar) then gets clipped by the container.
+const TERMINAL_FONT_FACES = [
+  `400 13px ${TERMINAL_FONT_FAMILY}`,
+  `700 13px ${TERMINAL_FONT_FAMILY}`,
+];
+
 type ConnectionState = "connecting" | "connected" | "closed";
 
 export function TerminalClient({
@@ -115,56 +126,81 @@ export function TerminalClient({
     const container = containerRef.current;
     if (!container) return;
 
-    const terminal = new Terminal({
-      cursorBlink: true,
-      fontSize: 13,
-      fontFamily:
-        "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace",
-      scrollback: 5000,
-      theme: {
-        background: "#191918",
-        foreground: "#e8e7e2",
-        cursor: "#e8e7e2",
-        selectionBackground: "#3a3a38",
-      },
-    });
-    const fit = new FitAddon();
-    terminal.loadAddon(fit);
-    terminal.open(container);
-    terminalRef.current = terminal;
-    fitRef.current = fit;
-    fit.fit();
+    let disposed = false;
+    const disposers: Array<() => void> = [];
 
-    const disposeData = terminal.onData((data) => {
-      const socket = socketRef.current;
-      if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(encoder.encode(data));
-      }
-    });
-    const disposeBinary = terminal.onBinary((data) => {
-      const socket = socketRef.current;
-      if (socket?.readyState === WebSocket.OPEN) {
-        const bytes = new Uint8Array(data.length);
-        for (let index = 0; index < data.length; index++) {
-          bytes[index] = data.charCodeAt(index) & 0xff;
+    const start = async () => {
+      // xterm measures cell height once, from whatever face is resident when
+      // the Terminal is constructed. Building it against a fallback and
+      // letting the real face swap in later leaves rows × cellHeight taller
+      // than the box, and the overflowing last row — tmux's status bar — gets
+      // clipped. Waiting costs a beat on a cold cache and nothing after.
+      await Promise.all(
+        TERMINAL_FONT_FACES.map((face) => document.fonts.load(face)),
+      ).catch(() => undefined);
+      if (disposed) return;
+
+      const terminal = new Terminal({
+        cursorBlink: true,
+        fontSize: 13,
+        fontFamily: TERMINAL_FONT_FAMILY,
+        scrollback: 5000,
+        theme: {
+          background: "#191918",
+          foreground: "#e8e7e2",
+          cursor: "#e8e7e2",
+          selectionBackground: "#3a3a38",
+        },
+      });
+      const fit = new FitAddon();
+      terminal.loadAddon(fit);
+      terminal.open(container);
+      terminalRef.current = terminal;
+      fitRef.current = fit;
+      disposers.push(() => {
+        terminal.dispose();
+        terminalRef.current = null;
+        fitRef.current = null;
+      });
+
+      const disposeData = terminal.onData((data) => {
+        const socket = socketRef.current;
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(encoder.encode(data));
         }
-        socket.send(bytes);
-      }
-    });
+      });
+      const disposeBinary = terminal.onBinary((data) => {
+        const socket = socketRef.current;
+        if (socket?.readyState === WebSocket.OPEN) {
+          const bytes = new Uint8Array(data.length);
+          for (let index = 0; index < data.length; index++) {
+            bytes[index] = data.charCodeAt(index) & 0xff;
+          }
+          socket.send(bytes);
+        }
+      });
+      disposers.push(
+        () => disposeData.dispose(),
+        () => disposeBinary.dispose(),
+      );
 
-    const observer = new ResizeObserver(() => sendResize());
-    observer.observe(container);
+      const observer = new ResizeObserver(() => sendResize());
+      observer.observe(container);
+      disposers.push(() => observer.disconnect());
+
+      // The socket may already be open — it is opened by a sibling effect that
+      // does not wait on fonts — so push the true geometry now.
+      sendResize();
+      terminal.focus();
+    };
+    void start();
 
     return () => {
+      disposed = true;
       generationRef.current++;
-      observer.disconnect();
-      disposeData.dispose();
-      disposeBinary.dispose();
+      for (const dispose of disposers) dispose();
       socketRef.current?.close();
       socketRef.current = null;
-      terminal.dispose();
-      terminalRef.current = null;
-      fitRef.current = null;
     };
   }, [sendResize]);
 
@@ -181,7 +217,7 @@ export function TerminalClient({
 
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden rounded border bg-[#191918]">
-      <div ref={containerRef} className="absolute inset-0 p-2" />
+      <div ref={containerRef} className="absolute inset-0 px-2" />
       {state !== "connected" && (
         <div className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 border-b bg-background/95 px-3 py-2">
           <span className="text-xs text-muted-foreground">

@@ -72,7 +72,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <NavLinks />
         </div>
       </header>
-      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-6 md:px-6">
+      {/* min-h-0 lets flex-1 children shrink below their content height —
+          without it the terminal cannot give back space and overflows. */}
+      <main className="mx-auto flex w-full min-h-0 max-w-7xl flex-1 flex-col px-4 py-6 md:px-6">
         {children}
       </main>
     </div>
