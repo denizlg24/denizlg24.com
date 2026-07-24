@@ -236,7 +236,9 @@ export const api = {
       to: string;
       step?: number;
     }): Promise<MetricsResponse> =>
-      requestData(metricsResponseSchema, "/api/ops/metrics", { query }),
+      requestData(metricsResponseSchema, "/api/ops/metrics", {
+        query: { ...query, series: query.series.join(",") },
+      }),
     containers: (): Promise<ContainerSnapshot[]> =>
       requestData(z.array(containerSnapshotSchema), "/api/ops/containers"),
     restartContainer: (

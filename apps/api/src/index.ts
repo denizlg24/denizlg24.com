@@ -2,6 +2,7 @@ import type { Server } from "bun";
 import { Hono } from "hono";
 
 import pkg from "../package.json";
+import { CLOUD_AUTH_TRUSTED_ORIGINS } from "./auth/better-auth";
 import { createRuntimeApp } from "./runtime";
 import {
   type TerminalProxySocketData,
@@ -19,7 +20,16 @@ app.get("/", (c) => {
   return c.text("Deniz Cloud API");
 });
 
+const healthzTrustedOrigins = new Set<string>(CLOUD_AUTH_TRUSTED_ORIGINS);
+
+// /healthz sits outside /api/* and misses the runtime CORS middleware; the
+// cloud admin's environment panel reads it cross-origin.
 app.get("/healthz", (c) => {
+  const origin = c.req.header("Origin");
+  if (origin && healthzTrustedOrigins.has(origin)) {
+    c.header("Access-Control-Allow-Origin", origin);
+    c.header("Vary", "Origin");
+  }
   return c.json({
     status: "ok",
     version: process.env.APP_VERSION ?? pkg.version,
