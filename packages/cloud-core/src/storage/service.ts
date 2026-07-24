@@ -688,34 +688,50 @@ export class StorageService {
       deny(principal, file.path, "storage:delete", file.ownerId, "modify");
     }
 
+    const folderIds = [id, ...descendantFolders.map((child) => child.id)];
+    // Commit the database first and treat it as the point of no return.
+    // Removing bytes first would let a failed transaction leave rows pointing
+    // at files that no longer exist; this way the worst case is the reverse,
+    // which the tiering sweep and a retry can both recover from.
+    //
+    // Deleting by the same path prefix that selected the rows also keeps the
+    // statement a fixed size and catches anything written between the select
+    // and the commit. An `inArray` over every id would bind one parameter per
+    // row and blow past Postgres' 65535 parameter ceiling on a folder holding
+    // a few thousand files.
+    const removedFiles = await this.db.transaction(async (tx) => {
+      const removed = await tx
+        .delete(files)
+        .where(like(files.path, pattern))
+        .returning({
+          diskPath: files.diskPath,
+          id: files.id,
+          tier: files.tier,
+        });
+      await tx.delete(folders).where(like(folders.path, pattern));
+      await tx.delete(folders).where(eq(folders.id, id));
+      return removed;
+    });
+
     // SSD files live inside the directory removed below. HDD files are keyed
-    // by id outside the tree, so only those need deleting one by one — which
+    // by id outside the tree, so only those need unlinking one by one — which
     // matters when the subtree is a photo library rather than a few files.
-    for (const file of descendantFiles) {
-      if (file.tier === "hdd") await deletePath(file.diskPath);
+    for (const file of removedFiles) {
+      if (file.tier === "hdd")
+        await deletePath(file.diskPath).catch(console.error);
     }
     await deletePath(
       resolveSsdDiskPath(this.config.ssdStoragePath, folder.path),
       true,
-    );
+    ).catch(console.error);
 
-    const folderIds = [id, ...descendantFolders.map((child) => child.id)];
-    const fileIds = descendantFiles.map((file) => file.id);
-    // Deleting by the same path prefix that selected the rows keeps the
-    // statement a fixed size. An `inArray` over every id would bind one
-    // parameter per row and blow past Postgres' 65535 parameter ceiling on a
-    // folder with a few thousand files in it.
-    await this.db.transaction(async (tx) => {
-      await tx.delete(files).where(like(files.path, pattern));
-      await tx.delete(folders).where(like(folders.path, pattern));
-      await tx.delete(folders).where(eq(folders.id, id));
-    });
-    void removeStorageDocuments(this.meili, [...folderIds, ...fileIds]).catch(
-      console.error,
-    );
+    void removeStorageDocuments(this.meili, [
+      ...folderIds,
+      ...removedFiles.map((file) => file.id),
+    ]).catch(console.error);
     return {
       deletedFolders: folderIds.length,
-      deletedFiles: fileIds.length,
+      deletedFiles: removedFiles.length,
     };
   }
 
@@ -1516,9 +1532,14 @@ export class StorageService {
           );
       });
     } catch (error) {
-      // On an SSD upload `finalDiskPath` is the shared target path, so the
-      // winner of a concurrent race already owns those bytes — removing them
-      // here would delete their file.
+      // An SSD upload writes to the deterministic target path, so on a lost
+      // race those bytes belong to the winner and must be left alone. An HDD
+      // upload writes to a path keyed by this call's own fresh file id, which
+      // no other request shares — leaving it behind would orphan the bytes
+      // with no row pointing at them.
+      if (!isUniqueViolation(error) || tier === "hdd") {
+        await deletePath(finalDiskPath).catch(console.error);
+      }
       if (isUniqueViolation(error)) {
         throw new StorageServiceError(
           409,
@@ -1526,7 +1547,6 @@ export class StorageService {
           "A file already exists at the target path",
         );
       }
-      await deletePath(finalDiskPath).catch(console.error);
       throw error;
     }
     await deletePath(upload.tempDiskPath);

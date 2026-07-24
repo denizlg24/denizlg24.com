@@ -129,7 +129,10 @@ export function Breadcrumbs({
           {index === 0 && collapsed.length > 0 && (
             <>
               <DropdownMenu>
-                <DropdownMenuTrigger className="rounded px-1.5 py-0.5 hover:bg-muted">
+                <DropdownMenuTrigger
+                  aria-label={`Show ${collapsed.length} more folders in this path`}
+                  className="rounded px-1.5 py-0.5 hover:bg-muted"
+                >
                   …
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">

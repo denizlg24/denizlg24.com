@@ -145,6 +145,16 @@ function TwoFactor() {
   if (mode === "password") {
     return (
       <form onSubmit={submitPassword} className="flex flex-col gap-4">
+        {intent === "reenroll" && (
+          // Better Auth cannot hold two secrets at once, so the old one is
+          // dropped the moment setup starts. Saying so beats a user walking
+          // away half-way and finding their authenticator dead.
+          <p className="text-sm text-muted-foreground">
+            Your current authenticator stops working as soon as you continue.
+            Finish the setup on the next screen, or you will have to start again
+            at your next sign-in.
+          </p>
+        )}
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="totp-password" className="text-xs">
             Confirm your password

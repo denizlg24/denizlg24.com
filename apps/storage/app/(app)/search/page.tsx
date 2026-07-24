@@ -2,16 +2,14 @@
 
 import type { SearchHit } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
-import { cn } from "@repo/ui/utils";
 import { Folder } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import { ScopeToggle, type SearchScope } from "@/components/scope-toggle";
 import { api, errorMessage } from "@/lib/api";
 import { fileIcon } from "@/lib/file-kind";
 import { formatBytes, formatRelative, pluralize } from "@/lib/format";
-
-type Scope = "user" | "shared";
 
 function hitHref(hit: SearchHit): string | null {
   if (hit.type === "folder") return `/folders/${hit.id}`;
@@ -22,7 +20,8 @@ function SearchResults() {
   const router = useRouter();
   const params = useSearchParams();
   const query = params.get("q")?.trim() ?? "";
-  const scope: Scope = params.get("scope") === "shared" ? "shared" : "user";
+  const scope: SearchScope =
+    params.get("scope") === "shared" ? "shared" : "user";
   const page = Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1);
 
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -35,6 +34,7 @@ function SearchResults() {
     if (query.length < 2) {
       setHits([]);
       setTotal(0);
+      setTotalPages(0);
       setLoading(false);
       return;
     }
@@ -52,6 +52,7 @@ function SearchResults() {
       .catch((err: unknown) => {
         if (!active) return;
         setHits([]);
+        setTotalPages(0);
         setError(errorMessage(err));
       })
       .finally(() => {
@@ -62,7 +63,7 @@ function SearchResults() {
     };
   }, [query, scope, page]);
 
-  const setScope = (next: Scope) =>
+  const setScope = (next: SearchScope) =>
     router.replace(`/search?q=${encodeURIComponent(query)}&scope=${next}`);
 
   return (
@@ -77,28 +78,7 @@ function SearchResults() {
             "Search"
           )}
         </h1>
-        <div className="ml-auto flex items-center gap-1">
-          {(
-            [
-              { label: "My files", value: "user" },
-              { label: "Shared", value: "shared" },
-            ] as const
-          ).map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={cn(
-                "rounded px-2 py-1 text-xs transition-colors",
-                scope === option.value
-                  ? "bg-muted font-medium text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setScope(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <ScopeToggle scope={scope} onChange={setScope} className="ml-auto" />
       </div>
 
       <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">

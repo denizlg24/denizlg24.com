@@ -211,7 +211,9 @@ export const api = {
       body: input,
     }),
 
-  deleteFolder: (id: string, recursive = true): Promise<DeletedFolder> =>
+  // No default: a recursive folder delete is the most destructive call in this
+  // client, so every call site has to say so out loud.
+  deleteFolder: (id: string, recursive: boolean): Promise<DeletedFolder> =>
     requestData(deletedFolderSchema, `/api/storage/folders/${id}`, {
       method: "DELETE",
       query: { recursive },

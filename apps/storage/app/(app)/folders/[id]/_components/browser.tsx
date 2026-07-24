@@ -1,5 +1,6 @@
 "use client";
 
+import type { StorageFile } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import {
   DropdownMenu,
@@ -43,7 +44,13 @@ import {
   downloadArchive,
   triggerDownload,
 } from "@/lib/download";
-import { beginDrag, endDrag, isFileDrag, readDrop } from "@/lib/drag";
+import {
+  activeDrag,
+  beginDrag,
+  endDrag,
+  isFileDrag,
+  readDrop,
+} from "@/lib/drag";
 import { formatBytes, pluralize } from "@/lib/format";
 import {
   type SelectedEntry,
@@ -111,6 +118,7 @@ export function Browser({ folderId }: { folderId: string }) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [deepLinkFile, setDeepLinkFile] = useState<StorageFile | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const [moving, setMoving] = useState(false);
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
@@ -158,10 +166,44 @@ export function Browser({ folderId }: { folderId: string }) {
   const openPreview = useCallback(
     (id: string | null) => {
       setPreviewId(id);
+      if (id === null) setDeepLinkFile(null);
       syncPreviewUrl(id);
     },
     [syncPreviewUrl],
   );
+
+  const previewInPage =
+    previewId !== null && state.files.some((file) => file.id === previewId);
+
+  // Only the pages loaded so far live in `state.files`, but a search result can
+  // point at a file well past the first page. Rather than paging until it turns
+  // up, fetch that one file and preview it on its own.
+  useEffect(() => {
+    if (!previewId || previewInPage || state.loading) return;
+    if (deepLinkFile?.id === previewId) return;
+    let active = true;
+    api
+      .file(previewId)
+      .then((file) => {
+        if (active) setDeepLinkFile(file);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        toast.error("Couldn't open that file", {
+          description: errorMessage(error),
+        });
+        openPreview(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [previewId, previewInPage, state.loading, deepLinkFile, openPreview]);
+
+  const previewFiles = previewInPage
+    ? state.files
+    : deepLinkFile
+      ? [deepLinkFile]
+      : [];
 
   const clearSelection = useCallback(() => {
     setSelection(new Set());
@@ -339,8 +381,14 @@ export function Browser({ folderId }: { folderId: string }) {
   }, []);
 
   const controller: BrowserController = {
-    canDropInto: (targetId) =>
-      !selection.has(targetId) && targetId !== folderId,
+    // A folder cannot swallow itself or anything currently being dragged —
+    // the server rejects it as CIRCULAR_MOVE, so refusing the drop outright
+    // beats letting it land and reporting a failure.
+    canDropInto: (targetId) => {
+      if (targetId === folderId || selection.has(targetId)) return false;
+      const drag = activeDrag();
+      return !drag?.entries.some((entry) => entry.id === targetId);
+    },
     focusedId,
     folderId,
     moving,
@@ -848,9 +896,9 @@ export function Browser({ folderId }: { folderId: string }) {
         </div>
       )}
 
-      {previewId && (
+      {previewId && previewFiles.length > 0 && (
         <PreviewOverlay
-          files={state.files}
+          files={previewFiles}
           fileId={previewId}
           onSelect={openPreview}
           onClose={() => openPreview(null)}

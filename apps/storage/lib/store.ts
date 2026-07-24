@@ -54,6 +54,7 @@ class StorageStore {
   private listeners = new Set<() => void>();
   private rootsValue: RootFolders | null = null;
   private rootsPromise: Promise<RootFolders> | null = null;
+  private rootsErrorValue: string | null = null;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -96,6 +97,7 @@ class StorageStore {
     this.rootsPromise ??= api.roots().then((value) => {
       this.rootsValue = value;
       this.rootsPromise = null;
+      this.rootsErrorValue = null;
       this.emit();
       return value;
     });
@@ -103,12 +105,26 @@ class StorageStore {
       return await this.rootsPromise;
     } catch (error) {
       this.rootsPromise = null;
+      // Recorded rather than only thrown: the sidebar and the landing route
+      // both render off this and would otherwise spin forever.
+      this.rootsErrorValue = errorMessage(error);
+      this.emit();
       throw error;
     }
   }
 
   cachedRoots(): RootFolders | null {
     return this.rootsValue;
+  }
+
+  rootsError(): string | null {
+    return this.rootsErrorValue;
+  }
+
+  reloadRoots(): void {
+    this.rootsErrorValue = null;
+    this.emit();
+    void this.roots().catch(() => undefined);
   }
 
   /** Fetches pages 1..`pages` and replaces the entry with the result. */
@@ -424,6 +440,24 @@ export function useRoots(): RootFolders | null {
     void store.roots().catch(() => undefined);
   }, []);
   return roots;
+}
+
+/**
+ * Roots plus the failure, so a caller with nothing else on screen can offer a
+ * retry instead of spinning forever.
+ */
+export function useRootsState(): {
+  roots: RootFolders | null;
+  error: string | null;
+  reload: () => void;
+} {
+  const roots = useRoots();
+  const error = useSyncExternalStore(
+    store.subscribe,
+    () => store.rootsError(),
+    () => null,
+  );
+  return { error, reload: () => store.reloadRoots(), roots };
 }
 
 export function userRootId(roots: RootFolders | null): string | null {

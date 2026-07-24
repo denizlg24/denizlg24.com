@@ -123,7 +123,11 @@ export function UploadDock() {
   // Leaving mid-transfer silently loses the queue, which is worth a prompt.
   useEffect(() => {
     if (summary.active === 0) return;
-    const handler = (event: BeforeUnloadEvent) => event.preventDefault();
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Older browsers still need the legacy mechanism to show the prompt.
+      event.returnValue = "";
+    };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [summary.active]);

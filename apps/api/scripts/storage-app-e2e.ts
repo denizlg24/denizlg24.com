@@ -210,7 +210,6 @@ try {
     JSON.stringify(parentBody).slice(0, 160),
   );
   const parentId = parentBody.data?.id ?? "";
-  const parentPath = parentBody.data?.path ?? "";
 
   const child = await call("/api/storage/folders", {
     body: JSON.stringify({ name: "child", parentId }),
@@ -569,7 +568,6 @@ try {
     deadShare.status === 404,
     String(deadShare.status),
   );
-  void parentPath;
 } finally {
   if (userId) {
     await db.delete(authUser).where(eq(authUser.id, userId));

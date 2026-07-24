@@ -5,8 +5,8 @@ import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
 import { cn } from "@repo/ui/utils";
 import hljs from "highlight.js/lib/common";
 import { Download, Minus, Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { errorMessage } from "@/lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, errorMessage } from "@/lib/api";
 import { codeLanguage, type FileKind, fileKind } from "@/lib/file-kind";
 import { formatBytes } from "@/lib/format";
 
@@ -38,24 +38,33 @@ function Notice({
 function ImagePreview({ url, filename }: { url: string; filename: string }) {
   const [zoom, setZoom] = useState(1);
   const [fit, setFit] = useState(true);
+  const stageRef = useRef<HTMLDivElement>(null);
+
+  // React registers onWheel passively, so preventDefault there is ignored and
+  // the browser page-zooms anyway. Ctrl/⌘+wheel has to be a native listener
+  // opted out of passive to suppress that.
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setFit(false);
+      setZoom((value) =>
+        Math.min(8, Math.max(0.1, value * (event.deltaY < 0 ? 1.15 : 0.87))),
+      );
+    };
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, []);
 
   return (
     <div className="relative flex flex-1 overflow-auto">
       {/* Ctrl/⌘+wheel zoom is an accelerator; the buttons below are the
           accessible path to every zoom level it reaches. */}
       <div
+        ref={stageRef}
         className="flex min-h-full min-w-full items-center justify-center p-4"
-        onWheel={(event) => {
-          if (!event.ctrlKey && !event.metaKey) return;
-          event.preventDefault();
-          setFit(false);
-          setZoom((value) =>
-            Math.min(
-              8,
-              Math.max(0.1, value * (event.deltaY < 0 ? 1.15 : 0.87)),
-            ),
-          );
-        }}
       >
         <img
           src={url}
@@ -153,12 +162,9 @@ function TextLoader({
     const controller = new AbortController();
     setText(null);
     setError(null);
-    fetch(url, { credentials: "include", signal: controller.signal })
-      .then((response) => {
-        if (!response.ok)
-          throw new Error(`Request failed (${response.status})`);
-        return response.text();
-      })
+    api
+      .fetchFile(url, controller.signal)
+      .then((response) => response.text())
       .then(setText)
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
@@ -232,14 +238,17 @@ function PdfPreview({
     const controller = new AbortController();
     let created: string | null = null;
     setError(null);
-    fetch(url, { credentials: "include", signal: controller.signal })
-      .then((response) => {
-        if (!response.ok)
-          throw new Error(`Request failed (${response.status})`);
-        return response.blob();
-      })
+    api
+      .fetchFile(url, controller.signal)
+      .then((response) => response.blob())
       .then((blob) => {
-        created = URL.createObjectURL(blob);
+        // A blob URL is same-origin and inherits the blob's type, so trusting
+        // the stored MIME would let a "report.pdf" saved as text/html execute
+        // here — the kind is chosen partly from the extension. Pin the type to
+        // what the viewer is actually being asked to render.
+        created = URL.createObjectURL(
+          new Blob([blob], { type: "application/pdf" }),
+        );
         setBlobUrl(created);
       })
       .catch((err: unknown) => {
@@ -278,6 +287,9 @@ function PdfPreview({
       </p>
     );
   }
+  // No sandbox attribute: the blob is typed application/pdf above, so the
+  // frame can only ever be parsed by the PDF viewer, never as a document. A
+  // sandbox tight enough to matter also disables that viewer.
   return <iframe src={blobUrl} title={filename} className="flex-1 border-0" />;
 }
 

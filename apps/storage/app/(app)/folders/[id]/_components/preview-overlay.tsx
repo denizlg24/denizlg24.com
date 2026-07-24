@@ -4,7 +4,7 @@ import type { StorageFile } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import { ChevronLeft, ChevronRight, Download, Link2, X } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { FilePreview } from "@/components/file-preview";
 import { api } from "@/lib/api";
 import { formatBytes, formatRelative } from "@/lib/format";
@@ -53,12 +53,19 @@ export function PreviewOverlay({
     return () => window.removeEventListener("keydown", handler, true);
   }, [onClose, onSelect, previous, next]);
 
-  // The overlay owns the viewport while it is open.
+  // The overlay owns the viewport while it is open, and focus has to follow it
+  // in — otherwise Tab keeps walking the browser behind the overlay and screen
+  // readers never enter the dialog. Focus goes back where it came from on
+  // close so keyboard position is not lost.
+  const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
+    const previouslyFocused = document.activeElement;
     document.body.style.overflow = "hidden";
+    containerRef.current?.focus();
     return () => {
       document.body.style.overflow = previousOverflow;
+      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
     };
   }, []);
 
@@ -74,7 +81,9 @@ export function PreviewOverlay({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-background"
+      ref={containerRef}
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex flex-col bg-background outline-none"
       role="dialog"
       aria-modal="true"
       aria-label={file.filename}

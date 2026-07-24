@@ -93,6 +93,7 @@ function TreeNode({
         <button
           type="button"
           aria-label={isExpanded ? `Collapse ${name}` : `Expand ${name}`}
+          aria-expanded={isExpanded}
           className="flex size-6 shrink-0 items-center justify-center text-muted-foreground"
           onClick={() => toggle(id)}
         >
@@ -211,6 +212,7 @@ function RootRow({
         <button
           type="button"
           aria-label={isExpanded ? `Collapse ${label}` : `Expand ${label}`}
+          aria-expanded={isExpanded}
           className="flex size-6 shrink-0 items-center justify-center text-muted-foreground"
           onClick={() => toggle(id)}
         >

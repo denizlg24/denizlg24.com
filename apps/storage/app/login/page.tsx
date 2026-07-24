@@ -8,6 +8,7 @@ import { type FormEvent, Suspense, useState } from "react";
 import { AuthShell } from "@/components/auth-shell";
 import { api, errorMessage, isApiError } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
+import { stashEnrollPassword } from "@/lib/enroll-handoff";
 
 type Step = "credentials" | "signup" | "totp" | "recovery";
 
@@ -26,12 +27,18 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const goToApp = () => router.replace(next?.startsWith("/") ? next : "/");
+  // `//evil.com` and `/\evil.com` both start with "/" but resolve to another
+  // origin, which would hand a freshly authenticated user to an attacker.
+  const safeNext =
+    next?.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\")
+      ? next
+      : "/";
+  const goToApp = () => router.replace(safeNext);
 
   // The enrollment page needs the password again to arm TOTP, so it is handed
   // over in memory rather than asked for twice.
   const goToEnrollment = () => {
-    sessionStorage.setItem("storage:enroll-password", password);
+    stashEnrollPassword(password);
     router.replace("/setup-mfa");
   };
 

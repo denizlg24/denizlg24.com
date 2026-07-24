@@ -8,8 +8,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { AuthShell } from "@/components/auth-shell";
 import { BackupCodes, TotpEnrollment } from "@/components/totp-enrollment";
 import { authClient } from "@/lib/auth-client";
-
-const PASSWORD_KEY = "storage:enroll-password";
+import { takeEnrollPassword } from "@/lib/enroll-handoff";
 
 type Step = "password" | "enroll" | "codes";
 
@@ -22,9 +21,8 @@ export default function SetupMfaPage() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const handoff = sessionStorage.getItem(PASSWORD_KEY);
+    const handoff = takeEnrollPassword();
     if (handoff) {
-      sessionStorage.removeItem(PASSWORD_KEY);
       setPassword(handoff);
       setStep("enroll");
     }

@@ -1,6 +1,7 @@
-// NEXT_PUBLIC_* values are inlined at build time. Fall back to the local dev
-// services, never to production: a build that forgot the Vercel variables
-// should break loudly instead of pointing this app at live user files.
+// NEXT_PUBLIC_* values are inlined at build time. The fallbacks are the local
+// dev services and never production: a deploy that forgot its Vercel variables
+// ends up pointing at an unreachable localhost, which is obvious, rather than
+// silently reading and writing real users' files.
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_CLOUD_API_URL ?? "http://localhost:3001";
 

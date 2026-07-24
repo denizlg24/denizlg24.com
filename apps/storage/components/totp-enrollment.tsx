@@ -5,7 +5,7 @@ import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { Check, Copy } from "lucide-react";
 import QRCode from "qrcode";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
 function secretFromUri(uri: string): string | null {
@@ -40,6 +40,15 @@ export function TotpEnrollment({
   const [busy, setBusy] = useState(false);
   const [secretCopied, setSecretCopied] = useState(false);
 
+  // Callers pass inline arrows, so depending on the callback identity would
+  // re-run enrollment on every parent render — issuing a fresh secret and new
+  // backup codes while the user is mid-scan. The effect keys on the password
+  // alone and reaches the latest callback through a ref.
+  const onFailedRef = useRef(onFailed);
+  useEffect(() => {
+    onFailedRef.current = onFailed;
+  }, [onFailed]);
+
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -48,7 +57,9 @@ export function TotpEnrollment({
       });
       if (!active) return;
       if (enableError || !data) {
-        onFailed(enableError?.message ?? "Could not start two-factor setup");
+        onFailedRef.current(
+          enableError?.message ?? "Could not start two-factor setup",
+        );
         return;
       }
       setTotpUri(data.totpURI);
@@ -57,7 +68,7 @@ export function TotpEnrollment({
     return () => {
       active = false;
     };
-  }, [password, onFailed]);
+  }, [password]);
 
   useEffect(() => {
     if (!totpUri) return;
@@ -195,7 +206,9 @@ export function BackupCodes({
     anchor.href = url;
     anchor.download = "deniz-cloud-recovery-codes.txt";
     anchor.click();
-    URL.revokeObjectURL(url);
+    // Revoking in the same task cancels the download in some browsers, and
+    // these codes are shown exactly once — a silent failure is unrecoverable.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
     setCopied(true);
   };
 

@@ -10,15 +10,13 @@ import {
   CommandList,
 } from "@repo/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@repo/ui/dialog";
-import { cn } from "@repo/ui/utils";
 import { Folder, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { ScopeToggle, type SearchScope } from "@/components/scope-toggle";
 import { api, errorMessage } from "@/lib/api";
 import { fileIcon } from "@/lib/file-kind";
 import { formatBytes } from "@/lib/format";
-
-type Scope = "user" | "shared";
 
 const MIN_QUERY = 2;
 const DEBOUNCE_MS = 220;
@@ -32,7 +30,7 @@ export function SearchPalette({
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [scope, setScope] = useState<Scope>("user");
+  const [scope, setScope] = useState<SearchScope>("user");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -104,26 +102,7 @@ export function SearchPalette({
             onValueChange={setQuery}
           />
           <div className="flex items-center gap-1 border-b px-3 py-1.5">
-            {(
-              [
-                { label: "My files", value: "user" },
-                { label: "Shared", value: "shared" },
-              ] as const
-            ).map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={cn(
-                  "rounded px-2 py-1 text-xs transition-colors",
-                  scope === option.value
-                    ? "bg-muted font-medium text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => setScope(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+            <ScopeToggle scope={scope} onChange={setScope} />
             {loading && (
               <span className="ml-auto text-xs text-muted-foreground">
                 Searching…
