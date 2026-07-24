@@ -48,6 +48,7 @@ yarn-error.log*
 infra/compose/.env.dev
 infra/compose/.env.pi
 infra/compose/.env.staging
+infra/systemd/terminal.env
 # not part of this monorepo
 bookmark-extension/
 deniz-nutrition-api/
