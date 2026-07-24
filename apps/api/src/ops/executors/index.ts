@@ -15,6 +15,7 @@ import {
   parseTaskConfig,
   postgresBackupTaskConfigSchema,
   restartContainerTaskConfigSchema,
+  runCommandTaskConfigSchema,
   type TaskConfig,
   type TaskType,
   tieringPassTaskConfigSchema,
@@ -131,6 +132,64 @@ async function executeAlertEvaluation(
   };
 }
 
+const COMMAND_OUTPUT_LIMIT = 64 * 1_024;
+
+function tail(stream: string, label: string): string {
+  const trimmed = stream.trimEnd();
+  if (trimmed.length === 0) return "";
+  const clipped =
+    trimmed.length > COMMAND_OUTPUT_LIMIT
+      ? `…truncated…\n${trimmed.slice(-COMMAND_OUTPUT_LIMIT)}`
+      : trimmed;
+  return `--- ${label} ---\n${clipped}`;
+}
+
+async function executeRunCommand(
+  rawConfig: TaskConfig,
+  context: ExecutorContext,
+): Promise<ExecutorResult> {
+  const config = runCommandTaskConfigSchema.parse(rawConfig);
+  const startedAt = Date.now();
+  const child = Bun.spawn([config.command, ...config.args], {
+    cwd: config.cwd,
+    // Inherit the API's environment so PATH resolves, with explicit overrides
+    // layered on top.
+    env: { ...process.env, ...config.env },
+    stderr: "pipe",
+    stdin: "ignore",
+    stdout: "pipe",
+  });
+
+  const timeout = setTimeout(() => child.kill("SIGKILL"), config.timeoutMs);
+  let exitCode: number;
+  let stdout: string;
+  let stderr: string;
+  try {
+    [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const durationMs = Date.now() - startedAt;
+  const body = [tail(stdout, "stdout"), tail(stderr, "stderr")]
+    .filter(Boolean)
+    .join("\n");
+  const summary = `$ ${[config.command, ...config.args].join(" ")}\nExit code: ${exitCode} · ${(durationMs / 1_000).toFixed(1)}s`;
+  const output = body ? `${summary}\n${body}` : summary;
+
+  // A non-zero exit has to throw: the scheduler marks a run failed only on a
+  // rejected executor, so returning normally would report a broken command as
+  // a success and skip the failure notification.
+  if (exitCode !== 0) {
+    throw new Error(output);
+  }
+  return { output, metadata: { durationMs, exitCode } };
+}
+
 export function getExecutor(
   type: TaskType,
   context: ExecutorContext,
@@ -224,6 +283,8 @@ export function getExecutor(
     case "alert_evaluation":
       return async (config, taskId) =>
         executeAlertEvaluation(config, taskId, context);
+    case "run_command":
+      return async (config) => executeRunCommand(config, context);
   }
 }
 

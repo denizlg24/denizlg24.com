@@ -1,9 +1,10 @@
 "use client";
 
-import type {
-  DiscoveredField,
-  FieldMapping,
-  SafeProjectCollection,
+import {
+  type DiscoveredField,
+  type FieldMapping,
+  fieldMappingSchema,
+  type SafeProjectCollection,
 } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import {
@@ -12,31 +13,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/dialog";
-import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { Textarea } from "@repo/ui/textarea";
 import { useState } from "react";
 import { toast } from "sonner";
+import { JsonEditor, useJsonDraft } from "@/components/json-editor";
 import { api, errorMessage } from "@/lib/api";
 
-function toText(values: string[] | undefined): string {
-  return (values ?? []).join(", ");
-}
-
-function toList(text: string): string[] | undefined {
-  const values = text
-    .split(/[,\n]/)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-  return values.length > 0 ? values : undefined;
-}
-
-const LIST_FIELDS = [
-  ["includeFields", "include"],
-  ["excludeFields", "exclude"],
-  ["searchableAttributes", "searchable"],
-  ["filterableAttributes", "filterable"],
-  ["sortableAttributes", "sortable"],
+const TEMPLATES = [
+  {
+    label: "all keys",
+    value: {
+      includeFields: [],
+      excludeFields: [],
+      searchableAttributes: [],
+      filterableAttributes: [],
+      sortableAttributes: [],
+      primaryKey: "id",
+    },
+  },
+  { label: "clear", value: {} },
 ] as const;
 
 export function FieldMappingDialog({
@@ -50,20 +44,14 @@ export function FieldMappingDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [primaryKey, setPrimaryKey] = useState<string>("");
+  const draft = useJsonDraft<FieldMapping>(fieldMappingSchema, {});
   const [initializedFor, setInitializedFor] = useState<string | null>(null);
   const [fields, setFields] = useState<DiscoveredField[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   if (collection && initializedFor !== collection.id) {
     setInitializedFor(collection.id);
-    setDrafts(
-      Object.fromEntries(
-        LIST_FIELDS.map(([key]) => [key, toText(collection.fieldMapping[key])]),
-      ),
-    );
-    setPrimaryKey(collection.fieldMapping.primaryKey ?? "");
+    draft.reset(collection.fieldMapping);
     setFields(null);
   }
 
@@ -94,17 +82,11 @@ export function FieldMappingDialog({
   };
 
   const save = async () => {
-    if (!collection) return;
+    if (!collection || !draft.result.ok) return;
     setBusy(true);
     try {
-      const fieldMapping: FieldMapping = {
-        primaryKey: primaryKey.trim() || undefined,
-      };
-      for (const [key] of LIST_FIELDS) {
-        fieldMapping[key] = toList(drafts[key] ?? "");
-      }
       await api.projects.collections.update(projectId, collection.id, {
-        fieldMapping,
+        fieldMapping: draft.result.data,
       });
       onSaved();
       onClose();
@@ -125,46 +107,26 @@ export function FieldMappingDialog({
         }
       }}
     >
-      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Field mapping — {collection?.name}</DialogTitle>
         </DialogHeader>
-        <div className="flex flex-col gap-4">
-          {LIST_FIELDS.map(([key, label]) => (
-            <div key={key} className="flex flex-col gap-1.5">
-              <Label htmlFor={`mapping-${key}`} className="text-xs">
-                {label}
-              </Label>
-              <Textarea
-                id={`mapping-${key}`}
-                rows={2}
-                className="font-mono text-xs"
-                value={drafts[key] ?? ""}
-                onChange={(event) =>
-                  setDrafts((current) => ({
-                    ...current,
-                    [key]: event.target.value,
-                  }))
-                }
-              />
-            </div>
-          ))}
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="mapping-primary-key" className="text-xs">
-              primary key
-            </Label>
-            <Input
-              id="mapping-primary-key"
-              className="font-mono text-xs"
-              value={primaryKey}
-              onChange={(event) => setPrimaryKey(event.target.value)}
-            />
-          </div>
+        <div className="flex min-w-0 flex-col gap-3">
+          <JsonEditor
+            id="field-mapping-json"
+            draft={draft}
+            rows={16}
+            templates={TEMPLATES}
+          />
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => void discover()}>
               Discover fields
             </Button>
-            <Button size="sm" disabled={busy} onClick={() => void save()}>
+            <Button
+              size="sm"
+              disabled={busy || !draft.result.ok}
+              onClick={() => void save()}
+            >
               Save
             </Button>
           </div>

@@ -1,6 +1,9 @@
 "use client";
 
-import type { CollectionSourceType } from "@repo/schemas/cloud";
+import {
+  type CreateCollectionInput,
+  createCollectionInputSchema,
+} from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import {
   Dialog,
@@ -9,46 +12,111 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@repo/ui/dialog";
-import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@repo/ui/select";
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { JsonEditor, useJsonDraft } from "@/components/json-editor";
 import { api, errorMessage } from "@/lib/api";
 
-function PgPicker({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (value: string) => void;
-}) {
+const TEMPLATES = [
+  {
+    label: "mongodb",
+    value: {
+      name: "",
+      sourceType: "mongodb",
+      mongoDatabase: "",
+      mongoCollection: "",
+      fieldMapping: {
+        searchableAttributes: [],
+        filterableAttributes: [],
+        sortableAttributes: [],
+      },
+    },
+  },
+  {
+    label: "postgres",
+    value: {
+      name: "",
+      sourceType: "postgres",
+      pgDatabase: "",
+      pgSchema: "public",
+      pgTable: "",
+      pgIdColumn: "id",
+      fieldMapping: {
+        searchableAttributes: [],
+        filterableAttributes: [],
+        sortableAttributes: [],
+      },
+    },
+  },
+] as const;
+
+const TEMPLATE = TEMPLATES[0].value;
+
+interface PgSource {
+  database: string;
+  schemas: Record<string, string[]>;
+}
+
+function PgSourceReference({ projectId }: { projectId: string }) {
+  const [sources, setSources] = useState<PgSource[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const databases = await api.projects.pgSources.databases(projectId);
+        const resolved = await Promise.all(
+          databases.map(async (database) => {
+            const schemas = await api.projects.pgSources.schemas(
+              projectId,
+              database,
+            );
+            const entries = await Promise.all(
+              schemas.map(
+                async (schema) =>
+                  [
+                    schema,
+                    await api.projects.pgSources.tables(
+                      projectId,
+                      database,
+                      schema,
+                    ),
+                  ] as const,
+              ),
+            );
+            return { database, schemas: Object.fromEntries(entries) };
+          }),
+        );
+        if (!cancelled) setSources(resolved);
+      } catch {
+        if (!cancelled) setSources([]);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  if (sources === null) return null;
+
   return (
-    <div className="flex flex-col gap-1.5">
-      <Label className="text-xs">{label}</Label>
-      <Select value={value || undefined} onValueChange={onChange}>
-        <SelectTrigger>
-          <SelectValue placeholder="—" />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((option) => (
-            <SelectItem key={option} value={option}>
-              {option}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="flex flex-col gap-1 border-t pt-3">
+      <span className="text-[11px] text-muted-foreground">pg sources</span>
+      <div className="max-h-32 overflow-y-auto font-mono text-[11px] text-muted-foreground">
+        {sources.length === 0 && <span>—</span>}
+        {sources.map((source) =>
+          Object.entries(source.schemas).map(([schema, tables]) => (
+            <div key={`${source.database}.${schema}`} className="truncate">
+              <span className="text-foreground/70">
+                {source.database}.{schema}
+              </span>{" "}
+              {tables.join(" ") || "—"}
+            </div>
+          )),
+        )}
+      </div>
     </div>
   );
 }
@@ -61,79 +129,19 @@ export function CollectionCreateDialog({
   onCreated: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [sourceType, setSourceType] = useState<CollectionSourceType>("mongodb");
-  const [mongoDatabase, setMongoDatabase] = useState("");
-  const [mongoCollection, setMongoCollection] = useState("");
-  const [pgDatabase, setPgDatabase] = useState("");
-  const [pgSchema, setPgSchema] = useState("");
-  const [pgTable, setPgTable] = useState("");
-  const [pgIdColumn, setPgIdColumn] = useState("id");
-  const [pgDatabases, setPgDatabases] = useState<string[]>([]);
-  const [pgSchemas, setPgSchemas] = useState<string[]>([]);
-  const [pgTables, setPgTables] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!open || sourceType !== "postgres") return;
-    api.projects.pgSources
-      .databases(projectId)
-      .then(setPgDatabases)
-      .catch((err) => toast.error(errorMessage(err)));
-  }, [open, sourceType, projectId]);
-
-  useEffect(() => {
-    if (!pgDatabase) return;
-    setPgSchemas([]);
-    setPgSchema("");
-    api.projects.pgSources
-      .schemas(projectId, pgDatabase)
-      .then(setPgSchemas)
-      .catch((err) => toast.error(errorMessage(err)));
-  }, [pgDatabase, projectId]);
-
-  useEffect(() => {
-    if (!pgDatabase || !pgSchema) return;
-    setPgTables([]);
-    setPgTable("");
-    api.projects.pgSources
-      .tables(projectId, pgDatabase, pgSchema)
-      .then(setPgTables)
-      .catch((err) => toast.error(errorMessage(err)));
-  }, [pgDatabase, pgSchema, projectId]);
-
-  const valid =
-    name.trim().length > 0 &&
-    (sourceType === "mongodb"
-      ? mongoDatabase.length > 0 && mongoCollection.length > 0
-      : pgDatabase.length > 0 &&
-        pgSchema.length > 0 &&
-        pgTable.length > 0 &&
-        pgIdColumn.length > 0);
+  const draft = useJsonDraft<CreateCollectionInput>(
+    createCollectionInputSchema,
+    TEMPLATE,
+  );
 
   const create = async () => {
+    if (!draft.result.ok) return;
     setBusy(true);
     try {
-      await api.projects.collections.create(
-        projectId,
-        sourceType === "mongodb"
-          ? {
-              name: name.trim(),
-              sourceType: "mongodb",
-              mongoDatabase,
-              mongoCollection,
-            }
-          : {
-              name: name.trim(),
-              sourceType: "postgres",
-              pgDatabase,
-              pgSchema,
-              pgTable,
-              pgIdColumn,
-            },
-      );
+      await api.projects.collections.create(projectId, draft.result.data);
       setOpen(false);
-      setName("");
+      draft.reset(TEMPLATE);
       onCreated();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -150,99 +158,22 @@ export function CollectionCreateDialog({
           collection
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Create search collection</DialogTitle>
         </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="collection-name" className="text-xs">
-              Name
-            </Label>
-            <Input
-              id="collection-name"
-              autoFocus
-              className="font-mono text-sm"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Source</Label>
-            <Select
-              value={sourceType}
-              onValueChange={(value) =>
-                setSourceType(value as CollectionSourceType)
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="mongodb">mongodb</SelectItem>
-                <SelectItem value="postgres">postgres</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {sourceType === "mongodb" ? (
-            <>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="mongo-db" className="text-xs">
-                  Database
-                </Label>
-                <Input
-                  id="mongo-db"
-                  className="font-mono text-sm"
-                  value={mongoDatabase}
-                  onChange={(event) => setMongoDatabase(event.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="mongo-coll" className="text-xs">
-                  Collection
-                </Label>
-                <Input
-                  id="mongo-coll"
-                  className="font-mono text-sm"
-                  value={mongoCollection}
-                  onChange={(event) => setMongoCollection(event.target.value)}
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <PgPicker
-                label="Database"
-                value={pgDatabase}
-                options={pgDatabases}
-                onChange={setPgDatabase}
-              />
-              <PgPicker
-                label="Schema"
-                value={pgSchema}
-                options={pgSchemas}
-                onChange={setPgSchema}
-              />
-              <PgPicker
-                label="Table"
-                value={pgTable}
-                options={pgTables}
-                onChange={setPgTable}
-              />
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="pg-id-column" className="text-xs">
-                  Id column
-                </Label>
-                <Input
-                  id="pg-id-column"
-                  className="font-mono text-sm"
-                  value={pgIdColumn}
-                  onChange={(event) => setPgIdColumn(event.target.value)}
-                />
-              </div>
-            </>
-          )}
-          <Button disabled={busy || !valid} onClick={() => void create()}>
+        <div className="flex min-w-0 flex-col gap-3">
+          <JsonEditor
+            id="collection-json"
+            draft={draft}
+            rows={18}
+            templates={TEMPLATES}
+          />
+          <PgSourceReference projectId={projectId} />
+          <Button
+            disabled={busy || !draft.result.ok}
+            onClick={() => void create()}
+          >
             Create
           </Button>
         </div>

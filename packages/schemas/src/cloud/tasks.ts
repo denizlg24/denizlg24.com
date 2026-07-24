@@ -13,6 +13,7 @@ export const TASK_TYPES = [
   "tiering_pass",
   "metrics_rollup",
   "alert_evaluation",
+  "run_command",
 ] as const;
 
 export const taskTypeSchema = z.enum(TASK_TYPES);
@@ -87,6 +88,22 @@ export const alertEvaluationTaskConfigSchema = z.object({
   notifyServiceDown: z.boolean().default(true),
   throttleMinutes: z.number().int().min(1).max(1_440).default(360),
 });
+// Runs argv directly — no shell, so quoting and metacharacters carry no
+// meaning. Anything shell-shaped goes through an explicit `sh -c` in args.
+export const runCommandTaskConfigSchema = z.object({
+  command: z.string().min(1).max(1_024),
+  args: z.array(z.string().max(4_096)).max(64).default([]),
+  cwd: absolutePathSchema.optional(),
+  env: z.record(z.string().min(1), z.string().max(4_096)).optional(),
+  timeoutMs: z
+    .number()
+    .int()
+    .min(1_000)
+    .max(6 * 60 * 60 * 1_000)
+    .default(10 * 60 * 1_000),
+});
+export type RunCommandTaskConfig = z.infer<typeof runCommandTaskConfigSchema>;
+
 export type PostgresBackupTaskConfig = z.infer<
   typeof postgresBackupTaskConfigSchema
 >;
@@ -124,6 +141,11 @@ export const taskConfigSchema = z.object({
   temperatureCelsius: z.number().optional(),
   notifyServiceDown: z.boolean().optional(),
   throttleMinutes: z.number().optional(),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  cwd: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  timeoutMs: z.number().optional(),
 });
 export type TaskConfig = z.infer<typeof taskConfigSchema>;
 
@@ -137,6 +159,7 @@ export const TASK_CONFIG_SCHEMAS = {
   tiering_pass: tieringPassTaskConfigSchema,
   metrics_rollup: metricsRollupTaskConfigSchema,
   alert_evaluation: alertEvaluationTaskConfigSchema,
+  run_command: runCommandTaskConfigSchema,
 } as const satisfies Record<TaskType, z.ZodType>;
 
 export function parseTaskConfig(type: TaskType, input: unknown): TaskConfig {
@@ -153,6 +176,7 @@ export const taskRunMetadataSchema = z.object({
   samplesRolledUp: z.number().int().nonnegative().optional(),
   samplesPruned: z.number().int().nonnegative().optional(),
   alerts: z.array(z.string()).optional(),
+  exitCode: z.number().int().optional(),
 });
 export type TaskRunMetadata = z.infer<typeof taskRunMetadataSchema>;
 

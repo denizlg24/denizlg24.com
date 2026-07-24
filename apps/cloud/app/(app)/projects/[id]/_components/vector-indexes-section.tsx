@@ -1,6 +1,9 @@
 "use client";
 
-import type { VectorQuantization, VectorSimilarity } from "@repo/schemas/cloud";
+import {
+  type CreateProjectVectorIndexInput,
+  createProjectVectorIndexInputSchema,
+} from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import {
   Dialog,
@@ -9,15 +12,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@repo/ui/dialog";
-import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@repo/ui/select";
 import {
   Table,
   TableBody,
@@ -30,13 +24,40 @@ import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmButton } from "@/components/confirm-button";
+import { JsonEditor, useJsonDraft } from "@/components/json-editor";
 import { Section } from "@/components/section";
 import { StatusDot } from "@/components/status-dot";
 import { api, errorMessage } from "@/lib/api";
 import { usePoll } from "@/lib/use-poll";
 
-const SIMILARITIES: VectorSimilarity[] = ["cosine", "euclidean", "dotProduct"];
-const QUANTIZATIONS: VectorQuantization[] = ["none", "scalar", "binary"];
+const TEMPLATES = [
+  {
+    label: "basic",
+    value: {
+      collection: "",
+      name: "",
+      path: "embedding",
+      numDimensions: 1536,
+      similarity: "cosine",
+      quantization: "none",
+      filterPaths: [],
+    },
+  },
+  {
+    label: "filtered",
+    value: {
+      collection: "",
+      name: "",
+      path: "embedding",
+      numDimensions: 1536,
+      similarity: "cosine",
+      quantization: "scalar",
+      filterPaths: ["tenantId"],
+    },
+  },
+] as const;
+
+const TEMPLATE = TEMPLATES[0].value;
 
 export function VectorIndexesSection({ projectId }: { projectId: string }) {
   const fetchOverview = useCallback(
@@ -46,32 +67,19 @@ export function VectorIndexesSection({ projectId }: { projectId: string }) {
   const { data: overview, error, reload } = usePoll(fetchOverview, null);
 
   const [open, setOpen] = useState(false);
-  const [collection, setCollection] = useState("");
-  const [name, setName] = useState("");
-  const [path, setPath] = useState("embedding");
-  const [dimensions, setDimensions] = useState("1536");
-  const [similarity, setSimilarity] = useState<VectorSimilarity>("cosine");
-  const [quantization, setQuantization] = useState<VectorQuantization>("none");
-  const [filterPaths, setFilterPaths] = useState("");
   const [busy, setBusy] = useState(false);
+  const draft = useJsonDraft<CreateProjectVectorIndexInput>(
+    createProjectVectorIndexInputSchema,
+    TEMPLATE,
+  );
 
   const create = async () => {
+    if (!draft.result.ok) return;
     setBusy(true);
     try {
-      await api.projects.vectorIndexes.create(projectId, {
-        collection,
-        name: name.trim(),
-        path: path.trim(),
-        numDimensions: Number(dimensions),
-        similarity,
-        quantization,
-        filterPaths: filterPaths
-          .split(/[,\n]/)
-          .map((entry) => entry.trim())
-          .filter((entry) => entry.length > 0),
-      });
+      await api.projects.vectorIndexes.create(projectId, draft.result.data);
       setOpen(false);
-      setName("");
+      draft.reset(TEMPLATE);
       void reload();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -104,128 +112,27 @@ export function VectorIndexesSection({ projectId }: { projectId: string }) {
                 index
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-sm">
+            <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
               <DialogHeader>
                 <DialogTitle>Create vector index</DialogTitle>
               </DialogHeader>
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-xs">Collection</Label>
-                  <Select
-                    value={collection || undefined}
-                    onValueChange={setCollection}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="—" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(overview?.collections ?? []).map((entry) => (
-                        <SelectItem key={entry} value={entry}>
-                          {entry}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="vector-name" className="text-xs">
-                    Name
-                  </Label>
-                  <Input
-                    id="vector-name"
-                    className="font-mono text-sm"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="vector-path" className="text-xs">
-                      Path
-                    </Label>
-                    <Input
-                      id="vector-path"
-                      className="font-mono text-sm"
-                      value={path}
-                      onChange={(event) => setPath(event.target.value)}
-                    />
+              <div className="flex min-w-0 flex-col gap-3">
+                <JsonEditor
+                  id="vector-index-json"
+                  draft={draft}
+                  rows={14}
+                  templates={TEMPLATES}
+                />
+                <div className="flex flex-col gap-1 border-t pt-3">
+                  <span className="text-[11px] text-muted-foreground">
+                    collections
+                  </span>
+                  <div className="min-w-0 break-all font-mono text-[11px] text-muted-foreground">
+                    {(overview?.collections ?? []).join(" ") || "—"}
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="vector-dims" className="text-xs">
-                      Dimensions
-                    </Label>
-                    <Input
-                      id="vector-dims"
-                      inputMode="numeric"
-                      className="font-mono text-sm"
-                      value={dimensions}
-                      onChange={(event) => setDimensions(event.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-xs">Similarity</Label>
-                    <Select
-                      value={similarity}
-                      onValueChange={(value) =>
-                        setSimilarity(value as VectorSimilarity)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SIMILARITIES.map((entry) => (
-                          <SelectItem key={entry} value={entry}>
-                            {entry}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-xs">Quantization</Label>
-                    <Select
-                      value={quantization}
-                      onValueChange={(value) =>
-                        setQuantization(value as VectorQuantization)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {QUANTIZATIONS.map((entry) => (
-                          <SelectItem key={entry} value={entry}>
-                            {entry}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="vector-filters" className="text-xs">
-                    Filter paths
-                  </Label>
-                  <Input
-                    id="vector-filters"
-                    className="font-mono text-sm"
-                    placeholder="a, b.c"
-                    value={filterPaths}
-                    onChange={(event) => setFilterPaths(event.target.value)}
-                  />
                 </div>
                 <Button
-                  disabled={
-                    busy ||
-                    !collection ||
-                    name.trim().length === 0 ||
-                    path.trim().length === 0 ||
-                    !Number.isInteger(Number(dimensions)) ||
-                    Number(dimensions) < 1
-                  }
+                  disabled={busy || !draft.result.ok}
                   onClick={() => void create()}
                 >
                   Create
