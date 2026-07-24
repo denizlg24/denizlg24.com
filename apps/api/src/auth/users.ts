@@ -208,11 +208,16 @@ export async function completePendingSignup(
         updatedAt: now,
       });
     }
+    // The account now has real credentials, so it is no longer "pending" —
+    // leaving it pending strands it behind the sign-in gate in app.ts, making
+    // the session returned below the only way the user could ever get in. MFA
+    // is still enforced separately: every guard also requires totpEnabled.
     await tx
       .update(authUser)
       .set({
         email,
         name: username,
+        status: "active",
         updatedAt: now,
       })
       .where(eq(authUser.id, legacyUser.id));
@@ -221,6 +226,7 @@ export async function completePendingSignup(
       .set({
         email,
         passwordHash,
+        status: "active",
         updatedAt: now,
       })
       .where(eq(users.id, legacyUser.id))

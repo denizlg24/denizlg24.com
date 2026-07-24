@@ -127,3 +127,31 @@ screen requires bypassing zod-validated client.
   frames from `@repo/schemas/cloud`; PTY data is binary and controls are text
   JSON. Reply to server `ping` with `pong`. Existing sessions can be listed or
   killed with `GET`/`DELETE /api/ops/terminal/sessions[/:id]`.
+- **Implementation (2026-07-24):** All eight screens shipped in `apps/cloud`
+  (Next.js on :3002 in dev, API on :3001; typed zod client in `lib/api.ts`,
+  `@repo/cloud-auth-client` sessions). Backend gaps closed in the same slice:
+  `GET /api/auth/admin/users` (paginated SafeUser list) and
+  `POST /api/auth/admin/reset-mfa` (cloud-core `resetUserMfa` extended to also
+  clear Better Auth `authTwoFactor` rows, revoke sessions, and flip
+  `twoFactorEnabled`, forcing re-enrollment at next login);
+  `GET /api/storage/s3-credentials` listing NULL-project legacy credentials
+  via new cloud-core `listLegacyS3Credentials`; superuser-only
+  `/api/ops/tools/{adminer,mongo-express}/*` streaming reverse proxy
+  (frame-blocking headers stripped, Location rewritten, unit-tested) with
+  `ADMINER_URL`/`MONGO_EXPRESS_URL` env (dev defaults 127.0.0.1:8081/8082) and
+  matching dev-compose containers; CORS headers on `/healthz` for the
+  settings environment panel. `adminResetMfaInputSchema` added to
+  `@repo/schemas/cloud`.
+- **Deviations (2026-07-24):** `GET /api/ops/metrics` takes ONE
+  comma-separated `series` query param, not repeated params. Default ops task
+  seeding runs at API start and silently no-ops until a superuser row exists —
+  on a fresh database, create/migrate the superuser before first API boot
+  (012 order already does this; noted there). Storage folder links point at
+  `NEXT_PUBLIC_STORAGE_APP_URL` + `/folders/:id` — 009 must serve that deep
+  link. Tiering dry-run persists `dryRun: true` into the task config before
+  running (report gates flipping it off), so a dry run can never arm live
+  moves as a side effect. Chart palette uses a CVD-validated categorical set
+  (light `#2a78d6 #eb6834 #1baf7a #eda100 #e87ba4`, dark-stepped variants)
+  rather than ad-hoc theme hues. Manual e2e ran against dev infra with a
+  scripted TOTP login (19/19 checks) plus a headless-Chromium responsive pass
+  at 375/768/1280 with zero horizontal body overflow.

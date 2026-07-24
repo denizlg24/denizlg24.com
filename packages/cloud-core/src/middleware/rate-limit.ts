@@ -67,15 +67,12 @@ export function rateLimit(options: RateLimitOptions): MiddlewareHandler {
         "Retry-After",
         String(Math.max(1, Math.ceil(decision.retryAfterMs / 1000))),
       );
-      return context.json(
-        {
-          error: {
-            code: "RATE_LIMITED",
-            message: "Too many requests, try again later",
-          },
-        },
-        429,
-      );
+      // This guards better-auth's sign-in routes too, and its client only
+      // reads a top-level code/message — without them a throttled login is
+      // indistinguishable from a wrong password in the UI.
+      const code = "RATE_LIMITED";
+      const message = "Too many requests, try again later";
+      return context.json({ code, message, error: { code, message } }, 429);
     }
 
     await next();

@@ -1,4 +1,5 @@
 import {
+  cloudEnv,
   createDb,
   createMeiliClient,
   createProjectPgClientFactory,
@@ -19,6 +20,7 @@ import {
   storageConfigFromEnv,
   syncRedisProjectAclUsers,
 } from "@repo/cloud-core";
+import type { DiskKind } from "@repo/schemas/cloud";
 import { MongoClient } from "mongodb";
 import { createClient } from "redis";
 
@@ -96,7 +98,7 @@ export async function createRuntimeApp() {
       connectTimeoutMS: 5_000,
       serverSelectionTimeoutMS: 5_000,
     };
-    const mongoSync = new MongoClient(requiredEnv("MONGODB_URI"), mongoOptions);
+    const mongoSync = new MongoClient(cloudEnv("MONGODB_URI"), mongoOptions);
     const mongoAdmin = new MongoClient(
       requiredEnv("MONGODB_ADMIN_URI"),
       mongoOptions,
@@ -107,7 +109,7 @@ export async function createRuntimeApp() {
     );
     await Promise.all([mongoSync.connect(), mongoAdmin.connect()]);
 
-    const baseURL = requiredEnv("BETTER_AUTH_URL");
+    const baseURL = cloudEnv("BETTER_AUTH_URL");
     const auth = createCloudAuth({
       baseURL,
       cookieDomain: process.env.COOKIE_DOMAIN,
@@ -244,13 +246,16 @@ export async function createRuntimeApp() {
       mongo: mongoAdmin,
     };
     const docker = new DockerClient();
-    const devices = [
-      process.env.SSD_DEVICE,
-      ...(process.env.HDD_DEVICES ?? "").split(","),
-      process.env.MICROSD_DEVICE,
-    ]
-      .map((device) => device?.trim())
-      .filter((device): device is string => Boolean(device));
+    const devices: Array<{ device: string; kind: DiskKind }> = [];
+    const addDevice = (device: string | undefined, kind: DiskKind) => {
+      const normalized = device?.trim();
+      if (normalized) devices.push({ device: normalized, kind });
+    };
+    addDevice(process.env.SSD_DEVICE, "ssd");
+    for (const device of (process.env.HDD_DEVICES ?? "").split(",")) {
+      addDevice(device, "hdd");
+    }
+    addDevice(process.env.MICROSD_DEVICE, "microsd");
     const sampler = new MetricsSampler({ db, docker, devices });
     cleanupActions.push(() => sampler.stop());
     await sampler.start();
@@ -320,6 +325,18 @@ export async function createRuntimeApp() {
         mongodb: mongoDbAdminRoutes(platformOptions),
       },
       ops: opsRoutes({ db, docker, health, sampler, scheduler, terminal }),
+      opsTools: {
+        adminerUrl:
+          process.env.ADMINER_URL ??
+          (process.env.NODE_ENV === "production"
+            ? undefined
+            : "http://127.0.0.1:8081"),
+        mongoExpressUrl:
+          process.env.MONGO_EXPRESS_URL ??
+          (process.env.NODE_ENV === "production"
+            ? undefined
+            : "http://127.0.0.1:8082"),
+      },
       trustedOrigins: CLOUD_AUTH_TRUSTED_ORIGINS,
     });
     return Object.assign(app, {

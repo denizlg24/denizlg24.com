@@ -17,6 +17,13 @@ export const metadata: Metadata = {
   description: "storage file browser",
 };
 
+const themeScript = `(() => {
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  const apply = () => document.documentElement.classList.toggle("dark", media.matches);
+  apply();
+  media.addEventListener("change", apply);
+})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -26,8 +33,12 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        {children}
+      </body>
     </html>
   );
 }

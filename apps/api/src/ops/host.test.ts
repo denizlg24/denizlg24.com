@@ -81,18 +81,24 @@ describe("host metric parsers", () => {
       ],
     ]);
     const times = [1_000, 2_000];
-    const collector = new HostCollector(["/dev/online", "/dev/missing"], {
-      now: () => times.shift() ?? 2_000,
-      readProc: async (path) => {
-        const value = procInputs.get(path)?.shift();
-        if (!value) throw new Error(`Missing mocked ${path}`);
-        return value;
+    const collector = new HostCollector(
+      [
+        { device: "/dev/online", kind: "ssd" },
+        { device: "/dev/missing", kind: "hdd" },
+      ],
+      {
+        now: () => times.shift() ?? 2_000,
+        readProc: async (path) => {
+          const value = procInputs.get(path)?.shift();
+          if (!value) throw new Error(`Missing mocked ${path}`);
+          return value;
+        },
+        readDf: async () =>
+          "Filesystem 1024-blocks Used Available Capacity Mounted on\n" +
+          "/dev/online 1000 400 600 40% /data\n",
+        readTemperature: async () => 42,
       },
-      readDf: async () =>
-        "Filesystem 1024-blocks Used Available Capacity Mounted on\n" +
-        "/dev/online 1000 400 600 40% /data\n",
-      readTemperature: async () => 42,
-    });
+    );
 
     const first = await collector.collect();
     const second = await collector.collect();
@@ -111,10 +117,15 @@ describe("host metric parsers", () => {
     });
     expect(second.cpu.temperatureCelsius).toBe(42);
     expect(second.disks).toContainEqual(
-      expect.objectContaining({ device: "/dev/online", online: true }),
+      expect.objectContaining({
+        device: "/dev/online",
+        kind: "ssd",
+        online: true,
+      }),
     );
     expect(second.disks).toContainEqual({
       device: "/dev/missing",
+      kind: "hdd",
       totalBytes: 0,
       usedBytes: 0,
       availableBytes: 0,

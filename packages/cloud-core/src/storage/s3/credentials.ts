@@ -5,7 +5,7 @@ import {
   randomBytes,
 } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import type { Database } from "../../db";
 import {
@@ -145,6 +145,24 @@ export async function listProjectS3Credentials(
     })
     .from(s3Credentials)
     .where(eq(s3Credentials.projectId, projectId))
+    .orderBy(s3Credentials.createdAt);
+}
+
+export async function listLegacyS3Credentials(
+  db: Database,
+): Promise<ProjectS3CredentialMetadata[]> {
+  return db
+    .select({
+      id: s3Credentials.id,
+      projectId: s3Credentials.projectId,
+      accessKeyId: s3Credentials.accessKeyId,
+      label: s3Credentials.label,
+      createdAt: s3Credentials.createdAt,
+      lastUsedAt: s3Credentials.lastUsedAt,
+      revokedAt: s3Credentials.revokedAt,
+    })
+    .from(s3Credentials)
+    .where(isNull(s3Credentials.projectId))
     .orderBy(s3Credentials.createdAt);
 }
 

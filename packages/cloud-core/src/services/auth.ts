@@ -6,6 +6,8 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "../db";
 import {
   apiKeys,
+  authSession,
+  authTwoFactor,
   authUser,
   recoveryCodes,
   totpSecrets,
@@ -112,6 +114,15 @@ export async function resetUserMfa(
   await db.transaction(async (tx) => {
     await tx.delete(totpSecrets).where(eq(totpSecrets.userId, userId));
     await tx.delete(recoveryCodes).where(eq(recoveryCodes.userId, userId));
+    await tx.delete(authTwoFactor).where(eq(authTwoFactor.userId, userId));
+    await tx.delete(authSession).where(eq(authSession.userId, userId));
+    await tx
+      .update(authUser)
+      .set({
+        twoFactorEnabled: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(authUser.id, userId));
     await tx
       .update(users)
       .set({

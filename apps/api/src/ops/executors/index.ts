@@ -15,6 +15,7 @@ import {
   parseTaskConfig,
   postgresBackupTaskConfigSchema,
   restartContainerTaskConfigSchema,
+  runCommandTaskConfigSchema,
   type TaskConfig,
   type TaskType,
   tieringPassTaskConfigSchema,
@@ -131,6 +132,83 @@ async function executeAlertEvaluation(
   };
 }
 
+const COMMAND_OUTPUT_LIMIT = 64 * 1_024;
+// Run output is persisted on task_runs and rendered in the admin UI, so the
+// API's own environment (database URLs, auth secret, S3 keys) must not reach a
+// spawned command that could echo it back. Only what a shell needs to resolve
+// and run a binary is inherited; everything else comes from the task config.
+const INHERITED_ENV_KEYS = [
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "PATH",
+  "SHELL",
+  "TMPDIR",
+  "TZ",
+  "USER",
+] as const;
+// Bun kills the child once captured output passes this; well above the 64 KB
+// we keep, but low enough that a runaway command cannot exhaust memory.
+const COMMAND_BUFFER_LIMIT = 8 * 1_024 * 1_024;
+
+function baseCommandEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of INHERITED_ENV_KEYS) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
+function tail(stream: string, label: string): string {
+  const trimmed = stream.trimEnd();
+  if (trimmed.length === 0) return "";
+  const clipped =
+    trimmed.length > COMMAND_OUTPUT_LIMIT
+      ? `…truncated…\n${trimmed.slice(-COMMAND_OUTPUT_LIMIT)}`
+      : trimmed;
+  return `--- ${label} ---\n${clipped}`;
+}
+
+async function executeRunCommand(
+  rawConfig: TaskConfig,
+  context: ExecutorContext,
+): Promise<ExecutorResult> {
+  const config = runCommandTaskConfigSchema.parse(rawConfig);
+  const startedAt = Date.now();
+  const child = Bun.spawn([config.command, ...config.args], {
+    cwd: config.cwd,
+    env: { ...baseCommandEnv(), ...config.env },
+    killSignal: "SIGKILL",
+    maxBuffer: COMMAND_BUFFER_LIMIT,
+    stderr: "pipe",
+    stdin: "ignore",
+    stdout: "pipe",
+    timeout: config.timeoutMs,
+  });
+
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+
+  const durationMs = Date.now() - startedAt;
+  const body = [tail(stdout, "stdout"), tail(stderr, "stderr")]
+    .filter(Boolean)
+    .join("\n");
+  const summary = `$ ${[config.command, ...config.args].join(" ")}\nExit code: ${exitCode} · ${(durationMs / 1_000).toFixed(1)}s`;
+  const output = body ? `${summary}\n${body}` : summary;
+
+  // A non-zero exit has to throw: the scheduler marks a run failed only on a
+  // rejected executor, so returning normally would report a broken command as
+  // a success and skip the failure notification.
+  if (exitCode !== 0) {
+    throw new Error(output);
+  }
+  return { output, metadata: { durationMs, exitCode } };
+}
+
 export function getExecutor(
   type: TaskType,
   context: ExecutorContext,
@@ -224,6 +302,8 @@ export function getExecutor(
     case "alert_evaluation":
       return async (config, taskId) =>
         executeAlertEvaluation(config, taskId, context);
+    case "run_command":
+      return async (config) => executeRunCommand(config, context);
   }
 }
 

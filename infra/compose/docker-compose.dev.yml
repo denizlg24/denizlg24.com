@@ -116,6 +116,41 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
 
+  # DB admin tools, iframed by apps/cloud through the authenticated
+  # /api/ops/tools/* proxy (plan 008); loopback-only, same as docker-proxy.
+  # They run with root DB credentials and no auth of their own — the proxy is
+  # the only gate — so they stay behind an opt-in profile:
+  #   docker compose --profile tools up -d
+  adminer:
+    image: ${ADMINER_IMAGE:-adminer:5}
+    profiles: ["tools"]
+    ports:
+      - "127.0.0.1:${ADMINER_PORT:-8081}:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mongo-express:
+    image: ${MONGO_EXPRESS_IMAGE:-mongo-express:1}
+    profiles: ["tools"]
+    ports:
+      - "127.0.0.1:${MONGO_EXPRESS_PORT:-8082}:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/?authSource=admin&directConnection=true
+      ME_CONFIG_SITE_BASEURL: /api/ops/tools/mongo-express/
+      # The proxy forwards headers without injecting credentials, so basic auth
+      # here would break the iframe. Both keys are set: 1.x reads _ENABLED, the
+      # bare key is the older name.
+      ME_CONFIG_BASICAUTH: "false"
+      ME_CONFIG_BASICAUTH_ENABLED: "false"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   mongo-data:

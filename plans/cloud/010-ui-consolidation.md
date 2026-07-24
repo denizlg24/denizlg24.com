@@ -70,4 +70,11 @@ obviously intended; otherwise report.
 
 ## Drift log
 
-(record deviations here)
+- **From 008 (2026-07-24):** `apps/cloud` grew app-local primitives that are
+  promotion candidates: `components/section.tsx` (heading + hairline),
+  `components/status-dot.tsx` (status tones incl. `--status-*` theme tokens),
+  `components/copy-button.tsx`, `components/secret-value.tsx` (copy-once
+  reveal), `components/confirm-button.tsx`, `components/typed-confirm-dialog`
+  (type-the-name destructive confirm), and `lib/use-poll.ts`. The chart
+  palette (`--chart-1..5`) is a CVD-validated categorical set distinct from
+  the desktop theme — consolidate deliberately, not by unifying hex values.

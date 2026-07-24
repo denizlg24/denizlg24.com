@@ -1,3 +1,4 @@
+import { Toaster } from "@repo/ui/sonner";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -13,9 +14,16 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "cloud",
+  title: "deniz cloud",
   description: "cloud admin",
 };
+
+const themeScript = `(() => {
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  const apply = () => document.documentElement.classList.toggle("dark", media.matches);
+  apply();
+  media.addEventListener("change", apply);
+})();`;
 
 export default function RootLayout({
   children,
@@ -26,8 +34,13 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="flex min-h-full flex-col">
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        {children}
+        <Toaster position="bottom-right" />
+      </body>
     </html>
   );
 }

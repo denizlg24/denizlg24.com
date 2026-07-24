@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# cloud — admin app (cloud.denizlg24.com)
 
-## Getting Started
+Next.js admin surface for the self-hosted cloud. Superuser-only; talks to
+`apps/api` with better-auth cross-subdomain sessions.
 
-First, run the development server:
+## Environment
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_CLOUD_API_URL` | `http://localhost:3001` | API base URL |
+| `NEXT_PUBLIC_STORAGE_APP_URL` | `http://localhost:3005` | Storage app links (project folder deep links: `/folders/:id`) |
+| `NEXT_PUBLIC_DISK_BAY_COUNT` | `12` | Minimum number of hot-swap bays rendered on the disks tab |
+
+These are inlined at build time. The defaults point at local dev on purpose —
+production values come from the Vercel project (`infra/vercel/SETUP.md`), so a
+build that forgets them fails loudly instead of pointing this app at prod.
+
+## Local development
+
+```sh
+bun run cloud:dev:infra                       # from repo root: postgres/mongo/redis/meili/docker-proxy
+PORT=3001 bun --env-file=.env run --cwd apps/api dev
+NEXT_PUBLIC_CLOUD_API_URL=http://localhost:3001 bun run --cwd apps/cloud dev   # serves on :3002
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The app dev server is pinned to port `3002` and the API to `3001`; both are in
+the API's trusted CORS/auth origins (`http://localhost:3000-3002`). Sessions
+are cookie-based (`credentials: include`) — no client-side tokens.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Adminer and mongo-express (iframed by the databases screen through
+`/api/ops/tools/*`) run with root DB credentials and no auth of their own, so
+they sit behind an opt-in compose profile:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```sh
+docker compose --env-file infra/compose/.env.dev \
+  -f infra/compose/docker-compose.dev.yml --profile tools up -d
+```
 
-## Learn More
+The first superuser for login is created with
+`bun run --cwd apps/api auth:bootstrap-superuser <username>`
+(`apps/api/scripts/bootstrap-superuser.ts`); it refuses to run once any user
+exists.
 
-To learn more about Next.js, take a look at the following resources:
+## Conventions
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- All fetches go through `lib/api.ts`; every response is validated with
+  `@repo/schemas/cloud` zod schemas. No untyped fetch.
+- Auth client: `@repo/cloud-auth-client` (`lib/auth-client.ts`).
+- UI: `@repo/ui` primitives, editorial style — dense tables, hairlines,
+  typographic hierarchy, restrained color. No cards, no explanatory copy.

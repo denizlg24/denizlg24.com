@@ -5,10 +5,13 @@ import {
   type Database,
   deleteUser,
   hashPassword,
+  listLegacyS3Credentials,
+  listUsers,
   type RateLimitStore,
   rateLimit,
   requireRole,
   requireSession,
+  resetUserMfa,
   type S3ApiConfig,
   type StorageService,
   s3Routes,
@@ -19,6 +22,7 @@ import {
 } from "@repo/cloud-core";
 import { authAccount, authUser } from "@repo/cloud-core/db/schema";
 import {
+  adminResetMfaInputSchema,
   completeSignupInputSchema,
   createPendingUserInputSchema,
 } from "@repo/schemas/cloud";
@@ -40,12 +44,18 @@ import type {
   postgresDbAdminRoutes,
 } from "./db-admin/routes";
 import type { opsRoutes } from "./ops/routes";
+import { type OpsToolsConfig, toolsProxyRoutes } from "./ops/tools-proxy";
 import type { projectRoutes } from "./projects/routes";
 import { storageRoutes, storageSearchRoutes } from "./storage/routes";
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_REQUESTS = 10;
 const SIGNUP_MAX_REQUESTS = 5;
+// Outside production clientIp() collapses to one key, so the whole machine
+// shares a single bucket and a normal debugging session exhausts it. The
+// production ceilings are the ones that matter and are left untouched.
+const DEV_LOGIN_MAX_REQUESTS = 200;
+const DEV_SIGNUP_MAX_REQUESTS = 100;
 const MFA_ENROLLMENT_PATHS = new Set([
   "/api/auth/get-session",
   "/api/auth/sign-out",
@@ -53,6 +63,22 @@ const MFA_ENROLLMENT_PATHS = new Set([
   "/api/auth/two-factor/get-totp-uri",
   "/api/auth/two-factor/verify-totp",
 ]);
+// Re-authentication has to stay open: two-factor/enable needs the password,
+// which the browser only holds in memory, so any reload during enrollment
+// leaves a session that can no longer reach the one endpoint it needs. Signing
+// in again replaces that session and is no weaker than a fresh sign-in.
+const MFA_ENROLLMENT_PATH_PREFIXES = ["/api/auth/sign-in/"];
+
+function allowedDuringMfaEnrollment(path: string): boolean {
+  return (
+    MFA_ENROLLMENT_PATHS.has(path) ||
+    MFA_ENROLLMENT_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
+}
+const adminUsersQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
 
 export interface CloudApiOptions {
   auth: CloudAuth;
@@ -70,6 +96,7 @@ export interface CloudApiOptions {
     mongodb: ReturnType<typeof mongoDbAdminRoutes>;
   };
   ops?: ReturnType<typeof opsRoutes>;
+  opsTools?: OpsToolsConfig;
 }
 
 function clientIp(
@@ -103,13 +130,19 @@ function genericSignupError() {
   } as const;
 }
 
+// Everything under /api/auth is read by two different clients: lib/api.ts
+// unwraps `error`, better-auth's client reads a top-level `code`/`message`.
+// Emitting one shape leaves the other showing "Sign in failed" for every
+// cause, so responses that either may see carry both.
+function dualShapeError(code: string, message: string) {
+  return { code, message, error: { code, message } } as const;
+}
+
 function mfaEnrollmentRequiredError() {
-  return {
-    error: {
-      code: "MFA_ENROLLMENT_REQUIRED",
-      message: "Complete two-factor enrollment before continuing",
-    },
-  } as const;
+  return dualShapeError(
+    "MFA_ENROLLMENT_REQUIRED",
+    "Complete two-factor enrollment before continuing",
+  );
 }
 
 export function createCloudApiApp(options: CloudApiOptions) {
@@ -208,7 +241,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
     if (
       enrollment &&
       (enrollment.status !== "active" || !enrollment.twoFactorEnabled) &&
-      !MFA_ENROLLMENT_PATHS.has(context.req.path)
+      !allowedDuringMfaEnrollment(context.req.path)
     ) {
       return context.json(mfaEnrollmentRequiredError(), 403);
     }
@@ -221,7 +254,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
     rateLimit({
       keyGenerator: (context) =>
         `login:${clientIp(context, options.isProduction)}`,
-      max: LOGIN_MAX_REQUESTS,
+      max: options.isProduction ? LOGIN_MAX_REQUESTS : DEV_LOGIN_MAX_REQUESTS,
       store: options.rateLimitStore,
       windowMs: LOGIN_WINDOW_MS,
     }),
@@ -260,7 +293,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
     rateLimit({
       keyGenerator: (context) =>
         `complete-signup:${clientIp(context, options.isProduction)}`,
-      max: SIGNUP_MAX_REQUESTS,
+      max: options.isProduction ? SIGNUP_MAX_REQUESTS : DEV_SIGNUP_MAX_REQUESTS,
       store: options.rateLimitStore,
       windowMs: LOGIN_WINDOW_MS,
     }),
@@ -417,14 +450,53 @@ export function createCloudApiApp(options: CloudApiOptions) {
     }
     return context.json({ success: true });
   });
+  app.get("/api/auth/admin/users", async (context) => {
+    const { page, limit } = adminUsersQuerySchema.parse({
+      page: context.req.query("page"),
+      limit: context.req.query("limit"),
+    });
+    const result = await listUsers(options.db, { page, limit });
+    return context.json({
+      data: result.users.map(serializeSafeUser),
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        totalPages: Math.ceil(result.total / limit),
+      },
+    });
+  });
+  app.post("/api/auth/admin/reset-mfa", async (context) => {
+    const parsed = adminResetMfaInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: { code: "INVALID_USER_ID", message: "A user id is required" },
+        },
+        400,
+      );
+    }
+    try {
+      await resetUserMfa(options.db, parsed.data.userId);
+      return context.json({ success: true });
+    } catch (error) {
+      if (error instanceof CloudCoreError) {
+        return context.json(
+          { error: { code: error.code, message: error.message } },
+          error.status,
+        );
+      }
+      throw error;
+    }
+  });
   app.post("/api/auth/two-factor/disable", (context) =>
     context.json(
-      {
-        error: {
-          code: "TWO_FACTOR_REQUIRED",
-          message: "Two-factor authentication is mandatory",
-        },
-      },
+      dualShapeError(
+        "TWO_FACTOR_REQUIRED",
+        "Two-factor authentication is mandatory",
+      ),
       403,
     ),
   );
@@ -445,6 +517,13 @@ export function createCloudApiApp(options: CloudApiOptions) {
     });
     app.use("/api/search", authenticate);
     app.use("/api/search/*", authenticate);
+    app.get(
+      "/api/storage/s3-credentials",
+      requireSession(),
+      requireRole("superuser"),
+      async (context) =>
+        context.json({ data: await listLegacyS3Credentials(options.db) }),
+    );
     app.route("/api/storage", storageRoutes(options.storage.service));
     app.route("/api/search", storageSearchRoutes(options.storage.service));
     app.route("/v2", s3Routes(options.storage.s3));
@@ -484,6 +563,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
       requireSession(),
       requireRole("superuser"),
     );
+    app.route("/api/ops/tools", toolsProxyRoutes(options.opsTools ?? {}));
     app.route("/api/ops", options.ops);
   }
 

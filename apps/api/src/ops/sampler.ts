@@ -9,14 +9,14 @@ import {
 import type { ContainerSnapshot, OpsOverview } from "@repo/schemas/cloud";
 import { count, sum } from "drizzle-orm";
 
-import { HostCollector } from "./host";
+import { type DiskDevice, HostCollector } from "./host";
 
 const SAMPLING_INTERVAL_MS = 30_000;
 
 export interface MetricsSamplerOptions {
   db: Database;
   docker: DockerClient;
-  devices: readonly string[];
+  devices: readonly DiskDevice[];
   intervalMs?: number;
 }
 

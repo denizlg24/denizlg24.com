@@ -68,3 +68,9 @@ apps/desktop/src-tauri/target/
 
 # Envoy - Config
 !.envoy/config.toml
+
+# Local dev storage tiers (apps/api)
+.data/
+
+# bun build artifacts
+*.bun-build

@@ -48,6 +48,13 @@ export interface TmuxSessionManagerOptions {
   tmuxBinary?: string;
 }
 
+// tmux reports a missing target two different ways: "can't find session" while
+// other sessions exist, and "no current target" once the server has none left
+// — a state `exit-empty off` makes permanent. Treating only the first as
+// "absent" strands every later attach behind a server that is up but empty.
+const MISSING_TARGET_PATTERN =
+  /can't find session|no current target|no server running|failed to connect|error connecting to/i;
+
 function isoFromUnixSeconds(value: string): string {
   const seconds = Number(value);
   if (!Number.isFinite(seconds) || seconds < 0) {
@@ -138,9 +145,7 @@ export class TmuxSessionManager {
       .catch((error) => {
         if (
           error instanceof Error &&
-          /can't find session|no server running|failed to connect|error connecting to/i.test(
-            error.message,
-          )
+          MISSING_TARGET_PATTERN.test(error.message)
         ) {
           return false;
         }
@@ -258,42 +263,45 @@ export class TmuxSessionManager {
       ],
       { allowNoServer: true },
     );
-    return output
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .flatMap((line) => {
-        const [name, created, activity, attached] = line.split("|");
-        if (
-          !name?.startsWith(TERMINAL_SESSION_PREFIX) ||
-          created === undefined ||
-          activity === undefined ||
-          attached === undefined
-        ) {
-          return [];
-        }
-        const id = name.slice(TERMINAL_SESSION_PREFIX.length);
-        const parsedId = terminalSessionIdSchema.safeParse(id);
-        const attachedClients = Number(attached);
-        if (
-          !parsedId.success ||
-          !Number.isInteger(attachedClients) ||
-          attachedClients < 0
-        ) {
-          return [];
-        }
-        return [
-          {
-            attachedClients,
-            createdAt: isoFromUnixSeconds(created),
-            id: parsedId.data,
-            lastActivityAt: isoFromUnixSeconds(activity),
-          },
-        ];
-      })
-      .sort((left, right) =>
-        right.lastActivityAt.localeCompare(left.lastActivityAt),
-      );
+    return (
+      output
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .flatMap((line) => {
+          const [name, created, activity, attached] = line.split("|");
+          if (
+            !name?.startsWith(TERMINAL_SESSION_PREFIX) ||
+            created === undefined ||
+            activity === undefined ||
+            attached === undefined
+          ) {
+            return [];
+          }
+          const id = name.slice(TERMINAL_SESSION_PREFIX.length);
+          const parsedId = terminalSessionIdSchema.safeParse(id);
+          const attachedClients = Number(attached);
+          if (
+            !parsedId.success ||
+            !Number.isInteger(attachedClients) ||
+            attachedClients < 0
+          ) {
+            return [];
+          }
+          return [
+            {
+              attachedClients,
+              createdAt: isoFromUnixSeconds(created),
+              id: parsedId.data,
+              lastActivityAt: isoFromUnixSeconds(activity),
+            },
+          ];
+        })
+        // Creation order is stable; activity order is not. Sorting by activity
+        // floated whichever session you were typing in to the front on every
+        // poll, so the chips reshuffled under the cursor.
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    );
   }
 
   async kill(id: string): Promise<void> {

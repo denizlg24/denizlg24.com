@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "auth:migrate-users": "bun scripts/migrate-users.ts",
-    "dev": "bun run --watch src/index.ts",
+    "auth:bootstrap-superuser": "bun --env-file=../../.env scripts/bootstrap-superuser.ts",
+    "auth:migrate-users": "bun --env-file=../../.env scripts/migrate-users.ts",
+    "dev": "PORT=3001 bun --env-file=../../.env --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "typecheck": "tsc --noEmit",
     "test": "bun test"

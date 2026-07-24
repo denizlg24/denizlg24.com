@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./theme.css": "./src/theme.css",
     "./*": "./src/*.tsx",
     "./hooks/*": "./src/hooks/*.ts",
     "./utils": "./src/utils.ts"

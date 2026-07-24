@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { cpus, freemem, totalmem } from "node:os";
-import type { DiskInfo, OpsOverview } from "@repo/schemas/cloud";
+import type { DiskInfo, DiskKind, OpsOverview } from "@repo/schemas/cloud";
 
 export interface CpuCounters {
   idle: number;
@@ -12,6 +12,11 @@ export interface NetworkCounters {
   interface: string;
   rxBytes: number;
   txBytes: number;
+}
+
+export interface DiskDevice {
+  device: string;
+  kind: DiskKind;
 }
 
 export function parseCpuStat(input: string): CpuCounters {
@@ -247,14 +252,14 @@ function fallbackCpuCounters(): CpuCounters {
 }
 
 function diskInfo(
-  device: string,
+  disk: DiskDevice,
   values:
     | { totalBytes: number; usedBytes: number; availableBytes: number }
     | undefined,
 ): DiskInfo {
   if (!values) {
     return {
-      device,
+      ...disk,
       totalBytes: 0,
       usedBytes: 0,
       availableBytes: 0,
@@ -263,7 +268,7 @@ function diskInfo(
     };
   }
   return {
-    device,
+    ...disk,
     ...values,
     usagePercent:
       values.totalBytes > 0 ? (values.usedBytes / values.totalBytes) * 100 : 0,
@@ -278,7 +283,7 @@ export class HostCollector {
   private previousNetworkAt: number | null = null;
 
   constructor(
-    private readonly devices: readonly string[],
+    private readonly devices: readonly DiskDevice[],
     dependencies: Partial<HostCollectorDependencies> = {},
   ) {
     this.dependencies = {
@@ -365,8 +370,8 @@ export class HostCollector {
         temperatureCelsius: temp,
       },
       memory: memoryResult,
-      disks: this.devices.map((device) =>
-        diskInfo(device, dfResult.get(device)),
+      disks: this.devices.map((disk) =>
+        diskInfo(disk, dfResult.get(disk.device)),
       ),
       network,
     };
