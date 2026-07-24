@@ -24,7 +24,17 @@ const REDIS_URL =
   process.env.CLOUD_TEST_REDIS_ADMIN_URL ??
   "redis://default:devpassword@localhost:6380";
 
-type RedisValue = string | number | null | RedisValue[];
+type RedisValue = string | number | null | Error | RedisValue[];
+
+function redisError(value: RedisValue): Error | undefined {
+  if (value instanceof Error) return value;
+  if (!Array.isArray(value)) return undefined;
+  for (const item of value) {
+    const error = redisError(item);
+    if (error) return error;
+  }
+  return undefined;
+}
 
 class TestRedisClient implements RedisCommander {
   private socket: Socket | null = null;
@@ -83,6 +93,8 @@ class TestRedisClient implements RedisCommander {
       const parsed = this.parseValue(0);
       if (parsed) {
         this.buffer = this.buffer.subarray(parsed.nextOffset);
+        const error = redisError(parsed.value);
+        if (error) throw error;
         return parsed.value;
       }
       const chunk = await new Promise<Buffer>((resolve, reject) => {
@@ -117,7 +129,12 @@ class TestRedisClient implements RedisCommander {
     const next = lineEnd + 2;
     if (prefix === "+") return { value: line, nextOffset: next };
     if (prefix === ":") return { value: Number(line), nextOffset: next };
-    if (prefix === "-") throw new Error(`Redis error: ${line}`);
+    if (prefix === "-") {
+      return {
+        value: new Error(`Redis error: ${line}`),
+        nextOffset: next,
+      };
+    }
     if (prefix === "$") {
       const length = Number(line);
       if (length === -1) return { value: null, nextOffset: next };
@@ -285,6 +302,12 @@ describeInfra("project provisioning against dev infrastructure", () => {
             projectClient.sendCommand(["SET", "other:forbidden", "no"]),
           ),
         ).toBe(true);
+        expect(
+          await projectClient.sendCommand([
+            "GET",
+            `${resource.dbName}:allowed`,
+          ]),
+        ).toBe("ok");
       } finally {
         await projectClient.close();
       }

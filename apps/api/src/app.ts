@@ -25,6 +25,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { z } from "zod";
 
 import pkg from "../package.json";
 import type { CloudAuth } from "./auth/better-auth";
@@ -479,7 +480,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
         error.status,
       );
     }
-    if (error instanceof Error && error.name === "ZodError") {
+    if (error instanceof z.ZodError) {
       return context.json(
         {
           error: {

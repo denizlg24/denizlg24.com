@@ -390,7 +390,10 @@ export function postgresDbAdminRoutes(options: DbAdminOptions) {
       const result = await withDatabase(
         options.databaseUrl,
         database,
-        async (sql) => sql.unsafe(parsed.data.sql),
+        async (sql) => {
+          await sql.unsafe("SET statement_timeout = 30000");
+          return sql.unsafe(parsed.data.sql);
+        },
       );
       const rows = Array.isArray(result) ? result : [];
       return context.json({

@@ -115,6 +115,9 @@ export class PostgresProvisioner implements Provisioner {
           `GRANT ALL PRIVILEGES ON DATABASE ${database} TO ${role}`,
         );
       } catch (error) {
+        await sql
+          .unsafe(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`)
+          .catch(() => undefined);
         await sql.unsafe(`DROP ROLE IF EXISTS ${role}`).catch(() => undefined);
         throw error;
       }
