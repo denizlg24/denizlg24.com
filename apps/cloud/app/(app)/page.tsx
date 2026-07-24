@@ -39,9 +39,9 @@ export default function DashboardPage() {
     error: overviewError,
     reload: reloadOverview,
   } = usePoll(api.ops.overview, 30_000);
-  const { data: health } = usePoll(api.ops.health, 30_000);
+  const { data: health, error: healthError } = usePoll(api.ops.health, 30_000);
   const fetchTasks = useCallback(() => api.tasks.list({ limit: 50 }), []);
-  const { data: taskData } = usePoll(fetchTasks, 60_000);
+  const { data: taskData, error: taskError } = usePoll(fetchTasks, 60_000);
 
   if (!overview) {
     return overviewError ? (
@@ -53,15 +53,28 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-8">
+      {overviewError && (
+        <p className="text-xs text-destructive">{overviewError}</p>
+      )}
       <OverviewTiles overview={overview} />
-      {health && <HealthStrip health={health} />}
+      {health ? (
+        <HealthStrip health={health} />
+      ) : (
+        healthError && (
+          <p className="text-xs text-destructive">health: {healthError}</p>
+        )
+      )}
       <MetricCharts overview={overview} />
       <ContainersTable
         containers={overview.containers}
         onChanged={() => void reloadOverview()}
       />
-      {taskData && (
+      {taskData ? (
         <RecentRuns tasks={taskData.tasks} runs={taskData.latestRuns} />
+      ) : (
+        taskError && (
+          <p className="text-xs text-destructive">tasks: {taskError}</p>
+        )
       )}
     </div>
   );

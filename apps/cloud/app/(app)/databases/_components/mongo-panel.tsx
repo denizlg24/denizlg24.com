@@ -39,11 +39,19 @@ function IndexesDialog({
 
   useEffect(() => {
     if (!collection) return;
+    let cancelled = false;
     setIndexes(null);
     api.mongo
       .indexes(database, collection)
-      .then(setIndexes)
-      .catch((err) => toast.error(errorMessage(err)));
+      .then((rows) => {
+        if (!cancelled) setIndexes(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) toast.error(errorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [database, collection]);
 
   return (

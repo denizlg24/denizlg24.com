@@ -112,7 +112,14 @@ interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   query?: Query;
+  timeoutMs?: number;
 }
+
+// Without a deadline a stalled connection keeps `usePoll` in `loading` forever
+// and every interval tick stacks another hung request on top of it.
+const DEFAULT_TIMEOUT_MS = 30_000;
+// Query consoles, provisioning and manual task runs legitimately take longer.
+const SLOW_TIMEOUT_MS = 120_000;
 
 async function rawRequest(
   path: string,
@@ -129,6 +136,7 @@ async function rawRequest(
     response = await fetch(url, {
       method: options.method ?? "GET",
       credentials: "include",
+      signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
       headers:
         options.body !== undefined
           ? { "Content-Type": "application/json" }
@@ -136,7 +144,10 @@ async function rawRequest(
       body:
         options.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new ApiError("TIMEOUT", "API timed out", 0);
+    }
     throw new ApiError("NETWORK", "API unreachable", 0);
   }
   if (!response.ok) {
@@ -298,6 +309,7 @@ export const api = {
     run: (id: string): Promise<SafeTaskRun> =>
       requestData(safeTaskRunSchema, `/api/ops/tasks/${id}/run`, {
         method: "POST",
+        timeoutMs: SLOW_TIMEOUT_MS,
       }),
     runs: (
       id: string,
@@ -432,7 +444,7 @@ export const api = {
         requestData(
           projectDatabaseSchema,
           `/api/projects/${projectId}/databases`,
-          { method: "POST", body: { type } },
+          { method: "POST", body: { type }, timeoutMs: SLOW_TIMEOUT_MS },
         ),
       deprovision: (projectId: string, databaseId: string): Promise<null> =>
         requestData(
@@ -491,7 +503,7 @@ export const api = {
         requestData(
           z.object({ success: z.boolean(), message: z.string().optional() }),
           `/api/projects/${projectId}/collections/${collectionId}/resync`,
-          { method: "POST" },
+          { method: "POST", timeoutMs: SLOW_TIMEOUT_MS },
         ),
       discoverFields: (
         projectId: string,
@@ -639,7 +651,7 @@ export const api = {
       requestData(
         pgQueryResultSchema,
         `/api/db/postgres/databases/${encodeURIComponent(database)}/query`,
-        { method: "POST", body: { sql } },
+        { method: "POST", body: { sql }, timeoutMs: SLOW_TIMEOUT_MS },
       ),
   },
 
@@ -718,7 +730,7 @@ export const api = {
       requestData(
         mongoFindResultSchema,
         `/api/db/mongodb/databases/${encodeURIComponent(database)}/collections/${encodeURIComponent(collection)}/find`,
-        { method: "POST", body: input },
+        { method: "POST", body: input, timeoutMs: SLOW_TIMEOUT_MS },
       ),
   },
 };

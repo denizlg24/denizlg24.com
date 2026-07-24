@@ -23,7 +23,9 @@ environments:
 
 These are the only environment variables currently used by `apps/cloud`.
 They are public build-time values embedded into the Next.js client bundle, so
-set them before each deployment. Set `NEXT_PUBLIC_DISK_BAY_COUNT` to
+set them before each deployment — the in-code fallbacks are `localhost`, not
+production, so a deployment missing them is broken rather than silently
+pointing at the live API. Set `NEXT_PUBLIC_DISK_BAY_COUNT` to
 the number of physical bays you want the rack to show; discovered disks are
 always added if that value is too small. The API does not need to be deployed
 for the Vercel build to pass; the cloud app will simply show API/network errors

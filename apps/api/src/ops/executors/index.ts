@@ -133,6 +133,32 @@ async function executeAlertEvaluation(
 }
 
 const COMMAND_OUTPUT_LIMIT = 64 * 1_024;
+// Run output is persisted on task_runs and rendered in the admin UI, so the
+// API's own environment (database URLs, auth secret, S3 keys) must not reach a
+// spawned command that could echo it back. Only what a shell needs to resolve
+// and run a binary is inherited; everything else comes from the task config.
+const INHERITED_ENV_KEYS = [
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "PATH",
+  "SHELL",
+  "TMPDIR",
+  "TZ",
+  "USER",
+] as const;
+// Bun kills the child once captured output passes this; well above the 64 KB
+// we keep, but low enough that a runaway command cannot exhaust memory.
+const COMMAND_BUFFER_LIMIT = 8 * 1_024 * 1_024;
+
+function baseCommandEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of INHERITED_ENV_KEYS) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
 
 function tail(stream: string, label: string): string {
   const trimmed = stream.trimEnd();
@@ -152,27 +178,20 @@ async function executeRunCommand(
   const startedAt = Date.now();
   const child = Bun.spawn([config.command, ...config.args], {
     cwd: config.cwd,
-    // Inherit the API's environment so PATH resolves, with explicit overrides
-    // layered on top.
-    env: { ...process.env, ...config.env },
+    env: { ...baseCommandEnv(), ...config.env },
+    killSignal: "SIGKILL",
+    maxBuffer: COMMAND_BUFFER_LIMIT,
     stderr: "pipe",
     stdin: "ignore",
     stdout: "pipe",
+    timeout: config.timeoutMs,
   });
 
-  const timeout = setTimeout(() => child.kill("SIGKILL"), config.timeoutMs);
-  let exitCode: number;
-  let stdout: string;
-  let stderr: string;
-  try {
-    [exitCode, stdout, stderr] = await Promise.all([
-      child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ]);
-  } finally {
-    clearTimeout(timeout);
-  }
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
 
   const durationMs = Date.now() - startedAt;
   const body = [tail(stdout, "stdout"), tail(stderr, "stderr")]

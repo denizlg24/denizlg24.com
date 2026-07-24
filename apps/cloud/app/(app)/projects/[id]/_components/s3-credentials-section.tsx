@@ -64,11 +64,14 @@ export function S3CredentialsSection({ projectId }: { projectId: string }) {
   const activeLegacy = (legacy ?? []).filter(
     (credential) => credential.revokedAt === null,
   );
+  const activeCredentials = (credentials ?? []).filter(
+    (credential) => credential.revokedAt === null,
+  );
 
   return (
     <Section
       title="s3 credentials"
-      count={credentials?.length}
+      count={credentials ? activeCredentials.length : undefined}
       actions={
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
@@ -135,77 +138,71 @@ export function S3CredentialsSection({ projectId }: { projectId: string }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(credentials ?? [])
-              .filter((credential) => credential.revokedAt === null)
-              .map((credential) => (
-                <TableRow key={credential.id}>
-                  <TableCell className="text-sm">{credential.label}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {credential.accessKeyId}
-                  </TableCell>
-                  <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
-                    {formatRelative(credential.lastUsedAt)}
-                  </TableCell>
-                  <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
-                    {formatRelative(credential.createdAt)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-0.5">
-                      <ConfirmButton
-                        trigger={
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7"
-                          >
-                            <RotateCw className="size-3.5" />
-                          </Button>
-                        }
-                        title={`Rotate ${credential.label}?`}
-                        description="The current secret stops working immediately."
-                        actionLabel="Rotate"
-                        onConfirm={async () => {
-                          try {
-                            const rotated =
-                              await api.projects.s3Credentials.rotate(
-                                projectId,
-                                credential.id,
-                              );
-                            setIssued(rotated);
-                            void reload();
-                          } catch (err) {
-                            toast.error(errorMessage(err));
-                          }
-                        }}
-                      />
-                      <ConfirmButton
-                        trigger={
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 text-destructive"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        }
-                        title={`Revoke ${credential.label}?`}
-                        actionLabel="Revoke"
-                        onConfirm={async () => {
-                          try {
-                            await api.projects.s3Credentials.revoke(
+            {activeCredentials.map((credential) => (
+              <TableRow key={credential.id}>
+                <TableCell className="text-sm">{credential.label}</TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">
+                  {credential.accessKeyId}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
+                  {formatRelative(credential.lastUsedAt)}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
+                  {formatRelative(credential.createdAt)}
+                </TableCell>
+                <TableCell>
+                  <div className="flex justify-end gap-0.5">
+                    <ConfirmButton
+                      trigger={
+                        <Button variant="ghost" size="icon" className="size-7">
+                          <RotateCw className="size-3.5" />
+                        </Button>
+                      }
+                      title={`Rotate ${credential.label}?`}
+                      description="The current secret stops working immediately."
+                      actionLabel="Rotate"
+                      onConfirm={async () => {
+                        try {
+                          const rotated =
+                            await api.projects.s3Credentials.rotate(
                               projectId,
                               credential.id,
                             );
-                            void reload();
-                          } catch (err) {
-                            toast.error(errorMessage(err));
-                          }
-                        }}
-                      />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+                          setIssued(rotated);
+                          void reload();
+                        } catch (err) {
+                          toast.error(errorMessage(err));
+                        }
+                      }}
+                    />
+                    <ConfirmButton
+                      trigger={
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-destructive"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      }
+                      title={`Revoke ${credential.label}?`}
+                      actionLabel="Revoke"
+                      onConfirm={async () => {
+                        try {
+                          await api.projects.s3Credentials.revoke(
+                            projectId,
+                            credential.id,
+                          );
+                          void reload();
+                        } catch (err) {
+                          toast.error(errorMessage(err));
+                        }
+                      }}
+                    />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
             {activeLegacy.map((credential) => (
               <TableRow key={credential.id} className="bg-muted/40">
                 <TableCell className="text-sm">
@@ -226,7 +223,7 @@ export function S3CredentialsSection({ projectId }: { projectId: string }) {
                 <TableCell />
               </TableRow>
             ))}
-            {credentials?.length === 0 && activeLegacy.length === 0 && (
+            {activeCredentials.length === 0 && activeLegacy.length === 0 && (
               <TableRow>
                 <TableCell
                   colSpan={5}

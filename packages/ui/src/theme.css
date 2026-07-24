@@ -11,7 +11,9 @@
 
   --accent: #a1bc98;
   --accent-strong: #303630;
-  --foreground: #778873;
+  /* 4.65:1 on --background; the lighter #778873 it replaced was 3.56:1 and
+     missed WCAG AA for body text, which inherits this. */
+  --foreground: #647560;
 
   --card: var(--background);
   --card-foreground: var(--foreground);
@@ -30,7 +32,7 @@
 
   --destructive: #c0352b;
   --border: #d2dcb6;
-  --input: var(--border);
+  --input: var(--surface);
   --ring: var(--accent-strong);
 
   --chart-1: var(--accent);
@@ -72,10 +74,10 @@
   --primary: #a1bc98;
   --primary-foreground: #303630;
 
-  --secondary: #4a564b;
+  --secondary: #536150;
   --secondary-foreground: var(--foreground);
 
-  --muted: #4a564b;
+  --muted: #536150;
   --muted-foreground: #d2dcb6;
 
   --accent: #a1bc98;
@@ -83,8 +85,8 @@
 
   --destructive: #a04033;
 
-  --border: #4a564b;
-  --input: #4a564b;
+  --border: #536150;
+  --input: #536150;
   --ring: #a1bc98;
 
   --chart-1: #a1bc98;
@@ -102,9 +104,9 @@
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: #a1bc98;
   --sidebar-primary-foreground: #303630;
-  --sidebar-accent: #4a564b;
+  --sidebar-accent: #536150;
   --sidebar-accent-foreground: var(--foreground);
-  --sidebar-border: #4a564b;
+  --sidebar-border: #536150;
   --sidebar-ring: #a1bc98;
 }
 

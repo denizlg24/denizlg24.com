@@ -19,7 +19,7 @@ import {
 } from "@repo/ui/table";
 import { FlaskConical, Pencil, Play } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Section } from "@/components/section";
 import { runTone, StatusDot } from "@/components/status-dot";
@@ -106,6 +106,16 @@ export default function TaskDetailPage() {
   const [dryRunBusy, setDryRunBusy] = useState(false);
   const [dryRunReport, setDryRunReport] = useState<TieringReport | null>(null);
 
+  // The dry-run wait loop runs for up to two minutes; without this it keeps
+  // polling, toasting and setting state after the page is gone.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   const triggerRun = async () => {
     try {
       await api.tasks.run(taskId);
@@ -120,19 +130,36 @@ export default function TaskDetailPage() {
     if (!task) return;
     setDryRunBusy(true);
     setDryRunReport(null);
+    // The executor reads the task config when the run actually starts, so
+    // dryRun has to stay on until the run reaches a terminal state — and then
+    // be put back, or one dry run would silently disable live tiering forever.
+    const previousDryRun = task.config.dryRun;
+    let forcedDryRun = false;
+    const restoreDryRun = async () => {
+      if (!forcedDryRun) return;
+      forcedDryRun = false;
+      await api.tasks.update(taskId, {
+        config: { ...task.config, dryRun: previousDryRun },
+      });
+      if (mounted.current) void reload();
+    };
     try {
-      if (task.config.dryRun !== true) {
+      if (previousDryRun !== true) {
         await api.tasks.update(taskId, {
           config: { ...task.config, dryRun: true },
         });
-        void reload();
+        forcedDryRun = true;
+        if (mounted.current) void reload();
       }
       const queued = await api.tasks.run(taskId);
-      for (let attempt = 0; attempt < 60; attempt++) {
+      for (let attempt = 0; attempt < 60 && mounted.current; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
+        if (!mounted.current) return;
         const latest = await api.tasks.runs(taskId, { page: 1, limit: 20 });
         const run = latest.items.find((entry) => entry.id === queued.id);
         if (run?.status === "completed" || run?.status === "failed") {
+          await restoreDryRun();
+          if (!mounted.current) return;
           void reloadRuns();
           if (run.status === "failed") {
             toast.error(run.error ?? "Dry run failed");
@@ -144,17 +171,24 @@ export default function TaskDetailPage() {
           return;
         }
       }
-      toast.error("Dry run did not finish in time");
+      if (!mounted.current) return;
+      toast.error(
+        forcedDryRun
+          ? "Dry run did not finish in time — dryRun is still enabled on this task"
+          : "Dry run did not finish in time",
+      );
     } catch (err) {
-      toast.error(errorMessage(err));
+      await restoreDryRun().catch(() => {});
+      if (mounted.current) toast.error(errorMessage(err));
     } finally {
-      setDryRunBusy(false);
+      if (mounted.current) setDryRunBusy(false);
     }
   };
 
-  if (error) return <p className="text-xs text-destructive">{error}</p>;
   if (!task)
-    return (
+    return error ? (
+      <p className="text-xs text-destructive">{error}</p>
+    ) : (
       <div className="flex flex-col gap-4">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-64 w-full" />
@@ -163,6 +197,7 @@ export default function TaskDetailPage() {
 
   return (
     <div className="flex flex-col gap-8">
+      {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <h1 className="text-base font-semibold leading-tight">{task.name}</h1>

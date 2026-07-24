@@ -93,17 +93,21 @@ function LoginForm() {
       username,
       password,
     });
-    setBusy(false);
     if (signInError) {
+      setBusy(false);
       setError(signInError.message ?? "Sign in failed");
       return;
     }
     if (data && "twoFactorRedirect" in data) {
+      setBusy(false);
       setCode("");
       setStep("totp");
       return;
     }
+    // `finish()` fetches /api/me and may kick off enrollment; clearing busy
+    // first re-enables the form mid-flight and a second click duplicates it.
     await finish();
+    setBusy(false);
   };
 
   const submitSignup = async (event: FormEvent) => {
@@ -117,8 +121,8 @@ function LoginForm() {
         password,
         token: signupToken,
       });
-      setBusy(false);
       await startEnrollment(password);
+      setBusy(false);
     } catch (err) {
       setBusy(false);
       setError(errorMessage(err));
@@ -132,12 +136,13 @@ function LoginForm() {
     const { error: verifyError } = await authClient.twoFactor.verifyTotp({
       code,
     });
-    setBusy(false);
     if (verifyError) {
+      setBusy(false);
       setError(verifyError.message ?? "Invalid code");
       return;
     }
     await finish();
+    setBusy(false);
   };
 
   const submitRecovery = async (event: FormEvent) => {
@@ -147,12 +152,13 @@ function LoginForm() {
     const { error: verifyError } = await authClient.twoFactor.verifyBackupCode({
       code,
     });
-    setBusy(false);
     if (verifyError) {
+      setBusy(false);
       setError(verifyError.message ?? "Invalid recovery code");
       return;
     }
     await finish();
+    setBusy(false);
   };
 
   const submitEnrollVerify = async (event: FormEvent) => {
@@ -170,11 +176,29 @@ function LoginForm() {
     setStep("backup-codes");
   };
 
-  const secret = totpUri
-    ? new URL(totpUri.replace("otpauth://", "https://")).searchParams.get(
-        "secret",
-      )
-    : null;
+  // These codes are shown exactly once, so a clipboard write that rejects
+  // (insecure context, denied permission) has to be visible, not swallowed.
+  const copyBackupCodes = async () => {
+    try {
+      await navigator.clipboard.writeText(backupCodes.join("\n"));
+      setError(null);
+    } catch {
+      setError("Copy failed — write these codes down before continuing");
+    }
+  };
+
+  // A URI that fails to parse must not throw during render — that would take
+  // down the whole page, including the backup codes shown on the next step.
+  const secret = (() => {
+    if (!totpUri) return null;
+    try {
+      return new URL(
+        totpUri.replace("otpauth://", "https://"),
+      ).searchParams.get("secret");
+    } catch {
+      return null;
+    }
+  })();
 
   return (
     <div className="flex min-h-dvh items-center justify-center px-4">
@@ -426,12 +450,7 @@ function LoginForm() {
               ))}
             </div>
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() =>
-                  void navigator.clipboard.writeText(backupCodes.join("\n"))
-                }
-              >
+              <Button variant="outline" onClick={() => void copyBackupCodes()}>
                 Copy
               </Button>
               <Button onClick={() => void finish()}>Continue</Button>

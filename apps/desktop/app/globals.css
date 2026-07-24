@@ -15,22 +15,6 @@
   --titlebar-inset: 2rem;
 }
 
-/* :root and .dark have equal specificity, and the shared .dark is imported
-   above this file's rules — so light-mode overrides must outrank it rather
-   than rely on source order. */
-:root:not(.dark) {
-  --foreground: #647560;
-  --input: var(--surface);
-}
-
-.dark {
-  --secondary: #536150;
-  --muted: #536150;
-  --border: #536150;
-  --input: #536150;
-  --sidebar-accent: #536150;
-}
-
 @layer base {
   html {
     overflow: hidden;

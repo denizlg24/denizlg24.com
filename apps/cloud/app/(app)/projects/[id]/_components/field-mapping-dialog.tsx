@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/dialog";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { JsonEditor, useJsonDraft } from "@/components/json-editor";
 import { api, errorMessage } from "@/lib/api";
@@ -49,11 +49,13 @@ export function FieldMappingDialog({
   const [fields, setFields] = useState<DiscoveredField[] | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const collectionRef = useRef<string | null>(null);
   if (collection && initializedFor !== collection.id) {
     setInitializedFor(collection.id);
     draft.reset(collection.fieldMapping);
     setFields(null);
   }
+  collectionRef.current = collection?.id ?? null;
 
   const discover = async () => {
     if (!collection) return;
@@ -71,10 +73,14 @@ export function FieldMappingDialog({
               pgSchema: collection.pgSchema ?? "",
               pgTable: collection.pgTable ?? "",
             };
+      const requestedFor = collection.id;
       const result = await api.projects.collections.discoverFields(
         projectId,
         input,
       );
+      // The dialog can be switched to another collection mid-request; showing
+      // the previous collection's fields under the new one is worse than none.
+      if (requestedFor !== collectionRef.current) return;
       setFields(result.fields);
     } catch (err) {
       toast.error(errorMessage(err));

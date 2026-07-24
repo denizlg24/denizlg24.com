@@ -40,6 +40,10 @@ export function TerminalClient({
   const socketRef = useRef<WebSocket | null>(null);
   const connectedSessionRef = useRef<string | null>(null);
   const generationRef = useRef(0);
+  // The socket is opened by a sibling effect that does not wait on
+  // `document.fonts.load`, so on a cold cache bytes can arrive before the
+  // Terminal exists. Hold them until it does instead of dropping them.
+  const pendingOutputRef = useRef<Uint8Array[]>([]);
   const [state, setState] = useState<ConnectionState>("connecting");
   const [error, setError] = useState<string | null>(null);
 
@@ -108,7 +112,12 @@ export function TerminalClient({
           }
           return;
         }
-        terminal?.write(new Uint8Array(event.data as ArrayBuffer));
+        const bytes = new Uint8Array(event.data as ArrayBuffer);
+        if (terminal) {
+          terminal.write(bytes);
+        } else {
+          pendingOutputRef.current.push(bytes);
+        }
       };
       socket.onclose = () => {
         if (generationRef.current !== generation) return;
@@ -157,6 +166,9 @@ export function TerminalClient({
       terminal.open(container);
       terminalRef.current = terminal;
       fitRef.current = fit;
+      const buffered = pendingOutputRef.current;
+      pendingOutputRef.current = [];
+      for (const chunk of buffered) terminal.write(chunk);
       disposers.push(() => {
         terminal.dispose();
         terminalRef.current = null;
@@ -198,6 +210,7 @@ export function TerminalClient({
     return () => {
       disposed = true;
       generationRef.current++;
+      pendingOutputRef.current = [];
       for (const dispose of disposers) dispose();
       socketRef.current?.close();
       socketRef.current = null;

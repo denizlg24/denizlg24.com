@@ -32,7 +32,11 @@ function mostRecentlyActive(
 }
 
 export default function TerminalPage() {
-  const { data: sessions, reload } = usePoll(api.terminal.sessions, 15_000);
+  const {
+    data: sessions,
+    error: sessionsError,
+    reload,
+  } = usePoll(api.terminal.sessions, 15_000);
   const [activeSession, setActiveSession] = useState<string | null>(null);
   const [connectionKey, setConnectionKey] = useState(0);
   const [resolved, setResolved] = useState(false);
@@ -123,12 +127,21 @@ export default function TerminalPage() {
         </Button>
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
-        {resolved && (
+        {resolved ? (
           <TerminalClient
             key={connectionKey}
             sessionId={activeSession}
             onSessionEstablished={onSessionEstablished}
           />
+        ) : (
+          sessionsError && (
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-destructive">{sessionsError}</p>
+              <Button size="sm" variant="ghost" onClick={() => void reload()}>
+                retry
+              </Button>
+            </div>
+          )
         )}
       </div>
     </div>

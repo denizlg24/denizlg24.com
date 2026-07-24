@@ -169,6 +169,12 @@ slower, allowed — record it).
   `MONGO_EXPRESS_URL` for `apps/api` — the admin app iframes them through the
   superuser-only `/api/ops/tools/*` proxy. mongo-express needs
   `ME_CONFIG_SITE_BASEURL=/api/ops/tools/mongo-express/` and basic auth off
-  (the proxy carries the session gate); see the dev compose for the exact
-  shape. The Vercel `apps/cloud` project needs `NEXT_PUBLIC_CLOUD_API_URL`
-  and `NEXT_PUBLIC_STORAGE_APP_URL` (both default to production hosts).
+  (the proxy carries the session gate, and it forwards headers without
+  injecting credentials, so basic auth would break the iframe); both tools
+  therefore must stay in the `tools` compose profile with no published ports,
+  reachable only on the compose network. See the dev compose for the exact
+  shape. The Vercel `apps/cloud` project needs `NEXT_PUBLIC_CLOUD_API_URL`,
+  `NEXT_PUBLIC_STORAGE_APP_URL` and `NEXT_PUBLIC_DISK_BAY_COUNT`;
+  `infra/vercel/SETUP.md` is the authoritative list. They no longer default to
+  production hosts — an unset value falls back to localhost so a misconfigured
+  build fails loudly instead of pointing the admin app at prod.

@@ -1,8 +1,11 @@
+// NEXT_PUBLIC_* values are inlined at build time. Fall back to the local dev
+// services, never to production: a build that forgot the Vercel variables
+// should break loudly instead of pointing this admin app at the live API.
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_CLOUD_API_URL ?? "https://api.denizlg24.com";
+  process.env.NEXT_PUBLIC_CLOUD_API_URL ?? "http://localhost:3001";
 
 export const STORAGE_APP_URL =
-  process.env.NEXT_PUBLIC_STORAGE_APP_URL ?? "https://storage.denizlg24.com";
+  process.env.NEXT_PUBLIC_STORAGE_APP_URL ?? "http://localhost:3005";
 
 const DEFAULT_DISK_BAY_COUNT = 12;
 const configuredDiskBayCount = Number(process.env.NEXT_PUBLIC_DISK_BAY_COUNT);

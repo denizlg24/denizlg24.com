@@ -49,11 +49,19 @@ function TableDetailDialog({
 
   useEffect(() => {
     if (!table) return;
+    let cancelled = false;
     setDetail(null);
     api.pg
       .tableDetail(database, table, schema)
-      .then(setDetail)
-      .catch((err) => toast.error(errorMessage(err)));
+      .then((next) => {
+        if (!cancelled) setDetail(next);
+      })
+      .catch((err) => {
+        if (!cancelled) toast.error(errorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [database, table, schema]);
 
   return (
@@ -230,15 +238,25 @@ export function PostgresPanel() {
 
   useEffect(() => {
     if (!selected) return;
+    let cancelled = false;
     api.pg
       .schemas(selected)
       .then((rows) => {
+        if (cancelled) return;
         const names = rows.map((row) => row.name);
         setSchemas(names);
-        if (!names.includes(schema)) setSchema(names[0] ?? "public");
+        // Functional update, so picking a schema doesn't refetch this list.
+        setSchema((current) =>
+          names.includes(current) ? current : (names[0] ?? "public"),
+        );
       })
-      .catch((err) => toast.error(errorMessage(err)));
-  }, [selected, schema]);
+      .catch((err) => {
+        if (!cancelled) toast.error(errorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected]);
 
   const createDatabase = async () => {
     try {

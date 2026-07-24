@@ -228,8 +228,12 @@ export function MetricCharts({ overview }: { overview: OpsOverview }) {
   const [range, setRange] = useState<Range>("24h");
   const specs = useMemo(() => buildSpecs(overview), [overview]);
 
-  const allSeries = useMemo(
-    () => specs.flatMap((spec) => spec.series.map((entry) => entry.name)),
+  // `overview` is polled, so `specs` gets a new identity on every tick. Keying
+  // the fetch on a joined string keeps `fetchMetrics` stable across those ticks
+  // — an array dependency would restart usePoll's interval every time.
+  const seriesParam = useMemo(
+    () =>
+      specs.flatMap((spec) => spec.series.map((entry) => entry.name)).join(","),
     [specs],
   );
 
@@ -238,12 +242,12 @@ export function MetricCharts({ overview }: { overview: OpsOverview }) {
     const to = new Date();
     const from = new Date(to.getTime() - seconds * 1000);
     return api.ops.metrics({
-      series: allSeries,
+      series: seriesParam.split(","),
       from: from.toISOString(),
       to: to.toISOString(),
       step,
     });
-  }, [range, allSeries]);
+  }, [range, seriesParam]);
 
   const { data, error } = usePoll(fetchMetrics, 60_000);
 

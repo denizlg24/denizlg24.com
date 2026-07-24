@@ -1,4 +1,4 @@
-import { createDb, requiredEnv } from "@repo/cloud-core";
+import { cloudEnv, createDb, requiredEnv } from "@repo/cloud-core";
 
 import { createCloudAuth } from "../src/auth/better-auth";
 import { createPendingAuthUser } from "../src/auth/users";
@@ -26,8 +26,7 @@ try {
   }
 
   // Root BETTER_AUTH_URL belongs to apps/web; the cloud API has its own.
-  const baseURL =
-    process.env.BETTER_AUTH_URL_CLOUD ?? requiredEnv("BETTER_AUTH_URL");
+  const baseURL = cloudEnv("BETTER_AUTH_URL");
   const auth = createCloudAuth({
     baseURL,
     cookieDomain: process.env.COOKIE_DOMAIN,

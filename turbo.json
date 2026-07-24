@@ -141,6 +141,7 @@
       "dependsOn": ["^typecheck"]
     },
     "test": {
+      "env": ["LLM_LIVE_TESTS", "OPS_PROFILE_SAMPLES", "RUN_CLOUD_INFRA_TESTS"],
       "passThroughEnv": [
         "AUTH_MIGRATION_REPORT_KEY",
         "CLOUD_AUTH_FLOW_TEST_DATABASE_URL",
@@ -152,11 +153,8 @@
         "CLOUD_TEST_MEILI_MASTER_KEY",
         "CLOUD_TEST_MONGODB_ADMIN_URI",
         "CLOUD_TEST_REDIS_ADMIN_URL",
-        "LLM_LIVE_TESTS",
-        "OPS_PROFILE_SAMPLES",
         "OPS_SMOKE_DATABASE_URL",
         "OPS_SMOKE_PASSWORD",
-        "RUN_CLOUD_INFRA_TESTS",
         "S3_SMOKE_DELETE_BUCKET"
       ]
     },

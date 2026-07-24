@@ -10,6 +10,8 @@ import {
 } from "@repo/ui/dialog";
 import { Input } from "@repo/ui/input";
 import { type ReactNode, useState } from "react";
+import { toast } from "sonner";
+import { errorMessage } from "@/lib/api";
 
 export function TypedConfirmDialog({
   trigger,
@@ -60,6 +62,10 @@ export function TypedConfirmDialog({
                 await onConfirm();
                 setOpen(false);
                 setTyped("");
+              } catch (err) {
+                // A consumer that doesn't catch would otherwise leave an
+                // unhandled rejection and a dialog stuck open with no reason.
+                toast.error(errorMessage(err));
               } finally {
                 setBusy(false);
               }
