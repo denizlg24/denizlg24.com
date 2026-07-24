@@ -90,4 +90,22 @@ instability on arm64 you can't resolve (report spike results).
 
 ## Drift log
 
-(record deviations here)
+- **Implementation (2026-07-24):** Added the loopback-only `apps/terminal`
+  Bun service, tmux-backed attach/list/kill/reap lifecycle, 15-second
+  heartbeat, two-stage output backpressure, shared 30-second HMAC tickets with
+  terminal-side one-use replay protection, the superuser API mint/session
+  routes and WebSocket proxy, canonical zod frames, a hardened persistent-tmux
+  systemd unit, and a 10 MB reconnect smoke harness.
+- **PTY choice:** `bun-pty` 0.4.10 was selected over `node-pty`; its Rust
+  `portable-pty` package includes Linux ARM64/glibc and ARM64/musl libraries
+  with compiled-binary embedding support. Bun 1.3.3's type package advertises
+  `Bun.Terminal`, but the pinned Linux runtime does not expose the constructor,
+  so the built-in spike was rejected. Backpressure pauses/resumes the
+  disposable tmux attach client with `SIGSTOP`/`SIGCONT`; the tmux session and
+  pane remain alive.
+- **Session management contract:** `POST /api/ops/terminal` returns
+  `{data:{ticket,sessionId,expiresAt}}`; `GET` and `DELETE`
+  `/api/ops/terminal/sessions[/:id]` proxy one-use service tickets. Session
+  listing remains available as the locked `{t:"sessions"}` WS control frame.
+  Windows explicitly skips real-tmux tests; Ubuntu CI runs framing,
+  flood-output, and disconnect/reattach coverage.

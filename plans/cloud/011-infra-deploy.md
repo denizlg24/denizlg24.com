@@ -156,3 +156,11 @@ slower, allowed — record it).
   `CLOUD_ADMIN_URL`, `DISK_MIN_HEADROOM_PERCENT`, and optional
   `TUNNEL_HEALTH_URL`. Plan 011 still owns the endpoint-complete Pi staging/load
   pass and recorded whole-stack memory peaks.
+- **From 007 (2026-07-24):** Build `apps/terminal/src/index.ts` with
+  `bun build --compile --target=bun-linux-arm64`, install the artifact at
+  `/usr/local/bin/cloud-terminal` mode 0755, and restart
+  `cloud-terminal.service`. The API and host
+  `/etc/deniz-cloud/terminal.env` must share the same at-least-32-byte
+  `TERMINAL_TICKET_SECRET`. The unit intentionally uses `KillMode=process` and
+  a tmux socket below `/var/lib/cloud-terminal` so the unprivileged tmux server
+  survives daemon upgrades.

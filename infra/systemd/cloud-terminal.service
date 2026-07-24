@@ -8,11 +8,14 @@ Type=simple
 User=pi-terminal
 Group=pi-terminal
 Environment=HOME=/var/lib/cloud-terminal
-Environment=TMUX_TMPDIR=/run/cloud-terminal
+Environment=TMUX_TMPDIR=/var/lib/cloud-terminal
 EnvironmentFile=/etc/deniz-cloud/terminal.env
 ExecStart=/usr/local/bin/cloud-terminal
 Restart=on-failure
 RestartSec=3s
+# Only the compiled daemon is stopped. The unprivileged tmux server remains so
+# sessions can be reattached after a daemon restart.
+KillMode=process
 
 StateDirectory=cloud-terminal
 StateDirectoryMode=0700

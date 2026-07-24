@@ -14,11 +14,13 @@ import type { AuthVariables } from "@repo/cloud-core/middleware";
 import {
   createTaskInputSchema,
   metricsQuerySchema,
+  mintTerminalTicketInputSchema,
   parseTaskConfig,
   updateTaskInputSchema,
 } from "@repo/schemas/cloud";
 import { Hono } from "hono";
 import { z } from "zod";
+import type { TerminalGateway } from "../terminal/gateway";
 import type { OpsHealthService } from "./health";
 import type { MetricsSampler } from "./sampler";
 import { type OpsScheduler, validateCronExpression } from "./scheduler";
@@ -29,6 +31,7 @@ export interface OpsRouteOptions {
   health: OpsHealthService;
   sampler: MetricsSampler;
   scheduler: OpsScheduler;
+  terminal: TerminalGateway;
 }
 
 const paginationQuerySchema = z.object({
@@ -90,6 +93,69 @@ export function opsRoutes(options: OpsRouteOptions) {
   app.get("/health", async (context) =>
     context.json({ data: await options.health.check() }),
   );
+
+  app.post("/terminal", async (context) => {
+    const rawBody = await context.req.text();
+    let body: object = {};
+    if (rawBody.trim()) {
+      try {
+        body = JSON.parse(rawBody);
+      } catch {
+        return context.json(
+          {
+            error: {
+              code: "INVALID_INPUT",
+              message: "Invalid terminal ticket request",
+            },
+          },
+          400,
+        );
+      }
+    }
+    const parsed = mintTerminalTicketInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid terminal ticket request",
+          },
+        },
+        400,
+      );
+    }
+    return context.json({
+      data: await options.terminal.mint(
+        context.get("user").id,
+        parsed.data.sessionId,
+      ),
+    });
+  });
+
+  app.get("/terminal/sessions", async (context) =>
+    context.json({
+      data: await options.terminal.listSessions(context.get("user").id),
+    }),
+  );
+
+  app.delete("/terminal/sessions/:id", async (context) => {
+    const killed = await options.terminal.killSession(
+      context.get("user").id,
+      context.req.param("id"),
+    );
+    if (!killed) {
+      return context.json(
+        {
+          error: {
+            code: "TERMINAL_SESSION_NOT_FOUND",
+            message: "Terminal session not found",
+          },
+        },
+        404,
+      );
+    }
+    return context.json({ data: { success: true } });
+  });
 
   app.get("/tasks", async (context) => {
     const pagination = paginationQuerySchema.parse({

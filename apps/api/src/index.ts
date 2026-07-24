@@ -1,9 +1,15 @@
+import type { Server } from "bun";
 import { Hono } from "hono";
 
 import pkg from "../package.json";
 import { createRuntimeApp } from "./runtime";
+import {
+  type TerminalProxySocketData,
+  terminalProxyWebsocket,
+} from "./terminal/proxy";
 
 const app = new Hono();
+const honoFetch = app.fetch.bind(app);
 let runtimeApp: ReturnType<typeof createRuntimeApp> | undefined;
 let shuttingDown = false;
 
@@ -57,5 +63,38 @@ process.once("SIGTERM", () => void shutdown());
 // clients past that resume via HTTP Range. Object.assign preserves Hono's
 // request helper for tests while exposing the Bun.serve option on the
 // default export.
-export default Object.assign(app, { idleTimeout: 240 as const });
+async function serverFetch(
+  request: Request,
+  server?: Server<TerminalProxySocketData>,
+): Promise<Response | undefined> {
+  const url = new URL(request.url);
+  if (url.pathname === "/api/ops/terminal/ws") {
+    if (!server || typeof server.upgrade !== "function") {
+      return Response.json(
+        {
+          error: {
+            code: "WEBSOCKET_UPGRADE_REQUIRED",
+            message: "A WebSocket upgrade is required",
+          },
+        },
+        { status: 426 },
+      );
+    }
+    if (!runtimeApp) {
+      const pending = createRuntimeApp();
+      runtimeApp = pending;
+      pending.catch(() => {
+        if (runtimeApp === pending) runtimeApp = undefined;
+      });
+    }
+    return (await runtimeApp).terminalProxy.upgrade(request, server);
+  }
+  return honoFetch(request);
+}
+
+export default Object.assign(app, {
+  fetch: serverFetch,
+  idleTimeout: 240 as const,
+  websocket: terminalProxyWebsocket,
+});
 export { createCloudApiApp } from "./app";
