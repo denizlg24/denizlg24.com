@@ -12,6 +12,7 @@
     "./errors": "./src/errors.ts",
     "./middleware": "./src/middleware/index.ts",
     "./mongo": "./src/mongo/index.ts",
+    "./projects": "./src/projects/index.ts",
     "./search": "./src/search/index.ts",
     "./services": "./src/services/index.ts",
     "./storage": "./src/storage/index.ts",

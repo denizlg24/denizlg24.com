@@ -32,6 +32,7 @@ export const API_KEY_SCOPES = [
   "storage:read",
   "storage:write",
   "storage:delete",
+  "storage:manage",
   "search:read",
   "search:write",
   "search:manage",

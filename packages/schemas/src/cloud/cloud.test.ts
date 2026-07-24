@@ -22,6 +22,7 @@ describe("cloud API contracts", () => {
       "storage:read",
       "storage:write",
       "storage:delete",
+      "storage:manage",
       "search:read",
       "search:write",
       "search:manage",

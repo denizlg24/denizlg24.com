@@ -42,6 +42,7 @@ export interface PgClientFactory {
 
 interface BatchBuffer {
   operations: IndexOperation[];
+  resumeToken: Record<string, unknown> | null;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -170,6 +171,7 @@ export class SyncWorker {
 
     this.buffers.set(collection.id, {
       operations: [],
+      resumeToken: null,
       timer: null,
     });
     this.streams.set(collection.id, stream);
@@ -291,6 +293,7 @@ export class SyncWorker {
     this.abortControllers.set(collection.id, abortController);
     this.buffers.set(collection.id, {
       operations: [],
+      resumeToken: null,
       timer: null,
     });
 
@@ -379,15 +382,17 @@ export class SyncWorker {
         collection.pgIdColumn,
         500,
         async (rows) => {
-          await index.addDocuments(
-            rows.map((row) =>
-              transformPgRow(
-                row,
-                collection.pgIdColumn,
-                collection.fieldMapping,
+          await index
+            .addDocuments(
+              rows.map((row) =>
+                transformPgRow(
+                  row,
+                  collection.pgIdColumn,
+                  collection.fieldMapping,
+                ),
               ),
-            ),
-          );
+            )
+            .waitTask();
           documentCount += rows.length;
           await this.delayIndexing();
         },
@@ -459,10 +464,10 @@ export class SyncWorker {
       const { upserts, deletes } = coalesceIndexOperations(operations);
       const index = this.meili.index(fresh.meiliIndexUid);
       if (upserts.length > 0) {
-        await index.addDocuments(upserts);
+        await index.addDocuments(upserts).waitTask();
       }
       if (deletes.length > 0) {
-        await index.deleteDocuments(deletes);
+        await index.deleteDocuments(deletes).waitTask();
       }
 
       const lastEvent = events.at(-1);
@@ -510,14 +515,14 @@ export class SyncWorker {
       for await (const document of cursor) {
         batch.push(transformDocument(document, collection.fieldMapping));
         if (batch.length >= 1000) {
-          await index.addDocuments(batch);
+          await index.addDocuments(batch).waitTask();
           documentCount += batch.length;
           batch = [];
           await this.delayIndexing();
         }
       }
       if (batch.length > 0) {
-        await index.addDocuments(batch);
+        await index.addDocuments(batch).waitTask();
         documentCount += batch.length;
       }
 
@@ -547,13 +552,17 @@ export class SyncWorker {
       // Existing indexes are expected when a worker resumes.
     }
 
-    await this.meili.index(collection.meiliIndexUid).updateSettings({
-      searchableAttributes: collection.fieldMapping.searchableAttributes ?? [
-        "*",
-      ],
-      filterableAttributes: collection.fieldMapping.filterableAttributes ?? [],
-      sortableAttributes: collection.fieldMapping.sortableAttributes ?? [],
-    });
+    await this.meili
+      .index(collection.meiliIndexUid)
+      .updateSettings({
+        searchableAttributes: collection.fieldMapping.searchableAttributes ?? [
+          "*",
+        ],
+        filterableAttributes:
+          collection.fieldMapping.filterableAttributes ?? [],
+        sortableAttributes: collection.fieldMapping.sortableAttributes ?? [],
+      })
+      .waitTask();
   }
 
   private async handleChangeEvent(
@@ -597,10 +606,7 @@ export class SyncWorker {
         break;
     }
 
-    const { updateSyncStatus } = await import("../services/collections");
-    await updateSyncStatus(this.db, collection.id, {
-      resumeToken: resumeTokenRecord(event._id),
-    });
+    buffer.resumeToken = resumeTokenRecord(event._id);
 
     const totalBuffered = buffer.operations.length;
     if (totalBuffered >= this.batchSize) {
@@ -627,7 +633,13 @@ export class SyncWorker {
     }
 
     const operations = buffer.operations.splice(0);
+    const resumeToken = buffer.resumeToken;
+    buffer.resumeToken = null;
     if (operations.length === 0) {
+      if (resumeToken) {
+        const { updateSyncStatus } = await import("../services/collections");
+        await updateSyncStatus(this.db, collectionId, { resumeToken });
+      }
       return;
     }
 
@@ -635,10 +647,10 @@ export class SyncWorker {
       const { upserts, deletes } = coalesceIndexOperations(operations);
       const index = this.meili.index(meiliIndexUid);
       if (upserts.length > 0) {
-        await index.addDocuments(upserts);
+        await index.addDocuments(upserts).waitTask();
       }
       if (deletes.length > 0) {
-        await index.deleteDocuments(deletes);
+        await index.deleteDocuments(deletes).waitTask();
       }
 
       const { updateSyncStatus } = await import("../services/collections");
@@ -648,6 +660,7 @@ export class SyncWorker {
       );
       await updateSyncStatus(this.db, collectionId, {
         lastSyncedAt: new Date(),
+        ...(resumeToken ? { resumeToken } : {}),
         ...(documentCountDelta === 0 ? {} : { documentCountDelta }),
       });
       await this.delayIndexing();
@@ -657,6 +670,9 @@ export class SyncWorker {
         error,
       );
       buffer.operations.unshift(...operations);
+      if (buffer.resumeToken === null) {
+        buffer.resumeToken = resumeToken;
+      }
     }
   }
 

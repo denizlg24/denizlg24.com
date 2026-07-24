@@ -121,6 +121,25 @@ export function requireRole(...roles: UserRole[]) {
   );
 }
 
+export function requireSession() {
+  return createMiddleware<{ Variables: AuthVariables }>(
+    async (context, next) => {
+      if (context.get("sessionId") === undefined) {
+        return context.json(
+          {
+            error: {
+              code: "SESSION_REQUIRED",
+              message: "A human session is required",
+            },
+          },
+          403,
+        );
+      }
+      return next();
+    },
+  );
+}
+
 export function requireScope(...requiredScopes: ApiKeyScope[]) {
   return createMiddleware<{ Variables: AuthVariables }>(
     async (context, next) => {

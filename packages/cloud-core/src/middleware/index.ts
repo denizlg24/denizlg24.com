@@ -5,6 +5,7 @@ export {
   auth,
   requireRole,
   requireScope,
+  requireSession,
   type SessionAuthResult,
 } from "./auth";
 export { SESSION_COOKIE_MAX_AGE, sessionCookieOptions } from "./cookie";

@@ -3,6 +3,17 @@ import { z } from "zod";
 import { cloudDateTimeSchema } from "./common";
 
 const projectSlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/);
+const databaseIdentifierSchema = z
+  .string()
+  .regex(/^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/);
+const mongoResourceNameSchema = z
+  .string()
+  .max(120)
+  .regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/)
+  .refine((value) => !value.includes("$"));
+const mongoFieldPathSchema = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/);
 const collectionNameSchema = z
   .string()
   .max(50)
@@ -80,18 +91,18 @@ const mongoCollectionSourceSchema = z.object({
   name: collectionNameSchema,
   sourceType: z.literal("mongodb"),
   fieldMapping: fieldMappingSchema.optional(),
-  mongoDatabase: z.string().min(1),
-  mongoCollection: z.string().min(1),
+  mongoDatabase: mongoResourceNameSchema,
+  mongoCollection: mongoResourceNameSchema,
 });
 
 const postgresCollectionSourceSchema = z.object({
   name: collectionNameSchema,
   sourceType: z.literal("postgres"),
   fieldMapping: fieldMappingSchema.optional(),
-  pgDatabase: z.string().min(1),
-  pgSchema: z.string().min(1),
-  pgTable: z.string().min(1),
-  pgIdColumn: z.string().min(1),
+  pgDatabase: databaseIdentifierSchema,
+  pgSchema: databaseIdentifierSchema,
+  pgTable: databaseIdentifierSchema,
+  pgIdColumn: databaseIdentifierSchema,
 });
 
 export const createCollectionInputSchema = z.discriminatedUnion("sourceType", [
@@ -109,14 +120,14 @@ export type UpdateCollectionInput = z.infer<typeof updateCollectionInputSchema>;
 export const discoverFieldsInputSchema = z.discriminatedUnion("sourceType", [
   z.object({
     sourceType: z.literal("mongodb"),
-    mongoDatabase: z.string(),
-    mongoCollection: z.string(),
+    mongoDatabase: mongoResourceNameSchema,
+    mongoCollection: mongoResourceNameSchema,
   }),
   z.object({
     sourceType: z.literal("postgres"),
-    pgDatabase: z.string(),
-    pgSchema: z.string(),
-    pgTable: z.string(),
+    pgDatabase: databaseIdentifierSchema,
+    pgSchema: databaseIdentifierSchema,
+    pgTable: databaseIdentifierSchema,
   }),
 ]);
 export type DiscoverFieldsInput = z.infer<typeof discoverFieldsInputSchema>;
@@ -172,6 +183,14 @@ export const projectDatabaseSchema = z.object({
 });
 export type ProjectDatabase = z.infer<typeof projectDatabaseSchema>;
 
+export const projectDatabaseMetadataSchema = projectDatabaseSchema.omit({
+  password: true,
+  uris: true,
+});
+export type ProjectDatabaseMetadata = z.infer<
+  typeof projectDatabaseMetadataSchema
+>;
+
 export const provisionDatabaseInputSchema = z.object({
   type: dbTypeSchema,
 });
@@ -196,6 +215,34 @@ export const s3CredentialsSchema = z.discriminatedUnion("enabled", [
   }),
 ]);
 export type S3Credentials = z.infer<typeof s3CredentialsSchema>;
+
+export const createProjectS3CredentialInputSchema = z.object({
+  label: z.string().trim().min(1).max(255),
+});
+export type CreateProjectS3CredentialInput = z.infer<
+  typeof createProjectS3CredentialInputSchema
+>;
+
+export const projectS3CredentialMetadataSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  accessKeyId: z.string(),
+  label: z.string(),
+  createdAt: cloudDateTimeSchema,
+  lastUsedAt: cloudDateTimeSchema.nullable(),
+  revokedAt: cloudDateTimeSchema.nullable(),
+});
+export type ProjectS3CredentialMetadata = z.infer<
+  typeof projectS3CredentialMetadataSchema
+>;
+
+export const issuedProjectS3CredentialSchema =
+  projectS3CredentialMetadataSchema.extend({
+    secretAccessKey: z.string(),
+  });
+export type IssuedProjectS3Credential = z.infer<
+  typeof issuedProjectS3CredentialSchema
+>;
 
 export const vectorSimilaritySchema = z.enum([
   "cosine",
@@ -234,15 +281,24 @@ export type ProjectVectorSearchOverview = z.infer<
   typeof projectVectorSearchOverviewSchema
 >;
 
-export const createProjectVectorIndexInputSchema = z.object({
-  collection: z.string(),
-  name: z.string(),
-  path: z.string(),
-  numDimensions: z.number().int(),
-  similarity: vectorSimilaritySchema,
-  quantization: vectorQuantizationSchema,
-  filterPaths: z.array(z.string()),
-});
+export const createProjectVectorIndexInputSchema = z
+  .object({
+    collection: mongoResourceNameSchema,
+    name: mongoResourceNameSchema,
+    path: mongoFieldPathSchema,
+    numDimensions: z.number().int().min(1).max(4096),
+    similarity: vectorSimilaritySchema,
+    quantization: vectorQuantizationSchema.default("none"),
+    filterPaths: z
+      .array(mongoFieldPathSchema)
+      .max(5)
+      .default([])
+      .transform((paths) => [...new Set(paths)]),
+  })
+  .refine((input) => !input.filterPaths.includes(input.path), {
+    message: "The vector path cannot also be a filter path",
+    path: ["filterPaths"],
+  });
 export type CreateProjectVectorIndexInput = z.infer<
   typeof createProjectVectorIndexInputSchema
 >;
