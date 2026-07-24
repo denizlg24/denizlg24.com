@@ -158,3 +158,8 @@ rehearsal is green.
   the post-cutover soak. The rehearsal must run the ops smoke, confirm a
   restorable database artifact, and keep private component health behind a
   superuser-authenticated relay rather than putting credentials in check URLs.
+- **From 008 (2026-07-24):** Default ops task seeding no-ops while no
+  superuser row exists and only runs at API start — migrate users BEFORE the
+  new API's first boot (or restart the API afterwards) and only then verify
+  the seeded tasks. Deleting a superuser cascades away tasks they created;
+  re-check the seeded pair if the migration recreates the operator account.

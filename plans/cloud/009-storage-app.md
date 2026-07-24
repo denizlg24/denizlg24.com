@@ -87,3 +87,8 @@ in the client).
   the standard `Tus-Resumable`, `Upload-*`, and `Location` headers. Bulk ZIP
   selection is capped by `STORAGE_ARCHIVE_MAX_BYTES` (2 GiB default, ZIP32
   maximum 4095 MiB), with `ARCHIVE_TOO_LARGE`/413 surfaced to the UI.
+- **From 008 (2026-07-24):** The admin app links each project's storage
+  folder as `${storage-app}/folders/{storageFolderId}` — serve that route as
+  a deep link into the browser view. Unlike the admin app, storage UI serves
+  regular users too, so explanatory copy (empty states, upload hints, share
+  flows) is appropriate here.

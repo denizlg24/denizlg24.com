@@ -145,3 +145,18 @@ curl --fail-with-body -b active.cookies \
 At cutover, legacy TOTP secrets and recovery codes are deliberately not
 imported. Every migrated user must re-scan a new QR code and retain the new
 backup codes returned by Better Auth.
+
+## Admin app (plan 008) additions
+
+- `GET /api/auth/admin/users` (paginated SafeUser list) and
+  `POST /api/auth/admin/reset-mfa` (`{userId}`) — superuser only. Reset
+  clears TOTP, backup codes, and sessions; the user re-enrolls at next login.
+- `GET /api/storage/s3-credentials` — superuser list of NULL-project
+  (legacy shared) S3 credentials.
+- `/api/ops/tools/adminer/*` and `/api/ops/tools/mongo-express/*` —
+  superuser-only reverse proxy for the iframed DB tools. Configure
+  `ADMINER_URL` and `MONGO_EXPRESS_URL`; in development they default to
+  `http://127.0.0.1:8081` / `http://127.0.0.1:8082`, matching the dev
+  compose containers.
+- Default ops task seeding at startup no-ops until a superuser exists;
+  seed-created tasks are cascade-deleted with their creating user.

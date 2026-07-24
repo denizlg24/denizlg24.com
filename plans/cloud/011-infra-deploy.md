@@ -163,3 +163,12 @@ slower, allowed — record it).
   `TERMINAL_TICKET_SECRET`. The unit intentionally uses `KillMode=process` and
   a tmux socket below `/var/lib/cloud-terminal` so the unprivileged tmux server
   survives daemon upgrades.
+- **From 008 (2026-07-24):** The Pi compose must keep `adminer` and
+  `mongo-express` containers (internal-only; no published ports needed when
+  the API reaches them on the compose network) and set `ADMINER_URL` /
+  `MONGO_EXPRESS_URL` for `apps/api` — the admin app iframes them through the
+  superuser-only `/api/ops/tools/*` proxy. mongo-express needs
+  `ME_CONFIG_SITE_BASEURL=/api/ops/tools/mongo-express/` and basic auth off
+  (the proxy carries the session gate); see the dev compose for the exact
+  shape. The Vercel `apps/cloud` project needs `NEXT_PUBLIC_CLOUD_API_URL`
+  and `NEXT_PUBLIC_STORAGE_APP_URL` (both default to production hosts).
