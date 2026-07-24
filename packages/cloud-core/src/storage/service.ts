@@ -651,6 +651,7 @@ export class StorageService {
           path: files.path,
           ownerId: files.ownerId,
           diskPath: files.diskPath,
+          tier: files.tier,
         })
         .from(files)
         .where(like(files.path, pattern)),
@@ -665,10 +666,11 @@ export class StorageService {
       deny(principal, file.path, "storage:delete", file.ownerId, "modify");
     }
 
-    // HDD-tiered files live outside the folder tree (keyed by id), so removing
-    // the SSD directory would orphan their bytes.
+    // SSD files live inside the directory removed below. HDD files are keyed
+    // by id outside the tree, so only those need deleting one by one — which
+    // matters when the subtree is a photo library rather than a few files.
     for (const file of descendantFiles) {
-      await deletePath(file.diskPath);
+      if (file.tier === "hdd") await deletePath(file.diskPath);
     }
     await deletePath(
       resolveSsdDiskPath(this.config.ssdStoragePath, folder.path),
@@ -677,11 +679,14 @@ export class StorageService {
 
     const folderIds = [id, ...descendantFolders.map((child) => child.id)];
     const fileIds = descendantFiles.map((file) => file.id);
+    // Deleting by the same path prefix that selected the rows keeps the
+    // statement a fixed size. An `inArray` over every id would bind one
+    // parameter per row and blow past Postgres' 65535 parameter ceiling on a
+    // folder with a few thousand files in it.
     await this.db.transaction(async (tx) => {
-      if (fileIds.length > 0) {
-        await tx.delete(files).where(inArray(files.id, fileIds));
-      }
-      await tx.delete(folders).where(inArray(folders.id, folderIds));
+      await tx.delete(files).where(like(files.path, pattern));
+      await tx.delete(folders).where(like(folders.path, pattern));
+      await tx.delete(folders).where(eq(folders.id, id));
     });
     void removeStorageDocuments(this.meili, [...folderIds, ...fileIds]).catch(
       console.error,

@@ -277,7 +277,11 @@ class UploadQueue {
       return;
     }
     this.patch(id, { status: "uploading", error: null });
-    job.startedAt = Date.now() - job.item.uploaded / Math.max(1, job.item.rate);
+    // Backdate the clock by however long the bytes already sent would have
+    // taken, so the rate readout resumes instead of spiking. rate is bytes per
+    // second and startedAt is milliseconds.
+    job.startedAt =
+      Date.now() - (job.item.uploaded / Math.max(1, job.item.rate)) * 1000;
     job.upload.start();
   }
 

@@ -205,28 +205,24 @@ class StorageStore {
 
   async createFolder(parentId: string, name: string): Promise<StorageFolder> {
     const created = await api.createFolder({ name, parentId });
-    const entry = this.raw.get(parentId);
-    if (entry) {
-      const folder: StorageFolder = {
-        id: created.id,
-        name: created.name,
-        path: created.path,
-        parentId: created.parentId,
-        createdAt: new Date().toISOString(),
-      };
-      this.set(parentId, {
-        subfolders: [...entry.subfolders, folder].sort((a, b) =>
-          a.name.localeCompare(b.name),
-        ),
-      });
-    }
-    return {
+    // The create response omits createdAt; the row was just written, so now is
+    // accurate enough for the "last modified" column until the next refetch.
+    const folder: StorageFolder = {
       id: created.id,
       name: created.name,
       path: created.path,
       parentId: created.parentId,
       createdAt: new Date().toISOString(),
     };
+    const entry = this.raw.get(parentId);
+    if (entry) {
+      this.set(parentId, {
+        subfolders: [...entry.subfolders, folder].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+      });
+    }
+    return folder;
   }
 
   async renameFolder(

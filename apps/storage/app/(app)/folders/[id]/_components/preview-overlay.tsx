@@ -62,6 +62,14 @@ export function PreviewOverlay({
     };
   }, []);
 
+  // The file can vanish underneath the overlay — deleted here, or renamed and
+  // refetched. Closing properly also clears the ?preview= parameter, which a
+  // bare `return null` would leave behind in a shareable URL.
+  const missing = index < 0 && files.length > 0;
+  useEffect(() => {
+    if (missing) onClose();
+  }, [missing, onClose]);
+
   if (!file) return null;
 
   return (
