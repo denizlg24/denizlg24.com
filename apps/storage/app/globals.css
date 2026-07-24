@@ -1,6 +1,8 @@
 @import "tailwindcss";
+@import "shadcn/tailwind.css";
+@import "tw-animate-css";
 @import "@repo/ui/theme.css";
-@source "../../../packages/ui/src";
+@source "../../../packages/ui/src/**/*.{ts,tsx}";
 
 @theme inline {
   --font-sans: var(--font-geist-sans);
@@ -9,4 +11,16 @@
 
 body {
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* Rows and tiles are drag sources; the browser's default text selection while
+   dragging makes multi-select feel broken. */
+.select-none-drag {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }

@@ -62,6 +62,13 @@ export const rootFoldersSchema = z.union([
 export type RootFolders = z.infer<typeof rootFoldersSchema>;
 export const rootFoldersResponseSchema = apiResponseSchema(rootFoldersSchema);
 
+export const folderCrumbSchema = z.object({
+  id: z.uuid(),
+  path: z.string(),
+  name: z.string(),
+});
+export type FolderCrumb = z.infer<typeof folderCrumbSchema>;
+
 export const folderContentsSchema = z.object({
   folder: z.object({
     id: z.uuid(),
@@ -69,6 +76,9 @@ export const folderContentsSchema = z.object({
     name: z.string(),
     parentId: z.uuid().nullable(),
   }),
+  // Root-first chain excluding the folder itself, so a browser can paint
+  // breadcrumbs without walking parentId one request per level.
+  ancestors: z.array(folderCrumbSchema),
   subfolders: z.array(storageFolderSchema),
   files: z.array(storageFileSchema),
 });
@@ -86,10 +96,15 @@ export const createFolderInputSchema = z.object({
 });
 export type CreateFolderInput = z.infer<typeof createFolderInputSchema>;
 
-export const renameFolderInputSchema = z.object({
-  name: z.string().min(1),
-});
-export type RenameFolderInput = z.infer<typeof renameFolderInputSchema>;
+export const updateFolderInputSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    parentId: z.uuid().optional(),
+  })
+  .refine((value) => value.name !== undefined || value.parentId !== undefined, {
+    message: "name or parentId is required",
+  });
+export type UpdateFolderInput = z.infer<typeof updateFolderInputSchema>;
 
 export const renamedFolderSchema = z.object({
   id: z.uuid(),
@@ -100,6 +115,15 @@ export const renamedFolderSchema = z.object({
 export type RenamedFolder = z.infer<typeof renamedFolderSchema>;
 export const renamedFolderResponseSchema =
   apiResponseSchema(renamedFolderSchema);
+
+export const deletedFolderSchema = z.object({
+  id: z.uuid(),
+  deletedFolders: z.number().int().nonnegative(),
+  deletedFiles: z.number().int().nonnegative(),
+});
+export type DeletedFolder = z.infer<typeof deletedFolderSchema>;
+export const deletedFolderResponseSchema =
+  apiResponseSchema(deletedFolderSchema);
 
 export const updateFileInputSchema = z
   .object({
@@ -168,6 +192,18 @@ export const shareLinkTokenSchema = z.object({
 });
 export type ShareLinkToken = z.infer<typeof shareLinkTokenSchema>;
 export const shareLinkResponseSchema = apiResponseSchema(shareLinkTokenSchema);
+
+// Deliberately narrower than storageFileSchema: an unauthenticated share page
+// gets what it needs to render a preview and nothing that describes the owner,
+// the folder it lives in, or where else it is reachable.
+export const sharedFileMetaSchema = z.object({
+  filename: z.string(),
+  mimeType: z.string().nullable(),
+  sizeBytes: z.number(),
+});
+export type SharedFileMeta = z.infer<typeof sharedFileMetaSchema>;
+export const sharedFileMetaResponseSchema =
+  apiResponseSchema(sharedFileMetaSchema);
 
 export const downloadArchiveInputSchema = z
   .object({

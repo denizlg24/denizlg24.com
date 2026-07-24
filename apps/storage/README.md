@@ -1,36 +1,41 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# storage
 
-## Getting Started
+The file browser at `storage.denizlg24.com`. Unlike `apps/cloud`, this app
+serves every account, not just the superuser — signup completion and TOTP
+enrollment happen here.
 
-First, run the development server:
+## Running it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bunx turbo dev --filter=storage   # :3005, expects apps/api on :3001
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`NEXT_PUBLIC_CLOUD_API_URL` and `NEXT_PUBLIC_STORAGE_APP_URL` come from the
+root `.env`. Both fall back to localhost so a build missing its Vercel
+variables fails loudly instead of pointing at production.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Layout
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `lib/api.ts` — the only place that talks to the API. Every response is
+  parsed with a `@repo/schemas/cloud` schema; nothing else should call `fetch`
+  against the API.
+- `lib/store.ts` — per-folder cache behind `useSyncExternalStore`, plus the
+  mutations that keep it consistent. Deletes are deferred here so the undo
+  toast can cancel them before anything leaves the browser.
+- `lib/uploads.ts` — TUS queue (3 parallel, pause/resume/retry), directory
+  expansion for folder drops, and the folder resolution shared across jobs.
+- `components/file-preview.tsx` — renderers shared by the in-app preview and
+  the public share page, so both stay in sync.
+- `app/(app)/folders/[id]/` — the browser. `_components/browser.tsx` owns
+  selection, keyboard handling and drag-drop; the rest are leaves.
 
-## Learn More
+## Verifying against real infra
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+cd apps/api && bun --env-file=../../.env scripts/storage-app-e2e.ts
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Creates a throwaway user, completes signup, enrolls TOTP, then exercises
+folders, a deliberately interrupted TUS upload, Range streaming, share links,
+bulk ZIP, the concurrent-create race and recursive delete — then deletes the
+user. Needs the dev API and infra up.

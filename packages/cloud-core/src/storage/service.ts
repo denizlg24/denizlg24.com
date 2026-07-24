@@ -115,6 +115,44 @@ export class StorageServiceError extends Error {
   }
 }
 
+const UNIQUE_VIOLATION = "23505";
+
+const ACTIVE_CONTENT_TYPES = new Set([
+  "application/xhtml+xml",
+  "application/xml",
+  "image/svg+xml",
+  "text/html",
+  "text/xml",
+]);
+
+/**
+ * Types a browser would execute as a document on this origin. Anyone with an
+ * account can upload one and hand out a share link, so these are always sent
+ * as an attachment — a navigation downloads them instead of running them
+ * against api.denizlg24.com. Subresource loads (`<img src>` for an SVG, the
+ * text previews' own fetch) ignore Content-Disposition, so previews are
+ * unaffected.
+ */
+function isActiveContent(mimeType: string | null): boolean {
+  if (!mimeType) return false;
+  const type = mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
+  return ACTIVE_CONTENT_TYPES.has(type) || type.endsWith("+xml");
+}
+
+/**
+ * The `path` uniqueness checks below are read-then-write, so two concurrent
+ * requests for the same name both pass the read. Postgres still rejects the
+ * loser, and that rejection has to read as the same conflict the pre-check
+ * would have produced rather than escaping as an unhandled 500. Drizzle wraps
+ * the driver error, so the cause chain is what carries the code.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  for (let current = error; current instanceof Error; current = current.cause) {
+    if ("code" in current && current.code === UNIQUE_VIOLATION) return true;
+  }
+  return false;
+}
+
 function deny(
   principal: StoragePrincipal,
   path: string,
@@ -329,7 +367,7 @@ export class StorageService {
       );
     }
     const diskPath = resolveSsdDiskPath(this.config.ssdStoragePath, path);
-    await ensureDir(diskPath);
+    const createdDir = await ensureDir(diskPath);
     try {
       const [created] = await this.db
         .insert(folders)
@@ -347,7 +385,19 @@ export class StorageService {
       }
       return created;
     } catch (error) {
-      await deletePath(diskPath, true);
+      // Only unwind the directory this call brought into existence, and never
+      // when another request won the race for the same path — the winner owns
+      // that directory and may already be writing into it.
+      if (createdDir && !isUniqueViolation(error)) {
+        await deletePath(diskPath, true).catch(console.error);
+      }
+      if (isUniqueViolation(error)) {
+        throw new StorageServiceError(
+          409,
+          "FOLDER_EXISTS",
+          "A folder already exists at this path",
+        );
+      }
       throw error;
     }
   }
@@ -358,6 +408,24 @@ export class StorageService {
     return folder;
   }
 
+  private async ancestorsOf(
+    folder: Folder,
+  ): Promise<{ id: string; path: string; name: string }[]> {
+    const segments = folder.path.split("/").filter(Boolean);
+    const ancestorPaths = segments
+      .slice(0, -1)
+      .map((_segment, index) => `/${segments.slice(0, index + 1).join("/")}`);
+    if (ancestorPaths.length === 0) return [];
+    const rows = await this.db
+      .select({ id: folders.id, path: folders.path, name: folders.name })
+      .from(folders)
+      .where(inArray(folders.path, ancestorPaths));
+    const byPath = new Map(rows.map((row) => [row.path, row]));
+    return ancestorPaths
+      .map((path) => byPath.get(path))
+      .filter((row): row is NonNullable<typeof row> => row !== undefined);
+  }
+
   async folderContents(
     principal: StoragePrincipal,
     id: string,
@@ -366,7 +434,8 @@ export class StorageService {
     const folder = await this.findFolder(id);
     deny(principal, folder.path, "storage:read", folder.ownerId, "read");
     const { page, limit, offset } = pagination(query, 100);
-    const [subfolders, fileList, countResult] = await Promise.all([
+    const [ancestors, subfolders, fileList, countResult] = await Promise.all([
+      this.ancestorsOf(folder),
       this.db
         .select({
           id: folders.id,
@@ -408,6 +477,7 @@ export class StorageService {
           name: folder.name,
           parentId: folder.parentId,
         },
+        ancestors,
         subfolders,
         files: fileList,
       },
@@ -537,7 +607,11 @@ export class StorageService {
     return { ...folder, path: newPath, name, parentId: targetParentId };
   }
 
-  async deleteFolder(principal: StoragePrincipal, id: string): Promise<void> {
+  async deleteFolder(
+    principal: StoragePrincipal,
+    id: string,
+    recursive = false,
+  ): Promise<{ deletedFolders: number; deletedFiles: number }> {
     const folder = await this.findFolder(id);
     if (
       folder.path === buildUserRootPath(principal.user.id) ||
@@ -552,29 +626,113 @@ export class StorageService {
       );
     }
     deny(principal, folder.path, "storage:delete", folder.ownerId, "modify");
-    const [childFolders, childFiles] = await Promise.all([
-      this.db
-        .select({ count: count() })
-        .from(folders)
-        .where(eq(folders.parentId, id)),
-      this.db
-        .select({ count: count() })
-        .from(files)
-        .where(eq(files.folderId, id)),
-    ]);
-    if ((childFolders[0]?.count ?? 0) > 0 || (childFiles[0]?.count ?? 0) > 0) {
-      throw new StorageServiceError(
-        409,
-        "FOLDER_NOT_EMPTY",
-        "Folder is not empty. Delete all contents first.",
+
+    if (!recursive) {
+      const [childFolders, childFiles] = await Promise.all([
+        this.db
+          .select({ count: count() })
+          .from(folders)
+          .where(eq(folders.parentId, id)),
+        this.db
+          .select({ count: count() })
+          .from(files)
+          .where(eq(files.folderId, id)),
+      ]);
+      if (
+        (childFolders[0]?.count ?? 0) > 0 ||
+        (childFiles[0]?.count ?? 0) > 0
+      ) {
+        throw new StorageServiceError(
+          409,
+          "FOLDER_NOT_EMPTY",
+          "Folder is not empty. Delete all contents first.",
+        );
+      }
+      await deletePath(
+        resolveSsdDiskPath(this.config.ssdStoragePath, folder.path),
+        true,
       );
+      await this.db.delete(folders).where(eq(folders.id, id));
+      void removeStorageDocuments(this.meili, [id]).catch(console.error);
+      return { deletedFolders: 1, deletedFiles: 0 };
+    }
+
+    const pattern = descendantPattern(folder.path);
+    const [descendantFolders, descendantFiles] = await Promise.all([
+      this.db
+        .select({
+          id: folders.id,
+          path: folders.path,
+          ownerId: folders.ownerId,
+        })
+        .from(folders)
+        .where(like(folders.path, pattern)),
+      this.db
+        .select({
+          id: files.id,
+          path: files.path,
+          ownerId: files.ownerId,
+          diskPath: files.diskPath,
+          tier: files.tier,
+        })
+        .from(files)
+        .where(like(files.path, pattern)),
+    ]);
+    // A descendant can be owned by someone else (shared subtrees), so the
+    // permission check on the parent alone is not enough to authorise the
+    // whole subtree.
+    for (const child of descendantFolders) {
+      deny(principal, child.path, "storage:delete", child.ownerId, "modify");
+    }
+    for (const file of descendantFiles) {
+      deny(principal, file.path, "storage:delete", file.ownerId, "modify");
+    }
+
+    const folderIds = [id, ...descendantFolders.map((child) => child.id)];
+    // Commit the database first and treat it as the point of no return.
+    // Removing bytes first would let a failed transaction leave rows pointing
+    // at files that no longer exist; this way the worst case is the reverse,
+    // which the tiering sweep and a retry can both recover from.
+    //
+    // Deleting by the same path prefix that selected the rows also keeps the
+    // statement a fixed size and catches anything written between the select
+    // and the commit. An `inArray` over every id would bind one parameter per
+    // row and blow past Postgres' 65535 parameter ceiling on a folder holding
+    // a few thousand files.
+    const removedFiles = await this.db.transaction(async (tx) => {
+      const removed = await tx
+        .delete(files)
+        .where(like(files.path, pattern))
+        .returning({
+          diskPath: files.diskPath,
+          id: files.id,
+          tier: files.tier,
+        });
+      await tx.delete(folders).where(like(folders.path, pattern));
+      await tx.delete(folders).where(eq(folders.id, id));
+      return removed;
+    });
+
+    // SSD files live inside the directory removed below. HDD files are keyed
+    // by id outside the tree, so only those need unlinking one by one — which
+    // matters when the subtree is a photo library rather than a few files.
+    for (const file of removedFiles) {
+      if (file.tier === "hdd")
+        await deletePath(file.diskPath).catch(console.error);
     }
     await deletePath(
       resolveSsdDiskPath(this.config.ssdStoragePath, folder.path),
       true,
-    );
-    await this.db.delete(folders).where(eq(folders.id, id));
-    void removeStorageDocuments(this.meili, [id]).catch(console.error);
+    ).catch(console.error);
+
+    void removeStorageDocuments(this.meili, [
+      ...folderIds,
+      ...removedFiles.map((file) => file.id),
+    ]).catch(console.error);
+    return {
+      deletedFolders: folderIds.length,
+      deletedFiles: removedFiles.length,
+    };
   }
 
   async listFiles(
@@ -750,7 +908,7 @@ export class StorageService {
     return generateShareToken(id, expires.data, this.config.shareLinkSecret);
   }
 
-  async sharedDownload(token: string, request: Request): Promise<Response> {
+  private async sharedFile(token: string): Promise<StorageFile> {
     const payload = verifyShareToken(token, this.config.shareLinkSecret);
     if (!payload) {
       throw new StorageServiceError(
@@ -765,8 +923,29 @@ export class StorageService {
     if (!file) {
       throw new StorageServiceError(404, "FILE_NOT_FOUND", "File not found");
     }
+    return file;
+  }
+
+  async sharedDownload(token: string, request: Request): Promise<Response> {
+    const file = await this.sharedFile(token);
     this.recordAccess(file);
     return this.fileResponse(file, request);
+  }
+
+  // Lets an unauthenticated share page choose a renderer before it starts
+  // streaming bytes. Returns only what the recipient can already see by
+  // downloading — never the path, owner or folder.
+  async sharedMeta(token: string): Promise<{
+    filename: string;
+    mimeType: string | null;
+    sizeBytes: number;
+  }> {
+    const file = await this.sharedFile(token);
+    return {
+      filename: file.filename,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+    };
   }
 
   async createUpload(
@@ -1208,7 +1387,8 @@ export class StorageService {
 
   private fileResponse(file: StorageFile, request: Request): Response {
     const url = new URL(request.url);
-    const forceDownload = url.searchParams.has("download");
+    const forceDownload =
+      url.searchParams.has("download") || isActiveContent(file.mimeType);
     const headers = new Headers({
       "Content-Type": file.mimeType ?? "application/octet-stream",
       "Content-Disposition": contentDisposition(
@@ -1216,6 +1396,9 @@ export class StorageService {
         file.filename,
       ),
       "Accept-Ranges": "bytes",
+      // The Content-Type here is whatever the uploader claimed, so sniffing
+      // must stay off.
+      "X-Content-Type-Options": "nosniff",
     });
     const range = request.headers.get("Range");
     if (!range) {
@@ -1349,7 +1532,21 @@ export class StorageService {
           );
       });
     } catch (error) {
-      await deletePath(finalDiskPath);
+      // An SSD upload writes to the deterministic target path, so on a lost
+      // race those bytes belong to the winner and must be left alone. An HDD
+      // upload writes to a path keyed by this call's own fresh file id, which
+      // no other request shares — leaving it behind would orphan the bytes
+      // with no row pointing at them.
+      if (!isUniqueViolation(error) || tier === "hdd") {
+        await deletePath(finalDiskPath).catch(console.error);
+      }
+      if (isUniqueViolation(error)) {
+        throw new StorageServiceError(
+          409,
+          "FILE_EXISTS",
+          "A file already exists at the target path",
+        );
+      }
       throw error;
     }
     await deletePath(upload.tempDiskPath);
