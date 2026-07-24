@@ -191,6 +191,12 @@ function allowedBucketForProject(
   return slug;
 }
 
+// The resolver is reachable with unauthenticated, attacker-chosen access key
+// ids, so the cache must stay bounded and misses must expire fast enough that
+// newly issued credentials become visible promptly.
+const MAX_CACHE_ENTRIES = 1024;
+const NEGATIVE_CACHE_TTL_MS = 5_000;
+
 export class S3CredentialResolver implements S3CredentialProvider {
   readonly #cache = new Map<
     string,
@@ -215,6 +221,8 @@ export class S3CredentialResolver implements S3CredentialProvider {
     const now = Date.now();
     const cached = this.#cache.get(accessKeyId);
     if (cached && cached.expiresAt > now) {
+      this.#cache.delete(accessKeyId);
+      this.#cache.set(accessKeyId, cached);
       return cached.value;
     }
 
@@ -260,8 +268,19 @@ export class S3CredentialResolver implements S3CredentialProvider {
         };
       }
     }
+    this.#cache.delete(accessKeyId);
+    if (this.#cache.size >= MAX_CACHE_ENTRIES) {
+      const oldest = this.#cache.keys().next().value;
+      if (oldest !== undefined) {
+        this.#cache.delete(oldest);
+      }
+    }
     this.#cache.set(accessKeyId, {
-      expiresAt: now + this.cacheTtlMs,
+      expiresAt:
+        now +
+        (value === null
+          ? Math.min(this.cacheTtlMs, NEGATIVE_CACHE_TTL_MS)
+          : this.cacheTtlMs),
       value,
     });
     return value;

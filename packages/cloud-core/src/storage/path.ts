@@ -35,7 +35,7 @@ export function validatePathSegment(segment: string): void {
       `Path segment exceeds ${MAX_SEGMENT_LENGTH} characters`,
     );
   }
-  if (/[<>:"|?*\\]/.test(segment)) {
+  if (/[<>:"|?*\\/]/.test(segment)) {
     throw new PathValidationError(
       `Path segment contains invalid characters: "${segment}"`,
     );
@@ -71,9 +71,11 @@ export function normalizeFileName(name: string): string {
   if (dotIndex <= 0) {
     return normalizeName(name);
   }
-  return `${normalizeName(name.slice(0, dotIndex))}.${name
+  const result = `${normalizeName(name.slice(0, dotIndex))}.${name
     .slice(dotIndex + 1)
     .toLowerCase()}`;
+  validatePathSegment(result);
+  return result;
 }
 
 export function joinPath(...segments: string[]): string {

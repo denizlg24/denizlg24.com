@@ -14,8 +14,8 @@ bun run cloud:dev:infra
 Run the API with `DATABASE_URL`, `REDIS_ADMIN_URL`, `BETTER_AUTH_SECRET`,
 `BETTER_AUTH_URL`, `MEILISEARCH_URL`, `MEILISEARCH_ADMIN_KEY`,
 `SSD_STORAGE_PATH`, `HDD_STORAGE_PATH`, `JWT_SECRET`, and
-`S3_CREDENTIAL_ENCRYPTION_KEY` configured. `BETTER_AUTH_SECRET` must contain
-at least 32 characters. `JWT_SECRET` must retain the old storage service value
+`S3_CREDENTIAL_ENCRYPTION_KEY` configured. `BETTER_AUTH_SECRET` and
+`S3_CREDENTIAL_ENCRYPTION_KEY` must contain at least 32 characters. `JWT_SECRET` must retain the old storage service value
 at cutover because existing stateless share links are signed from it.
 
 ```sh

@@ -274,7 +274,6 @@ export const s3Credentials = pgTable(
   },
   (table) => [
     index("s3_credentials_project_id_idx").on(table.projectId),
-    index("s3_credentials_access_key_id_idx").on(table.accessKeyId),
     foreignKey({
       name: "s3_credentials_project_id_fkey",
       columns: [table.projectId],

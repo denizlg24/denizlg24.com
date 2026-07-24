@@ -1042,21 +1042,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "s3_credentials_access_key_id_idx": {
-          "name": "s3_credentials_access_key_id_idx",
-          "columns": [
-            {
-              "expression": "access_key_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {

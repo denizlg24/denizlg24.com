@@ -120,6 +120,7 @@ function validateEntry(entry: ArchiveEntry): Buffer {
   const normalized = entry.name.replaceAll("\\", "/").replace(/^\/+/, "");
   if (
     !normalized ||
+    /^[a-zA-Z]:/.test(normalized) ||
     normalized.split("/").some((segment) => segment === "..")
   ) {
     throw new Error("Invalid archive entry name");

@@ -511,18 +511,20 @@ export class StorageService {
             updatedAt: new Date(),
           })
           .where(eq(folders.id, id));
+        // Rewrite only the leading prefix: REPLACE would corrupt descendants
+        // whose paths repeat the old segment deeper down.
         await tx
           .update(folders)
           .set({
-            path: sql`REPLACE(${folders.path}, ${folder.path}, ${newPath})`,
+            path: sql`${newPath} || SUBSTRING(${folders.path} FROM ${folder.path.length + 1})`,
             updatedAt: new Date(),
           })
           .where(like(folders.path, descendantPattern(folder.path)));
         await tx
           .update(files)
           .set({
-            path: sql`REPLACE(${files.path}, ${folder.path}, ${newPath})`,
-            diskPath: sql`CASE WHEN ${files.tier} = 'ssd' THEN REPLACE(${files.diskPath}, ${oldDiskPath}, ${newDiskPath}) ELSE ${files.diskPath} END`,
+            path: sql`${newPath} || SUBSTRING(${files.path} FROM ${folder.path.length + 1})`,
+            diskPath: sql`CASE WHEN ${files.tier} = 'ssd' THEN ${newDiskPath} || SUBSTRING(${files.diskPath} FROM ${oldDiskPath.length + 1}) ELSE ${files.diskPath} END`,
             updatedAt: new Date(),
           })
           .where(like(files.path, descendantPattern(folder.path)));

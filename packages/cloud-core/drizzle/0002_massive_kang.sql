@@ -14,5 +14,4 @@ CREATE TABLE "s3_credentials" (
 );
 --> statement-breakpoint
 ALTER TABLE "s3_credentials" ADD CONSTRAINT "s3_credentials_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "s3_credentials_project_id_idx" ON "s3_credentials" USING btree ("project_id");--> statement-breakpoint
-CREATE INDEX "s3_credentials_access_key_id_idx" ON "s3_credentials" USING btree ("access_key_id");
+CREATE INDEX "s3_credentials_project_id_idx" ON "s3_credentials" USING btree ("project_id");

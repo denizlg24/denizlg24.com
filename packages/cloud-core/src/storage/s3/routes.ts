@@ -237,16 +237,18 @@ function objectHeaders(
     "Last-Modified": new Date(metadata.lastModified).toUTCString(),
   });
   for (const [name, value] of Object.entries(metadata.headers)) {
-    if (
-      [...value].every((character) => {
-        const code = character.charCodeAt(0);
-        return code === 0x09 || (code >= 0x20 && code <= 0x7e);
-      })
-    ) {
+    if (isSafeHeaderValue(value)) {
       headers.set(name, value);
     }
   }
   return headers;
+}
+
+function isSafeHeaderValue(value: string): boolean {
+  return [...value].every((character) => {
+    const code = character.charCodeAt(0);
+    return code === 0x09 || (code >= 0x20 && code <= 0x7e);
+  });
 }
 
 function applyResponseOverrides(headers: Headers, url: URL): void {
@@ -260,10 +262,7 @@ function applyResponseOverrides(headers: Headers, url: URL): void {
   };
   for (const [parameter, header] of Object.entries(overrides)) {
     const value = url.searchParams.get(parameter);
-    if (
-      value &&
-      [...value].every((character) => character.charCodeAt(0) <= 0x7f)
-    ) {
+    if (value && isSafeHeaderValue(value)) {
       headers.set(header, value);
     }
   }
@@ -407,14 +406,30 @@ async function deleteObjectsResponse(
       400,
     );
   }
-  await Promise.all(keys.map((key) => deleteObject(config, bucket, key)));
-  const deleted = quiet
-    ? ""
-    : keys
-        .map((key) => `<Deleted><Key>${escapeXml(key)}</Key></Deleted>`)
-        .join("");
+  const results = await Promise.allSettled(
+    keys.map((key) => deleteObject(config, bucket, key)),
+  );
+  // S3 DeleteObjects never fails the batch on individual keys: each key gets
+  // a <Deleted> or <Error> entry; quiet mode omits only the <Deleted> ones.
+  const body = results
+    .map((result, index) => {
+      const key = keys[index] ?? "";
+      if (result.status === "fulfilled") {
+        return quiet ? "" : `<Deleted><Key>${escapeXml(key)}</Key></Deleted>`;
+      }
+      const error =
+        result.reason instanceof S3Error
+          ? result.reason
+          : new S3Error(
+              "InternalError",
+              "We encountered an internal error.",
+              500,
+            );
+      return `<Error><Key>${escapeXml(key)}</Key><Code>${escapeXml(error.code)}</Code><Message>${escapeXml(error.message)}</Message></Error>`;
+    })
+    .join("");
   return xmlResponse(
-    `<DeleteResult xmlns="${S3_XML_NAMESPACE}">${deleted}</DeleteResult>`,
+    `<DeleteResult xmlns="${S3_XML_NAMESPACE}">${body}</DeleteResult>`,
   );
 }
 
