@@ -9,6 +9,7 @@ Next.js admin surface for the self-hosted cloud. Superuser-only; talks to
 | --- | --- | --- |
 | `NEXT_PUBLIC_CLOUD_API_URL` | `https://api.denizlg24.com` | API base URL |
 | `NEXT_PUBLIC_STORAGE_APP_URL` | `https://storage.denizlg24.com` | Storage app links (project folder deep links: `/folders/:id`) |
+| `NEXT_PUBLIC_DISK_BAY_COUNT` | `12` | Minimum number of hot-swap bays rendered on the disks tab |
 
 ## Local development
 

@@ -90,19 +90,6 @@ export function OverviewTiles({ overview }: { overview: OpsOverview }) {
         value={String(overview.containers.length)}
         sub={`${overview.containers.filter((c) => c.state === "running").length} running`}
       />
-      {overview.disks.map((disk) => (
-        <Tile
-          key={disk.device}
-          label={disk.device}
-          value={disk.online ? formatPercent(disk.usagePercent) : "offline"}
-          sub={
-            disk.online
-              ? `${formatBytes(disk.availableBytes)} free of ${formatBytes(disk.totalBytes)}`
-              : undefined
-          }
-          percent={disk.online ? disk.usagePercent : undefined}
-        />
-      ))}
     </div>
   );
 }

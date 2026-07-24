@@ -19,6 +19,7 @@ import {
   storageConfigFromEnv,
   syncRedisProjectAclUsers,
 } from "@repo/cloud-core";
+import type { DiskKind } from "@repo/schemas/cloud";
 import { MongoClient } from "mongodb";
 import { createClient } from "redis";
 
@@ -253,13 +254,16 @@ export async function createRuntimeApp() {
       mongo: mongoAdmin,
     };
     const docker = new DockerClient();
-    const devices = [
-      process.env.SSD_DEVICE,
-      ...(process.env.HDD_DEVICES ?? "").split(","),
-      process.env.MICROSD_DEVICE,
-    ]
-      .map((device) => device?.trim())
-      .filter((device): device is string => Boolean(device));
+    const devices: Array<{ device: string; kind: DiskKind }> = [];
+    const addDevice = (device: string | undefined, kind: DiskKind) => {
+      const normalized = device?.trim();
+      if (normalized) devices.push({ device: normalized, kind });
+    };
+    addDevice(process.env.SSD_DEVICE, "ssd");
+    for (const device of (process.env.HDD_DEVICES ?? "").split(",")) {
+      addDevice(device, "hdd");
+    }
+    addDevice(process.env.MICROSD_DEVICE, "microsd");
     const sampler = new MetricsSampler({ db, docker, devices });
     cleanupActions.push(() => sampler.stop());
     await sampler.start();

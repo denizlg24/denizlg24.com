@@ -11,8 +11,14 @@ export const mongoResourceNameSchema = z
   .regex(/^[a-zA-Z_][a-zA-Z0-9_.-]{0,63}$/)
   .refine((value) => !value.includes("$") && !value.includes("\0"));
 
+export const diskKindSchema = z.enum(["ssd", "hdd", "microsd"]);
+export type DiskKind = z.infer<typeof diskKindSchema>;
+
 export const diskInfoSchema = z.object({
   device: z.string(),
+  // Optional while the cloud UI and API are rolled out independently. New
+  // API samples always include it; clients can fall back to the device name.
+  kind: diskKindSchema.optional(),
   totalBytes: z.number(),
   usedBytes: z.number(),
   availableBytes: z.number(),

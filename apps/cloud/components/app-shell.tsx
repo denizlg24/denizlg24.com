@@ -13,6 +13,7 @@ const NAV = [
   { href: "/projects", label: "projects" },
   { href: "/users", label: "users" },
   { href: "/databases", label: "databases" },
+  { href: "/disks", label: "disks" },
   { href: "/tasks", label: "tasks" },
   { href: "/terminal", label: "terminal" },
   { href: "/settings", label: "settings" },
