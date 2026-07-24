@@ -4,6 +4,7 @@ import {
   createProjectPgClientFactory,
   createProvisionerRegistry,
   createTieringRepository,
+  DockerClient,
   ensureLegacyS3Credential,
   ensureStorageSearchIndex,
   initializeS3,
@@ -28,6 +29,11 @@ import {
 } from "./auth/better-auth";
 import { RedisRateLimitStore } from "./auth/redis-rate-limit";
 import { mongoDbAdminRoutes, postgresDbAdminRoutes } from "./db-admin/routes";
+import { OpsHealthService } from "./ops/health";
+import { WebhookNotifier } from "./ops/notifications";
+import { opsRoutes } from "./ops/routes";
+import { MetricsSampler } from "./ops/sampler";
+import { OpsScheduler } from "./ops/scheduler";
 import { projectRoutes } from "./projects/routes";
 
 function authSecret(): string {
@@ -36,6 +42,19 @@ function authSecret(): string {
     throw new Error("BETTER_AUTH_SECRET must be at least 32 characters");
   }
   return secret;
+}
+
+function numberEnv(
+  name: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new Error(`${name} must be a number from ${minimum} to ${maximum}`);
+  }
+  return value;
 }
 
 export async function createRuntimeApp() {
@@ -222,6 +241,52 @@ export async function createRuntimeApp() {
       databaseUrl,
       mongo: mongoAdmin,
     };
+    const docker = new DockerClient();
+    const devices = [
+      process.env.SSD_DEVICE,
+      ...(process.env.HDD_DEVICES ?? "").split(","),
+      process.env.MICROSD_DEVICE,
+    ]
+      .map((device) => device?.trim())
+      .filter((device): device is string => Boolean(device));
+    const sampler = new MetricsSampler({ db, docker, devices });
+    cleanupActions.push(() => sampler.stop());
+    await sampler.start();
+    const health = new OpsHealthService({
+      db,
+      mongo: mongoAdmin,
+      redis,
+      sampler,
+      meilisearchUrl: requiredEnv("MEILISEARCH_URL"),
+      mongotUrl: process.env.MONGOT_HEALTH_URL ?? "http://mongot:8080",
+      tunnelUrl: process.env.TUNNEL_HEALTH_URL || undefined,
+      diskHeadroomPercent: numberEnv("DISK_MIN_HEADROOM_PERCENT", 10, 1, 99),
+    });
+    const notifier = new WebhookNotifier(
+      process.env.METRICS_NOTIFICATION_WEBHOOK_URL || undefined,
+    );
+    const scheduler = new OpsScheduler({
+      db,
+      notifier,
+      adminBaseUrl:
+        process.env.CLOUD_ADMIN_URL ?? "https://cloud.denizlg24.com",
+      executorContext: {
+        db,
+        docker,
+        health,
+        notifier,
+        sampler,
+        storageConfig,
+        backupDirectory: process.env.BACKUP_DIR ?? "/backups",
+        postgresContainer: process.env.POSTGRES_CONTAINER ?? "postgres",
+        mongoContainer: process.env.MONGODB_CONTAINER ?? "mongodb",
+        rebootSentinelPath:
+          process.env.REBOOT_SENTINEL_PATH ?? "/host-control/reboot-requested",
+        alertNotifications: new Map(),
+      },
+    });
+    cleanupActions.push(async () => scheduler.stop());
+    await scheduler.start();
 
     const app = createCloudApiApp({
       auth,
@@ -248,6 +313,7 @@ export async function createRuntimeApp() {
         postgres: postgresDbAdminRoutes(platformOptions),
         mongodb: mongoDbAdminRoutes(platformOptions),
       },
+      ops: opsRoutes({ db, docker, health, sampler, scheduler }),
       trustedOrigins: CLOUD_AUTH_TRUSTED_ORIGINS,
     });
     return Object.assign(app, {

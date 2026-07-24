@@ -146,6 +146,7 @@ export async function updateTaskRun(
     output?: string;
     error?: string;
     metadata?: TaskRunMetadata;
+    failureNotifiedAt?: Date;
   },
 ): Promise<SafeTaskRunRecord> {
   const updates: {
@@ -153,6 +154,7 @@ export async function updateTaskRun(
     output?: string;
     error?: string;
     metadata?: TaskRunMetadata;
+    failureNotifiedAt?: Date;
     startedAt?: Date;
     completedAt?: Date;
   } = { ...input };

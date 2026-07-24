@@ -6,6 +6,8 @@ import {
   createCollectionInputSchema,
   createdApiKeySchema,
   folderContentsResponseSchema,
+  metricsQuerySchema,
+  mongoBackupTaskConfigSchema,
   paginatedResponseSchema,
   safeApiKeySchema,
   safeProjectSchema,
@@ -152,5 +154,31 @@ describe("cloud API contracts", () => {
       "opaque-token",
     );
     expect(taskTypeSchema.parse("backup_all")).toBe("backup_all");
+  });
+
+  it("bounds operations queries and backup filters", () => {
+    const query = {
+      series: ["host:cpu.usage_percent"],
+      from: "2026-07-23T00:00:00.000Z",
+      to: "2026-07-24T00:00:00.000Z",
+      step: 30,
+    };
+    expect(metricsQuerySchema.safeParse(query).success).toBe(true);
+    expect(
+      metricsQuerySchema.safeParse({
+        ...query,
+        from: "2026-07-22T00:00:00.000Z",
+        series: Array.from(
+          { length: 50 },
+          (_, index) => `host:metric.${index}`,
+        ),
+      }).success,
+    ).toBe(false);
+    expect(
+      mongoBackupTaskConfigSchema.safeParse({
+        retentionCount: 7,
+        databases: ["one", "two"],
+      }).success,
+    ).toBe(false);
   });
 });

@@ -40,6 +40,23 @@ Mongo sync worker deliberately uses the lower-privilege `MONGODB_URI`.
 Configure `POSTGRES_EXTERNAL_HOST`, `MONGODB_EXTERNAL_HOST`, and
 `REDIS_EXTERNAL_HOST` with the addresses returned to project clients.
 
+The superuser-only operations plane is served at `/api/ops/*`:
+
+- `/api/ops/overview` and `/api/ops/metrics` expose current and historical
+  host, disk, network, and container telemetry.
+- `/api/ops/tasks` manages cron and one-off executors and retains run logs.
+- `/api/ops/containers` lists and restarts containers through
+  `DOCKER_HOST`; the API never mounts the raw Docker socket.
+- `/api/ops/health` aggregates PostgreSQL, MongoDB, mongot, Redis,
+  Meilisearch, disk-headroom, and optional tunnel readiness.
+
+The runtime samples every 30 seconds. Raw rows are retained for at least 24
+hours and the seeded five-minute rollup task retains aggregates for 90 days.
+The seeded nightly tiering task is disabled until the cutover soak completes.
+Configure `BACKUP_DIR`, `DOCKER_HOST`, `REBOOT_SENTINEL_PATH`,
+`SSD_DEVICE`/`HDD_DEVICES`/`MICROSD_DEVICE`, and optionally
+`METRICS_NOTIFICATION_WEBHOOK_URL` and `TUNNEL_HEALTH_URL`.
+
 Infrastructure-backed provisioning and crash-resume tests are opt-in:
 
 ```sh
@@ -47,6 +64,18 @@ RUN_CLOUD_INFRA_TESTS=1 bun test \
   packages/cloud-core/src/projects/provisioning.integration.test.ts \
   packages/cloud-core/src/projects/sync.integration.test.ts \
   packages/cloud-core/src/projects/pg-sync.integration.test.ts
+```
+
+Ops backup/restore and rollup tests use the same opt-in flag. The dev compose
+file exposes only the constrained Docker proxy on loopback:
+
+```sh
+RUN_CLOUD_INFRA_TESTS=1 bun test \
+  packages/cloud-core/src/ops/metrics.integration.test.ts \
+  apps/api/src/ops/executors/executors.integration.test.ts
+
+bun apps/api/scripts/profile-ops-sampler.ts
+powershell -File apps/api/scripts/ops-smoke.ps1
 ```
 
 The reusable verification harnesses require their documented `S3_SMOKE_*` and

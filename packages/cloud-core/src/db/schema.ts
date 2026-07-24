@@ -1,3 +1,4 @@
+import type { TaskConfig, TaskRunMetadata } from "@repo/schemas/cloud";
 import {
   type InferInsertModel,
   type InferSelectModel,
@@ -6,12 +7,15 @@ import {
 import {
   bigint,
   boolean,
+  doublePrecision,
   foreignKey,
   index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
+  smallint,
   text,
   timestamp,
   unique,
@@ -19,6 +23,8 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+
+export type { TaskConfig, TaskRunMetadata } from "@repo/schemas/cloud";
 
 export const userRoleEnum = pgEnum("user_role", ["superuser", "user"]);
 export type UserRole = (typeof userRoleEnum.enumValues)[number];
@@ -43,6 +49,9 @@ export const taskTypeEnum = pgEnum("task_type", [
   "backup_all",
   "restart_container",
   "reboot_server",
+  "tiering_pass",
+  "metrics_rollup",
+  "alert_evaluation",
 ]);
 export type TaskType = (typeof taskTypeEnum.enumValues)[number];
 
@@ -78,21 +87,6 @@ export interface FieldMapping {
   filterableAttributes?: string[];
   sortableAttributes?: string[];
   primaryKey?: string;
-}
-
-export interface TaskConfig {
-  retentionCount?: number;
-  containerNames?: string[];
-  compress?: boolean;
-  databases?: string[];
-  sourcePaths?: string[];
-}
-
-export interface TaskRunMetadata {
-  backupPath?: string;
-  backupSizeBytes?: number;
-  durationMs?: number;
-  filesBackedUp?: number;
 }
 
 export const users = pgTable("users", {
@@ -473,6 +467,9 @@ export const taskRuns = pgTable(
     output: text("output"),
     error: text("error"),
     metadata: jsonb("metadata").$type<TaskRunMetadata>(),
+    failureNotifiedAt: timestamp("failure_notified_at", {
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -486,6 +483,30 @@ export const taskRuns = pgTable(
       columns: [table.taskId],
       foreignColumns: [scheduledTasks.id],
     }).onDelete("cascade"),
+  ],
+);
+
+export const metricsSamples = pgTable(
+  "metrics_samples",
+  {
+    ts: timestamp("ts", { withTimezone: true }).notNull(),
+    kind: varchar("kind", { length: 64 }).notNull(),
+    key: varchar("key", { length: 255 }).notNull(),
+    value: doublePrecision("value").notNull(),
+    intervalSeconds: smallint("interval_seconds").notNull().default(30),
+  },
+  (table) => [
+    primaryKey({
+      name: "metrics_samples_pkey",
+      columns: [table.ts, table.kind, table.key, table.intervalSeconds],
+    }),
+    index("metrics_samples_ts_brin_idx").using("brin", table.ts),
+    index("metrics_samples_series_ts_idx").on(
+      table.kind,
+      table.key,
+      table.intervalSeconds,
+      table.ts,
+    ),
   ],
 );
 
@@ -625,5 +646,7 @@ export type ScheduledTask = InferSelectModel<typeof scheduledTasks>;
 export type NewScheduledTask = InferInsertModel<typeof scheduledTasks>;
 export type TaskRun = InferSelectModel<typeof taskRuns>;
 export type NewTaskRun = InferInsertModel<typeof taskRuns>;
+export type MetricsSample = InferSelectModel<typeof metricsSamples>;
+export type NewMetricsSample = InferInsertModel<typeof metricsSamples>;
 
 export * from "./auth-schema";
