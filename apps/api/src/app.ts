@@ -5,10 +5,12 @@ import {
   type Database,
   deleteUser,
   hashPassword,
+  listUsers,
   type RateLimitStore,
   rateLimit,
   requireRole,
   requireSession,
+  resetUserMfa,
   type S3ApiConfig,
   type StorageService,
   s3Routes,
@@ -19,6 +21,7 @@ import {
 } from "@repo/cloud-core";
 import { authAccount, authUser } from "@repo/cloud-core/db/schema";
 import {
+  adminResetMfaInputSchema,
   completeSignupInputSchema,
   createPendingUserInputSchema,
 } from "@repo/schemas/cloud";
@@ -53,6 +56,10 @@ const MFA_ENROLLMENT_PATHS = new Set([
   "/api/auth/two-factor/get-totp-uri",
   "/api/auth/two-factor/verify-totp",
 ]);
+const adminUsersQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
 
 export interface CloudApiOptions {
   auth: CloudAuth;
@@ -416,6 +423,47 @@ export function createCloudApiApp(options: CloudApiOptions) {
       );
     }
     return context.json({ success: true });
+  });
+  app.get("/api/auth/admin/users", async (context) => {
+    const { page, limit } = adminUsersQuerySchema.parse({
+      page: context.req.query("page"),
+      limit: context.req.query("limit"),
+    });
+    const result = await listUsers(options.db, { page, limit });
+    return context.json({
+      data: result.users.map(serializeSafeUser),
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        totalPages: Math.ceil(result.total / limit),
+      },
+    });
+  });
+  app.post("/api/auth/admin/reset-mfa", async (context) => {
+    const parsed = adminResetMfaInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: { code: "INVALID_USER_ID", message: "A user id is required" },
+        },
+        400,
+      );
+    }
+    try {
+      await resetUserMfa(options.db, parsed.data.userId);
+      return context.json({ success: true });
+    } catch (error) {
+      if (error instanceof CloudCoreError) {
+        return context.json(
+          { error: { code: error.code, message: error.message } },
+          error.status,
+        );
+      }
+      throw error;
+    }
   });
   app.post("/api/auth/two-factor/disable", (context) =>
     context.json(

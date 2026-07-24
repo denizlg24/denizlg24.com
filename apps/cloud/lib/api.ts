@@ -33,6 +33,7 @@ import {
   opsHealthSchema,
   opsOverviewSchema,
   type Pagination,
+  type PendingUserCreated,
   type PgDatabase,
   type PgQueryResult,
   type PgSchema,
@@ -44,6 +45,7 @@ import {
   type ProjectVectorIndex,
   type ProjectVectorSearchOverview,
   paginationSchema,
+  pendingUserCreatedSchema,
   pgDatabaseSchema,
   pgQueryResultSchema,
   pgSchemaSchema,
@@ -193,6 +195,33 @@ export const api = {
 
   healthz: (): Promise<{ status: string; version: string }> =>
     rawRequest("/healthz").then((payload) => healthzSchema.parse(payload)),
+
+  users: {
+    list: (query?: {
+      page?: number;
+      limit?: number;
+    }): Promise<Paginated<SafeUser>> =>
+      requestPaginated(safeUserSchema, "/api/auth/admin/users", { query }),
+    createPending: (input: {
+      username: string;
+      role: "superuser" | "user";
+    }): Promise<PendingUserCreated> =>
+      requestData(
+        pendingUserCreatedSchema,
+        "/api/auth/admin/create-pending-user",
+        { method: "POST", body: input },
+      ),
+    remove: (userId: string): Promise<{ success: boolean }> =>
+      rawRequest("/api/auth/admin/remove-user", {
+        method: "POST",
+        body: { userId },
+      }).then((payload) => successSchema.parse(payload)),
+    resetMfa: (userId: string): Promise<{ success: boolean }> =>
+      rawRequest("/api/auth/admin/reset-mfa", {
+        method: "POST",
+        body: { userId },
+      }).then((payload) => successSchema.parse(payload)),
+  },
 
   ops: {
     overview: (): Promise<OpsOverview> =>

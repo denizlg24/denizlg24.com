@@ -77,3 +77,8 @@ export const createdApiKeySchema = z.object({
   prefix: z.string(),
 });
 export type CreatedApiKey = z.infer<typeof createdApiKeySchema>;
+
+export const adminResetMfaInputSchema = z.object({
+  userId: z.uuid(),
+});
+export type AdminResetMfaInput = z.infer<typeof adminResetMfaInputSchema>;

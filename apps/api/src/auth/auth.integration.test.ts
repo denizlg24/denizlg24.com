@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "bun:test";
 
 import {
   authAccount,
+  authSession,
   authTwoFactor,
   authUser,
   authVerification,
@@ -484,6 +485,66 @@ describe("Better Auth cloud flow", () => {
           resetAccount?.password ?? "",
         ),
       ).toBe(true);
+
+      const usersList = await app.request(
+        `${API_ORIGIN}/api/auth/admin/users`,
+        {
+          headers: { Cookie: adminCookie, Origin: CLOUD_ORIGIN },
+        },
+      );
+      expect(usersList.status).toBe(200);
+      const usersPayload: object = await usersList.json();
+      if (
+        !("data" in usersPayload) ||
+        !Array.isArray(usersPayload.data) ||
+        !("pagination" in usersPayload)
+      ) {
+        throw new Error("Expected a paginated users response");
+      }
+      const listedUsers = usersPayload.data.map((entry) =>
+        safeUserSchema.parse(entry),
+      );
+      expect(listedUsers.map((user) => user.username)).toContain("owner");
+      expect(listedUsers.map((user) => user.username)).toContain("new-user");
+
+      const resetMfa = await app.request(
+        `${API_ORIGIN}/api/auth/admin/reset-mfa`,
+        {
+          body: JSON.stringify({ userId: pending.user.id }),
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: adminCookie,
+            Origin: CLOUD_ORIGIN,
+          },
+          method: "POST",
+        },
+      );
+      expect(resetMfa.status).toBe(200);
+      expect(await resetMfa.json()).toEqual({ success: true });
+      expect(
+        await db.query.authTwoFactor.findFirst({
+          where: eq(authTwoFactor.userId, pending.user.id),
+        }),
+      ).toBeUndefined();
+      expect(
+        await db.query.authSession.findFirst({
+          where: eq(authSession.userId, pending.user.id),
+        }),
+      ).toBeUndefined();
+      expect(
+        (
+          await db.query.authUser.findFirst({
+            where: eq(authUser.id, pending.user.id),
+          })
+        )?.twoFactorEnabled,
+      ).toBe(false);
+      expect(
+        (
+          await db.query.users.findFirst({
+            where: eq(users.id, pending.user.id),
+          })
+        )?.totpEnabled,
+      ).toBe(false);
     },
     30_000,
   );
