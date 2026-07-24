@@ -23,6 +23,7 @@ describe("storage search documents", () => {
       id: "file-id",
       name: "report.pdf",
       path: "/shared/report.pdf",
+      rootPath: "/shared",
       type: "file",
       ownerId: "user-id",
       scope: "shared",
@@ -64,5 +65,6 @@ describe("storage search documents", () => {
     });
 
     expect(document.scope).toBe("user");
+    expect(document.rootPath).toBe("/sharedness");
   });
 });

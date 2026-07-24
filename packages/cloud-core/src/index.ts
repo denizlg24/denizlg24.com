@@ -7,4 +7,5 @@ export * from "./middleware";
 export * from "./mongo";
 export * from "./search";
 export * from "./services";
+export * from "./storage";
 export * from "./sync";

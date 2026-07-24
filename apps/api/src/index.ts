@@ -32,5 +32,10 @@ app.all("*", async (context) => {
   return (await runtimeApp).fetch(context.req.raw);
 });
 
-export default app;
+// Bun's default 10-second idle timeout aborts slow or paused large downloads;
+// 240s keeps stalled sockets bounded (Bun caps the option at 255). Paused
+// clients past that resume via HTTP Range. Object.assign preserves Hono's
+// request helper for tests while exposing the Bun.serve option on the
+// default export.
+export default Object.assign(app, { idleTimeout: 240 as const });
 export { createCloudApiApp } from "./app";

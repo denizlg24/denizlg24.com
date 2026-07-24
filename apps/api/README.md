@@ -11,12 +11,30 @@ Start the shared development services from the repository root:
 bun run cloud:dev:infra
 ```
 
-Run the API with `DATABASE_URL`, `REDIS_ADMIN_URL`, `BETTER_AUTH_SECRET`, and
-`BETTER_AUTH_URL` configured. `BETTER_AUTH_SECRET` must contain at least 32
-characters.
+Run the API with `DATABASE_URL`, `REDIS_ADMIN_URL`, `BETTER_AUTH_SECRET`,
+`BETTER_AUTH_URL`, `MEILISEARCH_URL`, `MEILISEARCH_ADMIN_KEY`,
+`SSD_STORAGE_PATH`, `HDD_STORAGE_PATH`, `JWT_SECRET`, and
+`S3_CREDENTIAL_ENCRYPTION_KEY` configured. `BETTER_AUTH_SECRET` and
+`S3_CREDENTIAL_ENCRYPTION_KEY` must contain at least 32 characters. `JWT_SECRET` must retain the old storage service value
+at cutover because existing stateless share links are signed from it.
 
 ```sh
 bun --env-file=.env run --cwd apps/api dev
+```
+
+Storage is served at `/api/storage/*`, storage search at `/api/search`, and
+the path-style S3-compatible API at `/v2`. The S3 implementation resolves
+credentials from `s3_credentials`. At cutover, configure the old
+`S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` together: startup idempotently
+migrates them into the NULL-project full-access row and fails on a collision
+or changed secret.
+
+The reusable verification harnesses require their documented `S3_SMOKE_*` and
+`TUS_SMOKE_*` environment values:
+
+```sh
+bun apps/api/scripts/s3-smoke.ts
+bun apps/api/scripts/tus-smoke.ts
 ```
 
 ## Manual signup and TOTP verification

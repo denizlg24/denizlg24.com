@@ -110,4 +110,7 @@ screen requires bypassing zod-validated client.
 
 ## Drift log
 
-(record deviations here)
+- **From 004 (2026-07-23):** Consume `tieringReportSchema` from
+  `@repo/schemas/cloud` for the tiering dry-run UI. Plan 006 owns the admin
+  endpoint/task executor that invokes 004's exported `runTieringPass`; do not
+  trigger a real move from the UI during cutover or the 48-hour soak.

@@ -81,4 +81,9 @@ in the client).
 
 ## Drift log
 
-(record deviations here)
+- **From 004 (2026-07-23):** The consolidated endpoints are
+  `/api/storage/*`, `/api/search`, and `/v2`; canonical storage response
+  schemas are exported from `@repo/schemas/cloud`. TUS requires and exposes
+  the standard `Tus-Resumable`, `Upload-*`, and `Location` headers. Bulk ZIP
+  selection is capped by `STORAGE_ARCHIVE_MAX_BYTES` (2 GiB default, ZIP32
+  maximum 4095 MiB), with `ARCHIVE_TOO_LARGE`/413 surfaced to the UI.

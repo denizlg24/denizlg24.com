@@ -142,4 +142,25 @@ with the documented copy→verify→swap sequence.
 
 ## Drift log
 
-(record deviations here)
+- **2026-07-23:** The pinned old `/v2` implementation does support multipart
+  upload. Multipart create/upload/list/complete/abort was therefore ported and
+  covered by the AWS SDK integration test instead of being deferred.
+- **2026-07-23:** A project credential's storage-folder prefix `/{slug}` is
+  represented in the S3 namespace as the single exact bucket `{slug}`.
+  Foreign bucket operations return S3 `AccessDenied`; NULL-project legacy
+  credentials remain unrestricted. Plan 005 must use the exported credential
+  helpers and invalidate `S3CredentialResolver` after create/rotate/revoke.
+- **2026-07-23:** The legacy `S3_ACCESS_KEY_ID` /
+  `S3_SECRET_ACCESS_KEY` pair is idempotently migrated at API startup into a
+  NULL-project row. An access-key collision, project-bound row, or changed
+  secret fails startup rather than weakening compatibility. Plan 012 must keep
+  both variables through the first successful new-stack startup and assert the
+  migrated row.
+- **2026-07-23:** The old OpenAPI generation approach did not port cleanly to
+  the consolidated Hono routes. Canonical Zod request/response contracts were
+  added under `@repo/schemas/cloud`; OpenAPI regeneration is deferred to 013 as
+  explicitly allowed by this plan.
+- **2026-07-23:** Bulk archives use a sequential store-only ZIP32 stream.
+  `STORAGE_ARCHIVE_MAX_BYTES` defaults to 2 GiB and is configurable up to
+  4095 MiB so ZIP32 offsets remain valid; oversized selections fail before
+  streaming with the documented 413 response.

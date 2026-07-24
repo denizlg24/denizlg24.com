@@ -65,4 +65,7 @@ plan can always wait).
 
 ## Drift log
 
-(record deviations here)
+- **From 004 (2026-07-23):** OpenAPI regeneration was deferred. Generate the
+  consolidated `/api/storage/*`, `/api/search`, and `/v2` documents from the
+  current Hono routes and `packages/schemas/src/cloud/storage.ts`; do not copy
+  the legacy route prefixes back into the published contract.
