@@ -364,6 +364,71 @@ try {
     `${ranged.status} ${ranged.headers.get("Content-Range")} ${rangedBody.byteLength}`,
   );
 
+  // 5b. active-content hardening -------------------------------------------
+  // Anyone with an account can upload HTML and hand out a share link, so a
+  // navigation to it must download rather than execute on the API origin.
+  const htmlName = "e2e_payload.html";
+  const htmlBody = Buffer.from("<script>window.__xss = 1</script>");
+  const htmlCreate = await fetch(new URL("/api/storage/uploads", BASE), {
+    headers: {
+      ...tusHeaders(),
+      "Upload-Length": String(htmlBody.byteLength),
+      "Upload-Metadata": Object.entries({
+        filename: htmlName,
+        filetype: "text/html",
+        targetFolder: childPath,
+      })
+        .map(
+          ([key, value]) => `${key} ${Buffer.from(value).toString("base64")}`,
+        )
+        .join(","),
+    },
+    method: "POST",
+  });
+  await fetch(new URL(htmlCreate.headers.get("Location") ?? "", BASE), {
+    body: htmlBody,
+    headers: {
+      ...tusHeaders(),
+      "Content-Type": "application/offset+octet-stream",
+      "Upload-Offset": "0",
+    },
+    method: "PATCH",
+  });
+  const htmlListing = await call(`/api/storage/folders/${childId}/contents`);
+  const htmlFile = (
+    htmlListing.body as {
+      data?: { files?: { id: string; filename: string }[] };
+    }
+  ).data?.files?.find((entry) => entry.filename === htmlName);
+  const htmlServed = await fetch(
+    new URL(`/api/storage/files/${htmlFile?.id}/download`, BASE),
+    { headers: { Origin: ORIGIN, Cookie: cookieHeader() } },
+  );
+  await htmlServed.arrayBuffer();
+  check(
+    "uploaded HTML is served as an attachment with nosniff, never inline",
+    htmlServed.headers.get("Content-Disposition")?.startsWith("attachment") ===
+      true && htmlServed.headers.get("X-Content-Type-Options") === "nosniff",
+    `${htmlServed.headers.get("Content-Disposition")} / ${htmlServed.headers.get("X-Content-Type-Options")}`,
+  );
+
+  const htmlShare = await call(`/api/storage/files/${htmlFile?.id}/share`, {
+    body: JSON.stringify({ expiresIn: "30m" }),
+    method: "POST",
+  });
+  const htmlToken =
+    (htmlShare.body as { data?: { token?: string } }).data?.token ?? "";
+  const sharedHtml = await fetch(
+    new URL(`/api/storage/share/${encodeURIComponent(htmlToken)}`, BASE),
+  );
+  await sharedHtml.arrayBuffer();
+  check(
+    "the same protection applies on the public share route",
+    sharedHtml.headers.get("Content-Disposition")?.startsWith("attachment") ===
+      true,
+    String(sharedHtml.headers.get("Content-Disposition")),
+  );
+
   // 6. sharing --------------------------------------------------------------
   const share = await call(`/api/storage/files/${fileId}/share`, {
     body: JSON.stringify({ expiresIn: "30m" }),
@@ -482,7 +547,7 @@ try {
     "recursive delete removes the subtree and reports counts",
     removed.status === 200 &&
       removedBody.data?.deletedFolders === 3 &&
-      removedBody.data?.deletedFiles === 1,
+      removedBody.data?.deletedFiles === 2,
     JSON.stringify(removedBody).slice(0, 160),
   );
 

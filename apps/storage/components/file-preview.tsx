@@ -196,7 +196,9 @@ function TextLoader({
     return (
       <div className="scrollbar-thin flex-1 overflow-auto px-4 py-6">
         <div className="mx-auto max-w-2xl">
-          <MarkdownRenderer content={text} />
+          {/* Anyone can upload a .md and share the link, so raw HTML in the
+              source must not execute on this origin. */}
+          <MarkdownRenderer content={text} allowRawHtml={false} />
         </div>
       </div>
     );

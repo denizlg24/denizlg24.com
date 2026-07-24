@@ -117,6 +117,28 @@ export class StorageServiceError extends Error {
 
 const UNIQUE_VIOLATION = "23505";
 
+const ACTIVE_CONTENT_TYPES = new Set([
+  "application/xhtml+xml",
+  "application/xml",
+  "image/svg+xml",
+  "text/html",
+  "text/xml",
+]);
+
+/**
+ * Types a browser would execute as a document on this origin. Anyone with an
+ * account can upload one and hand out a share link, so these are always sent
+ * as an attachment — a navigation downloads them instead of running them
+ * against api.denizlg24.com. Subresource loads (`<img src>` for an SVG, the
+ * text previews' own fetch) ignore Content-Disposition, so previews are
+ * unaffected.
+ */
+function isActiveContent(mimeType: string | null): boolean {
+  if (!mimeType) return false;
+  const type = mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
+  return ACTIVE_CONTENT_TYPES.has(type) || type.endsWith("+xml");
+}
+
 /**
  * The `path` uniqueness checks below are read-then-write, so two concurrent
  * requests for the same name both pass the read. Postgres still rejects the
@@ -1349,7 +1371,8 @@ export class StorageService {
 
   private fileResponse(file: StorageFile, request: Request): Response {
     const url = new URL(request.url);
-    const forceDownload = url.searchParams.has("download");
+    const forceDownload =
+      url.searchParams.has("download") || isActiveContent(file.mimeType);
     const headers = new Headers({
       "Content-Type": file.mimeType ?? "application/octet-stream",
       "Content-Disposition": contentDisposition(
@@ -1357,6 +1380,9 @@ export class StorageService {
         file.filename,
       ),
       "Accept-Ranges": "bytes",
+      // The Content-Type here is whatever the uploader claimed, so sniffing
+      // must stay off.
+      "X-Content-Type-Options": "nosniff",
     });
     const range = request.headers.get("Range");
     if (!range) {

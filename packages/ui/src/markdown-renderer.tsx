@@ -179,11 +179,19 @@ const staticComponents = {
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  /**
+   * Raw HTML in the source is rendered as HTML. That is what the blog wants —
+   * its markdown is authored by the site owner. Pass `false` for markdown that
+   * came from a user or an uploaded file: `rehypeRaw` does no sanitising, so
+   * a `<script>` in the source would otherwise execute on this origin.
+   */
+  allowRawHtml?: boolean;
 }
 
 export function MarkdownRenderer({
   content,
   className = "",
+  allowRawHtml = true,
 }: MarkdownRendererProps) {
   const components = {
     ...staticComponents,
@@ -234,11 +242,17 @@ export function MarkdownRenderer({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[
-          [rehypeRaw, { passThrough: ["math", "inlineMath"] }],
-          rehypeKatex,
-          rehypeHighlight,
-        ]}
+        rehypePlugins={
+          allowRawHtml
+            ? [
+                [rehypeRaw, { passThrough: ["math", "inlineMath"] }],
+                rehypeKatex,
+                rehypeHighlight,
+              ]
+            : // Without rehypeRaw, react-markdown drops embedded HTML instead
+              // of rendering it, which is the behaviour untrusted input needs.
+              [rehypeKatex, rehypeHighlight]
+        }
         components={components}
       >
         {content}
