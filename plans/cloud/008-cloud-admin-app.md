@@ -120,3 +120,10 @@ screen requires bypassing zod-validated client.
   containers/restarts, and component health. Mongo backup task forms may select
   at most one database. The default metrics rollup is enabled; nightly tiering
   is seeded disabled.
+- **From 007 (2026-07-24):** Mint terminal access with
+  `POST /api/ops/terminal` (optional `{sessionId}`), then connect to
+  `/api/ops/terminal/ws?ticket=...` using the returned 30-second one-use
+  ticket. The response also supplies `sessionId` and `expiresAt`. Use canonical
+  frames from `@repo/schemas/cloud`; PTY data is binary and controls are text
+  JSON. Reply to server `ping` with `pong`. Existing sessions can be listed or
+  killed with `GET`/`DELETE /api/ops/terminal/sessions[/:id]`.

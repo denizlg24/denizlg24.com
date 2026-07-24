@@ -49,6 +49,10 @@ The superuser-only operations plane is served at `/api/ops/*`:
   `DOCKER_HOST`; the API never mounts the raw Docker socket.
 - `/api/ops/health` aggregates PostgreSQL, MongoDB, mongot, Redis,
   Meilisearch, disk-headroom, and optional tunnel readiness.
+- `POST /api/ops/terminal` mints a 30-second, single-use terminal ticket.
+  `/api/ops/terminal/ws` independently validates it before proxying to the
+  loopback host service. `/api/ops/terminal/sessions` lists and kills tmux
+  sessions.
 
 The runtime samples every 30 seconds. Raw rows are retained for at least 24
 hours and the seeded five-minute rollup task retains aggregates for 90 days.
@@ -57,6 +61,11 @@ Configure `BACKUP_DIR`, `DOCKER_HOST`, `REBOOT_SENTINEL_PATH`,
 `SSD_DEVICE`/`HDD_DEVICES`/`MICROSD_DEVICE`, and optionally
 `METRICS_NOTIFICATION_WEBHOOK_URL`, `MONGOT_HEALTH_URL`, and
 `TUNNEL_HEALTH_URL`.
+
+Configure `TERMINAL_SERVER_URL` (production:
+`ws://host.docker.internal:3003`) and the same at-least-32-byte
+`TERMINAL_TICKET_SECRET` used by the host terminal service. Never publish the
+host service port.
 
 Infrastructure-backed provisioning and crash-resume tests are opt-in:
 

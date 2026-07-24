@@ -67,9 +67,35 @@ PostgreSQL and MongoDB backup artifacts keep the legacy paths below
 `BACKUP_DIR/postgres` and `BACKUP_DIR/mongodb`. File backups are tar archives
 below `BACKUP_DIR/files`.
 
-The terminal unit is installed but not enabled. Plan 007 must provide
-`/usr/local/bin/cloud-terminal` and the final `/etc/deniz-cloud/terminal.env`
-before it can be started.
+### Host terminal service
+
+The terminal is a compiled host service, never a container. Install `tmux`,
+then install the plan 011 ARM64 artifact and configure the shared secret:
+
+```sh
+sudo apt-get install tmux
+sudo install -o root -g root -m 0755 cloud-terminal \
+  /usr/local/bin/cloud-terminal
+sudo install -o root -g root -m 0600 \
+  /etc/deniz-cloud/terminal.env.example \
+  /etc/deniz-cloud/terminal.env
+sudoedit /etc/deniz-cloud/terminal.env
+sudo systemctl enable --now cloud-terminal.service
+sudo systemctl status cloud-terminal.service
+ss -ltn | grep '127.0.0.1:3003'
+```
+
+`TERMINAL_TICKET_SECRET` must be the same random value (at least 32 bytes) in
+the API compose environment and `/etc/deniz-cloud/terminal.env`. The unit runs
+as the dedicated `pi-terminal` account, has no sudo policy, rejects non-loopback
+bind addresses, and is hardened with `NoNewPrivileges` and
+`ProtectSystem=strict`. `KillMode=process` deliberately leaves only that
+unprivileged user's tmux server alive across daemon restarts; its socket is
+under `/var/lib/cloud-terminal`, one of the unit's two writable paths.
+
+tmux sessions use the `cloud-` prefix, retain 100,000 history lines, and are
+reaped when unattached and inactive for `SESSION_IDLE_HOURS` (24 by default).
+List or kill them through the authenticated API, not by publishing port 3003.
 
 ## Compose validation
 

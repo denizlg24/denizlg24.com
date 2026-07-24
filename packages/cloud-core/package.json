@@ -18,7 +18,8 @@
     "./search": "./src/search/index.ts",
     "./services": "./src/services/index.ts",
     "./storage": "./src/storage/index.ts",
-    "./sync": "./src/sync/index.ts"
+    "./sync": "./src/sync/index.ts",
+    "./terminal": "./src/terminal/index.ts"
   },
   "scripts": {
     "db:generate": "drizzle-kit generate",

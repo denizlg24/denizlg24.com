@@ -35,6 +35,8 @@ import { opsRoutes } from "./ops/routes";
 import { MetricsSampler } from "./ops/sampler";
 import { OpsScheduler } from "./ops/scheduler";
 import { projectRoutes } from "./projects/routes";
+import { TerminalGateway } from "./terminal/gateway";
+import { TerminalWebSocketProxy } from "./terminal/proxy";
 
 function authSecret(): string {
   const secret = requiredEnv("BETTER_AUTH_SECRET");
@@ -287,6 +289,10 @@ export async function createRuntimeApp() {
     });
     cleanupActions.push(async () => scheduler.stop());
     await scheduler.start();
+    const terminal = new TerminalGateway({
+      serverUrl: process.env.TERMINAL_SERVER_URL ?? "ws://127.0.0.1:3003",
+      ticketSecret: requiredEnv("TERMINAL_TICKET_SECRET"),
+    });
 
     const app = createCloudApiApp({
       auth,
@@ -313,11 +319,12 @@ export async function createRuntimeApp() {
         postgres: postgresDbAdminRoutes(platformOptions),
         mongodb: mongoDbAdminRoutes(platformOptions),
       },
-      ops: opsRoutes({ db, docker, health, sampler, scheduler }),
+      ops: opsRoutes({ db, docker, health, sampler, scheduler, terminal }),
       trustedOrigins: CLOUD_AUTH_TRUSTED_ORIGINS,
     });
     return Object.assign(app, {
       closeRuntime: cleanup,
+      terminalProxy: new TerminalWebSocketProxy(terminal),
     });
   } catch (error) {
     try {
