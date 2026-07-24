@@ -5,6 +5,7 @@ import {
   type Database,
   deleteUser,
   hashPassword,
+  listLegacyS3Credentials,
   listUsers,
   type RateLimitStore,
   rateLimit,
@@ -493,6 +494,13 @@ export function createCloudApiApp(options: CloudApiOptions) {
     });
     app.use("/api/search", authenticate);
     app.use("/api/search/*", authenticate);
+    app.get(
+      "/api/storage/s3-credentials",
+      requireSession(),
+      requireRole("superuser"),
+      async (context) =>
+        context.json({ data: await listLegacyS3Credentials(options.db) }),
+    );
     app.route("/api/storage", storageRoutes(options.storage.service));
     app.route("/api/search", storageSearchRoutes(options.storage.service));
     app.route("/v2", s3Routes(options.storage.s3));

@@ -56,6 +56,7 @@ import {
   projectS3CredentialMetadataSchema,
   projectVectorIndexSchema,
   projectVectorSearchOverviewSchema,
+  type S3CredentialMetadata,
   type SafeApiKey,
   type SafeProject,
   type SafeProjectCollection,
@@ -63,6 +64,7 @@ import {
   type SafeTaskRun,
   type SafeUser,
   type SearchTokenResult,
+  s3CredentialMetadataSchema,
   safeApiKeySchema,
   safeProjectCollectionSchema,
   safeProjectSchema,
@@ -557,6 +559,14 @@ export const api = {
           { method: "DELETE" },
         ),
     },
+  },
+
+  storageAdmin: {
+    legacyS3Credentials: (): Promise<S3CredentialMetadata[]> =>
+      requestData(
+        z.array(s3CredentialMetadataSchema),
+        "/api/storage/s3-credentials",
+      ),
   },
 
   pg: {
