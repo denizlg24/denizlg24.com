@@ -38,6 +38,15 @@ import { projectRoutes } from "./projects/routes";
 import { TerminalGateway } from "./terminal/gateway";
 import { TerminalWebSocketProxy } from "./terminal/proxy";
 
+// apps/api and apps/web share the monorepo .env, but MONGODB_URI and
+// BETTER_AUTH_URL there belong to apps/web. The cloud API takes the _CLOUD
+// variant whenever it is set, so loading the shared file is enough — no shell
+// prelude has to remap the names before the process starts.
+function cloudEnv(name: string): string {
+  const cloudValue = process.env[`${name}_CLOUD`]?.trim();
+  return cloudValue || requiredEnv(name);
+}
+
 function authSecret(): string {
   const secret = requiredEnv("BETTER_AUTH_SECRET");
   if (secret.length < 32) {
@@ -96,7 +105,7 @@ export async function createRuntimeApp() {
       connectTimeoutMS: 5_000,
       serverSelectionTimeoutMS: 5_000,
     };
-    const mongoSync = new MongoClient(requiredEnv("MONGODB_URI"), mongoOptions);
+    const mongoSync = new MongoClient(cloudEnv("MONGODB_URI"), mongoOptions);
     const mongoAdmin = new MongoClient(
       requiredEnv("MONGODB_ADMIN_URI"),
       mongoOptions,
@@ -107,7 +116,7 @@ export async function createRuntimeApp() {
     );
     await Promise.all([mongoSync.connect(), mongoAdmin.connect()]);
 
-    const baseURL = requiredEnv("BETTER_AUTH_URL");
+    const baseURL = cloudEnv("BETTER_AUTH_URL");
     const auth = createCloudAuth({
       baseURL,
       cookieDomain: process.env.COOKIE_DOMAIN,

@@ -1,5 +1,7 @@
 import {
   apiErrorResponseSchema,
+  type CompleteSignupInput,
+  type CompleteSignupResult,
   type ContainerSnapshot,
   type CreateCollectionInput,
   type CreatedApiKey,
@@ -9,6 +11,7 @@ import {
   type CreateProjectInput,
   type CreateProjectVectorIndexInput,
   type CreateTaskInput,
+  completeSignupResultSchema,
   containerSnapshotSchema,
   createdApiKeySchema,
   type DiscoverFieldsInput,
@@ -194,6 +197,12 @@ const healthzSchema = z.object({ status: z.string(), version: z.string() });
 
 export const api = {
   me: (): Promise<SafeUser> => requestData(safeUserSchema, "/api/me"),
+
+  completeSignup: (input: CompleteSignupInput): Promise<CompleteSignupResult> =>
+    requestData(completeSignupResultSchema, "/api/auth/complete-signup", {
+      method: "POST",
+      body: input,
+    }),
 
   healthz: (): Promise<{ status: string; version: string }> =>
     rawRequest("/healthz").then((payload) => healthzSchema.parse(payload)),

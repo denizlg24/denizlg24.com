@@ -51,6 +51,11 @@ import { storageRoutes, storageSearchRoutes } from "./storage/routes";
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_REQUESTS = 10;
 const SIGNUP_MAX_REQUESTS = 5;
+// Outside production clientIp() collapses to one key, so the whole machine
+// shares a single bucket and a normal debugging session exhausts it. The
+// production ceilings are the ones that matter and are left untouched.
+const DEV_LOGIN_MAX_REQUESTS = 200;
+const DEV_SIGNUP_MAX_REQUESTS = 100;
 const MFA_ENROLLMENT_PATHS = new Set([
   "/api/auth/get-session",
   "/api/auth/sign-out",
@@ -58,6 +63,18 @@ const MFA_ENROLLMENT_PATHS = new Set([
   "/api/auth/two-factor/get-totp-uri",
   "/api/auth/two-factor/verify-totp",
 ]);
+// Re-authentication has to stay open: two-factor/enable needs the password,
+// which the browser only holds in memory, so any reload during enrollment
+// leaves a session that can no longer reach the one endpoint it needs. Signing
+// in again replaces that session and is no weaker than a fresh sign-in.
+const MFA_ENROLLMENT_PATH_PREFIXES = ["/api/auth/sign-in/"];
+
+function allowedDuringMfaEnrollment(path: string): boolean {
+  return (
+    MFA_ENROLLMENT_PATHS.has(path) ||
+    MFA_ENROLLMENT_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
+}
 const adminUsersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -113,13 +130,19 @@ function genericSignupError() {
   } as const;
 }
 
+// Everything under /api/auth is read by two different clients: lib/api.ts
+// unwraps `error`, better-auth's client reads a top-level `code`/`message`.
+// Emitting one shape leaves the other showing "Sign in failed" for every
+// cause, so responses that either may see carry both.
+function dualShapeError(code: string, message: string) {
+  return { code, message, error: { code, message } } as const;
+}
+
 function mfaEnrollmentRequiredError() {
-  return {
-    error: {
-      code: "MFA_ENROLLMENT_REQUIRED",
-      message: "Complete two-factor enrollment before continuing",
-    },
-  } as const;
+  return dualShapeError(
+    "MFA_ENROLLMENT_REQUIRED",
+    "Complete two-factor enrollment before continuing",
+  );
 }
 
 export function createCloudApiApp(options: CloudApiOptions) {
@@ -218,7 +241,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
     if (
       enrollment &&
       (enrollment.status !== "active" || !enrollment.twoFactorEnabled) &&
-      !MFA_ENROLLMENT_PATHS.has(context.req.path)
+      !allowedDuringMfaEnrollment(context.req.path)
     ) {
       return context.json(mfaEnrollmentRequiredError(), 403);
     }
@@ -231,7 +254,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
     rateLimit({
       keyGenerator: (context) =>
         `login:${clientIp(context, options.isProduction)}`,
-      max: LOGIN_MAX_REQUESTS,
+      max: options.isProduction ? LOGIN_MAX_REQUESTS : DEV_LOGIN_MAX_REQUESTS,
       store: options.rateLimitStore,
       windowMs: LOGIN_WINDOW_MS,
     }),
@@ -270,7 +293,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
     rateLimit({
       keyGenerator: (context) =>
         `complete-signup:${clientIp(context, options.isProduction)}`,
-      max: SIGNUP_MAX_REQUESTS,
+      max: options.isProduction ? SIGNUP_MAX_REQUESTS : DEV_SIGNUP_MAX_REQUESTS,
       store: options.rateLimitStore,
       windowMs: LOGIN_WINDOW_MS,
     }),
@@ -470,12 +493,10 @@ export function createCloudApiApp(options: CloudApiOptions) {
   });
   app.post("/api/auth/two-factor/disable", (context) =>
     context.json(
-      {
-        error: {
-          code: "TWO_FACTOR_REQUIRED",
-          message: "Two-factor authentication is mandatory",
-        },
-      },
+      dualShapeError(
+        "TWO_FACTOR_REQUIRED",
+        "Two-factor authentication is mandatory",
+      ),
       403,
     ),
   );

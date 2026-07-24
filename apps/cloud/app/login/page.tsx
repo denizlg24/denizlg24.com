@@ -6,19 +6,29 @@ import { Label } from "@repo/ui/label";
 import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import { type FormEvent, Suspense, useEffect, useState } from "react";
-import { api, isApiError } from "@/lib/api";
+import { api, errorMessage, isApiError } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 
-type Step = "credentials" | "totp" | "recovery" | "enroll" | "backup-codes";
+type Step =
+  | "credentials"
+  | "signup"
+  | "totp"
+  | "recovery"
+  | "enroll"
+  | "backup-codes";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const reason = searchParams.get("reason");
+  const enrollPending = searchParams.get("enroll") === "1";
+  const tokenParam = searchParams.get("token");
 
-  const [step, setStep] = useState<Step>("credentials");
-  const [username, setUsername] = useState("");
+  const [step, setStep] = useState<Step>(tokenParam ? "signup" : "credentials");
+  const [username, setUsername] = useState(searchParams.get("username") ?? "");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
+  const [signupToken, setSignupToken] = useState(tokenParam ?? "");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -33,6 +43,24 @@ function LoginForm() {
       .catch(() => setQrDataUrl(null));
   }, [totpUri]);
 
+  // twoFactor.enable re-checks the password, and the browser only ever holds
+  // it in memory, so enrollment can only be driven from the sign-in that
+  // typed it. A reload drops back to credentials rather than dead-ending.
+  const startEnrollment = async (enrollPassword: string) => {
+    const { data, error: enableError } = await authClient.twoFactor.enable({
+      password: enrollPassword,
+    });
+    if (enableError || !data) {
+      setStep("credentials");
+      setError(enableError?.message ?? "TOTP enrollment failed");
+      return;
+    }
+    setTotpUri(data.totpURI);
+    setBackupCodes(data.backupCodes);
+    setCode("");
+    setStep("enroll");
+  };
+
   const finish = async () => {
     try {
       const me = await api.me();
@@ -45,25 +73,16 @@ function LoginForm() {
       router.replace("/");
     } catch (err) {
       if (isApiError(err) && err.code === "MFA_ENROLLMENT_REQUIRED") {
-        await startEnrollment();
+        if (!password) {
+          setStep("credentials");
+          setError("Sign in again to finish TOTP enrollment");
+          return;
+        }
+        await startEnrollment(password);
         return;
       }
-      setError("Session check failed");
+      setError(errorMessage(err));
     }
-  };
-
-  const startEnrollment = async () => {
-    const { data, error: enableError } = await authClient.twoFactor.enable({
-      password,
-    });
-    if (enableError || !data) {
-      setError(enableError?.message ?? "TOTP enrollment failed");
-      return;
-    }
-    setTotpUri(data.totpURI);
-    setBackupCodes(data.backupCodes);
-    setCode("");
-    setStep("enroll");
   };
 
   const submitCredentials = async (event: FormEvent) => {
@@ -85,6 +104,25 @@ function LoginForm() {
       return;
     }
     await finish();
+  };
+
+  const submitSignup = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.completeSignup({
+        username,
+        email,
+        password,
+        token: signupToken,
+      });
+      setBusy(false);
+      await startEnrollment(password);
+    } catch (err) {
+      setBusy(false);
+      setError(errorMessage(err));
+    }
   };
 
   const submitTotp = async (event: FormEvent) => {
@@ -152,6 +190,11 @@ function LoginForm() {
             Signed out — superuser required
           </p>
         )}
+        {enrollPending && !error && step === "credentials" && (
+          <p className="mb-4 text-xs text-muted-foreground">
+            TOTP enrollment incomplete
+          </p>
+        )}
         {error && <p className="mb-4 text-xs text-destructive">{error}</p>}
 
         {step === "credentials" && (
@@ -183,6 +226,92 @@ function LoginForm() {
             <Button type="submit" disabled={busy || !username || !password}>
               Sign in
             </Button>
+            <button
+              type="button"
+              className="text-left text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setError(null);
+                setStep("signup");
+              }}
+            >
+              Redeem a signup token
+            </button>
+          </form>
+        )}
+
+        {step === "signup" && (
+          <form onSubmit={submitSignup} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="signup-username" className="text-xs">
+                Username
+              </Label>
+              <Input
+                id="signup-username"
+                autoComplete="username"
+                autoFocus={!tokenParam}
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="signup-email" className="text-xs">
+                Email
+              </Label>
+              <Input
+                id="signup-email"
+                type="email"
+                autoComplete="email"
+                autoFocus={Boolean(tokenParam)}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="signup-password" className="text-xs">
+                Password
+              </Label>
+              <Input
+                id="signup-password"
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="signup-token" className="text-xs">
+                Signup token
+              </Label>
+              <Input
+                id="signup-token"
+                className="font-mono"
+                value={signupToken}
+                onChange={(event) => setSignupToken(event.target.value)}
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={
+                busy ||
+                !username ||
+                !email ||
+                password.length < 8 ||
+                !signupToken
+              }
+            >
+              Continue
+            </Button>
+            <button
+              type="button"
+              className="text-left text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setError(null);
+                setStep("credentials");
+              }}
+            >
+              Back to sign in
+            </button>
           </form>
         )}
 

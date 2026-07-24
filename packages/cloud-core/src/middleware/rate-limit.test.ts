@@ -71,6 +71,8 @@ describe("rateLimit", () => {
     expect(blocked.status).toBe(429);
     expect(blocked.headers.get("Retry-After")).toBe("30");
     expect(await blocked.json()).toEqual({
+      code: "RATE_LIMITED",
+      message: "Too many requests, try again later",
       error: {
         code: "RATE_LIMITED",
         message: "Too many requests, try again later",
