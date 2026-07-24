@@ -60,6 +60,13 @@ The reboot sentinel contract for plan 006 is
 `/host-control` and writes `/host-control/reboot-requested`; the host path unit
 deletes it before invoking `systemctl reboot`.
 
+The API talks to Docker only through `tcp://docker-proxy:2375`. The proxy
+allows container list/inspect/stats, exec, and restart requests; it does not
+expose images, networks, volumes, secrets, services, or the system endpoint.
+PostgreSQL and MongoDB backup artifacts keep the legacy paths below
+`BACKUP_DIR/postgres` and `BACKUP_DIR/mongodb`. File backups are tar archives
+below `BACKUP_DIR/files`.
+
 The terminal unit is installed but not enabled. Plan 007 must provide
 `/usr/local/bin/cloud-terminal` and the final `/etc/deniz-cloud/terminal.env`
 before it can be started.
@@ -155,12 +162,23 @@ finalization.
 
 ## Health integration
 
-After plan 006 implements `/api/ops/health`, configure the existing web
-resource with:
+Configure the existing web resource with:
 
 - public HTTP check: `https://api.denizlg24.com/healthz`, expected status 200,
   JSON path `status`, expected value `ok`;
-- authenticated component checks through the plan 006 ops health endpoint;
 - TCP sub-resources for the three public database hostnames and ports.
+
+The component endpoint is `GET https://api.denizlg24.com/api/ops/health`.
+It requires a Better Auth superuser session and returns paths such as
+`data.checks.postgres.status`, `data.checks.mongodb.status`,
+`data.checks.redis.status`, `data.checks.meilisearch.status`,
+`data.checks.mongot.status`, `data.checks.disk.status`, and
+`data.checks.tunnel.status`; healthy values are `ok`.
+
+The current `apps/web` HTTP sub-resource model cannot attach an authenticated
+cookie or header. Keep the public aggregate and TCP checks active for now.
+When that model gains secret headers, point private component checks at the
+paths above with a superuser-authenticated relay. Do not put session or API
+credentials in a check URL.
 
 No web application changes belong to plan 011.

@@ -149,3 +149,10 @@ slower, allowed — record it).
   artifact deployment, and final unit verification; plus the first native
   ARM64 GHCR workflow run and operator application/verification of §5
   network/TLS and §6 Vercel projects. No production stack or DNS was changed.
+- **From 006 (2026-07-24):** The socket-proxy/reboot environment contract is
+  now final: API uses `tcp://docker-proxy:2375`; proxy grants only ping/version/
+  info plus container list/inspect/stats, exec, and restart; reboot requests are
+  written to `/host-control/reboot-requested`. Pi/staging env examples now carry
+  `CLOUD_ADMIN_URL`, `DISK_MIN_HEADROOM_PERCENT`, and optional
+  `TUNNEL_HEALTH_URL`. Plan 011 still owns the endpoint-complete Pi staging/load
+  pass and recorded whole-stack memory peaks.

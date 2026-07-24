@@ -119,3 +119,18 @@ profiling (>50MB steady-state for the sampler → simplify cadence, report).
   exported from cloud-core. Register `tiering_pass` here, pass the storage
   paths/watermark/age/size/batch config, expose dry-run reports for 008, and
   keep the first real schedule disabled until 012's post-cutover soak.
+- **Implementation (2026-07-24):** Added migration
+  `0003_daffy_doctor_doom.sql`, the narrow raw/rollup metrics store, typed
+  scheduler/executors, failure-notification throttling, superuser ops routes,
+  authenticated component health, and a loopback-only dev socket proxy.
+  Database backups stream Docker exec output directly to disk and were
+  restored into isolated PostgreSQL and MongoDB containers. A full HTTP smoke
+  created and ran an audited one-off PostgreSQL backup and queried live metrics.
+  The sampler stayed 32.1 MiB above baseline across ten cycles, below the 50 MiB
+  STOP threshold.
+- **Deviations (2026-07-24):** A Mongo archive can target the full cluster or
+  one database because the installed `mongodump` does not support multiple
+  namespace filters in one archive. File backups are tar/tar.gz artifacts under
+  `BACKUP_DIR/files`. The existing apps/web health-check model cannot attach a
+  secret header or session cookie, so `/healthz` plus TCP checks remain public;
+  private component checks must use a future authenticated relay.

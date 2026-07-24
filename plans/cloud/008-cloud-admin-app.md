@@ -114,3 +114,9 @@ screen requires bypassing zod-validated client.
   `@repo/schemas/cloud` for the tiering dry-run UI. Plan 006 owns the admin
   endpoint/task executor that invokes 004's exported `runTieringPass`; do not
   trigger a real move from the UI during cutover or the 48-hour soak.
+- **From 006 (2026-07-24):** Consume the canonical contracts in
+  `@repo/schemas/cloud/ops` and the superuser-only `/api/ops` routes for
+  overview, bounded/downsampled metrics, tasks/run history/manual triggers,
+  containers/restarts, and component health. Mongo backup task forms may select
+  at most one database. The default metrics rollup is enabled; nightly tiering
+  is seeded disabled.

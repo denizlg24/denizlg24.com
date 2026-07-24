@@ -100,6 +100,22 @@ services:
       retries: 6
       start_period: 10s
 
+  docker-proxy:
+    image: ${DOCKER_PROXY_IMAGE:-ghcr.io/tecnativa/docker-socket-proxy:0.3.0}
+    ports:
+      - "127.0.0.1:${DOCKER_PROXY_PORT:-23750}:2375"
+    environment:
+      ALLOW_RESTARTS: "1"
+      CONTAINERS: "1"
+      EXEC: "1"
+      INFO: "1"
+      PING: "1"
+      POST: "1"
+      VERSION: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   mongo-data:

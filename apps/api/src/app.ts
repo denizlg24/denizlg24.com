@@ -39,6 +39,7 @@ import type {
   mongoDbAdminRoutes,
   postgresDbAdminRoutes,
 } from "./db-admin/routes";
+import type { opsRoutes } from "./ops/routes";
 import type { projectRoutes } from "./projects/routes";
 import { storageRoutes, storageSearchRoutes } from "./storage/routes";
 
@@ -68,6 +69,7 @@ export interface CloudApiOptions {
     postgres: ReturnType<typeof postgresDbAdminRoutes>;
     mongodb: ReturnType<typeof mongoDbAdminRoutes>;
   };
+  ops?: ReturnType<typeof opsRoutes>;
 }
 
 function clientIp(
@@ -467,6 +469,22 @@ export function createCloudApiApp(options: CloudApiOptions) {
     );
     app.route("/api/db/postgres", options.platform.postgres);
     app.route("/api/db/mongodb", options.platform.mongodb);
+  }
+
+  if (options.ops) {
+    app.use(
+      "/api/ops",
+      authenticate,
+      requireSession(),
+      requireRole("superuser"),
+    );
+    app.use(
+      "/api/ops/*",
+      authenticate,
+      requireSession(),
+      requireRole("superuser"),
+    );
+    app.route("/api/ops", options.ops);
   }
 
   app.on(["GET", "POST"], "/api/auth/*", (context) =>

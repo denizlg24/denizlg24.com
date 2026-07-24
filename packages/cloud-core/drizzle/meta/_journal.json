@@ -22,6 +22,13 @@
       "when": 1784846373886,
       "tag": "0002_massive_kang",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784891419070,
+      "tag": "0003_daffy_doctor_doom",
+      "breakpoints": true
     }
   ]
 }

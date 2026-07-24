@@ -237,7 +237,7 @@ services:
       retries: 10
 
   docker-proxy:
-    image: ${DOCKER_PROXY_IMAGE:-tecnativa/docker-socket-proxy:0.3.0}
+    image: ${DOCKER_PROXY_IMAGE:-ghcr.io/tecnativa/docker-socket-proxy:0.3.0}
     networks: [docker-api]
     environment:
       ALLOW_RESTARTS: "1"
@@ -271,9 +271,11 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://api.denizlg24.com}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-.denizlg24.com}
+      CLOUD_ADMIN_URL: ${CLOUD_ADMIN_URL:-https://cloud.denizlg24.com}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       DATABASE_CREDENTIAL_ENCRYPTION_KEY: ${DATABASE_CREDENTIAL_ENCRYPTION_KEY:?DATABASE_CREDENTIAL_ENCRYPTION_KEY is required}
       DB_POOL_MAX: ${DB_POOL_MAX:-5}
+      DISK_MIN_HEADROOM_PERCENT: ${DISK_MIN_HEADROOM_PERCENT:-10}
       DOCKER_HOST: tcp://docker-proxy:2375
       HDD_DEVICES: ${HDD_DEVICES:-}
       HDD_STORAGE_PATH: /data/hdd
@@ -311,6 +313,7 @@ services:
       SSD_STORAGE_PATH: /data/ssd
       TERMINAL_SERVER_URL: ws://host.docker.internal:3003
       TERMINAL_TICKET_SECRET: ${TERMINAL_TICKET_SECRET:?TERMINAL_TICKET_SECRET is required}
+      TUNNEL_HEALTH_URL: ${TUNNEL_HEALTH_URL:-}
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:

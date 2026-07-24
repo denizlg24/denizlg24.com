@@ -151,3 +151,10 @@ rehearsal is green.
   mismatch. Rehearsal/live verification must assert that row, run both 004
   smoke scripts, and accept that old in-flight TUS rows are not resumed.
   Project S3 credentials use the exact bucket named by the project slug.
+- **From 006 (2026-07-24):** Apply
+  `packages/cloud-core/drizzle/0003_daffy_doctor_doom.sql` before starting the
+  new API. Verify the seeded enabled five-minute `metrics_rollup` task and
+  disabled nightly `tiering_pass` task, then keep real tiering disabled until
+  the post-cutover soak. The rehearsal must run the ops smoke, confirm a
+  restorable database artifact, and keep private component health behind a
+  superuser-authenticated relay rather than putting credentials in check URLs.
