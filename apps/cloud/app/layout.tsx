@@ -37,10 +37,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col">
-        <script
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: static theme bootstrap, runs before paint
-          dangerouslySetInnerHTML={{ __html: themeScript }}
-        />
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         {children}
         <Toaster position="bottom-right" />
       </body>

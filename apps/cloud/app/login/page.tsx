@@ -255,7 +255,6 @@ function LoginForm() {
           <form onSubmit={submitEnrollVerify} className="flex flex-col gap-4">
             <p className="text-xs text-muted-foreground">TOTP enrollment</p>
             {qrDataUrl && (
-              // biome-ignore lint/performance/noImgElement: local data URL, next/image adds nothing
               <img
                 src={qrDataUrl}
                 alt="TOTP QR"

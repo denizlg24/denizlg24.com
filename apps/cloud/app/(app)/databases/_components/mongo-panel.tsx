@@ -140,7 +140,6 @@ function FindConsole({
             <div className="flex max-h-96 flex-col gap-2 overflow-y-auto">
               {result.documents.map((document, index) => (
                 <pre
-                  // biome-ignore lint/suspicious/noArrayIndexKey: documents may lack _id
                   key={index}
                   className="overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[11px] leading-relaxed"
                 >

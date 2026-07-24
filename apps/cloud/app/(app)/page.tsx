@@ -15,7 +15,6 @@ function DashboardSkeleton() {
     <div className="flex flex-col gap-8">
       <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-6">
         {Array.from({ length: 6 }, (_, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
           <div key={index} className="flex flex-col gap-2">
             <Skeleton className="h-3 w-12" />
             <Skeleton className="h-6 w-16" />
@@ -26,7 +25,6 @@ function DashboardSkeleton() {
       <Skeleton className="h-9 w-full" />
       <div className="grid gap-8 md:grid-cols-2">
         {Array.from({ length: 4 }, (_, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
           <Skeleton key={index} className="h-44 w-full" />
         ))}
       </div>

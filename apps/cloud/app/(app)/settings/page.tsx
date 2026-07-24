@@ -216,7 +216,6 @@ function TotpSection() {
         {totpUri && !verified && (
           <div className="flex flex-col gap-3">
             {qrDataUrl && (
-              // biome-ignore lint/performance/noImgElement: local data URL, next/image adds nothing
               <img
                 src={qrDataUrl}
                 alt="TOTP QR"

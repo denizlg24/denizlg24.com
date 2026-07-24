@@ -36,7 +36,6 @@ export default function ProjectDetailPage() {
       <div className="flex flex-col gap-6">
         <Skeleton className="h-8 w-64" />
         {Array.from({ length: 4 }, (_, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
           <Skeleton key={index} className="h-32 w-full" />
         ))}
       </div>

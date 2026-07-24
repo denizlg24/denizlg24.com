@@ -1,7 +1,6 @@
 "use client";
 
 import type { PgQueryResult, PgTableDetail } from "@repo/schemas/cloud";
-import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import {
   Dialog,
@@ -192,7 +191,6 @@ function QueryConsole({ database }: { database: string }) {
               </TableHeader>
               <TableBody>
                 {result.rows.map((row, rowIndex) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: result rows have no stable id
                   <TableRow key={rowIndex}>
                     {result.columns.map((column) => (
                       <TableCell

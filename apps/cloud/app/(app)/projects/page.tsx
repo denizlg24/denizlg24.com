@@ -146,7 +146,6 @@ export default function ProjectsPage() {
       {!data ? (
         <div className="flex flex-col gap-2">
           {Array.from({ length: 3 }, (_, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
             <Skeleton key={index} className="h-9 w-full" />
           ))}
         </div>
