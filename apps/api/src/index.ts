@@ -7,11 +7,13 @@ import {
   type TerminalProxySocketData,
   terminalProxyWebsocket,
 } from "./terminal/proxy";
+import { TerminalUpgradeRateLimiter } from "./terminal/upgrade-rate-limit";
 
 const app = new Hono();
 const honoFetch = app.fetch.bind(app);
 let runtimeApp: ReturnType<typeof createRuntimeApp> | undefined;
 let shuttingDown = false;
+const terminalUpgradeRateLimiter = new TerminalUpgradeRateLimiter();
 
 app.get("/", (c) => {
   return c.text("Deniz Cloud API");
@@ -78,6 +80,21 @@ async function serverFetch(
           },
         },
         { status: 426 },
+      );
+    }
+    const rateLimit = terminalUpgradeRateLimiter.consume(request);
+    if (!rateLimit.allowed) {
+      return Response.json(
+        {
+          error: {
+            code: "RATE_LIMITED",
+            message: "Too many requests, try again later",
+          },
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+        },
       );
     }
     if (!runtimeApp) {

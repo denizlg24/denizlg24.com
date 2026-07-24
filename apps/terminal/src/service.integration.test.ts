@@ -30,6 +30,9 @@ async function connect(url: string): Promise<SocketProbe> {
     if (typeof event.data === "string") {
       try {
         const parsed: object = JSON.parse(event.data);
+        if ("t" in parsed && parsed.t === "ping") {
+          socket.send(JSON.stringify({ t: "pong" }));
+        }
         controls.push(parsed);
       } catch {
         output += event.data;
@@ -147,7 +150,7 @@ describe.skipIf(!TMUX_AVAILABLE)("terminal service with real tmux", () => {
   });
 
   it("round-trips protocol frames and survives disconnect/reattach", async () => {
-    const sessionId = `reattach-${process.pid}`;
+    const sessionId = await tickets.createSessionId("operator");
     const firstTicket = await tickets.mint({
       sessionId,
       subject: "operator",
@@ -183,7 +186,7 @@ describe.skipIf(!TMUX_AVAILABLE)("terminal service with real tmux", () => {
   }, 30_000);
 
   it("streams a flooding command without disconnecting", async () => {
-    const sessionId = `flood-${process.pid}`;
+    const sessionId = await tickets.createSessionId("operator");
     const { ticket } = await tickets.mint({
       sessionId,
       subject: "operator",

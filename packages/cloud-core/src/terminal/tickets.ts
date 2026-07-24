@@ -7,6 +7,7 @@ import {
 
 const TICKET_VERSION = "v1";
 const MAX_TICKET_LENGTH = 2_048;
+const SESSION_NAMESPACE_LENGTH = 16;
 const encoder = new TextEncoder();
 
 export type TerminalTicketErrorCode =
@@ -111,6 +112,17 @@ export class TerminalTicketService {
     };
   }
 
+  async createSessionId(subject: string): Promise<string> {
+    terminalTicketClaimsSchema.shape.sub.parse(subject);
+    const namespace = await this.sessionNamespace(subject);
+    return `s_${namespace}_${this.randomUUID()}`;
+  }
+
+  async ownsSession(subject: string, sessionId: string): Promise<boolean> {
+    const namespace = await this.sessionNamespace(subject);
+    return sessionId.startsWith(`s_${namespace}_`);
+  }
+
   async verify(
     ticket: string,
     replayGuard?: TerminalTicketReplayGuard,
@@ -181,5 +193,16 @@ export class TerminalTicketService {
     }
     replayGuard?.consume(parsed.data, nowSeconds);
     return parsed.data;
+  }
+
+  private async sessionNamespace(subject: string): Promise<string> {
+    const signature = new Uint8Array(
+      await crypto.subtle.sign(
+        "HMAC",
+        await this.key,
+        encoder.encode(`terminal-session:${subject}`),
+      ),
+    );
+    return encodeBase64Url(signature).slice(0, SESSION_NAMESPACE_LENGTH);
   }
 }

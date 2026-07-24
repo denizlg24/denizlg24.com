@@ -99,6 +99,11 @@ export function createTerminalService(
     const connection = connections.get(socket);
     if (!connection) return;
     terminalSessionIdSchema.parse(id);
+    if (
+      !(await options.ticketService.ownsSession(socket.data.claims.sub, id))
+    ) {
+      throw new Error("Terminal session is not owned by this user");
+    }
     const sequence = ++connection.attachSequence;
     connection.terminal?.close();
     connection.terminal = undefined;
@@ -165,7 +170,9 @@ export function createTerminalService(
       connections.set(socket, connection);
       liveSockets.add(socket);
       try {
-        const id = socket.data.claims.sid ?? crypto.randomUUID();
+        const id =
+          socket.data.claims.sid ??
+          (await options.ticketService.createSessionId(socket.data.claims.sub));
         await attach(socket, id);
         connection.heartbeat = setInterval(() => {
           if (connection.missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
@@ -228,9 +235,20 @@ export function createTerminalService(
         case "sessions":
           void sessions
             .list()
-            .then((listed) =>
-              sendControl(socket, { t: "sessions", sessions: listed }),
-            )
+            .then(async (listed) => {
+              const ownership = await Promise.all(
+                listed.map((session) =>
+                  options.ticketService.ownsSession(
+                    socket.data.claims.sub,
+                    session.id,
+                  ),
+                ),
+              );
+              sendControl(socket, {
+                t: "sessions",
+                sessions: listed.filter((_session, index) => ownership[index]),
+              });
+            })
             .catch((error) => {
               console.error("Terminal session listing failed", error);
               socket.close(1011, "Unable to list sessions");
@@ -310,13 +328,22 @@ export function createTerminalService(
             401,
           );
         }
+        let claims: TerminalTicketClaims;
         try {
-          await options.ticketService.verify(ticket, replayGuard);
+          claims = await options.ticketService.verify(ticket, replayGuard);
         } catch (error) {
           return jsonError("TERMINAL_TICKET_INVALID", closeReason(error), 401);
         }
         try {
-          return Response.json({ data: await sessions.list() });
+          const listed = await sessions.list();
+          const ownership = await Promise.all(
+            listed.map((session) =>
+              options.ticketService.ownsSession(claims.sub, session.id),
+            ),
+          );
+          return Response.json({
+            data: listed.filter((_session, index) => ownership[index]),
+          });
         } catch (error) {
           console.error("Terminal session listing failed", error);
           return jsonError(
@@ -339,8 +366,9 @@ export function createTerminalService(
             401,
           );
         }
+        let claims: TerminalTicketClaims;
         try {
-          await options.ticketService.verify(ticket, replayGuard);
+          claims = await options.ticketService.verify(ticket, replayGuard);
         } catch (error) {
           return jsonError("TERMINAL_TICKET_INVALID", closeReason(error), 401);
         }
@@ -350,6 +378,13 @@ export function createTerminalService(
             url.pathname.slice("/sessions/".length),
           );
           id = terminalSessionIdSchema.parse(rawId);
+          if (!(await options.ticketService.ownsSession(claims.sub, id))) {
+            return jsonError(
+              "TERMINAL_SESSION_NOT_FOUND",
+              "Terminal session not found",
+              404,
+            );
+          }
         } catch {
           return jsonError(
             "TERMINAL_SESSION_INVALID",

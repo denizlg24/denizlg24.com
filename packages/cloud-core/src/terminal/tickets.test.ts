@@ -57,4 +57,15 @@ describe("terminal tickets", () => {
       code: "TICKET_REPLAYED",
     });
   });
+
+  it("derives opaque subject-owned session ids", async () => {
+    const service = new TerminalTicketService(SECRET, {
+      randomUUID: () => JTI,
+    });
+    const sessionId = await service.createSessionId("operator-a");
+
+    expect(sessionId).not.toContain("operator-a");
+    expect(await service.ownsSession("operator-a", sessionId)).toBe(true);
+    expect(await service.ownsSession("operator-b", sessionId)).toBe(false);
+  });
 });

@@ -142,13 +142,12 @@ slower, allowed — record it).
   event. Optional Redis TLS is exposed on 6381 alongside unchanged plaintext
   6380. Adminer and mongo-express are loopback-only and opt-in through the
   `tools` compose profile.
-- **2026-07-23 (remaining):** Tailscale §1 passed. Plan finalization remains
-  gated on plans 004–006 for the endpoint-complete Pi staging rehearsal,
-  scripted mixed-protocol load pass, measured memory table, and final
-  socket-proxy/reboot environment contract; plan 007 for terminal compilation,
-  artifact deployment, and final unit verification; plus the first native
-  ARM64 GHCR workflow run and operator application/verification of §5
-  network/TLS and §6 Vercel projects. No production stack or DNS was changed.
+- **2026-07-23 (remaining, updated 2026-07-24):** Tailscale §1 passed and plans
+  004–007 are endpoint-complete. Plan finalization remains gated on the Pi
+  staging rehearsal, scripted mixed-protocol load pass, measured memory table,
+  wiring 007's ready terminal artifact into deployment, the first native ARM64
+  GHCR workflow run, and operator application/verification of §5 network/TLS
+  and §6 Vercel projects. No production stack or DNS was changed.
 - **From 006 (2026-07-24):** The socket-proxy/reboot environment contract is
   now final: API uses `tcp://docker-proxy:2375`; proxy grants only ping/version/
   info plus container list/inspect/stats, exec, and restart; reboot requests are

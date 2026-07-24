@@ -101,6 +101,13 @@ export const terminalProxyWebsocket: WebSocketHandler<TerminalProxySocketData> =
         typeof message === "string" ? Buffer.from(message) : message;
       const upstream = socket.data.upstream;
       if (upstream?.readyState === WebSocket.OPEN) {
+        if (
+          upstream.bufferedAmount + rawDataBytes(data) >
+          MAX_PENDING_CLIENT_BYTES
+        ) {
+          socket.close(1013, "Terminal server is not keeping up");
+          return;
+        }
         upstream.send(data, { binary });
         return;
       }

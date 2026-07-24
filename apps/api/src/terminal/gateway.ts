@@ -42,8 +42,11 @@ export class TerminalGateway {
 
   async mint(subject: string, requestedSessionId?: string) {
     const sessionId = terminalSessionIdSchema.parse(
-      requestedSessionId ?? crypto.randomUUID(),
+      requestedSessionId ?? (await this.ticketService.createSessionId(subject)),
     );
+    if (!(await this.ticketService.ownsSession(subject, sessionId))) {
+      throw new Error("Terminal session is not owned by this user");
+    }
     const { claims, ticket } = await this.ticketService.mint({
       sessionId,
       subject,
@@ -57,6 +60,10 @@ export class TerminalGateway {
 
   verify(ticket: string): Promise<TerminalTicketClaims> {
     return this.ticketService.verify(ticket);
+  }
+
+  ownsSession(subject: string, sessionId: string): Promise<boolean> {
+    return this.ticketService.ownsSession(subject, sessionId);
   }
 
   websocketUrl(ticket: string): string {

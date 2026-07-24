@@ -33,12 +33,24 @@ describe("terminal gateway", () => {
       },
     });
 
-    const minted = await gateway.mint("operator", "maintenance");
-    expect((await gateway.verify(minted.ticket)).sid).toBe("maintenance");
+    const minted = await gateway.mint("operator");
+    expect((await gateway.verify(minted.ticket)).sid).toBe(minted.sessionId);
     expect(
       (await gateway.listSessions("operator")).map(({ id }) => id),
     ).toEqual(["maintenance"]);
     expect(seenSubject).toBe("operator");
+  });
+
+  it("rejects session IDs outside the subject namespace", async () => {
+    const gateway = new TerminalGateway({
+      serverUrl: "ws://127.0.0.1:3003",
+      ticketSecret: SECRET,
+    });
+    const { sessionId } = await gateway.mint("operator-a");
+
+    await expect(gateway.mint("operator-b", sessionId)).rejects.toThrow(
+      "not owned",
+    );
   });
 
   it("rejects non-WebSocket terminal targets", () => {

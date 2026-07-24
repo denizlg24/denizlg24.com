@@ -148,6 +148,18 @@ export class TmuxSessionManager {
       });
     if (!exists) {
       await this.run([
+        "start-server",
+        ";",
+        "set-option",
+        "-g",
+        "exit-empty",
+        "off",
+        ";",
+        "set-option",
+        "-g",
+        "history-limit",
+        String(HISTORY_LINES),
+        ";",
         "new-session",
         "-d",
         "-s",
@@ -167,7 +179,6 @@ export class TmuxSessionManager {
       this.run(["set-option", "-t", target, "destroy-unattached", "off"]),
       this.run([
         "set-option",
-        "-w",
         "-t",
         target,
         "history-limit",

@@ -124,6 +124,23 @@ export function opsRoutes(options: OpsRouteOptions) {
         400,
       );
     }
+    if (
+      parsed.data.sessionId &&
+      !(await options.terminal.ownsSession(
+        context.get("user").id,
+        parsed.data.sessionId,
+      ))
+    ) {
+      return context.json(
+        {
+          error: {
+            code: "TERMINAL_SESSION_FORBIDDEN",
+            message: "Terminal session is not owned by this user",
+          },
+        },
+        403,
+      );
+    }
     return context.json({
       data: await options.terminal.mint(
         context.get("user").id,

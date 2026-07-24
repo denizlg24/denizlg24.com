@@ -65,7 +65,7 @@ describe("terminal WebSocket proxy", () => {
   });
 
   it("preserves text, binary, and upstream close codes", async () => {
-    const { ticket } = await gateway.mint("operator", "proxy-test");
+    const { ticket } = await gateway.mint("operator");
     const socket = new WebSocket(
       `ws://127.0.0.1:${api.port}/?ticket=${ticket}`,
     );
