@@ -5,6 +5,7 @@ export * from "./env";
 export * from "./errors";
 export * from "./middleware";
 export * from "./mongo";
+export * from "./projects";
 export * from "./search";
 export * from "./services";
 export * from "./storage";

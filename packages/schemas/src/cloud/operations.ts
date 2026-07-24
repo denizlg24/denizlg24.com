@@ -3,6 +3,14 @@ import { z } from "zod";
 import { cloudDateTimeSchema } from "./common";
 import { storageTierSchema } from "./storage";
 
+export const postgresIdentifierSchema = z
+  .string()
+  .regex(/^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/);
+export const mongoResourceNameSchema = z
+  .string()
+  .regex(/^[a-zA-Z_][a-zA-Z0-9_.-]{0,63}$/)
+  .refine((value) => !value.includes("$") && !value.includes("\0"));
+
 export const diskInfoSchema = z.object({
   device: z.string(),
   totalBytes: z.number(),
@@ -82,7 +90,7 @@ export const pgDatabaseSchema = z.object({
 export type PgDatabase = z.infer<typeof pgDatabaseSchema>;
 
 export const createPgDatabaseInputSchema = z.object({
-  name: z.string().min(1),
+  name: postgresIdentifierSchema,
 });
 export type CreatePgDatabaseInput = z.infer<typeof createPgDatabaseInputSchema>;
 
@@ -135,22 +143,22 @@ export const pgTableDetailSchema = z.object({
 export type PgTableDetail = z.infer<typeof pgTableDetailSchema>;
 
 export const pgColumnInputSchema = z.object({
-  name: z.string(),
+  name: postgresIdentifierSchema,
   type: z.string(),
   nullable: z.boolean().optional(),
-  default: z.string().optional(),
+  default: z.string().max(1_000).optional(),
   primaryKey: z.boolean().optional(),
 });
 export type PgColumnInput = z.infer<typeof pgColumnInputSchema>;
 
 export const createPgTableInputSchema = z.object({
-  name: z.string().min(1),
-  columns: z.array(pgColumnInputSchema).min(1),
+  name: postgresIdentifierSchema,
+  columns: z.array(pgColumnInputSchema).min(1).max(100),
 });
 export type CreatePgTableInput = z.infer<typeof createPgTableInputSchema>;
 
 export const executePgQueryInputSchema = z.object({
-  sql: z.string().min(1),
+  sql: z.string().trim().min(1).max(10_000),
 });
 export type ExecutePgQueryInput = z.infer<typeof executePgQueryInputSchema>;
 
@@ -181,7 +189,7 @@ export const mongoDatabaseSchema = z.object({
 export type MongoDatabase = z.infer<typeof mongoDatabaseSchema>;
 
 export const createMongoDatabaseInputSchema = z.object({
-  name: z.string().min(1),
+  name: mongoResourceNameSchema,
 });
 export type CreateMongoDatabaseInput = z.infer<
   typeof createMongoDatabaseInputSchema
@@ -197,7 +205,7 @@ export const mongoCollectionSchema = z.object({
 export type MongoCollection = z.infer<typeof mongoCollectionSchema>;
 
 export const createMongoCollectionInputSchema = z.object({
-  name: z.string().min(1),
+  name: mongoResourceNameSchema,
   capped: z.boolean().optional(),
   size: z.number().positive().optional(),
   max: z.number().int().positive().optional(),
@@ -218,22 +226,27 @@ export const createMongoIndexInputSchema = z.object({
   fields: z
     .array(
       z.object({
-        name: z.string().min(1),
+        name: z
+          .string()
+          .min(1)
+          .max(255)
+          .refine((value) => !value.startsWith("$") && !value.includes("\0")),
         direction: z.union([z.literal(1), z.literal(-1)]),
       }),
     )
-    .min(1),
+    .min(1)
+    .max(32),
   unique: z.boolean().optional(),
   sparse: z.boolean().optional(),
-  name: z.string().optional(),
+  name: mongoResourceNameSchema.optional(),
 });
 export type CreateMongoIndexInput = z.infer<typeof createMongoIndexInputSchema>;
 
 export const findMongoDocumentsInputSchema = z.object({
-  filter: z.string().optional(),
-  sort: z.string().optional(),
-  limit: z.number().int().positive().optional(),
-  skip: z.number().int().nonnegative().optional(),
+  filter: z.string().max(10_000).optional(),
+  sort: z.string().max(10_000).optional(),
+  limit: z.number().int().min(1).max(100).default(20),
+  skip: z.number().int().min(0).default(0),
 });
 export type FindMongoDocumentsInput = z.infer<
   typeof findMongoDocumentsInputSchema

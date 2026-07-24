@@ -13,10 +13,14 @@ bun run cloud:dev:infra
 
 Run the API with `DATABASE_URL`, `REDIS_ADMIN_URL`, `BETTER_AUTH_SECRET`,
 `BETTER_AUTH_URL`, `MEILISEARCH_URL`, `MEILISEARCH_ADMIN_KEY`,
-`SSD_STORAGE_PATH`, `HDD_STORAGE_PATH`, `JWT_SECRET`, and
-`S3_CREDENTIAL_ENCRYPTION_KEY` configured. `BETTER_AUTH_SECRET` and
-`S3_CREDENTIAL_ENCRYPTION_KEY` must contain at least 32 characters. `JWT_SECRET` must retain the old storage service value
-at cutover because existing stateless share links are signed from it.
+`MONGODB_URI`, `MONGODB_ADMIN_URI`, `SSD_STORAGE_PATH`, `HDD_STORAGE_PATH`,
+`JWT_SECRET`, `DATABASE_CREDENTIAL_ENCRYPTION_KEY`, and
+`S3_CREDENTIAL_ENCRYPTION_KEY` configured. The Better Auth and encryption
+secrets must contain at least 32 characters. At cutover, `JWT_SECRET` must
+retain the old storage-service value, and
+`DATABASE_CREDENTIAL_ENCRYPTION_KEY` must retain the old
+`TOTP_ENCRYPTION_KEY`; existing share links and project database passwords
+depend on those values.
 
 ```sh
 bun --env-file=.env run --cwd apps/api dev
@@ -28,6 +32,22 @@ credentials from `s3_credentials`. At cutover, configure the old
 `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` together: startup idempotently
 migrates them into the NULL-project full-access row and fails on a collision
 or changed secret.
+
+The project platform is served at `/api/projects/*`, with strict-superuser
+database inspection routes at `/api/db/postgres/*` and
+`/api/db/mongodb/*`. Provisioning uses the admin connections, while the
+Mongo sync worker deliberately uses the lower-privilege `MONGODB_URI`.
+Configure `POSTGRES_EXTERNAL_HOST`, `MONGODB_EXTERNAL_HOST`, and
+`REDIS_EXTERNAL_HOST` with the addresses returned to project clients.
+
+Infrastructure-backed provisioning and crash-resume tests are opt-in:
+
+```sh
+RUN_CLOUD_INFRA_TESTS=1 bun test \
+  packages/cloud-core/src/projects/provisioning.integration.test.ts \
+  packages/cloud-core/src/projects/sync.integration.test.ts \
+  packages/cloud-core/src/projects/pg-sync.integration.test.ts
+```
 
 The reusable verification harnesses require their documented `S3_SMOKE_*` and
 `TUS_SMOKE_*` environment values:

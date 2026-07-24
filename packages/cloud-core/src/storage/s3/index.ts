@@ -12,7 +12,10 @@ export {
   ensureLegacyS3Credential,
   hashS3Secret,
   issueS3Credential,
+  listProjectS3Credentials,
+  type ProjectS3CredentialMetadata,
   type ResolvedS3Credential,
+  revokeProjectS3Credential,
   type S3CredentialProvider,
   S3CredentialResolver,
 } from "./credentials";

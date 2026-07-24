@@ -123,3 +123,12 @@ report what the real contract is in the Drift log).
   Create/rotate/revoke endpoints must invalidate the resolver immediately and
   add the planned `storage:manage` scope, which 004 intentionally did not add
   to the 003 scope enum.
+- **Implementation (2026-07-24):** Infrastructure-backed tests are opt-in
+  with `RUN_CLOUD_INFRA_TESTS=1` so the normal unit suite remains hermetic;
+  they cover provision/connect/CRUD/boundary/deprovision for all three
+  engines, an actual Redis container restart, Mongo insert/update/delete
+  sync, and Mongo/Postgres crash-resume state. Runtime uses separate Mongo
+  clients (`MONGODB_URI` for the least-privilege sync reader and
+  `MONGODB_ADMIN_URI` for provisioning/vector/admin operations). All
+  Meilisearch writes await task completion before resume tokens or outbox
+  cursors advance.

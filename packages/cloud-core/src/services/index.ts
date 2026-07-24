@@ -6,6 +6,7 @@ export {
   listUsers,
   resetUserMfa,
   revokeApiKey,
+  rotateApiKey,
   toSafeUser,
   validateApiKey,
 } from "./auth";

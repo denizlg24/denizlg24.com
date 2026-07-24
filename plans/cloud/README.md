@@ -9,7 +9,7 @@ your plan's row when done (date + deviations). Executor = model that runs it.
 | 002 | Cloud core port (`@repo/cloud-core`: schema, services, middleware) | gpt5.6 | L | 001 | DONE 2026-07-23 (exact Drizzle parity against historical pre-0001 schema + old 0001–0007; baseline committed; deviations: old fresh-install SQL already contained 0001–0003, so audit reconstructed `8e7862c^`; raw-SQL constraint names modeled explicitly; `meilisearch` SDK 0.60 client-class rename hidden behind legacy `MeiliSearch` alias; password/TOTP/JWT/session resolution remains in 003 as planned) |
 | 003 | Auth: better-auth + API keys + cross-subdomain sessions | gpt5.6 | L | 002 | DONE 2026-07-23 (Better Auth 1.6.25 + generated five-table forward migration; legacy Argon2id hashes preserved; pending signup, mandatory MFA enrollment, cross-subdomain sessions/CORS, Redis login limits, unified session/API-key middleware, and `@repo/cloud-auth-client` delivered. Deviations: operator chose mandatory TOTP re-enrollment because legacy OTPAuth secrets are incompatible with standard Better Auth behavior; no TOTP shim/secret import, legacy recovery codes invalidated, new backup codes issued at enrollment; client helper isolated from schemas. See 003/012 Drift logs.) |
 | 004 | Storage engine (files, TUS, S3 `/v2`, shares, tiering) | gpt5.6 | XL | 003 | DONE 2026-07-23 (files/folders/search/share/Range, resumable TUS, store-only ZIP, legacy-compatible S3 including multipart, per-project encrypted credentials, atomic tiering/promotion, migration 0002, and live AWS SDK/TUS smokes delivered. Deviations: project S3 prefix maps to its exact slug bucket; legacy env credential migrates idempotently at startup; ZIP32 caps configurable archives below 4 GiB; OpenAPI regeneration deferred to 013. See 004 and affected-plan Drift logs.) |
-| 005 | Projects platform (provisioning PG/Mongo/Redis, search sync) | gpt5.6 | XL | 003 (004 for storage folders) | TODO |
+| 005 | Projects platform (provisioning PG/Mongo/Redis, search sync) | gpt5.6 | XL | 003 (004 for storage folders) | DONE 2026-07-24 (project/API-key/S3 lifecycle, reveal-once PG/Mongo/Redis provisioning, persistent Redis ACLs, Mongo + PG-outbox sync, collections/tokens, mongot vectors, and guarded DB admin delivered. Deviations: infra-backed suites are opt-in via `RUN_CLOUD_INFRA_TESTS=1`; Mongo worker and admin use separate least-privilege clients; Meili mutations await task completion before persisted cursors advance.) |
 | 006 | Ops plane (scheduler, executors, metrics, health) | gpt5.6 | L | 003 | TODO |
 | 007 | Terminal service rewrite (hardened, tmux-persistent) | gpt5.6 | M | 006 | TODO |
 | 008 | `apps/cloud` admin app (dashboard, users, projects, DBs, tasks, terminal, observability) | fable 5 | XL | 003, 006 (007 for terminal tab) | TODO |
@@ -20,6 +20,24 @@ your plan's row when done (date + deviations). Executor = model that runs it.
 | 013 | Decommission & docs (remove submodule, archive, dependent-project updates) | opus 4.8 | S | 012 in prod | TODO |
 
 ## Notes between sessions
+
+- **2026-07-24 (005 done)** — Projects platform is green. For plans
+  006/008/011/012/013:
+  - `/api/projects/*` now owns project, scoped API-key, collection/search,
+    provisioned-database, vector-index, and S3-credential lifecycles.
+    Project database and S3 secrets are returned only at create/rotate time;
+    list responses contain metadata only.
+  - Preserve the old production `TOTP_ENCRYPTION_KEY` exactly as
+    `DATABASE_CREDENTIAL_ENCRYPTION_KEY` at cutover so existing encrypted
+    project database passwords remain usable. Mongo sync uses
+    `MONGODB_URI`; provisioning, vector, and admin routes use
+    `MONGODB_ADMIN_URI`.
+  - Redis project ACL users are reconciled from Postgres during API startup
+    and persisted with `ACL SAVE`. The dev stack now uses the same ACL-file
+    entrypoint contract as production.
+  - Mongo resume tokens and Postgres outbox cursors advance only after the
+    corresponding Meilisearch task completes. Plan 012 should run the
+    opt-in infra suite during rehearsal.
 
 - **2026-07-23 (004 done)** — Storage is green. For plans
   005/006/008/009/012/013:

@@ -8,6 +8,7 @@ import {
   type RateLimitStore,
   rateLimit,
   requireRole,
+  requireSession,
   type S3ApiConfig,
   type StorageService,
   s3Routes,
@@ -24,6 +25,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { z } from "zod";
 
 import pkg from "../package.json";
 import type { CloudAuth } from "./auth/better-auth";
@@ -33,6 +35,11 @@ import {
   SignupCompletionError,
   serializeSafeUser,
 } from "./auth/users";
+import type {
+  mongoDbAdminRoutes,
+  postgresDbAdminRoutes,
+} from "./db-admin/routes";
+import type { projectRoutes } from "./projects/routes";
 import { storageRoutes, storageSearchRoutes } from "./storage/routes";
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -55,6 +62,11 @@ export interface CloudApiOptions {
   storage?: {
     service: StorageService;
     s3: S3ApiConfig;
+  };
+  platform?: {
+    projects: ReturnType<typeof projectRoutes>;
+    postgres: ReturnType<typeof postgresDbAdminRoutes>;
+    mongodb: ReturnType<typeof mongoDbAdminRoutes>;
   };
 }
 
@@ -436,11 +448,49 @@ export function createCloudApiApp(options: CloudApiOptions) {
     app.route("/v2", s3Routes(options.storage.s3));
   }
 
+  if (options.platform) {
+    app.use("/api/projects", authenticate);
+    app.use("/api/projects/*", authenticate);
+    app.route("/api/projects", options.platform.projects);
+
+    app.use(
+      "/api/db",
+      authenticate,
+      requireSession(),
+      requireRole("superuser"),
+    );
+    app.use(
+      "/api/db/*",
+      authenticate,
+      requireSession(),
+      requireRole("superuser"),
+    );
+    app.route("/api/db/postgres", options.platform.postgres);
+    app.route("/api/db/mongodb", options.platform.mongodb);
+  }
+
   app.on(["GET", "POST"], "/api/auth/*", (context) =>
     options.auth.handler(context.req.raw),
   );
 
   app.onError((error, context) => {
+    if (error instanceof CloudCoreError) {
+      return context.json(
+        { error: { code: error.code, message: error.message } },
+        error.status,
+      );
+    }
+    if (error instanceof z.ZodError) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid request parameter",
+          },
+        },
+        400,
+      );
+    }
     console.error("Unhandled API error", error);
     return context.json(
       {

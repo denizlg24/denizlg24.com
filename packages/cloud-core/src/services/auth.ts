@@ -233,3 +233,51 @@ export async function revokeApiKey(
     throw new NotFoundError("API key not found", "API_KEY_NOT_FOUND");
   }
 }
+
+export async function rotateApiKey(
+  db: Database,
+  keyId: string,
+  projectId: string,
+): Promise<{ id: string; key: string; prefix: string }> {
+  const key = randomBytes(32).toString("base64url");
+  const prefix = key.slice(0, 8);
+  const keyHash = createHash("sha256").update(key).digest("hex");
+
+  const id = await db.transaction(async (tx) => {
+    const existing = await tx.query.apiKeys.findFirst({
+      where: and(eq(apiKeys.id, keyId), eq(apiKeys.projectId, projectId)),
+    });
+    if (!existing) {
+      throw new NotFoundError("API key not found", "API_KEY_NOT_FOUND");
+    }
+
+    const scopes = apiKeyScopeSchema.array().safeParse(existing.scopes);
+    if (!scopes.success) {
+      throw new ConflictError(
+        "API key has invalid scopes",
+        "INVALID_API_KEY_SCOPES",
+      );
+    }
+
+    const [replacement] = await tx
+      .insert(apiKeys)
+      .values({
+        userId: existing.userId,
+        projectId,
+        name: existing.name,
+        keyHash,
+        keyPrefix: prefix,
+        scopes: scopes.data,
+        expiresAt: existing.expiresAt,
+      })
+      .returning({ id: apiKeys.id });
+    if (!replacement) {
+      throw new Error("Failed to rotate API key");
+    }
+
+    await tx.delete(apiKeys).where(eq(apiKeys.id, keyId));
+    return replacement.id;
+  });
+
+  return { id, key, prefix };
+}

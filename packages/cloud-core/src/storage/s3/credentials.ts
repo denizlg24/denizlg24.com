@@ -5,7 +5,7 @@ import {
   randomBytes,
 } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import type { Database } from "../../db";
 import {
@@ -14,6 +14,7 @@ import {
   type S3Credential,
   s3Credentials,
 } from "../../db/schema";
+import { NotFoundError } from "../../errors";
 
 export interface ResolvedS3Credential {
   id: string;
@@ -115,6 +116,60 @@ export async function issueS3Credential(
     throw new Error("Failed to issue S3 credential");
   }
   return { credential, secretAccessKey };
+}
+
+export type ProjectS3CredentialMetadata = Pick<
+  S3Credential,
+  | "id"
+  | "projectId"
+  | "accessKeyId"
+  | "label"
+  | "createdAt"
+  | "lastUsedAt"
+  | "revokedAt"
+>;
+
+export async function listProjectS3Credentials(
+  db: Database,
+  projectId: string,
+): Promise<ProjectS3CredentialMetadata[]> {
+  return db
+    .select({
+      id: s3Credentials.id,
+      projectId: s3Credentials.projectId,
+      accessKeyId: s3Credentials.accessKeyId,
+      label: s3Credentials.label,
+      createdAt: s3Credentials.createdAt,
+      lastUsedAt: s3Credentials.lastUsedAt,
+      revokedAt: s3Credentials.revokedAt,
+    })
+    .from(s3Credentials)
+    .where(eq(s3Credentials.projectId, projectId))
+    .orderBy(s3Credentials.createdAt);
+}
+
+export async function revokeProjectS3Credential(
+  db: Database,
+  projectId: string,
+  credentialId: string,
+): Promise<{ accessKeyId: string }> {
+  const [revoked] = await db
+    .update(s3Credentials)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(s3Credentials.id, credentialId),
+        eq(s3Credentials.projectId, projectId),
+      ),
+    )
+    .returning({ accessKeyId: s3Credentials.accessKeyId });
+  if (!revoked) {
+    throw new NotFoundError(
+      "S3 credential not found",
+      "S3_CREDENTIAL_NOT_FOUND",
+    );
+  }
+  return revoked;
 }
 
 function assertLegacyCredential(
