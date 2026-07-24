@@ -44,6 +44,7 @@ import type {
   postgresDbAdminRoutes,
 } from "./db-admin/routes";
 import type { opsRoutes } from "./ops/routes";
+import { type OpsToolsConfig, toolsProxyRoutes } from "./ops/tools-proxy";
 import type { projectRoutes } from "./projects/routes";
 import { storageRoutes, storageSearchRoutes } from "./storage/routes";
 
@@ -78,6 +79,7 @@ export interface CloudApiOptions {
     mongodb: ReturnType<typeof mongoDbAdminRoutes>;
   };
   ops?: ReturnType<typeof opsRoutes>;
+  opsTools?: OpsToolsConfig;
 }
 
 function clientIp(
@@ -540,6 +542,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
       requireSession(),
       requireRole("superuser"),
     );
+    app.route("/api/ops/tools", toolsProxyRoutes(options.opsTools ?? {}));
     app.route("/api/ops", options.ops);
   }
 

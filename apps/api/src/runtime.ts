@@ -320,6 +320,18 @@ export async function createRuntimeApp() {
         mongodb: mongoDbAdminRoutes(platformOptions),
       },
       ops: opsRoutes({ db, docker, health, sampler, scheduler, terminal }),
+      opsTools: {
+        adminerUrl:
+          process.env.ADMINER_URL ??
+          (process.env.NODE_ENV === "production"
+            ? undefined
+            : "http://127.0.0.1:8081"),
+        mongoExpressUrl:
+          process.env.MONGO_EXPRESS_URL ??
+          (process.env.NODE_ENV === "production"
+            ? undefined
+            : "http://127.0.0.1:8082"),
+      },
       trustedOrigins: CLOUD_AUTH_TRUSTED_ORIGINS,
     });
     return Object.assign(app, {
