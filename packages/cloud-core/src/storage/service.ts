@@ -538,18 +538,28 @@ export class StorageService {
           .where(eq(folders.id, id));
         // Rewrite only the leading prefix: REPLACE would corrupt descendants
         // whose paths repeat the old segment deeper down.
+        //
+        // The offsets are cast to int deliberately. A bare parameter arrives
+        // untyped, and Postgres then resolves SUBSTRING(text FROM <unknown>)
+        // to the *regex* overload rather than the positional one — it searches
+        // the path for the literal digits instead of cutting at that index,
+        // yields NULL when they do not appear, and the NOT NULL constraint on
+        // path rejects the row. Moving any folder with descendants failed this
+        // way.
+        const suffixFrom = folder.path.length + 1;
+        const diskSuffixFrom = oldDiskPath.length + 1;
         await tx
           .update(folders)
           .set({
-            path: sql`${newPath} || SUBSTRING(${folders.path} FROM ${folder.path.length + 1})`,
+            path: sql`${newPath} || SUBSTRING(${folders.path} FROM ${suffixFrom}::int)`,
             updatedAt: new Date(),
           })
           .where(like(folders.path, descendantPattern(folder.path)));
         await tx
           .update(files)
           .set({
-            path: sql`${newPath} || SUBSTRING(${files.path} FROM ${folder.path.length + 1})`,
-            diskPath: sql`CASE WHEN ${files.tier} = 'ssd' THEN ${newDiskPath} || SUBSTRING(${files.diskPath} FROM ${oldDiskPath.length + 1}) ELSE ${files.diskPath} END`,
+            path: sql`${newPath} || SUBSTRING(${files.path} FROM ${suffixFrom}::int)`,
+            diskPath: sql`CASE WHEN ${files.tier} = 'ssd' THEN ${newDiskPath} || SUBSTRING(${files.diskPath} FROM ${diskSuffixFrom}::int) ELSE ${files.diskPath} END`,
             updatedAt: new Date(),
           })
           .where(like(files.path, descendantPattern(folder.path)));
