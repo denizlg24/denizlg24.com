@@ -17,6 +17,16 @@ on:
         description: Existing immutable API tag to deploy (blank deploys this commit)
         required: false
         type: string
+      mode:
+        description: >-
+          validate exercises the whole deploy path (tailnet, SSH, asset copy,
+          GHCR pull, compose render against the real .env.pi) but never starts
+          a container. Use it to rehearse a deploy while the old stack is still
+          running; deploy is the real thing.
+        required: false
+        default: deploy
+        type: choice
+        options: [deploy, validate]
 
 concurrency:
   group: release-cloud-pi
@@ -92,6 +102,8 @@ jobs:
     env:
       IMAGE_TAG: ${{ needs.build-api.outputs.image_tag }}
       PI_HOST: ${{ vars.PI_TAILNET_HOST }}
+      # Empty on push, so pushes always take the real path.
+      DEPLOY_MODE: ${{ inputs.mode || 'deploy' }}
     steps:
       - name: Check out deployment assets
         uses: actions/checkout@v7
@@ -138,12 +150,41 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             "mkdir -p /opt/deniz-cloud && tar -xzf /tmp/cloud-infra.tgz -C /opt/deniz-cloud && rm -f /tmp/cloud-infra.tgz"
 
-      - name: Pull and deploy
+      # Renders the compose file against the real .env.pi on the Pi. Proves the
+      # env file is present, complete and readable without starting anything.
+      - name: Validate compose on the Pi
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "cd /opt/deniz-cloud/infra/compose && test -f .env.pi && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml pull && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml up -d"
+            "cd /opt/deniz-cloud/infra/compose && test -f .env.pi && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml config -q"
+
+      - name: Pull images
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml pull"
+
+      # The only step that touches running state. Until cutover the Pi still
+      # runs the old stack on the same data directories and ports, so a
+      # validate run must stop here.
+      - name: Start the stack
+        if: env.DEPLOY_MODE == 'deploy'
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml up -d"
+
+      - name: Record validate-only run
+        if: env.DEPLOY_MODE != 'deploy'
+        run: |
+          {
+            echo "### Validate-only run"
+            echo
+            echo "Tailnet, SSH, asset copy, GHCR pull and compose render all"
+            echo "succeeded against the Pi. No container was started."
+            echo
+            echo "- image: \`${API_IMAGE}:${IMAGE_TAG}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Health gate
+        if: env.DEPLOY_MODE == 'deploy'
         run: |
           for _ in {1..30}; do
             response="$(curl --fail --silent --show-error https://api.denizlg24.com/healthz || true)"
