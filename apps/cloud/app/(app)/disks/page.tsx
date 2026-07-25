@@ -9,7 +9,7 @@ import { DiskRack } from "./_components/disk-rack";
 function DisksSkeleton() {
   return (
     <div className="flex flex-col gap-8">
-      <div className="grid grid-cols-2 gap-6 border-y py-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-5 border-y py-4 sm:grid-cols-4">
         {Array.from({ length: 4 }, (_, index) => (
           <div key={index} className="flex flex-col gap-2">
             <Skeleton className="h-3 w-16" />
@@ -17,7 +17,28 @@ function DisksSkeleton() {
           </div>
         ))}
       </div>
-      <Skeleton className="h-[28rem] w-full" />
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-4 w-20" />
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-12">
+          <div className="grid w-full max-w-[19.5rem] shrink-0 grid-cols-4 gap-px border bg-border p-px sm:max-w-[22rem]">
+            {Array.from({ length: 8 }, (_, index) => (
+              <Skeleton key={index} className="h-40 rounded-none sm:h-44" />
+            ))}
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-5">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-8 w-24" />
+            <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+              {Array.from({ length: 6 }, (_, index) => (
+                <div key={index} className="flex flex-col gap-2 border-t pt-2">
+                  <Skeleton className="h-3 w-12" />
+                  <Skeleton className="h-4 w-16" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

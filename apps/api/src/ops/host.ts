@@ -162,6 +162,7 @@ async function readHostProc(path: string): Promise<string> {
 export interface ThermalEntry {
   name: string;
   isDirectory(): boolean;
+  isSymbolicLink(): boolean;
 }
 
 export interface TemperatureReader {
@@ -183,9 +184,13 @@ export async function readCpuTemperature(
       const entries = await reader.readdir(root);
       const temperatures = await Promise.all(
         entries
+          // sysfs exposes thermal_zone* as symlinks into /sys/devices, so
+          // isDirectory() is false for every one of them and filtering on it
+          // alone finds no sensors at all.
           .filter(
             (entry) =>
-              entry.isDirectory() && entry.name.startsWith("thermal_zone"),
+              (entry.isDirectory() || entry.isSymbolicLink()) &&
+              entry.name.startsWith("thermal_zone"),
           )
           .map(async (entry) => {
             const raw = await reader.readFile(`${root}/${entry.name}/temp`);

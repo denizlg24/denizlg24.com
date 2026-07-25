@@ -51,6 +51,12 @@ interface RequestOptions {
   query?: Query;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /**
+   * Lets the request outlive the page. Set when committing a pending delete
+   * during pagehide, where a normal fetch is cancelled with the document and
+   * the delete would be lost with no error anywhere.
+   */
+  keepalive?: boolean;
 }
 
 // Without a deadline a stalled connection leaves the browser stuck on a
@@ -84,6 +90,7 @@ async function rawFetch(
     response = await fetch(buildUrl(path, options.query), {
       method: options.method ?? "GET",
       credentials: "include",
+      keepalive: options.keepalive,
       signal: timeoutSignal(
         options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         options.signal,
@@ -181,9 +188,14 @@ export const api = {
 
   // No default: a recursive folder delete is the most destructive call in this
   // client, so every call site has to say so out loud.
-  deleteFolder: (id: string, recursive: boolean): Promise<DeletedFolder> =>
+  deleteFolder: (
+    id: string,
+    recursive: boolean,
+    keepalive = false,
+  ): Promise<DeletedFolder> =>
     requestData(deletedFolderSchema, `/api/storage/folders/${id}`, {
       method: "DELETE",
+      keepalive,
       query: { recursive },
     }),
 
@@ -196,9 +208,10 @@ export const api = {
       body: input,
     }),
 
-  deleteFile: (id: string): Promise<{ id: string }> =>
+  deleteFile: (id: string, keepalive = false): Promise<{ id: string }> =>
     requestData(z.object({ id: z.uuid() }), `/api/storage/files/${id}`, {
       method: "DELETE",
+      keepalive,
     }),
 
   createShare: (id: string, expiresIn: string): Promise<ShareLinkToken> =>

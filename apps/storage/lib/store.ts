@@ -40,7 +40,12 @@ export interface SelectedEntry {
 }
 
 /** How long a deleted item stays recoverable before the request is sent. */
-export const UNDO_WINDOW_MS = 7_000;
+export const UNDO_WINDOW_MS = 10_000;
+
+interface PendingDelete {
+  commit: () => Promise<void>;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 const PAGE_SIZE = 100;
 
@@ -51,6 +56,7 @@ class StorageStore {
   private pagesLoaded = new Map<string, number>();
   /** Optimistically removed ids whose DELETE has not been sent yet. */
   private hidden = new Set<string>();
+  private readonly pendingDeletes = new Set<PendingDelete>();
   private listeners = new Set<() => void>();
   private rootsValue: RootFolders | null = null;
   private rootsPromise: Promise<RootFolders> | null = null;
@@ -343,7 +349,12 @@ class StorageStore {
   /**
    * Hides the entries immediately and only sends the DELETE once the undo
    * window closes, so "delete" needs no confirmation dialog and stays
-   * reversible. A reload during the window simply brings the items back.
+   * reversible.
+   *
+   * The pending request lives in a timer, so leaving the page before it fires
+   * used to discard the delete entirely: the row reappeared on reload with no
+   * error anywhere, because nothing was ever sent. `flushPendingDeletes` is
+   * therefore wired to pagehide/visibilitychange by the browser view.
    */
   scheduleDelete(
     entries: SelectedEntry[],
@@ -353,32 +364,51 @@ class StorageStore {
     for (const entry of entries) this.hidden.add(entry.id);
     this.touch(folderId);
 
-    const timer = setTimeout(() => {
-      void this.commitDelete(entries, folderId, onSettled);
-    }, UNDO_WINDOW_MS);
+    const pending: PendingDelete = {
+      commit: () => {
+        clearTimeout(pending.timer);
+        this.pendingDeletes.delete(pending);
+        return this.commitDelete(entries, folderId, onSettled, true);
+      },
+      timer: setTimeout(() => {
+        this.pendingDeletes.delete(pending);
+        void this.commitDelete(entries, folderId, onSettled);
+      }, UNDO_WINDOW_MS),
+    };
+    this.pendingDeletes.add(pending);
 
     return {
       undo: () => {
-        clearTimeout(timer);
+        clearTimeout(pending.timer);
+        this.pendingDeletes.delete(pending);
         for (const entry of entries) this.hidden.delete(entry.id);
         this.touch(folderId);
       },
     };
   }
 
+  /**
+   * Commits every delete still inside its undo window. Called when the page is
+   * about to go away, where the alternative is losing the request silently.
+   */
+  flushPendingDeletes(): void {
+    for (const pending of [...this.pendingDeletes]) void pending.commit();
+  }
+
   private async commitDelete(
     entries: SelectedEntry[],
     folderId: string,
     onSettled?: (failures: { name: string; message: string }[]) => void,
+    keepalive = false,
   ): Promise<void> {
     const failures: { name: string; message: string }[] = [];
     const deleted = new Set<string>();
     for (const entry of entries) {
       try {
         if (entry.type === "file") {
-          await api.deleteFile(entry.id);
+          await api.deleteFile(entry.id, keepalive);
         } else {
-          await api.deleteFolder(entry.id, true);
+          await api.deleteFolder(entry.id, true, keepalive);
           this.dropSubtree(entry.id);
         }
         deleted.add(entry.id);
