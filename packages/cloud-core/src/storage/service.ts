@@ -59,51 +59,6 @@ import type { PromotionQueue } from "./tiering";
 const TUS_VERSION = "1.0.0";
 const UPLOAD_EXPIRY_MS = 24 * 60 * 60 * 1_000;
 
-function fileRangeStream(
-  diskPath: string,
-  start: number,
-  end: number,
-): ReadableStream<Uint8Array> {
-  let handle: Awaited<ReturnType<typeof open>> | null = null;
-  let position = start;
-
-  const close = async (): Promise<void> => {
-    const current = handle;
-    handle = null;
-    await current?.close();
-  };
-
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      handle ??= await open(diskPath, "r");
-      const length = Math.min(64 * 1024, end - position + 1);
-      if (length <= 0) {
-        controller.close();
-        await close();
-        return;
-      }
-
-      const buffer = new Uint8Array(length);
-      const { bytesRead } = await handle.read(buffer, 0, length, position);
-      if (bytesRead === 0) {
-        controller.close();
-        await close();
-        return;
-      }
-
-      position += bytesRead;
-      controller.enqueue(buffer.subarray(0, bytesRead));
-      if (position > end) {
-        controller.close();
-        await close();
-      }
-    },
-    async cancel() {
-      await close();
-    },
-  });
-}
-
 export class StorageServiceError extends Error {
   constructor(
     public readonly status: 400 | 403 | 404 | 409 | 410 | 413 | 415 | 500,
@@ -1437,7 +1392,10 @@ export class StorageService {
     end = Math.min(end, file.sizeBytes - 1);
     headers.set("Content-Length", String(end - start + 1));
     headers.set("Content-Range", `bytes ${start}-${end}/${file.sizeBytes}`);
-    return new Response(fileRangeStream(file.diskPath, start, end), {
+    // Hand the slice to Bun directly so it uses the sendfile path with
+    // kernel-level backpressure. A userspace ReadableStream here copies every
+    // chunk through JS and drops large transfers; see deniz-cloud d60d38d.
+    return new Response(Bun.file(file.diskPath).slice(start, end + 1), {
       status: 206,
       headers,
     });

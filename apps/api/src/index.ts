@@ -126,7 +126,12 @@ async function serverFetch(
 
 export default Object.assign(app, {
   fetch: serverFetch,
-  idleTimeout: 240 as const,
+  // 0 disables Bun.serve's idle timeout. Any finite value aborts long
+  // downloads whenever the client stalls — a paused transfer or a slow link on
+  // a multi-GB file trips it, the connection dies mid-stream and the request
+  // surfaces as a failed download. This regressed once before; see
+  // deniz-cloud d60d38d "stop large downloads aborting mid-stream".
+  idleTimeout: 0 as const,
   websocket: terminalProxyWebsocket,
 });
 export { createCloudApiApp } from "./app";
