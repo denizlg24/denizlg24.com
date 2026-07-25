@@ -31,9 +31,19 @@ case "${MONGO_TLS_MODE:-disabled}" in
     cp /run/db-tls/server.pem /tmp/mongodb-server.pem
     chmod 400 /tmp/mongodb-server.pem
     chown 999:999 /tmp/mongodb-server.pem
+    # MongoDB 8 refuses to start with TLS and no chain of trust (SERVER-72839),
+    # so --tlsCAFile is mandatory even though nothing here uses client
+    # certificates. The certificate is Let's Encrypt, so the image's own CA
+    # bundle is the chain; there is no private CA to ship.
+    #
+    # Setting a CA file is also what makes mongod willing to validate client
+    # certificates, so connections that present none must stay explicitly
+    # allowed — every existing dependent connects without one.
     args+=(
       --tlsMode allowTLS
       --tlsCertificateKeyFile /tmp/mongodb-server.pem
+      --tlsCAFile /etc/ssl/certs/ca-certificates.crt
+      --tlsAllowConnectionsWithoutCertificates
     )
     ;;
   *)
