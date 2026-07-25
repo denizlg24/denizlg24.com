@@ -345,7 +345,13 @@ services:
       STORAGE_TIER_MIN_SIZE_MIB: ${STORAGE_TIER_MIN_SIZE_MIB:-500}
       SSD_DEVICE: ${SSD_DEVICE:-/dev/nvme0n1p1}
       SSD_STORAGE_PATH: /data/ssd
-      TERMINAL_SERVER_URL: ws://host.docker.internal:3003
+      # host.docker.internal maps to the docker0 gateway (172.17.0.1), which
+      # Docker's inter-bridge isolation makes unroutable from this container's
+      # custom networks — the proxy times out and every terminal session 500s.
+      # Point this at an address the host actually answers on from the compose
+      # network; the Tailscale IP is stable across network recreation, whereas
+      # br-* gateway IPs are not. The terminal must bind the same address.
+      TERMINAL_SERVER_URL: ${TERMINAL_SERVER_URL:-ws://host.docker.internal:3003}
       TERMINAL_TICKET_SECRET: ${TERMINAL_TICKET_SECRET:?TERMINAL_TICKET_SECRET is required}
       TUNNEL_HEALTH_URL: ${TUNNEL_HEALTH_URL:-}
     extra_hosts:

@@ -215,10 +215,20 @@ async function readDf(): Promise<string> {
     new Response(processHandle.stderr).text(),
     processHandle.exited,
   ]);
-  if (exitCode !== 0) {
+  // `df` exits non-zero when it cannot stat *any* mount point, even though it
+  // still reports every filesystem it could read. Mounting the host root at
+  // /host/rootfs exposes paths like /host/rootfs/run/docker/netns/* that the
+  // unprivileged container user cannot stat, so a healthy Pi always exits 1.
+  // Treating that as fatal loses every disk reading and reports all disks
+  // offline, so only fail when nothing usable came back.
+  if (exitCode !== 0 && !hasDeviceRows(stdout)) {
     throw new Error(`df failed (${exitCode}): ${stderr.slice(-2_000)}`);
   }
   return stdout;
+}
+
+export function hasDeviceRows(output: string): boolean {
+  return output.split(/\r?\n/).some((line) => line.trim().startsWith("/dev/"));
 }
 
 export interface HostCollectorDependencies {
