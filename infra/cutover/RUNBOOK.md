@@ -113,12 +113,23 @@ is the only thing standing between a bad migration and permanent data loss.
 
 ## 4. Schema
 
+**Baseline first.** Production's schema was built by the old system, so drizzle
+has no record of it. `0000_serious_spiral` describes tables that already exist —
+executing it collides on `CREATE TYPE`. Record it as applied instead:
+
+- [ ] ```bash
+  bun run --cwd apps/api cutover:apply-migrations --baseline 0000_serious_spiral
+  bun run --cwd apps/api cutover:apply-migrations --baseline 0000_serious_spiral --execute
+  ```
+  Expected: `baseline: ["0000_serious_spiral"]`. Skip only if the dry run
+  reports `alreadyRecorded: true`.
+
 - [ ] ```bash
   bun run --cwd apps/api cutover:apply-migrations --execute --log "$CUTOVER_LOG/migrations.jsonl"
   ```
 
-Expected: `applied` lists the pending tags (through `0004_black_cerebro`), and
-the script re-reads the journal to confirm nothing is still pending.
+Expected: `applied` lists `0001`–`0004`, and the script re-reads the journal to
+confirm nothing is still pending.
 Abort criterion: any migration error → restore from snapshot, restart old stack.
 
 > `0004` adds the `run_command` value to the `task_type` enum. Without it every
