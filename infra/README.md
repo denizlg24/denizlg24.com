@@ -18,8 +18,8 @@ stack. Production activation remains an explicit plan 012 cutover action.
 Run these only on the Pi, without stopping the old compose project:
 
 ```sh
-sudo install -d -o pi -g pi /opt/deniz-cloud
-sudo cp -a infra /opt/deniz-cloud/
+sudo install -d -o denizlg24 -g denizlg24 /opt/deniz-cloud
+cp -a infra /opt/deniz-cloud/
 cd /opt/deniz-cloud/infra/compose
 cp .env.pi.example .env.pi
 chmod 600 .env.pi

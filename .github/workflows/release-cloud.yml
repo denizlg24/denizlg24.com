@@ -110,6 +110,18 @@ jobs:
           [[ "$PI_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
           [[ "$IMAGE_TAG" =~ ^[0-9a-f]{40}$ ]]
 
+      - name: Resolve the Pi on the tailnet
+        run: |
+          # tailscale/github-action leaves --accept-dns=false so it does not
+          # clobber runner DNS, which means MagicDNS names never resolve here.
+          # tailscaled answers from the netmap without going through DNS.
+          if ! PI_ADDR="$(tailscale ip -4 "$PI_HOST")"; then
+            tailscale status --peers >&2
+            exit 1
+          fi
+          [[ "$PI_ADDR" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "PI_ADDR=$PI_ADDR" >> "$GITHUB_ENV"
+
       - name: Copy infrastructure assets
         run: |
           tar -czf cloud-infra.tgz \
@@ -120,14 +132,15 @@ jobs:
             infra/systemd
           scp \
             -o StrictHostKeyChecking=accept-new \
+            -o BatchMode=yes \
             cloud-infra.tgz \
-            "denizlg24@${PI_HOST}:/tmp/cloud-infra.tgz"
-          ssh -o StrictHostKeyChecking=accept-new "denizlg24@${PI_HOST}" \
-            "sudo install -d -o denizlg24 -g denizlg24 /opt/deniz-cloud && tar -xzf /tmp/cloud-infra.tgz -C /opt/deniz-cloud && rm -f /tmp/cloud-infra.tgz"
+            "denizlg24@${PI_ADDR}:/tmp/cloud-infra.tgz"
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "mkdir -p /opt/deniz-cloud && tar -xzf /tmp/cloud-infra.tgz -C /opt/deniz-cloud && rm -f /tmp/cloud-infra.tgz"
 
       - name: Pull and deploy
         run: |
-          ssh -o StrictHostKeyChecking=accept-new "denizlg24@${PI_HOST}" \
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             "cd /opt/deniz-cloud/infra/compose && test -f .env.pi && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml pull && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml up -d"
 
       - name: Health gate
