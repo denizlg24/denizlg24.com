@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -22,10 +23,14 @@ import {
  * migration after the new API is already booting is the expensive path.
  */
 
-const MIGRATIONS_FOLDER = resolve(
-  import.meta.dir,
-  "../../../packages/cloud-core/drizzle",
-);
+/**
+ * `DRIZZLE_MIGRATIONS_DIR` lets the script run from a bundle or any working
+ * directory — on the Pi it is deployed next to the migration SQL rather than
+ * inside the monorepo tree.
+ */
+const MIGRATIONS_FOLDER = process.env.DRIZZLE_MIGRATIONS_DIR
+  ? resolve(process.env.DRIZZLE_MIGRATIONS_DIR)
+  : resolve(import.meta.dir, "../../../packages/cloud-core/drizzle");
 const MIGRATIONS_TABLE = "__drizzle_migrations";
 const MIGRATIONS_SCHEMA = "drizzle";
 
@@ -92,9 +97,86 @@ async function appliedTimestamps(): Promise<Set<number> | null> {
   }
 }
 
+function baselineArgument(argv: string[]): string | undefined {
+  const index = argv.indexOf("--baseline");
+  if (index === -1) return undefined;
+  const value = argv[index + 1];
+  if (value === undefined || value.startsWith("--")) {
+    throw new ScriptError("--baseline requires a migration tag");
+  }
+  return value;
+}
+
+/** Drizzle keys applied migrations by the SHA-256 of the whole .sql file. */
+async function migrationHash(tag: string): Promise<string> {
+  const sql = await readFile(join(MIGRATIONS_FOLDER, `${tag}.sql`), "utf8");
+  return createHash("sha256").update(sql).digest("hex");
+}
+
+/**
+ * Records migrations as applied WITHOUT executing them.
+ *
+ * The production database was built by the old system, so its schema already
+ * matches the `0000` baseline while drizzle has no record of it. Running the
+ * baseline for real collides on the first `CREATE TYPE`. Baselining marks it
+ * applied so only the genuinely new migrations run.
+ */
+async function baselineMigrations(entries: JournalEntry[]): Promise<void> {
+  const client = createRawClient(requiredEnv("DATABASE_URL"));
+  try {
+    await client.unsafe(`CREATE SCHEMA IF NOT EXISTS "${MIGRATIONS_SCHEMA}"`);
+    await client.unsafe(
+      `CREATE TABLE IF NOT EXISTS "${MIGRATIONS_SCHEMA}"."${MIGRATIONS_TABLE}" (
+        id SERIAL PRIMARY KEY,
+        hash text NOT NULL,
+        created_at bigint
+      )`,
+    );
+    for (const entry of entries) {
+      const hash = await migrationHash(entry.tag);
+      await client`
+        INSERT INTO ${client(MIGRATIONS_SCHEMA)}.${client(MIGRATIONS_TABLE)}
+          ("hash", "created_at")
+        VALUES (${hash}, ${entry.when})
+      `;
+    }
+  } finally {
+    await client.end({ timeout: 5 });
+  }
+}
+
 await runScript("apply-migrations", async (flags, log) => {
   const journal = await readJournal();
   const applied = await appliedTimestamps();
+  const baselineTag = baselineArgument(process.argv.slice(2));
+
+  if (baselineTag) {
+    const index = journal.findIndex((entry) => entry.tag === baselineTag);
+    if (index === -1) {
+      throw new ScriptError(`Unknown migration tag: ${baselineTag}`);
+    }
+    const toMark = journal
+      .slice(0, index + 1)
+      .filter((entry) => applied === null || !applied.has(entry.when));
+
+    await log.event("baseline-planned", { tags: toMark.map((e) => e.tag) });
+
+    if (flags.dryRun) {
+      return {
+        baseline: toMark.map((entry) => entry.tag),
+        baselineThrough: baselineTag,
+        alreadyRecorded: toMark.length === 0,
+      };
+    }
+
+    await baselineMigrations(toMark);
+    await log.event("baselined", { tags: toMark.map((e) => e.tag) });
+    return {
+      baseline: toMark.map((entry) => entry.tag),
+      baselineThrough: baselineTag,
+      alreadyRecorded: false,
+    };
+  }
 
   const pending =
     applied === null

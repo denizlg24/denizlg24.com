@@ -72,10 +72,12 @@ const checkUsersMigrated: Check = async (db) => {
     countRows(db, users),
     countRows(db, authUser),
   ]);
+  // legacy `users.id` is uuid, Better Auth `auth_user.id` is text — Postgres
+  // has no uuid = text operator, so the cast is required, not cosmetic.
   const orphans = await db
     .select({ username: users.username })
     .from(users)
-    .leftJoin(authUser, eq(users.id, authUser.id))
+    .leftJoin(authUser, sql`${users.id}::text = ${authUser.id}`)
     .where(isNull(authUser.id));
 
   if (orphans.length > 0) {
@@ -100,7 +102,7 @@ const checkPasswordsCarried: Check = async (db) => {
     .leftJoin(
       authAccount,
       and(
-        eq(authAccount.userId, users.id),
+        sql`${authAccount.userId} = ${users.id}::text`,
         eq(authAccount.providerId, "credential"),
       ),
     )

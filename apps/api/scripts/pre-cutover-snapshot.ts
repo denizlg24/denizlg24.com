@@ -111,11 +111,19 @@ async function freeBytes(path: string): Promise<number> {
   return Number(stats.bavail) * Number(stats.bsize);
 }
 
+/**
+ * `DRIZZLE_MIGRATIONS_DIR` lets the script run from a bundle or any working
+ * directory — on the Pi it is deployed next to the migration SQL rather than
+ * inside the monorepo tree.
+ */
+function drizzleDirectory(): string {
+  return process.env.DRIZZLE_MIGRATIONS_DIR
+    ? resolve(process.env.DRIZZLE_MIGRATIONS_DIR)
+    : resolve(import.meta.dir, "../../../packages/cloud-core/drizzle");
+}
+
 async function drizzleMigrationList(): Promise<string[]> {
-  const directory = resolve(
-    import.meta.dir,
-    "../../../packages/cloud-core/drizzle",
-  );
+  const directory = drizzleDirectory();
   const glob = new Bun.Glob("*.sql");
   const names: string[] = [];
   for await (const name of glob.scan({ cwd: directory })) names.push(name);
@@ -123,10 +131,7 @@ async function drizzleMigrationList(): Promise<string[]> {
 }
 
 async function archiveDrizzleState(snapshotDirectory: string): Promise<string> {
-  const source = resolve(
-    import.meta.dir,
-    "../../../packages/cloud-core/drizzle",
-  );
+  const source = drizzleDirectory();
   const path = join(snapshotDirectory, "drizzle-state.tar.gz");
   const process_ = Bun.spawn(
     ["tar", "-czf", path, "-C", resolve(source, ".."), "drizzle"],
