@@ -108,6 +108,19 @@ function TotpSection() {
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
+  const startEnrollment = async () => {
+    setBusy(true);
+    // The old secret has to go before a new one can be issued; without this a
+    // failed enrollment leaves the previous secret live.
+    const { error } = await authClient.twoFactor.disable({ password });
+    setBusy(false);
+    if (error) {
+      toast.error(error.message ?? "Could not start enrollment");
+      return;
+    }
+    setMode("enroll");
+  };
+
   const regenerateCodes = async () => {
     setBusy(true);
     const { data, error } = await authClient.twoFactor.generateBackupCodes({
@@ -142,7 +155,7 @@ function TotpSection() {
             size="sm"
             variant="outline"
             disabled={busy || password.length === 0}
-            onClick={() => setMode("enroll")}
+            onClick={() => void startEnrollment()}
           >
             Re-enroll
           </Button>

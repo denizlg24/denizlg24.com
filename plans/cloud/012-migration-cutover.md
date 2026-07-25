@@ -126,6 +126,45 @@ rehearsal is green.
 
 ## Drift log
 
+- **Half A scripts (2026-07-25):** delivered in `apps/api/scripts/` on a shared
+  harness (`scripts/lib/runner.ts`): dry-run default, `--execute` and
+  `--dry-run` mutually exclusive, JSONL log via `--log`, one JSON summary line
+  on stdout, and a marker-based ordering guard so a step refuses to run before
+  its predecessor completed. Deviations from this plan's original spec:
+  - `migrate-s3-legacy.ts` is a **preflight, not a second implementation**. The
+    NULL-project row is already created idempotently by
+    `ensureLegacyS3Credential` at API startup (004). The script runs the same
+    assertions before the new API's first boot, plus one startup cannot: that
+    the stored ciphertext decrypts under the configured
+    `S3_CREDENTIAL_ENCRYPTION_KEY`. Startup only compares the SHA-256 hash, so a
+    row encrypted under a previous key passes there and then fails every signed
+    S3 request.
+  - **New script `inventory-dependents.ts`** (operator decision, 2026-07-25):
+    the dependent-project change list is generated from the live database rather
+    than enumerated by hand. Read-only by construction — no `--execute` path,
+    and no query selects a secret column. Emits
+    `infra/cutover/change-list.md`, ordered by last credential use.
+  - `pre-cutover-snapshot.ts` reuses 006's backup executors instead of shelling
+    out to `pg_dump`, so the cutover runs the same code path as the nightly
+    backups. Every artifact is verified after writing (size floor, gzip
+    integrity, SHA-256 in `manifest.json`) and the run aborts on insufficient
+    free space.
+  - `apply-migrations.ts` added for the schema step; its dry run lists pending
+    journal tags without touching the database.
+  - `migrate-verify.ts` runs all eleven checks even after one fails, so the
+    operator gets the whole picture in one pass. Checks needing operator input
+    (`VERIFY_SAMPLE_USERNAME`/`_PASSWORD`, `VERIFY_SHARE_TOKEN`) report SKIP
+    rather than silently passing.
+  - Bug found and fixed while wiring the ordering guard: `migrate-users.ts`
+    writes its marker under identifier `cloud-migration:003`, so reading it
+    under 012's identifier would never match and would have permanently blocked
+    the S3 preflight's predecessor check.
+  - `infra/cutover/RUNBOOK.md` authored. **Rehearsal not yet run** — it is
+    gated on 011's Pi staging bring-up.
+- **Operator decision (2026-07-25), resolving 010's open question:**
+  `apps/cloud` settings now calls `twoFactor.disable()` before re-enrollment,
+  matching `apps/storage`. Both apps take the same path through cutover's
+  mandatory re-enrollment.
 - **From 011 (2026-07-23):** optional Redis TLS is exposed separately on
   `redis.denizlg24.com:6381`; legacy plaintext remains on 6380, so existing
   dependents do not change at cutover. The rehearsal must test both when TLS
