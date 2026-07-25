@@ -65,6 +65,20 @@ Everything here is read-only and safe to run against the live old stack.
   failure — fix it now, while the old stack is still serving and rollback is
   free. This is the whole reason the preflight exists.
 
+- [ ] **Install the production MongoDB keyfile** (needs sudo). `.env.pi` points
+  at `/etc/deniz-cloud/mongo/replica-keyfile`, but production's live keyfile is
+  `/home/denizlg24/deniz-cloud/config/mongo/replica-keyfile`. The new stack
+  reuses production's `/mnt/ssd/mongo` in place, so a *different* keyfile means
+  mongod cannot authenticate to its own replica set and will not start:
+  ```bash
+  sudo install -d -m 700 /etc/deniz-cloud/mongo
+  sudo cp /home/denizlg24/deniz-cloud/config/mongo/replica-keyfile \
+          /etc/deniz-cloud/mongo/replica-keyfile
+  sudo chmod 400 /etc/deniz-cloud/mongo/replica-keyfile
+  ```
+  Never generate a fresh keyfile for production — that is correct only for
+  staging, which has its own empty data directory.
+
 - [ ] **Confirm secrets carried over into the Pi `.env`.** These must be the
   *old* production values, byte for byte:
   - `JWT_SECRET` — share-link HMACs (invariant 3)
@@ -200,10 +214,25 @@ Abort criterion: **any** FAIL. Restore from snapshot and restart the old stack.
 - [ ] Cloudflared ingress: point `api.denizlg24.com` → the api container port;
       remove the old storage/cloud/search ingress rules.
 
+- [ ] **Trigger runtime initialisation and verify it.** `/healthz` sits outside
+      `/api/*`, and the runtime is lazily built on the first `/api/*` request —
+      so a container reports **healthy having done no startup work at all**.
+      ```bash
+      curl -s -o /dev/null -w '%{http_code}\n' https://api.denizlg24.com/api/me   # expect 401
+      ```
+      Then confirm the side effects actually happened:
+      ```bash
+      docker exec postgres psql -U admin -d denizcloud -t -A -F'|' \
+        -c "SELECT type, enabled FROM scheduled_tasks WHERE type IN ('metrics_rollup','tiering_pass')"
+      ```
+      Expected: `metrics_rollup|t` and `tiering_pass|f`. Also expect the Redis
+      ACL list to have grown by one entry per provisioned Redis project.
+
 Expected: `/healthz` answers with the new version; containers stay within the
 memory budget in `infra/README.md`.
 Abort criterion: crash loop → `docker compose down`, revert ingress, restart the
-old stack. Still before the point of no return.
+old stack. Still before the point of no return. **A healthy container with no
+seeded tasks means runtime init failed — treat as a failure, not a pass.**
 
 - [ ] Attach the `cloud.` and `storage.` domains to their Vercel projects and
       confirm propagation.

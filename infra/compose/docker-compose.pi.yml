@@ -155,15 +155,19 @@ services:
     mem_limit: ${MONGOT_MEMORY_LIMIT:-0}
     restart: unless-stopped
     healthcheck:
+      # scripts/mongot.yml binds healthCheck.address to "mongot:8080", i.e. the
+      # container's own service IP — not loopback. Probing localhost here can
+      # never connect, so mongot stays unhealthy forever and every dependent
+      # service is blocked from starting.
       test:
         [
           "CMD-SHELL",
-          "curl --fail --silent http://localhost:8080/ready >/dev/null",
+          "curl --fail --silent http://mongot:8080/ready >/dev/null",
         ]
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      start_period: 60s
 
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
@@ -261,7 +265,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     mem_limit: ${DOCKER_PROXY_MEMORY_LIMIT:-0}
-    read_only: true
+    # NOT read_only: the entrypoint renders /usr/local/etc/haproxy/haproxy.cfg
+    # from a template that ships in the image at that same path on every start.
+    # read_only blocks the write, and a tmpfs over the directory hides the
+    # template — both crash-loop. Hardening is preserved by the read-only
+    # socket mount, the ALLOW_* allowlist, and no added capabilities.
     tmpfs:
       - /run
       - /tmp
@@ -343,7 +351,14 @@ services:
       - ${HOST_CONTROL_DIR:-/var/lib/deniz-cloud}:/host-control
     mem_limit: ${API_MEMORY_LIMIT:-0}
     oom_score_adj: 500
-    read_only: true
+    # read_only is OFF deliberately. The runtime image ships only dist/ with no
+    # node_modules, so any dependency bun could not bundle is auto-installed
+    # from npm on the first /api/* request; a read-only rootfs turns that into a
+    # crash loop on every request. Bundling @opentelemetry/api removed the known
+    # offender — re-enable read_only only after confirming a freshly built image
+    # serves /api/* with it on. Remaining hardening: no added capabilities,
+    # read-only /proc, /sys and rootfs mounts, and oom_score_adj.
+    read_only: false
     tmpfs:
       - /tmp
     restart: unless-stopped

@@ -109,6 +109,103 @@ Postgres-only staging. Not a defect; it cannot pass in this configuration.
 - ingress switch, DNS, Vercel domains
 - the "Cloud unreachable" degraded state and storage's >300-row windowed list
 
+---
+
+# Part 2 — production schema migration + first full-stack boot (same day)
+
+Production migrations were applied for real, and the whole new stack was booted
+for the first time in `cloud-staging`. Four more production-blocking bugs
+surfaced; all are fixed in this commit.
+
+## Production schema migration (done)
+
+Snapshot `denizcloud` (95 KB, sha256 recorded, `pg_restore -l` verified) →
+`--baseline 0000_serious_spiral` → applied `0001`–`0004`. Post-state
+`pending: []`. Legacy counts unchanged (users=7, projects=17, files=142,
+api_keys=7); old admin and storage kept answering 200 throughout.
+
+Only `denizcloud` was snapshotted, not `pg_dumpall`: a full dump is 1,983 MB, of
+which 1,752 MB is `proj_deniz_nutrition_api`, which these migrations never
+touch. The full dump still belongs in the real window, behind the freeze.
+
+`migrate-users` was deliberately **not** run on production. It is
+marker-idempotent, so running it early would freeze user state as of now and
+block a re-run if any password changes before cutover. It must run inside the
+window, before the new API's first boot.
+
+## Bugs found by the first full-stack boot
+
+3. **`docker-proxy` crash-looped under `read_only: true`.** Its entrypoint
+   renders `/usr/local/etc/haproxy/haproxy.cfg` on every start. `read_only`
+   blocks the write; a tmpfs over that directory instead hides the template that
+   ships there. Both crash-loop. Fixed by dropping `read_only` for that service
+   only — the read-only socket mount, `ALLOW_*` allowlist and absent
+   capabilities carry the hardening. **The entire ops plane** (container stats,
+   restarts, backups, reboot) runs through this proxy.
+
+4. **`mongot` could never become healthy.** `scripts/mongot.yml` binds
+   `healthCheck.address` to `mongot:8080` (the container's service IP), but the
+   compose healthcheck probed `http://localhost:8080/ready` — connection refused
+   forever (`exit=7`, 20 restarts). Because `api` declares
+   `depends_on: mongot: condition: service_healthy`, **the production API could
+   never have started.** Fixed the probe to match the configured address and
+   raised `start_period` to 60s for JVM cold start.
+
+5. **The API crashed on every `/api/*` request under `read_only: true`.**
+   `docker diff` showed it writing
+   `/home/bun/.bun/install/cache/@opentelemetry/api@1.9.1/...`: the runtime image
+   ships only `dist/` with no `node_modules`, so a transitive optional dependency
+   bun had left external was being **auto-installed from npm at first request** —
+   meaning production also needed live npm egress to serve its first request.
+   Fixed at the root by adding `@opentelemetry/api` as an explicit dependency so
+   it bundles (verified locally: no bare specifier remains in `dist/index.js`).
+   `read_only` is left off until a freshly built image is confirmed to serve
+   `/api/*` with it on.
+
+## Operational finding: the healthcheck lies about readiness
+
+`createRuntimeApp()` is **lazily initialised on the first `/api/*` request**, and
+`/healthz` sits outside `/api/*`. A container therefore reports **healthy while
+having done none of its startup work** — no task seeding, no Redis ACL
+reconciliation, no sync workers, no metrics sampler, and no legacy S3 credential
+creation.
+
+Confirmed empirically: immediately after boot, `scheduled_tasks` held only the
+three restored legacy rows and Redis had one ACL entry. After a single
+`/api/me`, `metrics_rollup` (enabled, `*/5 * * * *`) and `tiering_pass`
+(disabled) appeared and Redis ACLs went 1 → 4.
+
+**The runbook must issue an `/api/*` request after starting the new stack and
+verify seeding before declaring success.** Otherwise a runtime that fails to
+initialise looks perfectly healthy until real traffic arrives.
+
+## Cutover blocker for the operator: MongoDB keyfile
+
+`.env.pi` sets `MONGO_REPLICA_KEY_FILE=/etc/deniz-cloud/mongo/replica-keyfile`,
+but production's live keyfile is
+`/home/denizlg24/deniz-cloud/config/mongo/replica-keyfile` (root:root, 0400).
+At cutover the new stack reuses production's `/mnt/ssd/mongo` data dir in place;
+mounting a *different* keyfile means mongod cannot authenticate to its own
+replica set and will not start. Before the window (needs sudo):
+
+```bash
+sudo install -d -m 700 /etc/deniz-cloud/mongo
+sudo cp /home/denizlg24/deniz-cloud/config/mongo/replica-keyfile \
+        /etc/deniz-cloud/mongo/replica-keyfile
+sudo chmod 400 /etc/deniz-cloud/mongo/replica-keyfile
+```
+
+A freshly generated keyfile is correct only for staging, which has its own empty
+data dir and its own replica set.
+
+## Final staging verify — 7 PASS / 2 SKIP / 2 FAIL
+
+`users-migrated`, `passwords-carried`, `totp-unenrolled`, `legacy-s3-credential`,
+`project-surface`, `files-on-disk` (12/142 sampled against real production
+storage) and `seeded-tasks` (`metrics_rollup` enabled, `tiering_pass` disabled)
+all pass. The two failures are the pre-existing production data issues in Part 1;
+the operator has accepted the `foods` re-index as non-critical.
+
 ## Follow-ups before the window
 
 1. Fix or accept the `foods` full-resync; decide whether to pre-seed a resume token.
