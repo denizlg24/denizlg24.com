@@ -135,6 +135,10 @@ function CodeBlock({ text, filename }: { text: string; filename: string }) {
       return;
     }
     let active = true;
+    // Drop the previous file's markup before awaiting the chunk. Without this
+    // an unrecognised language leaves the old highlighted HTML rendered
+    // against the new file's text.
+    setHtml(null);
     void (async () => {
       try {
         const { default: hljs } = await import("highlight.js/lib/common");

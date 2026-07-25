@@ -2,6 +2,7 @@
 
 import { formatDateTime } from "@repo/cloud-ui/format";
 import { BackupCodes, TotpEnrollment } from "@repo/cloud-ui/totp";
+import { MIN_PASSWORD_LENGTH } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
@@ -10,8 +11,6 @@ import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { useSession } from "@/components/session-provider";
 import { authClient } from "@/lib/auth-client";
-
-const MIN_PASSWORD_LENGTH = 8;
 
 function ChangePassword() {
   const [current, setCurrent] = useState("");

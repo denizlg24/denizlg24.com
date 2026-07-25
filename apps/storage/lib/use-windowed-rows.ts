@@ -26,6 +26,8 @@ export function useWindowedRows({
   scrollRef,
   estimateLineHeight,
   minTileWidth,
+  tileGap = 0,
+  gridPaddingX = 0,
 }: {
   count: number;
   scrollRef: RefObject<HTMLElement | null>;
@@ -33,6 +35,13 @@ export function useWindowedRows({
   estimateLineHeight: number;
   /** Grid views wrap; omit for a single-column list. */
   minTileWidth?: number;
+  /** Column gap in px. Must match the grid's `gap-*` or columns overcount. */
+  tileGap?: number;
+  /**
+   * Horizontal padding inside the grid, in px. `scrollRef` is the scroll
+   * container, so its `clientWidth` includes padding the tiles never occupy.
+   */
+  gridPaddingX?: number;
 }): RowWindow {
   const [metrics, setMetrics] = useState({ scrollTop: 0, height: 0, width: 0 });
   const windowed = count > WINDOW_THRESHOLD;
@@ -58,12 +67,19 @@ export function useWindowedRows({
     };
   }, [scrollRef, windowed]);
 
-  // auto-fill packs as many whole tiles as fit, so the column count follows
-  // the container width the same way the CSS does.
-  const columns =
-    minTileWidth && metrics.width > 0
-      ? Math.max(1, Math.floor(metrics.width / minTileWidth))
-      : 1;
+  // auto-fill packs n tracks where n*minTileWidth + (n-1)*tileGap fits the
+  // content box, which rearranges to floor((content + gap) / (min + gap)).
+  // Dividing raw width by minTileWidth alone overcounts, and a column count
+  // one too high shifts the window offset onto the wrong item range.
+  const columns = (() => {
+    if (!minTileWidth || metrics.width <= 0) return 1;
+    const content = metrics.width - gridPaddingX;
+    if (content <= 0) return 1;
+    return Math.max(
+      1,
+      Math.floor((content + tileGap) / (minTileWidth + tileGap)),
+    );
+  })();
 
   const scrollToIndex = useCallback(
     (index: number) => {

@@ -55,9 +55,12 @@ export function formatDurationMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) return "—";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   const seconds = ms / 1000;
+  // Sub-minute keeps a decimal here — task runs are often under a second and
+  // "0.4s" beats "0s". From a minute up the two helpers must agree, or the
+  // same duration reads as "125m 30s" through one and "2h 5m" through the
+  // other depending on which the caller reached for.
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${Math.round(seconds % 60)}s`;
+  return formatDurationSeconds(seconds);
 }
 
 export function formatDurationSeconds(seconds: number): string {

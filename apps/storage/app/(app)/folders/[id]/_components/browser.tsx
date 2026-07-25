@@ -157,6 +157,9 @@ export function Browser({ folderId }: { folderId: string }) {
           : 140,
     minTileWidth:
       view === "grid" ? (density === "compact" ? 112 : 144) : undefined,
+    // Mirrors the grid's `gap-1 p-3` below.
+    tileGap: 4,
+    gridPaddingX: 24,
   });
 
   // A folder switch must not carry selection or an open preview across.

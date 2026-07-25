@@ -1,11 +1,10 @@
 "use client";
 
+import { MIN_PASSWORD_LENGTH } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { type FormEvent, type ReactNode, useState } from "react";
-
-const MIN_PASSWORD_LENGTH = 8;
 
 function LinkButton({
   onClick,

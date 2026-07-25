@@ -24,33 +24,44 @@ export function usePoll<T>(
   // against an older `fn` can never write its result over a newer one.
   const generation = useRef(0);
 
-  const reload = useCallback(async () => {
-    const started = generation.current;
-    try {
-      const next = await fn();
-      if (started !== generation.current) return;
-      setData(next);
-      setError(null);
-      setUnreachable(false);
-    } catch (err) {
-      if (started !== generation.current) return;
-      setError(errorMessage(err));
-      setUnreachable(isUnreachable(err));
-    } finally {
-      if (started === generation.current) setLoading(false);
-    }
-  }, [fn]);
+  // `trackPending` is false for interval ticks: a background poll refreshing
+  // in place must not flip `loading` and flash every consumer's skeleton or
+  // spinner. Explicit calls (first load, retry button) do track it, so a retry
+  // can disable its trigger instead of allowing overlapping requests.
+  const run = useCallback(
+    async (trackPending: boolean) => {
+      const started = generation.current;
+      if (trackPending) setLoading(true);
+      try {
+        const next = await fn();
+        if (started !== generation.current) return;
+        setData(next);
+        setError(null);
+        setUnreachable(false);
+      } catch (err) {
+        if (started !== generation.current) return;
+        setError(errorMessage(err));
+        setUnreachable(isUnreachable(err));
+      } finally {
+        if (trackPending && started === generation.current) setLoading(false);
+      }
+    },
+    [fn],
+  );
+
+  const reload = useCallback(() => run(true), [run]);
 
   useEffect(() => {
-    setLoading(true);
-    void reload();
+    void run(true);
     const timer =
-      intervalMs === null ? null : setInterval(() => void reload(), intervalMs);
+      intervalMs === null
+        ? null
+        : setInterval(() => void run(false), intervalMs);
     return () => {
       generation.current += 1;
       if (timer !== null) clearInterval(timer);
     };
-  }, [reload, intervalMs]);
+  }, [run, intervalMs]);
 
   return { data, error, unreachable, loading, reload };
 }

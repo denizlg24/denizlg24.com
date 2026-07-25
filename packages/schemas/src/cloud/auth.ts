@@ -15,10 +15,17 @@ export const loginInputSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginInputSchema>;
 
+/**
+ * The password policy the API enforces. Exported so client-side forms gate on
+ * the same numbers rather than restating them and drifting.
+ */
+export const MIN_PASSWORD_LENGTH = 8;
+export const MAX_PASSWORD_LENGTH = 128;
+
 export const completeSignupInputSchema = z.object({
   username: z.string().min(1),
   email: z.email(),
-  password: z.string().min(8).max(128),
+  password: z.string().min(MIN_PASSWORD_LENGTH).max(MAX_PASSWORD_LENGTH),
   token: z.string().min(1),
 });
 export type CompleteSignupInput = z.infer<typeof completeSignupInputSchema>;
