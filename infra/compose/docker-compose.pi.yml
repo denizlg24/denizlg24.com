@@ -232,6 +232,15 @@ services:
   meilisearch:
     image: ${MEILI_IMAGE:-getmeili/meilisearch:v1.38}
     networks: [app]
+    # Legacy consumers call search.denizlg24.com directly with their own
+    # Meilisearch keys, so the tunnel needs a host-reachable port. Bound to
+    # loopback: cloudflared reaches it, the LAN cannot. The old stack published
+    # this on 0.0.0.0.
+    ports:
+      - target: 7700
+        published: "${MEILI_PORT:-7700}"
+        host_ip: "${MEILI_BIND_ADDRESS:-127.0.0.1}"
+        protocol: tcp
     environment:
       MEILI_ENV: ${MEILI_ENV:-production}
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required}
