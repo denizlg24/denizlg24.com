@@ -1,16 +1,24 @@
 "use client";
 
-import { Button } from "@repo/ui/button";
-import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
+import {
+  CodeChallengeForm,
+  CredentialsForm,
+  SignupForm,
+} from "@repo/cloud-ui/auth-forms";
+import { AuthShell } from "@repo/cloud-ui/auth-shell";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type FormEvent, Suspense, useState } from "react";
-import { AuthShell } from "@/components/auth-shell";
+import { Suspense, useState } from "react";
 import { api, errorMessage, isApiError } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { stashEnrollPassword } from "@/lib/enroll-handoff";
 
-type Step = "credentials" | "signup" | "totp" | "recovery";
+type Step = "credentials" | "signup" | "challenge";
+
+const TITLES: Record<Step, string> = {
+  credentials: "Sign in",
+  signup: "Redeem signup token",
+  challenge: "Two-factor",
+};
 
 function LoginForm() {
   const router = useRouter();
@@ -19,11 +27,6 @@ function LoginForm() {
   const next = searchParams.get("next");
 
   const [step, setStep] = useState<Step>(tokenParam ? "signup" : "credentials");
-  const [username, setUsername] = useState(searchParams.get("username") ?? "");
-  const [password, setPassword] = useState("");
-  const [email, setEmail] = useState("");
-  const [signupToken, setSignupToken] = useState(tokenParam ?? "");
-  const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -33,270 +36,117 @@ function LoginForm() {
     next?.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\")
       ? next
       : "/";
-  const goToApp = () => router.replace(safeNext);
 
   // The enrollment page needs the password again to arm TOTP, so it is handed
   // over in memory rather than asked for twice.
-  const goToEnrollment = () => {
+  const goToEnrollment = (password: string) => {
     stashEnrollPassword(password);
     router.replace("/setup-mfa");
   };
 
-  const finish = async () => {
+  const finish = async (password: string) => {
     try {
       await api.me();
-      goToApp();
+      router.replace(safeNext);
     } catch (err) {
       if (isApiError(err) && err.code === "MFA_ENROLLMENT_REQUIRED") {
-        goToEnrollment();
+        goToEnrollment(password);
         return;
       }
       setError(errorMessage(err));
     }
   };
 
-  const submitCredentials = async (event: FormEvent) => {
-    event.preventDefault();
+  const submitCredentials = async (values: {
+    username: string;
+    password: string;
+  }) => {
     setBusy(true);
     setError(null);
-    const { data, error: signInError } = await authClient.signIn.username({
-      username,
-      password,
-    });
+    const { data, error: signInError } =
+      await authClient.signIn.username(values);
     if (signInError) {
       setBusy(false);
-      setError(signInError.message ?? "That username or password is not right");
+      setError(signInError.message ?? "Sign in failed");
       return;
     }
     if (data && "twoFactorRedirect" in data) {
       setBusy(false);
-      setCode("");
-      setStep("totp");
+      setStep("challenge");
       return;
     }
-    await finish();
+    await finish(values.password);
     setBusy(false);
   };
 
-  const submitSignup = async (event: FormEvent) => {
-    event.preventDefault();
+  const submitSignup = async (values: {
+    username: string;
+    email: string;
+    password: string;
+    token: string;
+  }) => {
     setBusy(true);
     setError(null);
     try {
-      await api.completeSignup({
-        username,
-        email,
-        password,
-        token: signupToken,
-      });
-      goToEnrollment();
+      await api.completeSignup(values);
+      goToEnrollment(values.password);
     } catch (err) {
       setBusy(false);
       setError(errorMessage(err));
     }
   };
 
-  const submitCode = async (event: FormEvent) => {
-    event.preventDefault();
+  const submitChallenge = async (code: string, mode: "totp" | "recovery") => {
     setBusy(true);
     setError(null);
-    const verify =
-      step === "recovery"
-        ? authClient.twoFactor.verifyBackupCode({ code })
-        : authClient.twoFactor.verifyTotp({ code });
-    const { error: verifyError } = await verify;
+    const { error: verifyError } =
+      mode === "recovery"
+        ? await authClient.twoFactor.verifyBackupCode({ code })
+        : await authClient.twoFactor.verifyTotp({ code });
     if (verifyError) {
       setBusy(false);
-      setError(
-        verifyError.message ??
-          (step === "recovery"
-            ? "That recovery code did not work"
-            : "That code did not work — check your authenticator and try again"),
-      );
+      setError(verifyError.message ?? "Invalid code");
       return;
     }
-    await finish();
+    // Enrollment is already complete on this path, so the password is not
+    // needed again — /api/me either succeeds or surfaces its own error.
+    await finish("");
     setBusy(false);
   };
 
   return (
-    <AuthShell
-      title={
-        step === "signup"
-          ? "Set up your account"
-          : step === "totp"
-            ? "Two-factor code"
-            : step === "recovery"
-              ? "Use a recovery code"
-              : "Sign in"
-      }
-      subtitle={
-        step === "signup"
-          ? "Use the signup link you were sent to pick your username and password."
-          : step === "totp"
-            ? "Enter the 6-digit code from your authenticator app."
-            : step === "recovery"
-              ? "Enter one of the recovery codes you saved when you set up two-factor."
-              : undefined
-      }
-      error={error}
-    >
+    <AuthShell title={TITLES[step]} error={error}>
       {step === "credentials" && (
-        <form onSubmit={submitCredentials} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="username" className="text-xs">
-              Username
-            </Label>
-            <Input
-              id="username"
-              autoComplete="username"
-              autoFocus
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="password" className="text-xs">
-              Password
-            </Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </div>
-          <Button type="submit" disabled={busy || !username || !password}>
-            Sign in
-          </Button>
-          <button
-            type="button"
-            className="text-left text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              setError(null);
-              setStep("signup");
-            }}
-          >
-            I have a signup link
-          </button>
-        </form>
+        <CredentialsForm
+          defaultUsername={searchParams.get("username") ?? ""}
+          busy={busy}
+          onSubmit={submitCredentials}
+          onSignupRequested={() => {
+            setError(null);
+            setStep("signup");
+          }}
+        />
       )}
 
       {step === "signup" && (
-        <form onSubmit={submitSignup} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="signup-username" className="text-xs">
-              Username
-            </Label>
-            <Input
-              id="signup-username"
-              autoComplete="username"
-              autoFocus={!tokenParam}
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="signup-email" className="text-xs">
-              Email
-            </Label>
-            <Input
-              id="signup-email"
-              type="email"
-              autoComplete="email"
-              autoFocus={Boolean(tokenParam)}
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="signup-password" className="text-xs">
-              Password
-            </Label>
-            <Input
-              id="signup-password"
-              type="password"
-              autoComplete="new-password"
-              minLength={8}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              At least 8 characters.
-            </p>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="signup-token" className="text-xs">
-              Signup code
-            </Label>
-            <Input
-              id="signup-token"
-              className="font-mono"
-              value={signupToken}
-              onChange={(event) => setSignupToken(event.target.value)}
-            />
-          </div>
-          <Button
-            type="submit"
-            disabled={
-              busy || !username || !email || password.length < 8 || !signupToken
-            }
-          >
-            Continue
-          </Button>
-          <button
-            type="button"
-            className="text-left text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              setError(null);
-              setStep("credentials");
-            }}
-          >
-            Back to sign in
-          </button>
-        </form>
+        <SignupForm
+          defaultUsername={searchParams.get("username") ?? ""}
+          defaultToken={tokenParam ?? ""}
+          busy={busy}
+          onSubmit={submitSignup}
+          onBack={() => {
+            setError(null);
+            setStep("credentials");
+          }}
+        />
       )}
 
-      {(step === "totp" || step === "recovery") && (
-        <form onSubmit={submitCode} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="code" className="text-xs">
-              {step === "totp" ? "Authenticator code" : "Recovery code"}
-            </Label>
-            <Input
-              id="code"
-              autoFocus
-              inputMode={step === "totp" ? "numeric" : "text"}
-              autoComplete="one-time-code"
-              maxLength={step === "totp" ? 6 : undefined}
-              className={
-                step === "totp" ? "font-mono tracking-widest" : "font-mono"
-              }
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-            />
-          </div>
-          <Button
-            type="submit"
-            disabled={busy || code.length < (step === "totp" ? 6 : 1)}
-          >
-            Verify
-          </Button>
-          <button
-            type="button"
-            className="text-left text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              setCode("");
-              setError(null);
-              setStep(step === "totp" ? "recovery" : "totp");
-            }}
-          >
-            {step === "totp"
-              ? "Lost your phone? Use a recovery code"
-              : "Back to authenticator code"}
-          </button>
-        </form>
+      {step === "challenge" && (
+        <CodeChallengeForm
+          busy={busy}
+          onSubmit={submitChallenge}
+          onModeChange={() => setError(null)}
+        />
       )}
     </AuthShell>
   );

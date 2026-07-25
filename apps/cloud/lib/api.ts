@@ -1,5 +1,5 @@
+import { toApiError, toTransportError } from "@repo/cloud-ui/api-error";
 import {
-  apiErrorResponseSchema,
   type CompleteSignupInput,
   type CompleteSignupResult,
   type ContainerSnapshot,
@@ -84,26 +84,12 @@ import {
 import { z } from "zod";
 import { API_BASE_URL } from "./env";
 
-export class ApiError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
-
-export function isApiError(error: unknown): error is ApiError {
-  return error instanceof ApiError;
-}
-
-export function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof Error) return error.message;
-  return "Request failed";
-}
+export {
+  ApiError,
+  errorMessage,
+  isApiError,
+  isUnreachable,
+} from "@repo/cloud-ui/api-error";
 
 type QueryValue = string | number | boolean | undefined;
 type Query = Record<string, QueryValue | QueryValue[]>;
@@ -145,27 +131,9 @@ async function rawRequest(
         options.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
   } catch (error) {
-    if (error instanceof DOMException && error.name === "TimeoutError") {
-      throw new ApiError("TIMEOUT", "API timed out", 0);
-    }
-    throw new ApiError("NETWORK", "API unreachable", 0);
+    throw toTransportError(error);
   }
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    const parsed = apiErrorResponseSchema.safeParse(payload);
-    if (parsed.success) {
-      throw new ApiError(
-        parsed.data.error.code,
-        parsed.data.error.message,
-        response.status,
-      );
-    }
-    throw new ApiError(
-      response.status === 401 ? "UNAUTHORIZED" : "HTTP_ERROR",
-      `Request failed (${response.status})`,
-      response.status,
-    );
-  }
+  if (!response.ok) throw await toApiError(response);
   return response.json();
 }
 

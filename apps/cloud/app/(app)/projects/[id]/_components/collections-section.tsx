@@ -1,7 +1,12 @@
 "use client";
 
+import { formatRelative } from "@repo/cloud-ui/format";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { SafeProjectCollection } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
+import { ConfirmButton } from "@repo/ui/confirm-button";
+import { Section } from "@repo/ui/section";
+import { StatusDot, type StatusTone } from "@repo/ui/status-dot";
 import {
   Table,
   TableBody,
@@ -19,12 +24,7 @@ import {
 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { ConfirmButton } from "@/components/confirm-button";
-import { Section } from "@/components/section";
-import { StatusDot, type StatusTone } from "@/components/status-dot";
 import { api, errorMessage } from "@/lib/api";
-import { formatRelative } from "@/lib/format";
-import { usePoll } from "@/lib/use-poll";
 import { CollectionCreateDialog } from "./collection-create-dialog";
 import { FieldMappingDialog } from "./field-mapping-dialog";
 
@@ -118,6 +118,7 @@ export function CollectionsSection({ projectId }: { projectId: string }) {
                 <TableCell>
                   <div className="flex justify-end gap-0.5">
                     <Button
+                      aria-label={`${collection.syncEnabled ? "Pause" : "Resume"} sync for ${collection.name}`}
                       variant="ghost"
                       size="icon"
                       className="size-7"
@@ -139,6 +140,7 @@ export function CollectionsSection({ projectId }: { projectId: string }) {
                       )}
                     </Button>
                     <Button
+                      aria-label={`Resync ${collection.name}`}
                       variant="ghost"
                       size="icon"
                       className="size-7"
@@ -155,6 +157,7 @@ export function CollectionsSection({ projectId }: { projectId: string }) {
                       <RefreshCw className="size-3.5" />
                     </Button>
                     <Button
+                      aria-label={`Field mapping for ${collection.name}`}
                       variant="ghost"
                       size="icon"
                       className="size-7"
@@ -166,6 +169,7 @@ export function CollectionsSection({ projectId }: { projectId: string }) {
                     <ConfirmButton
                       trigger={
                         <Button
+                          aria-label={`Delete collection ${collection.name}`}
                           variant="ghost"
                           size="icon"
                           className="size-7 text-destructive"

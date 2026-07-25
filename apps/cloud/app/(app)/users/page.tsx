@@ -1,8 +1,11 @@
 "use client";
 
+import { formatRelative } from "@repo/cloud-ui/format";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { SafeUser } from "@repo/schemas/cloud";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
+import { ConfirmButton } from "@repo/ui/confirm-button";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +15,7 @@ import {
 } from "@repo/ui/dialog";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
+import { SecretValue } from "@repo/ui/secret-value";
 import {
   Select,
   SelectContent,
@@ -20,6 +24,7 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Skeleton } from "@repo/ui/skeleton";
+import { StatusDot } from "@repo/ui/status-dot";
 import {
   Table,
   TableBody,
@@ -31,13 +36,8 @@ import {
 import { Plus, ShieldOff, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { ConfirmButton } from "@/components/confirm-button";
-import { SecretValue } from "@/components/secret-value";
 import { useSession } from "@/components/session-provider";
-import { StatusDot } from "@/components/status-dot";
 import { api, errorMessage } from "@/lib/api";
-import { formatRelative } from "@/lib/format";
-import { usePoll } from "@/lib/use-poll";
 
 function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
@@ -181,7 +181,12 @@ function UserRow({
         <div className="flex justify-end gap-0.5">
           <ConfirmButton
             trigger={
-              <Button variant="ghost" size="icon" className="size-7">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label={`Reset MFA for ${user.username}`}
+              >
                 <ShieldOff className="size-3.5" />
               </Button>
             }
@@ -201,6 +206,7 @@ function UserRow({
           <ConfirmButton
             trigger={
               <Button
+                aria-label={`Delete ${user.username}`}
                 variant="ghost"
                 size="icon"
                 className="size-7 text-destructive"

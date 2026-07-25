@@ -1,16 +1,22 @@
 "use client";
 
+import { AuthShell } from "@repo/cloud-ui/auth-shell";
+import { BackupCodes, TotpEnrollment } from "@repo/cloud-ui/totp";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
-import { AuthShell } from "@/components/auth-shell";
-import { BackupCodes, TotpEnrollment } from "@/components/totp-enrollment";
 import { authClient } from "@/lib/auth-client";
 import { takeEnrollPassword } from "@/lib/enroll-handoff";
 
 type Step = "password" | "enroll" | "codes";
+
+const TITLES: Record<Step, string> = {
+  password: "TOTP enrollment",
+  enroll: "TOTP enrollment",
+  codes: "Backup codes",
+};
 
 export default function SetupMfaPage() {
   const router = useRouter();
@@ -56,19 +62,7 @@ export default function SetupMfaPage() {
   if (!ready) return null;
 
   return (
-    <AuthShell
-      title={
-        step === "codes" ? "Save your recovery codes" : "Turn on two-factor"
-      }
-      subtitle={
-        step === "password"
-          ? "Every account here needs two-factor sign-in. Confirm your password to start."
-          : step === "enroll"
-            ? undefined
-            : undefined
-      }
-      error={error}
-    >
+    <AuthShell title={TITLES[step]} error={error}>
       {step === "password" && (
         <form onSubmit={submitPassword} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
@@ -99,6 +93,7 @@ export default function SetupMfaPage() {
 
       {step === "enroll" && (
         <TotpEnrollment
+          authClient={authClient}
           password={password}
           onVerified={onVerified}
           onFailed={onFailed}
@@ -108,7 +103,6 @@ export default function SetupMfaPage() {
       {step === "codes" && (
         <BackupCodes
           codes={backupCodes}
-          continueLabel="Go to my files"
           onContinue={() => router.replace("/")}
         />
       )}

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBytes } from "@repo/cloud-ui/format";
 import type { SearchHit } from "@repo/schemas/cloud";
 import {
   Command,
@@ -16,7 +17,6 @@ import { useEffect, useRef, useState } from "react";
 import { ScopeToggle, type SearchScope } from "@/components/scope-toggle";
 import { api, errorMessage } from "@/lib/api";
 import { fileIcon } from "@/lib/file-kind";
-import { formatBytes } from "@/lib/format";
 
 const MIN_QUERY = 2;
 const DEBOUNCE_MS = 220;

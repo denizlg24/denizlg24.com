@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBytes, formatRelative, pluralize } from "@repo/cloud-ui/format";
 import type { SearchHit } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Folder } from "lucide-react";
@@ -9,7 +10,6 @@ import { Suspense, useEffect, useState } from "react";
 import { ScopeToggle, type SearchScope } from "@/components/scope-toggle";
 import { api, errorMessage } from "@/lib/api";
 import { fileIcon } from "@/lib/file-kind";
-import { formatBytes, formatRelative, pluralize } from "@/lib/format";
 
 function hitHref(hit: SearchHit): string | null {
   if (hit.type === "folder") return `/folders/${hit.id}`;

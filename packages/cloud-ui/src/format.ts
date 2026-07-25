@@ -11,7 +11,10 @@ export function formatBytes(bytes: number): string {
     ),
   );
   const value = bytes / 1024 ** exponent;
-  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${BYTE_UNITS[exponent]}`;
+  // Whole bytes never get a decimal — "512.0 B" reads as a rounding artefact.
+  const rounded =
+    value >= 100 || exponent === 0 ? Math.round(value) : value.toFixed(1);
+  return `${rounded} ${BYTE_UNITS[exponent]}`;
 }
 
 export function formatPercent(value: number | null | undefined): string {
@@ -57,6 +60,14 @@ export function formatDurationMs(ms: number | null | undefined): string {
   return `${minutes}m ${Math.round(seconds % 60)}s`;
 }
 
+export function formatDurationSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${Math.round(seconds % 60)}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
 export function runDuration(
   startedAt: string | null,
   completedAt: string | null,
@@ -64,4 +75,8 @@ export function runDuration(
   if (!startedAt) return "—";
   const end = completedAt ? new Date(completedAt).getTime() : Date.now();
   return formatDurationMs(end - new Date(startedAt).getTime());
+}
+
+export function pluralize(count: number, singular: string, plural?: string) {
+  return `${count} ${count === 1 ? singular : (plural ?? `${singular}s`)}`;
 }

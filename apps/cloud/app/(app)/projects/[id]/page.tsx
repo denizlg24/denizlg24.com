@@ -1,15 +1,16 @@
 "use client";
 
+import { Unreachable } from "@repo/cloud-ui/unreachable";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
 import { Skeleton } from "@repo/ui/skeleton";
+import { TypedConfirmDialog } from "@repo/ui/typed-confirm-dialog";
 import { ArrowUpRight, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { toast } from "sonner";
-import { TypedConfirmDialog } from "@/components/typed-confirm-dialog";
 import { api, errorMessage } from "@/lib/api";
 import { STORAGE_APP_URL } from "@/lib/env";
-import { usePoll } from "@/lib/use-poll";
 import { ApiKeysSection } from "./_components/api-keys-section";
 import { CollectionsSection } from "./_components/collections-section";
 import { DatabasesSection } from "./_components/databases-section";
@@ -26,8 +27,17 @@ export default function ProjectDetailPage() {
     () => api.projects.get(projectId),
     [projectId],
   );
-  const { data: project, error } = usePoll(fetchProject, null);
+  const {
+    data: project,
+    error,
+    unreachable,
+    loading,
+    reload,
+  } = usePoll(fetchProject, null);
 
+  if (unreachable) {
+    return <Unreachable retrying={loading} onRetry={() => void reload()} />;
+  }
   if (error) {
     return <p className="text-xs text-destructive">{error}</p>;
   }
@@ -71,6 +81,7 @@ export default function ProjectDetailPage() {
         <TypedConfirmDialog
           trigger={
             <Button
+              aria-label={`Delete project ${project.name}`}
               variant="ghost"
               size="icon"
               className="size-8 text-destructive"

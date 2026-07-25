@@ -18,7 +18,7 @@ export function SecretValue({
         <code className="min-w-0 flex-1 break-all rounded bg-muted px-2 py-1.5 font-mono text-xs">
           {value}
         </code>
-        <CopyButton value={value} />
+        <CopyButton value={value} label={`Copy ${label}`} />
       </div>
     </div>
   );

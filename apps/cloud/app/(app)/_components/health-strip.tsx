@@ -1,8 +1,9 @@
 "use client";
 
+import { formatDurationMs } from "@repo/cloud-ui/format";
+import { healthTone } from "@repo/cloud-ui/status-tone";
 import type { OpsHealth } from "@repo/schemas/cloud";
-import { healthTone, StatusDot } from "@/components/status-dot";
-import { formatDurationMs } from "@/lib/format";
+import { StatusDot } from "@repo/ui/status-dot";
 
 export function HealthStrip({ health }: { health: OpsHealth }) {
   const entries = Object.entries(health.checks) as [

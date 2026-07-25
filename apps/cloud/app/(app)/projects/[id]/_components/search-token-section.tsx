@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDateTime } from "@repo/cloud-ui/format";
 import {
   type SafeProject,
   type SearchRules,
@@ -9,13 +10,12 @@ import {
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
+import { SecretValue } from "@repo/ui/secret-value";
+import { Section } from "@repo/ui/section";
 import { useState } from "react";
 import { toast } from "sonner";
 import { JsonEditor, useJsonDraft } from "@/components/json-editor";
-import { SecretValue } from "@/components/secret-value";
-import { Section } from "@/components/section";
 import { api, errorMessage } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
 
 const TEMPLATES = [
   { label: "all indexes", value: { "*": null } },

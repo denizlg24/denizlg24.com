@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBytes, formatRelative } from "@repo/cloud-ui/format";
 import type { StorageFile } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
@@ -7,7 +8,6 @@ import { ChevronLeft, ChevronRight, Download, Link2, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { FilePreview } from "@/components/file-preview";
 import { api } from "@/lib/api";
-import { formatBytes, formatRelative } from "@/lib/format";
 import { SharePanel } from "./share-panel";
 
 export function PreviewOverlay({

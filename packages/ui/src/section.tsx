@@ -13,11 +13,11 @@ export function Section({
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex items-center justify-between border-b pb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
         <h2 className="text-sm font-semibold">
           {title}
           {count !== undefined && (
-            <span className="ml-2 font-normal text-muted-foreground">
+            <span className="ml-2 font-normal tabular-nums text-muted-foreground">
               {count}
             </span>
           )}

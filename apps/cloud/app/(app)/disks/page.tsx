@@ -1,8 +1,9 @@
 "use client";
 
+import { Unreachable } from "@repo/cloud-ui/unreachable";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Skeleton } from "@repo/ui/skeleton";
 import { api } from "@/lib/api";
-import { usePoll } from "@/lib/use-poll";
 import { DiskRack } from "./_components/disk-rack";
 
 function DisksSkeleton() {
@@ -22,9 +23,18 @@ function DisksSkeleton() {
 }
 
 export default function DisksPage() {
-  const { data: overview, error } = usePoll(api.ops.overview, 30_000);
+  const {
+    data: overview,
+    error,
+    unreachable,
+    loading,
+    reload,
+  } = usePoll(api.ops.overview, 30_000);
 
   if (!overview) {
+    if (unreachable) {
+      return <Unreachable retrying={loading} onRetry={() => void reload()} />;
+    }
     return error ? (
       <p className="text-xs text-destructive">{error}</p>
     ) : (

@@ -1,10 +1,12 @@
 "use client";
 
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import {
   type CreateProjectVectorIndexInput,
   createProjectVectorIndexInputSchema,
 } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
+import { ConfirmButton } from "@repo/ui/confirm-button";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +14,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@repo/ui/dialog";
+import { Section } from "@repo/ui/section";
+import { StatusDot } from "@repo/ui/status-dot";
 import {
   Table,
   TableBody,
@@ -23,12 +27,8 @@ import {
 import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { ConfirmButton } from "@/components/confirm-button";
 import { JsonEditor, useJsonDraft } from "@/components/json-editor";
-import { Section } from "@/components/section";
-import { StatusDot } from "@/components/status-dot";
 import { api, errorMessage } from "@/lib/api";
-import { usePoll } from "@/lib/use-poll";
 
 const TEMPLATES = [
   {
@@ -187,6 +187,7 @@ export function VectorIndexesSection({ projectId }: { projectId: string }) {
                     <ConfirmButton
                       trigger={
                         <Button
+                          aria-label={`Delete index ${index.name}`}
                           variant="ghost"
                           size="icon"
                           className="size-7 text-destructive"

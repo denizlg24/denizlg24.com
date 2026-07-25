@@ -1,5 +1,6 @@
 "use client";
 
+import { pluralize } from "@repo/cloud-ui/format";
 import type { FolderContents, FolderCrumb } from "@repo/schemas/cloud";
 import {
   DropdownMenu,
@@ -14,7 +15,6 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { activeDrag, endDrag, readDrop } from "@/lib/drag";
-import { pluralize } from "@/lib/format";
 import { store } from "@/lib/store";
 
 /** Root folders are named after an owner id, which means nothing to a person. */

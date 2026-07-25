@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBytes } from "@repo/cloud-ui/format";
 import type { TieringReport } from "@repo/schemas/cloud";
 import {
   Table,
@@ -9,7 +10,6 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
-import { formatBytes } from "@/lib/format";
 
 export function movedBytes(report: TieringReport): number {
   return report.moved.reduce((total, move) => total + move.sizeBytes, 0);

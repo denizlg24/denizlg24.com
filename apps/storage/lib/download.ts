@@ -1,8 +1,8 @@
 "use client";
 
+import { formatBytes } from "@repo/cloud-ui/format";
 import type { DownloadArchiveInput } from "@repo/schemas/cloud";
 import { api, isApiError } from "./api";
-import { formatBytes } from "./format";
 
 export function triggerDownload(url: string, filename?: string): void {
   const anchor = document.createElement("a");

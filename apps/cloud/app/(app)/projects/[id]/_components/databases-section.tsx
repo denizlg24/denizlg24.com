@@ -1,5 +1,7 @@
 "use client";
 
+import { formatRelative } from "@repo/cloud-ui/format";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { DbType, ProjectDatabase } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import {
@@ -10,6 +12,8 @@ import {
   DialogTrigger,
 } from "@repo/ui/dialog";
 import { Label } from "@repo/ui/label";
+import { SecretValue } from "@repo/ui/secret-value";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -25,15 +29,11 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
+import { TypedConfirmDialog } from "@repo/ui/typed-confirm-dialog";
 import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { SecretValue } from "@/components/secret-value";
-import { Section } from "@/components/section";
-import { TypedConfirmDialog } from "@/components/typed-confirm-dialog";
 import { api, errorMessage } from "@/lib/api";
-import { formatRelative } from "@/lib/format";
-import { usePoll } from "@/lib/use-poll";
 
 const DB_TYPES: DbType[] = ["postgres", "mongodb", "redis"];
 
@@ -161,6 +161,7 @@ export function DatabasesSection({ projectId }: { projectId: string }) {
                     <TypedConfirmDialog
                       trigger={
                         <Button
+                          aria-label={`Deprovision ${database.dbName}`}
                           variant="ghost"
                           size="icon"
                           className="size-7 text-destructive"

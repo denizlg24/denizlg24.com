@@ -1,20 +1,24 @@
 "use client";
 
+import {
+  formatBytes,
+  formatDateTime,
+  formatPercent,
+} from "@repo/cloud-ui/format";
+import { healthTone } from "@repo/cloud-ui/status-tone";
+import { BackupCodes, TotpEnrollment } from "@repo/cloud-ui/totp";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
-import QRCode from "qrcode";
-import { useEffect, useState } from "react";
+import { Section } from "@repo/ui/section";
+import { StatusDot } from "@repo/ui/status-dot";
+import { useState } from "react";
 import { toast } from "sonner";
-import { CopyButton } from "@/components/copy-button";
-import { Section } from "@/components/section";
 import { useSession } from "@/components/session-provider";
-import { healthTone, StatusDot } from "@/components/status-dot";
 import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { API_BASE_URL, STORAGE_APP_URL } from "@/lib/env";
-import { formatBytes, formatDateTime, formatPercent } from "@/lib/format";
-import { usePoll } from "@/lib/use-poll";
 
 function PasswordSection() {
   const [current, setCurrent] = useState("");
@@ -96,68 +100,13 @@ function PasswordSection() {
   );
 }
 
-function BackupCodes({ codes }: { codes: string[] }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          backup codes — shown once
-        </span>
-        <CopyButton value={codes.join("\n")} />
-      </div>
-      <div className="grid max-w-sm grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs">
-        {codes.map((code) => (
-          <span key={code}>{code}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
+type TotpMode = "idle" | "enroll" | "codes";
 
 function TotpSection() {
   const [password, setPassword] = useState("");
-  const [totpUri, setTotpUri] = useState<string | null>(null);
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [code, setCode] = useState("");
+  const [mode, setMode] = useState<TotpMode>("idle");
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
-  const [verified, setVerified] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!totpUri) {
-      setQrDataUrl(null);
-      return;
-    }
-    QRCode.toDataURL(totpUri, { margin: 1, width: 176 })
-      .then(setQrDataUrl)
-      .catch(() => setQrDataUrl(null));
-  }, [totpUri]);
-
-  const begin = async () => {
-    setBusy(true);
-    const { data, error } = await authClient.twoFactor.enable({ password });
-    setBusy(false);
-    if (error || !data) {
-      toast.error(error?.message ?? "Re-enroll failed");
-      return;
-    }
-    setTotpUri(data.totpURI);
-    setBackupCodes(data.backupCodes);
-    setVerified(false);
-    setCode("");
-  };
-
-  const verify = async () => {
-    setBusy(true);
-    const { error } = await authClient.twoFactor.verifyTotp({ code });
-    setBusy(false);
-    if (error) {
-      toast.error(error.message ?? "Invalid code");
-      return;
-    }
-    setVerified(true);
-    toast.success("TOTP re-enrolled");
-  };
 
   const regenerateCodes = async () => {
     setBusy(true);
@@ -169,22 +118,15 @@ function TotpSection() {
       toast.error(error?.message ?? "Backup code regeneration failed");
       return;
     }
-    setTotpUri(null);
     setBackupCodes(data.backupCodes);
-    setVerified(true);
+    setMode("codes");
   };
-
-  const secret = totpUri
-    ? new URL(totpUri.replace("otpauth://", "https://")).searchParams.get(
-        "secret",
-      )
-    : null;
 
   return (
     <Section title="totp">
       <div className="flex max-w-sm flex-col gap-3">
-        <div className="flex items-end gap-2">
-          <div className="flex flex-1 flex-col gap-1.5">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex min-w-40 flex-1 flex-col gap-1.5">
             <Label htmlFor="totp-password" className="text-xs">
               Password
             </Label>
@@ -200,7 +142,7 @@ function TotpSection() {
             size="sm"
             variant="outline"
             disabled={busy || password.length === 0}
-            onClick={() => void begin()}
+            onClick={() => setMode("enroll")}
           >
             Re-enroll
           </Button>
@@ -213,46 +155,32 @@ function TotpSection() {
             New codes
           </Button>
         </div>
-        {totpUri && !verified && (
-          <div className="flex flex-col gap-3">
-            {qrDataUrl && (
-              <img
-                src={qrDataUrl}
-                alt="TOTP QR"
-                className="size-44 rounded border bg-white p-2"
-              />
-            )}
-            {secret && (
-              <p className="break-all font-mono text-xs text-muted-foreground">
-                {secret}
-              </p>
-            )}
-            <div className="flex items-end gap-2">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="totp-verify" className="text-xs">
-                  Code
-                </Label>
-                <Input
-                  id="totp-verify"
-                  inputMode="numeric"
-                  maxLength={6}
-                  className="w-32 font-mono tracking-widest"
-                  value={code}
-                  onChange={(event) => setCode(event.target.value)}
-                />
-              </div>
-              <Button
-                size="sm"
-                disabled={busy || code.length < 6}
-                onClick={() => void verify()}
-              >
-                Verify
-              </Button>
-            </div>
-          </div>
+
+        {mode === "enroll" && (
+          <TotpEnrollment
+            authClient={authClient}
+            password={password}
+            onVerified={(codes) => {
+              setBackupCodes(codes);
+              setMode("codes");
+              toast.success("TOTP re-enrolled");
+            }}
+            onFailed={(message) => {
+              toast.error(message);
+              setMode("idle");
+            }}
+          />
         )}
-        {backupCodes.length > 0 && (verified || totpUri === null) && (
-          <BackupCodes codes={backupCodes} />
+
+        {mode === "codes" && backupCodes.length > 0 && (
+          <BackupCodes
+            codes={backupCodes}
+            onContinue={() => {
+              setBackupCodes([]);
+              setPassword("");
+              setMode("idle");
+            }}
+          />
         )}
       </div>
     </Section>
@@ -313,7 +241,10 @@ function EnvironmentSection() {
                 className="flex items-center gap-1.5 text-xs text-muted-foreground"
                 title={check.message ?? undefined}
               >
-                <StatusDot tone={healthTone(check.status)} />
+                <StatusDot
+                  tone={healthTone(check.status)}
+                  label={check.status}
+                />
                 {name}
               </span>
             ))}

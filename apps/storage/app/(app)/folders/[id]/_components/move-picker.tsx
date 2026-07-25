@@ -1,5 +1,6 @@
 "use client";
 
+import { pluralize } from "@repo/cloud-ui/format";
 import { Button } from "@repo/ui/button";
 import {
   ChevronLeft,
@@ -9,7 +10,6 @@ import {
   Users,
 } from "lucide-react";
 import { useState } from "react";
-import { pluralize } from "@/lib/format";
 import { type SelectedEntry, useFolder, useRoots } from "@/lib/store";
 
 function rootChoices(roots: ReturnType<typeof useRoots>) {

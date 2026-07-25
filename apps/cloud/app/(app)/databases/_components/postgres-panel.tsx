@@ -1,5 +1,7 @@
 "use client";
 
+import { formatBytes, formatDurationMs } from "@repo/cloud-ui/format";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { PgQueryResult, PgTableDetail } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import {
@@ -9,6 +11,7 @@ import {
   DialogTitle,
 } from "@repo/ui/dialog";
 import { Input } from "@repo/ui/input";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -25,14 +28,11 @@ import {
   TableRow,
 } from "@repo/ui/table";
 import { Textarea } from "@repo/ui/textarea";
+import { TypedConfirmDialog } from "@repo/ui/typed-confirm-dialog";
 import { Lock, Play, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Section } from "@/components/section";
-import { TypedConfirmDialog } from "@/components/typed-confirm-dialog";
 import { api, errorMessage } from "@/lib/api";
-import { formatBytes, formatDurationMs } from "@/lib/format";
-import { usePoll } from "@/lib/use-poll";
 
 function TableDetailDialog({
   database,
@@ -324,6 +324,7 @@ export function PostgresPanel() {
                         <TypedConfirmDialog
                           trigger={
                             <Button
+                              aria-label={`Drop database ${database.name}`}
                               variant="ghost"
                               size="icon"
                               className="size-7 text-destructive"
@@ -411,6 +412,7 @@ export function PostgresPanel() {
                           <TypedConfirmDialog
                             trigger={
                               <Button
+                                aria-label={`Drop table ${table.name}`}
                                 variant="ghost"
                                 size="icon"
                                 className="size-7 text-destructive"

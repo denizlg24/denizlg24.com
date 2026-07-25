@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBytes, pluralize } from "@repo/cloud-ui/format";
 import type { StorageFile } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import {
@@ -13,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
+import { Skeleton } from "@repo/ui/skeleton";
 import { cn } from "@repo/ui/utils";
 import {
   ArrowDownUp,
@@ -51,7 +53,6 @@ import {
   isFileDrag,
   readDrop,
 } from "@/lib/drag";
-import { formatBytes, pluralize } from "@/lib/format";
 import {
   type SelectedEntry,
   store,
@@ -60,6 +61,7 @@ import {
 } from "@/lib/store";
 import { readDataTransfer, readFileList, uploads } from "@/lib/uploads";
 import { usePreference } from "@/lib/use-preference";
+import { useWindowedRows } from "@/lib/use-windowed-rows";
 import { Breadcrumbs } from "./breadcrumbs";
 import { InlineName } from "./inline-name";
 import {
@@ -124,6 +126,7 @@ export function Browser({ folderId }: { folderId: string }) {
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
 
   const paneRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const anchorIndex = useRef<number | null>(null);
@@ -138,6 +141,23 @@ export function Browser({ folderId }: { folderId: string }) {
     () => new Map(rows.map((row) => [row.id, row])),
     [rows],
   );
+
+  // Geometry mirrors the row/tile classes below; it only has to be close
+  // enough to keep the scrollbar honest and the overscan covering the gap.
+  const rowWindow = useWindowedRows({
+    count: rows.length,
+    scrollRef,
+    estimateLineHeight:
+      view === "list"
+        ? density === "compact"
+          ? 33
+          : 41
+        : density === "compact"
+          ? 116
+          : 140,
+    minTileWidth:
+      view === "grid" ? (density === "compact" ? 112 : 144) : undefined,
+  });
 
   // A folder switch must not carry selection or an open preview across.
   useEffect(() => {
@@ -454,10 +474,14 @@ export function Browser({ folderId }: { folderId: string }) {
     const focusRow = (nextIndex: number) => {
       const row = rows[Math.max(0, Math.min(rows.length - 1, nextIndex))];
       if (!row) return;
+      const rowIndex = rows.indexOf(row);
       setFocusedId(row.id);
-      anchorIndex.current = rows.indexOf(row);
+      anchorIndex.current = rowIndex;
       if (!event.shiftKey) setSelection(new Set([row.id]));
       else setSelection((current) => new Set([...current, row.id]));
+      // A windowed row is not in the DOM yet, so scrollIntoView would silently
+      // do nothing; the computed offset works either way.
+      rowWindow.scrollToIndex(rowIndex);
       paneRef.current
         ?.querySelector(`[data-row-id="${row.id}"]`)
         ?.scrollIntoView({ block: "nearest" });
@@ -744,7 +768,10 @@ export function Browser({ folderId }: { folderId: string }) {
         </div>
       )}
 
-      <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        className="scrollbar-thin min-h-0 flex-1 overflow-y-auto"
+      >
         {state.error && (
           <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
             <p className="text-sm text-muted-foreground">{state.error}</p>
@@ -768,12 +795,7 @@ export function Browser({ folderId }: { folderId: string }) {
               className="size-8 text-muted-foreground"
               strokeWidth={1.25}
             />
-            <div>
-              <p className="text-sm font-medium">This folder is empty</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Drag files here, or use the Upload button above.
-              </p>
-            </div>
+            <p className="text-sm text-muted-foreground">Empty</p>
             <div className="flex gap-2">
               <Button
                 variant="outline"
@@ -825,7 +847,12 @@ export function Browser({ folderId }: { folderId: string }) {
                     <td colSpan={4} />
                   </tr>
                 )}
-                {rows.map((row) => (
+                {rowWindow.padTopPx > 0 && (
+                  <tr aria-hidden>
+                    <td colSpan={6} style={{ height: rowWindow.padTopPx }} />
+                  </tr>
+                )}
+                {rows.slice(rowWindow.start, rowWindow.end).map((row) => (
                   <ItemRow
                     key={row.id}
                     row={row}
@@ -833,6 +860,11 @@ export function Browser({ folderId }: { folderId: string }) {
                     density={density}
                   />
                 ))}
+                {rowWindow.padBottomPx > 0 && (
+                  <tr aria-hidden>
+                    <td colSpan={6} style={{ height: rowWindow.padBottomPx }} />
+                  </tr>
+                )}
               </tbody>
             </table>
           ) : (
@@ -860,7 +892,14 @@ export function Browser({ folderId }: { folderId: string }) {
                   />
                 </li>
               )}
-              {rows.map((row) => (
+              {rowWindow.padTopPx > 0 && (
+                <li
+                  aria-hidden
+                  className="col-span-full"
+                  style={{ height: rowWindow.padTopPx }}
+                />
+              )}
+              {rows.slice(rowWindow.start, rowWindow.end).map((row) => (
                 <ItemTile
                   key={row.id}
                   row={row}
@@ -868,6 +907,13 @@ export function Browser({ folderId }: { folderId: string }) {
                   density={density}
                 />
               ))}
+              {rowWindow.padBottomPx > 0 && (
+                <li
+                  aria-hidden
+                  className="col-span-full"
+                  style={{ height: rowWindow.padBottomPx }}
+                />
+              )}
             </ul>
           ))}
 
@@ -915,12 +961,12 @@ function LoadingState({ view }: { view: "grid" | "list" }) {
       <div className="divide-y">
         {placeholders.map((index) => (
           <div key={index} className="flex items-center gap-3 px-3 py-2.5">
-            <div className="size-4 animate-pulse rounded bg-muted" />
-            <div
-              className="h-3.5 flex-1 animate-pulse rounded bg-muted"
+            <Skeleton className="size-4" />
+            <Skeleton
+              className="h-3.5 flex-1"
               style={{ maxWidth: `${40 + ((index * 13) % 40)}%` }}
             />
-            <div className="hidden h-3 w-16 animate-pulse rounded bg-muted sm:block" />
+            <Skeleton className="hidden h-3 w-16 sm:block" />
           </div>
         ))}
       </div>
@@ -930,9 +976,9 @@ function LoadingState({ view }: { view: "grid" | "list" }) {
     <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-1 p-3">
       {placeholders.map((index) => (
         <div key={index} className="flex flex-col items-center gap-2 p-3">
-          <div className="mt-4 size-9 animate-pulse rounded bg-muted" />
-          <div className="h-3 w-4/5 animate-pulse rounded bg-muted" />
-          <div className="h-2.5 w-10 animate-pulse rounded bg-muted" />
+          <Skeleton className="mt-4 size-9" />
+          <Skeleton className="h-3 w-4/5" />
+          <Skeleton className="h-2.5 w-10" />
         </div>
       ))}
     </div>

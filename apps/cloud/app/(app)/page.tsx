@@ -1,14 +1,31 @@
 "use client";
 
+import { Unreachable } from "@repo/cloud-ui/unreachable";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Skeleton } from "@repo/ui/skeleton";
+import dynamic from "next/dynamic";
 import { useCallback } from "react";
 import { api } from "@/lib/api";
-import { usePoll } from "@/lib/use-poll";
 import { ContainersTable } from "./_components/containers-table";
 import { HealthStrip } from "./_components/health-strip";
-import { MetricCharts } from "./_components/metric-charts";
 import { OverviewTiles } from "./_components/overview-tiles";
 import { RecentRuns } from "./_components/recent-runs";
+
+// recharts is the largest dependency in this app and only the dashboard draws
+// a chart, so it loads after the tiles rather than blocking them.
+const MetricCharts = dynamic(
+  () => import("./_components/metric-charts").then((m) => m.MetricCharts),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="grid gap-8 md:grid-cols-2">
+        {Array.from({ length: 4 }, (_, index) => (
+          <Skeleton key={index} className="h-44 w-full" />
+        ))}
+      </div>
+    ),
+  },
+);
 
 function DashboardSkeleton() {
   return (
@@ -37,6 +54,8 @@ export default function DashboardPage() {
   const {
     data: overview,
     error: overviewError,
+    unreachable,
+    loading,
     reload: reloadOverview,
   } = usePoll(api.ops.overview, 30_000);
   const { data: health, error: healthError } = usePoll(api.ops.health, 30_000);
@@ -44,6 +63,11 @@ export default function DashboardPage() {
   const { data: taskData, error: taskError } = usePoll(fetchTasks, 60_000);
 
   if (!overview) {
+    if (unreachable) {
+      return (
+        <Unreachable onRetry={() => void reloadOverview()} retrying={loading} />
+      );
+    }
     return overviewError ? (
       <p className="text-xs text-destructive">{overviewError}</p>
     ) : (
