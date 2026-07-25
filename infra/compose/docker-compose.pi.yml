@@ -33,7 +33,7 @@ services:
       - -c
       - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-256MB}
       - -c
-      - max_connections=${POSTGRES_MAX_CONNECTIONS:-50}
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-150}
       - -c
       - idle_in_transaction_session_timeout=${POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT:-60s}
       - -c
@@ -52,7 +52,15 @@ services:
       - ${POSTGRES_DATA_DIR:?POSTGRES_DATA_DIR must point to the existing data directory}:/var/lib/postgresql/data
       - ./scripts/postgres-entrypoint.sh:/usr/local/bin/deniz-postgres-entrypoint.sh:ro
       - ${POSTGRES_TLS_DIR:-/etc/deniz-cloud/tls/postgres}:/run/db-tls:ro
-    mem_limit: ${POSTGRES_MEMORY_LIMIT:-192m}
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-0}
+    # Nothing is cgroup-capped, so an API leak makes the kernel pick a victim
+    # by RSS — which on this box would be a database. Bias the OOM killer
+    # toward the stateless, restartable service instead.
+    oom_score_adj: -500
+    # Postgres puts shared_buffers in anonymous mmap, but parallel query
+    # workers use /dev/shm, whose Docker default is 64m. Raising
+    # max_connections raises the odds of concurrent parallel scans.
+    shm_size: 256mb
     restart: unless-stopped
     healthcheck:
       test:
@@ -89,7 +97,8 @@ services:
       - ${MONGO_REPLICA_KEY_FILE:?MONGO_REPLICA_KEY_FILE is required}:/run/secrets/mongo-replica-keyfile:ro
       - ./scripts/mongodb-entrypoint.sh:/usr/local/bin/deniz-mongodb-entrypoint.sh:ro
       - ${MONGO_TLS_DIR:-/etc/deniz-cloud/tls/mongodb}:/run/db-tls:ro
-    mem_limit: ${MONGO_MEMORY_LIMIT:-384m}
+    mem_limit: ${MONGO_MEMORY_LIMIT:-0}
+    oom_score_adj: -500
     restart: unless-stopped
     healthcheck:
       test:
@@ -143,7 +152,7 @@ services:
       - ./scripts/mongot.yml:/mongot-community/config.default.yml:ro
       - mongot-secrets:/etc/mongot/secrets:ro
       - ${MONGOT_DATA_DIR:?MONGOT_DATA_DIR must point to the existing data directory}:/data/mongot
-    mem_limit: ${MONGOT_MEMORY_LIMIT:-192m}
+    mem_limit: ${MONGOT_MEMORY_LIMIT:-0}
     restart: unless-stopped
     healthcheck:
       test:
@@ -178,7 +187,7 @@ services:
       - ${REDIS_DATA_DIR:?REDIS_DATA_DIR must point to the existing data directory}:/data
       - ./scripts/redis-acl-entrypoint.sh:/usr/local/bin/redis-acl-entrypoint.sh:ro
       - ${REDIS_TLS_DIR:-/etc/deniz-cloud/tls/redis}:/run/db-tls:ro
-    mem_limit: ${REDIS_MEMORY_LIMIT:-144m}
+    mem_limit: ${REDIS_MEMORY_LIMIT:-0}
     restart: unless-stopped
     healthcheck:
       test:
@@ -205,7 +214,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    mem_limit: ${REDIS_AUDIT_MEMORY_LIMIT:-16m}
+    mem_limit: ${REDIS_AUDIT_MEMORY_LIMIT:-0}
+    oom_score_adj: 1000
     read_only: true
     tmpfs:
       - /tmp
@@ -224,7 +234,7 @@ services:
       MEILI_NO_ANALYTICS: "true"
     volumes:
       - ${MEILI_DATA_DIR:?MEILI_DATA_DIR must point to the existing data directory}:/meili_data
-    mem_limit: ${MEILI_MEMORY_LIMIT:-128m}
+    mem_limit: ${MEILI_MEMORY_LIMIT:-0}
     restart: unless-stopped
     healthcheck:
       test:
@@ -250,7 +260,7 @@ services:
       VERSION: "1"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    mem_limit: ${DOCKER_PROXY_MEMORY_LIMIT:-24m}
+    mem_limit: ${DOCKER_PROXY_MEMORY_LIMIT:-0}
     read_only: true
     tmpfs:
       - /run
@@ -280,7 +290,7 @@ services:
       CLOUD_ADMIN_URL: ${CLOUD_ADMIN_URL:-https://cloud.denizlg24.com}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       DATABASE_CREDENTIAL_ENCRYPTION_KEY: ${DATABASE_CREDENTIAL_ENCRYPTION_KEY:?DATABASE_CREDENTIAL_ENCRYPTION_KEY is required}
-      DB_POOL_MAX: ${DB_POOL_MAX:-5}
+      DB_POOL_MAX: ${DB_POOL_MAX:-25}
       DISK_MIN_HEADROOM_PERCENT: ${DISK_MIN_HEADROOM_PERCENT:-10}
       DOCKER_HOST: tcp://docker-proxy:2375
       HDD_DEVICES: ${HDD_DEVICES:-}
@@ -331,7 +341,8 @@ services:
       - ${HDD_STORAGE_PATH:?HDD_STORAGE_PATH is required}:/data/hdd
       - ${BACKUP_DIR:?BACKUP_DIR is required}:/backups
       - ${HOST_CONTROL_DIR:-/var/lib/deniz-cloud}:/host-control
-    mem_limit: ${API_MEMORY_LIMIT:-450m}
+    mem_limit: ${API_MEMORY_LIMIT:-0}
+    oom_score_adj: 500
     read_only: true
     tmpfs:
       - /tmp
@@ -378,7 +389,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    mem_limit: ${ADMINER_MEMORY_LIMIT:-48m}
+    mem_limit: ${ADMINER_MEMORY_LIMIT:-0}
+    oom_score_adj: 1000
     restart: unless-stopped
 
   mongo-express:
@@ -406,7 +418,8 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
-    mem_limit: ${MONGO_EXPRESS_MEMORY_LIMIT:-64m}
+    mem_limit: ${MONGO_EXPRESS_MEMORY_LIMIT:-0}
+    oom_score_adj: 1000
     restart: unless-stopped
 
 volumes:
