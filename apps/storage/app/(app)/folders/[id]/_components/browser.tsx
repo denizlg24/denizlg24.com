@@ -171,6 +171,22 @@ export function Browser({ folderId }: { folderId: string }) {
     anchorIndex.current = null;
   }, [folderId]);
 
+  // A pending delete lives in a timer, so leaving the page would discard the
+  // request and the row would silently reappear on the next load. Commit
+  // anything still inside its undo window before the page goes away.
+  useEffect(() => {
+    const flush = () => store.flushPendingDeletes();
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onHidden);
+    };
+  }, []);
+
   // Deep links from search land straight on a file.
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get(
@@ -321,10 +337,10 @@ export function Browser({ folderId }: { folderId: string }) {
     (targets: BrowserRow[]) => {
       if (targets.length === 0) return;
       const entries = toEntries(targets);
-      const label =
+      const subject =
         targets.length === 1
-          ? `Deleted ${targets[0]?.name}`
-          : `Deleted ${pluralize(targets.length, "item")}`;
+          ? (targets[0]?.name ?? "item")
+          : pluralize(targets.length, "item");
       const { undo } = store.scheduleDelete(entries, folderId, (failures) => {
         if (failures.length === 0) return;
         toast.error(`Couldn't delete ${pluralize(failures.length, "item")}`, {
@@ -333,10 +349,29 @@ export function Browser({ folderId }: { folderId: string }) {
       });
       clearSelection();
       setFocusedId(null);
-      toast(label, {
+
+      // The delete is still only local until the window closes, so the toast
+      // counts down rather than claiming it is already gone.
+      const toastId = toast(`Deleting ${subject}`, {
+        description: `${Math.round(UNDO_WINDOW_MS / 1000)}s to undo`,
         action: { label: "Undo", onClick: undo },
         duration: UNDO_WINDOW_MS,
       });
+      const deadline = Date.now() + UNDO_WINDOW_MS;
+      const tick = setInterval(() => {
+        const remaining = Math.ceil((deadline - Date.now()) / 1000);
+        if (remaining <= 0) {
+          clearInterval(tick);
+          return;
+        }
+        toast(`Deleting ${subject}`, {
+          id: toastId,
+          description: `${remaining}s to undo`,
+          action: { label: "Undo", onClick: undo },
+          duration: remaining * 1000,
+        });
+      }, 1000);
+      window.setTimeout(() => clearInterval(tick), UNDO_WINDOW_MS);
     },
     [clearSelection, folderId],
   );

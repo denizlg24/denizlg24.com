@@ -56,15 +56,27 @@ function useItem(row: BrowserRow, controller: BrowserController) {
   const [dropOver, setDropOver] = useState(false);
   const scope = controller.scopeOf(row);
 
+  /**
+   * The popover is anchored inside the dropdown that triggers it. Opening it
+   * during the menu item's own select leaves both mounted for a tick, and the
+   * closing menu returns focus outside the popover, which Radix reads as a
+   * dismiss — the panel opens and closes again with nothing visible. Opening on
+   * the next frame lets the menu finish unmounting first. The preview pane has
+   * no menu around it, which is why sharing worked from there.
+   */
+  const openPanel = (next: Exclude<Panel, null>) => {
+    requestAnimationFrame(() => setPanel(next));
+  };
+
   const actions = itemActions(
     row,
     {
       onDelete: () => controller.onDelete(scope),
       onDownload: () => controller.onDownload(scope),
-      onMove: () => setPanel("move"),
+      onMove: () => openPanel("move"),
       onOpen: () => controller.onOpen(row),
       onRename: () => controller.onStartRename(row.id),
-      onShare: () => setPanel("share"),
+      onShare: () => openPanel("share"),
     },
     scope.length,
   );

@@ -146,6 +146,7 @@ describe("host metric parsers", () => {
             {
               name: "thermal_zone0",
               isDirectory: () => true,
+              isSymbolicLink: () => false,
             },
           ];
         },
@@ -159,6 +160,43 @@ describe("host metric parsers", () => {
 
     expect(roots).toEqual(["/host/sys", "/sys"]);
     expect(temperature).toBe(42.5);
+  });
+
+  // Real sysfs exposes thermal_zone* as symlinks into /sys/devices, so a
+  // directory-only filter finds no sensors and the dashboard shows no
+  // temperature at all.
+  it("reads zones exposed as symlinks", async () => {
+    const temperature = await readCpuTemperature(
+      {
+        readdir: async () => [
+          {
+            name: "thermal_zone0",
+            isDirectory: () => false,
+            isSymbolicLink: () => true,
+          },
+        ],
+        readFile: async () => "40800\n",
+      },
+      ["/host/sys/class/thermal"],
+    );
+    expect(temperature).toBe(40.8);
+  });
+
+  it("ignores entries that are neither directories nor symlinks", async () => {
+    const temperature = await readCpuTemperature(
+      {
+        readdir: async () => [
+          {
+            name: "thermal_zone0",
+            isDirectory: () => false,
+            isSymbolicLink: () => false,
+          },
+        ],
+        readFile: async () => "40800\n",
+      },
+      ["/host/sys/class/thermal"],
+    );
+    expect(temperature).toBeNull();
   });
 });
 

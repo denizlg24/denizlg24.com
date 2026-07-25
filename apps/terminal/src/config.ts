@@ -54,8 +54,17 @@ function integerEnv(
 }
 
 export function terminalServiceConfigFromEnv(): TerminalServiceConfig {
-  if (typeof process.getuid === "function" && process.getuid() === 0) {
-    throw new Error("The terminal service must not run as root");
+  // Running as root is supported but never implicit: the unit has to opt in
+  // with TERMINAL_ALLOW_ROOT, so a misconfiguration cannot silently hand out a
+  // root shell.
+  if (
+    typeof process.getuid === "function" &&
+    process.getuid() === 0 &&
+    process.env.TERMINAL_ALLOW_ROOT !== "1"
+  ) {
+    throw new Error(
+      "The terminal service refuses to run as root unless TERMINAL_ALLOW_ROOT=1",
+    );
   }
   const host = process.env.HOST ?? "127.0.0.1";
   if (host === "0.0.0.0" || host === "::" || host === "*") {
