@@ -29,10 +29,84 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 
 - `apps/web/` (formerly `portfolio-2026/`) — Next.js admin dashboard + API (backend). Manages portfolio content, contacts, blog, projects, email, calendar, etc. Uses MongoDB, shadcn/ui, Tailwind.
 - `apps/desktop/` (formerly `denizlg24-app/`) — Tauri + Next.js desktop app (client). Consumes the web app's API. Minimalist/editorial design.
+- `apps/api/` — Hono + Bun API for the self-hosted cloud. Runs on the Pi, not Vercel.
+- `apps/cloud/` — Next.js admin panel for the cloud (Vercel).
+- `apps/storage/` — Next.js file browser (Vercel).
+- `apps/terminal/` — compiled Bun web-terminal daemon. Runs on the Pi host under systemd, not in Docker.
+- `packages/cloud-core/` — Pi-side cloud logic: drizzle schema, storage/S3, projects, ops, sync, middleware.
+- `packages/cloud-ui/`, `packages/cloud-auth-client/` — shared client pieces for the two Vercel cloud apps.
 - `packages/typescript-config/` — shared tsconfig presets.
+- `docs/internal/` — plans, architecture notes and deployment runbooks. Gitignored: present on the owner's machine, not in a fresh clone.
 - `_archive/` — the original standalone repos with full git history (gitignored; read-only rollback material).
 
-Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=web|desktop]`; `bun run format-and-lint` at root.
+Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=web|desktop|api|cloud|storage]`; `bun run format-and-lint` at root.
+
+## The self-hosted cloud (apps/api, apps/cloud, apps/storage, apps/terminal)
+
+Cut over to production on 2026-07-25, replacing the old standalone `deniz-cloud`
+repo. That repo is gone: submodule removed, containers and images deleted, the
+directory archived to the Pi's `BACKUP_DIR` as `decommission-*/deniz-cloud-repo.tar.gz`.
+
+### Where things run
+
+| Surface | Host |
+|---|---|
+| `api.denizlg24.com` | Pi, `apps/api` in Docker behind a Cloudflare tunnel. Serves `/api/*`, `/v2` (S3), `/healthz` |
+| `cloud.denizlg24.com` | Vercel, `apps/cloud` |
+| `storage.denizlg24.com` | Vercel, `apps/storage` |
+| `search.denizlg24.com` | Pi, Meilisearch published on loopback for legacy consumers |
+| Postgres 5433 / Mongo 27018 / Redis 6380 | Pi, published publicly for dependent projects |
+
+Deploys: push to `main` → CI builds `ghcr.io/denizlg24/deniz-cloud-api` (arm64) →
+`docker compose -p deniz-cloud --env-file .env.pi -f docker-compose.pi.yml --profile tools up -d`
+from `/opt/deniz-cloud/infra/compose` on the Pi. Vercel deploys itself.
+Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
+
+### Things that will bite you
+
+- **The healthcheck does not mean ready.** `createRuntimeApp()` is built lazily on
+  the first `/api/*` request and `/healthz` sits outside `/api/*`. A container can
+  report healthy having seeded no tasks, reconciled no Redis ACLs and started no
+  workers. After any deploy, hit `/api/me` (expect 401) and confirm
+  `scheduled_tasks` still holds `metrics_rollup` enabled and `tiering_pass` disabled.
+- **Never read `c.res` before `await next()` in Hono middleware.** Doing so makes
+  Hono rebuild the response via `new Response(res.body, res)`, which converts a
+  `Bun.file()` blob into a stream, drops `Content-Length`, forces chunked encoding
+  and loses `sendfile`. Large downloads then buffer in userspace until the process
+  is OOM-killed. `packages/cloud-core/src/middleware/cors.ts` exists solely because
+  `hono/cors` does this.
+- **Serve files as `Bun.file()` / `.slice()`, never a hand-rolled ReadableStream.**
+  Measured on a 5.8 GB file to a slow client: BunFile 36 MB steady, pull-stream
+  607 MB then OOM. Keep `idleTimeout: 0` in `apps/api/src/index.ts`.
+- **UFW `INPUT` policy is DROP.** Containers cannot reach host services unless a
+  rule allows the docker subnets. This is why the terminal needs
+  `ufw allow from 172.16.0.0/12 to any port 3003 proto tcp`.
+- **The terminal binds loopback or the Tailscale address, never a public one**, and
+  runs as root only with `TERMINAL_ALLOW_ROOT=1`. It is a compiled binary
+  (`bun build --compile --target=bun-linux-arm64`) installed at
+  `/usr/local/bin/cloud-terminal` — CI does not deploy it; rebuild and copy manually.
+- **Storage files must be owned by uid 1000.** The API runs unprivileged as `bun`;
+  anything written as root makes deletes, renames and uploads fail with EACCES
+  while reads keep working.
+- **Secrets that cannot change**: `JWT_SECRET` (share links),
+  `DATABASE_CREDENTIAL_ENCRYPTION_KEY` (= the old `TOTP_ENCRYPTION_KEY`; project DB
+  passwords), `S3_CREDENTIAL_ENCRYPTION_KEY`, and the legacy `S3_ACCESS_KEY_ID` /
+  `S3_SECRET_ACCESS_KEY` pair that dependent projects still sign with.
+- **S3 buckets are directories under `<SSD>/.s3-v2` with a `bucket.json`.** A
+  per-project credential is restricted to one bucket named exactly the project
+  slug, and that bucket is not created at provisioning time — the first
+  `CreateBucket` makes it. Wrong bucket reads as `AccessDenied`, missing bucket as
+  `NoSuchBucket`.
+- **`tiering_pass` stays disabled** until deliberately enabled after reviewing a
+  dry-run report; its first real pass moves data between physical disks.
+
+### Migration and cutover scripts
+
+`apps/api/scripts/` (`cutover:*` in its package.json) share one harness in
+`scripts/lib/runner.ts`: dry-run by default, `--execute` required to write,
+`--dry-run` and `--execute` together is an error, JSONL audit log via `--log`, one
+JSON summary line on stdout, and marker rows in `auth_verification` enforcing
+order (schema → users → s3). Full reference in `docs/internal/cutover/`.
 
 ## apps/desktop Architecture
 
