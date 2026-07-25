@@ -267,6 +267,12 @@ services:
         protocol: tcp
     environment:
       APP_VERSION: ${API_VERSION:-latest}
+      # Upstreams for the superuser-gated /api/ops/tools proxy. Both tools are
+      # in the `tools` profile with no reachable published port, so the API
+      # addresses them by service name on the app network. Without these the
+      # proxy has no upstream at all: apps/api falls back to undefined under
+      # NODE_ENV=production and both database tool tabs break.
+      ADMINER_URL: ${ADMINER_URL:-http://adminer:8080}
       BACKUP_DIR: /backups
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://api.denizlg24.com}
@@ -288,6 +294,7 @@ services:
       MONGODB_EXTERNAL_HOST: ${MONGODB_EXTERNAL_HOST:-mongodb.denizlg24.com:27018}
       MONGODB_INTERNAL_HOST: mongodb:27017
       MONGODB_URI: ${MONGODB_URI:?MONGODB_URI is required}
+      MONGO_EXPRESS_URL: ${MONGO_EXPRESS_URL:-http://mongo-express:8081}
       MONGOT_HEALTH_URL: http://mongot:8080
       MONGOT_MAX_INDEXES_PER_PROJECT: ${MONGOT_MAX_INDEXES_PER_PROJECT:-5}
       NODE_ENV: production
