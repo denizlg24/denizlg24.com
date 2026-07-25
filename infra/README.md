@@ -136,11 +136,17 @@ record of what the original budget assumed.
 
 Removing the cgroup limits does **not** by itself let these services grow.
 Each keeps an internal cap that still binds: PostgreSQL
-`shared_buffers=64MB` / `effective_cache_size=256MB`, Mongo's WiredTiger cache
-at 0.25 GiB, mongot's JVM at `-Xmx128m`, and Redis `maxmemory=128mb`. The API
-(Bun) is the only genuinely unbounded service. Raise the internal caps
-deliberately when the metrics justify it; leave Redis capped, since its limit
-is an eviction policy rather than a ceiling.
+`shared_buffers=64MB`, Mongo's WiredTiger cache at 0.25 GiB, mongot's JVM at
+`-Xmx128m`, and Redis `maxmemory=128mb`. The API (Bun) is the only genuinely
+unbounded service. Raise the internal caps deliberately when the metrics
+justify it; leave Redis capped, since its limit is an eviction policy rather
+than a ceiling.
+
+`effective_cache_size=256MB` is **not** in that list: it allocates nothing and
+caps nothing, it only tells the planner how much OS page cache to assume when
+costing index scans. Size the memory budget from the allocative settings above
+plus observed RSS, and tune `effective_cache_size` separately to match real
+available cache.
 
 Because nothing is capped, the kernel OOM killer would otherwise pick its
 victim by RSS — a database, not the leaking service. `oom_score_adj` biases it

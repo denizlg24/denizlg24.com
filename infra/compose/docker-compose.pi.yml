@@ -411,6 +411,11 @@ services:
       ME_CONFIG_BASICAUTH_ENABLED: "false"
       ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME:-root}
+      # Unlike DATABASE_URL/MONGODB_URI, which the operator supplies already
+      # percent-encoded, this URI is assembled here from the raw password var.
+      # Compose cannot percent-encode, so MONGO_INITDB_ROOT_PASSWORD must not
+      # contain URI-reserved characters ($ / ? # [ ] @ :) or this string parses
+      # wrong. The current value is hex; keep it that way when rotating.
       ME_CONFIG_MONGODB_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME:-root}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
       # Must match the proxy mount path exactly: mongo-express mounts its
       # router here and the proxy forwards the prefix through untouched.

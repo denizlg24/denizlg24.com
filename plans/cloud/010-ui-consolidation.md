@@ -94,8 +94,11 @@ obviously intended; otherwise report.
      | storage worst route | 2082.7 / 601.3 | 1209.0 / 340.6 |
 
      No route regressed. The only increases are ≤ +1.0 kB gzip on cloud routes
-     that now pull the shared `@repo/cloud-ui` error/format module — far inside
-     the 250 kB budget. Lazy-loaded: `recharts` (cloud dashboard),
+     that now pull the shared `@repo/cloud-ui` error/format module. The plan's
+     "no >250KB first-load JS regressions" bar is a cap on how much a route may
+     *grow*, not an absolute ceiling on route size — every route here shrank,
+     so the bar is met with room to spare even though raw first-load totals
+     exceed 250 kB. Lazy-loaded: `recharts` (cloud dashboard),
      `highlight.js/lib/common` + `@repo/ui/markdown-renderer` (storage preview,
      which is what the share landing page inherits), and `qrcode` (both TOTP
      enrollment paths). `xterm` was already dynamically imported by 008.
