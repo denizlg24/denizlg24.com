@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBytes, formatPercent } from "@repo/cloud-ui/format";
 import type { ContainerSnapshot } from "@repo/schemas/cloud";
 import {
   AlertDialog,
@@ -13,6 +14,7 @@ import {
   AlertDialogTrigger,
 } from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
+import { StatusDot, type StatusTone } from "@repo/ui/status-dot";
 import {
   Table,
   TableBody,
@@ -24,9 +26,7 @@ import {
 import { RotateCw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { StatusDot, type StatusTone } from "@/components/status-dot";
 import { api, errorMessage } from "@/lib/api";
-import { formatBytes, formatPercent } from "@/lib/format";
 
 function containerTone(state: string): StatusTone {
   if (state === "running") return "good";
@@ -58,7 +58,13 @@ function RestartButton({
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="size-7" disabled={busy}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          disabled={busy}
+          aria-label={`Restart ${container.name}`}
+        >
           <RotateCw className="size-3.5" />
         </Button>
       </AlertDialogTrigger>

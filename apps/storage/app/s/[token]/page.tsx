@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBytes } from "@repo/cloud-ui/format";
 import type { SharedFileMeta } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Download } from "lucide-react";
@@ -7,7 +8,6 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { FilePreview } from "@/components/file-preview";
 import { api, isApiError } from "@/lib/api";
-import { formatBytes } from "@/lib/format";
 
 /**
  * Public landing page for a share link. Deliberately carries no session, no

@@ -23,10 +23,18 @@ const upstream = Bun.serve({
       headers: request.headers,
       body: await request.text(),
     });
-    if (url.pathname === "/redirect") {
+    if (url.pathname.endsWith("/redirect")) {
       return new Response(null, {
         status: 302,
         headers: { Location: "/login?next=%2F" },
+      });
+    }
+    if (url.pathname.endsWith("/absolute-redirect")) {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `${url.origin}/api/ops/tools/mongo-express/db`,
+        },
       });
     }
     return new Response("tool-body", {
@@ -86,6 +94,39 @@ describe("ops tools proxy", () => {
       "adminer_sid=abc; path=/",
     ]);
     expect(seen.at(-1)?.path).toBe("/");
+  });
+
+  it("keeps the mount prefix for mongo-express, which routes under it", async () => {
+    const app = buildApp({ mongoExpressUrl: upstreamUrl });
+    const response = await app.request(
+      "http://api.local/api/ops/tools/mongo-express/db/denizcloud?sort=1",
+    );
+    expect(response.status).toBe(200);
+    // ME_CONFIG_SITE_BASEURL mounts its express router at this path; stripping
+    // the prefix is what produced "Cannot GET /".
+    expect(seen.at(-1)?.path).toBe(
+      "/api/ops/tools/mongo-express/db/denizcloud?sort=1",
+    );
+  });
+
+  it("keeps the mount prefix on the mongo-express index request", async () => {
+    const app = buildApp({ mongoExpressUrl: upstreamUrl });
+    const response = await app.request(
+      "http://api.local/api/ops/tools/mongo-express",
+    );
+    expect(response.status).toBe(200);
+    expect(seen.at(-1)?.path).toBe("/api/ops/tools/mongo-express");
+  });
+
+  it("does not double the prefix on an origin-absolute mongo-express redirect", async () => {
+    const app = buildApp({ mongoExpressUrl: upstreamUrl });
+    const response = await app.request(
+      "http://api.local/api/ops/tools/mongo-express/absolute-redirect",
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "/api/ops/tools/mongo-express/db",
+    );
   });
 
   it("rewrites absolute-path redirects onto the proxy prefix", async () => {

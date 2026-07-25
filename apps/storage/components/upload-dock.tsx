@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBytes, pluralize } from "@repo/cloud-ui/format";
 import { Button } from "@repo/ui/button";
 import { Progress } from "@repo/ui/progress";
 import { cn } from "@repo/ui/utils";
@@ -13,7 +14,6 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { formatBytes, pluralize } from "@/lib/format";
 import { summarize, type UploadItem, uploads, useUploads } from "@/lib/uploads";
 
 function Row({ item }: { item: UploadItem }) {

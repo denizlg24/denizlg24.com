@@ -1,17 +1,17 @@
 "use client";
 
-import { Button } from "@repo/ui/button";
+import { type ReactNode, useId, useState } from "react";
+import { toast } from "sonner";
+import { Button } from "./button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@repo/ui/dialog";
-import { Input } from "@repo/ui/input";
-import { type ReactNode, useState } from "react";
-import { toast } from "sonner";
-import { errorMessage } from "@/lib/api";
+} from "./dialog";
+import { Input } from "./input";
+import { Label } from "./label";
 
 export function TypedConfirmDialog({
   trigger,
@@ -26,6 +26,7 @@ export function TypedConfirmDialog({
   actionLabel: string;
   onConfirm: () => void | Promise<void>;
 }) {
+  const inputId = useId();
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
@@ -44,11 +45,15 @@ export function TypedConfirmDialog({
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          <code className="w-fit rounded bg-muted px-2 py-0.5 font-mono text-xs">
-            {keyword}
-          </code>
+          <Label htmlFor={inputId} className="font-normal">
+            <code className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
+              {keyword}
+            </code>
+          </Label>
           <Input
+            id={inputId}
             autoFocus
+            autoComplete="off"
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
             className="font-mono text-sm"
@@ -62,10 +67,12 @@ export function TypedConfirmDialog({
                 await onConfirm();
                 setOpen(false);
                 setTyped("");
-              } catch (err) {
+              } catch (error) {
                 // A consumer that doesn't catch would otherwise leave an
                 // unhandled rejection and a dialog stuck open with no reason.
-                toast.error(errorMessage(err));
+                toast.error(
+                  error instanceof Error ? error.message : "Request failed",
+                );
               } finally {
                 setBusy(false);
               }

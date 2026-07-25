@@ -31,9 +31,13 @@ function rewriteLocation(
   location: string,
   upstreamBase: URL,
   mountPrefix: string,
+  keepsMountPrefix: boolean,
 ): string {
   if (location.startsWith(upstreamBase.origin)) {
-    return mountPrefix + location.slice(upstreamBase.origin.length);
+    const path = location.slice(upstreamBase.origin.length);
+    // A prefix-aware tool already emits the mount path; prepending it again
+    // would double it.
+    return keepsMountPrefix ? path : mountPrefix + path;
   }
   if (location.startsWith("/") && !location.startsWith(mountPrefix)) {
     return mountPrefix + location;
@@ -57,11 +61,14 @@ async function forward(
   request: Request,
   upstreamBase: URL,
   mountPrefix: string,
+  keepsMountPrefix: boolean,
 ): Promise<Response> {
   const requestUrl = new URL(request.url);
-  const subPath = requestUrl.pathname.startsWith(mountPrefix)
-    ? requestUrl.pathname.slice(mountPrefix.length) || "/"
-    : "/";
+  const subPath = keepsMountPrefix
+    ? requestUrl.pathname
+    : requestUrl.pathname.startsWith(mountPrefix)
+      ? requestUrl.pathname.slice(mountPrefix.length) || "/"
+      : "/";
   const target = new URL(
     upstreamBase.origin +
       upstreamBase.pathname.replace(/\/$/, "") +
@@ -108,7 +115,7 @@ async function forward(
     if (lower === "location") {
       responseHeaders.set(
         "location",
-        rewriteLocation(value, upstreamBase, mountPrefix),
+        rewriteLocation(value, upstreamBase, mountPrefix, keepsMountPrefix),
       );
       continue;
     }
@@ -124,22 +131,44 @@ async function forward(
   });
 }
 
+interface ToolDefinition {
+  name: string;
+  url: string | undefined;
+  /**
+   * Whether the upstream is told its public base path and routes accordingly.
+   * mongo-express is (`ME_CONFIG_SITE_BASEURL`): its express router is mounted
+   * under that path and it emits a matching `<base href>`, so stripping the
+   * prefix makes it answer "Cannot GET /". Adminer has no router and serves
+   * from any path, so it never notices either way.
+   */
+  keepsMountPrefix: boolean;
+}
+
 export function toolsProxyRoutes(config: OpsToolsConfig) {
   const app = new Hono<{ Variables: AuthVariables }>();
-  const tools: [string, string | undefined][] = [
-    ["adminer", config.adminerUrl],
-    ["mongo-express", config.mongoExpressUrl],
+  const tools: ToolDefinition[] = [
+    { name: "adminer", url: config.adminerUrl, keepsMountPrefix: false },
+    {
+      name: "mongo-express",
+      url: config.mongoExpressUrl,
+      keepsMountPrefix: true,
+    },
   ];
 
-  for (const [tool, url] of tools) {
-    const mountPrefix = `${OPS_TOOLS_MOUNT_PATH}/${tool}`;
+  for (const { name, url, keepsMountPrefix } of tools) {
+    const mountPrefix = `${OPS_TOOLS_MOUNT_PATH}/${name}`;
     const upstreamBase = url ? new URL(url) : null;
     const handler = (context: { req: { raw: Request } }) => {
       if (!upstreamBase) return toolUnavailable();
-      return forward(context.req.raw, upstreamBase, mountPrefix);
+      return forward(
+        context.req.raw,
+        upstreamBase,
+        mountPrefix,
+        keepsMountPrefix,
+      );
     };
-    app.all(`/${tool}`, handler);
-    app.all(`/${tool}/*`, handler);
+    app.all(`/${name}`, handler);
+    app.all(`/${name}/*`, handler);
   }
 
   return app;

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBytes, formatRelative } from "@repo/cloud-ui/format";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
 import {
@@ -17,7 +18,6 @@ import { cn } from "@repo/ui/utils";
 import { Folder, MoreHorizontal } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { fileIcon } from "@/lib/file-kind";
-import { formatBytes, formatRelative } from "@/lib/format";
 import { InlineName } from "./inline-name";
 import { ContextActions, DropdownActions, itemActions } from "./item-menu";
 import { MovePicker } from "./move-picker";

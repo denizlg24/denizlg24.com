@@ -3,6 +3,7 @@
 @import "tw-animate-css";
 @import "@repo/ui/theme.css";
 @source "../../../packages/ui/src/**/*.{ts,tsx}";
+@source "../../../packages/cloud-ui/src/**/*.{ts,tsx}";
 
 @theme inline {
   --font-sans: var(--font-geist-sans);

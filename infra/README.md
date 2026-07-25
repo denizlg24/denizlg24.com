@@ -18,8 +18,8 @@ stack. Production activation remains an explicit plan 012 cutover action.
 Run these only on the Pi, without stopping the old compose project:
 
 ```sh
-sudo install -d -o pi -g pi /opt/deniz-cloud
-sudo cp -a infra /opt/deniz-cloud/
+sudo install -d -o denizlg24 -g denizlg24 /opt/deniz-cloud
+cp -a infra /opt/deniz-cloud/
 cd /opt/deniz-cloud/infra/compose
 cp .env.pi.example .env.pi
 chmod 600 .env.pi
@@ -117,12 +117,14 @@ Access them through an SSH tunnel; never publish them on WAN.
 
 ## Memory budget
 
-The default core cgroup limits total 1,530 MiB (about 1.49 GiB). The optional
-loopback database tools add 112 MiB.
+**No service is cgroup-capped by default.** Every `*_MEMORY_LIMIT` defaults to
+`0`, so limits get set from observed working sets once the metrics history has
+real data, rather than from the paper budget below. The column is kept as the
+record of what the original budget assumed.
 
-| Service | Limit | Staging peak | OOM kills |
+| Service | Original budget | Observed peak | OOM kills |
 |---|---:|---:|---:|
-| API | 450 MiB | pending plan 006/004/005 load pass | pending |
+| API | 450 MiB | pending | pending |
 | MongoDB | 384 MiB | pending | pending |
 | mongot | 192 MiB | pending | pending |
 | PostgreSQL | 192 MiB | pending | pending |
@@ -132,11 +134,34 @@ loopback database tools add 112 MiB.
 | Docker socket proxy | 24 MiB | pending | pending |
 | **Core total** | **1,530 MiB** | **pending** | **pending** |
 
-Mongo's WiredTiger cache defaults to 0.25 GiB and mongot's JVM to a 128 MiB
-maximum within those cgroups. The required scripted load pass and observed
-peaks cannot be completed until plans 004–006 supply the TUS, S3, search, and
-dashboard/metrics endpoints; run it on the Pi staging project before plan 011
-is marked DONE.
+Removing the cgroup limits does **not** by itself let these services grow.
+Each keeps an internal cap that still binds: PostgreSQL
+`shared_buffers=64MB`, Mongo's WiredTiger cache at 0.25 GiB, mongot's JVM at
+`-Xmx128m`, and Redis `maxmemory=128mb`. The API (Bun) is the only genuinely
+unbounded service. Raise the internal caps deliberately when the metrics
+justify it; leave Redis capped, since its limit is an eviction policy rather
+than a ceiling.
+
+`effective_cache_size=256MB` is **not** in that list: it allocates nothing and
+caps nothing, it only tells the planner how much OS page cache to assume when
+costing index scans. Size the memory budget from the allocative settings above
+plus observed RSS, and tune `effective_cache_size` separately to match real
+available cache.
+
+Because nothing is capped, the kernel OOM killer would otherwise pick its
+victim by RSS — a database, not the leaking service. `oom_score_adj` biases it
+instead: `-500` on postgres and mongodb, `500` on the API, `1000` on the
+disposable sidecar and tools containers.
+
+`POSTGRES_MAX_CONNECTIONS` (150) is a shared ceiling: `DB_POOL_MAX` (25) for
+the API plus every dependent project connecting directly. Backends cost
+roughly 5 MiB each, so a saturated ceiling is a real ~750 MiB commitment. If
+dependent-project connection counts grow past this, add a pooler (pgbouncer in
+transaction mode) rather than raising the ceiling again — 4 GB of RAM does not
+support an arbitrarily large `max_connections`.
+
+The scripted load pass and observed peaks still need to run on the Pi before
+plan 011 is marked DONE.
 
 ## Staging rehearsal
 

@@ -11,7 +11,10 @@ export function formatBytes(bytes: number): string {
     ),
   );
   const value = bytes / 1024 ** exponent;
-  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${BYTE_UNITS[exponent]}`;
+  // Whole bytes never get a decimal — "512.0 B" reads as a rounding artefact.
+  const rounded =
+    value >= 100 || exponent === 0 ? Math.round(value) : value.toFixed(1);
+  return `${rounded} ${BYTE_UNITS[exponent]}`;
 }
 
 export function formatPercent(value: number | null | undefined): string {
@@ -52,9 +55,20 @@ export function formatDurationMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) return "—";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   const seconds = ms / 1000;
+  // Sub-minute keeps a decimal here — task runs are often under a second and
+  // "0.4s" beats "0s". From a minute up the two helpers must agree, or the
+  // same duration reads as "125m 30s" through one and "2h 5m" through the
+  // other depending on which the caller reached for.
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  return formatDurationSeconds(seconds);
+}
+
+export function formatDurationSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
   const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${Math.round(seconds % 60)}s`;
+  if (minutes < 60) return `${minutes}m ${Math.round(seconds % 60)}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 export function runDuration(
@@ -64,4 +78,8 @@ export function runDuration(
   if (!startedAt) return "—";
   const end = completedAt ? new Date(completedAt).getTime() : Date.now();
   return formatDurationMs(end - new Date(startedAt).getTime());
+}
+
+export function pluralize(count: number, singular: string, plural?: string) {
+  return `${count} ${count === 1 ? singular : (plural ?? `${singular}s`)}`;
 }

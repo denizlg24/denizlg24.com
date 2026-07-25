@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,8 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@repo/ui/alert-dialog";
-import type { ReactNode } from "react";
+} from "./alert-dialog";
 
 export function ConfirmButton({
   trigger,

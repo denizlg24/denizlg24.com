@@ -1,11 +1,14 @@
 "use client";
 
+import { UnreachableBanner } from "@repo/cloud-ui/unreachable";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
 import { cn } from "@repo/ui/utils";
 import { LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { api } from "@/lib/api";
 import { useSession } from "./session-provider";
 
 const NAV = [
@@ -47,6 +50,11 @@ function NavLinks({ className }: { className?: string }) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, signOut } = useSession();
+  // The Pi can reboot under a UI that stays served from Vercel. One cheap
+  // probe here tells every screen at once, instead of each page guessing from
+  // its own failed poll.
+  const { unreachable, loading, reload } = usePoll(api.healthz, 30_000);
+
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
@@ -56,12 +64,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
           <NavLinks className="hidden md:flex" />
           <div className="ml-auto flex items-center gap-3">
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
               {user.username}
             </span>
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Sign out"
               className="size-7"
               onClick={() => void signOut()}
             >
@@ -72,6 +81,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="overflow-x-auto border-t px-4 py-2 md:hidden">
           <NavLinks />
         </div>
+        {unreachable && (
+          <UnreachableBanner retrying={loading} onRetry={() => void reload()} />
+        )}
       </header>
       {/* min-h-0 lets flex-1 children shrink below their content height —
           without it the terminal cannot give back space and overflows. */}

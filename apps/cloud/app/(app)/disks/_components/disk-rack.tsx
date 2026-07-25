@@ -1,11 +1,15 @@
 "use client";
 
+import {
+  formatBytes,
+  formatPercent,
+  formatRelative,
+} from "@repo/cloud-ui/format";
 import type { DiskInfo, DiskKind, OpsOverview } from "@repo/schemas/cloud";
+import { StatusDot } from "@repo/ui/status-dot";
 import { cn } from "@repo/ui/utils";
 import { HardDrive, MemoryStick, Server } from "lucide-react";
-import { StatusDot } from "@/components/status-dot";
 import { DISK_BAY_COUNT } from "@/lib/env";
-import { formatBytes, formatPercent, formatRelative } from "@/lib/format";
 
 const KIND_META: Record<
   DiskKind,

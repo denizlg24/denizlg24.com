@@ -1,9 +1,12 @@
 "use client";
 
+import { formatRelative } from "@repo/cloud-ui/format";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import { API_KEY_SCOPES, type CreatedApiKey } from "@repo/schemas/cloud";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
+import { ConfirmButton } from "@repo/ui/confirm-button";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +16,8 @@ import {
 } from "@repo/ui/dialog";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
+import { SecretValue } from "@repo/ui/secret-value";
+import { Section } from "@repo/ui/section";
 import {
   Select,
   SelectContent,
@@ -31,12 +36,7 @@ import {
 import { Plus, RotateCw, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { ConfirmButton } from "@/components/confirm-button";
-import { SecretValue } from "@/components/secret-value";
-import { Section } from "@/components/section";
 import { api, errorMessage } from "@/lib/api";
-import { formatRelative } from "@/lib/format";
-import { usePoll } from "@/lib/use-poll";
 
 const EXPIRY_OPTIONS = ["none", "30d", "90d", "1y"] as const;
 
@@ -221,7 +221,12 @@ export function ApiKeysSection({ projectId }: { projectId: string }) {
                   <div className="flex justify-end gap-0.5">
                     <ConfirmButton
                       trigger={
-                        <Button variant="ghost" size="icon" className="size-7">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          aria-label={`Rotate ${key.name}`}
+                        >
                           <RotateCw className="size-3.5" />
                         </Button>
                       }
@@ -244,6 +249,7 @@ export function ApiKeysSection({ projectId }: { projectId: string }) {
                     <ConfirmButton
                       trigger={
                         <Button
+                          aria-label={`Revoke ${key.name}`}
                           variant="ghost"
                           size="icon"
                           className="size-7 text-destructive"

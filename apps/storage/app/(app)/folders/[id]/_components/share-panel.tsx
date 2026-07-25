@@ -2,8 +2,9 @@
 
 import type { ShareExpiresIn } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
+import { CopyButton, useCopy } from "@repo/ui/copy-button";
 import { cn } from "@repo/ui/utils";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { api, errorMessage } from "@/lib/api";
 import { APP_URL } from "@/lib/env";
@@ -30,8 +31,8 @@ export function SharePanel({
   const [expiry, setExpiry] = useState<ShareExpiresIn | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { copied, failed, copy } = useCopy(2_000);
 
   const create = async (value: ShareExpiresIn) => {
     setBusy(true);
@@ -42,13 +43,7 @@ export function SharePanel({
       const { token } = await api.createShare(fileId, value);
       const url = `${APP_URL}/s/${token}`;
       setLink(url);
-      try {
-        await navigator.clipboard.writeText(url);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2_000);
-      } catch {
-        setError("Copy is blocked here — select the link below to copy it.");
-      }
+      await copy(url);
     } catch (err) {
       setExpiry(null);
       setError(errorMessage(err));
@@ -57,29 +52,11 @@ export function SharePanel({
     }
   };
 
-  const copy = async () => {
-    if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      setError(null);
-      setTimeout(() => setCopied(false), 2_000);
-    } catch {
-      setError("Copy is blocked here — select the link below to copy it.");
-    }
-  };
-
   return (
     <div className="flex flex-col gap-3">
-      <div>
-        <p className="truncate text-sm font-medium" title={filename}>
-          {filename}
-        </p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Anyone with the link can view and download this file. They will not
-          need an account.
-        </p>
-      </div>
+      <p className="truncate text-sm font-medium" title={filename}>
+        {filename}
+      </p>
 
       <div className="flex flex-wrap gap-1">
         {PRESETS.map((preset) => (
@@ -112,19 +89,7 @@ export function SharePanel({
               onFocus={(event) => event.currentTarget.select()}
               className="min-w-0 flex-1 rounded border bg-muted/40 px-2 py-1 font-mono text-xs outline-none"
             />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 shrink-0"
-              aria-label="Copy link"
-              onClick={() => void copy()}
-            >
-              {copied ? (
-                <Check className="size-3.5" />
-              ) : (
-                <Copy className="size-3.5" />
-              )}
-            </Button>
+            <CopyButton value={link} label="Copy share link" />
             <Button
               variant="ghost"
               size="icon"
@@ -138,15 +103,24 @@ export function SharePanel({
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            {copied ? "Link copied. " : ""}
+            {copied && "copied · "}
             {expiry === "never"
-              ? "This link keeps working until the file is deleted."
-              : `This link stops working in ${PRESETS.find((preset) => preset.value === expiry)?.label.toLowerCase()}.`}
+              ? "no expiry"
+              : `expires in ${PRESETS.find((preset) => preset.value === expiry)?.label.toLowerCase()}`}
           </p>
         </div>
       )}
 
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {failed && (
+        <p className="text-xs text-destructive" role="alert">
+          Clipboard unavailable — select the link to copy it
+        </p>
+      )}
+      {error && (
+        <p className="text-xs text-destructive" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 
+import { formatBytes, formatPercent } from "@repo/cloud-ui/format";
 import type { OpsOverview } from "@repo/schemas/cloud";
 import { cn } from "@repo/ui/utils";
-import { formatBytes, formatPercent } from "@/lib/format";
 
 function Meter({ percent }: { percent: number }) {
   const clamped = Math.max(0, Math.min(100, percent));

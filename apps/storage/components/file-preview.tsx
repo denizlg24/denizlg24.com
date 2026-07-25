@@ -1,17 +1,23 @@
 "use client";
 
+import { formatBytes } from "@repo/cloud-ui/format";
 import { Button } from "@repo/ui/button";
-import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
 import { cn } from "@repo/ui/utils";
-import hljs from "highlight.js/lib/common";
 import { Download, Minus, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "@/lib/api";
 import { codeLanguage, type FileKind, fileKind } from "@/lib/file-kind";
-import { formatBytes } from "@/lib/format";
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 const MAX_PDF_BYTES = 100 * 1024 * 1024;
+
+// react-markdown + rehype-highlight + katex is the single heaviest dependency
+// in this app and only a .md preview reaches it.
+const MarkdownRenderer = dynamic(
+  () => import("@repo/ui/markdown-renderer").then((m) => m.MarkdownRenderer),
+  { ssr: false },
+);
 
 function Notice({
   message,
@@ -118,12 +124,33 @@ function ImagePreview({ url, filename }: { url: string; filename: string }) {
 }
 
 function CodeBlock({ text, filename }: { text: string; filename: string }) {
-  const html = useMemo(() => {
+  const [html, setHtml] = useState<string | null>(null);
+
+  // highlight.js/lib/common is ~250 kB and only a source-file preview ever
+  // needs it, so it stays out of the browse and share-landing first loads.
+  useEffect(() => {
     const language = codeLanguage(filename);
-    if (language && hljs.getLanguage(language)) {
-      return hljs.highlight(text, { language }).value;
+    if (!language) {
+      setHtml(null);
+      return;
     }
-    return null;
+    let active = true;
+    // Drop the previous file's markup before awaiting the chunk. Without this
+    // an unrecognised language leaves the old highlighted HTML rendered
+    // against the new file's text.
+    setHtml(null);
+    void (async () => {
+      try {
+        const { default: hljs } = await import("highlight.js/lib/common");
+        if (!active || !hljs.getLanguage(language)) return;
+        setHtml(hljs.highlight(text, { language }).value);
+      } catch {
+        if (active) setHtml(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, [text, filename]);
 
   return (
@@ -176,7 +203,7 @@ function TextLoader({
   if (sizeBytes > MAX_TEXT_BYTES) {
     return (
       <Notice
-        message={`This file is ${formatBytes(sizeBytes)} — too big to show here. Download it to open in an editor.`}
+        message={`Too large to preview — ${formatBytes(sizeBytes)}`}
         downloadUrl={downloadUrl}
         filename={filename}
       />
@@ -184,11 +211,7 @@ function TextLoader({
   }
   if (error) {
     return (
-      <Notice
-        message={`Couldn't load this file: ${error}`}
-        downloadUrl={downloadUrl}
-        filename={filename}
-      />
+      <Notice message={error} downloadUrl={downloadUrl} filename={filename} />
     );
   }
   if (text === null) {
@@ -265,7 +288,7 @@ function PdfPreview({
   if (sizeBytes > MAX_PDF_BYTES) {
     return (
       <Notice
-        message={`This PDF is ${formatBytes(sizeBytes)} — too big to show here. Download it to read offline.`}
+        message={`Too large to preview — ${formatBytes(sizeBytes)}`}
         downloadUrl={downloadUrl}
         filename={filename}
       />
@@ -273,11 +296,7 @@ function PdfPreview({
   }
   if (error) {
     return (
-      <Notice
-        message={`Couldn't load this PDF: ${error}`}
-        downloadUrl={downloadUrl}
-        filename={filename}
-      />
+      <Notice message={error} downloadUrl={downloadUrl} filename={filename} />
     );
   }
   if (!blobUrl) {
@@ -358,11 +377,7 @@ export function FilePreview({
   }
   return (
     <Notice
-      message={
-        kind === "archive"
-          ? "Archives can't be opened in the browser. Download it to unpack."
-          : "There's no preview for this file type yet."
-      }
+      message={kind === "archive" ? "Archive — no preview" : "No preview"}
       downloadUrl={downloadUrl}
       filename={filename}
     />

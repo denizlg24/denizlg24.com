@@ -1,5 +1,14 @@
 "use client";
 
+import {
+  formatBytes,
+  formatDateTime,
+  formatRelative,
+  runDuration,
+} from "@repo/cloud-ui/format";
+import { runTone } from "@repo/cloud-ui/status-tone";
+import { Unreachable } from "@repo/cloud-ui/unreachable";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { SafeTaskRun, TieringReport } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import {
@@ -8,7 +17,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/dialog";
+import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
+import { StatusDot } from "@repo/ui/status-dot";
 import {
   Table,
   TableBody,
@@ -21,16 +32,7 @@ import { FlaskConical, Pencil, Play } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Section } from "@/components/section";
-import { runTone, StatusDot } from "@/components/status-dot";
 import { api, errorMessage } from "@/lib/api";
-import {
-  formatBytes,
-  formatDateTime,
-  formatRelative,
-  runDuration,
-} from "@/lib/format";
-import { usePoll } from "@/lib/use-poll";
 import { TaskFormDialog } from "../_components/task-form-dialog";
 import { movedBytes, TieringReportView } from "../_components/tiering-report";
 
@@ -92,7 +94,13 @@ export default function TaskDetailPage() {
   const taskId = params.id;
 
   const fetchTask = useCallback(() => api.tasks.get(taskId), [taskId]);
-  const { data: task, error, reload } = usePoll(fetchTask, null);
+  const {
+    data: task,
+    error,
+    unreachable,
+    loading,
+    reload,
+  } = usePoll(fetchTask, null);
 
   const [page, setPage] = useState(1);
   const fetchRuns = useCallback(
@@ -185,7 +193,10 @@ export default function TaskDetailPage() {
     }
   };
 
-  if (!task)
+  if (!task) {
+    if (unreachable) {
+      return <Unreachable retrying={loading} onRetry={() => void reload()} />;
+    }
     return error ? (
       <p className="text-xs text-destructive">{error}</p>
     ) : (
@@ -194,6 +205,7 @@ export default function TaskDetailPage() {
         <Skeleton className="h-64 w-full" />
       </div>
     );
+  }
 
   return (
     <div className="flex flex-col gap-8">

@@ -1,9 +1,14 @@
 "use client";
 
+import { formatRelative } from "@repo/cloud-ui/format";
+import { runTone } from "@repo/cloud-ui/status-tone";
+import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { SafeScheduledTask, SafeTaskRun } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
+import { ConfirmButton } from "@repo/ui/confirm-button";
 import { DialogTrigger } from "@repo/ui/dialog";
 import { Skeleton } from "@repo/ui/skeleton";
+import { StatusDot } from "@repo/ui/status-dot";
 import { Switch } from "@repo/ui/switch";
 import {
   Table,
@@ -17,11 +22,7 @@ import { Play, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { ConfirmButton } from "@/components/confirm-button";
-import { runTone, StatusDot } from "@/components/status-dot";
 import { api, errorMessage } from "@/lib/api";
-import { formatRelative } from "@/lib/format";
-import { usePoll } from "@/lib/use-poll";
 import { TaskFormDialog } from "./_components/task-form-dialog";
 
 function TaskRow({
@@ -84,7 +85,12 @@ function TaskRow({
         <div className="flex justify-end gap-0.5">
           <ConfirmButton
             trigger={
-              <Button variant="ghost" size="icon" className="size-7">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label={`Run ${task.name}`}
+              >
                 <Play className="size-3.5" />
               </Button>
             }
@@ -103,6 +109,7 @@ function TaskRow({
           <ConfirmButton
             trigger={
               <Button
+                aria-label={`Delete ${task.name}`}
                 variant="ghost"
                 size="icon"
                 className="size-7 text-destructive"

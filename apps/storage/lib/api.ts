@@ -1,5 +1,5 @@
+import { toApiError, toTransportError } from "@repo/cloud-ui/api-error";
 import {
-  apiErrorResponseSchema,
   type CompleteSignupInput,
   type CompleteSignupResult,
   type CreateFolderInput,
@@ -35,26 +35,12 @@ import {
 import { z } from "zod";
 import { API_BASE_URL } from "./env";
 
-export class ApiError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
-
-export function isApiError(error: unknown): error is ApiError {
-  return error instanceof ApiError;
-}
-
-export function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof Error) return error.message;
-  return "Something went wrong";
-}
+export {
+  ApiError,
+  errorMessage,
+  isApiError,
+  isUnreachable,
+} from "@repo/cloud-ui/api-error";
 
 type QueryValue = string | number | boolean | undefined;
 type Query = Record<string, QueryValue>;
@@ -89,23 +75,6 @@ function timeoutSignal(
   return signal ? AbortSignal.any([deadline, signal]) : deadline;
 }
 
-async function toApiError(response: Response): Promise<ApiError> {
-  const payload = await response.json().catch(() => null);
-  const parsed = apiErrorResponseSchema.safeParse(payload);
-  if (parsed.success) {
-    return new ApiError(
-      parsed.data.error.code,
-      parsed.data.error.message,
-      response.status,
-    );
-  }
-  return new ApiError(
-    response.status === 401 ? "UNAUTHORIZED" : "HTTP_ERROR",
-    `Request failed (${response.status})`,
-    response.status,
-  );
-}
-
 async function rawFetch(
   path: string,
   options: RequestOptions = {},
@@ -127,12 +96,11 @@ async function rawFetch(
         options.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
   } catch (error) {
+    // A caller-supplied signal aborting is a deliberate cancellation, not a
+    // transport failure — it must not be reported as the Pi being down.
     if (error instanceof DOMException && error.name === "AbortError")
       throw error;
-    if (error instanceof DOMException && error.name === "TimeoutError") {
-      throw new ApiError("TIMEOUT", "The server took too long to respond", 0);
-    }
-    throw new ApiError("NETWORK", "Can't reach the server", 0);
+    throw toTransportError(error);
   }
   if (!response.ok) throw await toApiError(response);
   return response;

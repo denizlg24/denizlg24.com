@@ -1,36 +1,16 @@
 "use client";
 
+import { formatDateTime } from "@repo/cloud-ui/format";
+import { BackupCodes, TotpEnrollment } from "@repo/cloud-ui/totp";
+import { MIN_PASSWORD_LENGTH } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
+import { Section } from "@repo/ui/section";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { useSession } from "@/components/session-provider";
-import { BackupCodes, TotpEnrollment } from "@/components/totp-enrollment";
 import { authClient } from "@/lib/auth-client";
-import { formatDateTime } from "@/lib/format";
-
-function Section({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="border-b py-6 first:pt-0 last:border-b-0">
-      <h2 className="text-sm font-medium">{title}</h2>
-      {description && (
-        <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-          {description}
-        </p>
-      )}
-      <div className="mt-4 max-w-sm">{children}</div>
-    </section>
-  );
-}
 
 function ChangePassword() {
   const [current, setCurrent] = useState("");
@@ -47,20 +27,16 @@ function ChangePassword() {
     });
     setBusy(false);
     if (error) {
-      toast.error("Couldn't change your password", {
-        description: error.message,
-      });
+      toast.error(error.message ?? "Password change failed");
       return;
     }
     setCurrent("");
     setNext("");
-    toast.success("Password changed", {
-      description: "You have been signed out everywhere else.",
-    });
+    toast.success("Password changed — other sessions revoked");
   };
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
+    <form onSubmit={submit} className="flex max-w-sm flex-col gap-4">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="current-password" className="text-xs">
           Current password
@@ -81,16 +57,17 @@ function ChangePassword() {
           id="new-password"
           type="password"
           autoComplete="new-password"
-          minLength={8}
+          minLength={MIN_PASSWORD_LENGTH}
           value={next}
           onChange={(event) => setNext(event.target.value)}
         />
-        <p className="text-xs text-muted-foreground">At least 8 characters.</p>
       </div>
       <Button
         type="submit"
         className="self-start"
-        disabled={busy || current.length === 0 || next.length < 8}
+        disabled={
+          busy || current.length === 0 || next.length < MIN_PASSWORD_LENGTH
+        }
       >
         Change password
       </Button>
@@ -115,27 +92,24 @@ function TwoFactor() {
 
   const submitPassword = async (event: FormEvent) => {
     event.preventDefault();
+    setBusy(true);
     if (intent === "reenroll") {
-      setBusy(true);
       // The old secret has to go before a new one can be issued.
       const { error } = await authClient.twoFactor.disable({ password });
       setBusy(false);
       if (error) {
-        toast.error("Couldn't start setup", { description: error.message });
+        toast.error(error.message ?? "Could not start enrollment");
         return;
       }
       setMode("enroll");
       return;
     }
-    setBusy(true);
     const { data, error } = await authClient.twoFactor.generateBackupCodes({
       password,
     });
     setBusy(false);
     if (error || !data) {
-      toast.error("Couldn't generate new codes", {
-        description: error?.message,
-      });
+      toast.error(error?.message ?? "Could not generate codes");
       return;
     }
     setCodes(data.backupCodes);
@@ -144,20 +118,18 @@ function TwoFactor() {
 
   if (mode === "password") {
     return (
-      <form onSubmit={submitPassword} className="flex flex-col gap-4">
+      <form onSubmit={submitPassword} className="flex max-w-sm flex-col gap-4">
         {intent === "reenroll" && (
           // Better Auth cannot hold two secrets at once, so the old one is
-          // dropped the moment setup starts. Saying so beats a user walking
-          // away half-way and finding their authenticator dead.
-          <p className="text-sm text-muted-foreground">
-            Your current authenticator stops working as soon as you continue.
-            Finish the setup on the next screen, or you will have to start again
-            at your next sign-in.
+          // dropped the moment setup starts — a half-finished re-enrollment
+          // leaves the account with no working authenticator.
+          <p className="text-xs text-status-warning">
+            Revokes the current authenticator immediately
           </p>
         )}
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="totp-password" className="text-xs">
-            Confirm your password
+            Password
           </Label>
           <Input
             id="totp-password"
@@ -182,31 +154,35 @@ function TwoFactor() {
 
   if (mode === "enroll") {
     return (
-      <TotpEnrollment
-        password={password}
-        onVerified={(backupCodes) => {
-          setCodes(backupCodes);
-          setMode("codes");
-          void refresh();
-        }}
-        onFailed={(message) => {
-          toast.error("Setup failed", { description: message });
-          reset();
-        }}
-      />
+      <div className="max-w-sm">
+        <TotpEnrollment
+          authClient={authClient}
+          password={password}
+          onVerified={(backupCodes) => {
+            setCodes(backupCodes);
+            setMode("codes");
+            void refresh();
+          }}
+          onFailed={(message) => {
+            toast.error(message);
+            reset();
+          }}
+        />
+      </div>
     );
   }
 
   if (mode === "codes") {
     return (
-      <BackupCodes
-        codes={codes}
-        continueLabel="Done"
-        onContinue={() => {
-          setCodes([]);
-          reset();
-        }}
-      />
+      <div className="max-w-sm">
+        <BackupCodes
+          codes={codes}
+          onContinue={() => {
+            setCodes([]);
+            reset();
+          }}
+        />
+      </div>
     );
   }
 
@@ -219,7 +195,7 @@ function TwoFactor() {
           setMode("password");
         }}
       >
-        Set up a new device
+        Re-enroll TOTP
       </Button>
       <Button
         variant="outline"
@@ -228,7 +204,7 @@ function TwoFactor() {
           setMode("password");
         }}
       >
-        New recovery codes
+        New backup codes
       </Button>
     </div>
   );
@@ -243,29 +219,23 @@ export default function AccountPage() {
         <h1 className="text-sm font-medium">Account</h1>
       </div>
       <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6">
-        <div className="mx-auto max-w-2xl">
-          <Section title="Signed in as">
+        <div className="mx-auto flex max-w-2xl flex-col gap-8">
+          <Section title="Session">
             <dl className="grid grid-cols-[7rem_1fr] gap-y-2 text-sm">
               <dt className="text-muted-foreground">Username</dt>
               <dd className="truncate">{user.username}</dd>
               <dt className="text-muted-foreground">Email</dt>
               <dd className="truncate">{user.email ?? "—"}</dd>
-              <dt className="text-muted-foreground">Member since</dt>
-              <dd>{formatDateTime(user.createdAt)}</dd>
+              <dt className="text-muted-foreground">Created</dt>
+              <dd className="tabular-nums">{formatDateTime(user.createdAt)}</dd>
             </dl>
           </Section>
 
-          <Section
-            title="Password"
-            description="Changing your password signs you out on every other device."
-          >
+          <Section title="Password">
             <ChangePassword />
           </Section>
 
-          <Section
-            title="Two-factor authentication"
-            description="Set up a new device if you changed phones, or replace your recovery codes if you have used or lost them."
-          >
+          <Section title="Two-factor">
             <TwoFactor />
           </Section>
         </div>

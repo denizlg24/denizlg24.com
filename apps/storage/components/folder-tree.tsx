@@ -1,13 +1,14 @@
 "use client";
 
+import { pluralize } from "@repo/cloud-ui/format";
 import type { RootFolders } from "@repo/schemas/cloud";
+import { Skeleton } from "@repo/ui/skeleton";
 import { cn } from "@repo/ui/utils";
 import { ChevronRight, FolderOpen, HardDrive, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { activeDrag, endDrag, readDrop } from "@/lib/drag";
-import { pluralize } from "@/lib/format";
 import { store, useFolder, useRoots } from "@/lib/store";
 
 interface NodeProps {
@@ -286,8 +287,8 @@ export function FolderTree({
   if (!roots) {
     return (
       <div className="space-y-2 p-2">
-        <div className="h-5 w-24 animate-pulse rounded bg-muted" />
-        <div className="h-5 w-20 animate-pulse rounded bg-muted" />
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-5 w-20" />
       </div>
     );
   }
