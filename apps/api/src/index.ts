@@ -28,6 +28,11 @@ app.get("/healthz", (c) => {
   const origin = c.req.header("Origin");
   if (origin && healthzTrustedOrigins.has(origin)) {
     c.header("Access-Control-Allow-Origin", origin);
+    // The admin app reads this with `credentials: "include"` like every other
+    // call. Without this header the browser discards the response and the
+    // fetch rejects exactly as it would for a dead host, which pins the
+    // "cloud unreachable" banner on while the API is plainly answering.
+    c.header("Access-Control-Allow-Credentials", "true");
     c.header("Vary", "Origin");
   }
   return c.json({
