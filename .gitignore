@@ -74,3 +74,8 @@ apps/desktop/src-tauri/target/
 
 # bun build artifacts
 *.bun-build
+
+# Planning and deployment runbooks. Kept on disk and in git history, but not
+# tracked going forward so the working tree stays lean. docs/architecture and
+# docs/security remain tracked.
+docs/internal/

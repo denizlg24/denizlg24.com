@@ -10,6 +10,7 @@
     "cutover:inventory": "bun --env-file=../../.env scripts/inventory-dependents.ts",
     "cutover:migrate-s3-legacy": "bun --env-file=../../.env scripts/migrate-s3-legacy.ts",
     "cutover:snapshot": "bun --env-file=../../.env scripts/pre-cutover-snapshot.ts",
+    "ops:tiering-dry-run": "bun --env-file=../../.env scripts/tiering-dry-run.ts",
     "cutover:verify": "bun --env-file=../../.env scripts/migrate-verify.ts",
     "dev": "PORT=3001 bun --env-file=../../.env --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
