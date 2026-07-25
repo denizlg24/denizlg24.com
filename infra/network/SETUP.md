@@ -52,6 +52,32 @@ the first time, confirm both Tailscale and WAN SSH still work first.
 
 ## fail2ban
 
+**Ubuntu 24.04 ships fail2ban 1.0.2, which cannot run on Python 3.12** — it
+imports `asynchat`, removed from the stdlib in 3.12, and dies with
+`No module named 'asynchat'`. Apt has no newer version. Install the upstream
+1.1.0 `_all.deb` (architecture-independent):
+
+```sh
+sudo dpkg -i /opt/deniz-cloud/cutover/fail2ban_1.1.0-1.upstream1_all.deb
+sudo systemctl enable --now fail2ban
+sudo fail2ban-client status
+```
+
+**Bans against the database ports must be written to `DOCKER-USER`, not INPUT.**
+Traffic to a Docker-published port is DNAT'd in PREROUTING and traverses
+FORWARD, so a ban in INPUT — which is where UFW and every stock fail2ban action
+write — is recorded and never sees the packets. `action.d/deniz-docker-user.conf`
+exists for this; the three database jails set `banaction = deniz-docker-user`
+while sshd stays on `ufw`, because SSH is a host service and does reach INPUT.
+
+Verify a ban actually lands in the right chain:
+
+```sh
+sudo fail2ban-client set deniz-cloud-redis banip 203.0.113.5
+sudo iptables -n -L DOCKER-USER
+sudo fail2ban-client set deniz-cloud-redis unbanip 203.0.113.5
+```
+
 Database security logs go to journald. Redis does not emit failed AUTH to
 stderr, so the unprivileged `redis-acl-audit` sidecar converts Redis `ACL LOG`
 entries into journal events without touching the Docker socket. Jails and
