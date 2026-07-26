@@ -7,12 +7,17 @@ import {
   findTaskByType,
   getLatestTaskRuns,
   getTask,
+  largestFiles,
+  listBucketUsage,
   listNotificationEvents,
   listTaskRuns,
   listTasks,
   queryActivity,
   queryMetricSeries,
   type StorageConfig,
+  storageByType,
+  storageByUser,
+  storageStats,
   updateTask,
 } from "@repo/cloud-core";
 import type { AuthVariables } from "@repo/cloud-core/middleware";
@@ -53,6 +58,12 @@ const paginationQuerySchema = z.object({
 });
 
 const facetWindowDaysSchema = z.coerce.number().int().min(1).max(90).default(7);
+const breakdownLimitSchema = z.coerce
+  .number()
+  .int()
+  .min(1)
+  .max(100)
+  .default(20);
 
 const notificationLimitSchema = z.coerce
   .number()
@@ -191,6 +202,42 @@ export function opsRoutes(options: OpsRouteOptions) {
       lastRun: runs.runs[0] ?? null,
     };
   };
+
+  app.get("/storage/stats", async (context) =>
+    context.json({ data: await storageStats(options.db) }),
+  );
+
+  app.get("/storage/largest-files", async (context) =>
+    context.json({
+      data: await largestFiles(
+        options.db,
+        breakdownLimitSchema.parse(context.req.query("limit")),
+      ),
+    }),
+  );
+
+  app.get("/storage/by-user", async (context) =>
+    context.json({ data: await storageByUser(options.db) }),
+  );
+
+  app.get("/storage/by-type", async (context) =>
+    context.json({
+      data: await storageByType(
+        options.db,
+        breakdownLimitSchema.parse(context.req.query("limit")),
+      ),
+    }),
+  );
+
+  app.get("/storage/s3-usage", async (context) =>
+    context.json({
+      data: await listBucketUsage({
+        rootPath: options.storageConfig.s3.rootPath,
+        tempPath: options.storageConfig.s3.tempPath,
+        region: options.storageConfig.s3.region,
+      }),
+    }),
+  );
 
   app.get("/storage/tiering", async (context) =>
     context.json({ data: await tieringSettings() }),

@@ -95,6 +95,22 @@ export const largestFileSchema = z.object({
 });
 export type LargestFile = z.infer<typeof largestFileSchema>;
 
+/** Grouped by lowercased extension; files without one land under "—". */
+export const storageTypeBreakdownSchema = z.object({
+  extension: z.string(),
+  fileCount: z.number().int().nonnegative(),
+  totalSizeBytes: z.number().nonnegative(),
+});
+export type StorageTypeBreakdown = z.infer<typeof storageTypeBreakdownSchema>;
+
+export const s3BucketUsageSchema = z.object({
+  name: z.string(),
+  creationDate: cloudDateTimeSchema,
+  objectCount: z.number().int().nonnegative(),
+  totalSizeBytes: z.number().nonnegative(),
+});
+export type S3BucketUsage = z.infer<typeof s3BucketUsageSchema>;
+
 export const pgDatabaseSchema = z.object({
   name: z.string(),
   sizeBytes: z.number(),

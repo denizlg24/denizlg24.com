@@ -24,6 +24,8 @@ import {
   type GenerateSearchTokenInput,
   type IssuedProjectS3Credential,
   issuedProjectS3CredentialSchema,
+  type LargestFile,
+  largestFileSchema,
   type MetricsResponse,
   type MongoCollection,
   type MongoDatabase,
@@ -64,6 +66,7 @@ import {
   projectS3CredentialMetadataSchema,
   projectVectorIndexSchema,
   projectVectorSearchOverviewSchema,
+  type S3BucketUsage,
   type S3CredentialMetadata,
   type SafeActivityEntry,
   type SafeApiKey,
@@ -74,6 +77,9 @@ import {
   type SafeTaskRun,
   type SafeUser,
   type SearchTokenResult,
+  type StorageStats,
+  type StorageTypeBreakdown,
+  s3BucketUsageSchema,
   s3CredentialMetadataSchema,
   safeActivityEntrySchema,
   safeApiKeySchema,
@@ -84,6 +90,8 @@ import {
   safeTaskRunSchema,
   safeUserSchema,
   searchTokenResultSchema,
+  storageStatsSchema,
+  storageTypeBreakdownSchema,
   type TerminalSession,
   type TieringConfigPatch,
   type TieringSettings,
@@ -92,6 +100,8 @@ import {
   type UpdateCollectionInput,
   type UpdateProjectInput,
   type UpdateTaskInput,
+  type UserStorageStat,
+  userStorageStatSchema,
 } from "@repo/schemas/cloud";
 import { z } from "zod";
 import { API_BASE_URL } from "./env";
@@ -608,6 +618,27 @@ export const api = {
           { method: "DELETE" },
         ),
     },
+  },
+
+  storageAnalytics: {
+    stats: (): Promise<StorageStats> =>
+      requestData(storageStatsSchema, "/api/ops/storage/stats"),
+    largestFiles: (limit?: number): Promise<LargestFile[]> =>
+      requestData(
+        z.array(largestFileSchema),
+        "/api/ops/storage/largest-files",
+        { query: { limit } },
+      ),
+    byUser: (): Promise<UserStorageStat[]> =>
+      requestData(z.array(userStorageStatSchema), "/api/ops/storage/by-user"),
+    byType: (limit?: number): Promise<StorageTypeBreakdown[]> =>
+      requestData(
+        z.array(storageTypeBreakdownSchema),
+        "/api/ops/storage/by-type",
+        { query: { limit } },
+      ),
+    s3Usage: (): Promise<S3BucketUsage[]> =>
+      requestData(z.array(s3BucketUsageSchema), "/api/ops/storage/s3-usage"),
   },
 
   storageAdmin: {

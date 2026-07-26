@@ -1,6 +1,7 @@
 "use client";
 
 import { formatDateTime } from "@repo/cloud-ui/format";
+import { ThemeSelect } from "@repo/cloud-ui/theme";
 import { BackupCodes, TotpEnrollment } from "@repo/cloud-ui/totp";
 import { MIN_PASSWORD_LENGTH } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
@@ -229,6 +230,10 @@ export default function AccountPage() {
               <dt className="text-muted-foreground">Created</dt>
               <dd className="tabular-nums">{formatDateTime(user.createdAt)}</dd>
             </dl>
+          </Section>
+
+          <Section title="Theme">
+            <ThemeSelect />
           </Section>
 
           <Section title="Password">

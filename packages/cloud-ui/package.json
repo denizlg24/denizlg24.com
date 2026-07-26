@@ -8,6 +8,7 @@
     "./api-error": "./src/api-error.ts",
     "./format": "./src/format.ts",
     "./status-tone": "./src/status-tone.ts",
+    "./theme-script": "./src/theme-script.ts",
     "./use-poll": "./src/use-poll.ts"
   },
   "scripts": {

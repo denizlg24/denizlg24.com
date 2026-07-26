@@ -485,6 +485,53 @@ export async function listBuckets(
   return buckets.sort((left, right) => left.name.localeCompare(right.name));
 }
 
+export interface BucketUsage {
+  name: string;
+  creationDate: string;
+  objectCount: number;
+  totalSizeBytes: number;
+}
+
+/**
+ * Sums the object blobs on disk rather than paging through listObjects, which
+ * would read and parse one metadata JSON per key. A bucket that has never had
+ * a CreateBucket has no directory at all — that reads as empty, not an error,
+ * because provisioning a project credential does not create its bucket.
+ */
+export async function bucketUsage(
+  config: S3StoreConfig,
+  bucket: BucketDescriptor,
+): Promise<BucketUsage> {
+  const directory = objectDir(config, bucket.name);
+  let objectCount = 0;
+  let totalSizeBytes = 0;
+  try {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".data")) continue;
+      const info = await stat(join(directory, entry.name)).catch(() => null);
+      if (!info) continue;
+      objectCount += 1;
+      totalSizeBytes += info.size;
+    }
+  } catch {
+    // Missing objects/ directory: bucket exists but nothing was ever put.
+  }
+  return {
+    name: bucket.name,
+    creationDate: bucket.creationDate,
+    objectCount,
+    totalSizeBytes,
+  };
+}
+
+export async function listBucketUsage(
+  config: S3StoreConfig,
+): Promise<BucketUsage[]> {
+  const buckets = await listBuckets(config).catch(() => []);
+  return Promise.all(buckets.map((bucket) => bucketUsage(config, bucket)));
+}
+
 export async function headBucket(
   config: S3StoreConfig,
   bucket: string,
