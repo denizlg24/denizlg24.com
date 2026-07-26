@@ -154,17 +154,24 @@ export function TieringConfig({
     );
   }
 
+  // An armed schedule with dryRun still set relocates nothing, and the run
+  // reports "completed" either way — the one state that looks healthy while
+  // silently doing no work. The dry-run button sets that flag, so it is
+  // reachable in one click from this very panel.
+  const status = !task.enabled
+    ? { tone: "muted" as const, label: "disabled" }
+    : task.config.dryRun
+      ? { tone: "serious" as const, label: "armed · dry run only" }
+      : { tone: "warning" as const, label: "armed" };
+
   return (
     <Section
       title="tiering"
       actions={
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <StatusDot
-              tone={task.enabled ? "warning" : "muted"}
-              label={task.enabled ? "armed" : "disabled"}
-            />
-            {task.enabled ? "armed" : "disabled"}
+            <StatusDot tone={status.tone} label={status.label} />
+            {status.label}
           </span>
           <Button
             variant="ghost"
