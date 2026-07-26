@@ -21,6 +21,7 @@ import {
   StorageService,
   SyncWorker,
   storageConfigFromEnv,
+  storageUsedByOwner,
   syncRedisProjectAclUsers,
 } from "@repo/cloud-core";
 import type { DiskKind } from "@repo/schemas/cloud";
@@ -340,11 +341,22 @@ export async function createRuntimeApp() {
         dav: {
           // Finder reads these off the mount root to draw the drive's capacity
           // bar; without them it reports the volume as full and refuses copies.
-          quota: async () => {
-            const stats = await getDiskStats(storageConfig.ssdStoragePath);
+          //
+          // Used is the account's own bytes rather than the filesystem's:
+          // `statfs` counts every other service sharing the SSD, overstates by
+          // the root reserve it excludes from `bavail`, and falls when
+          // `tiering_pass` demotes a file — so the drive would appear to gain
+          // space as data moved between disks. Available spans both tiers,
+          // because a new file can land on either.
+          quota: async (userId) => {
+            const [ssd, hdd, usedBytes] = await Promise.all([
+              getDiskStats(storageConfig.ssdStoragePath),
+              getDiskStats(storageConfig.hddStoragePath),
+              storageUsedByOwner(db, userId),
+            ]);
             return {
-              usedBytes: stats.usedBytes,
-              availableBytes: stats.availableBytes,
+              usedBytes,
+              availableBytes: ssd.availableBytes + hdd.availableBytes,
             };
           },
         },

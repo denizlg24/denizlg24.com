@@ -291,7 +291,8 @@ function buildApp(
       service: storage,
       mountPath: MOUNT,
       locks,
-      quota: async () => ({ usedBytes: 100, availableBytes: 900 }),
+      quota: async (userId) =>
+        userId === USER_ID ? { usedBytes: 100, availableBytes: 900 } : null,
       ...overrides,
     }),
   );
@@ -675,6 +676,80 @@ describe("LOCK and UNLOCK", () => {
     });
     expect(response.status).toBe(409);
     expect(locks.get(held.token)).not.toBeNull();
+  });
+});
+
+describe("operating-system metadata", () => {
+  const droppings = [
+    ".DS_Store",
+    "._report.txt",
+    ".localized",
+    "desktop.ini",
+    "Thumbs.db",
+  ];
+
+  it("accepts the write and stores nothing", async () => {
+    for (const name of droppings) {
+      const response = await app.request(
+        `${MOUNT}/home/${encodeURIComponent(name)}`,
+        { method: "PUT", body: "junk" },
+      );
+      // 201 rather than 403: Finder writes the AppleDouble beside the file it
+      // is copying, and a refusal reads to it as that copy having failed.
+      expect(response.status).toBe(201);
+    }
+    expect(storage.files.size).toBe(0);
+    expect(storage.namingCalls).toHaveLength(0);
+  });
+
+  it("keeps them out of listings because they were never stored", async () => {
+    await app.request(`${MOUNT}/home/.DS_Store`, { method: "PUT", body: "x" });
+    storage.addFile(`${HOME}/real.txt`, "hello");
+
+    const xml = await (await propfind(`${MOUNT}/home`, "1")).text();
+    expect(xml).toContain("real.txt");
+    expect(xml).not.toContain("DS_Store");
+  });
+
+  it("answers the cleanup verbs without touching storage", async () => {
+    expect(
+      (await app.request(`${MOUNT}/home/.DS_Store`, { method: "DELETE" }))
+        .status,
+    ).toBe(204);
+    expect(
+      (await app.request(`${MOUNT}/home/.TemporaryItems`, { method: "MKCOL" }))
+        .status,
+    ).toBe(201);
+    expect(
+      (
+        await app.request(`${MOUNT}/home/._a.txt`, {
+          method: "MOVE",
+          headers: { Destination: "http://localhost/dav/home/._b.txt" },
+        })
+      ).status,
+    ).toBe(204);
+    expect(storage.folders.size).toBe(2);
+    expect(storage.files.size).toBe(0);
+  });
+
+  it("does not catch ordinary dotfiles or lookalikes", async () => {
+    for (const name of [".env", ".gitignore", "_notes.txt", "DS_Store"]) {
+      await app.request(`${MOUNT}/home/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        body: "x",
+      });
+    }
+    expect(storage.files.size).toBe(4);
+  });
+});
+
+describe("quota", () => {
+  it("reports the account's own usage, not the filesystem's", async () => {
+    const xml = await (await propfind(`${MOUNT}/home`, "0")).text();
+    expect(xml).toContain("<D:quota-used-bytes>100</D:quota-used-bytes>");
+    expect(xml).toContain(
+      "<D:quota-available-bytes>900</D:quota-available-bytes>",
+    );
   });
 });
 

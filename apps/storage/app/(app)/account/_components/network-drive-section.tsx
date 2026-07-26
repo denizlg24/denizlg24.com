@@ -65,7 +65,7 @@ function MountGuide({ username }: { username: string }) {
           <Command label="Finder ⌘K" value={SHARED_URL} />
         </DriveGroup>
         <Command
-          label="Stop Finder writing .DS_Store to the mounts"
+          label="Optional — the server already discards .DS_Store and ._ files; this stops Finder sending them"
           value="defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool true"
         />
       </TabsContent>

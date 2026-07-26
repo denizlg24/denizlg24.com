@@ -108,7 +108,7 @@ export interface CloudApiOptions {
     service: StorageService;
     s3: S3ApiConfig;
     dav?: {
-      quota?: () => Promise<{
+      quota?: (userId: string) => Promise<{
         usedBytes: number;
         availableBytes: number;
       } | null>;

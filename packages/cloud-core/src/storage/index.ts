@@ -8,6 +8,7 @@ export {
   storageByType,
   storageByUser,
   storageStats,
+  storageUsedByOwner,
 } from "./analytics";
 export {
   type ArchiveEntry,

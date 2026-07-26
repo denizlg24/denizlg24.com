@@ -156,10 +156,50 @@ export interface DavRoutesOptions {
   locks?: DavLockStore;
   copyMaxEntries?: number;
   copyMaxBytes?: number;
-  quota?: () => Promise<{
+  quota?: (userId: string) => Promise<{
     usedBytes: number;
     availableBytes: number;
   } | null>;
+}
+
+/**
+ * Files the operating system writes to a network volume for its own
+ * bookkeeping, which no user ever asked to store.
+ *
+ * Finder writes `.DS_Store` into every directory it displays and an AppleDouble
+ * `._name` beside every file it copies — WebDAV carries no extended attributes,
+ * so it falls back to sidecar files whether or not there is anything to put in
+ * them. Left alone these outnumber the real files, land in the search index,
+ * and follow the data into every archive and COPY.
+ *
+ * They are answered as though they were written, then dropped. Refusing them
+ * outright surfaces in Finder as a failed copy of the file the sidecar belongs
+ * to, which is worse than losing metadata nothing here reads. The tradeoff is
+ * that a genuine resource fork does not survive a round trip through the mount.
+ */
+const OS_METADATA_NAMES = new Set([
+  ".DS_Store",
+  ".localized",
+  ".apdisk",
+  "desktop.ini",
+  "Thumbs.db",
+]);
+const OS_METADATA_PREFIXES = ["._"];
+const OS_METADATA_DIRECTORIES = new Set([
+  ".Spotlight-V100",
+  ".TemporaryItems",
+  ".Trashes",
+  ".fseventsd",
+  ".DocumentRevisions-V100",
+]);
+
+function isOsMetadataPath(storagePath: string): boolean {
+  const name = storagePath.slice(storagePath.lastIndexOf("/") + 1);
+  return (
+    OS_METADATA_NAMES.has(name) ||
+    OS_METADATA_DIRECTORIES.has(name) ||
+    OS_METADATA_PREFIXES.some((prefix) => name.startsWith(prefix))
+  );
 }
 
 function davErrorResponse(error: unknown): Response {
@@ -225,8 +265,10 @@ export function davRoutes(options: DavRoutesOptions) {
     etag: null,
   });
 
-  const propertyContext = async (): Promise<PropertyContext> => {
-    const quota = await options.quota?.().catch(() => null);
+  const propertyContext = async (
+    principal: StoragePrincipal,
+  ): Promise<PropertyContext> => {
+    const quota = await options.quota?.(principal.user.id).catch(() => null);
     return {
       locks,
       quotaUsedBytes: quota?.usedBytes ?? null,
@@ -302,7 +344,7 @@ export function davRoutes(options: DavRoutesOptions) {
 
     try {
       const request = parsePropfind(await context.req.text());
-      const propContext = await propertyContext();
+      const propContext = await propertyContext(principal);
       const entries: DavResponseEntry[] = [];
 
       if (target.kind === "root") {
@@ -454,6 +496,10 @@ export function davRoutes(options: DavRoutesOptions) {
     const target = davPathToStorage(davPath, principal.user.id);
     if (!target || target.kind === "root") return context.body(null, 405);
 
+    // Answered as written and dropped: Finder writes one of these beside every
+    // file it copies, and a refusal here reads to it as the copy itself failing.
+    if (isOsMetadataPath(target.path)) return context.body(null, 201);
+
     try {
       const locked = lockedResponse(target.path, context.req.header("If"));
       if (locked) return locked;
@@ -491,6 +537,8 @@ export function davRoutes(options: DavRoutesOptions) {
     const target = davPathToStorage(davPath, principal.user.id);
     if (!target || target.kind === "root") return context.body(null, 405);
 
+    if (isOsMetadataPath(target.path)) return context.body(null, 201);
+
     try {
       // RFC 4918 §9.3.1: a body in a MKCOL this server does not understand.
       if ((await context.req.text()).trim().length > 0) {
@@ -526,6 +574,10 @@ export function davRoutes(options: DavRoutesOptions) {
     const davPath = davPathOf(context.req.url);
     const target = davPathToStorage(davPath, principal.user.id);
     if (!target || target.kind === "root") return context.body(null, 403);
+
+    // Never stored, so nothing to remove — but Finder cleans up after itself
+    // and a 404 here makes it report a failure it cannot act on.
+    if (isOsMetadataPath(target.path)) return context.body(null, 204);
 
     try {
       const entry = await service.resolvePath(principal, target.path);
@@ -567,6 +619,13 @@ export function davRoutes(options: DavRoutesOptions) {
       return context.body(null, 403);
     }
     if (destination.path === source.path) return context.body(null, 403);
+
+    // Neither end was ever stored, so there is nothing to move or copy. Finder
+    // relocates the sidecar alongside the file it belongs to and treats a
+    // failure here as the whole operation failing.
+    if (isOsMetadataPath(source.path) || isOsMetadataPath(destination.path)) {
+      return context.body(null, 204);
+    }
 
     const overwrite = (context.req.header("Overwrite") ?? "T").toUpperCase();
 

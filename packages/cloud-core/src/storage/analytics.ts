@@ -72,6 +72,25 @@ export async function largestFiles(
   return rows.map((row) => ({ ...row, sizeBytes: numeric(row.sizeBytes) }));
 }
 
+/**
+ * Bytes one account has stored, across both tiers.
+ *
+ * This is what a mounted drive reports as its used space. Filesystem usage
+ * would be the wrong number twice over: it counts every other service sharing
+ * the disk, and it drops when `tiering_pass` demotes a file, so a drive would
+ * appear to gain space as data moved between disks.
+ */
+export async function storageUsedByOwner(
+  db: Database,
+  ownerId: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ totalSizeBytes: sum(files.sizeBytes) })
+    .from(files)
+    .where(eq(files.ownerId, ownerId));
+  return numeric(row?.totalSizeBytes ?? null);
+}
+
 export async function storageByUser(db: Database): Promise<UserStorageStat[]> {
   const rows = await db
     .select({
