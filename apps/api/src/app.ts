@@ -6,15 +6,21 @@ import {
   CloudCoreError,
   cors,
   type Database,
+  davAuth,
+  davRoutes,
   deleteUser,
   hashPassword,
+  issueDavCredential,
+  listDavCredentials,
   listLegacyS3Credentials,
   listUsers,
-  type RateLimitStore,
+  type PeekableRateLimitStore,
   rateLimit,
   requireRole,
   requireSession,
   resetUserMfa,
+  resolveDavCredential,
+  revokeDavCredential,
   type S3ApiConfig,
   type StorageService,
   s3Routes,
@@ -28,6 +34,7 @@ import {
   ACTIVITY_ACTIONS,
   adminResetMfaInputSchema,
   completeSignupInputSchema,
+  createDavCredentialInputSchema,
   createPendingUserInputSchema,
 } from "@repo/schemas/cloud";
 import { and, eq } from "drizzle-orm";
@@ -51,6 +58,7 @@ import { type OpsToolsConfig, toolsProxyRoutes } from "./ops/tools-proxy";
 import type { projectRoutes } from "./projects/routes";
 import { storageRoutes, storageSearchRoutes } from "./storage/routes";
 
+const DAV_MOUNT_PATH = "/dav";
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_REQUESTS = 10;
 const SIGNUP_MAX_REQUESTS = 5;
@@ -59,6 +67,13 @@ const SIGNUP_MAX_REQUESTS = 5;
 // production ceilings are the ones that matter and are left untouched.
 const DEV_LOGIN_MAX_REQUESTS = 200;
 const DEV_SIGNUP_MAX_REQUESTS = 100;
+// Higher than the login ceiling on purpose: a saved password that has been
+// revoked makes a mounted drive retry on its own, without a person deciding to,
+// so the budget has to absorb one stale client without locking out the machine
+// it is running on. Only rejections count against it.
+const DAV_AUTH_MAX_FAILURES = 20;
+const DEV_DAV_AUTH_MAX_FAILURES = 200;
+const DAV_MAX_CREDENTIALS_PER_USER = 10;
 const MFA_ENROLLMENT_PATHS = new Set([
   "/api/auth/get-session",
   "/api/auth/sign-out",
@@ -87,11 +102,17 @@ export interface CloudApiOptions {
   auth: CloudAuth;
   db: Database;
   isProduction: boolean;
-  rateLimitStore: RateLimitStore;
+  rateLimitStore: PeekableRateLimitStore;
   trustedOrigins: readonly string[];
   storage?: {
     service: StorageService;
     s3: S3ApiConfig;
+    dav?: {
+      quota?: () => Promise<{
+        usedBytes: number;
+        availableBytes: number;
+      } | null>;
+    };
   };
   platform?: {
     projects: ReturnType<typeof projectRoutes>;
@@ -240,6 +261,12 @@ export function createCloudApiApp(options: CloudApiOptions) {
     // reassign `res`, so the Bun.file() body and its sendfile() path survive.
     app.use("/v2", capture);
     app.use("/v2/*", capture);
+    // The mounted drive records saves, moves, deletes and every failure, but
+    // not the PROPFIND and GET traffic that makes up the bulk of a mount —
+    // see MUTATING_METHODS in middleware/activity.ts. Same `context.res.status`
+    // caveat as /v2: a DAV GET is a Bun.file() response too.
+    app.use(DAV_MOUNT_PATH, capture);
+    app.use(`${DAV_MOUNT_PATH}/*`, capture);
 
     // better-auth owns the sign-in handler, so a failure is only visible from
     // the outside as a 401. Recording it under its own action is what lets the
@@ -566,9 +593,131 @@ export function createCloudApiApp(options: CloudApiOptions) {
       async (context) =>
         context.json({ data: await listLegacyS3Credentials(options.db) }),
     );
+    // A mount credential grants the whole of a user's storage, so issuing one
+    // takes a human session — a project API key must not be able to mint a
+    // credential broader than itself.
+    app.get("/api/storage/dav-credentials", requireSession(), async (context) =>
+      context.json({
+        data: await listDavCredentials(options.db, context.get("user").id),
+      }),
+    );
+    app.post(
+      "/api/storage/dav-credentials",
+      requireSession(),
+      async (context) => {
+        const parsed = createDavCredentialInputSchema.safeParse(
+          await context.req.json().catch(() => null),
+        );
+        if (!parsed.success) {
+          return context.json(
+            {
+              error: {
+                code: "INVALID_INPUT",
+                message: "A credential name is required",
+              },
+            },
+            400,
+          );
+        }
+        // A cold verification argon2-hashes against every live credential the
+        // user holds until one matches, so an unbounded pile of them turns each
+        // cache miss into dozens of hashes on the request thread. The ceiling
+        // bounds that as much as it bounds the reach of a leaked secret.
+        const live = await listDavCredentials(
+          options.db,
+          context.get("user").id,
+        );
+        const now = new Date();
+        const usable = live.filter(
+          (credential) => !credential.expiresAt || credential.expiresAt > now,
+        );
+        if (usable.length >= DAV_MAX_CREDENTIALS_PER_USER) {
+          return context.json(
+            {
+              error: {
+                code: "TOO_MANY_CREDENTIALS",
+                message: `At most ${DAV_MAX_CREDENTIALS_PER_USER} credentials may be live at once`,
+              },
+            },
+            409,
+          );
+        }
+        const issued = await issueDavCredential(options.db, {
+          userId: context.get("user").id,
+          name: parsed.data.name,
+          expiresAt: parsed.data.expiresAt
+            ? new Date(parsed.data.expiresAt)
+            : null,
+        });
+        return context.json({ data: issued }, 201);
+      },
+    );
+    app.delete(
+      "/api/storage/dav-credentials/:id",
+      requireSession(),
+      async (context) => {
+        const id = context.req.param("id");
+        // The column is a uuid, so anything else reaches Postgres as a cast
+        // error and surfaces as a 500 instead of the intended miss.
+        if (!z.uuid().safeParse(id).success) {
+          return context.json(
+            { error: { code: "NOT_FOUND", message: "Credential not found" } },
+            404,
+          );
+        }
+        const revoked = await revokeDavCredential(
+          options.db,
+          context.get("user").id,
+          id,
+        );
+        return revoked
+          ? context.json({ data: { id } })
+          : context.json(
+              {
+                error: { code: "NOT_FOUND", message: "Credential not found" },
+              },
+              404,
+            );
+      },
+    );
     app.route("/api/storage", storageRoutes(options.storage.service));
     app.route("/api/search", storageSearchRoutes(options.storage.service));
     app.route("/v2", s3Routes(options.storage.s3));
+
+    // Mounted outside /api/* on purpose. That prefix carries the CORS layer,
+    // the activity capture and the session/MFA chain, none of which apply to a
+    // mounted drive: there is no browser origin, and a PROPFIND storm from
+    // Finder would swamp the activity log. Auth here is Basic only, because
+    // that is the sole scheme Finder and Explorer can speak.
+    const davAuthenticate = davAuth({
+      resolve: (username, secret) =>
+        resolveDavCredential(options.db, username, secret),
+      throttle: {
+        store: options.rateLimitStore,
+        max: options.isProduction
+          ? DAV_AUTH_MAX_FAILURES
+          : DEV_DAV_AUTH_MAX_FAILURES,
+        windowMs: LOGIN_WINDOW_MS,
+        // Keyed on the account as well as the address so one device with a
+        // stale saved password cannot spend the budget for every other mount
+        // behind the same egress. It must be the parsed username and not any
+        // slice of the Authorization header: that header encodes the password
+        // too, so keying on it would hand every wrong guess its own fresh
+        // budget and disable the throttle outright.
+        clientKey: (context, username) =>
+          `dav-auth:${clientIp(context, options.isProduction)}:${username}`,
+      },
+    });
+    app.use(DAV_MOUNT_PATH, davAuthenticate);
+    app.use(`${DAV_MOUNT_PATH}/*`, davAuthenticate);
+    app.route(
+      DAV_MOUNT_PATH,
+      davRoutes({
+        service: options.storage.service,
+        mountPath: DAV_MOUNT_PATH,
+        quota: options.storage.dav?.quota,
+      }),
+    );
   }
 
   if (options.platform) {

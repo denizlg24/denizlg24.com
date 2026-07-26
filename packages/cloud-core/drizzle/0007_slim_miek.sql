@@ -1,0 +1,1 @@
+ALTER TYPE "public"."activity_category" ADD VALUE 'dav';

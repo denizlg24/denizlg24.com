@@ -7,8 +7,8 @@ import {
   authUser,
   authVerification,
   createDb,
+  type PeekableRateLimitStore,
   type RateLimitDecision,
-  type RateLimitStore,
   users,
 } from "@repo/cloud-core";
 import {
@@ -29,27 +29,44 @@ const AUTH_SECRET =
 const API_ORIGIN = "https://api.denizlg24.com";
 const CLOUD_ORIGIN = "https://cloud.denizlg24.com";
 
-class MemoryRateLimitStore implements RateLimitStore {
+class MemoryRateLimitStore implements PeekableRateLimitStore {
   private readonly hits = new Map<string, number[]>();
+
+  #live(key: string, windowMs: number): number[] {
+    const now = Date.now();
+    return (this.hits.get(key) ?? []).filter(
+      (timestamp) => now - timestamp < windowMs,
+    );
+  }
+
+  #verdict(hits: number[], max: number, windowMs: number): RateLimitDecision {
+    if (hits.length < max) return { allowed: true, retryAfterMs: 0 };
+    const now = Date.now();
+    return {
+      allowed: false,
+      retryAfterMs: windowMs - (now - (hits[0] ?? now)),
+    };
+  }
 
   async consume(
     key: string,
     max: number,
     windowMs: number,
   ): Promise<RateLimitDecision> {
-    const now = Date.now();
-    const hits = (this.hits.get(key) ?? []).filter(
-      (timestamp) => now - timestamp < windowMs,
-    );
-    if (hits.length >= max) {
-      return {
-        allowed: false,
-        retryAfterMs: windowMs - (now - (hits[0] ?? now)),
-      };
-    }
-    hits.push(now);
+    const hits = this.#live(key, windowMs);
+    const verdict = this.#verdict(hits, max, windowMs);
+    if (!verdict.allowed) return verdict;
+    hits.push(Date.now());
     this.hits.set(key, hits);
-    return { allowed: true, retryAfterMs: 0 };
+    return verdict;
+  }
+
+  async peek(
+    key: string,
+    max: number,
+    windowMs: number,
+  ): Promise<RateLimitDecision> {
+    return this.#verdict(this.#live(key, windowMs), max, windowMs);
   }
 }
 

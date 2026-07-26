@@ -13,6 +13,9 @@ export const ACTIVITY_CATEGORIES = [
   "terminal",
   "admin",
   "system",
+  // Appended rather than slotted next to "storage": the Postgres enum is
+  // altered in place, and only appending avoids recreating the type.
+  "dav",
 ] as const;
 export const activityCategorySchema = z.enum(ACTIVITY_CATEGORIES);
 export type ActivityCategory = z.infer<typeof activityCategorySchema>;

@@ -78,6 +78,22 @@ export function normalizeFileName(name: string): string {
   return result;
 }
 
+/**
+ * Validates a name without the snake-casing `normalizeName` applies. WebDAV
+ * addresses resources by URL, so a client that PUTs `My Report.pdf` immediately
+ * GETs that same URL back: rewriting the name to `my_report.pdf` on write would
+ * 404 the client's very next request. Path uniqueness still comes from the
+ * `path` index, which treats the two spellings as distinct rows.
+ */
+export function sanitizeSegment(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new PathValidationError("Name is empty after trimming");
+  }
+  validatePathSegment(trimmed);
+  return trimmed;
+}
+
 export function joinPath(...segments: string[]): string {
   return `/${segments
     .map((segment) => segment.replace(/^\/|\/$/g, ""))

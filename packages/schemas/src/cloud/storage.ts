@@ -153,6 +153,39 @@ export const storageFolderResponseSchema = apiResponseSchema(
   storageFolderDetailSchema,
 );
 
+export const createDavCredentialInputSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+  expiresAt: cloudDateTimeSchema.nullish(),
+});
+export type CreateDavCredentialInput = z.infer<
+  typeof createDavCredentialInputSchema
+>;
+
+export const davCredentialSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  secretPrefix: z.string(),
+  lastUsedAt: cloudDateTimeSchema.nullable(),
+  expiresAt: cloudDateTimeSchema.nullable(),
+  createdAt: cloudDateTimeSchema,
+});
+export type DavCredential = z.infer<typeof davCredentialSchema>;
+
+/** The secret is present on the create response only; it is never stored. */
+export const issuedDavCredentialSchema = davCredentialSchema.extend({
+  secret: z.string(),
+});
+export type IssuedDavCredentialResponse = z.infer<
+  typeof issuedDavCredentialSchema
+>;
+
+export const davCredentialListResponseSchema = apiResponseSchema(
+  z.array(davCredentialSchema),
+);
+export const issuedDavCredentialResponseSchema = apiResponseSchema(
+  issuedDavCredentialSchema,
+);
+
 export const searchHitSchema = z.object({
   id: z.string(),
   name: z.string(),

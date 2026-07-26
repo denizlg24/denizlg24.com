@@ -183,6 +183,32 @@ export const recoveryCodes = pgTable(
   (table) => [index("recovery_codes_user_id_idx").on(table.userId)],
 );
 
+/**
+ * Per-device passwords for the WebDAV mount. Finder and Explorer only speak
+ * Basic/Digest, so neither the session cookie nor a Bearer API key can reach
+ * `/dav` — these are the only credential that can, and they are scoped to it.
+ */
+export const davCredentials = pgTable(
+  "dav_credentials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    secretHash: text("secret_hash").notNull(),
+    secretPrefix: varchar("secret_prefix", { length: 12 }).notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("dav_credentials_user_id_idx").on(table.userId)],
+);
+
+export type DavCredential = InferSelectModel<typeof davCredentials>;
+
 export const folders = pgTable(
   "folders",
   {
@@ -608,6 +634,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
   recoveryCodes: many(recoveryCodes),
   apiKeys: many(apiKeys),
+  davCredentials: many(davCredentials),
   projects: many(projects),
   folders: many(folders),
   files: many(files),
@@ -637,6 +664,10 @@ export const projectsRelations = relations(projects, ({ many, one }) => ({
   s3Credentials: many(s3Credentials),
   collections: many(projectCollections),
   databases: many(projectDatabases),
+}));
+
+export const davCredentialsRelations = relations(davCredentials, ({ one }) => ({
+  user: one(users, { fields: [davCredentials.userId], references: [users.id] }),
 }));
 
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({

@@ -46,12 +46,15 @@ export {
   resolveHddDiskPath,
   resolveSsdDiskPath,
   SHARED_ROOT_PATH,
+  sanitizeSegment,
   toSnakeCase,
   validatePath,
   validatePathSegment,
 } from "./path";
 export * from "./s3";
 export {
+  type NamingPolicy,
+  type StorageEntry,
   StorageService,
   StorageServiceError,
   TUS_VERSION,
