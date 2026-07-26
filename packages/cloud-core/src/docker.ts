@@ -29,6 +29,23 @@ export interface DockerContainerStats {
   networkTxBytes: number;
 }
 
+export interface DockerContainerState {
+  id: string;
+  name: string;
+  status: string;
+  running: boolean;
+  /**
+   * Set by the kernel's OOM killer, not by a normal exit. Docker keeps it on
+   * the container's last completed run, so it survives an automatic restart —
+   * which is the only reason a poll every few minutes can catch it at all.
+   */
+  oomKilled: boolean;
+  exitCode: number;
+  restartCount: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
 export interface DockerExecResult {
   stdout: string;
   stderr: string;
@@ -224,6 +241,30 @@ export class DockerClient {
         },
       ];
     });
+  }
+
+  async inspectContainer(reference: string): Promise<DockerContainerState> {
+    const container = await this.resolveContainer(reference);
+    const response = await this.request(
+      `/containers/${encodeURIComponent(container.id)}/json`,
+    );
+    const payload: unknown = await response.json();
+    if (!isRecord(payload)) {
+      throw new Error("Docker returned an invalid container inspection");
+    }
+    const state = nestedRecord(payload, "State");
+    return {
+      id: container.id,
+      name: container.name,
+      status: typeof state.Status === "string" ? state.Status : "unknown",
+      running: state.Running === true,
+      oomKilled: state.OOMKilled === true,
+      exitCode: numberAt(state, "ExitCode"),
+      restartCount: numberAt(payload, "RestartCount"),
+      startedAt: typeof state.StartedAt === "string" ? state.StartedAt : null,
+      finishedAt:
+        typeof state.FinishedAt === "string" ? state.FinishedAt : null,
+    };
   }
 
   async resolveContainer(reference: string): Promise<DockerContainer> {

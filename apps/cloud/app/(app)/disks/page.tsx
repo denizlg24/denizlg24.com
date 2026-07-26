@@ -3,8 +3,18 @@
 import { Unreachable } from "@repo/cloud-ui/unreachable";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Skeleton } from "@repo/ui/skeleton";
+import dynamic from "next/dynamic";
+import { useCallback } from "react";
 import { api } from "@/lib/api";
 import { DiskRack } from "./_components/disk-rack";
+import { TieringConfig } from "./_components/tiering-config";
+
+// recharts is the largest dependency in this app and the rack is the reason
+// anyone opens this page, so the history chart loads after it.
+const UsageHistory = dynamic(
+  () => import("./_components/usage-history").then((m) => m.UsageHistory),
+  { ssr: false, loading: () => <Skeleton className="h-48 w-full" /> },
+);
 
 function DisksSkeleton() {
   return (
@@ -53,6 +63,12 @@ export default function DisksPage() {
     reload,
   } = usePoll(api.ops.overview, 30_000);
 
+  const fetchTiering = useCallback(() => api.ops.tiering.get(), []);
+  const { data: tiering, reload: reloadTiering } = usePoll(
+    fetchTiering,
+    60_000,
+  );
+
   if (!overview) {
     if (unreachable) {
       return <Unreachable retrying={loading} onRetry={() => void reload()} />;
@@ -64,5 +80,19 @@ export default function DisksPage() {
     );
   }
 
-  return <DiskRack overview={overview} />;
+  return (
+    <div className="flex flex-col gap-10">
+      <DiskRack overview={overview} />
+      {tiering && (
+        <TieringConfig
+          // Remounting on a new task identity resets the form to the saved
+          // values instead of leaving stale edits over fresh data.
+          key={tiering.task?.updatedAt ?? "none"}
+          settings={tiering}
+          onChanged={() => void reloadTiering()}
+        />
+      )}
+      <UsageHistory overview={overview} />
+    </div>
+  );
 }

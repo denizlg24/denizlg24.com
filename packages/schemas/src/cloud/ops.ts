@@ -2,7 +2,11 @@ import { z } from "zod";
 
 import { cloudDateTimeSchema } from "./common";
 import { diskInfoSchema } from "./operations";
-import { safeScheduledTaskSchema, safeTaskRunSchema } from "./tasks";
+import {
+  safeScheduledTaskSchema,
+  safeTaskRunSchema,
+  tieringPassTaskConfigSchema,
+} from "./tasks";
 
 export const metricSeriesNameSchema = z
   .string()
@@ -132,6 +136,59 @@ export const opsTasksResponseSchema = z.object({
   tasks: z.array(safeScheduledTaskSchema),
   latestRuns: z.array(safeTaskRunSchema),
 });
+
+/**
+ * The effective fallbacks, read from the API's environment. The tiering_pass
+ * task config overrides these field by field, so the panel shows them as
+ * placeholders rather than as values it can edit.
+ */
+export const tieringDefaultsSchema = z.object({
+  ssdStoragePath: z.string(),
+  hddStoragePath: z.string(),
+  highWatermarkPercent: z.number(),
+  targetWatermarkPercent: z.number(),
+  minAgeDays: z.number(),
+  minSizeBytes: z.number(),
+  batchCap: z.number(),
+});
+export type TieringDefaults = z.infer<typeof tieringDefaultsSchema>;
+
+export const tieringSettingsSchema = z.object({
+  defaults: tieringDefaultsSchema,
+  task: safeScheduledTaskSchema.nullable(),
+  lastRun: safeTaskRunSchema.nullable(),
+});
+export type TieringSettings = z.infer<typeof tieringSettingsSchema>;
+
+/**
+ * The editable subset of the tiering_pass config. Storage paths are excluded:
+ * they come from the container's mounts, and pointing a pass at an arbitrary
+ * path from a web form is not a knob worth having. `enabled` is excluded too —
+ * arming a pass that relocates data between physical disks stays a separate,
+ * explicit action rather than a side effect of saving thresholds.
+ */
+export const tieringConfigPatchSchema = tieringPassTaskConfigSchema
+  .pick({
+    highWatermarkPercent: true,
+    targetWatermarkPercent: true,
+    minAgeDays: true,
+    minSizeBytes: true,
+    batchCap: true,
+    dryRun: true,
+  })
+  .partial()
+  .extend({ cronExpression: z.string().min(1).max(100).optional() })
+  .refine(
+    (input) =>
+      input.highWatermarkPercent === undefined ||
+      input.targetWatermarkPercent === undefined ||
+      input.targetWatermarkPercent < input.highWatermarkPercent,
+    {
+      path: ["targetWatermarkPercent"],
+      message: "Target watermark must be below the high watermark",
+    },
+  );
+export type TieringConfigPatch = z.infer<typeof tieringConfigPatchSchema>;
 
 export type MetricPoint = z.infer<typeof metricPointSchema>;
 export type MetricSeries = z.infer<typeof metricSeriesSchema>;

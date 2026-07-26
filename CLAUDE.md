@@ -68,7 +68,7 @@ Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
   the first `/api/*` request and `/healthz` sits outside `/api/*`. A container can
   report healthy having seeded no tasks, reconciled no Redis ACLs and started no
   workers. After any deploy, hit `/api/me` (expect 401) and confirm
-  `scheduled_tasks` still holds `metrics_rollup` enabled and `tiering_pass` disabled.
+  `scheduled_tasks` still holds the schedules you expect.
 - **Never read `c.res` before `await next()` in Hono middleware.** Doing so makes
   Hono rebuild the response via `new Response(res.body, res)`, which converts a
   `Bun.file()` blob into a stream, drops `Content-Length`, forces chunked encoding
@@ -104,8 +104,18 @@ Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
   slug, and that bucket is not created at provisioning time — the first
   `CreateBucket` makes it. Wrong bucket reads as `AccessDenied`, missing bucket as
   `NoSuchBucket`.
-- **`tiering_pass` stays disabled** until deliberately enabled after reviewing a
-  dry-run report; its first real pass moves data between physical disks.
+- **`tiering_pass` is live** as of 2026-07-26: enabled, `0 3 * * *`,
+  `dryRun: false`. The gate it used to sit behind — review a dry run before
+  arming it — has been passed. It genuinely relocates data between physical
+  disks on every run, so treat changes to `packages/cloud-core/src/storage/tiering.ts`
+  and to the watermark/age/size thresholds as production changes, and rehearse
+  with a dry run first (`/disks` has the button, or set `dryRun: true` on the
+  task config).
+- **A tiering pass that fails on individual files still reports `completed`.**
+  Per-file failures land in `metadata.tieringReport.failures`, not in the run
+  status, so no task-failure notification fires for them. Read the report, not
+  just the status. The usual cause is a `files` row whose blob is gone from
+  disk, which surfaces as `ENOENT` on the copy.
 
 ### Migration and cutover scripts
 

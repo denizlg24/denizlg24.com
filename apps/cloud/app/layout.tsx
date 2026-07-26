@@ -1,3 +1,5 @@
+import { ThemeProvider } from "@repo/cloud-ui/theme";
+import { themeScript } from "@repo/cloud-ui/theme-script";
 import { Toaster } from "@repo/ui/sonner";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
@@ -20,13 +22,6 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-const themeScript = `(() => {
-  const media = window.matchMedia("(prefers-color-scheme: dark)");
-  const apply = () => document.documentElement.classList.toggle("dark", media.matches);
-  apply();
-  media.addEventListener("change", apply);
-})();`;
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -40,7 +35,7 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col">
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-        {children}
+        <ThemeProvider>{children}</ThemeProvider>
         <Toaster position="bottom-right" />
       </body>
     </html>

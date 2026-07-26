@@ -32,6 +32,8 @@ export {
   s3Routes,
 } from "./routes";
 export {
+  type BucketUsage,
+  bucketUsage,
   createBucket,
   deleteBucket,
   deleteObject,
@@ -40,6 +42,7 @@ export {
   headBucket,
   initS3Store,
   listBuckets,
+  listBucketUsage,
   listObjects,
   putObject,
   type S3StoreConfig,

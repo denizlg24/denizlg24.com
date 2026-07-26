@@ -207,6 +207,22 @@ function EmptyBay({ index }: { index: number }) {
   );
 }
 
+function perSecond(bytesPerSecond: number | undefined): string {
+  return bytesPerSecond === undefined
+    ? "—"
+    : `${formatBytes(bytesPerSecond)}/s`;
+}
+
+function ops(disk: DiskInfo): string {
+  if (
+    disk.readOpsPerSecond === undefined ||
+    disk.writeOpsPerSecond === undefined
+  ) {
+    return "—";
+  }
+  return Math.round(disk.readOpsPerSecond + disk.writeOpsPerSecond).toString();
+}
+
 function DetailStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
@@ -281,6 +297,14 @@ function BayDetail({
         <DetailStat label="used" value={formatBytes(disk.usedBytes)} />
         <DetailStat label="free" value={formatBytes(disk.availableBytes)} />
         <DetailStat label="pool share" value={formatPercent(share)} />
+        {/* Absent until the sampler has two /proc/diskstats readings to diff. */}
+        <DetailStat label="read" value={perSecond(disk.readBytesPerSecond)} />
+        <DetailStat label="write" value={perSecond(disk.writeBytesPerSecond)} />
+        <DetailStat label="iops" value={ops(disk)} />
+        <DetailStat
+          label="busy"
+          value={formatPercent(disk.utilizationPercent)}
+        />
       </dl>
     </div>
   );

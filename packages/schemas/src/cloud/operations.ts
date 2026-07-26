@@ -24,6 +24,13 @@ export const diskInfoSchema = z.object({
   availableBytes: z.number(),
   usagePercent: z.number(),
   online: z.boolean(),
+  // Derived from /proc/diskstats deltas, so they are absent on an offline disk
+  // and on the first sample after a restart, which has no baseline to diff.
+  readBytesPerSecond: z.number().nonnegative().optional(),
+  writeBytesPerSecond: z.number().nonnegative().optional(),
+  readOpsPerSecond: z.number().nonnegative().optional(),
+  writeOpsPerSecond: z.number().nonnegative().optional(),
+  utilizationPercent: z.number().nonnegative().optional(),
 });
 export type DiskInfo = z.infer<typeof diskInfoSchema>;
 
@@ -87,6 +94,22 @@ export const largestFileSchema = z.object({
   ownerUsername: z.string(),
 });
 export type LargestFile = z.infer<typeof largestFileSchema>;
+
+/** Grouped by lowercased extension; files without one land under "—". */
+export const storageTypeBreakdownSchema = z.object({
+  extension: z.string(),
+  fileCount: z.number().int().nonnegative(),
+  totalSizeBytes: z.number().nonnegative(),
+});
+export type StorageTypeBreakdown = z.infer<typeof storageTypeBreakdownSchema>;
+
+export const s3BucketUsageSchema = z.object({
+  name: z.string(),
+  creationDate: cloudDateTimeSchema,
+  objectCount: z.number().int().nonnegative(),
+  totalSizeBytes: z.number().nonnegative(),
+});
+export type S3BucketUsage = z.infer<typeof s3BucketUsageSchema>;
 
 export const pgDatabaseSchema = z.object({
   name: z.string(),

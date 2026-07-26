@@ -1,5 +1,6 @@
 "use client";
 
+import { ThemeToggle } from "@repo/cloud-ui/theme";
 import { UnreachableBanner } from "@repo/cloud-ui/unreachable";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
@@ -17,7 +18,9 @@ const NAV = [
   { href: "/users", label: "users" },
   { href: "/databases", label: "databases" },
   { href: "/disks", label: "disks" },
+  { href: "/storage", label: "storage" },
   { href: "/tasks", label: "tasks" },
+  { href: "/activity", label: "activity" },
   { href: "/terminal", label: "terminal" },
   { href: "/settings", label: "settings" },
 ];
@@ -67,6 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
               {user.username}
             </span>
+            <ThemeToggle />
             <Button
               variant="ghost"
               size="icon"

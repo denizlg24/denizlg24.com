@@ -1,27 +1,40 @@
 import type { DockerClient } from "@repo/cloud-core";
 import {
+  activityFacets,
   createTask,
   type Database,
   deleteTask,
+  findTaskByType,
   getLatestTaskRuns,
   getTask,
+  largestFiles,
+  listBucketUsage,
+  listNotificationEvents,
   listTaskRuns,
   listTasks,
+  queryActivity,
   queryMetricSeries,
+  type StorageConfig,
+  storageByType,
+  storageByUser,
+  storageStats,
   updateTask,
 } from "@repo/cloud-core";
 import type { AuthVariables } from "@repo/cloud-core/middleware";
 import {
+  activityQuerySchema,
   createTaskInputSchema,
   metricsQuerySchema,
   mintTerminalTicketInputSchema,
   parseTaskConfig,
+  tieringConfigPatchSchema,
   updateTaskInputSchema,
 } from "@repo/schemas/cloud";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { TerminalGateway } from "../terminal/gateway";
 import type { OpsHealthService } from "./health";
+import type { NotificationDispatcher } from "./notifications";
 import type { MetricsSampler } from "./sampler";
 import { type OpsScheduler, validateCronExpression } from "./scheduler";
 
@@ -29,15 +42,40 @@ export interface OpsRouteOptions {
   db: Database;
   docker: DockerClient;
   health: OpsHealthService;
+  notifications: NotificationDispatcher;
+  adminBaseUrl: string;
+  storageConfig: StorageConfig;
   sampler: MetricsSampler;
   scheduler: OpsScheduler;
   terminal: TerminalGateway;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1_000;
+
 const paginationQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
+
+const facetWindowDaysSchema = z.coerce.number().int().min(1).max(90).default(7);
+const breakdownLimitSchema = z.coerce
+  .number()
+  .int()
+  .min(1)
+  .max(100)
+  .default(20);
+
+const notificationLimitSchema = z.coerce
+  .number()
+  .int()
+  .min(1)
+  .max(200)
+  .default(50);
+
+/** Hono returns [] for an absent repeated query param; zod wants undefined. */
+function emptyToUndefined(values: string[] | undefined): string[] | undefined {
+  return values && values.length > 0 ? values : undefined;
+}
 
 function scheduleInput(input: {
   cronExpression?: string | null;
@@ -93,6 +131,156 @@ export function opsRoutes(options: OpsRouteOptions) {
   app.get("/health", async (context) =>
     context.json({ data: await options.health.check() }),
   );
+
+  app.get("/activity", async (context) => {
+    const query = activityQuerySchema.parse({
+      page: context.req.query("page") ?? 1,
+      limit: context.req.query("limit") ?? 50,
+      category: emptyToUndefined(context.req.queries("category")),
+      severity: emptyToUndefined(context.req.queries("severity")),
+      statusClass: context.req.query("statusClass"),
+      action: context.req.query("action"),
+      actorId: context.req.query("actorId"),
+      from: context.req.query("from"),
+      to: context.req.query("to"),
+      q: context.req.query("q"),
+    });
+    const { entries, pagination } = await queryActivity(options.db, query);
+    return context.json({ data: entries, pagination });
+  });
+
+  app.get("/activity/facets", async (context) => {
+    const since = new Date(
+      Date.now() -
+        facetWindowDaysSchema.parse(context.req.query("days")) * DAY_MS,
+    );
+    return context.json({ data: await activityFacets(options.db, since) });
+  });
+
+  app.get("/notifications", async (context) =>
+    context.json({
+      data: await listNotificationEvents(options.db, {
+        limit: notificationLimitSchema.parse(context.req.query("limit")),
+      }),
+    }),
+  );
+
+  app.post("/notifications/test", async (context) => {
+    // `force` bypasses the cooldown so repeated probes are not silently
+    // swallowed — the point of the button is to see the channels answer.
+    const { deliveries } = await options.notifications.dispatch(
+      {
+        type: "test",
+        severity: "info",
+        subjectKey: context.get("user").id,
+        title: "Test notification",
+        message: "Sent from the cloud panel.",
+        url: options.adminBaseUrl,
+      },
+      { force: true },
+    );
+    return context.json({ data: { deliveries } });
+  });
+
+  const tieringSettings = async () => {
+    const { tiering, ssdStoragePath, hddStoragePath } = options.storageConfig;
+    const task = await findTaskByType(options.db, "tiering_pass");
+    const runs = task
+      ? await listTaskRuns(options.db, task.id, { limit: 1 })
+      : { runs: [] };
+    return {
+      defaults: {
+        ssdStoragePath,
+        hddStoragePath,
+        highWatermarkPercent: tiering.highWatermarkPercent,
+        targetWatermarkPercent: tiering.targetWatermarkPercent,
+        minAgeDays: Math.round(tiering.minAgeMs / DAY_MS),
+        minSizeBytes: tiering.minSizeBytes,
+        batchCap: tiering.batchCap,
+      },
+      task,
+      lastRun: runs.runs[0] ?? null,
+    };
+  };
+
+  app.get("/storage/stats", async (context) =>
+    context.json({ data: await storageStats(options.db) }),
+  );
+
+  app.get("/storage/largest-files", async (context) =>
+    context.json({
+      data: await largestFiles(
+        options.db,
+        breakdownLimitSchema.parse(context.req.query("limit")),
+      ),
+    }),
+  );
+
+  app.get("/storage/by-user", async (context) =>
+    context.json({ data: await storageByUser(options.db) }),
+  );
+
+  app.get("/storage/by-type", async (context) =>
+    context.json({
+      data: await storageByType(
+        options.db,
+        breakdownLimitSchema.parse(context.req.query("limit")),
+      ),
+    }),
+  );
+
+  app.get("/storage/s3-usage", async (context) =>
+    context.json({
+      data: await listBucketUsage({
+        rootPath: options.storageConfig.s3.rootPath,
+        tempPath: options.storageConfig.s3.tempPath,
+        region: options.storageConfig.s3.region,
+      }),
+    }),
+  );
+
+  app.get("/storage/tiering", async (context) =>
+    context.json({ data: await tieringSettings() }),
+  );
+
+  app.patch("/storage/tiering", async (context) => {
+    const task = await findTaskByType(options.db, "tiering_pass");
+    if (!task) {
+      return context.json(
+        {
+          error: {
+            code: "TASK_NOT_FOUND",
+            message: "No tiering_pass task has been seeded",
+          },
+        },
+        404,
+      );
+    }
+    const body = await context.req.json().catch(() => null);
+    const parsed = tieringConfigPatchSchema.safeParse(body);
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid tiering configuration",
+          },
+        },
+        400,
+      );
+    }
+    const { cronExpression, ...config } = parsed.data;
+    await updateTask(options.db, task.id, {
+      config: parseTaskConfig("tiering_pass", {
+        ...task.config,
+        ...config,
+      }),
+      ...(cronExpression === undefined
+        ? {}
+        : scheduleInput({ cronExpression })),
+    });
+    return context.json({ data: await tieringSettings() });
+  });
 
   app.post("/terminal", async (context) => {
     const rawBody = await context.req.text();

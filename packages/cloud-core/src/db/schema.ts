@@ -1,4 +1,13 @@
-import type { TaskConfig, TaskRunMetadata } from "@repo/schemas/cloud";
+import {
+  ACTIVITY_ACTOR_TYPES,
+  ACTIVITY_CATEGORIES,
+  ACTIVITY_SEVERITIES,
+  type ActivityMetadata,
+  NOTIFICATION_TYPES,
+  type NotificationPayload,
+  type TaskConfig,
+  type TaskRunMetadata,
+} from "@repo/schemas/cloud";
 import {
   type InferInsertModel,
   type InferSelectModel,
@@ -80,6 +89,23 @@ export const collectionSourceTypeEnum = pgEnum("collection_source_type", [
 ]);
 export type CollectionSourceType =
   (typeof collectionSourceTypeEnum.enumValues)[number];
+
+export const activityCategoryEnum = pgEnum(
+  "activity_category",
+  ACTIVITY_CATEGORIES,
+);
+export const activitySeverityEnum = pgEnum(
+  "activity_severity",
+  ACTIVITY_SEVERITIES,
+);
+export const activityActorTypeEnum = pgEnum(
+  "activity_actor_type",
+  ACTIVITY_ACTOR_TYPES,
+);
+export const notificationTypeEnum = pgEnum(
+  "notification_type",
+  NOTIFICATION_TYPES,
+);
 
 export interface FieldMapping {
   includeFields?: string[];
@@ -511,6 +537,73 @@ export const metricsSamples = pgTable(
   ],
 );
 
+/**
+ * Append-only. Rows are written from a buffer, never inside a request's critical
+ * path, and pruned by the metrics_rollup task. `actorId` is deliberately not a
+ * foreign key: an actor can be an API key, an S3 credential or a share token,
+ * and deleting a user must not erase the record of what they did.
+ */
+export const activityLog = pgTable(
+  "activity_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ts: timestamp("ts", { withTimezone: true }).notNull().defaultNow(),
+    category: activityCategoryEnum("category").notNull(),
+    severity: activitySeverityEnum("severity").notNull().default("info"),
+    action: varchar("action", { length: 128 }).notNull(),
+    actorType: activityActorTypeEnum("actor_type").notNull().default("system"),
+    actorId: varchar("actor_id", { length: 255 }),
+    actorLabel: varchar("actor_label", { length: 255 }),
+    method: varchar("method", { length: 10 }),
+    path: varchar("path", { length: 2_048 }),
+    statusCode: integer("status_code"),
+    durationMs: integer("duration_ms"),
+    ip: varchar("ip", { length: 64 }),
+    userAgent: varchar("user_agent", { length: 512 }),
+    targetType: varchar("target_type", { length: 64 }),
+    targetId: varchar("target_id", { length: 255 }),
+    message: text("message"),
+    metadata: jsonb("metadata").$type<ActivityMetadata>(),
+  },
+  (table) => [
+    index("activity_log_ts_brin_idx").using("brin", table.ts),
+    index("activity_log_category_ts_idx").on(table.category, table.ts),
+    index("activity_log_severity_ts_idx").on(table.severity, table.ts),
+    index("activity_log_action_ts_idx").on(table.action, table.ts),
+    index("activity_log_actor_ts_idx").on(table.actorId, table.ts),
+    index("activity_log_status_ts_idx").on(table.statusCode, table.ts),
+  ],
+);
+
+/**
+ * One row per throttling key, upserted on every dispatch attempt. This is what
+ * survives a container restart — the previous in-memory Map meant a redeploy
+ * during an incident re-sent every alert.
+ */
+export const notificationEvents = pgTable(
+  "notification_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventKey: varchar("event_key", { length: 512 }).notNull().unique(),
+    type: notificationTypeEnum("type").notNull(),
+    severity: activitySeverityEnum("severity").notNull().default("info"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    sendCount: integer("send_count").notNull().default(0),
+    suppressedCount: integer("suppressed_count").notNull().default(0),
+    lastPayload: jsonb("last_payload").$type<NotificationPayload>(),
+  },
+  (table) => [
+    index("notification_events_type_idx").on(table.type),
+    index("notification_events_last_seen_at_idx").on(table.lastSeenAt),
+  ],
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
   recoveryCodes: many(recoveryCodes),
@@ -649,5 +742,9 @@ export type TaskRun = InferSelectModel<typeof taskRuns>;
 export type NewTaskRun = InferInsertModel<typeof taskRuns>;
 export type MetricsSample = InferSelectModel<typeof metricsSamples>;
 export type NewMetricsSample = InferInsertModel<typeof metricsSamples>;
+export type ActivityLogEntry = InferSelectModel<typeof activityLog>;
+export type NewActivityLogEntry = InferInsertModel<typeof activityLog>;
+export type NotificationEvent = InferSelectModel<typeof notificationEvents>;
+export type NewNotificationEvent = InferInsertModel<typeof notificationEvents>;
 
 export * from "./auth-schema";

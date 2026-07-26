@@ -6,6 +6,7 @@ import {
   formatPercent,
 } from "@repo/cloud-ui/format";
 import { healthTone } from "@repo/cloud-ui/status-tone";
+import { ThemeSelect } from "@repo/cloud-ui/theme";
 import { BackupCodes, TotpEnrollment } from "@repo/cloud-ui/totp";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
@@ -282,6 +283,9 @@ export default function SettingsPage() {
           {formatDateTime(user.createdAt)}
         </p>
       </div>
+      <Section title="theme">
+        <ThemeSelect />
+      </Section>
       <PasswordSection />
       <TotpSection />
       <EnvironmentSection />

@@ -1,5 +1,8 @@
 import { toApiError, toTransportError } from "@repo/cloud-ui/api-error";
 import {
+  type ActivityFacets,
+  type ActivityQuery,
+  activityFacetsSchema,
   type CompleteSignupInput,
   type CompleteSignupResult,
   type ContainerSnapshot,
@@ -21,6 +24,8 @@ import {
   type GenerateSearchTokenInput,
   type IssuedProjectS3Credential,
   issuedProjectS3CredentialSchema,
+  type LargestFile,
+  largestFileSchema,
   type MetricsResponse,
   type MongoCollection,
   type MongoDatabase,
@@ -31,6 +36,8 @@ import {
   mongoDatabaseSchema,
   mongoFindResultSchema,
   mongoIndexSchema,
+  type NotificationTestResult,
+  notificationTestResultSchema,
   type OpsHealth,
   type OpsOverview,
   opsHealthSchema,
@@ -59,27 +66,42 @@ import {
   projectS3CredentialMetadataSchema,
   projectVectorIndexSchema,
   projectVectorSearchOverviewSchema,
+  type S3BucketUsage,
   type S3CredentialMetadata,
+  type SafeActivityEntry,
   type SafeApiKey,
+  type SafeNotificationEvent,
   type SafeProject,
   type SafeProjectCollection,
   type SafeScheduledTask,
   type SafeTaskRun,
   type SafeUser,
   type SearchTokenResult,
+  type StorageStats,
+  type StorageTypeBreakdown,
+  s3BucketUsageSchema,
   s3CredentialMetadataSchema,
+  safeActivityEntrySchema,
   safeApiKeySchema,
+  safeNotificationEventSchema,
   safeProjectCollectionSchema,
   safeProjectSchema,
   safeScheduledTaskSchema,
   safeTaskRunSchema,
   safeUserSchema,
   searchTokenResultSchema,
+  storageStatsSchema,
+  storageTypeBreakdownSchema,
   type TerminalSession,
+  type TieringConfigPatch,
+  type TieringSettings,
   terminalSessionSchema,
+  tieringSettingsSchema,
   type UpdateCollectionInput,
   type UpdateProjectInput,
   type UpdateTaskInput,
+  type UserStorageStat,
+  userStorageStatSchema,
 } from "@repo/schemas/cloud";
 import { z } from "zod";
 import { API_BASE_URL } from "./env";
@@ -237,6 +259,52 @@ export const api = {
         `/api/ops/containers/${encodeURIComponent(id)}/restart`,
         { method: "POST" },
       ),
+    tiering: {
+      get: (): Promise<TieringSettings> =>
+        requestData(tieringSettingsSchema, "/api/ops/storage/tiering"),
+      update: (input: TieringConfigPatch): Promise<TieringSettings> =>
+        requestData(tieringSettingsSchema, "/api/ops/storage/tiering", {
+          method: "PATCH",
+          body: input,
+        }),
+    },
+  },
+
+  activity: {
+    list: (
+      query: Partial<ActivityQuery> = {},
+    ): Promise<Paginated<SafeActivityEntry>> =>
+      requestPaginated(safeActivityEntrySchema, "/api/ops/activity", {
+        query: {
+          page: query.page,
+          limit: query.limit,
+          category: query.category,
+          severity: query.severity,
+          statusClass: query.statusClass,
+          action: query.action,
+          actorId: query.actorId,
+          from: query.from,
+          to: query.to,
+          q: query.q,
+        },
+      }),
+    facets: (days?: number): Promise<ActivityFacets> =>
+      requestData(activityFacetsSchema, "/api/ops/activity/facets", {
+        query: { days },
+      }),
+  },
+
+  notifications: {
+    list: (limit?: number): Promise<SafeNotificationEvent[]> =>
+      requestData(
+        z.array(safeNotificationEventSchema),
+        "/api/ops/notifications",
+        { query: { limit } },
+      ),
+    test: (): Promise<NotificationTestResult> =>
+      requestData(notificationTestResultSchema, "/api/ops/notifications/test", {
+        method: "POST",
+      }),
   },
 
   tasks: {
@@ -550,6 +618,27 @@ export const api = {
           { method: "DELETE" },
         ),
     },
+  },
+
+  storageAnalytics: {
+    stats: (): Promise<StorageStats> =>
+      requestData(storageStatsSchema, "/api/ops/storage/stats"),
+    largestFiles: (limit?: number): Promise<LargestFile[]> =>
+      requestData(
+        z.array(largestFileSchema),
+        "/api/ops/storage/largest-files",
+        { query: { limit } },
+      ),
+    byUser: (): Promise<UserStorageStat[]> =>
+      requestData(z.array(userStorageStatSchema), "/api/ops/storage/by-user"),
+    byType: (limit?: number): Promise<StorageTypeBreakdown[]> =>
+      requestData(
+        z.array(storageTypeBreakdownSchema),
+        "/api/ops/storage/by-type",
+        { query: { limit } },
+      ),
+    s3Usage: (): Promise<S3BucketUsage[]> =>
+      requestData(z.array(s3BucketUsageSchema), "/api/ops/storage/s3-usage"),
   },
 
   storageAdmin: {

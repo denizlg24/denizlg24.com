@@ -1,17 +1,25 @@
 import { writeFile } from "node:fs/promises";
 import {
+  countActivity,
   createTieringRepository,
   type Database,
+  pruneActivity,
+  requestOutcomeCounts,
   rollupAndPruneMetrics,
   runTieringPass,
   type StorageConfig,
 } from "@repo/cloud-core";
 import {
+  ACTIVITY_ACTIONS,
+  type ActivitySeverity,
+  type AlertEvaluationTaskConfig,
   alertEvaluationTaskConfigSchema,
   allBackupsTaskConfigSchema,
   filesBackupTaskConfigSchema,
   metricsRollupTaskConfigSchema,
   mongoBackupTaskConfigSchema,
+  type NotificationPayload,
+  type NotificationType,
   parseTaskConfig,
   postgresBackupTaskConfigSchema,
   restartContainerTaskConfigSchema,
@@ -22,7 +30,7 @@ import {
 } from "@repo/schemas/cloud";
 
 import type { OpsHealthService } from "../health";
-import type { WebhookNotifier } from "../notifications";
+import type { NotificationDispatcher } from "../notifications";
 import type { MetricsSampler } from "../sampler";
 import {
   type BackupExecutorOptions,
@@ -37,11 +45,24 @@ export type { ExecutorResult } from "./backups";
 export interface ExecutorContext extends BackupExecutorOptions {
   db: Database;
   health: OpsHealthService;
-  notifier: WebhookNotifier;
+  notifications: NotificationDispatcher;
   rebootSentinelPath: string;
   sampler: MetricsSampler;
   storageConfig: StorageConfig;
-  alertNotifications: Map<string, number>;
+  activityRetentionDays: number;
+  /**
+   * Last observed Docker restart count per container id. Crash-loop detection
+   * is a delta between polls, so the first poll after a restart of this process
+   * establishes a baseline and never alerts.
+   */
+  containerRestartCounts: Map<string, number>;
+  /**
+   * Services seen down by a previous evaluation, so recovery can be announced
+   * once. In-memory on purpose: after a restart there is nothing to recover
+   * from as far as this process knows, and a stale "recovered" is worse than a
+   * missing one.
+   */
+  downServices: Set<string>;
 }
 
 export type Executor = (
@@ -72,63 +93,267 @@ async function executeAllBackups(
   };
 }
 
-async function executeAlertEvaluation(
-  rawConfig: TaskConfig,
-  taskId: string,
+interface PendingAlert {
+  payload: NotificationPayload;
+  summary: string;
+}
+
+function alert(
+  type: NotificationType,
+  severity: ActivitySeverity,
+  subjectKey: string,
+  title: string,
+  message: string,
+  details?: Record<string, string>,
+): PendingAlert {
+  return {
+    payload: { type, severity, subjectKey, title, message, details },
+    summary: message,
+  };
+}
+
+async function collectHostAlerts(
+  config: AlertEvaluationTaskConfig,
   context: ExecutorContext,
-): Promise<ExecutorResult> {
-  const config = alertEvaluationTaskConfigSchema.parse(rawConfig);
+): Promise<PendingAlert[]> {
   const [overview, health] = await Promise.all([
     context.sampler.overview(),
     context.health.check(),
   ]);
-  const alerts: string[] = [];
+  const alerts: PendingAlert[] = [];
+
   if (overview.memory.usagePercent >= config.memoryUsagePercent) {
-    alerts.push(`Memory ${overview.memory.usagePercent.toFixed(1)}%`);
+    const value = overview.memory.usagePercent.toFixed(1);
+    alerts.push(
+      alert(
+        "memory_high",
+        "warn",
+        "host",
+        "Memory pressure",
+        `Memory at ${value}% (threshold ${config.memoryUsagePercent}%)`,
+        { used: value },
+      ),
+    );
   }
+
   if (
     overview.cpu.temperatureCelsius !== null &&
     overview.cpu.temperatureCelsius >= config.temperatureCelsius
   ) {
+    const value = overview.cpu.temperatureCelsius.toFixed(1);
     alerts.push(
-      `CPU temperature ${overview.cpu.temperatureCelsius.toFixed(1)}°C`,
+      alert(
+        "temperature_high",
+        "warn",
+        "cpu",
+        "CPU temperature high",
+        `CPU at ${value}°C (threshold ${config.temperatureCelsius}°C)`,
+      ),
     );
   }
+
   for (const disk of overview.disks) {
     if (!disk.online) {
-      alerts.push(`Disk ${disk.device} offline`);
-    } else if (disk.usagePercent >= config.diskUsagePercent) {
-      alerts.push(`Disk ${disk.device} ${disk.usagePercent.toFixed(1)}%`);
+      alerts.push(
+        alert(
+          "disk_critical",
+          "error",
+          disk.device,
+          `Disk offline: ${disk.device}`,
+          `${disk.device} is not reporting`,
+        ),
+      );
+      continue;
     }
+    if (disk.usagePercent < config.diskUsagePercent) continue;
+    const critical = disk.usagePercent >= config.diskCriticalPercent;
+    const value = disk.usagePercent.toFixed(1);
+    alerts.push(
+      alert(
+        critical ? "disk_critical" : "disk_usage_high",
+        critical ? "error" : "warn",
+        disk.device,
+        `Disk ${critical ? "critical" : "filling"}: ${disk.device}`,
+        `${disk.device} at ${value}% (threshold ${critical ? config.diskCriticalPercent : config.diskUsagePercent}%)`,
+        { free: `${(disk.availableBytes / 1024 ** 3).toFixed(1)} GiB` },
+      ),
+    );
   }
+
   if (config.notifyServiceDown) {
     for (const [name, check] of Object.entries(health.checks)) {
-      if (check.status === "down") alerts.push(`Service ${name} down`);
+      if (check.status === "down") {
+        context.downServices.add(name);
+        alerts.push(
+          alert(
+            "service_down",
+            "error",
+            name,
+            `Service down: ${name}`,
+            check.message ?? `${name} health check reports down`,
+          ),
+        );
+      } else if (context.downServices.delete(name)) {
+        alerts.push(
+          alert(
+            "service_recovered",
+            "info",
+            name,
+            `Service recovered: ${name}`,
+            `${name} is answering health checks again`,
+          ),
+        );
+      }
     }
   }
 
-  const now = Date.now();
-  const notificationKey = `${taskId}:${alerts.sort().join("|")}`;
-  const lastNotification = context.alertNotifications.get(notificationKey);
-  const throttled =
-    lastNotification !== undefined &&
-    now - lastNotification < config.throttleMinutes * 60_000;
-  if (alerts.length > 0 && !throttled) {
-    const sent = await context.notifier.send({
-      event: "alert",
-      title: "Deniz Cloud operations alert",
-      message: alerts.join("\n"),
-      taskId,
-    });
-    if (sent) context.alertNotifications.set(notificationKey, now);
+  return alerts;
+}
+
+/**
+ * Docker keeps `OOMKilled` and `RestartCount` on the container even after it
+ * has been restarted, so a poll on the alert task's cadence still sees a kill
+ * that happened between runs. Inspecting is one call per container and only
+ * runs when the corresponding toggle is on.
+ */
+async function collectContainerAlerts(
+  config: AlertEvaluationTaskConfig,
+  context: ExecutorContext,
+): Promise<PendingAlert[]> {
+  if (!config.notifyOom && !config.notifyCrashLoop) return [];
+  const containers = await context.docker.listContainers().catch((error) => {
+    console.error("[alerts] Container listing failed", error);
+    return [];
+  });
+  const alerts: PendingAlert[] = [];
+
+  for (const container of containers) {
+    const state = await context.docker
+      .inspectContainer(container.id)
+      .catch(() => null);
+    if (!state) continue;
+
+    if (config.notifyOom && state.oomKilled) {
+      alerts.push(
+        alert(
+          "container_oom",
+          "error",
+          `${state.name}:${state.finishedAt ?? "unknown"}`,
+          `Container OOM-killed: ${state.name}`,
+          `${state.name} was killed by the kernel OOM killer (exit ${state.exitCode})`,
+          {
+            container: state.name,
+            finishedAt: state.finishedAt ?? "unknown",
+            restarts: String(state.restartCount),
+          },
+        ),
+      );
+    }
+
+    if (config.notifyCrashLoop) {
+      const previous = context.containerRestartCounts.get(state.id) ?? null;
+      context.containerRestartCounts.set(state.id, state.restartCount);
+      if (
+        previous !== null &&
+        state.restartCount - previous >= config.crashLoopRestarts
+      ) {
+        alerts.push(
+          alert(
+            "container_crash_loop",
+            "error",
+            state.name,
+            `Container restarting repeatedly: ${state.name}`,
+            `${state.name} restarted ${state.restartCount - previous} times since the last check`,
+            { container: state.name, exitCode: String(state.exitCode) },
+          ),
+        );
+      }
+    }
   }
 
+  return alerts;
+}
+
+async function collectActivityAlerts(
+  config: AlertEvaluationTaskConfig,
+  context: ExecutorContext,
+): Promise<PendingAlert[]> {
+  const since = new Date(Date.now() - config.lookbackMinutes * 60_000);
+  const alerts: PendingAlert[] = [];
+
+  const outcomes = await requestOutcomeCounts(context.db, since);
+  // A handful of requests in a quiet hour makes any ratio meaningless.
+  if (outcomes.total >= MIN_REQUESTS_FOR_ERROR_RATE) {
+    const rate = (outcomes.serverErrors / outcomes.total) * 100;
+    if (rate >= config.apiErrorRatePercent) {
+      alerts.push(
+        alert(
+          "api_error_rate",
+          "error",
+          "api",
+          "API error rate elevated",
+          `${rate.toFixed(1)}% of ${outcomes.total} logged requests returned 5xx in the last ${config.lookbackMinutes}m`,
+          { serverErrors: String(outcomes.serverErrors) },
+        ),
+      );
+    }
+  }
+
+  const failedLogins = await countActivity(context.db, {
+    action: ACTIVITY_ACTIONS.signInFailed,
+    since,
+  });
+  if (failedLogins >= config.authFailureBurstCount) {
+    alerts.push(
+      alert(
+        "auth_failure_burst",
+        "warn",
+        "auth",
+        "Repeated sign-in failures",
+        `${failedLogins} failed sign-ins in the last ${config.lookbackMinutes}m`,
+      ),
+    );
+  }
+
+  return alerts;
+}
+
+const MIN_REQUESTS_FOR_ERROR_RATE = 20;
+
+async function executeAlertEvaluation(
+  rawConfig: TaskConfig,
+  _taskId: string,
+  context: ExecutorContext,
+): Promise<ExecutorResult> {
+  const config = alertEvaluationTaskConfigSchema.parse(rawConfig);
+  const groups = await Promise.all([
+    collectHostAlerts(config, context),
+    collectContainerAlerts(config, context).catch((error) => {
+      console.error("[alerts] Container evaluation failed", error);
+      return [];
+    }),
+    collectActivityAlerts(config, context).catch((error) => {
+      console.error("[alerts] Activity evaluation failed", error);
+      return [];
+    }),
+  ]);
+  const alerts = groups.flat();
+
+  let suppressed = 0;
+  for (const pending of alerts) {
+    const result = await context.notifications.dispatch(pending.payload, {
+      cooldownMinutes: config.throttleMinutes,
+    });
+    if (result.suppressed) suppressed += 1;
+  }
+
+  const summaries = alerts.map((pending) => pending.summary);
   return {
     output:
       alerts.length === 0
         ? "No alert thresholds exceeded"
-        : `${alerts.join("\n")}${throttled ? "\nNotification throttled" : ""}`,
-    metadata: { alerts },
+        : `${summaries.join("\n")}${suppressed > 0 ? `\n${suppressed} within cooldown, not re-sent` : ""}`,
+    metadata: { alerts: summaries },
   };
 }
 
@@ -305,12 +530,19 @@ export function getExecutor(
         const config = metricsRollupTaskConfigSchema.parse(rawConfig);
         const startedAt = Date.now();
         const result = await rollupAndPruneMetrics(context.db, config);
+        // The activity log has the same shape of problem as raw samples —
+        // unbounded append with a time-based cutoff — so it rides along here
+        // rather than adding a second scheduled task to forget about.
+        const activityPruned = await pruneActivity(context.db, {
+          retentionDays: context.activityRetentionDays,
+        });
         return {
-          output: `Metrics rollup completed: ${result.rolledUp} upserted, ${result.pruned} pruned`,
+          output: `Metrics rollup completed: ${result.rolledUp} upserted, ${result.pruned} pruned; activity log: ${activityPruned} pruned`,
           metadata: {
             durationMs: Date.now() - startedAt,
             samplesRolledUp: result.rolledUp,
             samplesPruned: result.pruned,
+            activityPruned,
           },
         };
       };

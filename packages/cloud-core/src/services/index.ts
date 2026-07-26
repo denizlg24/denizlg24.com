@@ -34,6 +34,7 @@ export {
   deleteTask,
   deleteTaskRun,
   deleteTaskRuns,
+  findTaskByType,
   getLatestTaskRuns,
   getTask,
   listTaskRuns,

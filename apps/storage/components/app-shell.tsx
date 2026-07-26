@@ -1,5 +1,6 @@
 "use client";
 
+import { ThemeToggle } from "@repo/cloud-ui/theme";
 import { Button } from "@repo/ui/button";
 import {
   DropdownMenu,
@@ -72,6 +73,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               ⌘K
             </kbd>
           </button>
+
+          <ThemeToggle className="size-8 shrink-0" />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

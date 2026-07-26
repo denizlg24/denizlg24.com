@@ -1,4 +1,12 @@
 export {
+  type ActivityCaptureDecision,
+  type ActivityMiddlewareOptions,
+  activityCapture,
+  categoryForPath,
+  severityForStatus,
+  shouldCapture,
+} from "./activity";
+export {
   type ApiKeyAuthResult,
   type AuthResolvers,
   type AuthVariables,

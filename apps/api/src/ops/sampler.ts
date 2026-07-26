@@ -160,7 +160,56 @@ export class MetricsSampler {
         key: `${disk.device}.usage_percent`,
         value: disk.usagePercent,
       });
+      // Absent on an offline disk and on the first sample after a restart.
+      // Writing a zero in those cases would draw a trough that never happened.
+      if (disk.readBytesPerSecond !== undefined) {
+        samples.push({
+          ts,
+          kind: "disk",
+          key: `${disk.device}.read_bytes_per_second`,
+          value: disk.readBytesPerSecond,
+        });
+      }
+      if (disk.writeBytesPerSecond !== undefined) {
+        samples.push({
+          ts,
+          kind: "disk",
+          key: `${disk.device}.write_bytes_per_second`,
+          value: disk.writeBytesPerSecond,
+        });
+      }
+      if (disk.utilizationPercent !== undefined) {
+        samples.push({
+          ts,
+          kind: "disk",
+          key: `${disk.device}.io_utilization_percent`,
+          value: disk.utilizationPercent,
+        });
+      }
     }
+
+    // Collected for the overview tiles already; persisting it is what lets the
+    // storage analytics page draw growth without a second aggregation pass.
+    samples.push(
+      {
+        ts,
+        kind: "storage",
+        key: "total_bytes",
+        value: overview.storage.totalSizeBytes,
+      },
+      {
+        ts,
+        kind: "storage",
+        key: "file_count",
+        value: overview.storage.fileCount,
+      },
+      {
+        ts,
+        kind: "storage",
+        key: "folder_count",
+        value: overview.storage.folderCount,
+      },
+    );
     for (const network of overview.network) {
       samples.push(
         {

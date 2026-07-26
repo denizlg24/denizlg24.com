@@ -83,9 +83,20 @@ export const metricsRollupTaskConfigSchema = z.object({
 });
 export const alertEvaluationTaskConfigSchema = z.object({
   diskUsagePercent: z.number().min(1).max(100).default(90),
+  diskCriticalPercent: z.number().min(1).max(100).default(96),
   memoryUsagePercent: z.number().min(1).max(100).default(90),
   temperatureCelsius: z.number().min(1).max(150).default(80),
   notifyServiceDown: z.boolean().default(true),
+  notifyOom: z.boolean().default(true),
+  notifyCrashLoop: z.boolean().default(true),
+  /** Restarts within the lookback window that count as a crash loop. */
+  crashLoopRestarts: z.number().int().min(2).max(100).default(3),
+  /** Percentage of logged requests returning 5xx that raises api_error_rate. */
+  apiErrorRatePercent: z.number().min(1).max(100).default(10),
+  /** Failed sign-ins in the lookback window that raise auth_failure_burst. */
+  authFailureBurstCount: z.number().int().min(1).max(1_000).default(10),
+  /** How far back the activity-log derived checks look. */
+  lookbackMinutes: z.number().int().min(5).max(1_440).default(60),
   throttleMinutes: z.number().int().min(1).max(1_440).default(360),
 });
 // Runs argv directly — no shell, so quoting and metacharacters carry no
@@ -137,9 +148,16 @@ export const taskConfigSchema = z.object({
   rawRetentionHours: z.number().optional(),
   rollupRetentionDays: z.number().optional(),
   diskUsagePercent: z.number().optional(),
+  diskCriticalPercent: z.number().optional(),
   memoryUsagePercent: z.number().optional(),
   temperatureCelsius: z.number().optional(),
   notifyServiceDown: z.boolean().optional(),
+  notifyOom: z.boolean().optional(),
+  notifyCrashLoop: z.boolean().optional(),
+  crashLoopRestarts: z.number().optional(),
+  apiErrorRatePercent: z.number().optional(),
+  authFailureBurstCount: z.number().optional(),
+  lookbackMinutes: z.number().optional(),
   throttleMinutes: z.number().optional(),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
@@ -175,6 +193,7 @@ export const taskRunMetadataSchema = z.object({
   samplesCreated: z.number().int().nonnegative().optional(),
   samplesRolledUp: z.number().int().nonnegative().optional(),
   samplesPruned: z.number().int().nonnegative().optional(),
+  activityPruned: z.number().int().nonnegative().optional(),
   alerts: z.array(z.string()).optional(),
   exitCode: z.number().int().optional(),
 });

@@ -4,6 +4,12 @@ export {
   type StoragePrincipal,
 } from "./access";
 export {
+  largestFiles,
+  storageByType,
+  storageByUser,
+  storageStats,
+} from "./analytics";
+export {
   type ArchiveEntry,
   archiveByteLength,
   writeArchive,
