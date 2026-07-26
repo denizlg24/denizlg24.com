@@ -5,8 +5,14 @@ export {
 } from "./access";
 export {
   type ArchiveEntry,
-  createZipStream,
+  archiveByteLength,
+  writeArchive,
 } from "./archive";
+export {
+  type ArchiveJob,
+  type ArchiveJobState,
+  ArchiveJobStore,
+} from "./archive-jobs";
 export {
   type StorageConfig,
   storageConfigFromEnv,

@@ -216,6 +216,25 @@ export const downloadArchiveInputSchema = z
   );
 export type DownloadArchiveInput = z.infer<typeof downloadArchiveInputSchema>;
 
+export const archiveJobStateSchema = z.enum(["building", "ready", "failed"]);
+export type ArchiveJobState = z.infer<typeof archiveJobStateSchema>;
+
+// The archive is built to disk and then downloaded as a plain file, so the
+// client tracks it as a job rather than reading one long response body.
+// totalBytes is exact, not an estimate: store-only entries make the output
+// size arithmetic.
+export const archiveJobSchema = z.object({
+  id: z.uuid(),
+  filename: z.string(),
+  fileCount: z.number(),
+  totalBytes: z.number(),
+  writtenBytes: z.number(),
+  state: archiveJobStateSchema,
+  error: z.string().nullable(),
+});
+export type ArchiveJob = z.infer<typeof archiveJobSchema>;
+export const archiveJobResponseSchema = apiResponseSchema(archiveJobSchema);
+
 export const tusUploadStatusSchema = z.enum([
   "in_progress",
   "completed",

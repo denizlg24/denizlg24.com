@@ -16,7 +16,7 @@ import {
 import { Popover, PopoverAnchor, PopoverContent } from "@repo/ui/popover";
 import { cn } from "@repo/ui/utils";
 import { Folder, MoreHorizontal } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { fileIcon } from "@/lib/file-kind";
 import { InlineName } from "./inline-name";
 import { ContextActions, DropdownActions, itemActions } from "./item-menu";
@@ -32,7 +32,8 @@ export interface BrowserController {
   focusedId: string | null;
   renamingId: string | null;
   moving: boolean;
-  onPointerSelect: (row: BrowserRow, event: React.MouseEvent) => void;
+  /** Selects, and opens when it is the second click on the same row. */
+  onRowClick: (row: BrowserRow, event: React.MouseEvent) => void;
   onToggleSelect: (row: BrowserRow) => void;
   onOpen: (row: BrowserRow) => void;
   onStartRename: (id: string) => void;
@@ -54,17 +55,40 @@ type Panel = "share" | "move" | null;
 function useItem(row: BrowserRow, controller: BrowserController) {
   const [panel, setPanel] = useState<Panel>(null);
   const [dropOver, setDropOver] = useState(false);
+  const pendingPanel = useRef<Exclude<Panel, null> | null>(null);
   const scope = controller.scopeOf(row);
+
+  /**
+   * Share and move open a popover anchored inside the menu that triggered them.
+   * As that menu closes Radix puts focus back on its trigger, which sits
+   * outside the popover and reads as a dismiss — the panel appeared and
+   * vanished in the same frame. Waiting a frame only narrowed the race; the
+   * menu's own close-autofocus event is the exact moment it is gone, and
+   * preventing that event suppresses the focus restoration that caused the
+   * dismiss. The preview pane has no menu, which is why sharing worked there.
+   */
+  const openPanel = (next: Exclude<Panel, null>) => {
+    pendingPanel.current = next;
+  };
+
+  const onMenuCloseAutoFocus = (event: Event) => {
+    const next = pendingPanel.current;
+    // Every other action still wants the trigger focused again.
+    if (!next) return;
+    pendingPanel.current = null;
+    event.preventDefault();
+    setPanel(next);
+  };
 
   const actions = itemActions(
     row,
     {
       onDelete: () => controller.onDelete(scope),
       onDownload: () => controller.onDownload(scope),
-      onMove: () => setPanel("move"),
+      onMove: () => openPanel("move"),
       onOpen: () => controller.onOpen(row),
       onRename: () => controller.onStartRename(row.id),
-      onShare: () => setPanel("share"),
+      onShare: () => openPanel("share"),
     },
     scope.length,
   );
@@ -108,12 +132,21 @@ function useItem(row: BrowserRow, controller: BrowserController) {
       />
     ) : null;
 
-  return { actions, dropHandlers, dropOver, panel, panelContent, setPanel };
+  return {
+    actions,
+    dropHandlers,
+    dropOver,
+    onMenuCloseAutoFocus,
+    panel,
+    panelContent,
+    setPanel,
+  };
 }
 
 function Menu({
   row,
   actions,
+  onCloseAutoFocus,
   panel,
   panelContent,
   setPanel,
@@ -121,6 +154,7 @@ function Menu({
 }: {
   row: BrowserRow;
   actions: ReturnType<typeof itemActions>;
+  onCloseAutoFocus: (event: Event) => void;
   panel: Panel;
   panelContent: ReactNode;
   setPanel: (panel: Panel) => void;
@@ -147,6 +181,7 @@ function Menu({
           <DropdownMenuContent
             align="end"
             className="w-56"
+            onCloseAutoFocus={onCloseAutoFocus}
             onClick={(event) => event.stopPropagation()}
           >
             <DropdownActions actions={actions} />
@@ -173,8 +208,15 @@ export function ItemRow({
   controller: BrowserController;
   density: Density;
 }) {
-  const { actions, dropHandlers, dropOver, panel, panelContent, setPanel } =
-    useItem(row, controller);
+  const {
+    actions,
+    dropHandlers,
+    dropOver,
+    onMenuCloseAutoFocus,
+    panel,
+    panelContent,
+    setPanel,
+  } = useItem(row, controller);
   const selected = controller.selection.has(row.id);
   const focused = controller.focusedId === row.id;
   const renaming = controller.renamingId === row.id;
@@ -189,8 +231,10 @@ export function ItemRow({
           draggable={!renaming}
           onDragStart={(event) => controller.onDragStart(row, event)}
           onDragEnd={controller.onDragEnd}
-          onClick={(event) => controller.onPointerSelect(row, event)}
-          onDoubleClick={() => controller.onOpen(row)}
+          onClick={(event) => controller.onRowClick(row, event)}
+          // Radix does not stop the event, so without this the pane's own
+          // context menu opens behind this one.
+          onContextMenu={(event) => event.stopPropagation()}
           className={cn(
             "select-none-drag cursor-default border-b transition-colors last:border-b-0",
             selected ? "bg-muted/70" : "hover:bg-muted/40",
@@ -249,6 +293,7 @@ export function ItemRow({
             <Menu
               row={row}
               actions={actions}
+              onCloseAutoFocus={onMenuCloseAutoFocus}
               panel={panel}
               panelContent={panelContent}
               setPanel={setPanel}
@@ -257,7 +302,10 @@ export function ItemRow({
           </td>
         </tr>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
+      <ContextMenuContent
+        className="w-56"
+        onCloseAutoFocus={onMenuCloseAutoFocus}
+      >
         <ContextActions actions={actions} />
       </ContextMenuContent>
     </ContextMenu>
@@ -273,8 +321,15 @@ export function ItemTile({
   controller: BrowserController;
   density: Density;
 }) {
-  const { actions, dropHandlers, dropOver, panel, panelContent, setPanel } =
-    useItem(row, controller);
+  const {
+    actions,
+    dropHandlers,
+    dropOver,
+    onMenuCloseAutoFocus,
+    panel,
+    panelContent,
+    setPanel,
+  } = useItem(row, controller);
   const selected = controller.selection.has(row.id);
   const focused = controller.focusedId === row.id;
   const renaming = controller.renamingId === row.id;
@@ -289,8 +344,8 @@ export function ItemTile({
           draggable={!renaming}
           onDragStart={(event) => controller.onDragStart(row, event)}
           onDragEnd={controller.onDragEnd}
-          onClick={(event) => controller.onPointerSelect(row, event)}
-          onDoubleClick={() => controller.onOpen(row)}
+          onClick={(event) => controller.onRowClick(row, event)}
+          onContextMenu={(event) => event.stopPropagation()}
           className={cn(
             "select-none-drag group relative flex cursor-default flex-col items-center gap-2 rounded-lg border p-3 transition-colors",
             density === "compact" ? "p-2" : "p-3",
@@ -313,10 +368,16 @@ export function ItemTile({
               onCheckedChange={() => controller.onToggleSelect(row)}
             />
           </div>
-          <div className="absolute right-0.5 top-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          {/* The panel is portalled out, so without data-open its anchor fades
+              away the moment the pointer leaves the tile. */}
+          <div
+            data-open={panel !== null}
+            className="absolute right-0.5 top-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 data-[open=true]:opacity-100"
+          >
             <Menu
               row={row}
               actions={actions}
+              onCloseAutoFocus={onMenuCloseAutoFocus}
               panel={panel}
               panelContent={panelContent}
               setPanel={setPanel}
@@ -350,7 +411,10 @@ export function ItemTile({
           </span>
         </li>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
+      <ContextMenuContent
+        className="w-56"
+        onCloseAutoFocus={onMenuCloseAutoFocus}
+      >
         <ContextActions actions={actions} />
       </ContextMenuContent>
     </ContextMenu>

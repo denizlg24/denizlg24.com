@@ -367,7 +367,9 @@ async function getObjectResponse(
   end = Math.min(end, metadata.size - 1);
   headers.set("Content-Length", String(end - start + 1));
   headers.set("Content-Range", `bytes ${start}-${end}/${metadata.size}`);
-  return new Response(file.slice(start, end + 1).stream(), {
+  // Direct BunFile slice, not .stream(): the sendfile path keeps large ranged
+  // GETs on kernel backpressure. See deniz-cloud d60d38d.
+  return new Response(file.slice(start, end + 1), {
     status: 206,
     headers,
   });

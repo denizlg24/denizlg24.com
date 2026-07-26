@@ -27,7 +27,8 @@ import {
 } from "../search";
 import type { StoragePrincipal } from "./access";
 import { checkStorageAccess } from "./access";
-import { type ArchiveEntry, createZipStream } from "./archive";
+import { type ArchiveEntry, archiveByteLength } from "./archive";
+import { type ArchiveJob, ArchiveJobStore } from "./archive-jobs";
 import type { StorageConfig } from "./config";
 import { contentDisposition } from "./content-disposition";
 import {
@@ -58,51 +59,13 @@ import type { PromotionQueue } from "./tiering";
 
 const TUS_VERSION = "1.0.0";
 const UPLOAD_EXPIRY_MS = 24 * 60 * 60 * 1_000;
-
-function fileRangeStream(
-  diskPath: string,
-  start: number,
-  end: number,
-): ReadableStream<Uint8Array> {
-  let handle: Awaited<ReturnType<typeof open>> | null = null;
-  let position = start;
-
-  const close = async (): Promise<void> => {
-    const current = handle;
-    handle = null;
-    await current?.close();
-  };
-
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      handle ??= await open(diskPath, "r");
-      const length = Math.min(64 * 1024, end - position + 1);
-      if (length <= 0) {
-        controller.close();
-        await close();
-        return;
-      }
-
-      const buffer = new Uint8Array(length);
-      const { bytesRead } = await handle.read(buffer, 0, length, position);
-      if (bytesRead === 0) {
-        controller.close();
-        await close();
-        return;
-      }
-
-      position += bytesRead;
-      controller.enqueue(buffer.subarray(0, bytesRead));
-      if (position > end) {
-        controller.close();
-        await close();
-      }
-    },
-    async cancel() {
-      await close();
-    },
-  });
-}
+const ARCHIVE_NAME = "deniz-cloud-files.zip";
+// Two builds already saturate the Pi's CRC throughput; more only compete for
+// the same disk and stage more bytes that may never be downloaded.
+const MAX_CONCURRENT_ARCHIVES = 2;
+// Refuse to stage an archive that would leave the SSD with less headroom than
+// the archive itself.
+const ARCHIVE_HEADROOM_FACTOR = 2;
 
 export class StorageServiceError extends Error {
   constructor(
@@ -251,19 +214,26 @@ function safeJsonBody(value: unknown): Record<string, unknown> {
 
 export class StorageService {
   readonly #uploadLocks = new Map<string, Promise<void>>();
+  readonly #archives: ArchiveJobStore;
 
   constructor(
     private readonly db: Database,
     private readonly meili: MeiliSearch,
     private readonly config: StorageConfig,
     private readonly promotions: PromotionQueue,
-  ) {}
+  ) {
+    this.#archives = new ArchiveJobStore({
+      directory: config.archivePath,
+      ttlMs: config.archiveTtlMs,
+    });
+  }
 
   async initialize(): Promise<void> {
     await Promise.all([
       ensureDir(this.config.ssdStoragePath),
       ensureDir(this.config.hddStoragePath),
       ensureDir(this.config.tempUploadPath),
+      this.#archives.initialize(),
     ]);
   }
 
@@ -583,18 +553,28 @@ export class StorageService {
           .where(eq(folders.id, id));
         // Rewrite only the leading prefix: REPLACE would corrupt descendants
         // whose paths repeat the old segment deeper down.
+        //
+        // The offsets are cast to int deliberately. A bare parameter arrives
+        // untyped, and Postgres then resolves SUBSTRING(text FROM <unknown>)
+        // to the *regex* overload rather than the positional one — it searches
+        // the path for the literal digits instead of cutting at that index,
+        // yields NULL when they do not appear, and the NOT NULL constraint on
+        // path rejects the row. Moving any folder with descendants failed this
+        // way.
+        const suffixFrom = folder.path.length + 1;
+        const diskSuffixFrom = oldDiskPath.length + 1;
         await tx
           .update(folders)
           .set({
-            path: sql`${newPath} || SUBSTRING(${folders.path} FROM ${folder.path.length + 1})`,
+            path: sql`${newPath} || SUBSTRING(${folders.path} FROM ${suffixFrom}::int)`,
             updatedAt: new Date(),
           })
           .where(like(folders.path, descendantPattern(folder.path)));
         await tx
           .update(files)
           .set({
-            path: sql`${newPath} || SUBSTRING(${files.path} FROM ${folder.path.length + 1})`,
-            diskPath: sql`CASE WHEN ${files.tier} = 'ssd' THEN ${newDiskPath} || SUBSTRING(${files.diskPath} FROM ${oldDiskPath.length + 1}) ELSE ${files.diskPath} END`,
+            path: sql`${newPath} || SUBSTRING(${files.path} FROM ${suffixFrom}::int)`,
+            diskPath: sql`CASE WHEN ${files.tier} = 'ssd' THEN ${newDiskPath} || SUBSTRING(${files.diskPath} FROM ${diskSuffixFrom}::int) ELSE ${files.diskPath} END`,
             updatedAt: new Date(),
           })
           .where(like(files.path, descendantPattern(folder.path)));
@@ -1237,10 +1217,17 @@ export class StorageService {
     return expired.length;
   }
 
+  /**
+   * Starts a ZIP build on disk and returns the job to poll. The archive is not
+   * streamed out of this request: a userspace stream through Bun's server has
+   * no backpressure and a multi-gigabyte selection OOM-kills the API. Staging
+   * it also lets the browser download the finished file natively instead of
+   * buffering the whole ZIP in the tab.
+   */
   async archive(
     principal: StoragePrincipal,
     bodyValue: unknown,
-  ): Promise<Response> {
+  ): Promise<ArchiveJob> {
     const parsed = downloadArchiveInputSchema.safeParse(bodyValue);
     if (!parsed.success) {
       throw new StorageServiceError(
@@ -1299,15 +1286,92 @@ export class StorageService {
         "The selected folders contain no files",
       );
     }
-    return new Response(createZipStream(entries), {
+    const ownerKey = this.#archiveOwnerKey(principal);
+    if (this.#archives.activeCount(ownerKey) >= MAX_CONCURRENT_ARCHIVES) {
+      throw new StorageServiceError(
+        409,
+        "ARCHIVE_BUSY",
+        "Another archive is still building",
+      );
+    }
+    let totalBytes: number;
+    try {
+      totalBytes = archiveByteLength(entries);
+    } catch (error) {
+      throw new StorageServiceError(
+        413,
+        "ARCHIVE_TOO_LARGE",
+        error instanceof Error ? error.message : "Archive exceeds ZIP32 limits",
+      );
+    }
+    const disk = await getDiskStats(this.config.ssdStoragePath);
+    if (disk.availableBytes < totalBytes * ARCHIVE_HEADROOM_FACTOR) {
+      throw new StorageServiceError(
+        413,
+        "ARCHIVE_NO_SPACE",
+        "Not enough free disk space to stage that archive",
+      );
+    }
+    return this.#archives.start({
+      ownerKey,
+      filename: ARCHIVE_NAME,
+      totalBytes,
+      entries,
+    });
+  }
+
+  archiveStatus(principal: StoragePrincipal, id: string): ArchiveJob {
+    const job = this.#archives.find(this.#archiveOwnerKey(principal), id);
+    if (!job) {
+      throw new StorageServiceError(
+        404,
+        "ARCHIVE_NOT_FOUND",
+        "That archive is no longer available",
+      );
+    }
+    return job;
+  }
+
+  async archiveDownload(
+    principal: StoragePrincipal,
+    id: string,
+  ): Promise<Response> {
+    const job = this.archiveStatus(principal, id);
+    if (job.state !== "ready") {
+      throw new StorageServiceError(
+        409,
+        "ARCHIVE_NOT_READY",
+        job.error ?? "That archive is still building",
+      );
+    }
+    const file = Bun.file(job.diskPath);
+    if (!(await file.exists())) {
+      await this.#archives.discard(job);
+      throw new StorageServiceError(
+        410,
+        "ARCHIVE_EXPIRED",
+        "That archive has already been cleaned up",
+      );
+    }
+    // Bun.file() and nothing else: it is the only response body that reaches
+    // the socket through sendfile with kernel-level backpressure.
+    return new Response(file, {
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": contentDisposition(
-          "attachment",
-          "deniz-cloud-files.zip",
-        ),
+        "Content-Length": String(file.size),
+        "Content-Disposition": contentDisposition("attachment", job.filename),
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
       },
     });
+  }
+
+  // Project credentials are scoped to one project's tree, so an archive built
+  // for one must not be readable through another's key.
+  #archiveOwnerKey(principal: StoragePrincipal): string {
+    return principal.project
+      ? `project:${principal.project.id}`
+      : `user:${principal.user.id}`;
   }
 
   async search(principal: StoragePrincipal, query: URLSearchParams) {
@@ -1437,7 +1501,10 @@ export class StorageService {
     end = Math.min(end, file.sizeBytes - 1);
     headers.set("Content-Length", String(end - start + 1));
     headers.set("Content-Range", `bytes ${start}-${end}/${file.sizeBytes}`);
-    return new Response(fileRangeStream(file.diskPath, start, end), {
+    // Hand the slice to Bun directly so it uses the sendfile path with
+    // kernel-level backpressure. A userspace ReadableStream here copies every
+    // chunk through JS and drops large transfers; see deniz-cloud d60d38d.
+    return new Response(Bun.file(file.diskPath).slice(start, end + 1), {
       status: 206,
       headers,
     });

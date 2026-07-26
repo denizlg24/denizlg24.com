@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import {
   HostCollector,
+  hasDeviceRows,
   parseCpuStat,
   parseDf,
   parseLoadAverage,
@@ -145,6 +146,7 @@ describe("host metric parsers", () => {
             {
               name: "thermal_zone0",
               isDirectory: () => true,
+              isSymbolicLink: () => false,
             },
           ];
         },
@@ -158,5 +160,68 @@ describe("host metric parsers", () => {
 
     expect(roots).toEqual(["/host/sys", "/sys"]);
     expect(temperature).toBe(42.5);
+  });
+
+  // Real sysfs exposes thermal_zone* as symlinks into /sys/devices, so a
+  // directory-only filter finds no sensors and the dashboard shows no
+  // temperature at all.
+  it("reads zones exposed as symlinks", async () => {
+    const temperature = await readCpuTemperature(
+      {
+        readdir: async () => [
+          {
+            name: "thermal_zone0",
+            isDirectory: () => false,
+            isSymbolicLink: () => true,
+          },
+        ],
+        readFile: async () => "40800\n",
+      },
+      ["/host/sys/class/thermal"],
+    );
+    expect(temperature).toBe(40.8);
+  });
+
+  it("ignores entries that are neither directories nor symlinks", async () => {
+    const temperature = await readCpuTemperature(
+      {
+        readdir: async () => [
+          {
+            name: "thermal_zone0",
+            isDirectory: () => false,
+            isSymbolicLink: () => false,
+          },
+        ],
+        readFile: async () => "40800\n",
+      },
+      ["/host/sys/class/thermal"],
+    );
+    expect(temperature).toBeNull();
+  });
+});
+
+describe("df partial-failure tolerance", () => {
+  // Mounting the host root exposes paths the unprivileged container user cannot
+  // stat, so df exits 1 on a healthy Pi while still reporting every filesystem.
+  // Discarding that output marked every disk offline in production.
+  it("still finds device rows when df also printed permission errors", () => {
+    const output = [
+      "Filesystem           1024-blocks    Used Available Capacity Mounted on",
+      "/dev/mmcblk0p2          60789696 12624592  45640772      22% /host-control",
+      "/dev/nvme0n1p1         983378332 40032656 893319132       4% /data/ssd",
+    ].join("\n");
+    expect(hasDeviceRows(output)).toBe(true);
+    expect(parseDf(output).get("/dev/nvme0n1p1")?.totalBytes).toBe(
+      983378332 * 1024,
+    );
+  });
+
+  it("reports no usable rows when df produced only a header", () => {
+    expect(
+      hasDeviceRows(
+        "Filesystem 1024-blocks Used Available Capacity Mounted on",
+      ),
+    ).toBe(false);
+    expect(hasDeviceRows("")).toBe(false);
   });
 });

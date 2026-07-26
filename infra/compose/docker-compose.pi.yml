@@ -155,15 +155,19 @@ services:
     mem_limit: ${MONGOT_MEMORY_LIMIT:-0}
     restart: unless-stopped
     healthcheck:
+      # scripts/mongot.yml binds healthCheck.address to "mongot:8080", i.e. the
+      # container's own service IP — not loopback. Probing localhost here can
+      # never connect, so mongot stays unhealthy forever and every dependent
+      # service is blocked from starting.
       test:
         [
           "CMD-SHELL",
-          "curl --fail --silent http://localhost:8080/ready >/dev/null",
+          "curl --fail --silent http://mongot:8080/ready >/dev/null",
         ]
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      start_period: 60s
 
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
@@ -228,6 +232,15 @@ services:
   meilisearch:
     image: ${MEILI_IMAGE:-getmeili/meilisearch:v1.38}
     networks: [app]
+    # Legacy consumers call search.denizlg24.com directly with their own
+    # Meilisearch keys, so the tunnel needs a host-reachable port. Bound to
+    # loopback: cloudflared reaches it, the LAN cannot. The old stack published
+    # this on 0.0.0.0.
+    ports:
+      - target: 7700
+        published: "${MEILI_PORT:-7700}"
+        host_ip: "${MEILI_BIND_ADDRESS:-127.0.0.1}"
+        protocol: tcp
     environment:
       MEILI_ENV: ${MEILI_ENV:-production}
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required}
@@ -261,7 +274,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     mem_limit: ${DOCKER_PROXY_MEMORY_LIMIT:-0}
-    read_only: true
+    # NOT read_only: the entrypoint renders /usr/local/etc/haproxy/haproxy.cfg
+    # from a template that ships in the image at that same path on every start.
+    # read_only blocks the write, and a tmpfs over the directory hides the
+    # template — both crash-loop. Hardening is preserved by the read-only
+    # socket mount, the ALLOW_* allowlist, and no added capabilities.
     tmpfs:
       - /run
       - /tmp
@@ -328,7 +345,13 @@ services:
       STORAGE_TIER_MIN_SIZE_MIB: ${STORAGE_TIER_MIN_SIZE_MIB:-500}
       SSD_DEVICE: ${SSD_DEVICE:-/dev/nvme0n1p1}
       SSD_STORAGE_PATH: /data/ssd
-      TERMINAL_SERVER_URL: ws://host.docker.internal:3003
+      # host.docker.internal maps to the docker0 gateway (172.17.0.1), which
+      # Docker's inter-bridge isolation makes unroutable from this container's
+      # custom networks — the proxy times out and every terminal session 500s.
+      # Point this at an address the host actually answers on from the compose
+      # network; the Tailscale IP is stable across network recreation, whereas
+      # br-* gateway IPs are not. The terminal must bind the same address.
+      TERMINAL_SERVER_URL: ${TERMINAL_SERVER_URL:-ws://host.docker.internal:3003}
       TERMINAL_TICKET_SECRET: ${TERMINAL_TICKET_SECRET:?TERMINAL_TICKET_SECRET is required}
       TUNNEL_HEALTH_URL: ${TUNNEL_HEALTH_URL:-}
     extra_hosts:
@@ -343,7 +366,14 @@ services:
       - ${HOST_CONTROL_DIR:-/var/lib/deniz-cloud}:/host-control
     mem_limit: ${API_MEMORY_LIMIT:-0}
     oom_score_adj: 500
-    read_only: true
+    # read_only is OFF deliberately. The runtime image ships only dist/ with no
+    # node_modules, so any dependency bun could not bundle is auto-installed
+    # from npm on the first /api/* request; a read-only rootfs turns that into a
+    # crash loop on every request. Bundling @opentelemetry/api removed the known
+    # offender — re-enable read_only only after confirming a freshly built image
+    # serves /api/* with it on. Remaining hardening: no added capabilities,
+    # read-only /proc, /sys and rootfs mounts, and oom_score_adj.
+    read_only: false
     tmpfs:
       - /tmp
     restart: unless-stopped

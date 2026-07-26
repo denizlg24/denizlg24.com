@@ -48,11 +48,17 @@ case "${REDIS_TLS_MODE:-disabled}" in
     chmod 644 /tmp/redis-fullchain.pem
     chmod 600 /tmp/redis-privkey.pem
     chown redis:redis /tmp/redis-fullchain.pem /tmp/redis-privkey.pem
+    # tls-auth-clients defaults to yes, which makes Redis demand a client
+    # certificate and reject every dependent connecting over rediss:// with
+    # only a password — "peer did not return a certificate". Clients here
+    # authenticate with ACL credentials, not mutual TLS, so this must be off
+    # for opt-in TLS to be usable at all.
     set -- "$@" \
       --tls-port 6378 \
       --tls-cert-file /tmp/redis-fullchain.pem \
       --tls-key-file /tmp/redis-privkey.pem \
-      --tls-ca-cert-file /tmp/redis-fullchain.pem
+      --tls-ca-cert-file /tmp/redis-fullchain.pem \
+      --tls-auth-clients no
     ;;
   *)
     echo "REDIS_TLS_MODE must be disabled or allow" >&2

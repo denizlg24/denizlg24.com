@@ -162,6 +162,7 @@ async function readHostProc(path: string): Promise<string> {
 export interface ThermalEntry {
   name: string;
   isDirectory(): boolean;
+  isSymbolicLink(): boolean;
 }
 
 export interface TemperatureReader {
@@ -183,9 +184,13 @@ export async function readCpuTemperature(
       const entries = await reader.readdir(root);
       const temperatures = await Promise.all(
         entries
+          // sysfs exposes thermal_zone* as symlinks into /sys/devices, so
+          // isDirectory() is false for every one of them and filtering on it
+          // alone finds no sensors at all.
           .filter(
             (entry) =>
-              entry.isDirectory() && entry.name.startsWith("thermal_zone"),
+              (entry.isDirectory() || entry.isSymbolicLink()) &&
+              entry.name.startsWith("thermal_zone"),
           )
           .map(async (entry) => {
             const raw = await reader.readFile(`${root}/${entry.name}/temp`);
@@ -215,10 +220,20 @@ async function readDf(): Promise<string> {
     new Response(processHandle.stderr).text(),
     processHandle.exited,
   ]);
-  if (exitCode !== 0) {
+  // `df` exits non-zero when it cannot stat *any* mount point, even though it
+  // still reports every filesystem it could read. Mounting the host root at
+  // /host/rootfs exposes paths like /host/rootfs/run/docker/netns/* that the
+  // unprivileged container user cannot stat, so a healthy Pi always exits 1.
+  // Treating that as fatal loses every disk reading and reports all disks
+  // offline, so only fail when nothing usable came back.
+  if (exitCode !== 0 && !hasDeviceRows(stdout)) {
     throw new Error(`df failed (${exitCode}): ${stderr.slice(-2_000)}`);
   }
   return stdout;
+}
+
+export function hasDeviceRows(output: string): boolean {
+  return output.split(/\r?\n/).some((line) => line.trim().startsWith("/dev/"));
 }
 
 export interface HostCollectorDependencies {

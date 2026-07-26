@@ -2,6 +2,7 @@ import {
   AuthenticationError,
   type AuthVariables,
   CloudCoreError,
+  cors,
   type Database,
   deleteUser,
   hashPassword,
@@ -28,7 +29,6 @@ import {
 } from "@repo/schemas/cloud";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { z } from "zod";
 
 import pkg from "../package.json";

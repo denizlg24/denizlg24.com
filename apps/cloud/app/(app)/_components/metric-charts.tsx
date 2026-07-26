@@ -34,7 +34,7 @@ const CHART_COLORS = [
 
 interface ChartSpec {
   title: string;
-  unit: "percent" | "bytesPerSecond";
+  unit: "percent" | "bytesPerSecond" | "celsius";
   series: { name: string; label: string }[];
 }
 
@@ -50,6 +50,11 @@ function buildSpecs(overview: OpsOverview): ChartSpec[] {
       title: "memory",
       unit: "percent",
       series: [{ name: "host:memory.usage_percent", label: "memory" }],
+    },
+    {
+      title: "temperature",
+      unit: "celsius",
+      series: [{ name: "host:cpu.temperature_celsius", label: "cpu" }],
     },
     {
       title: "network",
@@ -170,11 +175,19 @@ function TimeSeriesChart({
               tickLine={false}
               axisLine={false}
               fontSize={10}
-              domain={spec.unit === "percent" ? [0, 100] : [0, "auto"]}
+              domain={
+                spec.unit === "percent"
+                  ? [0, 100]
+                  : spec.unit === "celsius"
+                    ? [0, 100]
+                    : [0, "auto"]
+              }
               tickFormatter={(value: number) =>
                 spec.unit === "percent"
                   ? `${value}%`
-                  : `${formatBytes(value)}/s`
+                  : spec.unit === "celsius"
+                    ? `${value}°`
+                    : `${formatBytes(value)}/s`
               }
             />
             <ChartTooltip
@@ -198,7 +211,9 @@ function TimeSeriesChart({
                       <span className="ml-auto font-mono tabular-nums">
                         {spec.unit === "percent"
                           ? `${Number(value).toFixed(1)}%`
-                          : `${formatBytes(Number(value))}/s`}
+                          : spec.unit === "celsius"
+                            ? `${Number(value).toFixed(1)}°C`
+                            : `${formatBytes(Number(value))}/s`}
                       </span>
                     </>
                   )}

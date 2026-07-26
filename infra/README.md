@@ -1,235 +1,142 @@
 # deniz-cloud infrastructure
 
-Plan 011 prepares the Raspberry Pi deployment without touching the old running
-stack. Production activation remains an explicit plan 012 cutover action.
+The stack is live: `api.denizlg24.com` on the Pi, `cloud.` and `storage.` on
+Vercel. This describes what runs and how to operate it. Historical planning and
+the cutover runbooks live in `docs/internal/` (untracked).
 
 ## Layout
 
-- `compose/`: production compose, examples, database entrypoints, and isolated
-  staging configuration.
-- `tailscale/`: remote-access lifeline and the passed off-LAN gate record.
-- `systemd/`: terminal, reboot sentinel, DDNS, and certificate renewal units.
-- `scripts/`: host installation, staging rehearsal, DDNS, and TLS helpers.
-- `network/` and `fail2ban/`: UFW, Cloudflare Tunnel, and database/SSH jails.
-- `vercel/`: the two Vercel project setup gate.
+- `compose/` — production compose, env examples, database entrypoints.
+- `systemd/` — terminal, reboot sentinel, DDNS, certificate renewal units.
+- `scripts/` — host install, DDNS, TLS helpers.
+- `network/`, `fail2ban/` — UFW, Cloudflare Tunnel, database/SSH jails.
+- `tailscale/`, `vercel/` — remote access and the two Vercel projects.
 
-## Production bootstrap
+Deployed copy lives at `/opt/deniz-cloud/infra` on the Pi. `.env.pi` (mode 600)
+exists only there.
 
-Run these only on the Pi, without stopping the old compose project:
+## Deploy
 
-```sh
-sudo install -d -o denizlg24 -g denizlg24 /opt/deniz-cloud
-cp -a infra /opt/deniz-cloud/
-cd /opt/deniz-cloud/infra/compose
-cp .env.pi.example .env.pi
-chmod 600 .env.pi
-```
-
-Replace every placeholder secret and, most importantly, replace each data path
-with the exact bind-mount source used by the old stack. Do not run production
-`compose up` before plan 012. Keep the Mongo member name `mongodb:27017`, the
-replica set `rs0`, and the existing replica keyfile.
-
-Authenticate the Pi to GHCR with a read-only package token, then install the
-host assets:
-
-```sh
-echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u denizlg24 --password-stdin
-sudo bash /opt/deniz-cloud/infra/scripts/install-host-units.sh
-```
-
-Create `/etc/deniz-cloud/ddns.env` with mode 600:
-
-```dotenv
-CF_API_TOKEN=replace-with-a-zone-dns-edit-token
-CF_ZONE_ID=replace-with-the-zone-id
-DDNS_RECORDS=mongodb.denizlg24.com,postgres.denizlg24.com,redis.denizlg24.com,me.denizlg24.com
-LETSENCRYPT_EMAIL=replace-with-operator-email
-```
-
-The Cloudflare token must be restricted to DNS edit/read for the one zone.
-Start the DDNS timer only after its one-shot succeeds:
-
-```sh
-sudo systemctl start cloud-ddns.service
-sudo systemctl enable --now cloud-ddns.timer
-```
-
-The reboot sentinel contract for plan 006 is
-`/var/lib/deniz-cloud/reboot-requested`. The API bind-mounts that directory at
-`/host-control` and writes `/host-control/reboot-requested`; the host path unit
-deletes it before invoking `systemctl reboot`.
-
-The API talks to Docker only through `tcp://docker-proxy:2375`. The proxy
-allows container list/inspect/stats, exec, and restart requests; it does not
-expose images, networks, volumes, secrets, services, or the system endpoint.
-PostgreSQL and MongoDB backup artifacts keep the legacy paths below
-`BACKUP_DIR/postgres` and `BACKUP_DIR/mongodb`. File backups are tar archives
-below `BACKUP_DIR/files`.
-
-### Host terminal service
-
-The terminal is a compiled host service, never a container. Install `tmux`,
-then install the plan 011 ARM64 artifact and configure the shared secret:
-
-```sh
-sudo apt-get install tmux
-sudo install -o root -g root -m 0755 cloud-terminal \
-  /usr/local/bin/cloud-terminal
-sudo install -o root -g root -m 0600 \
-  /etc/deniz-cloud/terminal.env.example \
-  /etc/deniz-cloud/terminal.env
-sudoedit /etc/deniz-cloud/terminal.env
-sudo systemctl enable --now cloud-terminal.service
-sudo systemctl status cloud-terminal.service
-ss -ltn | grep '127.0.0.1:3003'
-```
-
-`TERMINAL_TICKET_SECRET` must be the same random value (at least 32 bytes) in
-the API compose environment and `/etc/deniz-cloud/terminal.env`. The unit runs
-as the dedicated `pi-terminal` account, has no sudo policy, rejects non-loopback
-bind addresses, and is hardened with `NoNewPrivileges` and
-`ProtectSystem=strict`. `KillMode=process` deliberately leaves only that
-unprivileged user's tmux server alive across daemon restarts; its socket is
-under `/var/lib/cloud-terminal`, one of the unit's two writable paths.
-
-tmux sessions use the `cloud-` prefix, retain 100,000 history lines, and are
-reaped when unattached and inactive for `SESSION_IDLE_HOURS` (24 by default).
-List or kill them through the authenticated API, not by publishing port 3003.
-
-## Compose validation
-
-```sh
-docker compose \
-  --env-file infra/compose/.env.pi.example \
-  -f infra/compose/docker-compose.pi.yml \
-  config -q
-```
-
-Adminer and mongo-express are in the `tools` profile and bind only to loopback:
-
-```sh
-docker compose --env-file .env.pi -f docker-compose.pi.yml \
-  --profile tools up -d adminer mongo-express
-```
-
-Access them through an SSH tunnel; never publish them on WAN.
-
-## Memory budget
-
-**No service is cgroup-capped by default.** Every `*_MEMORY_LIMIT` defaults to
-`0`, so limits get set from observed working sets once the metrics history has
-real data, rather than from the paper budget below. The column is kept as the
-record of what the original budget assumed.
-
-| Service | Original budget | Observed peak | OOM kills |
-|---|---:|---:|---:|
-| API | 450 MiB | pending | pending |
-| MongoDB | 384 MiB | pending | pending |
-| mongot | 192 MiB | pending | pending |
-| PostgreSQL | 192 MiB | pending | pending |
-| Redis | 144 MiB | pending | pending |
-| Redis ACL audit | 16 MiB | pending | pending |
-| Meilisearch | 128 MiB | pending | pending |
-| Docker socket proxy | 24 MiB | pending | pending |
-| **Core total** | **1,530 MiB** | **pending** | **pending** |
-
-Removing the cgroup limits does **not** by itself let these services grow.
-Each keeps an internal cap that still binds: PostgreSQL
-`shared_buffers=64MB`, Mongo's WiredTiger cache at 0.25 GiB, mongot's JVM at
-`-Xmx128m`, and Redis `maxmemory=128mb`. The API (Bun) is the only genuinely
-unbounded service. Raise the internal caps deliberately when the metrics
-justify it; leave Redis capped, since its limit is an eviction policy rather
-than a ceiling.
-
-`effective_cache_size=256MB` is **not** in that list: it allocates nothing and
-caps nothing, it only tells the planner how much OS page cache to assume when
-costing index scans. Size the memory budget from the allocative settings above
-plus observed RSS, and tune `effective_cache_size` separately to match real
-available cache.
-
-Because nothing is capped, the kernel OOM killer would otherwise pick its
-victim by RSS — a database, not the leaking service. `oom_score_adj` biases it
-instead: `-500` on postgres and mongodb, `500` on the API, `1000` on the
-disposable sidecar and tools containers.
-
-`POSTGRES_MAX_CONNECTIONS` (150) is a shared ceiling: `DB_POOL_MAX` (25) for
-the API plus every dependent project connecting directly. Backends cost
-roughly 5 MiB each, so a saturated ceiling is a real ~750 MiB commitment. If
-dependent-project connection counts grow past this, add a pooler (pgbouncer in
-transaction mode) rather than raising the ceiling again — 4 GB of RAM does not
-support an arbitrarily large `max_connections`.
-
-The scripted load pass and observed peaks still need to run on the Pi before
-plan 011 is marked DONE.
-
-## Staging rehearsal
-
-Staging uses project name `cloud-staging`, loopback ports 13001/15433/17018/
-16380/16381, and paths below `/srv/deniz-cloud-staging`. It cannot replace or
-bind the production database ports.
+Push to `main`; CI builds `ghcr.io/denizlg24/deniz-cloud-api` for arm64. Then on
+the Pi:
 
 ```sh
 cd /opt/deniz-cloud/infra/compose
-cp .env.staging.example .env.staging
-chmod 600 .env.staging
-# Replace every staging placeholder before starting.
-sudo ../scripts/staging-up.sh
-docker compose -p cloud-staging --env-file .env.staging \
-  -f docker-compose.pi.yml ps
-curl --fail http://127.0.0.1:13001/healthz
-sudo ../scripts/staging-down.sh
+docker compose -p deniz-cloud --env-file .env.pi -f docker-compose.pi.yml \
+  --profile tools up -d
 ```
 
-`staging-down.sh` removes containers, the staging network, and the named mongot
-secret volume. It deliberately leaves bind-mounted staging data for inspection
-and rehearsal reuse.
+Compose changes must be copied to the Pi as well — only the image ships through
+CI. Validate before deploying:
 
-## Release workflow and rollback
+```sh
+docker compose --env-file infra/compose/.env.pi.example \
+  -f infra/compose/docker-compose.pi.yml config -q
+```
 
-`release-cloud.yml` uses the native `ubuntu-24.04-arm` runner and pushes both
-the immutable Git SHA and `latest` to
-`ghcr.io/denizlg24/deniz-cloud-api`. The `pi` GitHub environment must have
-required-reviewer protection plus:
+**A healthy container is not a ready one.** The runtime is built lazily on the
+first `/api/*` request and `/healthz` sits outside `/api/*`, so a container
+reports healthy having seeded no tasks, reconciled no Redis ACLs and started no
+workers. After every deploy:
 
-- secrets `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET`;
-- variable `PI_TAILNET_HOST=pi-cloud`;
-- a Tailscale `tag:ci` grant permitting TCP/22 to `pi-cloud` and
-  Tailscale SSH as user `pi`.
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' https://api.denizlg24.com/api/me   # 401
+docker exec deniz-cloud-postgres-1 psql -U admin -d denizcloud -t -A -F'|' \
+  -c "SELECT type, enabled FROM scheduled_tasks WHERE type IN ('metrics_rollup','tiering_pass')"
+```
 
-Never approve the production deploy job before plan 012's cutover window. The
-job copies only versioned infrastructure assets, preserves `.env.pi`, deploys
-the immutable image, and waits for `/healthz` to report that exact SHA.
+Expect `metrics_rollup|t` and `tiering_pass|f`.
 
-Rollback is non-destructive: manually run the workflow with `image_tag` set to
-the last known-good SHA tag and approve the `pi` environment. The compose
-bind-mounts remain unchanged. If the health gate fails, inspect the new
-container without pruning images or volumes, then deploy the previous SHA.
+Rollback: re-run the release workflow with `image_tag` set to the last good SHA.
+Bind mounts are untouched, so this is non-destructive. Do not prune images or
+volumes while diagnosing a failed deploy.
 
-Terminal compilation and installation are deferred until plan 007 creates the
-workspace. Extend this same workflow with the required
-`bun build --compile --target=bun-linux-arm64` artifact at plan 011
-finalization.
+## Host services
 
-## Health integration
+**Terminal** is a compiled binary, never a container, and CI does not ship it:
 
-Configure the existing web resource with:
+```sh
+bun build apps/terminal/src/index.ts --compile --target=bun-linux-arm64 \
+  --outfile cloud-terminal
+sudo install -m 755 -o root -g root cloud-terminal /usr/local/bin/cloud-terminal
+sudo systemctl restart cloud-terminal
+```
 
-- public HTTP check: `https://api.denizlg24.com/healthz`, expected status 200,
-  JSON path `status`, expected value `ok`;
-- TCP sub-resources for the three public database hostnames and ports.
+It runs **as root** (operator decision — it is the primary remote administration
+path), which requires `TERMINAL_ALLOW_ROOT=1` in the unit; the daemon refuses
+uid 0 without it. It still rejects wildcard and publicly routable binds.
+`TERMINAL_TICKET_SECRET` must be byte-identical in `.env.pi` and
+`/etc/deniz-cloud/terminal.env`. `KillMode=process` keeps the tmux server alive
+across daemon restarts; sessions use the `cloud-` prefix and are reaped after
+`SESSION_IDLE_HOURS` (24).
 
-The component endpoint is `GET https://api.denizlg24.com/api/ops/health`.
-It requires a Better Auth superuser session and returns paths such as
-`data.checks.postgres.status`, `data.checks.mongodb.status`,
-`data.checks.redis.status`, `data.checks.meilisearch.status`,
-`data.checks.mongot.status`, `data.checks.disk.status`, and
-`data.checks.tunnel.status`; healthy values are `ok`.
+The API reaches the terminal over the host's Tailscale address, not
+`host.docker.internal` — Docker's inter-bridge isolation makes the docker0
+gateway unroutable from the compose network, and UFW's `INPUT` policy is `DROP`,
+so this rule is required:
 
-The current `apps/web` HTTP sub-resource model cannot attach an authenticated
-cookie or header. Keep the public aggregate and TCP checks active for now.
-When that model gains secret headers, point private component checks at the
-paths above with a superuser-authenticated relay. Do not put session or API
+```sh
+sudo ufw allow from 172.16.0.0/12 to any port 3003 proto tcp
+```
+
+**Reboot sentinel**: the API writes `/host-control/reboot-requested`; the host
+path unit deletes it and calls `systemctl reboot`. Source dir is
+`/var/lib/deniz-cloud`, and it must be owned by uid 1000 — the container writes
+the sentinel as the unprivileged `bun` user, so a root-owned directory fails
+every `reboot_server` task with `EACCES`. `install-host-units.sh` creates it that
+way; a host provisioned before that:
+
+```sh
+sudo chown 1000:1000 /var/lib/deniz-cloud
+```
+
+**Docker access** is only ever through `tcp://docker-proxy:2375`, which permits
+container list/inspect/stats, exec and restart — no images, networks, volumes or
+secrets. The proxy cannot run `read_only`: its entrypoint renders
+`haproxy.cfg` at start, and a tmpfs over that directory hides the template.
+
+**MongoDB keyfile** is `/etc/deniz-cloud/mongo/replica-keyfile` (root, 0400).
+It must match the data directory's replica set or mongod will not start. Member
+name stays `mongodb:27017`, replica set `rs0`.
+
+**Storage files must be owned by uid 1000.** The API runs unprivileged as `bun`;
+anything root-owned makes deletes, renames and uploads fail `EACCES` while reads
+keep working.
+
+## Memory
+
+The API is capped at 1200 MiB. Everything else runs uncapped but internally
+bounded: PostgreSQL `shared_buffers=64MB`, WiredTiger 0.25 GiB, mongot
+`-Xmx128m`, Redis `maxmemory=128mb`. Bun is the only genuinely unbounded
+runtime, which is why it is the one with a cgroup limit — an unbounded response
+buffer previously triggered a *global* OOM that had the kernel picking Redis as
+a victim.
+
+`oom_score_adj` biases the killer away from data: `-500` on postgres and
+mongodb, `500` on the API, `1000` on sidecars and tools.
+
+Steady state is roughly 1.5 GiB of 3.9 GiB with the full stack up.
+
+`POSTGRES_MAX_CONNECTIONS` (150) is shared between `DB_POOL_MAX` (25) and every
+dependent project connecting directly. Backends cost ~5 MiB each, so a saturated
+ceiling is a ~750 MiB commitment. If dependents grow past this, add pgbouncer in
+transaction mode rather than raising the ceiling.
+
+`effective_cache_size` allocates nothing — it only tells the planner how much OS
+page cache to assume. Tune it separately from the budget above.
+
+## Tools
+
+Adminer and mongo-express are in the `tools` profile, loopback-only, and reached
+through the admin app's superuser `/api/ops/tools/*` proxy. Never publish them.
+
+## Health
+
+Public: `https://api.denizlg24.com/healthz` → 200, JSON `status` = `ok`, plus TCP
+checks on the three public database hostnames.
+
+Component detail: `GET /api/ops/health` (superuser session) returns
+`data.checks.{postgres,mongodb,redis,meilisearch,mongot,disk,tunnel}.status`.
+`apps/web`'s HTTP sub-resource model cannot send an authenticated header yet, so
+the public aggregate and TCP checks remain the integration. Never put
 credentials in a check URL.
-
-No web application changes belong to plan 011.

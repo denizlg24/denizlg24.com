@@ -32,8 +32,10 @@ seven old migrations, and compares that database with the new schema.
    bun run cloud:dev:infra
    ```
 
-2. Export commit `8e7862c^` from the read-only submodule to a temporary
-   directory outside `vendor/deniz-cloud`. From its `packages/shared`
+2. Export commit `8e7862c^` of the old `deniz-cloud` repository to a temporary
+   directory. The submodule that used to carry it was removed at decommission;
+   clone from `github.com/denizlg24/deniz-cloud` (archived) or unpack the
+   decommission tarball under the Pi's `BACKUP_DIR`. From its `packages/shared`
    directory, point `DATABASE_URL` at an empty dev database and run:
 
    ```sh

@@ -1,8 +1,15 @@
 "use client";
 
-import { formatBytes, pluralize } from "@repo/cloud-ui/format";
+import { pluralize } from "@repo/cloud-ui/format";
 import type { StorageFile } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@repo/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,9 +28,11 @@ import {
   Download,
   FolderInput,
   FolderPlus,
+  FolderUp,
   LayoutGrid,
   List,
   Rows3,
+  SquareCheck,
   Trash2,
   Upload,
   UploadCloud,
@@ -40,9 +49,10 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { ArchiveToast } from "@/components/archive-toast";
 import { api, errorMessage } from "@/lib/api";
 import {
-  archiveSizeWarning,
+  type ArchiveProgress,
   downloadArchive,
   triggerDownload,
 } from "@/lib/download";
@@ -85,6 +95,14 @@ import {
 
 const VIEWS = ["grid", "list"] as const;
 const DENSITIES = ["comfortable", "compact"] as const;
+
+/**
+ * Rows are draggable, and a drag the browser starts between two fast clicks
+ * suppresses the native `dblclick` entirely — the item just ends up selected.
+ * Counting the clicks ourselves keeps opening independent of that. Matches the
+ * Windows double-click default.
+ */
+const DOUBLE_CLICK_MS = 500;
 
 function toEntries(rows: BrowserRow[]): SelectedEntry[] {
   return rows.map((row) => ({ id: row.id, name: row.name, type: row.type }));
@@ -131,6 +149,7 @@ export function Browser({ folderId }: { folderId: string }) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const anchorIndex = useRef<number | null>(null);
   const dragDepth = useRef(0);
+  const lastClick = useRef<{ id: string; at: number } | null>(null);
 
   const rows = useMemo(
     () =>
@@ -170,6 +189,22 @@ export function Browser({ folderId }: { folderId: string }) {
     setCreating(false);
     anchorIndex.current = null;
   }, [folderId]);
+
+  // A pending delete lives in a timer, so leaving the page would discard the
+  // request and the row would silently reappear on the next load. Commit
+  // anything still inside its undo window before the page goes away.
+  useEffect(() => {
+    const flush = () => store.flushPendingDeletes();
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onHidden);
+    };
+  }, []);
 
   // Deep links from search land straight on a file.
   useEffect(() => {
@@ -299,6 +334,25 @@ export function Browser({ folderId }: { folderId: string }) {
     [openPreview, router],
   );
 
+  const onRowClick = useCallback(
+    (row: BrowserRow, event: React.MouseEvent) => {
+      const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey;
+      const previous = lastClick.current;
+      if (
+        plain &&
+        previous?.id === row.id &&
+        event.timeStamp - previous.at <= DOUBLE_CLICK_MS
+      ) {
+        lastClick.current = null;
+        onOpen(row);
+        return;
+      }
+      lastClick.current = plain ? { id: row.id, at: event.timeStamp } : null;
+      onPointerSelect(row, event);
+    },
+    [onOpen, onPointerSelect],
+  );
+
   const onCommitRename = useCallback(
     async (row: BrowserRow, name: string) => {
       setRenamingId(null);
@@ -321,10 +375,10 @@ export function Browser({ folderId }: { folderId: string }) {
     (targets: BrowserRow[]) => {
       if (targets.length === 0) return;
       const entries = toEntries(targets);
-      const label =
+      const subject =
         targets.length === 1
-          ? `Deleted ${targets[0]?.name}`
-          : `Deleted ${pluralize(targets.length, "item")}`;
+          ? (targets[0]?.name ?? "item")
+          : pluralize(targets.length, "item");
       const { undo } = store.scheduleDelete(entries, folderId, (failures) => {
         if (failures.length === 0) return;
         toast.error(`Couldn't delete ${pluralize(failures.length, "item")}`, {
@@ -333,10 +387,41 @@ export function Browser({ folderId }: { folderId: string }) {
       });
       clearSelection();
       setFocusedId(null);
-      toast(label, {
-        action: { label: "Undo", onClick: undo },
+
+      // The delete is still only local until the window closes, so the toast
+      // counts down rather than claiming it is already gone. Undo has to stop
+      // the countdown as well: re-rendering a dismissed toast by id revives it,
+      // so a surviving interval puts the toast back a second after Undo.
+      let countdown: ReturnType<typeof setInterval> | undefined;
+      let toastId: string | number | undefined;
+      const stopCountdown = () => {
+        if (countdown) clearInterval(countdown);
+        countdown = undefined;
+      };
+      const cancel = () => {
+        stopCountdown();
+        toast.dismiss(toastId);
+        undo();
+      };
+      toastId = toast(`Deleting ${subject}`, {
+        description: `${Math.round(UNDO_WINDOW_MS / 1000)}s to undo`,
+        action: { label: "Undo", onClick: cancel },
         duration: UNDO_WINDOW_MS,
       });
+      const deadline = Date.now() + UNDO_WINDOW_MS;
+      countdown = setInterval(() => {
+        const remaining = Math.ceil((deadline - Date.now()) / 1000);
+        if (remaining <= 0) {
+          stopCountdown();
+          return;
+        }
+        toast(`Deleting ${subject}`, {
+          id: toastId,
+          description: `${remaining}s to undo`,
+          action: { label: "Undo", onClick: cancel },
+          duration: remaining * 1000,
+        });
+      }, 1000);
     },
     [clearSelection, folderId],
   );
@@ -373,12 +458,17 @@ export function Browser({ folderId }: { folderId: string }) {
       triggerDownload(api.url.fileDownload(single.id), single.name);
       return;
     }
-    const knownBytes = targets.reduce(
-      (total, row) => total + (row.sizeBytes ?? 0),
-      0,
+    const label =
+      targets.length === 1 && single
+        ? single.name
+        : pluralize(targets.length, "item");
+    const card = (progress: ArchiveProgress) => (
+      <ArchiveToast label={`Zipping ${label}`} progress={progress} />
     );
-    const warning = archiveSizeWarning(knownBytes);
-    const toastId = toast.loading(warning ?? "Preparing your ZIP…");
+    const toastId = toast.custom(
+      () => card({ writtenBytes: 0, totalBytes: 0, percent: 0 }),
+      { duration: Number.POSITIVE_INFINITY },
+    );
     try {
       await downloadArchive(
         {
@@ -389,16 +479,20 @@ export function Browser({ folderId }: { folderId: string }) {
             .filter((row) => row.type === "folder")
             .map((row) => row.id),
         },
-        ({ bytes }) =>
-          toast.loading(`Preparing your ZIP — ${formatBytes(bytes)} so far`, {
+        (progress) =>
+          toast.custom(() => card(progress), {
             id: toastId,
+            duration: Number.POSITIVE_INFINITY,
           }),
       );
-      toast.success("Your ZIP is ready", { id: toastId });
+      // Dismissing first: sonner keeps the custom node when a toast is updated
+      // in place, so the success message would never replace the card.
+      toast.dismiss(toastId);
+      toast.success("Your ZIP is ready");
     } catch (error) {
+      toast.dismiss(toastId);
       toast.error("Couldn't build that ZIP", {
         description: errorMessage(error),
-        id: toastId,
       });
     }
   }, []);
@@ -438,7 +532,7 @@ export function Browser({ folderId }: { folderId: string }) {
     },
     onMove: (targets, targetFolderId) => void runMove(targets, targetFolderId),
     onOpen,
-    onPointerSelect,
+    onRowClick,
     onStartRename: setRenamingId,
     onToggleSelect,
     renamingId,
@@ -558,6 +652,13 @@ export function Browser({ folderId }: { folderId: string }) {
       );
     }
   };
+
+  // The draft row renders at the top of the list, so it is off-screen when the
+  // request came from a right-click halfway down the folder.
+  const startCreateFolder = useCallback(() => {
+    setCreating(true);
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, []);
 
   const createFolder = async (name: string) => {
     setCreating(false);
@@ -744,7 +845,7 @@ export function Browser({ folderId }: { folderId: string }) {
             variant="ghost"
             size="sm"
             className="h-8"
-            onClick={() => setCreating(true)}
+            onClick={startCreateFolder}
           >
             <FolderPlus className="size-3.5" />
             <span className="hidden sm:inline">New folder</span>
@@ -771,171 +872,211 @@ export function Browser({ folderId }: { folderId: string }) {
         </div>
       )}
 
-      <div
-        ref={scrollRef}
-        className="scrollbar-thin min-h-0 flex-1 overflow-y-auto"
-      >
-        {state.error && (
-          <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
-            <p className="text-sm text-muted-foreground">{state.error}</p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void store.reload(folderId)}
-            >
-              Try again
-            </Button>
-          </div>
-        )}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            ref={scrollRef}
+            className="scrollbar-thin min-h-0 flex-1 overflow-y-auto"
+          >
+            {state.error && (
+              <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
+                <p className="text-sm text-muted-foreground">{state.error}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void store.reload(folderId)}
+                >
+                  Try again
+                </Button>
+              </div>
+            )}
 
-        {!state.error && state.loading && rows.length === 0 && (
-          <LoadingState view={view} />
-        )}
+            {!state.error && state.loading && rows.length === 0 && (
+              <LoadingState view={view} />
+            )}
 
-        {!state.error && !state.loading && rows.length === 0 && !creating && (
-          <div className="flex flex-col items-center gap-3 px-4 py-20 text-center">
-            <UploadCloud
-              className="size-8 text-muted-foreground"
-              strokeWidth={1.25}
-            />
-            <p className="text-sm text-muted-foreground">Empty</p>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => filesInputRef.current?.click()}
-              >
-                Upload files
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setCreating(true)}
-              >
-                New folder
-              </Button>
-            </div>
-          </div>
-        )}
+            {!state.error &&
+              !state.loading &&
+              rows.length === 0 &&
+              !creating && (
+                <div className="flex flex-col items-center gap-3 px-4 py-20 text-center">
+                  <UploadCloud
+                    className="size-8 text-muted-foreground"
+                    strokeWidth={1.25}
+                  />
+                  <p className="text-sm text-muted-foreground">Empty</p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => filesInputRef.current?.click()}
+                    >
+                      Upload files
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={startCreateFolder}
+                    >
+                      New folder
+                    </Button>
+                  </div>
+                </div>
+              )}
 
-        {(rows.length > 0 || creating) &&
-          (view === "list" ? (
-            // Auto layout, not table-fixed: the metadata columns drop out at
-            // narrow widths and a fixed layout would keep reserving their
-            // width. The name cell claims the slack via w-full/max-w-0.
-            <table className="w-full">
-              <thead className="sr-only">
-                <tr>
-                  <th>Select</th>
-                  <th>Name</th>
-                  <th>Size</th>
-                  <th>Last modified</th>
-                  <th>Storage tier</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {creating && (
-                  <tr className="border-b">
-                    <td className="w-px pl-3 pr-2" />
-                    <td className="w-full max-w-0 py-2 pr-3">
+            {(rows.length > 0 || creating) &&
+              (view === "list" ? (
+                // Auto layout, not table-fixed: the metadata columns drop out at
+                // narrow widths and a fixed layout would keep reserving their
+                // width. The name cell claims the slack via w-full/max-w-0.
+                <table className="w-full">
+                  <thead className="sr-only">
+                    <tr>
+                      <th>Select</th>
+                      <th>Name</th>
+                      <th>Size</th>
+                      <th>Last modified</th>
+                      <th>Storage tier</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {creating && (
+                      <tr className="border-b">
+                        <td className="w-px pl-3 pr-2" />
+                        <td className="w-full max-w-0 py-2 pr-3">
+                          <InlineName
+                            initial=""
+                            kind="folder"
+                            placeholder="New folder"
+                            onCommit={(name) => void createFolder(name)}
+                            onCancel={() => setCreating(false)}
+                          />
+                        </td>
+                        <td colSpan={4} />
+                      </tr>
+                    )}
+                    {rowWindow.padTopPx > 0 && (
+                      <tr aria-hidden>
+                        <td
+                          colSpan={6}
+                          style={{ height: rowWindow.padTopPx }}
+                        />
+                      </tr>
+                    )}
+                    {rows.slice(rowWindow.start, rowWindow.end).map((row) => (
+                      <ItemRow
+                        key={row.id}
+                        row={row}
+                        controller={controller}
+                        density={density}
+                      />
+                    ))}
+                    {rowWindow.padBottomPx > 0 && (
+                      <tr aria-hidden>
+                        <td
+                          colSpan={6}
+                          style={{ height: rowWindow.padBottomPx }}
+                        />
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <ul
+                  className={cn(
+                    "grid gap-1 p-3",
+                    density === "compact"
+                      ? "grid-cols-[repeat(auto-fill,minmax(7rem,1fr))]"
+                      : "grid-cols-[repeat(auto-fill,minmax(9rem,1fr))]",
+                  )}
+                >
+                  {creating && (
+                    <li className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-3">
+                      <FolderPlus
+                        className="mt-4 size-9 text-muted-foreground"
+                        strokeWidth={1.25}
+                      />
                       <InlineName
+                        className="w-full"
                         initial=""
                         kind="folder"
                         placeholder="New folder"
                         onCommit={(name) => void createFolder(name)}
                         onCancel={() => setCreating(false)}
                       />
-                    </td>
-                    <td colSpan={4} />
-                  </tr>
-                )}
-                {rowWindow.padTopPx > 0 && (
-                  <tr aria-hidden>
-                    <td colSpan={6} style={{ height: rowWindow.padTopPx }} />
-                  </tr>
-                )}
-                {rows.slice(rowWindow.start, rowWindow.end).map((row) => (
-                  <ItemRow
-                    key={row.id}
-                    row={row}
-                    controller={controller}
-                    density={density}
-                  />
-                ))}
-                {rowWindow.padBottomPx > 0 && (
-                  <tr aria-hidden>
-                    <td colSpan={6} style={{ height: rowWindow.padBottomPx }} />
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          ) : (
-            <ul
-              className={cn(
-                "grid gap-1 p-3",
-                density === "compact"
-                  ? "grid-cols-[repeat(auto-fill,minmax(7rem,1fr))]"
-                  : "grid-cols-[repeat(auto-fill,minmax(9rem,1fr))]",
-              )}
-            >
-              {creating && (
-                <li className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-3">
-                  <FolderPlus
-                    className="mt-4 size-9 text-muted-foreground"
-                    strokeWidth={1.25}
-                  />
-                  <InlineName
-                    className="w-full"
-                    initial=""
-                    kind="folder"
-                    placeholder="New folder"
-                    onCommit={(name) => void createFolder(name)}
-                    onCancel={() => setCreating(false)}
-                  />
-                </li>
-              )}
-              {rowWindow.padTopPx > 0 && (
-                <li
-                  aria-hidden
-                  className="col-span-full"
-                  style={{ height: rowWindow.padTopPx }}
-                />
-              )}
-              {rows.slice(rowWindow.start, rowWindow.end).map((row) => (
-                <ItemTile
-                  key={row.id}
-                  row={row}
-                  controller={controller}
-                  density={density}
-                />
+                    </li>
+                  )}
+                  {rowWindow.padTopPx > 0 && (
+                    <li
+                      aria-hidden
+                      className="col-span-full"
+                      style={{ height: rowWindow.padTopPx }}
+                    />
+                  )}
+                  {rows.slice(rowWindow.start, rowWindow.end).map((row) => (
+                    <ItemTile
+                      key={row.id}
+                      row={row}
+                      controller={controller}
+                      density={density}
+                    />
+                  ))}
+                  {rowWindow.padBottomPx > 0 && (
+                    <li
+                      aria-hidden
+                      className="col-span-full"
+                      style={{ height: rowWindow.padBottomPx }}
+                    />
+                  )}
+                </ul>
               ))}
-              {rowWindow.padBottomPx > 0 && (
-                <li
-                  aria-hidden
-                  className="col-span-full"
-                  style={{ height: rowWindow.padBottomPx }}
-                />
-              )}
-            </ul>
-          ))}
 
-        {state.pagination &&
-          state.pagination.page < state.pagination.totalPages && (
-            <div className="flex justify-center p-4">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={state.loadingMore}
-                onClick={() => void store.loadMore(folderId)}
+            {state.pagination &&
+              state.pagination.page < state.pagination.totalPages && (
+                <div className="flex justify-center p-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={state.loadingMore}
+                    onClick={() => void store.loadMore(folderId)}
+                  >
+                    {state.loadingMore
+                      ? "Loading…"
+                      : `Show more (${state.pagination.total - state.files.length} left)`}
+                  </Button>
+                </div>
+              )}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-52">
+          <ContextMenuItem onSelect={startCreateFolder}>
+            <FolderPlus className="size-3.5" />
+            New folder
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => filesInputRef.current?.click()}>
+            <Upload className="size-3.5" />
+            Upload files
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => folderInputRef.current?.click()}>
+            <FolderUp className="size-3.5" />
+            Upload a folder
+          </ContextMenuItem>
+          {rows.length > 0 && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onSelect={() =>
+                  setSelection(new Set(rows.map((row) => row.id)))
+                }
               >
-                {state.loadingMore
-                  ? "Loading…"
-                  : `Show more (${state.pagination.total - state.files.length} left)`}
-              </Button>
-            </div>
+                <SquareCheck className="size-3.5" />
+                Select all
+              </ContextMenuItem>
+            </>
           )}
-      </div>
+        </ContextMenuContent>
+      </ContextMenu>
 
       {dropActive && (
         <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-foreground/40 bg-background/80 backdrop-blur-[1px]">

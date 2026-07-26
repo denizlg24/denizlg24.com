@@ -30,13 +30,31 @@ export async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+const CHECKSUM_CHUNK_BYTES = 1024 * 1024;
+
+/**
+ * Reads through a descriptor into one reused buffer. `Bun.file().stream()`
+ * accumulates the whole file in memory — 680 MB of unreclaimable RSS on a
+ * 629 MB source — which is fatal here: this runs over multi-gigabyte files
+ * during upload completion and tiering moves.
+ */
 export async function computeChecksum(path: string): Promise<string> {
   const hasher = createHash("sha256");
-  const reader = Bun.file(path).stream().getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    hasher.update(value);
+  const file = await open(path, "r");
+  const buffer = Buffer.allocUnsafe(CHECKSUM_CHUNK_BYTES);
+  try {
+    for (;;) {
+      const { bytesRead } = await file.read(
+        buffer,
+        0,
+        CHECKSUM_CHUNK_BYTES,
+        null,
+      );
+      if (bytesRead === 0) break;
+      hasher.update(buffer.subarray(0, bytesRead));
+    }
+  } finally {
+    await file.close();
   }
   return hasher.digest("hex");
 }

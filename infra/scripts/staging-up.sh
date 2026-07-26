@@ -25,8 +25,10 @@ install -d -m 700 \
   "${staging_root}/data/meilisearch" \
   "${staging_root}/storage/ssd" \
   "${staging_root}/storage/hdd" \
-  "${staging_root}/backups" \
-  "${staging_root}/host-control"
+  "${staging_root}/backups"
+
+# Written by the API container as uid 1000; root ownership fails the reboot task.
+install -d -m 700 -o 1000 -g 1000 "${staging_root}/host-control"
 
 keyfile="${staging_root}/secrets/mongo-replica-keyfile"
 if [[ ! -s "$keyfile" ]]; then
