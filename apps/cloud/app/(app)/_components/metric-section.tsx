@@ -6,8 +6,6 @@ import type { MetricSeries } from "@repo/schemas/cloud";
 import {
   type ChartConfig,
   ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
 } from "@repo/ui/chart";
@@ -24,12 +22,14 @@ export const RANGES: Record<Range, { seconds: number; step: number }> = {
   "90d": { seconds: 90 * 24 * 3600, step: 21_600 },
 };
 
+/** Six, because disk io plots three devices as a read/write pair each. */
 const CHART_COLORS = [
   "var(--chart-1)",
   "var(--chart-2)",
   "var(--chart-3)",
   "var(--chart-4)",
   "var(--chart-5)",
+  "var(--chart-6)",
 ];
 
 export interface ChartSpec {
@@ -177,7 +177,6 @@ export function TimeSeriesChart({
                 />
               }
             />
-            {multi && <ChartLegend content={<ChartLegendContent />} />}
             {spec.series.map((entry) => (
               <Line
                 key={entry.name}
@@ -191,6 +190,24 @@ export function TimeSeriesChart({
             ))}
           </LineChart>
         </ChartContainer>
+      )}
+      {multi && rows.length > 0 && (
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {spec.series.map((entry, index) => (
+            <span
+              key={entry.name}
+              className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-muted-foreground"
+            >
+              <span
+                className="size-2 shrink-0 rounded-[2px]"
+                style={{
+                  background: CHART_COLORS[index % CHART_COLORS.length],
+                }}
+              />
+              {entry.label}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );

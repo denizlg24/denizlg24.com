@@ -38,8 +38,9 @@
   --chart-1: var(--accent);
   --chart-2: var(--accent-strong);
   --chart-3: #a1bc98;
-  --chart-4: #d2dcb6;
+  --chart-4: #7a8fa0;
   --chart-5: #303630;
+  --chart-6: #a8905f;
 
   /* Semantic health/severity, deliberately outside the green identity so
      they stay distinguishable at a glance. */
@@ -93,7 +94,8 @@
   --chart-2: #778873;
   --chart-3: #d2dcb6;
   --chart-4: #f1f3e0;
-  --chart-5: #303630;
+  --chart-5: #8fa9b8;
+  --chart-6: #c8b48a;
 
   --status-good: #4fb84f;
   --status-warning: #e0a020;
@@ -138,6 +140,7 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
   --color-status-good: var(--status-good);
   --color-status-warning: var(--status-warning);
   --color-status-serious: var(--status-serious);
