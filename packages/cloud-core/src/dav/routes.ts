@@ -177,27 +177,31 @@ export interface DavRoutesOptions {
  * to, which is worse than losing metadata nothing here reads. The tradeoff is
  * that a genuine resource fork does not survive a round trip through the mount.
  */
+// Lowercase, and compared lowercased. Both operating systems treat these names
+// case-insensitively and spell them inconsistently — Explorer asks for
+// `Desktop.ini` and writes `desktop.ini` — while the filesystem underneath is
+// case-sensitive, so matching exactly would store one spelling and drop the
+// other.
 const OS_METADATA_NAMES = new Set([
-  ".DS_Store",
+  ".ds_store",
   ".localized",
   ".apdisk",
   "desktop.ini",
-  "Thumbs.db",
+  "thumbs.db",
+  ".spotlight-v100",
+  ".temporaryitems",
+  ".trashes",
+  ".fseventsd",
+  ".documentrevisions-v100",
 ]);
 const OS_METADATA_PREFIXES = ["._"];
-const OS_METADATA_DIRECTORIES = new Set([
-  ".Spotlight-V100",
-  ".TemporaryItems",
-  ".Trashes",
-  ".fseventsd",
-  ".DocumentRevisions-V100",
-]);
 
 function isOsMetadataPath(storagePath: string): boolean {
-  const name = storagePath.slice(storagePath.lastIndexOf("/") + 1);
+  const name = storagePath
+    .slice(storagePath.lastIndexOf("/") + 1)
+    .toLowerCase();
   return (
     OS_METADATA_NAMES.has(name) ||
-    OS_METADATA_DIRECTORIES.has(name) ||
     OS_METADATA_PREFIXES.some((prefix) => name.startsWith(prefix))
   );
 }

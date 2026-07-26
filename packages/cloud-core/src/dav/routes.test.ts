@@ -732,6 +732,26 @@ describe("operating-system metadata", () => {
     expect(storage.files.size).toBe(0);
   });
 
+  it("matches however the operating system spells it", async () => {
+    // Explorer probes `Desktop.ini` and writes `desktop.ini`; Finder's is
+    // `.DS_Store`. ext4 underneath is case-sensitive, so an exact match would
+    // store one spelling and drop the other.
+    for (const name of [
+      "Desktop.ini",
+      "DESKTOP.INI",
+      ".ds_store",
+      "Thumbs.DB",
+      "._Report.txt",
+    ]) {
+      const response = await app.request(
+        `${MOUNT}/home/${encodeURIComponent(name)}`,
+        { method: "PUT", body: "junk" },
+      );
+      expect(response.status).toBe(201);
+    }
+    expect(storage.files.size).toBe(0);
+  });
+
   it("does not catch ordinary dotfiles or lookalikes", async () => {
     for (const name of [".env", ".gitignore", "_notes.txt", "DS_Store"]) {
       await app.request(`${MOUNT}/home/${encodeURIComponent(name)}`, {
