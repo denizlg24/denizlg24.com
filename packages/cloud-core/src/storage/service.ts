@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { open, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -14,6 +15,7 @@ import {
   files,
   folders,
   type StorageFile,
+  type StorageTier,
   tusUploads,
 } from "../db/schema";
 import {
@@ -52,6 +54,7 @@ import {
   resolveHddDiskPath,
   resolveSsdDiskPath,
   SHARED_ROOT_PATH,
+  sanitizeSegment,
   validatePath,
 } from "./path";
 import { generateShareToken, verifyShareToken } from "./share";
@@ -114,6 +117,42 @@ function isUniqueViolation(error: unknown): boolean {
     if ("code" in current && current.code === UNIQUE_VIOLATION) return true;
   }
   return false;
+}
+
+export type StorageEntry =
+  | { kind: "folder"; folder: Folder }
+  | { kind: "file"; file: StorageFile };
+
+function isCrossDeviceLink(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EXDEV";
+}
+
+/**
+ * Keeps only the media type. WebDAV clients append charset and boundary
+ * parameters that would otherwise be echoed back on download verbatim, and
+ * `isActiveContent` already splits on `;` for exactly this reason.
+ */
+function normalizeMimeType(header: string | null): string | null {
+  const type = header?.split(";")[0]?.trim().toLowerCase();
+  return type ? type : null;
+}
+
+/**
+ * The web client snake-cases every name it creates. WebDAV cannot: a client
+ * PUTs to a URL and then reads that same URL back, so rewriting the name would
+ * 404 its own write. Both policies coexist because uniqueness is enforced on
+ * the full path, which keeps the two spellings distinct.
+ */
+export type NamingPolicy = "normalize" | "preserve";
+
+function applyFolderNaming(name: string, naming: NamingPolicy): string {
+  return naming === "preserve" ? sanitizeSegment(name) : normalizeName(name);
+}
+
+function applyFileNaming(name: string, naming: NamingPolicy): string {
+  return naming === "preserve"
+    ? sanitizeSegment(name)
+    : normalizeFileName(name);
 }
 
 function deny(
@@ -282,7 +321,11 @@ export class StorageService {
     };
   }
 
-  async createFolder(principal: StoragePrincipal, bodyValue: unknown) {
+  async createFolder(
+    principal: StoragePrincipal,
+    bodyValue: unknown,
+    naming: NamingPolicy = "normalize",
+  ) {
     const body = safeJsonBody(bodyValue);
     if (typeof body.name !== "string" || body.name.length === 0) {
       throw new StorageServiceError(
@@ -317,7 +360,7 @@ export class StorageService {
     );
     let name: string;
     try {
-      name = normalizeName(body.name);
+      name = applyFolderNaming(body.name, naming);
     } catch (error) {
       if (error instanceof PathValidationError) {
         throw new StorageServiceError(400, "INVALID_NAME", error.message);
@@ -459,6 +502,7 @@ export class StorageService {
     principal: StoragePrincipal,
     id: string,
     bodyValue: unknown,
+    naming: NamingPolicy = "normalize",
   ) {
     const body = safeJsonBody(bodyValue);
     const requestedName = typeof body.name === "string" ? body.name : undefined;
@@ -487,7 +531,9 @@ export class StorageService {
     deny(principal, folder.path, "storage:write", folder.ownerId, "modify");
     let name: string;
     try {
-      name = requestedName ? normalizeName(requestedName) : folder.name;
+      name = requestedName
+        ? applyFolderNaming(requestedName, naming)
+        : folder.name;
     } catch (error) {
       if (error instanceof PathValidationError) {
         throw new StorageServiceError(400, "INVALID_NAME", error.message);
@@ -788,6 +834,7 @@ export class StorageService {
     principal: StoragePrincipal,
     id: string,
     bodyValue: unknown,
+    naming: NamingPolicy = "normalize",
   ) {
     const parsed = updateFileInputSchema.safeParse(bodyValue);
     if (!parsed.success) {
@@ -801,7 +848,7 @@ export class StorageService {
     let filename = file.filename;
     try {
       if (parsed.data.filename) {
-        filename = normalizeFileName(parsed.data.filename);
+        filename = applyFileNaming(parsed.data.filename, naming);
       }
     } catch (error) {
       if (error instanceof PathValidationError) {
@@ -1435,6 +1482,341 @@ export class StorageService {
         .waitTask();
     }
     return documents.length;
+  }
+
+  /**
+   * Path-addressed lookup. The rest of this service is keyed on ids, but WebDAV
+   * has no notion of them — a client only ever names a resource by its URL.
+   * Both `folders.path` and `files.path` are unique, so this is one indexed hit
+   * each and a folder can never shadow a file at the same path.
+   */
+  async resolvePath(
+    principal: StoragePrincipal,
+    path: string,
+  ): Promise<StorageEntry | null> {
+    try {
+      validatePath(path);
+    } catch (error) {
+      if (error instanceof PathValidationError) {
+        throw new StorageServiceError(400, "INVALID_PATH", error.message);
+      }
+      throw error;
+    }
+    const [folder, file] = await Promise.all([
+      this.db.query.folders.findFirst({ where: eq(folders.path, path) }),
+      this.db.query.files.findFirst({ where: eq(files.path, path) }),
+    ]);
+    if (folder) {
+      deny(principal, folder.path, "storage:read", folder.ownerId, "read");
+      return { kind: "folder", folder };
+    }
+    if (file) {
+      deny(principal, file.path, "storage:read", file.ownerId, "read");
+      return { kind: "file", file };
+    }
+    return null;
+  }
+
+  /**
+   * Unpaginated, unlike `folderContents`. A PROPFIND with Depth 1 has to report
+   * every child in one multistatus — a truncated listing reads to the client as
+   * the missing entries having been deleted.
+   */
+  async listChildren(
+    principal: StoragePrincipal,
+    folder: Folder,
+  ): Promise<{ folders: Folder[]; files: StorageFile[] }> {
+    deny(principal, folder.path, "storage:read", folder.ownerId, "read");
+    const [subfolders, fileList] = await Promise.all([
+      this.db
+        .select()
+        .from(folders)
+        .where(eq(folders.parentId, folder.id))
+        .orderBy(folders.name),
+      this.db
+        .select()
+        .from(files)
+        .where(eq(files.folderId, folder.id))
+        .orderBy(files.filename),
+    ]);
+    return { folders: subfolders, files: fileList };
+  }
+
+  /**
+   * Single-shot create-or-replace for WebDAV PUT. tus owns the resumable path;
+   * this one streams the body through a descriptor into a reused chunk and
+   * hashes as it goes, so a multi-gigabyte PUT never holds more than one chunk
+   * in memory and the finished file is never re-read to checksum it.
+   */
+  async putFile(
+    principal: StoragePrincipal,
+    parent: Folder,
+    rawFilename: string,
+    request: Request,
+    naming: NamingPolicy = "preserve",
+  ): Promise<{ file: StorageFile; created: boolean }> {
+    deny(
+      principal,
+      parent.path,
+      "storage:write",
+      parent.ownerId,
+      isSharedPath(parent.path) ? "read" : "modify",
+    );
+    const filename = this.#namedOrThrow(rawFilename, naming);
+    const targetPath = joinPath(parent.path, filename);
+    const [existing, blockingFolder] = await Promise.all([
+      this.db.query.files.findFirst({ where: eq(files.path, targetPath) }),
+      this.db.query.folders.findFirst({ where: eq(folders.path, targetPath) }),
+    ]);
+    if (blockingFolder) {
+      throw new StorageServiceError(
+        409,
+        "FOLDER_EXISTS",
+        "A folder already exists at this path",
+      );
+    }
+    if (existing) {
+      deny(
+        principal,
+        existing.path,
+        "storage:write",
+        existing.ownerId,
+        "modify",
+      );
+    }
+
+    const tempDiskPath = join(
+      this.config.tempUploadPath,
+      `${crypto.randomUUID()}.dav`,
+    );
+    await ensureDir(this.config.tempUploadPath);
+    const hasher = createHash("sha256");
+    let sizeBytes = 0;
+    try {
+      const handle = await open(tempDiskPath, "w");
+      try {
+        const reader = request.body?.getReader();
+        while (reader) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          hasher.update(value);
+          let offset = 0;
+          while (offset < value.byteLength) {
+            const { bytesWritten } = await handle.write(
+              value,
+              offset,
+              value.byteLength - offset,
+              sizeBytes + offset,
+            );
+            offset += bytesWritten;
+          }
+          sizeBytes += value.byteLength;
+        }
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      await deletePath(tempDiskPath).catch(console.error);
+      throw error;
+    }
+
+    const checksum = hasher.digest("hex");
+    const file = await this.#publishFile({
+      source: tempDiskPath,
+      sourceIsDisposable: true,
+      existing: existing ?? null,
+      ownerId: principal.user.id,
+      parent,
+      filename,
+      targetPath,
+      sizeBytes,
+      checksum,
+      mimeType: normalizeMimeType(request.headers.get("Content-Type")),
+    });
+    return { file, created: !existing };
+  }
+
+  async copyFile(
+    principal: StoragePrincipal,
+    file: StorageFile,
+    parent: Folder,
+    rawFilename: string,
+    naming: NamingPolicy = "preserve",
+  ): Promise<{ file: StorageFile; created: boolean }> {
+    deny(principal, file.path, "storage:read", file.ownerId, "read");
+    deny(
+      principal,
+      parent.path,
+      "storage:write",
+      parent.ownerId,
+      isSharedPath(parent.path) ? "read" : "modify",
+    );
+    const filename = this.#namedOrThrow(rawFilename, naming);
+    const targetPath = joinPath(parent.path, filename);
+    if (targetPath === file.path) {
+      throw new StorageServiceError(
+        403,
+        "SAME_PATH",
+        "Source and destination are the same resource",
+      );
+    }
+    const [existing, blockingFolder] = await Promise.all([
+      this.db.query.files.findFirst({ where: eq(files.path, targetPath) }),
+      this.db.query.folders.findFirst({ where: eq(folders.path, targetPath) }),
+    ]);
+    if (blockingFolder) {
+      throw new StorageServiceError(
+        409,
+        "FOLDER_EXISTS",
+        "A folder already exists at this path",
+      );
+    }
+    if (existing) {
+      deny(
+        principal,
+        existing.path,
+        "storage:write",
+        existing.ownerId,
+        "modify",
+      );
+    }
+    const copied = await this.#publishFile({
+      source: file.diskPath,
+      sourceIsDisposable: false,
+      existing: existing ?? null,
+      ownerId: principal.user.id,
+      parent,
+      filename,
+      targetPath,
+      sizeBytes: file.sizeBytes,
+      checksum: file.checksum,
+      mimeType: file.mimeType,
+    });
+    return { file: copied, created: !existing };
+  }
+
+  #namedOrThrow(name: string, naming: NamingPolicy): string {
+    try {
+      return applyFileNaming(name, naming);
+    } catch (error) {
+      if (error instanceof PathValidationError) {
+        throw new StorageServiceError(400, "INVALID_NAME", error.message);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Moves already-written bytes into their final home and records the row.
+   *
+   * The staging file sits beside the destination so the last step is a rename
+   * within one filesystem, and that rename runs *inside* the transaction: if it
+   * throws, the insert or update rolls back rather than leaving a row that
+   * points at bytes which were never published. The reverse window — rename
+   * succeeded, COMMIT failed — is one commit wide against a local Postgres and
+   * is the smallest this can be made without a two-phase log.
+   */
+  async #publishFile(input: {
+    source: string;
+    sourceIsDisposable: boolean;
+    existing: StorageFile | null;
+    ownerId: string;
+    parent: Folder;
+    filename: string;
+    targetPath: string;
+    sizeBytes: number;
+    checksum: string;
+    mimeType: string | null;
+  }): Promise<StorageFile> {
+    const stats = await getDiskStats(this.config.ssdStoragePath).catch(
+      () => null,
+    );
+    const tier: StorageTier =
+      input.sizeBytes >= this.config.tiering.minSizeBytes ||
+      (stats && stats.usagePercent >= this.config.tiering.highWatermarkPercent)
+        ? "hdd"
+        : "ssd";
+    const fileId = input.existing?.id ?? crypto.randomUUID();
+    const finalDiskPath =
+      tier === "ssd"
+        ? resolveSsdDiskPath(this.config.ssdStoragePath, input.targetPath)
+        : resolveHddDiskPath(this.config.hddStoragePath, fileId);
+    const stagedPath = `${finalDiskPath}.dav-staging-${crypto.randomUUID()}`;
+    await ensureDir(dirname(stagedPath));
+    if (input.sourceIsDisposable) {
+      try {
+        await rename(input.source, stagedPath);
+      } catch (error) {
+        if (!isCrossDeviceLink(error)) {
+          await deletePath(input.source).catch(console.error);
+          throw error;
+        }
+        await copyAndVerify(input.source, stagedPath, input.checksum);
+        await deletePath(input.source).catch(console.error);
+      }
+    } else {
+      await copyAndVerify(input.source, stagedPath, input.checksum);
+    }
+
+    const now = new Date();
+    try {
+      await this.db.transaction(async (tx) => {
+        if (input.existing) {
+          await tx
+            .update(files)
+            .set({
+              filename: input.filename,
+              mimeType: input.mimeType,
+              sizeBytes: input.sizeBytes,
+              checksum: input.checksum,
+              tier,
+              diskPath: finalDiskPath,
+              lastAccessedAt: now,
+              updatedAt: now,
+            })
+            .where(eq(files.id, fileId));
+        } else {
+          await tx.insert(files).values({
+            id: fileId,
+            ownerId: input.ownerId,
+            folderId: input.parent.id,
+            filename: input.filename,
+            path: input.targetPath,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            checksum: input.checksum,
+            tier,
+            diskPath: finalDiskPath,
+          });
+        }
+        await rename(stagedPath, finalDiskPath);
+      });
+    } catch (error) {
+      await deletePath(stagedPath).catch(console.error);
+      if (isUniqueViolation(error)) {
+        throw new StorageServiceError(
+          409,
+          "FILE_EXISTS",
+          "A file already exists at the target path",
+        );
+      }
+      throw error;
+    }
+    if (input.existing && input.existing.diskPath !== finalDiskPath) {
+      await deletePath(input.existing.diskPath).catch(console.error);
+    }
+
+    const saved = await this.db.query.files.findFirst({
+      where: eq(files.id, fileId),
+    });
+    if (!saved) {
+      throw new Error("Published file disappeared immediately after write");
+    }
+    void indexStorageDocuments(this.meili, [buildFileDocument(saved)]).catch(
+      console.error,
+    );
+    return saved;
   }
 
   private recordAccess(file: StorageFile): void {
