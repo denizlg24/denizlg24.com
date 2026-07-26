@@ -38,6 +38,13 @@ class MemoryTieringRepository implements TieringRepository {
     this.files.set(id, { ...file, tier, diskPath });
     return true;
   }
+
+  async deleteFile(id: string, currentDiskPath: string): Promise<boolean> {
+    const file = this.files.get(id);
+    if (!file || file.diskPath !== currentDiskPath) return false;
+    this.files.delete(id);
+    return true;
+  }
 }
 
 const UUIDS = [
@@ -183,6 +190,143 @@ describe("storage tiering", () => {
     });
     expect(reconciled.reconciledCopies).toBe(1);
     expect(await pathExists(source.diskPath)).toBe(true);
+    expect(await pathExists(destination)).toBe(false);
+  });
+
+  /** Shared by the missing-source cases: one cold file, always selected. */
+  function demotionOptions(ssd: string, hdd: string) {
+    return {
+      ssdStoragePath: ssd,
+      hddStoragePath: hdd,
+      highWatermarkPercent: 80,
+      targetWatermarkPercent: 70,
+      minAgeMs: 1,
+      minSizeBytes: Number.MAX_SAFE_INTEGER,
+      batchCap: 10,
+      now: new Date("2026-01-01"),
+      diskStats: async (_path: string) => ({
+        totalBytes: 1_000,
+        usedBytes: 100,
+        availableBytes: 900,
+        usagePercent: 10,
+      }),
+    };
+  }
+
+  it("counts a file deleted mid-pass as vanished, not a failure", async () => {
+    const { ssd, hdd, repository } = await setup();
+    await addFile(repository, ssd, {
+      id: UUIDS[0],
+      size: 8,
+      lastAccessedAt: new Date("2020-01-01"),
+    });
+    const file = repository.files.get(UUIDS[0]);
+    if (!file) throw new Error("Missing fixture");
+
+    const options = demotionOptions(ssd, hdd);
+    const report = await runTieringPass(repository, {
+      ...options,
+      // diskStats runs after listFiles has snapshotted the batch, so this is
+      // the seam a concurrent deleteFile() lands in: the row is already
+      // selected when both it and its blob disappear.
+      diskStats: async (path: string) => {
+        await rm(file.diskPath);
+        repository.files.delete(UUIDS[0]);
+        return options.diskStats(path);
+      },
+    });
+    expect(report.vanished).toBe(1);
+    expect(report.failures).toEqual([]);
+    expect(report.orphaned).toEqual([]);
+    expect(report.moved).toEqual([]);
+  });
+
+  it("adopts a verified destination blob left by a crashed pass", async () => {
+    const { ssd, hdd, repository } = await setup();
+    await addFile(repository, ssd, {
+      id: UUIDS[0],
+      size: 8,
+      lastAccessedAt: new Date("2020-01-01"),
+    });
+    const file = repository.files.get(UUIDS[0]);
+    if (!file) throw new Error("Missing fixture");
+    // Crashed between swapLocation and deletePath, then the source went away.
+    const destination = resolveHddDiskPath(hdd, UUIDS[0]);
+    await Bun.write(destination, new Uint8Array(8).fill(7));
+    await rm(file.diskPath);
+
+    const report = await runTieringPass(repository, demotionOptions(ssd, hdd));
+    expect(report.healed).toBe(1);
+    expect(report.failures).toEqual([]);
+    expect(repository.files.get(UUIDS[0])?.tier).toBe("hdd");
+    expect(repository.files.get(UUIDS[0])?.diskPath).toBe(destination);
+  });
+
+  it("reaps a row whose blob is gone from both tiers", async () => {
+    const { ssd, hdd, repository } = await setup();
+    await addFile(repository, ssd, {
+      id: UUIDS[0],
+      size: 8,
+      lastAccessedAt: new Date("2020-01-01"),
+    });
+    const file = repository.files.get(UUIDS[0]);
+    if (!file) throw new Error("Missing fixture");
+    await rm(file.diskPath);
+    const reaped: string[] = [];
+
+    const report = await runTieringPass(repository, {
+      ...demotionOptions(ssd, hdd),
+      afterReap: async (orphan) => {
+        reaped.push(orphan.id);
+      },
+    });
+    expect(report.orphaned).toEqual([
+      {
+        fileId: UUIDS[0],
+        filename: `${UUIDS[0]}.bin`,
+        path: `/project/${UUIDS[0]}.bin`,
+        sizeBytes: 8,
+      },
+    ]);
+    expect(reaped).toEqual([UUIDS[0]]);
+    expect(repository.files.has(UUIDS[0])).toBe(false);
+    expect(report.failures).toEqual([]);
+  });
+
+  it("refuses to reap when the storage root looks unmounted", async () => {
+    const { ssd, hdd, repository } = await setup();
+    await addFile(repository, ssd, {
+      id: UUIDS[0],
+      size: 8,
+      lastAccessedAt: new Date("2020-01-01"),
+    });
+    // Every blob missing because the disk is not there, not because the files
+    // were deleted. Reaping on this evidence would empty the table.
+    await rm(ssd, { recursive: true, force: true });
+
+    const report = await runTieringPass(repository, demotionOptions(ssd, hdd));
+    expect(report.orphaned).toEqual([]);
+    expect(report.failures).toHaveLength(1);
+    expect(report.failures[0]?.message).toContain("refusing");
+    expect(repository.files.has(UUIDS[0])).toBe(true);
+  });
+
+  it("discards a torn destination copy instead of adopting it", async () => {
+    const { ssd, hdd, repository } = await setup();
+    await addFile(repository, ssd, {
+      id: UUIDS[0],
+      size: 8,
+      lastAccessedAt: new Date("2020-01-01"),
+    });
+    const file = repository.files.get(UUIDS[0]);
+    if (!file) throw new Error("Missing fixture");
+    const destination = resolveHddDiskPath(hdd, UUIDS[0]);
+    await Bun.write(destination, new Uint8Array(3).fill(7));
+    await rm(file.diskPath);
+
+    const report = await runTieringPass(repository, demotionOptions(ssd, hdd));
+    expect(report.healed).toBe(0);
+    expect(report.orphaned).toHaveLength(1);
     expect(await pathExists(destination)).toBe(false);
   });
 

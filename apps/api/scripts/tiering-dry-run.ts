@@ -64,6 +64,9 @@ await runScript("tiering-dry-run", async (flags) => {
       wouldMoveBytes: movedBytes,
       wouldMoveByReason: Object.fromEntries(byReason),
       staleCopiesReconciled: report.reconciledCopies,
+      vanished: report.vanished,
+      healed: report.healed,
+      orphaned: report.orphaned.length,
       failures: report.failures.length,
       sample: report.moved.slice(0, 10).map((move) => ({
         filename: move.filename,

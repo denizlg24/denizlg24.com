@@ -29,6 +29,11 @@ export function TieringReportView({ report }: { report: TieringReport }) {
           {report.moved.length} moves · {formatBytes(movedBytes(report))}
         </span>
         <span>{report.reconciledCopies} reconciled</span>
+        {report.vanished > 0 && <span>{report.vanished} vanished</span>}
+        {report.healed > 0 && <span>{report.healed} healed</span>}
+        {report.orphaned.length > 0 && (
+          <span>{report.orphaned.length} orphaned</span>
+        )}
         {report.failures.length > 0 && (
           <span className="text-destructive">
             {report.failures.length} failed
@@ -65,6 +70,18 @@ export function TieringReportView({ report }: { report: TieringReport }) {
               ))}
             </TableBody>
           </Table>
+        </div>
+      )}
+      {report.orphaned.length > 0 && (
+        <div className="flex flex-col gap-0.5">
+          {report.orphaned.map((orphan) => (
+            <span
+              key={orphan.fileId}
+              className="font-mono text-[11px] text-muted-foreground"
+            >
+              reaped {orphan.path} · {formatBytes(orphan.sizeBytes)}
+            </span>
+          ))}
         </div>
       )}
       {report.failures.length > 0 && (

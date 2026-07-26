@@ -363,6 +363,25 @@ export class OpsScheduler {
         url,
       });
     }
+
+    // Reaping is silent recovery, but the row it removed was the last record
+    // that the file existed. That part is not something to find out later.
+    const orphaned = metadata.tieringReport?.orphaned ?? [];
+    if (task.type === "tiering_pass" && orphaned.length > 0) {
+      await this.options.notifications.dispatch({
+        type: "tiering_orphaned",
+        severity: "warn",
+        subjectKey: task.id,
+        title: `Tiering reaped ${orphaned.length} orphaned row${orphaned.length === 1 ? "" : "s"}`,
+        message: `${orphaned
+          .slice(0, 5)
+          .map((orphan) => orphan.path)
+          .join(
+            ", ",
+          )}${orphaned.length > 5 ? ", …" : ""} had no blob on either disk.`,
+        url,
+      });
+    }
   }
 
   private async notifyFailure(

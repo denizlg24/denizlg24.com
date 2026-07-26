@@ -294,6 +294,14 @@ export const tieringMoveSchema = z.object({
 });
 export type TieringMove = z.infer<typeof tieringMoveSchema>;
 
+export const tieringOrphanSchema = z.object({
+  fileId: z.uuid(),
+  filename: z.string(),
+  path: z.string(),
+  sizeBytes: z.number().nonnegative(),
+});
+export type TieringOrphan = z.infer<typeof tieringOrphanSchema>;
+
 export const tieringReportSchema = z.object({
   dryRun: z.boolean(),
   initialSsdUsagePercent: z.number().nonnegative(),
@@ -301,6 +309,12 @@ export const tieringReportSchema = z.object({
   considered: z.number().int().nonnegative(),
   moved: z.array(tieringMoveSchema),
   reconciledCopies: z.number().int().nonnegative(),
+  /** Deleted by someone else mid-pass. Expected, not an error. */
+  vanished: z.number().int().nonnegative(),
+  /** Rows repointed at a blob a crashed pass had already copied. */
+  healed: z.number().int().nonnegative(),
+  /** Rows deleted because their blob was gone from both tiers. */
+  orphaned: z.array(tieringOrphanSchema),
   failures: z.array(
     z.object({
       fileId: z.uuid(),

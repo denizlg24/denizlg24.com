@@ -303,6 +303,7 @@ export async function createRuntimeApp() {
         process.env.CLOUD_ADMIN_URL ?? "https://cloud.denizlg24.com",
       executorContext: {
         db,
+        meili,
         docker,
         health,
         notifications,

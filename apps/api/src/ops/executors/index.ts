@@ -3,7 +3,9 @@ import {
   countActivity,
   createTieringRepository,
   type Database,
+  type MeiliSearch,
   pruneActivity,
+  removeStorageDocuments,
   requestOutcomeCounts,
   rollupAndPruneMetrics,
   runTieringPass,
@@ -44,6 +46,7 @@ export type { ExecutorResult } from "./backups";
 
 export interface ExecutorContext extends BackupExecutorOptions {
   db: Database;
+  meili: MeiliSearch;
   health: OpsHealthService;
   notifications: NotificationDispatcher;
   rebootSentinelPath: string;
@@ -515,10 +518,22 @@ export function getExecutor(
             minSizeBytes: config.minSizeBytes ?? defaults.minSizeBytes,
             batchCap: config.batchCap ?? defaults.batchCap,
             dryRun: config.dryRun,
+            afterReap: async (file) => {
+              await removeStorageDocuments(context.meili, [file.id]).catch(
+                console.error,
+              );
+            },
           },
         );
+        const selfHealed = [
+          report.vanished > 0 ? `${report.vanished} vanished` : null,
+          report.healed > 0 ? `${report.healed} healed` : null,
+          report.orphaned.length > 0
+            ? `${report.orphaned.length} orphaned`
+            : null,
+        ].filter(Boolean);
         return {
-          output: `Tiering pass ${config.dryRun ? "dry run" : "completed"}: ${report.moved.length} moved, ${report.considered - report.moved.length} skipped, ${report.failures.length} failed`,
+          output: `Tiering pass ${config.dryRun ? "dry run" : "completed"}: ${report.moved.length} moved, ${report.considered - report.moved.length} skipped, ${report.failures.length} failed${selfHealed.length > 0 ? `, ${selfHealed.join(", ")}` : ""}`,
           metadata: {
             durationMs: Date.now() - startedAt,
             tieringReport: report,

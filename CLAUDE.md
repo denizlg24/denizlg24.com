@@ -114,8 +114,16 @@ Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
 - **A tiering pass that fails on individual files still reports `completed`.**
   Per-file failures land in `metadata.tieringReport.failures`, not in the run
   status, so no task-failure notification fires for them. Read the report, not
-  just the status. The usual cause is a `files` row whose blob is gone from
-  disk, which surfaces as `ENOENT` on the copy.
+  just the status.
+- **A missing source blob is no longer a failure — the pass resolves it.**
+  `ENOENT` on the copy routes into `resolveMissingSource`, which reports the
+  file as `vanished` (row gone or moved since the batch was listed — the
+  concurrent-delete race), `healed` (a verified blob was already at the
+  destination, so the row is repointed), or `orphaned` (gone from both tiers,
+  so the row is deleted and dropped from Meili, and a `tiering_orphaned`
+  notification fires). Reaping requires the tier root to be non-empty: an
+  unmounted disk makes every blob look deleted, and that path reports a failure
+  instead of emptying the `files` table.
 
 ### Migration and cutover scripts
 

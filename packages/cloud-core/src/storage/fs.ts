@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, open, rm, stat, statfs } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  open,
+  readdir,
+  rm,
+  stat,
+  statfs,
+} from "node:fs/promises";
 import { dirname } from "node:path";
 
 /**
@@ -27,6 +35,20 @@ export async function pathExists(path: string): Promise<boolean> {
       return false;
     }
     throw error;
+  }
+}
+
+/**
+ * Proxy for "this storage root is actually mounted". A bind mount whose host
+ * path is gone shows up as an existing but empty directory, which is
+ * indistinguishable from every file having been deleted — so anything that
+ * treats a missing blob as data loss has to ask this first.
+ */
+export async function directoryHasEntries(path: string): Promise<boolean> {
+  try {
+    return (await readdir(path)).length > 0;
+  } catch {
+    return false;
   }
 }
 

@@ -8,7 +8,14 @@ import { and, asc, eq } from "drizzle-orm";
 
 import type { Database } from "../db";
 import { files } from "../db/schema";
-import { copyAndVerify, deletePath, getDiskStats, pathExists } from "./fs";
+import {
+  computeChecksum,
+  copyAndVerify,
+  deletePath,
+  directoryHasEntries,
+  getDiskStats,
+  pathExists,
+} from "./fs";
 import { resolveHddDiskPath, resolveSsdDiskPath } from "./path";
 
 export interface TieringFile {
@@ -31,6 +38,7 @@ export interface TieringRepository {
     tier: StorageTier,
     diskPath: string,
   ): Promise<boolean>;
+  deleteFile(id: string, currentDiskPath: string): Promise<boolean>;
 }
 
 export interface TieringOptions {
@@ -45,6 +53,8 @@ export interface TieringOptions {
   now?: Date;
   diskStats?: typeof getDiskStats;
   afterCopy?: (file: TieringFile, destination: string) => Promise<void>;
+  /** Runs after an orphaned row is reaped, to drop it from the search index. */
+  afterReap?: (file: TieringFile) => Promise<void>;
 }
 
 export class TieringCrashSimulationError extends Error {
@@ -92,6 +102,13 @@ export function createTieringRepository(db: Database): TieringRepository {
         .returning({ id: files.id });
       return updated.length === 1;
     },
+    async deleteFile(id, currentDiskPath) {
+      const deleted = await db
+        .delete(files)
+        .where(and(eq(files.id, id), eq(files.diskPath, currentDiskPath)))
+        .returning({ id: files.id });
+      return deleted.length === 1;
+    },
   };
 }
 
@@ -124,6 +141,60 @@ async function moveAtomically(
     throw new Error("File metadata changed during tiering move");
   }
   await deletePath(file.diskPath);
+}
+
+function isMissingSourceError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function rootFor(
+  tier: StorageTier,
+  options: Pick<TieringOptions, "ssdStoragePath" | "hddStoragePath">,
+): string {
+  return tier === "ssd" ? options.ssdStoragePath : options.hddStoragePath;
+}
+
+/**
+ * What a pass should conclude when the blob it was about to move is not on
+ * disk. Only `orphaned` is destructive, and it is the one outcome that
+ * requires positive evidence — that the storage root is mounted and the blob
+ * is absent from both tiers — rather than merely the absence of the source.
+ */
+type MissingSource =
+  | { kind: "vanished" }
+  | { kind: "relocated"; diskPath: string }
+  | { kind: "orphaned"; file: TieringFile }
+  | { kind: "unmounted"; root: string };
+
+async function resolveMissingSource(
+  repository: TieringRepository,
+  file: TieringFile,
+  targetTier: StorageTier,
+  options: TieringOptions,
+): Promise<MissingSource> {
+  const current = await repository.findFile(file.id);
+  // Deleted, renamed or moved by another writer since listFiles() snapshotted
+  // the batch. Whatever the row says now is authoritative, not our copy of it.
+  if (!current || current.diskPath !== file.diskPath) {
+    return { kind: "vanished" };
+  }
+
+  // A pass that died between copyAndVerify and swapLocation leaves a complete
+  // blob at the destination with the row still pointing at the source it then
+  // never deleted. Adopting it finishes that move.
+  const destination = destinationFor(current, targetTier, options);
+  if (await pathExists(destination)) {
+    if ((await computeChecksum(destination)) === current.checksum) {
+      return { kind: "relocated", diskPath: destination };
+    }
+    // Torn copy from a pass that died mid-write. It is not the file.
+    await deletePath(destination);
+  }
+
+  const root = rootFor(current.tier, options);
+  return (await directoryHasEntries(root))
+    ? { kind: "orphaned", file: current }
+    : { kind: "unmounted", root };
 }
 
 async function reconcileCopies(
@@ -206,7 +277,10 @@ export async function runTieringPass(
     .slice(0, options.batchCap);
   const moved: TieringMove[] = [];
   const failures: TieringReport["failures"] = [];
+  const orphaned: TieringReport["orphaned"] = [];
   let movedBytes = 0;
+  let vanished = 0;
+  let healed = 0;
   for (const file of selected) {
     const reason = planned.get(file.id);
     if (!reason) continue;
@@ -231,10 +305,59 @@ export async function runTieringPass(
       if (error instanceof TieringCrashSimulationError) {
         throw error;
       }
-      failures.push({
-        fileId: file.id,
-        message: error instanceof Error ? error.message : "Tiering move failed",
-      });
+      if (!isMissingSourceError(error)) {
+        failures.push({
+          fileId: file.id,
+          message:
+            error instanceof Error ? error.message : "Tiering move failed",
+        });
+        continue;
+      }
+      const resolution = await resolveMissingSource(
+        repository,
+        file,
+        "hdd",
+        options,
+      );
+      switch (resolution.kind) {
+        case "vanished":
+          vanished += 1;
+          break;
+        case "relocated":
+          if (
+            await repository.swapLocation(
+              file.id,
+              file.diskPath,
+              "hdd",
+              resolution.diskPath,
+            )
+          ) {
+            healed += 1;
+            movedBytes += file.sizeBytes;
+          } else {
+            vanished += 1;
+          }
+          break;
+        case "orphaned":
+          if (await repository.deleteFile(file.id, file.diskPath)) {
+            await options.afterReap?.(resolution.file);
+            orphaned.push({
+              fileId: resolution.file.id,
+              filename: resolution.file.filename,
+              path: resolution.file.path,
+              sizeBytes: resolution.file.sizeBytes,
+            });
+          } else {
+            vanished += 1;
+          }
+          break;
+        case "unmounted":
+          failures.push({
+            fileId: file.id,
+            message: `Source missing and ${resolution.root} is empty; refusing to treat this as data loss`,
+          });
+          break;
+      }
     }
   }
 
@@ -250,6 +373,9 @@ export async function runTieringPass(
     considered: candidates.length,
     moved,
     reconciledCopies,
+    vanished,
+    healed,
+    orphaned,
     failures,
   };
 }

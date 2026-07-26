@@ -19,6 +19,7 @@ export const NOTIFICATION_TYPES = [
   "api_error_rate",
   "auth_failure_burst",
   "tiering_moved",
+  "tiering_orphaned",
   "test",
 ] as const;
 export const notificationTypeSchema = z.enum(NOTIFICATION_TYPES);
@@ -92,5 +93,6 @@ export const NOTIFICATION_COOLDOWN_MINUTES: Record<NotificationType, number> = {
   api_error_rate: 60,
   auth_failure_burst: 30,
   tiering_moved: 0,
+  tiering_orphaned: 0,
   test: 0,
 };
