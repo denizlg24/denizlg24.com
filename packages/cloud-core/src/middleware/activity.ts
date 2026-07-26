@@ -8,7 +8,21 @@ import type { Context, MiddlewareHandler } from "hono";
 import type { ActivityEntryInput } from "../ops/activity";
 import type { AuthVariables } from "./auth";
 
-const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const MUTATING_METHODS = new Set([
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  // WebDAV's own mutations. PROPFIND and LOCK are deliberately absent: Finder
+  // issues both constantly — a PROPFIND per directory it draws, a LOCK before
+  // every save — and neither changes stored state, so they are recorded only
+  // when they fail. PROPPATCH is absent for the same reason; the handler
+  // accepts the client's timestamps and discards them, and the PUT it
+  // accompanies is already the record of that save.
+  "MKCOL",
+  "MOVE",
+  "COPY",
+]);
 
 /**
  * Polled by the dashboard every 30s. Logging their successes would bury every
@@ -31,6 +45,13 @@ const NEVER_LOG_PATHS = new Set([
  */
 const S3_PREFIX = "/v2";
 
+/**
+ * The mounted drive. Unlike S3 its mutations are worth keeping — a PUT here is
+ * a person saving a file, not one part of a multipart upload — so it uses the
+ * ordinary rule and only its read verbs are filtered out, in MUTATING_METHODS.
+ */
+const DAV_PREFIX = "/dav";
+
 const DEFAULT_SLOW_REQUEST_MS = 3_000;
 
 interface CategoryRule {
@@ -50,6 +71,7 @@ const CATEGORY_RULES: readonly CategoryRule[] = [
   { prefix: "/api/projects", category: "projects" },
   { prefix: "/api/db", category: "database" },
   { prefix: S3_PREFIX, category: "s3" },
+  { prefix: DAV_PREFIX, category: "dav" },
 ];
 
 export function categoryForPath(path: string): ActivityCategory {

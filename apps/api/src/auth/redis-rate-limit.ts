@@ -1,6 +1,6 @@
 import type {
+  PeekableRateLimitStore,
   RateLimitDecision,
-  RateLimitStore,
 } from "@repo/cloud-core/middleware";
 
 interface RedisEvalClient {
@@ -30,6 +30,25 @@ redis.call("PEXPIRE", KEYS[1], window)
 return {1, 0}
 `;
 
+// The read-only half of CONSUME_SCRIPT: same expiry sweep and same retry
+// arithmetic, but it never ZADDs, so asking the question does not answer it.
+const PEEK_SCRIPT = `
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local max = tonumber(ARGV[3])
+redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now - window)
+local count = redis.call("ZCARD", KEYS[1])
+if count >= max then
+  local oldest = redis.call("ZRANGE", KEYS[1], 0, 0, "WITHSCORES")
+  local retry = window
+  if oldest[2] then
+    retry = math.max(1, tonumber(oldest[2]) + window - now)
+  end
+  return {0, retry}
+end
+return {1, 0}
+`;
+
 function redisInteger(value: string | number, label: string): number {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed)) {
@@ -38,7 +57,7 @@ function redisInteger(value: string | number, label: string): number {
   return parsed;
 }
 
-export class RedisRateLimitStore implements RateLimitStore {
+export class RedisRateLimitStore implements PeekableRateLimitStore {
   constructor(
     private readonly client: RedisEvalClient,
     private readonly prefix = "deniz-cloud:auth-rate",
@@ -50,13 +69,33 @@ export class RedisRateLimitStore implements RateLimitStore {
     windowMs: number,
   ): Promise<RateLimitDecision> {
     const now = Date.now();
-    const reply = await this.client.eval(CONSUME_SCRIPT, {
-      arguments: [
-        String(now),
-        String(windowMs),
-        String(max),
-        `${now}:${crypto.randomUUID()}`,
-      ],
+    return this.#run(CONSUME_SCRIPT, key, [
+      String(now),
+      String(windowMs),
+      String(max),
+      `${now}:${crypto.randomUUID()}`,
+    ]);
+  }
+
+  async peek(
+    key: string,
+    max: number,
+    windowMs: number,
+  ): Promise<RateLimitDecision> {
+    return this.#run(PEEK_SCRIPT, key, [
+      String(Date.now()),
+      String(windowMs),
+      String(max),
+    ]);
+  }
+
+  async #run(
+    script: string,
+    key: string,
+    args: string[],
+  ): Promise<RateLimitDecision> {
+    const reply = await this.client.eval(script, {
+      arguments: args,
       keys: [`${this.prefix}:${key}`],
     });
     if (

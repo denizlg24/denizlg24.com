@@ -79,6 +79,38 @@ describe("shouldCapture", () => {
     ).toBe(true);
     expect(decision({ path: "/v2", method: "GET", status: 404 })).toBe(true);
   });
+
+  it("records what a WebDAV client changes", () => {
+    const dav = { path: "/dav/home/report.txt" };
+    for (const method of ["PUT", "DELETE", "MKCOL", "MOVE", "COPY"]) {
+      expect(decision({ ...dav, method, status: 201 })).toBe(true);
+    }
+  });
+
+  it("ignores the read traffic a mount generates constantly", () => {
+    const dav = { path: "/dav/home" };
+    // Finder issues a PROPFIND per directory it draws, a LOCK before every
+    // save, and a PROPPATCH after it. None of them change stored state.
+    for (const method of [
+      "PROPFIND",
+      "GET",
+      "HEAD",
+      "LOCK",
+      "UNLOCK",
+      "PROPPATCH",
+    ]) {
+      expect(decision({ ...dav, method })).toBe(false);
+    }
+  });
+
+  it("still records those reads when they fail", () => {
+    expect(
+      decision({ path: "/dav/home", method: "PROPFIND", status: 401 }),
+    ).toBe(true);
+    expect(decision({ path: "/dav/home", method: "LOCK", status: 423 })).toBe(
+      true,
+    );
+  });
 });
 
 describe("categoryForPath", () => {
@@ -88,6 +120,14 @@ describe("categoryForPath", () => {
     expect(categoryForPath("/api/ops/terminal/sessions")).toBe("terminal");
     expect(categoryForPath("/api/ops/tasks/abc/runs")).toBe("tasks");
     expect(categoryForPath("/api/ops/containers")).toBe("ops");
+  });
+
+  it("gives the mounted drive its own category", () => {
+    expect(categoryForPath("/dav")).toBe("dav");
+    expect(categoryForPath("/dav/home/report.txt")).toBe("dav");
+    // Not "storage": filtering the mount apart from the web client is the
+    // point of a separate category.
+    expect(categoryForPath("/api/storage/files")).toBe("storage");
   });
 
   it("falls back to system for unmatched paths", () => {

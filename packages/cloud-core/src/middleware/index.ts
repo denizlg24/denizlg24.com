@@ -19,6 +19,7 @@ export {
 export { SESSION_COOKIE_MAX_AGE, sessionCookieOptions } from "./cookie";
 export { type CorsOptions, cors } from "./cors";
 export {
+  type PeekableRateLimitStore,
   type RateLimitDecision,
   type RateLimitOptions,
   type RateLimitStore,

@@ -19,6 +19,18 @@ export interface RateLimitStore {
   ): Promise<RateLimitDecision>;
 }
 
+/**
+ * A store that can also report the current verdict without spending a token.
+ *
+ * Needed wherever the counter is fed by *outcomes* rather than by requests —
+ * WebDAV charges only failed credentials, so it has to ask whether the caller
+ * is already barred before doing the expensive verification that would produce
+ * the next failure.
+ */
+export interface PeekableRateLimitStore extends RateLimitStore {
+  peek(key: string, max: number, windowMs: number): Promise<RateLimitDecision>;
+}
+
 export interface RateLimitOptions {
   /** Sliding time window in milliseconds. */
   windowMs: number;

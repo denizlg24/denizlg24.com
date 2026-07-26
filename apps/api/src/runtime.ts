@@ -10,6 +10,7 @@ import {
   databaseActivitySink,
   ensureLegacyS3Credential,
   ensureStorageSearchIndex,
+  getDiskStats,
   initializeS3,
   MongoProvisioner,
   PostgresProvisioner,
@@ -333,7 +334,21 @@ export async function createRuntimeApp() {
       db,
       isProduction: process.env.NODE_ENV === "production",
       rateLimitStore: new RedisRateLimitStore(redis),
-      storage: { service: storageService, s3: s3Config },
+      storage: {
+        service: storageService,
+        s3: s3Config,
+        dav: {
+          // Finder reads these off the mount root to draw the drive's capacity
+          // bar; without them it reports the volume as full and refuses copies.
+          quota: async () => {
+            const stats = await getDiskStats(storageConfig.ssdStoragePath);
+            return {
+              usedBytes: stats.usedBytes,
+              availableBytes: stats.availableBytes,
+            };
+          },
+        },
+      },
       platform: {
         projects: projectRoutes({
           db,

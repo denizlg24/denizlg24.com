@@ -20,6 +20,7 @@ import { useSession } from "@/components/session-provider";
 import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { API_BASE_URL, STORAGE_APP_URL } from "@/lib/env";
+import { NetworkDriveSection } from "./_components/network-drive-section";
 
 function PasswordSection() {
   const [current, setCurrent] = useState("");
@@ -288,6 +289,7 @@ export default function SettingsPage() {
       </Section>
       <PasswordSection />
       <TotpSection />
+      <NetworkDriveSection />
       <EnvironmentSection />
     </div>
   );
