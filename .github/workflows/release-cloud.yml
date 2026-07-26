@@ -162,6 +162,57 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml pull"
 
+      # Runs in both modes: a validate run should surface a migration that is
+      # about to fail, and a dry run never writes. `compose run` reuses the api
+      # service so the migration sees exactly the environment and network the
+      # server will, without duplicating fifty variables into a second service.
+      - name: Report pending migrations
+        id: pending
+        run: |
+          summary="$(ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml run --rm --no-deps -T api bun run dist/apply-migrations.js" \
+            | tail -n 1)"
+          echo "$summary"
+          pending="$(jq -r '.pending // [] | join(", ")' <<< "$summary")"
+          {
+            echo "### Migrations"
+            echo
+            if [[ -z "$pending" ]]; then
+              echo "Schema is up to date; nothing to apply."
+            else
+              echo "Pending: \`${pending}\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Before the stack restarts, so the new code never starts against an old
+      # schema. The old container is still serving at this point, which is only
+      # safe for additive migrations — a destructive change needs the usual
+      # expand/contract split across two deploys.
+      - name: Apply migrations
+        if: env.DEPLOY_MODE == 'deploy'
+        run: |
+          if ! ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml run --rm --no-deps -T api bun run dist/apply-migrations.js --execute"
+          then
+            {
+              echo
+              echo "Migration failed, so the stack was not restarted and the"
+              echo "running container still serves the previous image."
+              echo
+              echo "An \`already exists\` error means the schema was changed"
+              echo "out of band and drizzle has no record of it. Mark the"
+              echo "affected migrations applied without running them:"
+              echo
+              echo '```'
+              echo "cd /opt/deniz-cloud/infra/compose"
+              echo "docker compose --env-file .env.pi -f docker-compose.pi.yml \\"
+              echo "  run --rm --no-deps -T api \\"
+              echo "  bun run dist/apply-migrations.js --baseline <tag>   # dry run"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
       # The only step that touches running state. Until cutover the Pi still
       # runs the old stack on the same data directories and ports, so a
       # validate run must stop here.

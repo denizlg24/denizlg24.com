@@ -13,7 +13,7 @@
     "ops:tiering-dry-run": "bun --env-file=../../.env scripts/tiering-dry-run.ts",
     "cutover:verify": "bun --env-file=../../.env scripts/migrate-verify.ts",
     "dev": "PORT=3001 bun --env-file=../../.env --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
+    "build": "bun build src/index.ts --outdir dist --target bun && bun build scripts/apply-migrations.ts --outdir dist --target bun",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
