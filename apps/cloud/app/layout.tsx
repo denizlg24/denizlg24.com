@@ -14,8 +14,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "deniz cloud",
-  description: "cloud admin",
+  title: { default: "deniz cloud", template: "%s — deniz cloud" },
+  description: "self-hosted cloud admin",
+  applicationName: "deniz cloud",
+  robots: { index: false, follow: false },
 };
 
 const themeScript = `(() => {

@@ -245,11 +245,26 @@ export function getExecutor(
     case "reboot_server":
       return async () => {
         const startedAt = Date.now();
-        await writeFile(
-          context.rebootSentinelPath,
-          `${new Date().toISOString()}\n`,
-          { flag: "w", mode: 0o600 },
-        );
+        try {
+          await writeFile(
+            context.rebootSentinelPath,
+            `${new Date().toISOString()}\n`,
+            { flag: "w", mode: 0o600 },
+          );
+        } catch (error) {
+          // The API is unprivileged; the bind-mounted host directory has to be
+          // owned by uid 1000 or nothing can ever create the sentinel.
+          if (
+            error instanceof Error &&
+            "code" in error &&
+            error.code === "EACCES"
+          ) {
+            throw new Error(
+              `Cannot write ${context.rebootSentinelPath}. The host directory behind it must be owned by uid 1000: sudo chown 1000:1000 /var/lib/deniz-cloud`,
+            );
+          }
+          throw error;
+        }
         return durationResult(startedAt, "Server reboot requested");
       };
     case "tiering_pass":

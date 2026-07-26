@@ -81,7 +81,14 @@ sudo ufw allow from 172.16.0.0/12 to any port 3003 proto tcp
 
 **Reboot sentinel**: the API writes `/host-control/reboot-requested`; the host
 path unit deletes it and calls `systemctl reboot`. Source dir is
-`/var/lib/deniz-cloud`.
+`/var/lib/deniz-cloud`, and it must be owned by uid 1000 — the container writes
+the sentinel as the unprivileged `bun` user, so a root-owned directory fails
+every `reboot_server` task with `EACCES`. `install-host-units.sh` creates it that
+way; a host provisioned before that:
+
+```sh
+sudo chown 1000:1000 /var/lib/deniz-cloud
+```
 
 **Docker access** is only ever through `tcp://docker-proxy:2375`, which permits
 container list/inspect/stats, exec and restart — no images, networks, volumes or

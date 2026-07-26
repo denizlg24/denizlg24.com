@@ -1,5 +1,7 @@
 import { toApiError, toTransportError } from "@repo/cloud-ui/api-error";
 import {
+  type ArchiveJob,
+  archiveJobSchema,
   type CompleteSignupInput,
   type CompleteSignupResult,
   type CreateFolderInput,
@@ -62,8 +64,8 @@ interface RequestOptions {
 // Without a deadline a stalled connection leaves the browser stuck on a
 // skeleton with no way back.
 const DEFAULT_TIMEOUT_MS = 30_000;
-// Building a ZIP walks every selected file on disk before the first byte.
-const ARCHIVE_TIMEOUT_MS = 10 * 60_000;
+// Starting an archive walks every selected file's row before it answers.
+const ARCHIVE_TIMEOUT_MS = 60_000;
 
 function buildUrl(path: string, query?: Query): URL {
   const url = new URL(path, API_BASE_URL);
@@ -237,11 +239,16 @@ export const api = {
   archive: (
     input: DownloadArchiveInput,
     signal?: AbortSignal,
-  ): Promise<Response> =>
-    rawFetch("/api/storage/download-archive", {
+  ): Promise<ArchiveJob> =>
+    requestData(archiveJobSchema, "/api/storage/download-archive", {
       method: "POST",
       body: input,
       timeoutMs: ARCHIVE_TIMEOUT_MS,
+      signal,
+    }),
+
+  archiveStatus: (id: string, signal?: AbortSignal): Promise<ArchiveJob> =>
+    requestData(archiveJobSchema, `/api/storage/download-archive/${id}`, {
       signal,
     }),
 
@@ -259,6 +266,8 @@ export const api = {
       buildUrl(`/api/storage/share/${encodeURIComponent(token)}`, {
         download: "1",
       }).toString(),
+    archiveDownload: (id: string): string =>
+      buildUrl(`/api/storage/download-archive/${id}/download`).toString(),
   },
 
   /** Fetches a file body directly — used by the text/code/pdf previews. */

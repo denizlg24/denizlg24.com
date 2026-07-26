@@ -7,6 +7,7 @@ import {
   requiredEnv,
   users,
 } from "@repo/cloud-core";
+import { archiveJobResponseSchema } from "@repo/schemas/cloud";
 import { eq } from "drizzle-orm";
 
 import { createCloudAuth } from "../src/auth/better-auth";
@@ -476,23 +477,58 @@ try {
   );
 
   // 7. bulk ZIP -------------------------------------------------------------
-  const archive = await fetch(new URL("/api/storage/download-archive", BASE), {
-    body: JSON.stringify({ fileIds: [], folderIds: [parentId] }),
-    headers: {
-      Origin: ORIGIN,
-      Cookie: cookieHeader(),
-      "Content-Type": "application/json",
+  // The archive is staged on disk, so this is a job to follow rather than one
+  // long response body.
+  const archiveStart = await fetch(
+    new URL("/api/storage/download-archive", BASE),
+    {
+      body: JSON.stringify({ fileIds: [], folderIds: [parentId] }),
+      headers: {
+        Origin: ORIGIN,
+        Cookie: cookieHeader(),
+        "Content-Type": "application/json",
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
+  const started = archiveJobResponseSchema.parse(await archiveStart.json());
+  check(
+    "folder selection starts an archive build",
+    archiveStart.status === 202 &&
+      started.data.state === "building" &&
+      started.data.totalBytes > 1_000,
+    `${archiveStart.status} ${started.data.state} ${started.data.totalBytes} bytes`,
+  );
+
+  let job = started.data;
+  const archiveDeadline = Date.now() + 60_000;
+  while (job.state === "building" && Date.now() < archiveDeadline) {
+    await Bun.sleep(200);
+    const poll = await fetch(
+      new URL(`/api/storage/download-archive/${job.id}`, BASE),
+      { headers: { Origin: ORIGIN, Cookie: cookieHeader() } },
+    );
+    job = archiveJobResponseSchema.parse(await poll.json()).data;
+  }
+  check(
+    "the archive build finishes",
+    job.state === "ready" && job.writtenBytes === job.totalBytes,
+    `${job.state} ${job.writtenBytes}/${job.totalBytes} ${job.error ?? ""}`,
+  );
+
+  const archive = await fetch(
+    new URL(`/api/storage/download-archive/${job.id}/download`, BASE),
+    { headers: { Origin: ORIGIN, Cookie: cookieHeader() } },
+  );
   const archiveBytes = new Uint8Array(await archive.arrayBuffer());
   check(
-    "folder selection streams a real ZIP",
+    "the finished archive downloads as a real ZIP",
     archive.status === 200 &&
       archive.headers.get("Content-Type") === "application/zip" &&
+      archive.headers.get("Content-Length") === String(job.totalBytes) &&
       archiveBytes[0] === 0x50 &&
       archiveBytes[1] === 0x4b &&
-      archiveBytes.byteLength > 1_000,
+      archiveBytes.byteLength === job.totalBytes,
     `${archive.status} ${archiveBytes.byteLength} bytes`,
   );
 

@@ -78,6 +78,13 @@ Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
 - **Serve files as `Bun.file()` / `.slice()`, never a hand-rolled ReadableStream.**
   Measured on a 5.8 GB file to a slow client: BunFile 36 MB steady, pull-stream
   607 MB then OOM. Keep `idleTimeout: 0` in `apps/api/src/index.ts`.
+- **Never read a large file with `Bun.file(path).stream()` either.** Reading a
+  629 MB file grew RSS by 680 MB that `Bun.gc(true)` would not reclaim; an
+  `fs.open()` descriptor read into one reused `Buffer` grew it by 3 MB. This is
+  why `writeArchive` and `computeChecksum` look the way they do. Anything that
+  has to pass file bytes through JS — hashing, ZIP building, copying — reads
+  through a descriptor into a fixed buffer, and multi-file work (ZIP downloads)
+  is staged to disk first and then served as a `Bun.file()`.
 - **UFW `INPUT` policy is DROP.** Containers cannot reach host services unless a
   rule allows the docker subnets. This is why the terminal needs
   `ufw allow from 172.16.0.0/12 to any port 3003 proto tcp`.

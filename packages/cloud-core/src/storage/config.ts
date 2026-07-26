@@ -38,6 +38,8 @@ export interface StorageConfig {
   tempUploadPath: string;
   shareLinkSecret: string;
   archiveMaxBytes: number;
+  archivePath: string;
+  archiveTtlMs: number;
   s3: {
     rootPath: string;
     tempPath: string;
@@ -94,6 +96,10 @@ export function storageConfigFromEnv(): StorageConfig {
       MEBIBYTE,
       4 * GIBIBYTE - MEBIBYTE,
     ),
+    archivePath:
+      process.env.STORAGE_ARCHIVE_PATH ?? join(ssdStoragePath, ".archives"),
+    archiveTtlMs:
+      boundedInteger("STORAGE_ARCHIVE_TTL_MINUTES", 30, 1, 1_440) * 60 * 1_000,
     s3: {
       rootPath: process.env.S3_ROOT_PATH ?? join(ssdStoragePath, ".s3-v2"),
       tempPath: process.env.S3_TEMP_PATH ?? join(ssdStoragePath, ".s3-v2-temp"),

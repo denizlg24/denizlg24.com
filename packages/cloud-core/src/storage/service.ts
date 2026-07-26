@@ -27,7 +27,8 @@ import {
 } from "../search";
 import type { StoragePrincipal } from "./access";
 import { checkStorageAccess } from "./access";
-import { type ArchiveEntry, createZipStream } from "./archive";
+import { type ArchiveEntry, archiveByteLength } from "./archive";
+import { type ArchiveJob, ArchiveJobStore } from "./archive-jobs";
 import type { StorageConfig } from "./config";
 import { contentDisposition } from "./content-disposition";
 import {
@@ -58,6 +59,13 @@ import type { PromotionQueue } from "./tiering";
 
 const TUS_VERSION = "1.0.0";
 const UPLOAD_EXPIRY_MS = 24 * 60 * 60 * 1_000;
+const ARCHIVE_NAME = "deniz-cloud-files.zip";
+// Two builds already saturate the Pi's CRC throughput; more only compete for
+// the same disk and stage more bytes that may never be downloaded.
+const MAX_CONCURRENT_ARCHIVES = 2;
+// Refuse to stage an archive that would leave the SSD with less headroom than
+// the archive itself.
+const ARCHIVE_HEADROOM_FACTOR = 2;
 
 export class StorageServiceError extends Error {
   constructor(
@@ -206,19 +214,26 @@ function safeJsonBody(value: unknown): Record<string, unknown> {
 
 export class StorageService {
   readonly #uploadLocks = new Map<string, Promise<void>>();
+  readonly #archives: ArchiveJobStore;
 
   constructor(
     private readonly db: Database,
     private readonly meili: MeiliSearch,
     private readonly config: StorageConfig,
     private readonly promotions: PromotionQueue,
-  ) {}
+  ) {
+    this.#archives = new ArchiveJobStore({
+      directory: config.archivePath,
+      ttlMs: config.archiveTtlMs,
+    });
+  }
 
   async initialize(): Promise<void> {
     await Promise.all([
       ensureDir(this.config.ssdStoragePath),
       ensureDir(this.config.hddStoragePath),
       ensureDir(this.config.tempUploadPath),
+      this.#archives.initialize(),
     ]);
   }
 
@@ -1202,10 +1217,17 @@ export class StorageService {
     return expired.length;
   }
 
+  /**
+   * Starts a ZIP build on disk and returns the job to poll. The archive is not
+   * streamed out of this request: a userspace stream through Bun's server has
+   * no backpressure and a multi-gigabyte selection OOM-kills the API. Staging
+   * it also lets the browser download the finished file natively instead of
+   * buffering the whole ZIP in the tab.
+   */
   async archive(
     principal: StoragePrincipal,
     bodyValue: unknown,
-  ): Promise<Response> {
+  ): Promise<ArchiveJob> {
     const parsed = downloadArchiveInputSchema.safeParse(bodyValue);
     if (!parsed.success) {
       throw new StorageServiceError(
@@ -1264,15 +1286,92 @@ export class StorageService {
         "The selected folders contain no files",
       );
     }
-    return new Response(createZipStream(entries), {
+    const ownerKey = this.#archiveOwnerKey(principal);
+    if (this.#archives.activeCount(ownerKey) >= MAX_CONCURRENT_ARCHIVES) {
+      throw new StorageServiceError(
+        409,
+        "ARCHIVE_BUSY",
+        "Another archive is still building",
+      );
+    }
+    let totalBytes: number;
+    try {
+      totalBytes = archiveByteLength(entries);
+    } catch (error) {
+      throw new StorageServiceError(
+        413,
+        "ARCHIVE_TOO_LARGE",
+        error instanceof Error ? error.message : "Archive exceeds ZIP32 limits",
+      );
+    }
+    const disk = await getDiskStats(this.config.ssdStoragePath);
+    if (disk.availableBytes < totalBytes * ARCHIVE_HEADROOM_FACTOR) {
+      throw new StorageServiceError(
+        413,
+        "ARCHIVE_NO_SPACE",
+        "Not enough free disk space to stage that archive",
+      );
+    }
+    return this.#archives.start({
+      ownerKey,
+      filename: ARCHIVE_NAME,
+      totalBytes,
+      entries,
+    });
+  }
+
+  archiveStatus(principal: StoragePrincipal, id: string): ArchiveJob {
+    const job = this.#archives.find(this.#archiveOwnerKey(principal), id);
+    if (!job) {
+      throw new StorageServiceError(
+        404,
+        "ARCHIVE_NOT_FOUND",
+        "That archive is no longer available",
+      );
+    }
+    return job;
+  }
+
+  async archiveDownload(
+    principal: StoragePrincipal,
+    id: string,
+  ): Promise<Response> {
+    const job = this.archiveStatus(principal, id);
+    if (job.state !== "ready") {
+      throw new StorageServiceError(
+        409,
+        "ARCHIVE_NOT_READY",
+        job.error ?? "That archive is still building",
+      );
+    }
+    const file = Bun.file(job.diskPath);
+    if (!(await file.exists())) {
+      await this.#archives.discard(job);
+      throw new StorageServiceError(
+        410,
+        "ARCHIVE_EXPIRED",
+        "That archive has already been cleaned up",
+      );
+    }
+    // Bun.file() and nothing else: it is the only response body that reaches
+    // the socket through sendfile with kernel-level backpressure.
+    return new Response(file, {
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": contentDisposition(
-          "attachment",
-          "deniz-cloud-files.zip",
-        ),
+        "Content-Length": String(file.size),
+        "Content-Disposition": contentDisposition("attachment", job.filename),
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
       },
     });
+  }
+
+  // Project credentials are scoped to one project's tree, so an archive built
+  // for one must not be readable through another's key.
+  #archiveOwnerKey(principal: StoragePrincipal): string {
+    return principal.project
+      ? `project:${principal.project.id}`
+      : `user:${principal.user.id}`;
   }
 
   async search(principal: StoragePrincipal, query: URLSearchParams) {

@@ -3,6 +3,7 @@ import {
   requireRole,
   requireScope,
 } from "@repo/cloud-core";
+import type { ArchiveJob } from "@repo/cloud-core/storage";
 import {
   type StoragePrincipal,
   type StorageService,
@@ -38,6 +39,19 @@ async function jsonBody(context: StorageContext): Promise<unknown> {
   return context.req.json().catch(() => null);
 }
 
+/** The wire shape: the job's disk path and owner key stay server-side. */
+function archiveJobView(job: ArchiveJob) {
+  return {
+    id: job.id,
+    filename: job.filename,
+    fileCount: job.fileCount,
+    totalBytes: job.totalBytes,
+    writtenBytes: job.writtenBytes,
+    state: job.state,
+    error: job.error,
+  };
+}
+
 export function storageRoutes(service: StorageService) {
   const router = new Hono<{ Variables: AuthVariables }>();
 
@@ -54,6 +68,8 @@ export function storageRoutes(service: StorageService) {
   router.delete("/files/:id", requireScope("storage:delete"));
   router.post("/files/:id/share", requireScope("storage:read"));
   router.post("/download-archive", requireScope("storage:read"));
+  router.get("/download-archive/:id", requireScope("storage:read"));
+  router.get("/download-archive/:id/download", requireScope("storage:read"));
   router.post("/uploads", requireScope("storage:write"));
   // Hono dispatches HEAD through a matching GET route.
   router.get("/uploads/:id", requireScope("storage:write"));
@@ -251,7 +267,33 @@ export function storageRoutes(service: StorageService) {
   });
   router.post("/download-archive", async (context) => {
     try {
-      return await service.archive(principal(context), await jsonBody(context));
+      const job = await service.archive(
+        principal(context),
+        await jsonBody(context),
+      );
+      return context.json({ data: archiveJobView(job) }, 202);
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/download-archive/:id", (context) => {
+    try {
+      const job = service.archiveStatus(
+        principal(context),
+        context.req.param("id"),
+      );
+      context.header("Cache-Control", "no-store");
+      return context.json({ data: archiveJobView(job) });
+    } catch (error) {
+      return serviceError(context, error);
+    }
+  });
+  router.get("/download-archive/:id/download", async (context) => {
+    try {
+      return await service.archiveDownload(
+        principal(context),
+        context.req.param("id"),
+      );
     } catch (error) {
       return serviceError(context, error);
     }
