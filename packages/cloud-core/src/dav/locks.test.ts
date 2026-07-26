@@ -70,6 +70,22 @@ describe("dav lock store", () => {
     expect(store.refresh("opaquelocktoken:missing", 900)).toBeNull();
   });
 
+  it("sees a descendant lock that covering() cannot", () => {
+    const store = new DavLockStore();
+    const lock = lockOn(store, "/u/dir/a.txt", "0");
+    // The distinction the two answer: writing to /u/dir is fine, destroying it
+    // is not, because that takes the locked member with it.
+    expect(store.blocking("/u/dir", [])).toBeNull();
+    expect(store.blockingWithin("/u/dir", [])).not.toBeNull();
+    expect(store.blockingWithin("/u/dir", [lock.token])).toBeNull();
+  });
+
+  it("does not treat a sibling prefix as a descendant", () => {
+    const store = new DavLockStore();
+    lockOn(store, "/u/dirother/a.txt", "0");
+    expect(store.blockingWithin("/u/dir", [])).toBeNull();
+  });
+
   it("releases a deleted subtree and retargets a moved one", () => {
     const store = new DavLockStore();
     lockOn(store, "/u/dir", "infinity");

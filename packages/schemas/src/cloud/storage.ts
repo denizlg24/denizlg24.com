@@ -155,7 +155,7 @@ export const storageFolderResponseSchema = apiResponseSchema(
 
 export const createDavCredentialInputSchema = z.object({
   name: z.string().trim().min(1).max(255),
-  expiresAt: z.iso.datetime().nullish(),
+  expiresAt: cloudDateTimeSchema.nullish(),
 });
 export type CreateDavCredentialInput = z.infer<
   typeof createDavCredentialInputSchema

@@ -73,6 +73,7 @@ const DEV_SIGNUP_MAX_REQUESTS = 100;
 // it is running on. Only rejections count against it.
 const DAV_AUTH_MAX_FAILURES = 20;
 const DEV_DAV_AUTH_MAX_FAILURES = 200;
+const DAV_MAX_CREDENTIALS_PER_USER = 10;
 const MFA_ENROLLMENT_PATHS = new Set([
   "/api/auth/get-session",
   "/api/auth/sign-out",
@@ -618,6 +619,29 @@ export function createCloudApiApp(options: CloudApiOptions) {
             400,
           );
         }
+        // A cold verification argon2-hashes against every live credential the
+        // user holds until one matches, so an unbounded pile of them turns each
+        // cache miss into dozens of hashes on the request thread. The ceiling
+        // bounds that as much as it bounds the reach of a leaked secret.
+        const live = await listDavCredentials(
+          options.db,
+          context.get("user").id,
+        );
+        const now = new Date();
+        const usable = live.filter(
+          (credential) => !credential.expiresAt || credential.expiresAt > now,
+        );
+        if (usable.length >= DAV_MAX_CREDENTIALS_PER_USER) {
+          return context.json(
+            {
+              error: {
+                code: "TOO_MANY_CREDENTIALS",
+                message: `At most ${DAV_MAX_CREDENTIALS_PER_USER} credentials may be live at once`,
+              },
+            },
+            409,
+          );
+        }
         const issued = await issueDavCredential(options.db, {
           userId: context.get("user").id,
           name: parsed.data.name,
@@ -633,6 +657,14 @@ export function createCloudApiApp(options: CloudApiOptions) {
       requireSession(),
       async (context) => {
         const id = context.req.param("id");
+        // The column is a uuid, so anything else reaches Postgres as a cast
+        // error and surfaces as a 500 instead of the intended miss.
+        if (!z.uuid().safeParse(id).success) {
+          return context.json(
+            { error: { code: "NOT_FOUND", message: "Credential not found" } },
+            404,
+          );
+        }
         const revoked = await revokeDavCredential(
           options.db,
           context.get("user").id,
@@ -666,8 +698,14 @@ export function createCloudApiApp(options: CloudApiOptions) {
           ? DAV_AUTH_MAX_FAILURES
           : DEV_DAV_AUTH_MAX_FAILURES,
         windowMs: LOGIN_WINDOW_MS,
-        clientKey: (context) =>
-          `dav-auth:${clientIp(context, options.isProduction)}`,
+        // Keyed on the account as well as the address so one device with a
+        // stale saved password cannot spend the budget for every other mount
+        // behind the same egress. It must be the parsed username and not any
+        // slice of the Authorization header: that header encodes the password
+        // too, so keying on it would hand every wrong guess its own fresh
+        // budget and disable the throttle outright.
+        clientKey: (context, username) =>
+          `dav-auth:${clientIp(context, options.isProduction)}:${username}`,
       },
     });
     app.use(DAV_MOUNT_PATH, davAuthenticate);

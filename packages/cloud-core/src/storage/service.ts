@@ -70,9 +70,13 @@ const MAX_CONCURRENT_ARCHIVES = 2;
 // the archive itself.
 const ARCHIVE_HEADROOM_FACTOR = 2;
 
+// Headroom the staging volume keeps back from any one write, so a single large
+// PUT cannot leave the rest of the system with nowhere to work.
+const STAGING_RESERVE_BYTES = 1024 * 1024 * 1024;
+
 export class StorageServiceError extends Error {
   constructor(
-    public readonly status: 400 | 403 | 404 | 409 | 410 | 413 | 415 | 500,
+    public readonly status: 400 | 403 | 404 | 409 | 410 | 413 | 415 | 500 | 507,
     public readonly code: string,
     message: string,
   ) {
@@ -142,6 +146,12 @@ function normalizeMimeType(header: string | null): string | null {
  * PUTs to a URL and then reads that same URL back, so rewriting the name would
  * 404 its own write. Both policies coexist because uniqueness is enforced on
  * the full path, which keeps the two spellings distinct.
+ *
+ * Every method that takes one defaults to "normalize". Defaulting the two
+ * WebDAV-shaped methods to "preserve" instead would have left one class with
+ * opposite defaults on neighbouring methods, where omitting the argument is
+ * silently right in one place and silently wrong in the next; callers that want
+ * the client's spelling ask for it.
  */
 export type NamingPolicy = "normalize" | "preserve";
 
@@ -1553,7 +1563,7 @@ export class StorageService {
     parent: Folder,
     rawFilename: string,
     request: Request,
-    naming: NamingPolicy = "preserve",
+    naming: NamingPolicy = "normalize",
   ): Promise<{ file: StorageFile; created: boolean }> {
     deny(
       principal,
@@ -1564,77 +1574,123 @@ export class StorageService {
     );
     const filename = this.#namedOrThrow(rawFilename, naming);
     const targetPath = joinPath(parent.path, filename);
-    const [existing, blockingFolder] = await Promise.all([
-      this.db.query.files.findFirst({ where: eq(files.path, targetPath) }),
-      this.db.query.folders.findFirst({ where: eq(folders.path, targetPath) }),
-    ]);
-    if (blockingFolder) {
-      throw new StorageServiceError(
-        409,
-        "FOLDER_EXISTS",
-        "A folder already exists at this path",
-      );
-    }
-    if (existing) {
-      deny(
-        principal,
-        existing.path,
-        "storage:write",
-        existing.ownerId,
-        "modify",
-      );
-    }
 
-    const tempDiskPath = join(
-      this.config.tempUploadPath,
-      `${crypto.randomUUID()}.dav`,
-    );
-    await ensureDir(this.config.tempUploadPath);
-    const hasher = createHash("sha256");
-    let sizeBytes = 0;
-    try {
-      const handle = await open(tempDiskPath, "w");
-      try {
-        const reader = request.body?.getReader();
-        while (reader) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          hasher.update(value);
-          let offset = 0;
-          while (offset < value.byteLength) {
-            const { bytesWritten } = await handle.write(
-              value,
-              offset,
-              value.byteLength - offset,
-              sizeBytes + offset,
-            );
-            offset += bytesWritten;
-          }
-          sizeBytes += value.byteLength;
-        }
-        await handle.sync();
-      } finally {
-        await handle.close();
+    // Serialized on the destination, as the resumable path is on its upload id.
+    // Two overlapping PUTs to one path would otherwise both update the same row
+    // and both rename their staging file onto it: the surviving bytes are one
+    // request's while the persisted size and checksum are the other's, which
+    // then fails copyAndVerify on the next COPY of that file. The `path:`
+    // prefix keeps these keys out of the upload-id namespace sharing the map.
+    return this.withUploadLock(`path:${targetPath}`, async () => {
+      const [existing, blockingFolder] = await Promise.all([
+        this.db.query.files.findFirst({ where: eq(files.path, targetPath) }),
+        this.db.query.folders.findFirst({
+          where: eq(folders.path, targetPath),
+        }),
+      ]);
+      if (blockingFolder) {
+        throw new StorageServiceError(
+          409,
+          "FOLDER_EXISTS",
+          "A folder already exists at this path",
+        );
       }
-    } catch (error) {
-      await deletePath(tempDiskPath).catch(console.error);
-      throw error;
-    }
+      if (existing) {
+        deny(
+          principal,
+          existing.path,
+          "storage:write",
+          existing.ownerId,
+          "modify",
+        );
+      }
 
-    const checksum = hasher.digest("hex");
-    const file = await this.#publishFile({
-      source: tempDiskPath,
-      sourceIsDisposable: true,
-      existing: existing ?? null,
-      ownerId: principal.user.id,
-      parent,
-      filename,
-      targetPath,
-      sizeBytes,
-      checksum,
-      mimeType: normalizeMimeType(request.headers.get("Content-Type")),
+      await ensureDir(this.config.tempUploadPath);
+      const budget = await this.#stagingBudget();
+      const declared = Number(request.headers.get("Content-Length"));
+      if (Number.isFinite(declared) && declared > budget) {
+        throw new StorageServiceError(
+          507,
+          "INSUFFICIENT_STORAGE",
+          "Not enough free space for this file",
+        );
+      }
+
+      const tempDiskPath = join(
+        this.config.tempUploadPath,
+        `${crypto.randomUUID()}.dav`,
+      );
+      const hasher = createHash("sha256");
+      let sizeBytes = 0;
+      try {
+        const handle = await open(tempDiskPath, "w");
+        try {
+          const reader = request.body?.getReader();
+          while (reader) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            hasher.update(value);
+            let offset = 0;
+            while (offset < value.byteLength) {
+              const { bytesWritten } = await handle.write(
+                value,
+                offset,
+                value.byteLength - offset,
+                sizeBytes + offset,
+              );
+              offset += bytesWritten;
+            }
+            sizeBytes += value.byteLength;
+            // A chunked body declares no length, so the ceiling has to be
+            // enforced as the bytes arrive as well as before they do.
+            if (sizeBytes > budget) {
+              throw new StorageServiceError(
+                507,
+                "INSUFFICIENT_STORAGE",
+                "Not enough free space for this file",
+              );
+            }
+          }
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+      } catch (error) {
+        await deletePath(tempDiskPath).catch(console.error);
+        throw error;
+      }
+
+      const checksum = hasher.digest("hex");
+      const file = await this.#publishFile({
+        source: tempDiskPath,
+        sourceIsDisposable: true,
+        existing: existing ?? null,
+        ownerId: principal.user.id,
+        parent,
+        filename,
+        targetPath,
+        sizeBytes,
+        checksum,
+        mimeType: normalizeMimeType(request.headers.get("Content-Type")),
+      });
+      return { file, created: !existing };
     });
-    return { file, created: !existing };
+  }
+
+  /**
+   * How many bytes a single staged write may consume.
+   *
+   * Unlike the resumable path there is no declared length to validate up front,
+   * so without this a client streaming an oversized file fills the staging
+   * volume and takes down every other write with it. The reserve is what the
+   * rest of the system needs to keep working while the copy is in flight.
+   */
+  async #stagingBudget(): Promise<number> {
+    const stats = await getDiskStats(this.config.tempUploadPath).catch(
+      () => null,
+    );
+    if (!stats) return Number.POSITIVE_INFINITY;
+    return Math.max(0, stats.availableBytes - STAGING_RESERVE_BYTES);
   }
 
   async copyFile(
@@ -1642,7 +1698,7 @@ export class StorageService {
     file: StorageFile,
     parent: Folder,
     rawFilename: string,
-    naming: NamingPolicy = "preserve",
+    naming: NamingPolicy = "normalize",
   ): Promise<{ file: StorageFile; created: boolean }> {
     deny(principal, file.path, "storage:read", file.ownerId, "read");
     deny(

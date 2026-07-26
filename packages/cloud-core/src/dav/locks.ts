@@ -25,9 +25,16 @@ export interface CreateLockInput {
  * In-memory exclusive write locks.
  *
  * The API runs as a single process, so a Map is the whole truth — there is no
- * second replica to reconcile with. Locks are deliberately not persisted:
- * surviving a restart would strand a client's lock with no way to release it,
- * whereas losing them lets the client take a fresh one on its next write.
+ * second replica to reconcile with. That is structural rather than a
+ * convention: the compose service publishes a fixed host port, so a second
+ * replica cannot bind and the stack will not start one. Anything that changes
+ * it — a replica count, a load balancer in front of two containers — has to
+ * move these locks to shared storage in the same change, or LOCK and UNLOCK
+ * will silently stop excluding anything.
+ *
+ * Locks are deliberately not persisted: surviving a restart would strand a
+ * client's lock with no way to release it, whereas losing them lets the client
+ * take a fresh one on its next write.
  */
 export class DavLockStore {
   readonly #byToken = new Map<string, DavLock>();
@@ -98,6 +105,30 @@ export class DavLockStore {
     const lock = this.covering(path, now);
     if (!lock) return null;
     return tokens.includes(lock.token) ? null : lock;
+  }
+
+  /**
+   * The same question asked of a whole subtree.
+   *
+   * `covering` deliberately looks upward — at the path itself and at any
+   * depth-infinity lock above it — which is the right test for writing to one
+   * resource. A recursive DELETE or an overwriting MOVE destroys members too,
+   * and a depth-0 lock taken directly on one of those members is invisible from
+   * the collection above it. Without this check such a member is removed while
+   * its holder still believes the lock is theirs.
+   */
+  blockingWithin(
+    path: string,
+    tokens: string[],
+    now = Date.now(),
+  ): DavLock | null {
+    const direct = this.blocking(path, tokens, now);
+    if (direct) return direct;
+    for (const lock of this.#byToken.values()) {
+      if (!lock.path.startsWith(`${path}/`)) continue;
+      if (!tokens.includes(lock.token)) return lock;
+    }
+    return null;
   }
 
   /** Releases everything under a collection that has just been removed. */

@@ -77,7 +77,7 @@ function throttledApp(secret: string, max: number) {
         store,
         max,
         windowMs: 900_000,
-        clientKey: () => "dav-auth:203.0.113.8",
+        clientKey: (_context, username) => `dav-auth:203.0.113.8:${username}`,
       },
     }),
   );
@@ -215,6 +215,70 @@ describe("dav auth throttling", () => {
       headers: { Authorization: basic("owner", "s3cret") },
     });
     expect(response.status).toBe(429);
+  });
+
+  it("does not let a concurrent burst slip past the ceiling", async () => {
+    const { app, store, seen } = throttledApp("s3cret", 3);
+
+    // The whole point of reading the budget before verifying is that a flood of
+    // wrong passwords cannot force repeated argon2 work. Peek, verify and
+    // charge are three separate steps, so without serialization every request
+    // in a simultaneous burst observes an unspent budget and all of them
+    // verify — the barrier bypassed by exactly the traffic it exists to stop.
+    const responses = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        app.request("/", {
+          headers: { Authorization: basic("owner", "wrong") },
+        }),
+      ),
+    );
+
+    expect(seen.length).toBe(3);
+    expect(store.consumeCalls).toBe(3);
+    expect(
+      responses.filter((response) => response.status === 401),
+    ).toHaveLength(3);
+    expect(
+      responses.filter((response) => response.status === 429),
+    ).toHaveLength(17);
+  });
+
+  it("still admits a concurrent burst of correct credentials", async () => {
+    const { app, store } = throttledApp("s3cret", 3);
+    const responses = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        app.request("/", {
+          headers: { Authorization: basic("owner", "s3cret") },
+        }),
+      ),
+    );
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(store.consumeCalls).toBe(0);
+  });
+
+  it("keeps budgets separate per account", async () => {
+    const { app, store } = throttledApp("s3cret", 2);
+    await app.request("/", {
+      headers: { Authorization: basic("owner", "wrong") },
+    });
+    await app.request("/", {
+      headers: { Authorization: basic("owner", "wrong") },
+    });
+    expect(
+      (
+        await app.request("/", {
+          headers: { Authorization: basic("owner", "wrong") },
+        })
+      ).status,
+    ).toBe(429);
+
+    // A different account shares the address but not the budget, so one device
+    // with a stale saved password cannot lock everyone else out.
+    const other = await app.request("/", {
+      headers: { Authorization: basic("someone-else", "wrong") },
+    });
+    expect(other.status).toBe(401);
+    expect(store.hits.size).toBe(2);
   });
 
   it("lets OPTIONS through even while barred", async () => {

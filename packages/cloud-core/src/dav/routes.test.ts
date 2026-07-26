@@ -5,7 +5,12 @@ import type { Folder, StorageFile } from "../db/schema";
 import type { SafeUserRecord } from "../services/types";
 import type { StoragePrincipal } from "../storage/access";
 import { joinPath, parentPath } from "../storage/path";
-import { type StorageEntry, StorageServiceError } from "../storage/service";
+import {
+  type NamingPolicy,
+  type StorageEntry,
+  StorageServiceError,
+} from "../storage/service";
+import { DavLockStore } from "./locks";
 import { type DavStorage, type DavVariables, davRoutes } from "./routes";
 
 const USER_ID = "10000000-0000-4000-8000-000000000001";
@@ -116,12 +121,19 @@ class FakeStorage implements DavStorage {
     return new Response(this.contents.get(id) ?? "", { status: 200 });
   }
 
+  /** Every naming policy the router passed, in call order. */
+  readonly namingCalls: Array<NamingPolicy | undefined> = [];
+  /** Set to make the next copyFile fail, as a full disk would. */
+  copyFileFails = false;
+
   async putFile(
     _principal: StoragePrincipal,
     parent: Folder,
     filename: string,
     request: Request,
+    naming?: NamingPolicy,
   ): Promise<{ file: StorageFile; created: boolean }> {
+    this.namingCalls.push(naming);
     const path = joinPath(parent.path, filename);
     const created = !this.files.has(path);
     const body = await request.text();
@@ -135,7 +147,10 @@ class FakeStorage implements DavStorage {
     file: StorageFile,
     parent: Folder,
     filename: string,
+    naming?: NamingPolicy,
   ): Promise<{ file: StorageFile; created: boolean }> {
+    this.namingCalls.push(naming);
+    if (this.copyFileFails) throw new Error("no space left on device");
     const path = joinPath(parent.path, filename);
     const created = !this.files.has(path);
     const copy = this.addFile(path, this.contents.get(file.id) ?? "");
@@ -145,7 +160,9 @@ class FakeStorage implements DavStorage {
   async createFolder(
     _principal: StoragePrincipal,
     body: unknown,
+    naming?: NamingPolicy,
   ): Promise<Folder> {
+    this.namingCalls.push(naming);
     const input = body as { name: string; parentId: string };
     const parent = [...this.folders.values()].find(
       (candidate) => candidate.id === input.parentId,
@@ -164,7 +181,9 @@ class FakeStorage implements DavStorage {
     _principal: StoragePrincipal,
     id: string,
     body: unknown,
+    naming?: NamingPolicy,
   ): Promise<unknown> {
+    this.namingCalls.push(naming);
     const input = body as { filename: string; folderId: string };
     const file = [...this.files.values()].find(
       (candidate) => candidate.id === id,
@@ -188,7 +207,9 @@ class FakeStorage implements DavStorage {
     _principal: StoragePrincipal,
     id: string,
     body: unknown,
+    naming?: NamingPolicy,
   ): Promise<unknown> {
+    this.namingCalls.push(naming);
     const input = body as { name: string; parentId: string };
     const folder = [...this.folders.values()].find(
       (candidate) => candidate.id === id,
@@ -218,17 +239,43 @@ class FakeStorage implements DavStorage {
     _principal: StoragePrincipal,
     id: string,
   ): Promise<{ deletedFolders: number; deletedFiles: number }> {
-    for (const [path, folder] of this.folders) {
-      if (folder.id === id) this.folders.delete(path);
+    const root = [...this.folders.values()].find(
+      (candidate) => candidate.id === id,
+    );
+    if (!root) {
+      throw new StorageServiceError(404, "FOLDER_NOT_FOUND", "missing folder");
     }
-    return { deletedFolders: 1, deletedFiles: 0 };
+    // Recursive, like the real one: a fake that removed only the named row
+    // would let a broken recursive DELETE pass, and leaves the locked-member
+    // case impossible to write.
+    const covers = (path: string) =>
+      path === root.path || path.startsWith(`${root.path}/`);
+    let deletedFolders = 0;
+    let deletedFiles = 0;
+    for (const [path] of this.folders) {
+      if (covers(path)) {
+        this.folders.delete(path);
+        deletedFolders += 1;
+      }
+    }
+    for (const [path, file] of this.files) {
+      if (covers(path)) {
+        this.files.delete(path);
+        this.contents.delete(file.id);
+        deletedFiles += 1;
+      }
+    }
+    return { deletedFolders, deletedFiles };
   }
 }
 
 let storage: FakeStorage;
 let app: Hono<{ Variables: DavVariables }>;
+let locks: DavLockStore;
 
-function buildApp(): Hono<{ Variables: DavVariables }> {
+function buildApp(
+  overrides: { copyMaxEntries?: number; copyMaxBytes?: number } = {},
+): Hono<{ Variables: DavVariables }> {
   const root = new Hono<{ Variables: DavVariables }>();
   root.use(`${MOUNT}/*`, async (context, next) => {
     context.set("user", user);
@@ -243,7 +290,9 @@ function buildApp(): Hono<{ Variables: DavVariables }> {
     davRoutes({
       service: storage,
       mountPath: MOUNT,
+      locks,
       quota: async () => ({ usedBytes: 100, availableBytes: 900 }),
+      ...overrides,
     }),
   );
   return root;
@@ -259,6 +308,7 @@ function propfind(path: string, depth: string, body = "") {
 
 beforeEach(() => {
   storage = new FakeStorage();
+  locks = new DavLockStore();
   app = buildApp();
 });
 
@@ -377,7 +427,11 @@ describe("PUT", () => {
       body: "x",
     });
     expect(response.status).toBe(201);
-    // Snake-casing here would 404 the client's very next request.
+    // Snake-casing here would 404 the client's very next request. Asserting on
+    // the policy the router passed and not only on the stored name: the service
+    // defaults to "normalize", so an omitted argument is a real bug that the
+    // stored-name check alone would not catch.
+    expect(storage.namingCalls).toEqual(["preserve"]);
     expect(storage.files.has(`${HOME}/My Report.PDF`)).toBe(true);
   });
 
@@ -583,6 +637,158 @@ describe("LOCK and UNLOCK", () => {
       headers: { "Lock-Token": "<opaquelocktoken:nope>" },
     });
     expect(response.status).toBe(409);
+  });
+
+  it("409s an UNLOCK whose token belongs to another resource", async () => {
+    const lock = await app.request(`${MOUNT}/home/a.txt`, {
+      method: "LOCK",
+      body: '<D:lockinfo xmlns:D="DAV:"><D:owner>deniz</D:owner></D:lockinfo>',
+    });
+    const header = lock.headers.get("Lock-Token") ?? "";
+
+    // RFC 4918 §9.11: the token has to belong to the request-URI.
+    const wrongPath = await app.request(`${MOUNT}/home/b.txt`, {
+      method: "UNLOCK",
+      headers: { "Lock-Token": header },
+    });
+    expect(wrongPath.status).toBe(409);
+
+    const rightPath = await app.request(`${MOUNT}/home/a.txt`, {
+      method: "UNLOCK",
+      headers: { "Lock-Token": header },
+    });
+    expect(rightPath.status).toBe(204);
+  });
+
+  it("409s an UNLOCK of a lock held by another account", async () => {
+    const held = locks.create({
+      path: `${HOME}/a.txt`,
+      depth: "0",
+      owner: "someone else",
+      timeoutSeconds: 600,
+      userId: "20000000-0000-4000-8000-000000000009",
+    });
+
+    const response = await app.request(`${MOUNT}/home/a.txt`, {
+      method: "UNLOCK",
+      headers: { "Lock-Token": `<${held.token}>` },
+    });
+    expect(response.status).toBe(409);
+    expect(locks.get(held.token)).not.toBeNull();
+  });
+});
+
+describe("naming policy", () => {
+  it("asks for the client's spelling on every write verb", async () => {
+    storage.addFile(`${HOME}/a.txt`, "hello");
+    await app.request(`${MOUNT}/home/Docs`, { method: "MKCOL" });
+    await app.request(`${MOUNT}/home/a.txt`, {
+      method: "COPY",
+      headers: { Destination: "http://localhost/dav/home/B.txt" },
+    });
+    await app.request(`${MOUNT}/home/a.txt`, {
+      method: "MOVE",
+      headers: { Destination: "http://localhost/dav/home/C.txt" },
+    });
+    await app.request(`${MOUNT}/home/D.txt`, { method: "PUT", body: "x" });
+
+    expect(storage.namingCalls).toHaveLength(4);
+    expect(storage.namingCalls.every((policy) => policy === "preserve")).toBe(
+      true,
+    );
+  });
+});
+
+describe("recursive DELETE", () => {
+  it("removes descendants", async () => {
+    await app.request(`${MOUNT}/home/dir`, { method: "MKCOL" });
+    await app.request(`${MOUNT}/home/dir/sub`, { method: "MKCOL" });
+    storage.addFile(`${HOME}/dir/a.txt`, "one");
+    storage.addFile(`${HOME}/dir/sub/b.txt`, "two");
+
+    const response = await app.request(`${MOUNT}/home/dir`, {
+      method: "DELETE",
+    });
+    expect(response.status).toBe(204);
+    expect(storage.folders.has(`${HOME}/dir/sub`)).toBe(false);
+    expect(storage.files.has(`${HOME}/dir/a.txt`)).toBe(false);
+    expect(storage.files.has(`${HOME}/dir/sub/b.txt`)).toBe(false);
+  });
+
+  it("refuses when a descendant is locked by someone else's token", async () => {
+    await app.request(`${MOUNT}/home/dir`, { method: "MKCOL" });
+    storage.addFile(`${HOME}/dir/a.txt`, "one");
+    // A depth-0 lock on a member is invisible from the collection above it, so
+    // the plain `covering` check would let this recursive delete through.
+    const lock = await app.request(`${MOUNT}/home/dir/a.txt`, {
+      method: "LOCK",
+      headers: { Depth: "0" },
+      body: '<D:lockinfo xmlns:D="DAV:"><D:owner>other</D:owner></D:lockinfo>',
+    });
+    // 200, not 201: the file already exists, so this is not a lock-null.
+    expect(lock.status).toBe(200);
+
+    const blocked = await app.request(`${MOUNT}/home/dir`, {
+      method: "DELETE",
+    });
+    expect(blocked.status).toBe(423);
+    expect(storage.files.has(`${HOME}/dir/a.txt`)).toBe(true);
+
+    const token = lock.headers.get("Lock-Token") ?? "";
+    const allowed = await app.request(`${MOUNT}/home/dir`, {
+      method: "DELETE",
+      headers: { If: `(${token})` },
+    });
+    expect(allowed.status).toBe(204);
+  });
+
+  it("refuses an overwriting MOVE onto a collection with a locked member", async () => {
+    storage.addFile(`${HOME}/src.txt`, "one");
+    await app.request(`${MOUNT}/home/dst`, { method: "MKCOL" });
+    storage.addFile(`${HOME}/dst/held.txt`, "two");
+    await app.request(`${MOUNT}/home/dst/held.txt`, {
+      method: "LOCK",
+      headers: { Depth: "0" },
+      body: '<D:lockinfo xmlns:D="DAV:"><D:owner>other</D:owner></D:lockinfo>',
+    });
+
+    const response = await app.request(`${MOUNT}/home/src.txt`, {
+      method: "MOVE",
+      headers: { Destination: "http://localhost/dav/home/dst" },
+    });
+    expect(response.status).toBe(423);
+    expect(storage.files.has(`${HOME}/dst/held.txt`)).toBe(true);
+  });
+});
+
+describe("overwrite safety", () => {
+  it("keeps the destination when a replacing COPY fails", async () => {
+    storage.addFile(`${HOME}/a.txt`, "source");
+    storage.addFile(`${HOME}/b.txt`, "destination");
+    storage.copyFileFails = true;
+
+    const response = await app.request(`${MOUNT}/home/a.txt`, {
+      method: "COPY",
+      headers: { Destination: "http://localhost/dav/home/b.txt" },
+    });
+    expect(response.status).toBe(500);
+    // A file copied onto a file replaces in one publish, so a failure must not
+    // have already destroyed what was there.
+    expect(storage.files.has(`${HOME}/b.txt`)).toBe(true);
+  });
+
+  it("bounds a recursive COPY with 507", async () => {
+    app = buildApp({ copyMaxEntries: 3 });
+    await app.request(`${MOUNT}/home/dir`, { method: "MKCOL" });
+    for (const name of ["a.txt", "b.txt", "c.txt", "d.txt"]) {
+      storage.addFile(`${HOME}/dir/${name}`, "x");
+    }
+
+    const response = await app.request(`${MOUNT}/home/dir`, {
+      method: "COPY",
+      headers: { Destination: "http://localhost/dav/home/copy" },
+    });
+    expect(response.status).toBe(507);
   });
 });
 

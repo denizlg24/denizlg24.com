@@ -135,10 +135,27 @@ export interface DavStorage {
   ): Promise<{ deletedFolders: number; deletedFiles: number }>;
 }
 
+/**
+ * Ceilings for a single recursive COPY. Generous enough that no ordinary
+ * folder drag hits them, low enough that one request cannot walk an entire
+ * home directory onto the same disk.
+ */
+const DEFAULT_COPY_MAX_ENTRIES = 10_000;
+const DEFAULT_COPY_MAX_BYTES = 50 * 1024 * 1024 * 1024;
+
+class CopyTooLargeError extends Error {
+  constructor() {
+    super("Copy exceeds the maximum size for a single request");
+    this.name = "CopyTooLargeError";
+  }
+}
+
 export interface DavRoutesOptions {
   service: DavStorage;
   mountPath: string;
   locks?: DavLockStore;
+  copyMaxEntries?: number;
+  copyMaxBytes?: number;
   quota?: () => Promise<{
     usedBytes: number;
     availableBytes: number;
@@ -149,6 +166,9 @@ function davErrorResponse(error: unknown): Response {
   if (error instanceof StorageServiceError) {
     return new Response(null, { status: error.status });
   }
+  if (error instanceof CopyTooLargeError) {
+    return new Response(null, { status: 507 });
+  }
   console.error("WebDAV request failed", error);
   return new Response(null, { status: 500 });
 }
@@ -156,6 +176,8 @@ function davErrorResponse(error: unknown): Response {
 export function davRoutes(options: DavRoutesOptions) {
   const { service, mountPath } = options;
   const locks = options.locks ?? new DavLockStore();
+  const copyMaxEntries = options.copyMaxEntries ?? DEFAULT_COPY_MAX_ENTRIES;
+  const copyMaxBytes = options.copyMaxBytes ?? DEFAULT_COPY_MAX_BYTES;
   const app = new Hono<{ Variables: DavVariables }>();
 
   const principalFor = (user: SafeUserRecord): StoragePrincipal => ({ user });
@@ -241,6 +263,15 @@ export function davRoutes(options: DavRoutesOptions) {
     ifHeader: string | null | undefined,
   ) => {
     const blocking = locks.blocking(path, parseIfHeader(ifHeader));
+    return blocking ? new Response(null, { status: 423 }) : null;
+  };
+
+  /** For operations that destroy members, not just the named resource. */
+  const subtreeLockedResponse = (
+    path: string,
+    ifHeader: string | null | undefined,
+  ) => {
+    const blocking = locks.blockingWithin(path, parseIfHeader(ifHeader));
     return blocking ? new Response(null, { status: 423 }) : null;
   };
 
@@ -443,6 +474,7 @@ export function davRoutes(options: DavRoutesOptions) {
         parent.folder,
         filename,
         context.req.raw,
+        "preserve",
       );
       return new Response(null, {
         status: result.created ? 201 : 204,
@@ -496,11 +528,17 @@ export function davRoutes(options: DavRoutesOptions) {
     if (!target || target.kind === "root") return context.body(null, 403);
 
     try {
-      const locked = lockedResponse(target.path, context.req.header("If"));
-      if (locked) return locked;
-
       const entry = await service.resolvePath(principal, target.path);
       if (!entry) return context.body(null, 404);
+
+      // A collection DELETE is recursive, so the whole subtree has to be clear,
+      // not just the collection itself.
+      const locked =
+        entry.kind === "folder"
+          ? subtreeLockedResponse(target.path, context.req.header("If"))
+          : lockedResponse(target.path, context.req.header("If"));
+      if (locked) return locked;
+
       if (entry.kind === "file") {
         await service.deleteFile(principal, entry.file.id);
       } else {
@@ -534,13 +572,6 @@ export function davRoutes(options: DavRoutesOptions) {
 
     try {
       const ifHeader = context.req.header("If");
-      const lockedTarget = lockedResponse(destination.path, ifHeader);
-      if (lockedTarget) return lockedTarget;
-      if (isMove) {
-        const lockedSource = lockedResponse(source.path, ifHeader);
-        if (lockedSource) return lockedSource;
-      }
-
       const entry = await service.resolvePath(principal, source.path);
       if (!entry) return context.body(null, 404);
 
@@ -560,7 +591,33 @@ export function davRoutes(options: DavRoutesOptions) {
 
       const existing = await service.resolvePath(principal, destination.path);
       if (existing && overwrite !== "T") return context.body(null, 412);
-      if (existing) {
+
+      // Both ends are checked across their subtrees when a collection is
+      // involved, because both are then destroyed or relocated wholesale and a
+      // depth-0 lock on one member is invisible from the collection above it.
+      const lockedTarget =
+        existing?.kind === "folder"
+          ? subtreeLockedResponse(destination.path, ifHeader)
+          : lockedResponse(destination.path, ifHeader);
+      if (lockedTarget) return lockedTarget;
+      if (isMove) {
+        const lockedSource =
+          entry.kind === "folder"
+            ? subtreeLockedResponse(source.path, ifHeader)
+            : lockedResponse(source.path, ifHeader);
+        if (lockedSource) return lockedSource;
+      }
+
+      // A file copied onto a file replaces the row and its bytes in a single
+      // publish: copyFile stages beside the target and drops the old blob only
+      // after the transaction commits, so the destination is never absent and a
+      // failure leaves the original intact. Every other overwrite has to clear
+      // the destination first — `path` is unique, so the replacement cannot be
+      // built alongside it — and a failure after that point has destroyed data
+      // the client had. Read a 500 from one of those accordingly.
+      const replacesInPlace =
+        !isMove && entry.kind === "file" && existing?.kind === "file";
+      if (existing && !replacesInPlace) {
         if (existing.kind === "file") {
           await service.deleteFile(principal, existing.file.id);
         } else {
@@ -595,6 +652,7 @@ export function davRoutes(options: DavRoutesOptions) {
           entry.file,
           destinationParent.folder,
           name,
+          "preserve",
         );
       } else {
         await copyCollection(
@@ -611,10 +669,19 @@ export function davRoutes(options: DavRoutesOptions) {
   });
 
   /**
-   * Depth-infinity COPY of a collection, breadth-first so a failure part way
-   * through leaves a partial tree rather than an inconsistent one. There is no
-   * bulk copy underneath: each file goes through `copyFile`, which verifies the
-   * checksum of every copy it writes.
+   * Depth-infinity COPY of a collection, breadth-first. There is no bulk copy
+   * underneath: each file goes through `copyFile`, which verifies the checksum
+   * of every copy it writes.
+   *
+   * A failure part way through leaves a partially built tree at the
+   * destination; nothing unwinds it. When the COPY was also an overwrite the
+   * destination it replaced is already gone by this point, so the partial tree
+   * is all that is left — see the overwrite comment above.
+   *
+   * The walk is bounded because it runs on the request thread and writes real
+   * bytes: without a ceiling, one COPY of a large home directory holds the
+   * handler open indefinitely and can fill the disk with no way to refuse
+   * early. Exceeding either ceiling fails with 507 rather than running on.
    */
   async function copyCollection(
     principal: StoragePrincipal,
@@ -630,14 +697,29 @@ export function davRoutes(options: DavRoutesOptions) {
     const queue: Array<{ from: Folder; to: Folder }> = [
       { from: source, to: created },
     ];
+    let entries = 1;
+    let bytes = 0;
     while (queue.length > 0) {
       const current = queue.shift();
       if (!current) break;
       const children = await service.listChildren(principal, current.from);
       for (const file of children.files) {
-        await service.copyFile(principal, file, current.to, file.filename);
+        entries += 1;
+        bytes += file.sizeBytes;
+        if (entries > copyMaxEntries || bytes > copyMaxBytes) {
+          throw new CopyTooLargeError();
+        }
+        await service.copyFile(
+          principal,
+          file,
+          current.to,
+          file.filename,
+          "preserve",
+        );
       }
       for (const folder of children.folders) {
+        entries += 1;
+        if (entries > copyMaxEntries) throw new CopyTooLargeError();
         const child = await service.createFolder(
           principal,
           { name: folder.name, parentId: current.to.id },
@@ -706,6 +788,19 @@ export function davRoutes(options: DavRoutesOptions) {
 
     const token = parseLockTokenHeader(context.req.header("Lock-Token"));
     if (!token) return context.body(null, 400);
+
+    const lock = locks.get(token);
+    // RFC 4918 §9.11: the token has to belong to the resource being unlocked,
+    // and 409 is the answer when it does not. Checking the holder as well stops
+    // one account releasing a lock another account is relying on — without it
+    // `locks.remove` acts on any token a caller can name.
+    if (
+      !lock ||
+      lock.path !== target.path ||
+      lock.userId !== principal.user.id
+    ) {
+      return context.body(null, 409);
+    }
     return context.body(null, locks.remove(token) ? 204 : 409);
   });
 
