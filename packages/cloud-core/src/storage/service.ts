@@ -45,7 +45,6 @@ import {
 import {
   buildProjectRootPath,
   buildUserRootPath,
-  isSharedPath,
   joinPath,
   normalizeFileName,
   normalizeName,
@@ -361,13 +360,7 @@ export class StorageService {
         "Parent folder not found",
       );
     }
-    deny(
-      principal,
-      parent.path,
-      "storage:write",
-      parent.ownerId,
-      isSharedPath(parent.path) ? "read" : "modify",
-    );
+    deny(principal, parent.path, "storage:write", parent.ownerId, "modify");
     let name: string;
     try {
       name = applyFolderNaming(body.name, naming);
@@ -554,13 +547,7 @@ export class StorageService {
     let targetParentPath = parentPath(folder.path);
     if (requestedParentId) {
       const target = await this.findFolder(requestedParentId);
-      deny(
-        principal,
-        target.path,
-        "storage:write",
-        target.ownerId,
-        isSharedPath(target.path) ? "read" : "modify",
-      );
+      deny(principal, target.path, "storage:write", target.ownerId, "modify");
       if (
         target.path === folder.path ||
         target.path.startsWith(`${folder.path}/`)
@@ -870,13 +857,7 @@ export class StorageService {
     let folderPath = parentPath(file.path);
     if (parsed.data.folderId) {
       const target = await this.getFolder(principal, parsed.data.folderId);
-      deny(
-        principal,
-        target.path,
-        "storage:write",
-        target.ownerId,
-        isSharedPath(target.path) ? "read" : "modify",
-      );
+      deny(principal, target.path, "storage:write", target.ownerId, "modify");
       folderId = target.id;
       folderPath = target.path;
     }
@@ -1055,13 +1036,7 @@ export class StorageService {
         "Target folder does not exist",
       );
     }
-    deny(
-      principal,
-      folder.path,
-      "storage:write",
-      folder.ownerId,
-      isSharedPath(folder.path) ? "read" : "modify",
-    );
+    deny(principal, folder.path, "storage:write", folder.ownerId, "modify");
     let filename: string;
     try {
       filename = normalizeFileName(filenameValue);
@@ -1565,13 +1540,7 @@ export class StorageService {
     request: Request,
     naming: NamingPolicy = "normalize",
   ): Promise<{ file: StorageFile; created: boolean }> {
-    deny(
-      principal,
-      parent.path,
-      "storage:write",
-      parent.ownerId,
-      isSharedPath(parent.path) ? "read" : "modify",
-    );
+    deny(principal, parent.path, "storage:write", parent.ownerId, "modify");
     const filename = this.#namedOrThrow(rawFilename, naming);
     const targetPath = joinPath(parent.path, filename);
 
@@ -1701,13 +1670,7 @@ export class StorageService {
     naming: NamingPolicy = "normalize",
   ): Promise<{ file: StorageFile; created: boolean }> {
     deny(principal, file.path, "storage:read", file.ownerId, "read");
-    deny(
-      principal,
-      parent.path,
-      "storage:write",
-      parent.ownerId,
-      isSharedPath(parent.path) ? "read" : "modify",
-    );
+    deny(principal, parent.path, "storage:write", parent.ownerId, "modify");
     const filename = this.#namedOrThrow(rawFilename, naming);
     const targetPath = joinPath(parent.path, filename);
     if (targetPath === file.path) {

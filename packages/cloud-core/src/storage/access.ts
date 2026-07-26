@@ -46,7 +46,14 @@ export function checkStorageAccess(
     return { allowed: true };
   }
 
-  if (mode === "read" && isSharedPath(resourcePath)) {
+  // /shared is communal, so reaching it is the whole permission: whoever can
+  // see a file there can also change or remove it. Restricting modification to
+  // whoever uploaded it meant two people collaborating on one document had the
+  // second get a 403 on save — over a mounted drive that surfaces as the volume
+  // being broken rather than as a permission model, with nothing to act on.
+  // The tradeoff is deliberate and is what a shared drive is: there is no
+  // protection here against another account deleting your file.
+  if (isSharedPath(resourcePath)) {
     return { allowed: true };
   }
   if (ownerId === principal.user.id || principal.user.role === "superuser") {
