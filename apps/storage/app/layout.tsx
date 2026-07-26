@@ -14,8 +14,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Files",
-  description: "Your files on deniz cloud",
+  title: { default: "deniz storage", template: "%s — deniz storage" },
+  description: "files on deniz cloud",
+  applicationName: "deniz storage",
+  // Private surface, plus share links must never be crawled.
+  robots: { index: false, follow: false },
 };
 
 const themeScript = `(() => {

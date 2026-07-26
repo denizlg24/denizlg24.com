@@ -12,7 +12,11 @@ infra_dir="$(cd "${script_dir}/.." && pwd)"
 systemd_dir="${infra_dir}/systemd"
 
 install -d -m 755 /usr/local/lib/deniz-cloud
-install -d -m 700 /etc/deniz-cloud /var/lib/deniz-cloud
+install -d -m 700 /etc/deniz-cloud
+# The API container writes the reboot sentinel into this directory through a
+# bind mount, unprivileged as uid 1000 (`USER bun`). Left root-owned, every
+# reboot_server task fails with EACCES. Root still reaches it for the path unit.
+install -d -m 700 -o 1000 -g 1000 /var/lib/deniz-cloud
 install -m 755 "${script_dir}/ddns-update.sh" \
   /usr/local/lib/deniz-cloud/ddns-update.sh
 install -m 755 "${script_dir}/deploy-db-certs.sh" \
