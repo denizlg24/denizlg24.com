@@ -24,6 +24,13 @@ export const diskInfoSchema = z.object({
   availableBytes: z.number(),
   usagePercent: z.number(),
   online: z.boolean(),
+  // Derived from /proc/diskstats deltas, so they are absent on an offline disk
+  // and on the first sample after a restart, which has no baseline to diff.
+  readBytesPerSecond: z.number().nonnegative().optional(),
+  writeBytesPerSecond: z.number().nonnegative().optional(),
+  readOpsPerSecond: z.number().nonnegative().optional(),
+  writeOpsPerSecond: z.number().nonnegative().optional(),
+  utilizationPercent: z.number().nonnegative().optional(),
 });
 export type DiskInfo = z.infer<typeof diskInfoSchema>;
 

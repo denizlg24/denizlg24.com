@@ -85,7 +85,10 @@ import {
   safeUserSchema,
   searchTokenResultSchema,
   type TerminalSession,
+  type TieringConfigPatch,
+  type TieringSettings,
   terminalSessionSchema,
+  tieringSettingsSchema,
   type UpdateCollectionInput,
   type UpdateProjectInput,
   type UpdateTaskInput,
@@ -246,6 +249,15 @@ export const api = {
         `/api/ops/containers/${encodeURIComponent(id)}/restart`,
         { method: "POST" },
       ),
+    tiering: {
+      get: (): Promise<TieringSettings> =>
+        requestData(tieringSettingsSchema, "/api/ops/storage/tiering"),
+      update: (input: TieringConfigPatch): Promise<TieringSettings> =>
+        requestData(tieringSettingsSchema, "/api/ops/storage/tiering", {
+          method: "PATCH",
+          body: input,
+        }),
+    },
   },
 
   activity: {

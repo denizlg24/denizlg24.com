@@ -78,7 +78,34 @@ function buildSpecs(overview: OpsOverview): ChartSpec[] {
         label: disk.device,
       })),
     },
+    {
+      title: "disk io",
+      unit: "bytesPerSecond",
+      series: overview.disks.slice(0, 3).flatMap((disk) => [
+        {
+          name: `disk:${disk.device}.read_bytes_per_second`,
+          label: `${shortDevice(disk.device)} read`,
+        },
+        {
+          name: `disk:${disk.device}.write_bytes_per_second`,
+          label: `${shortDevice(disk.device)} write`,
+        },
+      ]),
+    },
+    {
+      title: "disk busy",
+      unit: "percent",
+      series: overview.disks.slice(0, 5).map((disk) => ({
+        name: `disk:${disk.device}.io_utilization_percent`,
+        label: shortDevice(disk.device),
+      })),
+    },
   ];
+}
+
+/** `/dev/nvme0n1p1` -> `nvme0n1p1`; the prefix is noise in a legend. */
+function shortDevice(device: string): string {
+  return device.replace(/^\/dev\//, "");
 }
 
 function seriesKey(name: string): string {

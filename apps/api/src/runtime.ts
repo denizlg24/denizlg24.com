@@ -369,6 +369,7 @@ export async function createRuntimeApp() {
         notifications,
         adminBaseUrl:
           process.env.CLOUD_ADMIN_URL ?? "https://cloud.denizlg24.com",
+        storageConfig,
         sampler,
         scheduler,
         terminal,

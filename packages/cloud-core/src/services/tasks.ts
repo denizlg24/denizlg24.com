@@ -64,6 +64,20 @@ export async function listTasks(
   };
 }
 
+/**
+ * Single-user system: at most one task of each seeded type exists, so a lookup
+ * by type is the natural handle for the type-specific config screens.
+ */
+export async function findTaskByType(
+  db: Database,
+  type: TaskType,
+): Promise<SafeScheduledTaskRecord | null> {
+  const task = await db.query.scheduledTasks.findFirst({
+    where: eq(scheduledTasks.type, type),
+  });
+  return task ?? null;
+}
+
 export async function getTask(
   db: Database,
   taskId: string,

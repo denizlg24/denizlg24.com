@@ -2,10 +2,13 @@ import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 
 import {
+  diskActivityBetween,
+  diskstatsKey,
   HostCollector,
   hasDeviceRows,
   parseCpuStat,
   parseDf,
+  parseDiskstats,
   parseLoadAverage,
   parseMeminfo,
   parseProcNetDev,
@@ -54,6 +57,82 @@ describe("host metric parsers", () => {
       availableBytes: 6_144_000_000,
     });
     expect(busybox.get("/dev/mmcblk0p2")?.usedBytes).toBe(6_144_000_000);
+  });
+
+  it("parses /proc/diskstats, including partition rows", async () => {
+    const stats = parseDiskstats(await fixture("diskstats.txt"));
+    expect(stats.get("nvme0n1p1")).toEqual({
+      device: "nvme0n1p1",
+      readsCompleted: 799_000,
+      sectorsRead: 63_900_000,
+      writesCompleted: 399_000,
+      sectorsWritten: 31_900_000,
+      ioMs: 119_000,
+    });
+    // Whole disk and its partition are tracked separately; the devices env
+    // names partitions, so the partition row is the one that matters.
+    expect(stats.get("nvme0n1")?.sectorsRead).toBe(64_000_000);
+    // Every well-formed row is kept — the collector selects the configured
+    // devices, so filtering ramdisks here would just be a second policy.
+    expect(stats.get("ram0")?.sectorsRead).toBe(0);
+  });
+
+  it("skips rows that are too short to carry counters", () => {
+    expect(parseDiskstats("").size).toBe(0);
+    expect(parseDiskstats("   8       0 sda 500 10 4000\n").size).toBe(0);
+    expect(parseDiskstats("garbage line without numbers\n").size).toBe(0);
+  });
+
+  it("maps /dev paths to diskstats device names", () => {
+    expect(diskstatsKey("/dev/nvme0n1p1")).toBe("nvme0n1p1");
+    expect(diskstatsKey("/dev/mmcblk0p2")).toBe("mmcblk0p2");
+    expect(diskstatsKey("nvme0n1p1")).toBe("nvme0n1p1");
+  });
+
+  it("derives disk rates from counter deltas, with 512-byte sectors", () => {
+    const previous = {
+      device: "nvme0n1p1",
+      readsCompleted: 1_000,
+      sectorsRead: 2_000,
+      writesCompleted: 500,
+      sectorsWritten: 1_000,
+      ioMs: 5_000,
+    };
+    const current = {
+      device: "nvme0n1p1",
+      readsCompleted: 1_100,
+      sectorsRead: 4_000,
+      writesCompleted: 600,
+      sectorsWritten: 3_000,
+      ioMs: 10_000,
+    };
+
+    expect(diskActivityBetween(previous, current, 10)).toEqual({
+      readBytesPerSecond: (2_000 * 512) / 10,
+      writeBytesPerSecond: (2_000 * 512) / 10,
+      readOpsPerSecond: 10,
+      writeOpsPerSecond: 10,
+      utilizationPercent: 50,
+    });
+  });
+
+  it("clamps utilization and floors counter wraparound at zero", () => {
+    const base = {
+      device: "sda",
+      readsCompleted: 0,
+      sectorsRead: 0,
+      writesCompleted: 0,
+      sectorsWritten: 0,
+      ioMs: 0,
+    };
+    // Parallel NVMe queues can accumulate more busy-ms than wall time.
+    const busy = { ...base, ioMs: 20_000 };
+    expect(diskActivityBetween(base, busy, 10).utilizationPercent).toBe(100);
+
+    // A device reset makes the new counters smaller than the old ones; a
+    // negative rate would render as a downward spike.
+    const reset = { ...base, sectorsRead: 100, ioMs: 100 };
+    expect(diskActivityBetween(reset, base, 10).readBytesPerSecond).toBe(0);
   });
 
   it("collects stateful CPU and network deltas and offline disks", async () => {

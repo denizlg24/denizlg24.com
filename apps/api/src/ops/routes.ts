@@ -4,6 +4,7 @@ import {
   createTask,
   type Database,
   deleteTask,
+  findTaskByType,
   getLatestTaskRuns,
   getTask,
   listNotificationEvents,
@@ -11,6 +12,7 @@ import {
   listTasks,
   queryActivity,
   queryMetricSeries,
+  type StorageConfig,
   updateTask,
 } from "@repo/cloud-core";
 import type { AuthVariables } from "@repo/cloud-core/middleware";
@@ -20,6 +22,7 @@ import {
   metricsQuerySchema,
   mintTerminalTicketInputSchema,
   parseTaskConfig,
+  tieringConfigPatchSchema,
   updateTaskInputSchema,
 } from "@repo/schemas/cloud";
 import { Hono } from "hono";
@@ -36,6 +39,7 @@ export interface OpsRouteOptions {
   health: OpsHealthService;
   notifications: NotificationDispatcher;
   adminBaseUrl: string;
+  storageConfig: StorageConfig;
   sampler: MetricsSampler;
   scheduler: OpsScheduler;
   terminal: TerminalGateway;
@@ -49,6 +53,7 @@ const paginationQuerySchema = z.object({
 });
 
 const facetWindowDaysSchema = z.coerce.number().int().min(1).max(90).default(7);
+
 const notificationLimitSchema = z.coerce
   .number()
   .int()
@@ -164,6 +169,70 @@ export function opsRoutes(options: OpsRouteOptions) {
       { force: true },
     );
     return context.json({ data: { deliveries } });
+  });
+
+  const tieringSettings = async () => {
+    const { tiering, ssdStoragePath, hddStoragePath } = options.storageConfig;
+    const task = await findTaskByType(options.db, "tiering_pass");
+    const runs = task
+      ? await listTaskRuns(options.db, task.id, { limit: 1 })
+      : { runs: [] };
+    return {
+      defaults: {
+        ssdStoragePath,
+        hddStoragePath,
+        highWatermarkPercent: tiering.highWatermarkPercent,
+        targetWatermarkPercent: tiering.targetWatermarkPercent,
+        minAgeDays: Math.round(tiering.minAgeMs / DAY_MS),
+        minSizeBytes: tiering.minSizeBytes,
+        batchCap: tiering.batchCap,
+      },
+      task,
+      lastRun: runs.runs[0] ?? null,
+    };
+  };
+
+  app.get("/storage/tiering", async (context) =>
+    context.json({ data: await tieringSettings() }),
+  );
+
+  app.patch("/storage/tiering", async (context) => {
+    const task = await findTaskByType(options.db, "tiering_pass");
+    if (!task) {
+      return context.json(
+        {
+          error: {
+            code: "TASK_NOT_FOUND",
+            message: "No tiering_pass task has been seeded",
+          },
+        },
+        404,
+      );
+    }
+    const body = await context.req.json().catch(() => null);
+    const parsed = tieringConfigPatchSchema.safeParse(body);
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid tiering configuration",
+          },
+        },
+        400,
+      );
+    }
+    const { cronExpression, ...config } = parsed.data;
+    await updateTask(options.db, task.id, {
+      config: parseTaskConfig("tiering_pass", {
+        ...task.config,
+        ...config,
+      }),
+      ...(cronExpression === undefined
+        ? {}
+        : scheduleInput({ cronExpression })),
+    });
+    return context.json({ data: await tieringSettings() });
   });
 
   app.post("/terminal", async (context) => {

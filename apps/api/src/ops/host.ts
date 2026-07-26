@@ -116,6 +116,112 @@ export function parseProcNetDev(input: string): NetworkCounters[] {
     });
 }
 
+/**
+ * Kernel sectors are always 512 bytes in /proc/diskstats, regardless of the
+ * device's physical sector size.
+ */
+const DISKSTAT_SECTOR_BYTES = 512;
+
+export interface DiskCounters {
+  /** Kernel device name, e.g. `nvme0n1p1` — no `/dev/` prefix. */
+  device: string;
+  readsCompleted: number;
+  sectorsRead: number;
+  writesCompleted: number;
+  sectorsWritten: number;
+  /** Cumulative milliseconds spent with I/O in flight. */
+  ioMs: number;
+}
+
+/**
+ * Fields are documented in the kernel's Documentation/admin-guide/iostats.rst:
+ * after `major minor name` come reads-completed, reads-merged, sectors-read,
+ * ms-reading, writes-completed, writes-merged, sectors-written, ms-writing,
+ * ios-in-progress, ms-doing-io, weighted-ms. Partitions carry the same first
+ * eleven fields as whole disks on modern kernels, which is what makes tracking
+ * `/dev/nvme0n1p1` rather than `/dev/nvme0n1` work.
+ */
+export function parseDiskstats(input: string): Map<string, DiskCounters> {
+  const result = new Map<string, DiskCounters>();
+  for (const line of input.split(/\r?\n/)) {
+    const columns = line.trim().split(/\s+/);
+    if (columns.length < 14) continue;
+    const device = columns[2];
+    const values = columns.slice(3).map(Number);
+    const [readsCompleted, , sectorsRead, , writesCompleted, , sectorsWritten] =
+      values;
+    const ioMs = values[9];
+    if (
+      !device ||
+      readsCompleted === undefined ||
+      sectorsRead === undefined ||
+      writesCompleted === undefined ||
+      sectorsWritten === undefined ||
+      ioMs === undefined ||
+      ![
+        readsCompleted,
+        sectorsRead,
+        writesCompleted,
+        sectorsWritten,
+        ioMs,
+      ].every(Number.isFinite)
+    ) {
+      continue;
+    }
+    result.set(device, {
+      device,
+      readsCompleted,
+      sectorsRead,
+      writesCompleted,
+      sectorsWritten,
+      ioMs,
+    });
+  }
+  return result;
+}
+
+/** `/dev/nvme0n1p1` -> `nvme0n1p1`, to match the diskstats device column. */
+export function diskstatsKey(device: string): string {
+  return device.replace(/^\/dev\//, "");
+}
+
+export interface DiskActivity {
+  readBytesPerSecond: number;
+  writeBytesPerSecond: number;
+  readOpsPerSecond: number;
+  writeOpsPerSecond: number;
+  utilizationPercent: number;
+}
+
+export function diskActivityBetween(
+  previous: DiskCounters,
+  current: DiskCounters,
+  elapsedSeconds: number,
+): DiskActivity {
+  const perSecond = (delta: number) => Math.max(0, delta) / elapsedSeconds;
+  return {
+    readBytesPerSecond:
+      perSecond(current.sectorsRead - previous.sectorsRead) *
+      DISKSTAT_SECTOR_BYTES,
+    writeBytesPerSecond:
+      perSecond(current.sectorsWritten - previous.sectorsWritten) *
+      DISKSTAT_SECTOR_BYTES,
+    readOpsPerSecond: perSecond(
+      current.readsCompleted - previous.readsCompleted,
+    ),
+    writeOpsPerSecond: perSecond(
+      current.writesCompleted - previous.writesCompleted,
+    ),
+    // Busy time over wall time. Queued parallel requests can push this past
+    // 100% on NVMe, so it is clamped for display sanity.
+    utilizationPercent: Math.min(
+      100,
+      (Math.max(0, current.ioMs - previous.ioMs) / (elapsedSeconds * 1_000)) *
+        100,
+    ),
+  };
+}
+
 export function parseDf(
   input: string,
 ): Map<
@@ -271,6 +377,7 @@ function diskInfo(
   values:
     | { totalBytes: number; usedBytes: number; availableBytes: number }
     | undefined,
+  activity: DiskActivity | undefined,
 ): DiskInfo {
   if (!values) {
     return {
@@ -285,6 +392,7 @@ function diskInfo(
   return {
     ...disk,
     ...values,
+    ...activity,
     usagePercent:
       values.totalBytes > 0 ? (values.usedBytes / values.totalBytes) * 100 : 0,
     online: true,
@@ -296,6 +404,8 @@ export class HostCollector {
   private previousCpu: CpuCounters | null = null;
   private previousNetwork = new Map<string, NetworkCounters>();
   private previousNetworkAt: number | null = null;
+  private previousDisk = new Map<string, DiskCounters>();
+  private previousDiskAt: number | null = null;
 
   constructor(
     private readonly devices: readonly DiskDevice[],
@@ -311,40 +421,51 @@ export class HostCollector {
     Pick<OpsOverview, "cpu" | "memory" | "disks" | "network">
   > {
     const now = this.dependencies.now();
-    const [cpuResult, memoryResult, loadResult, networkResult, dfResult, temp] =
-      await Promise.all([
-        this.dependencies
-          .readProc("stat")
-          .then(parseCpuStat)
-          .catch(() => fallbackCpuCounters()),
-        this.dependencies
-          .readProc("meminfo")
-          .then(parseMeminfo)
-          .catch(() => {
-            const totalBytes = totalmem();
-            const availableBytes = freemem();
-            const usedBytes = totalBytes - availableBytes;
-            return {
-              totalBytes,
-              availableBytes,
-              usedBytes,
-              usagePercent: totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0,
-            };
-          }),
-        this.dependencies
-          .readProc("loadavg")
-          .then(parseLoadAverage)
-          .catch(() => ({ load1: 0, load5: 0, load15: 0 })),
-        this.dependencies
-          .readProc("net/dev")
-          .then(parseProcNetDev)
-          .catch(() => []),
-        this.dependencies
-          .readDf()
-          .then(parseDf)
-          .catch(() => new Map()),
-        this.dependencies.readTemperature(),
-      ]);
+    const [
+      cpuResult,
+      memoryResult,
+      loadResult,
+      networkResult,
+      dfResult,
+      diskstatsResult,
+      temp,
+    ] = await Promise.all([
+      this.dependencies
+        .readProc("stat")
+        .then(parseCpuStat)
+        .catch(() => fallbackCpuCounters()),
+      this.dependencies
+        .readProc("meminfo")
+        .then(parseMeminfo)
+        .catch(() => {
+          const totalBytes = totalmem();
+          const availableBytes = freemem();
+          const usedBytes = totalBytes - availableBytes;
+          return {
+            totalBytes,
+            availableBytes,
+            usedBytes,
+            usagePercent: totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0,
+          };
+        }),
+      this.dependencies
+        .readProc("loadavg")
+        .then(parseLoadAverage)
+        .catch(() => ({ load1: 0, load5: 0, load15: 0 })),
+      this.dependencies
+        .readProc("net/dev")
+        .then(parseProcNetDev)
+        .catch(() => []),
+      this.dependencies
+        .readDf()
+        .then(parseDf)
+        .catch(() => new Map()),
+      this.dependencies
+        .readProc("diskstats")
+        .then(parseDiskstats)
+        .catch(() => new Map<string, DiskCounters>()),
+      this.dependencies.readTemperature(),
+    ]);
 
     const cpuDelta = this.previousCpu
       ? cpuResult.total - this.previousCpu.total
@@ -376,6 +497,25 @@ export class HostCollector {
     );
     this.previousNetworkAt = now;
 
+    // The first sample after a restart has no baseline, so rates are reported
+    // as absent rather than as a spike derived from boot-time totals.
+    const diskElapsedSeconds = this.previousDiskAt
+      ? Math.max((now - this.previousDiskAt) / 1_000, 0.001)
+      : null;
+    const diskActivity = new Map<string, DiskActivity>();
+    for (const disk of this.devices) {
+      const key = diskstatsKey(disk.device);
+      const current = diskstatsResult.get(key);
+      const previous = this.previousDisk.get(key);
+      if (!current || !previous || diskElapsedSeconds === null) continue;
+      diskActivity.set(
+        disk.device,
+        diskActivityBetween(previous, current, diskElapsedSeconds),
+      );
+    }
+    this.previousDisk = diskstatsResult;
+    this.previousDiskAt = now;
+
     return {
       cpu: {
         usagePercent:
@@ -386,7 +526,11 @@ export class HostCollector {
       },
       memory: memoryResult,
       disks: this.devices.map((disk) =>
-        diskInfo(disk, dfResult.get(disk.device)),
+        diskInfo(
+          disk,
+          dfResult.get(disk.device),
+          diskActivity.get(disk.device),
+        ),
       ),
       network,
     };
