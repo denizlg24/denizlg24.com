@@ -3,10 +3,18 @@
 import { Unreachable } from "@repo/cloud-ui/unreachable";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Skeleton } from "@repo/ui/skeleton";
+import dynamic from "next/dynamic";
 import { useCallback } from "react";
 import { api } from "@/lib/api";
 import { DiskRack } from "./_components/disk-rack";
 import { TieringConfig } from "./_components/tiering-config";
+
+// recharts is the largest dependency in this app and the rack is the reason
+// anyone opens this page, so the history chart loads after it.
+const UsageHistory = dynamic(
+  () => import("./_components/usage-history").then((m) => m.UsageHistory),
+  { ssr: false, loading: () => <Skeleton className="h-48 w-full" /> },
+);
 
 function DisksSkeleton() {
   return (
@@ -84,6 +92,7 @@ export default function DisksPage() {
           onChanged={() => void reloadTiering()}
         />
       )}
+      <UsageHistory overview={overview} />
     </div>
   );
 }
