@@ -6,11 +6,15 @@ import {
   type CompleteSignupResult,
   type CreateFolderInput,
   completeSignupResultSchema,
+  type DavCredential,
   type DeletedFolder,
   type DownloadArchiveInput,
+  davCredentialSchema,
   deletedFolderSchema,
   type FolderContents,
   folderContentsSchema,
+  type IssuedDavCredentialResponse,
+  issuedDavCredentialSchema,
   type Pagination,
   paginationSchema,
   type RenamedFolder,
@@ -221,6 +225,22 @@ export const api = {
       method: "POST",
       body: { expiresIn },
     }),
+
+  davCredentials: {
+    list: (): Promise<DavCredential[]> =>
+      requestData(z.array(davCredentialSchema), "/api/storage/dav-credentials"),
+    issue: (name: string): Promise<IssuedDavCredentialResponse> =>
+      requestData(issuedDavCredentialSchema, "/api/storage/dav-credentials", {
+        method: "POST",
+        body: { name },
+      }),
+    revoke: (id: string): Promise<{ id: string }> =>
+      requestData(
+        z.object({ id: z.uuid() }),
+        `/api/storage/dav-credentials/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      ),
+  },
 
   sharedMeta: (token: string): Promise<SharedFileMeta> =>
     requestData(

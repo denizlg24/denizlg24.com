@@ -12,6 +12,7 @@ import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { useSession } from "@/components/session-provider";
 import { authClient } from "@/lib/auth-client";
+import { NetworkDriveSection } from "./_components/network-drive-section";
 
 function ChangePassword() {
   const [current, setCurrent] = useState("");
@@ -242,6 +243,10 @@ export default function AccountPage() {
 
           <Section title="Two-factor">
             <TwoFactor />
+          </Section>
+
+          <Section title="Network drive">
+            <NetworkDriveSection />
           </Section>
         </div>
       </div>

@@ -17,16 +17,12 @@ import {
   completeSignupResultSchema,
   containerSnapshotSchema,
   createdApiKeySchema,
-  type DavCredential,
   type DiscoverFieldsInput,
   type DiscoverFieldsResult,
-  davCredentialSchema,
   discoverFieldsResultSchema,
   type FindMongoDocumentsInput,
   type GenerateSearchTokenInput,
-  type IssuedDavCredentialResponse,
   type IssuedProjectS3Credential,
-  issuedDavCredentialSchema,
   issuedProjectS3CredentialSchema,
   type LargestFile,
   largestFileSchema,
@@ -650,22 +646,6 @@ export const api = {
       requestData(
         z.array(s3CredentialMetadataSchema),
         "/api/storage/s3-credentials",
-      ),
-  },
-
-  davCredentials: {
-    list: (): Promise<DavCredential[]> =>
-      requestData(z.array(davCredentialSchema), "/api/storage/dav-credentials"),
-    issue: (name: string): Promise<IssuedDavCredentialResponse> =>
-      requestData(issuedDavCredentialSchema, "/api/storage/dav-credentials", {
-        method: "POST",
-        body: { name },
-      }),
-    revoke: (id: string): Promise<{ id: string }> =>
-      requestData(
-        z.object({ id: z.uuid() }),
-        `/api/storage/dav-credentials/${encodeURIComponent(id)}`,
-        { method: "DELETE" },
       ),
   },
 
