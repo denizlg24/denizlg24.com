@@ -1,4 +1,5 @@
 import {
+  ActivityRecorder,
   cloudEnv,
   createDb,
   createMeiliClient,
@@ -6,6 +7,7 @@ import {
   createProvisionerRegistry,
   createTieringRepository,
   DockerClient,
+  databaseActivitySink,
   ensureLegacyS3Credential,
   ensureStorageSearchIndex,
   initializeS3,
@@ -32,7 +34,12 @@ import {
 import { RedisRateLimitStore } from "./auth/redis-rate-limit";
 import { mongoDbAdminRoutes, postgresDbAdminRoutes } from "./db-admin/routes";
 import { OpsHealthService } from "./ops/health";
-import { WebhookNotifier } from "./ops/notifications";
+import {
+  databaseClaimStore,
+  EmailNotifier,
+  NotificationDispatcher,
+  WebhookNotifier,
+} from "./ops/notifications";
 import { opsRoutes } from "./ops/routes";
 import { MetricsSampler } from "./ops/sampler";
 import { OpsScheduler } from "./ops/scheduler";
@@ -269,19 +276,34 @@ export async function createRuntimeApp() {
       tunnelUrl: process.env.TUNNEL_HEALTH_URL || undefined,
       diskHeadroomPercent: numberEnv("DISK_MIN_HEADROOM_PERCENT", 10, 1, 99),
     });
-    const notifier = new WebhookNotifier(
-      process.env.METRICS_NOTIFICATION_WEBHOOK_URL || undefined,
-    );
+    const activityRecorder = new ActivityRecorder({
+      sink: databaseActivitySink(db),
+    });
+    activityRecorder.start();
+    cleanupActions.push(async () => activityRecorder.stop());
+    const notifications = new NotificationDispatcher({
+      claims: databaseClaimStore(db),
+      notifiers: [
+        new WebhookNotifier(
+          process.env.METRICS_NOTIFICATION_WEBHOOK_URL || undefined,
+        ),
+        new EmailNotifier({
+          apiKey: process.env.RESEND_API_KEY || undefined,
+          from: process.env.OPS_ALERT_EMAIL_FROM || undefined,
+          to: process.env.OPS_ALERT_EMAIL_TO || undefined,
+        }),
+      ],
+    });
     const scheduler = new OpsScheduler({
       db,
-      notifier,
+      notifications,
       adminBaseUrl:
         process.env.CLOUD_ADMIN_URL ?? "https://cloud.denizlg24.com",
       executorContext: {
         db,
         docker,
         health,
-        notifier,
+        notifications,
         sampler,
         storageConfig,
         backupDirectory: process.env.BACKUP_DIR ?? "/backups",
@@ -289,7 +311,14 @@ export async function createRuntimeApp() {
         mongoContainer: process.env.MONGODB_CONTAINER ?? "mongodb",
         rebootSentinelPath:
           process.env.REBOOT_SENTINEL_PATH ?? "/host-control/reboot-requested",
-        alertNotifications: new Map(),
+        activityRetentionDays: numberEnv(
+          "ACTIVITY_LOG_RETENTION_DAYS",
+          30,
+          1,
+          365,
+        ),
+        containerRestartCounts: new Map(),
+        downServices: new Set(),
       },
     });
     cleanupActions.push(async () => scheduler.stop());
@@ -324,7 +353,26 @@ export async function createRuntimeApp() {
         postgres: postgresDbAdminRoutes(platformOptions),
         mongodb: mongoDbAdminRoutes(platformOptions),
       },
-      ops: opsRoutes({ db, docker, health, sampler, scheduler, terminal }),
+      activity: {
+        recorder: activityRecorder,
+        slowRequestMs: numberEnv(
+          "ACTIVITY_SLOW_REQUEST_MS",
+          3_000,
+          100,
+          60_000,
+        ),
+      },
+      ops: opsRoutes({
+        db,
+        docker,
+        health,
+        notifications,
+        adminBaseUrl:
+          process.env.CLOUD_ADMIN_URL ?? "https://cloud.denizlg24.com",
+        sampler,
+        scheduler,
+        terminal,
+      }),
       opsTools: {
         adminerUrl:
           process.env.ADMINER_URL ??

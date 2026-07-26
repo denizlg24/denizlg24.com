@@ -1,17 +1,21 @@
 import type { DockerClient } from "@repo/cloud-core";
 import {
+  activityFacets,
   createTask,
   type Database,
   deleteTask,
   getLatestTaskRuns,
   getTask,
+  listNotificationEvents,
   listTaskRuns,
   listTasks,
+  queryActivity,
   queryMetricSeries,
   updateTask,
 } from "@repo/cloud-core";
 import type { AuthVariables } from "@repo/cloud-core/middleware";
 import {
+  activityQuerySchema,
   createTaskInputSchema,
   metricsQuerySchema,
   mintTerminalTicketInputSchema,
@@ -22,6 +26,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { TerminalGateway } from "../terminal/gateway";
 import type { OpsHealthService } from "./health";
+import type { NotificationDispatcher } from "./notifications";
 import type { MetricsSampler } from "./sampler";
 import { type OpsScheduler, validateCronExpression } from "./scheduler";
 
@@ -29,15 +34,32 @@ export interface OpsRouteOptions {
   db: Database;
   docker: DockerClient;
   health: OpsHealthService;
+  notifications: NotificationDispatcher;
+  adminBaseUrl: string;
   sampler: MetricsSampler;
   scheduler: OpsScheduler;
   terminal: TerminalGateway;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1_000;
+
 const paginationQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
+
+const facetWindowDaysSchema = z.coerce.number().int().min(1).max(90).default(7);
+const notificationLimitSchema = z.coerce
+  .number()
+  .int()
+  .min(1)
+  .max(200)
+  .default(50);
+
+/** Hono returns [] for an absent repeated query param; zod wants undefined. */
+function emptyToUndefined(values: string[] | undefined): string[] | undefined {
+  return values && values.length > 0 ? values : undefined;
+}
 
 function scheduleInput(input: {
   cronExpression?: string | null;
@@ -93,6 +115,56 @@ export function opsRoutes(options: OpsRouteOptions) {
   app.get("/health", async (context) =>
     context.json({ data: await options.health.check() }),
   );
+
+  app.get("/activity", async (context) => {
+    const query = activityQuerySchema.parse({
+      page: context.req.query("page") ?? 1,
+      limit: context.req.query("limit") ?? 50,
+      category: emptyToUndefined(context.req.queries("category")),
+      severity: emptyToUndefined(context.req.queries("severity")),
+      statusClass: context.req.query("statusClass"),
+      action: context.req.query("action"),
+      actorId: context.req.query("actorId"),
+      from: context.req.query("from"),
+      to: context.req.query("to"),
+      q: context.req.query("q"),
+    });
+    const { entries, pagination } = await queryActivity(options.db, query);
+    return context.json({ data: entries, pagination });
+  });
+
+  app.get("/activity/facets", async (context) => {
+    const since = new Date(
+      Date.now() -
+        facetWindowDaysSchema.parse(context.req.query("days")) * DAY_MS,
+    );
+    return context.json({ data: await activityFacets(options.db, since) });
+  });
+
+  app.get("/notifications", async (context) =>
+    context.json({
+      data: await listNotificationEvents(options.db, {
+        limit: notificationLimitSchema.parse(context.req.query("limit")),
+      }),
+    }),
+  );
+
+  app.post("/notifications/test", async (context) => {
+    // `force` bypasses the cooldown so repeated probes are not silently
+    // swallowed — the point of the button is to see the channels answer.
+    const { deliveries } = await options.notifications.dispatch(
+      {
+        type: "test",
+        severity: "info",
+        subjectKey: context.get("user").id,
+        title: "Test notification",
+        message: "Sent from the cloud panel.",
+        url: options.adminBaseUrl,
+      },
+      { force: true },
+    );
+    return context.json({ data: { deliveries } });
+  });
 
   app.post("/terminal", async (context) => {
     const rawBody = await context.req.text();

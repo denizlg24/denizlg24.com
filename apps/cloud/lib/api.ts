@@ -1,5 +1,8 @@
 import { toApiError, toTransportError } from "@repo/cloud-ui/api-error";
 import {
+  type ActivityFacets,
+  type ActivityQuery,
+  activityFacetsSchema,
   type CompleteSignupInput,
   type CompleteSignupResult,
   type ContainerSnapshot,
@@ -31,6 +34,8 @@ import {
   mongoDatabaseSchema,
   mongoFindResultSchema,
   mongoIndexSchema,
+  type NotificationTestResult,
+  notificationTestResultSchema,
   type OpsHealth,
   type OpsOverview,
   opsHealthSchema,
@@ -60,7 +65,9 @@ import {
   projectVectorIndexSchema,
   projectVectorSearchOverviewSchema,
   type S3CredentialMetadata,
+  type SafeActivityEntry,
   type SafeApiKey,
+  type SafeNotificationEvent,
   type SafeProject,
   type SafeProjectCollection,
   type SafeScheduledTask,
@@ -68,7 +75,9 @@ import {
   type SafeUser,
   type SearchTokenResult,
   s3CredentialMetadataSchema,
+  safeActivityEntrySchema,
   safeApiKeySchema,
+  safeNotificationEventSchema,
   safeProjectCollectionSchema,
   safeProjectSchema,
   safeScheduledTaskSchema,
@@ -237,6 +246,43 @@ export const api = {
         `/api/ops/containers/${encodeURIComponent(id)}/restart`,
         { method: "POST" },
       ),
+  },
+
+  activity: {
+    list: (
+      query: Partial<ActivityQuery> = {},
+    ): Promise<Paginated<SafeActivityEntry>> =>
+      requestPaginated(safeActivityEntrySchema, "/api/ops/activity", {
+        query: {
+          page: query.page,
+          limit: query.limit,
+          category: query.category,
+          severity: query.severity,
+          statusClass: query.statusClass,
+          action: query.action,
+          actorId: query.actorId,
+          from: query.from,
+          to: query.to,
+          q: query.q,
+        },
+      }),
+    facets: (days?: number): Promise<ActivityFacets> =>
+      requestData(activityFacetsSchema, "/api/ops/activity/facets", {
+        query: { days },
+      }),
+  },
+
+  notifications: {
+    list: (limit?: number): Promise<SafeNotificationEvent[]> =>
+      requestData(
+        z.array(safeNotificationEventSchema),
+        "/api/ops/notifications",
+        { query: { limit } },
+      ),
+    test: (): Promise<NotificationTestResult> =>
+      requestData(notificationTestResultSchema, "/api/ops/notifications/test", {
+        method: "POST",
+      }),
   },
 
   tasks: {

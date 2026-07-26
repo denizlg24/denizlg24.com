@@ -12,9 +12,9 @@ import {
   updateTaskRun,
   users,
 } from "@repo/cloud-core";
-import type { TaskType } from "@repo/schemas/cloud";
+import type { TaskRunMetadata, TaskType } from "@repo/schemas/cloud";
 import { Cron } from "croner";
-import { and, eq, gte, isNotNull, lte, ne } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, lte, ne } from "drizzle-orm";
 
 import {
   type Executor,
@@ -22,11 +22,31 @@ import {
   getExecutor,
   validatedTaskConfig,
 } from "./executors";
-import type { WebhookNotifier } from "./notifications";
+import type { NotificationDispatcher } from "./notifications";
 
 const ONE_OFF_POLL_MS = 30_000;
 const FAILURE_NOTIFICATION_THROTTLE_MS = 6 * 60 * 60 * 1_000;
 const RUN_LOG_TAIL_LENGTH = 16_000;
+const NOTIFICATION_MESSAGE_LIMIT = 2_000;
+
+const BACKUP_TASK_TYPES = new Set<TaskType>([
+  "backup_postgres",
+  "backup_mongodb",
+  "backup_files",
+  "backup_all",
+]);
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
 
 interface PreparedRun {
   task: ScheduledTask;
@@ -37,7 +57,7 @@ interface PreparedRun {
 export interface OpsSchedulerOptions {
   db: Database;
   executorContext: ExecutorContext;
-  notifier: WebhookNotifier;
+  notifications: NotificationDispatcher;
   adminBaseUrl: string;
   executorFactory?: (type: TaskType, context: ExecutorContext) => Executor;
   oneOffPollMs?: number;
@@ -219,12 +239,16 @@ export class OpsScheduler {
   private async execute(prepared: PreparedRun): Promise<void> {
     const { task, run, executor } = prepared;
     try {
+      // Read before the run is updated, so "did the last attempt fail" is not
+      // answered by the attempt that is finishing right now.
+      const previouslyFailed = await this.lastRunFailed(task.id, run.id);
       const result = await executor(task.config, task.id);
       await updateTaskRun(this.options.db, run.id, {
         status: "completed",
         output: result.output.slice(-RUN_LOG_TAIL_LENGTH),
         metadata: result.metadata,
       });
+      await this.notifySuccess(task, run.id, result.metadata, previouslyFailed);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Task execution failed";
@@ -267,12 +291,89 @@ export class OpsScheduler {
     });
   }
 
+  private runUrl(taskId: string, runId: string): string {
+    return `${this.options.adminBaseUrl.replace(/\/$/, "")}/tasks/${taskId}?run=${runId}`;
+  }
+
+  /** Whether the most recent completed run before `excludeRunId` failed. */
+  private async lastRunFailed(
+    taskId: string,
+    excludeRunId: string,
+  ): Promise<boolean> {
+    const [previous] = await this.options.db
+      .select({ status: taskRuns.status })
+      .from(taskRuns)
+      .where(and(eq(taskRuns.taskId, taskId), ne(taskRuns.id, excludeRunId)))
+      .orderBy(desc(taskRuns.createdAt))
+      .limit(1);
+    return previous?.status === "failed";
+  }
+
+  private async notifySuccess(
+    task: ScheduledTask,
+    runId: string,
+    metadata: TaskRunMetadata,
+    previouslyFailed: boolean,
+  ): Promise<void> {
+    if (!this.options.notifications.enabled) return;
+    const url = this.runUrl(task.id, runId);
+
+    if (previouslyFailed) {
+      await this.options.notifications.dispatch({
+        type: "task_recovered",
+        severity: "info",
+        subjectKey: task.id,
+        title: `Task recovered: ${task.name}`,
+        message: `${task.name} succeeded after a failed run.`,
+        url,
+      });
+    }
+
+    if (BACKUP_TASK_TYPES.has(task.type)) {
+      const details: Record<string, string> = {};
+      if (metadata.backupSizeBytes !== undefined) {
+        details.size = formatBytes(metadata.backupSizeBytes);
+      }
+      if (metadata.durationMs !== undefined) {
+        details.duration = `${(metadata.durationMs / 1_000).toFixed(1)}s`;
+      }
+      if (metadata.backupPath !== undefined) details.path = metadata.backupPath;
+      if (metadata.filesBackedUp !== undefined) {
+        details.files = String(metadata.filesBackedUp);
+      }
+      await this.options.notifications.dispatch({
+        type: "backup_completed",
+        severity: "info",
+        subjectKey: task.id,
+        title: `Backup completed: ${task.name}`,
+        message: `${task.name} finished successfully.`,
+        url,
+        details,
+      });
+    }
+
+    const moved = metadata.tieringReport?.moved.length ?? 0;
+    if (task.type === "tiering_pass" && moved > 0) {
+      await this.options.notifications.dispatch({
+        type: "tiering_moved",
+        severity: "info",
+        subjectKey: task.id,
+        title: `Tiering moved ${moved} file${moved === 1 ? "" : "s"}`,
+        message: `${task.name} relocated ${moved} file${moved === 1 ? "" : "s"} between disks.`,
+        url,
+      });
+    }
+  }
+
   private async notifyFailure(
     task: ScheduledTask,
     runId: string,
     message: string,
   ): Promise<void> {
-    if (!this.options.notifier.enabled) return;
+    if (!this.options.notifications.enabled) return;
+    // Kept alongside the dispatcher's own cooldown: this one is keyed on runs
+    // rather than on the event, so a task failing every minute stays quiet even
+    // if the notification type's cooldown is shorter.
     const cutoff = new Date(Date.now() - FAILURE_NOTIFICATION_THROTTLE_MS);
     const [recent] = await this.options.db
       .select({ id: taskRuns.id })
@@ -286,16 +387,17 @@ export class OpsScheduler {
       )
       .limit(1);
     if (recent) return;
-    const runUrl = `${this.options.adminBaseUrl.replace(/\/$/, "")}/tasks/${task.id}?run=${runId}`;
-    const sent = await this.options.notifier.send({
-      event: "task_failure",
-      title: `Task failed: ${task.name}`,
-      message: `${message.slice(-2_000)}\n${runUrl}`,
-      taskId: task.id,
-      runId,
-      runUrl,
+    const isBackup = BACKUP_TASK_TYPES.has(task.type);
+    const { deliveries } = await this.options.notifications.dispatch({
+      type: isBackup ? "backup_failed" : "task_failed",
+      severity: "error",
+      subjectKey: task.id,
+      title: `${isBackup ? "Backup" : "Task"} failed: ${task.name}`,
+      message: message.slice(-NOTIFICATION_MESSAGE_LIMIT),
+      url: this.runUrl(task.id, runId),
+      details: { task: task.name, type: task.type },
     });
-    if (sent) {
+    if (deliveries.some((delivery) => delivery.sent)) {
       await updateTaskRun(this.options.db, runId, {
         failureNotifiedAt: new Date(),
       });

@@ -1,6 +1,8 @@
 import {
+  type ActivityRecorder,
   AuthenticationError,
   type AuthVariables,
+  activityCapture,
   CloudCoreError,
   cors,
   type Database,
@@ -23,6 +25,7 @@ import {
 } from "@repo/cloud-core";
 import { authAccount, authUser } from "@repo/cloud-core/db/schema";
 import {
+  ACTIVITY_ACTIONS,
   adminResetMfaInputSchema,
   completeSignupInputSchema,
   createPendingUserInputSchema,
@@ -97,6 +100,10 @@ export interface CloudApiOptions {
   };
   ops?: ReturnType<typeof opsRoutes>;
   opsTools?: OpsToolsConfig;
+  activity?: {
+    recorder: ActivityRecorder;
+    slowRequestMs?: number;
+  };
 }
 
 function clientIp(
@@ -218,6 +225,41 @@ export function createCloudApiApp(options: CloudApiOptions) {
       origin: (origin) => (trustedOrigins.has(origin) ? origin : undefined),
     }),
   );
+
+  if (options.activity) {
+    const capture = activityCapture({
+      record: (entry) => options.activity?.recorder.record(entry),
+      slowRequestMs: options.activity.slowRequestMs,
+    });
+    // Mounted before the per-group `authenticate` middleware so unauthenticated
+    // failures are captured too; `context.get("user")` is read after next()
+    // resolves, by which point auth has populated it.
+    app.use("/api/*", capture);
+    // /v2 records failures only (see shouldCapture). Reading `context.res.status`
+    // after next() is a plain getter on the finished Response — it does not
+    // reassign `res`, so the Bun.file() body and its sendfile() path survive.
+    app.use("/v2", capture);
+    app.use("/v2/*", capture);
+
+    // better-auth owns the sign-in handler, so a failure is only visible from
+    // the outside as a 401. Recording it under its own action is what lets the
+    // auth_failure_burst alert count without scanning paths.
+    app.use("/api/auth/sign-in/*", async (context, next) => {
+      await next();
+      if (context.res.status !== 401) return;
+      options.activity?.recorder.record({
+        category: "auth",
+        action: ACTIVITY_ACTIONS.signInFailed,
+        severity: "warn",
+        actorType: "anonymous",
+        method: context.req.method,
+        path: context.req.path,
+        statusCode: 401,
+        ip: clientIp(context, options.isProduction),
+        userAgent: context.req.header("User-Agent") ?? null,
+      });
+    });
+  }
 
   app.get("/", (context) => context.text("Deniz Cloud API"));
   app.get("/healthz", (context) =>

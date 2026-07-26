@@ -18,6 +18,7 @@ const NAV = [
   { href: "/databases", label: "databases" },
   { href: "/disks", label: "disks" },
   { href: "/tasks", label: "tasks" },
+  { href: "/activity", label: "activity" },
   { href: "/terminal", label: "terminal" },
   { href: "/settings", label: "settings" },
 ];
