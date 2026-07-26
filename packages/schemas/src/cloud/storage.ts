@@ -310,11 +310,11 @@ export const tieringReportSchema = z.object({
   moved: z.array(tieringMoveSchema),
   reconciledCopies: z.number().int().nonnegative(),
   /** Deleted by someone else mid-pass. Expected, not an error. */
-  vanished: z.number().int().nonnegative(),
+  vanished: z.number().int().nonnegative().default(0),
   /** Rows repointed at a blob a crashed pass had already copied. */
-  healed: z.number().int().nonnegative(),
+  healed: z.number().int().nonnegative().default(0),
   /** Rows deleted because their blob was gone from both tiers. */
-  orphaned: z.array(tieringOrphanSchema),
+  orphaned: z.array(tieringOrphanSchema).default([]),
   failures: z.array(
     z.object({
       fileId: z.uuid(),
