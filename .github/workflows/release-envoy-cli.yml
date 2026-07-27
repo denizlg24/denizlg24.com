@@ -171,10 +171,46 @@ jobs:
     if: needs.prepare.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Build Envoy CLI release notes
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          previous_tag="$(
+            git tag --list 'envoy-v*' --sort=-v:refname |
+              grep -Fvx "$TAG" |
+              head -n 1 ||
+              true
+          )"
+
+          if [[ -n "$previous_tag" ]]; then
+            changes="$(git log --format='- %s (`%h`)' "$previous_tag..HEAD" -- apps/envoy-cli)"
+          else
+            changes="$(git log --format='- %s (`%h`)' HEAD -- apps/envoy-cli)"
+          fi
+
+          if [[ -z "$changes" ]]; then
+            changes="- Release metadata only."
+          fi
+
+          {
+            echo "## Envoy CLI v$VERSION"
+            echo
+            echo "$changes"
+            echo
+            echo "Source: https://github.com/${{ github.repository }}/tree/$TAG/apps/envoy-cli"
+          } > envoy-release-notes.md
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -182,5 +218,6 @@ jobs:
           tag_name: ${{ needs.prepare.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: Envoy CLI v${{ needs.prepare.outputs.version }}
-          generate_release_notes: true
+          body_path: envoy-release-notes.md
+          make_latest: false
           files: artifacts/**/*
