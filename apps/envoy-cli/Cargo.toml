@@ -1,6 +1,6 @@
 [package]
 name = "envoy-cli"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 description = "A Git-like CLI for managing encrypted environment files"
 license = "MIT"
