@@ -523,6 +523,13 @@ export interface ToolLoopServerTool {
 
 export interface RunToolLoopRequest extends LlmRequestContext {
   model: string;
+  /**
+   * Invariant system prefix, cached across calls. Request-varying context
+   * belongs in `system`, which gets its own breakpoint: it is constant for the
+   * duration of one loop, so every round after the first reads it from cache
+   * even when it changed since the previous call.
+   */
+  cachedSystem?: string;
   system: string;
   prompt: string;
   /** Optional multimodal content; `prompt` remains the redacted/loggable text. */
@@ -537,6 +544,43 @@ export interface RunToolLoopRequest extends LlmRequestContext {
   maxRounds?: number;
   logSystemPrompt?: string;
   logUserPrompt?: string;
+}
+
+/**
+ * Moves the incremental cache breakpoint onto the final content block, so each
+ * round reads the previous rounds' tool results from cache instead of resending
+ * them. Blocks are copied rather than mutated because the same array is reused
+ * across rounds.
+ */
+function withMovedCacheBreakpoint(
+  messages: Anthropic.MessageParam[],
+): Anthropic.MessageParam[] {
+  const marked = messages.map((message) =>
+    typeof message.content === "string"
+      ? message
+      : {
+          ...message,
+          content: message.content.map((block) =>
+            "cache_control" in block && block.cache_control
+              ? { ...block, cache_control: null }
+              : block,
+          ) as Anthropic.MessageParam["content"],
+        },
+  );
+
+  const last = marked.at(-1);
+  if (!last || typeof last.content === "string" || last.content.length === 0) {
+    return marked;
+  }
+  const blocks = [...last.content];
+  const finalBlock = blocks.at(-1);
+  if (!finalBlock) return marked;
+  blocks[blocks.length - 1] = {
+    ...finalBlock,
+    cache_control: { type: "ephemeral" },
+  } as (typeof blocks)[number];
+  marked[marked.length - 1] = { ...last, content: blocks };
+  return marked;
 }
 
 export interface ToolLoopOutcome {
@@ -581,6 +625,7 @@ export async function runToolLoop({
   purpose,
   source,
   model,
+  cachedSystem,
   system,
   prompt,
   content,
@@ -614,8 +659,33 @@ export async function runToolLoop({
     { role: "user", content: content ?? prompt },
   ];
 
+  // Anthropic caches the prefix tools -> system -> messages, so the first
+  // breakpoint also covers every tool definition. The second one ends the
+  // per-call context, which is fixed for this loop and so is read back by
+  // every subsequent round.
+  const systemParam: Anthropic.MessageCreateParams["system"] = cachedSystem
+    ? [
+        {
+          type: "text",
+          text: cachedSystem,
+          cache_control: { type: "ephemeral" },
+        },
+        ...(system
+          ? [
+              {
+                type: "text" as const,
+                text: system,
+                cache_control: { type: "ephemeral" as const },
+              },
+            ]
+          : []),
+      ]
+    : system;
+
   let inputTokens = 0;
   let outputTokens = 0;
+  let cacheCreationInputTokens = 0;
+  let cacheReadInputTokens = 0;
   let toolInput: Record<string, unknown> | undefined;
   let rounds = 0;
 
@@ -624,7 +694,7 @@ export async function runToolLoop({
       model: resolved.id as Anthropic.Model,
       max_tokens: outputLimit,
       ...(temperature !== undefined ? { temperature } : {}),
-      system,
+      system: systemParam,
       tools: force ? [outputTool] : allTools,
       tool_choice: force
         ? {
@@ -633,11 +703,13 @@ export async function runToolLoop({
             disable_parallel_tool_use: true,
           }
         : { type: "auto", disable_parallel_tool_use: true },
-      messages,
+      messages: cachedSystem ? withMovedCacheBreakpoint(messages) : messages,
     });
     rounds += 1;
     inputTokens += response.usage.input_tokens;
     outputTokens += response.usage.output_tokens;
+    cacheCreationInputTokens += response.usage.cache_creation_input_tokens ?? 0;
+    cacheReadInputTokens += response.usage.cache_read_input_tokens ?? 0;
     return response;
   };
 
@@ -681,11 +753,16 @@ export async function runToolLoop({
     catalogModel: resolved.catalogModel,
     inputTokens,
     outputTokens,
+    cacheUsage: cachedSystem
+      ? { cacheCreationInputTokens, cacheReadInputTokens }
+      : undefined,
   });
   const usage = { inputTokens, outputTokens, costUsd };
   logLlmUsage({
     llmModel: resolved.id,
-    inputTokens,
+    // Cached reads are billed separately and excluded from input_tokens; fold
+    // them back in so usage reporting reflects the real prompt size.
+    inputTokens: inputTokens + cacheCreationInputTokens + cacheReadInputTokens,
     outputTokens,
     costUsd,
     systemPrompt: logSystemPrompt ?? system,
@@ -838,9 +915,12 @@ export async function streamText({
   const stream = client.messages.stream({
     model: resolved.id as Anthropic.Model,
     max_tokens: maxTokens,
-    system,
+    // `cache_control` is a content-block field, not a top-level one; setting it
+    // on the request was silently ignored, so `enableCache` cached nothing.
+    system: enableCache
+      ? [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
+      : system,
     messages: [{ role: "user", content: prompt }],
-    ...(enableCache ? { cache_control: { type: "ephemeral" as const } } : {}),
   });
 
   const catalogModel = resolved.catalogModel;
