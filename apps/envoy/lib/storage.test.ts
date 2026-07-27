@@ -9,7 +9,7 @@ import {
 } from "./storage";
 
 const CONFIG = {
-  ENVOY_S3_ENDPOINT: "https://storage.denizlg24.com/v2/",
+  ENVOY_S3_ENDPOINT: "https://api.denizlg24.com/v2/",
   ENVOY_S3_REGION: "eu-west-1",
   ENVOY_S3_ACCESS_KEY_ID: "project-access",
   ENVOY_S3_SECRET_ACCESS_KEY: "project-secret",
@@ -19,7 +19,7 @@ const CONFIG = {
 describe("Envoy S3 storage adapter", () => {
   it("uses the monorepo gateway with path-style addressing", () => {
     expect(getS3ClientOptions(CONFIG)).toEqual({
-      endpoint: "https://storage.denizlg24.com/v2",
+      endpoint: "https://api.denizlg24.com/v2",
       region: "eu-west-1",
       forcePathStyle: true,
       credentials: {

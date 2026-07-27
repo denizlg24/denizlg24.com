@@ -21,11 +21,11 @@
   },
   "signedUploadUrlResponse": {
     "method": "PUT",
-    "url": "https://storage.denizlg24.com/v2/envoy/example"
+    "url": "https://api.denizlg24.com/v2/envoy/example"
   },
   "signedDownloadUrlResponse": {
     "method": "GET",
-    "url": "https://storage.denizlg24.com/v2/envoy/example"
+    "url": "https://api.denizlg24.com/v2/envoy/example"
   },
   "headResponse": {
     "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

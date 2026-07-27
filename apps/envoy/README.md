@@ -41,7 +41,7 @@ All variables are documented in the root `.env.example` and passed through by
 - `ENVOY_GITHUB_CLIENT_ID`
 - `ENVOY_GITHUB_CLIENT_SECRET`
 - `ENVOY_CRON_SECRET`
-- `ENVOY_S3_ENDPOINT` (`https://storage.denizlg24.com/v2` in production)
+- `ENVOY_S3_ENDPOINT` (`https://api.denizlg24.com/v2` in production)
 - `ENVOY_S3_REGION`
 - `ENVOY_S3_ACCESS_KEY_ID`
 - `ENVOY_S3_SECRET_ACCESS_KEY`
@@ -62,10 +62,11 @@ Preview and execute the idempotent copy:
 ```bash
 bun --cwd=apps/envoy run storage:migrate:r2 --dry-run
 bun --cwd=apps/envoy run storage:migrate:r2 --execute
+bun --cwd=apps/envoy run storage:migrate:r2 --verify
 ```
 
 The migration never deletes R2 objects. Remove the four `R2_*` variables only
-after the execute summary and an Envoy pull smoke test confirm the new bucket.
+after the verify summary and an Envoy pull smoke test confirm the new bucket.
 
 ## Shared contracts
 

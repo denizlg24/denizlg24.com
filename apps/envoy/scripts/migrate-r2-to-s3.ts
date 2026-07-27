@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   CreateBucketCommand,
   GetObjectCommand,
@@ -12,8 +13,9 @@ import { getLegacyR2Config, getS3ClientOptions } from "../lib/storage";
 
 const execute = process.argv.includes("--execute");
 const explicitDryRun = process.argv.includes("--dry-run");
-if (execute && explicitDryRun) {
-  throw new Error("--execute and --dry-run cannot be used together");
+const verify = process.argv.includes("--verify");
+if ([execute, explicitDryRun, verify].filter(Boolean).length > 1) {
+  throw new Error("--execute, --dry-run, and --verify cannot be used together");
 }
 
 const prefix =
@@ -68,6 +70,20 @@ async function destinationObjectExists(key: string) {
   }
 }
 
+async function readObject(client: S3Client, bucket: string, key: string) {
+  const object = await client.send(
+    new GetObjectCommand({ Bucket: bucket, Key: key }),
+  );
+  if (!object.Body) {
+    throw new Error(`Object has no body: ${key}`);
+  }
+  return object.Body.transformToByteArray();
+}
+
+function digest(bytes: Uint8Array) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
 let bucketExists = await destinationBucketExists();
 if (execute && !bucketExists) {
   await destination.send(
@@ -77,13 +93,17 @@ if (execute && !bucketExists) {
 }
 
 const summary = {
-  mode: execute ? "execute" : "dry-run",
+  mode: verify ? "verify" : execute ? "execute" : "dry-run",
   prefix,
   scanned: 0,
   copied: 0,
   alreadyPresent: 0,
   wouldCopy: 0,
   bytesCopied: 0,
+  verified: 0,
+  missing: 0,
+  mismatched: 0,
+  bytesVerified: 0,
 };
 
 let continuationToken: string | undefined;
@@ -100,7 +120,32 @@ do {
     if (!object.Key) continue;
     summary.scanned += 1;
 
-    if (bucketExists && (await destinationObjectExists(object.Key))) {
+    const destinationHasObject =
+      bucketExists && (await destinationObjectExists(object.Key));
+
+    if (verify) {
+      if (!destinationHasObject) {
+        summary.missing += 1;
+        continue;
+      }
+
+      const [sourceBytes, destinationBytes] = await Promise.all([
+        readObject(source, legacy.bucket, object.Key),
+        readObject(destination, env.ENVOY_S3_BUCKET, object.Key),
+      ]);
+      if (
+        sourceBytes.byteLength === destinationBytes.byteLength &&
+        digest(sourceBytes) === digest(destinationBytes)
+      ) {
+        summary.verified += 1;
+        summary.bytesVerified += sourceBytes.byteLength;
+      } else {
+        summary.mismatched += 1;
+      }
+      continue;
+    }
+
+    if (destinationHasObject) {
       summary.alreadyPresent += 1;
       continue;
     }
@@ -138,3 +183,7 @@ do {
 } while (continuationToken);
 
 console.log(JSON.stringify(summary));
+
+if (verify && (summary.missing > 0 || summary.mismatched > 0)) {
+  process.exitCode = 1;
+}
