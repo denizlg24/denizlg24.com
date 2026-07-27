@@ -26,6 +26,9 @@ coverage
 out/
 build
 dist
+**/generated/prisma/
+next-env.d.ts
+*.tsbuildinfo
 
 
 # Debug

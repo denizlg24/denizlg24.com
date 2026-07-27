@@ -1,0 +1,92 @@
+@import "tailwindcss";
+@import "@repo/ui/theme.css";
+@source "../../../packages/ui/src/**/*.{ts,tsx}";
+
+@theme inline {
+  --font-inter: var(--font-inter);
+  --font-calistoga: var(--font-calistoga);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  overflow-x: hidden;
+  background-image: linear-gradient(
+    to right,
+    transparent calc(50% - 0.5px),
+    color-mix(in srgb, var(--border) 30%, transparent) 50%,
+    transparent calc(50% + 0.5px)
+  );
+}
+
+::selection {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.hero-grid {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--border) 34%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--border) 34%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 42px 42px;
+}
+
+.hero-grid::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background: radial-gradient(
+    circle at 24% 42%,
+    color-mix(in srgb, var(--background) 32%, transparent),
+    var(--background) 45%
+  );
+}
+
+.terminal-rings {
+  background: radial-gradient(
+    circle at 50% 50%,
+    transparent 0 16%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 16.2% 16.7%,
+    transparent 17% 27%,
+    color-mix(in srgb, var(--accent) 15%, transparent) 27.2% 27.7%,
+    transparent 28% 39%,
+    color-mix(in srgb, var(--accent) 12%, transparent) 39.2% 39.7%,
+    transparent 40%
+  );
+}
+
+.terminal-window {
+  animation: terminal-arrive 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes terminal-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(20px) rotate(0.6deg) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .terminal-window {
+    animation: none;
+  }
+}

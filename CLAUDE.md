@@ -32,6 +32,11 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `apps/api/` — Hono + Bun API for the self-hosted cloud. Runs on the Pi, not Vercel.
 - `apps/cloud/` — Next.js admin panel for the cloud (Vercel).
 - `apps/storage/` — Next.js file browser (Vercel).
+- `apps/envoy/` — Next.js public site and Hono/Prisma API for the Envoy CLI
+  (Vercel). Uses project-scoped denizlg24 cloud S3 credentials; canonical wire
+  contracts live in `packages/schemas/src/envoy`.
+- `apps/envoy-cli/` — Rust `envy` CLI. Developed in this monorepo and synced as
+  a Git subtree to `denizlg24/envoy`, whose workflow publishes CLI releases.
 - `apps/terminal/` — compiled Bun web-terminal daemon. Runs on the Pi host under systemd, not in Docker.
 - `packages/cloud-core/` — Pi-side cloud logic: drizzle schema, storage/S3, projects, ops, sync, middleware.
 - `packages/cloud-ui/`, `packages/cloud-auth-client/` — shared client pieces for the two Vercel cloud apps.
@@ -39,7 +44,7 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `docs/internal/` — plans, architecture notes and deployment runbooks. Gitignored: present on the owner's machine, not in a fresh clone.
 - `_archive/` — the original standalone repos with full git history (gitignored; read-only rollback material).
 
-Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=web|desktop|api|cloud|storage]`; `bun run format-and-lint` at root.
+Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=web|desktop|api|cloud|storage|envoy]`; `bun run format-and-lint` at root.
 
 ## The self-hosted cloud (apps/api, apps/cloud, apps/storage, apps/terminal)
 

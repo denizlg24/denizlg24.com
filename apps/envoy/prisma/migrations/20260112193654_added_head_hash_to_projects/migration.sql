@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Project" ADD COLUMN     "head_commit_hash" TEXT NOT NULL DEFAULT '',
+ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

@@ -1,6 +1,8 @@
 {
   "extends": "@repo/typescript-config/base.json",
   "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
     "module": "Preserve",
     "moduleResolution": "Bundler",
     "types": ["bun"],
