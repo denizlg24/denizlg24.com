@@ -29,7 +29,7 @@
     "html5-qrcode": "^2.3.8",
     "harper.js": "^2.4.0",
     "lucide-react": "^1.26.0",
-    "pdfjs-dist": "6.1.200",
+    "pdfjs-dist": "5.4.296",
     "react-easy-crop": "^6.2.3",
     "react-force-graph-3d": "^1.29.1",
     "react-hook-form": "^7.83.0",
