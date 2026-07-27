@@ -156,6 +156,15 @@ export function ExploreDock({
                           {shortDate(event.occurredAt)}
                         </span>
                         <span className="shrink-0">{event.sourceType}</span>
+                        {event.imageUrl && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={event.imageUrl}
+                            alt=""
+                            loading="lazy"
+                            className="size-8 shrink-0 self-center rounded-sm border object-cover"
+                          />
+                        )}
                         {event.snapshot && (
                           <span className="min-w-0 truncate">
                             {event.snapshot}

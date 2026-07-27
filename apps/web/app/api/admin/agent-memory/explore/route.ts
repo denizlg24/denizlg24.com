@@ -101,7 +101,9 @@ export async function POST(request: NextRequest) {
     eventId: { $in: eventIds },
     redactedAt: { $exists: false },
   })
-    .select("eventId sourceType sourceRef snapshot occurredAt actor trust")
+    .select(
+      "eventId sourceType sourceRef snapshot occurredAt actor trust provenance",
+    )
     .lean();
   const eventById = new Map(events.map((event) => [event.eventId, event]));
 
@@ -120,6 +122,10 @@ export async function POST(request: NextRequest) {
         occurredAt: event.occurredAt.toISOString(),
         actor: event.actor,
         trust: event.trust,
+        ...(event.provenance?.hasImage === true &&
+        typeof event.provenance?.attachmentUrl === "string"
+          ? { imageUrl: event.provenance.attachmentUrl }
+          : {}),
       }));
     return [
       {
