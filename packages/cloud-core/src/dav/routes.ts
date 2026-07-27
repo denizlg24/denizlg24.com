@@ -30,6 +30,7 @@ import {
   destinationPath,
   storagePathToDav,
 } from "./mapping";
+import { isOsMetadataPath } from "./os-metadata";
 import {
   buildPropstats,
   type DavResource,
@@ -162,50 +163,6 @@ export interface DavRoutesOptions {
   } | null>;
 }
 
-/**
- * Files the operating system writes to a network volume for its own
- * bookkeeping, which no user ever asked to store.
- *
- * Finder writes `.DS_Store` into every directory it displays and an AppleDouble
- * `._name` beside every file it copies — WebDAV carries no extended attributes,
- * so it falls back to sidecar files whether or not there is anything to put in
- * them. Left alone these outnumber the real files, land in the search index,
- * and follow the data into every archive and COPY.
- *
- * They are answered as though they were written, then dropped. Refusing them
- * outright surfaces in Finder as a failed copy of the file the sidecar belongs
- * to, which is worse than losing metadata nothing here reads. The tradeoff is
- * that a genuine resource fork does not survive a round trip through the mount.
- */
-// Lowercase, and compared lowercased. Both operating systems treat these names
-// case-insensitively and spell them inconsistently — Explorer asks for
-// `Desktop.ini` and writes `desktop.ini` — while the filesystem underneath is
-// case-sensitive, so matching exactly would store one spelling and drop the
-// other.
-const OS_METADATA_NAMES = new Set([
-  ".ds_store",
-  ".localized",
-  ".apdisk",
-  "desktop.ini",
-  "thumbs.db",
-  ".spotlight-v100",
-  ".temporaryitems",
-  ".trashes",
-  ".fseventsd",
-  ".documentrevisions-v100",
-]);
-const OS_METADATA_PREFIXES = ["._"];
-
-function isOsMetadataPath(storagePath: string): boolean {
-  const name = storagePath
-    .slice(storagePath.lastIndexOf("/") + 1)
-    .toLowerCase();
-  return (
-    OS_METADATA_NAMES.has(name) ||
-    OS_METADATA_PREFIXES.some((prefix) => name.startsWith(prefix))
-  );
-}
-
 function davErrorResponse(error: unknown): Response {
   if (error instanceof StorageServiceError) {
     return new Response(null, { status: error.status });
@@ -336,6 +293,13 @@ export function davRoutes(options: DavRoutesOptions) {
     const target = davPathToStorage(davPath, principal.user.id);
     if (!target) return context.body(null, 404);
 
+    // Never stored, so the answer is always 404 — short-circuited ahead of the
+    // lookup because both operating systems probe these on every directory they
+    // draw and there is no point asking the database each time.
+    if (target.kind !== "root" && isOsMetadataPath(target.path)) {
+      return context.body(null, 404);
+    }
+
     const depthHeader = context.req.header("Depth") ?? "1";
     if (depthHeader === "infinity") {
       return new Response(
@@ -462,6 +426,7 @@ export function davRoutes(options: DavRoutesOptions) {
     const target = davPathToStorage(davPath, principal.user.id);
     if (!target) return context.body(null, 404);
     if (target.kind === "root") return context.body(null, 405);
+    if (isOsMetadataPath(target.path)) return context.body(null, 404);
 
     try {
       const entry = await service.resolvePath(principal, target.path);

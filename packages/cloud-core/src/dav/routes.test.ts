@@ -92,10 +92,14 @@ class FakeStorage implements DavStorage {
     return {};
   }
 
+  /** Every path the router looked up, in call order. */
+  readonly resolveCalls: string[] = [];
+
   async resolvePath(
     _principal: StoragePrincipal,
     path: string,
   ): Promise<StorageEntry | null> {
+    this.resolveCalls.push(path);
     const folder = this.folders.get(path);
     if (folder) return { kind: "folder", folder };
     const file = this.files.get(path);
@@ -730,6 +734,18 @@ describe("operating-system metadata", () => {
     ).toBe(204);
     expect(storage.folders.size).toBe(2);
     expect(storage.files.size).toBe(0);
+  });
+
+  it("answers the probe 404 without asking storage", async () => {
+    // Both operating systems re-probe these on every directory they draw, and
+    // nothing was ever stored, so the answer is known before the lookup.
+    for (const name of [...droppings, "AutoRun.inf"]) {
+      const path = `${MOUNT}/home/${encodeURIComponent(name)}`;
+      expect((await propfind(path, "0")).status).toBe(404);
+      expect((await app.request(path)).status).toBe(404);
+      expect((await app.request(path, { method: "HEAD" })).status).toBe(404);
+    }
+    expect(storage.resolveCalls).toHaveLength(0);
   });
 
   it("matches however the operating system spells it", async () => {

@@ -28,6 +28,7 @@ export {
   destinationPath,
   storagePathToDav,
 } from "./mapping";
+export { isOsMetadataName, isOsMetadataPath } from "./os-metadata";
 export {
   buildPropstats,
   type DavResource,

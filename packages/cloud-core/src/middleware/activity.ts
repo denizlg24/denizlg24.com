@@ -5,6 +5,7 @@ import type {
 } from "@repo/schemas/cloud";
 import type { Context, MiddlewareHandler } from "hono";
 
+import { isOsMetadataPath } from "../dav/os-metadata";
 import type { ActivityEntryInput } from "../ops/activity";
 import type { AuthVariables } from "./auth";
 
@@ -95,6 +96,30 @@ export interface ActivityCaptureDecision {
   status: number;
   durationMs: number;
   slowRequestMs: number;
+  /** Whether the request carried an Authorization header of any scheme. */
+  authenticated: boolean;
+}
+
+function isDavPath(path: string): boolean {
+  return path === DAV_PREFIX || path.startsWith(`${DAV_PREFIX}/`);
+}
+
+/**
+ * The two things a mount does constantly that are not news.
+ *
+ * A 404 on an OS-metadata name is the expected answer, not a fault: nothing was
+ * ever stored under it, and both operating systems re-probe `.DS_Store`,
+ * `._name`, `Desktop.ini` and `AutoRun.inf` on every directory they draw. A 401
+ * on a request that carried no credentials at all is the first half of the
+ * mount handshake — the client asks, is challenged, then retries with the
+ * password. Neither is a failed guess; a 401 that *did* present an Authorization
+ * header still records, because that one is a rejected credential.
+ *
+ * Together these were 90% of every row in the table.
+ */
+function isDavHousekeeping(decision: ActivityCaptureDecision): boolean {
+  if (decision.status === 404 && isOsMetadataPath(decision.path)) return true;
+  return decision.status === 401 && !decision.authenticated;
 }
 
 /**
@@ -112,6 +137,7 @@ export function shouldCapture(decision: ActivityCaptureDecision): boolean {
   if (NEVER_LOG_PATHS.has(decision.path)) {
     return decision.status >= 500;
   }
+  if (isDavPath(decision.path) && isDavHousekeeping(decision)) return false;
   if (decision.status >= 400) return true;
   if (MUTATING_METHODS.has(decision.method)) return true;
   return decision.durationMs >= decision.slowRequestMs;
@@ -170,6 +196,9 @@ export function activityCapture(
     const startedAt = now();
     const method = context.req.method;
     const path = context.req.path;
+    // Read before `next()` on purpose: this is the *request* head, which is
+    // safe — the hazard the comment below describes is reading `context.res`.
+    const authenticated = context.req.header("Authorization") !== undefined;
 
     try {
       await next();
@@ -180,7 +209,16 @@ export function activityCapture(
       // what the client actually receives and `context.error` carries the cause.
       const status = context.res.status;
       const error = context.error;
-      if (shouldCapture({ method, path, status, durationMs, slowRequestMs })) {
+      if (
+        shouldCapture({
+          method,
+          path,
+          status,
+          durationMs,
+          slowRequestMs,
+          authenticated,
+        })
+      ) {
         options.record({
           category: categoryForPath(path),
           action: "http.request",

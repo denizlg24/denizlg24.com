@@ -33,6 +33,7 @@ function decision(overrides: Partial<Parameters<typeof shouldCapture>[0]>) {
     status: 200,
     durationMs: 5,
     slowRequestMs: SLOW_MS,
+    authenticated: true,
     ...overrides,
   });
 }
@@ -52,6 +53,56 @@ describe("shouldCapture", () => {
   it("captures failures regardless of method", () => {
     expect(decision({ status: 404 })).toBe(true);
     expect(decision({ status: 500 })).toBe(true);
+  });
+
+  it("skips DAV probes for OS metadata that was never stored", () => {
+    for (const path of [
+      "/dav/home/Desktop.ini",
+      "/dav/home/desktop.ini",
+      "/dav/shared/AutoRun.inf",
+      "/dav/home/.DS_Store",
+      "/dav/shared/deniz/._report.pdf",
+    ]) {
+      expect(decision({ method: "PROPFIND", path, status: 404 })).toBe(false);
+    }
+  });
+
+  it("still captures a DAV 404 for a real name", () => {
+    expect(
+      decision({
+        method: "PROPFIND",
+        path: "/dav/home/report.pdf",
+        status: 404,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not extend metadata suppression past /dav", () => {
+    expect(
+      decision({ path: "/api/storage/files/.DS_Store", status: 404 }),
+    ).toBe(true);
+  });
+
+  it("skips the unauthenticated half of the mount handshake", () => {
+    expect(
+      decision({
+        method: "PROPFIND",
+        path: "/dav/home",
+        status: 401,
+        authenticated: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("captures a DAV 401 that presented a credential", () => {
+    expect(
+      decision({
+        method: "PROPFIND",
+        path: "/dav/home",
+        status: 401,
+        authenticated: true,
+      }),
+    ).toBe(true);
   });
 
   it("captures slow reads", () => {
