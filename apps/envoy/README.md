@@ -86,13 +86,14 @@ Connect the monorepo repository to a dedicated Vercel project with:
 - Root Directory: `apps/envoy`
 - Framework Preset: Next.js
 - Include source files outside the Root Directory: enabled
-- Build Command: use the `vercel.json` default
+- Build Command: use the `vercel.json` default, which deploys pending Prisma
+  migrations before building Envoy
 - Install Command and Output Directory: automatically detected
 
 Add every required `ENVOY_*` variable to the intended Vercel environments.
-Deploy the Prisma migration with `db:migrate` before routing production traffic.
-Keep the four `R2_*` variables during the storage copy and pull smoke test, then
-remove them after cutover.
+The build fails before deployment if `db:migrate` cannot bring the database
+schema up to date. Keep the four `R2_*` variables during the storage copy and
+pull smoke test, then remove them after cutover.
 
 ## Blob access API
 
