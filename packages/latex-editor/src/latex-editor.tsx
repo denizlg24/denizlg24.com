@@ -14,6 +14,13 @@ import {
 } from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@repo/ui/context-menu";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -50,13 +57,12 @@ import {
   FolderOpen,
   FolderUp,
   Loader2,
-  Maximize2,
-  Minimize2,
   PanelBottomClose,
   PanelBottomOpen,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightOpen,
+  Pencil,
   Play,
   Plus,
   Save,
@@ -419,7 +425,6 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
     const [compileLog, setCompileLog] = useState("");
     const [compileError, setCompileError] = useState<string | null>(null);
     const [consoleOpen, setConsoleOpen] = useState(false);
-    const [consoleExpanded, setConsoleExpanded] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const importInputRef = useRef<HTMLInputElement>(null);
     const importFolderInputRef = useRef<HTMLInputElement>(null);
@@ -675,7 +680,6 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
       try {
         const result = await onCompile(project);
         setCompileLog(result.log);
-        setConsoleOpen(Boolean(result.log.trim()));
       } catch (error) {
         setCompileError(
           error instanceof Error ? error.message : "Compilation failed",
@@ -761,13 +765,19 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
         ? selectedEntry.path
         : dirname(selectedEntry?.path ?? "");
 
-    const startCreate = (kind: PendingEntry["kind"]) => {
-      setPendingEntry({ kind, parent: selectedParent });
+    const startCreate = (kind: PendingEntry["kind"], parentPath?: string) => {
+      const target = parentPath ?? selectedParent;
+      setPendingEntry({ kind, parent: target });
       setPendingName(kind === "file" ? "section.tex" : "folder");
-      const parent = foldersByPath.get(selectedParent);
+      const parent = foldersByPath.get(target);
       if (parent) {
         setExpanded((current) => new Set(current).add(parent.id));
       }
+    };
+
+    const startRename = (entry: LatexProjectEntry) => {
+      setRenamingId(entry.id);
+      setRenamingName(basename(entry.path));
     };
 
     const submitCreate = () => {
@@ -1048,114 +1058,172 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
                           onSubmit={submitCreate}
                         />
                       )}
-                      <div
-                        className={cn(
-                          "group flex h-7 min-w-0 cursor-default items-center gap-1 pr-1 text-xs",
-                          isSelected
-                            ? "bg-accent text-accent-foreground"
-                            : "hover:bg-accent/50",
-                        )}
-                        style={{ paddingLeft: `${depth * 12 + 5}px` }}
-                        onClick={() => {
-                          setSelectedEntryId(entry.id);
-                          if (entry.kind === "file") openFile(entry);
-                        }}
-                        onDoubleClick={() => {
-                          setRenamingId(entry.id);
-                          setRenamingName(basename(entry.path));
-                        }}
-                      >
-                        {entry.kind === "folder" ? (
-                          <button
-                            type="button"
-                            className="flex size-4 shrink-0 items-center justify-center"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setExpanded((current) => {
-                                const next = new Set(current);
-                                if (next.has(entry.id)) next.delete(entry.id);
-                                else next.add(entry.id);
-                                return next;
-                              });
-                            }}
-                          >
-                            {isExpanded ? (
-                              <ChevronDown className="size-3.5" />
-                            ) : (
-                              <ChevronRight className="size-3.5" />
-                            )}
-                          </button>
-                        ) : (
-                          <span className="size-4 shrink-0" />
-                        )}
-                        {entry.kind === "folder" && isExpanded ? (
-                          <FolderOpen className="size-4 shrink-0 text-amber-600" />
-                        ) : (
-                          <Icon
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
                             className={cn(
-                              "size-4 shrink-0",
-                              entry.kind === "folder" && "text-amber-600",
+                              "group flex h-7 min-w-0 cursor-default items-center gap-1 pr-1 text-xs",
+                              isSelected
+                                ? "bg-accent text-accent-foreground"
+                                : "hover:bg-accent/50",
                             )}
-                          />
-                        )}
-                        {renamingId === entry.id ? (
-                          <Input
-                            autoFocus
-                            value={renamingName}
-                            className="h-5 min-w-0 rounded-sm px-1 text-xs"
-                            onChange={(event) =>
-                              setRenamingName(event.target.value)
-                            }
-                            onBlur={() => submitRename(entry)}
-                            onKeyDown={(
-                              event: KeyboardEvent<HTMLInputElement>,
-                            ) => {
-                              if (event.key === "Enter") submitRename(entry);
-                              if (event.key === "Escape") setRenamingId(null);
+                            style={{ paddingLeft: `${depth * 12 + 5}px` }}
+                            onContextMenu={() => setSelectedEntryId(entry.id)}
+                            onClick={() => {
+                              setSelectedEntryId(entry.id);
+                              if (entry.kind === "file") openFile(entry);
                             }}
-                          />
-                        ) : (
-                          <span className="min-w-0 flex-1 truncate">
-                            {basename(entry.path)}
-                          </span>
-                        )}
-                        {project.mainFile === entry.path && (
-                          <Star className="size-3.5 fill-current text-amber-500" />
-                        )}
-                        <div className="hidden items-center group-hover:flex">
-                          {entry.kind === "file" &&
-                            entry.path.endsWith(".tex") &&
-                            project.mainFile !== entry.path && (
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                className="size-5"
-                                aria-label="Set main file"
+                            onDoubleClick={() => startRename(entry)}
+                          >
+                            {entry.kind === "folder" ? (
+                              <button
+                                type="button"
+                                className="flex size-4 shrink-0 items-center justify-center"
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  onChange({
-                                    ...project,
-                                    mainFile: entry.path,
+                                  setExpanded((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(entry.id))
+                                      next.delete(entry.id);
+                                    else next.add(entry.id);
+                                    return next;
                                   });
                                 }}
                               >
-                                <Star />
-                              </Button>
+                                {isExpanded ? (
+                                  <ChevronDown className="size-3.5" />
+                                ) : (
+                                  <ChevronRight className="size-3.5" />
+                                )}
+                              </button>
+                            ) : (
+                              <span className="size-4 shrink-0" />
                             )}
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="size-5 text-muted-foreground hover:text-destructive"
-                            aria-label="Delete"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setDeleteTarget(entry);
-                            }}
+                            {entry.kind === "folder" && isExpanded ? (
+                              <FolderOpen className="size-4 shrink-0 text-amber-600" />
+                            ) : (
+                              <Icon
+                                className={cn(
+                                  "size-4 shrink-0",
+                                  entry.kind === "folder" && "text-amber-600",
+                                )}
+                              />
+                            )}
+                            {renamingId === entry.id ? (
+                              <Input
+                                autoFocus
+                                value={renamingName}
+                                className="h-5 min-w-0 rounded-sm px-1 text-xs"
+                                onChange={(event) =>
+                                  setRenamingName(event.target.value)
+                                }
+                                onBlur={() => submitRename(entry)}
+                                onKeyDown={(
+                                  event: KeyboardEvent<HTMLInputElement>,
+                                ) => {
+                                  if (event.key === "Enter")
+                                    submitRename(entry);
+                                  if (event.key === "Escape")
+                                    setRenamingId(null);
+                                }}
+                              />
+                            ) : (
+                              <span className="min-w-0 flex-1 truncate">
+                                {basename(entry.path)}
+                              </span>
+                            )}
+                            {project.mainFile === entry.path && (
+                              <Star className="size-3.5 fill-current text-amber-500" />
+                            )}
+                            <div className="hidden items-center group-hover:flex">
+                              {entry.kind === "file" &&
+                                entry.path.endsWith(".tex") &&
+                                project.mainFile !== entry.path && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    className="size-5"
+                                    aria-label="Set main file"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      onChange({
+                                        ...project,
+                                        mainFile: entry.path,
+                                      });
+                                    }}
+                                  >
+                                    <Star />
+                                  </Button>
+                                )}
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="size-5 text-muted-foreground hover:text-destructive"
+                                aria-label="Delete"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setDeleteTarget(entry);
+                                }}
+                              >
+                                <Trash2 />
+                              </Button>
+                            </div>
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-44">
+                          <ContextMenuItem
+                            onSelect={() =>
+                              startCreate(
+                                "file",
+                                entry.kind === "folder"
+                                  ? entry.path
+                                  : dirname(entry.path),
+                              )
+                            }
+                          >
+                            <Plus />
+                            New file
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onSelect={() =>
+                              startCreate(
+                                "folder",
+                                entry.kind === "folder"
+                                  ? entry.path
+                                  : dirname(entry.path),
+                              )
+                            }
+                          >
+                            <Folder />
+                            New folder
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem onSelect={() => startRename(entry)}>
+                            <Pencil />
+                            Rename
+                          </ContextMenuItem>
+                          {entry.kind === "file" &&
+                            entry.path.endsWith(".tex") &&
+                            project.mainFile !== entry.path && (
+                              <ContextMenuItem
+                                onSelect={() =>
+                                  onChange({ ...project, mainFile: entry.path })
+                                }
+                              >
+                                <Star />
+                                Set as main file
+                              </ContextMenuItem>
+                            )}
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            variant="destructive"
+                            onSelect={() => setDeleteTarget(entry)}
                           >
                             <Trash2 />
-                          </Button>
-                        </div>
-                      </div>
+                            Delete
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
                     </Fragment>
                   );
                 })}
@@ -1341,47 +1409,11 @@ export const LatexEditor = forwardRef<LatexEditorHandle, LatexEditorProps>(
                   <CircleCheck className="size-3.5 text-primary" /> compiled
                 </>
               ) : null}
-              {consoleOpen && bottomDock ? (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  aria-label={
-                    consoleExpanded
-                      ? "Restore bottom dock"
-                      : "Expand bottom dock"
-                  }
-                  className="ml-2 inline-flex size-5 items-center justify-center rounded hover:bg-accent hover:text-foreground"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setConsoleExpanded((current) => !current);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setConsoleExpanded((current) => !current);
-                    }
-                  }}
-                >
-                  {consoleExpanded ? (
-                    <Minimize2 className="size-3" />
-                  ) : (
-                    <Maximize2 className="size-3" />
-                  )}
-                </span>
-              ) : null}
             </span>
           </button>
           {consoleOpen &&
             (bottomDock ? (
-              <div
-                className={cn(
-                  "border-t bg-background text-foreground transition-[height]",
-                  consoleExpanded
-                    ? "h-[min(48rem,75vh)]"
-                    : "h-[min(22rem,45vh)]",
-                )}
-              >
+              <div className="h-[min(22rem,45vh)] border-t bg-background text-foreground">
                 {bottomDock({ compileLog, compileError })}
               </div>
             ) : (
