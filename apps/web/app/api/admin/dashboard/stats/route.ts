@@ -1,5 +1,5 @@
 import { addDays, endOfDay, startOfDay } from "date-fns";
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { maybeSyncCourseSchedules } from "@/lib/course-lifecycle";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
@@ -25,7 +25,10 @@ export async function GET(request: NextRequest) {
 
   try {
     await connectDB();
-    await maybeSyncCourseSchedules();
+    // Course-linked timetable entries are day-granular, so serving them one
+    // dashboard load stale costs nothing next to blocking every stat behind
+    // the sync.
+    after(() => maybeSyncCourseSchedules());
 
     const now = inTz(new Date(), await getAppTimeZone());
     const todayDayOfWeek = (now.getDay() + 6) % 7;

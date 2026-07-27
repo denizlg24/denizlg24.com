@@ -410,23 +410,30 @@ export function DashboardSummary() {
     return new denizApi(settings.apiKey);
   }, [settings, loadingSettings]);
 
-  const fetchStats = useCallback(async () => {
+  const fetchStats = useCallback(() => {
     if (!API) return;
     setLoading(true);
-    const [statsResult, upcomingResult, semesterResult] = await Promise.all([
-      API.GET<IDashboardStats>({ endpoint: "dashboard/stats" }),
-      API.GET({
-        endpoint: "kanban/upcoming?days=7",
-        schema: upcomingKanbanResultSchema,
-      }),
-      API.GET<{ overview: ISemesterOverview }>({
-        endpoint: "courses/overview",
-      }),
-    ]);
-    if (!("code" in statsResult)) setStats(statsResult);
-    if (!("code" in upcomingResult)) setUpcoming(upcomingResult);
-    if (!("code" in semesterResult)) setSemester(semesterResult.overview);
-    setLoading(false);
+
+    // Only the stats call gates the skeleton; the other two fill in their
+    // sections once they land.
+    void API.GET<IDashboardStats>({ endpoint: "dashboard/stats" })
+      .then((result) => {
+        if (!("code" in result)) setStats(result);
+      })
+      .finally(() => setLoading(false));
+
+    void API.GET({
+      endpoint: "kanban/upcoming?days=7",
+      schema: upcomingKanbanResultSchema,
+    }).then((result) => {
+      if (!("code" in result)) setUpcoming(result);
+    });
+
+    void API.GET<{ overview: ISemesterOverview }>({
+      endpoint: "courses/overview",
+    }).then((result) => {
+      if (!("code" in result)) setSemester(result.overview);
+    });
   }, [API]);
 
   useEffect(() => {

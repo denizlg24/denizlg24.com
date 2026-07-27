@@ -316,21 +316,37 @@ export function DashboardOverview() {
   const [semester, setSemester] = useState<ISemesterOverview | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const [statsRes, upcomingRes, semesterRes] = await Promise.all([
-        fetch("/api/admin/dashboard/stats"),
-        fetch("/api/admin/kanban/upcoming?days=7"),
-        fetch("/api/admin/courses/overview"),
-      ]);
-      if (statsRes.ok) setStats(await statsRes.json());
-      if (upcomingRes.ok) setUpcoming(await upcomingRes.json());
-      if (semesterRes.ok) setSemester((await semesterRes.json()).overview);
-    } catch (error) {
-      console.error("Failed to fetch dashboard stats:", error);
-    } finally {
-      setLoading(false);
-    }
+  const fetchStats = useCallback(() => {
+    const load = async <T,>(
+      url: string,
+      apply: (data: T) => void,
+      label: string,
+    ) => {
+      try {
+        const response = await fetch(url);
+        if (response.ok) apply((await response.json()) as T);
+      } catch (error) {
+        console.error(`Failed to fetch ${label}:`, error);
+      }
+    };
+
+    // Only the stats call gates the skeleton; the other two fill in their
+    // sections once they land.
+    void load<DashboardStats>(
+      "/api/admin/dashboard/stats",
+      setStats,
+      "dashboard stats",
+    ).finally(() => setLoading(false));
+    void load<UpcomingKanbanResult>(
+      "/api/admin/kanban/upcoming?days=7",
+      setUpcoming,
+      "upcoming tasks",
+    );
+    void load<{ overview: ISemesterOverview }>(
+      "/api/admin/courses/overview",
+      (data) => setSemester(data.overview),
+      "semester overview",
+    );
   }, []);
 
   useEffect(() => {
