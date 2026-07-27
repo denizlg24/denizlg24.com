@@ -9,6 +9,7 @@ export {
   pruneActivity,
   queryActivity,
   requestOutcomeCounts,
+  streamActivity,
 } from "./activity";
 export {
   insertMetricSamples,

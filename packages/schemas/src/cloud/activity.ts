@@ -82,6 +82,62 @@ export type ActivityStatusClass = z.infer<typeof activityStatusClassSchema>;
 
 export const ACTIVITY_QUERY_MAX_LIMIT = 200;
 
+/**
+ * The verbs the recorder can store, HTTP plus WebDAV's own. Held here rather
+ * than derived from the DAV router's list because the dependency runs the other
+ * way — cloud-core imports these schemas.
+ */
+export const ACTIVITY_METHODS = [
+  "GET",
+  "HEAD",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "OPTIONS",
+  "PROPFIND",
+  "PROPPATCH",
+  "MKCOL",
+  "COPY",
+  "MOVE",
+  "LOCK",
+  "UNLOCK",
+] as const;
+export const activityMethodSchema = z.enum(ACTIVITY_METHODS);
+export type ActivityMethod = z.infer<typeof activityMethodSchema>;
+
+/**
+ * Shared by the paged query and the export, which differ only in how many rows
+ * they return — the export deliberately accepts the same filter set so a link
+ * from the panel and the file it produces cannot disagree.
+ */
+const activityFilterShape = {
+  category: z.array(activityCategorySchema).optional(),
+  severity: z.array(activitySeveritySchema).optional(),
+  statusClass: activityStatusClassSchema.optional(),
+  action: z.string().min(1).max(128).optional(),
+  actorId: z.string().min(1).max(255).optional(),
+  actorType: z.array(activityActorTypeSchema).optional(),
+  method: z.array(activityMethodSchema).optional(),
+  /** Anchored prefix match, distinct from the unanchored `q` search. */
+  pathPrefix: z.string().min(1).max(512).optional(),
+  ip: z.string().min(1).max(64).optional(),
+  minDurationMs: z.coerce.number().int().min(0).optional(),
+  from: cloudDateTimeSchema.optional(),
+  to: cloudDateTimeSchema.optional(),
+  q: z.string().min(1).max(255).optional(),
+};
+
+const orderedRange = <T extends { from?: string; to?: string }>(value: T) =>
+  !value.from ||
+  !value.to ||
+  new Date(value.from).getTime() <= new Date(value.to).getTime();
+
+const RANGE_MESSAGE = {
+  path: ["from"],
+  message: "from must not be later than to",
+};
+
 export const activityQuerySchema = z
   .object({
     page: z.coerce.number().int().min(1).default(1),
@@ -91,21 +147,30 @@ export const activityQuerySchema = z
       .min(1)
       .max(ACTIVITY_QUERY_MAX_LIMIT)
       .default(50),
-    category: z.array(activityCategorySchema).optional(),
-    severity: z.array(activitySeveritySchema).optional(),
-    statusClass: activityStatusClassSchema.optional(),
-    action: z.string().min(1).max(128).optional(),
-    actorId: z.string().min(1).max(255).optional(),
-    from: cloudDateTimeSchema.optional(),
-    to: cloudDateTimeSchema.optional(),
-    q: z.string().min(1).max(255).optional(),
+    ...activityFilterShape,
   })
-  .refine(
-    ({ from, to }) =>
-      !from || !to || new Date(from).getTime() <= new Date(to).getTime(),
-    { path: ["from"], message: "from must not be later than to" },
-  );
+  .refine(orderedRange, RANGE_MESSAGE);
 export type ActivityQuery = z.infer<typeof activityQuerySchema>;
+
+/**
+ * Rows one export may stream. High enough that a realistic filtered slice is
+ * never silently truncated, low enough that an unfiltered export cannot pin the
+ * request thread against an unbounded table.
+ */
+export const ACTIVITY_EXPORT_MAX_ROWS = 50_000;
+
+export const activityExportQuerySchema = z
+  .object({
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(ACTIVITY_EXPORT_MAX_ROWS)
+      .default(ACTIVITY_EXPORT_MAX_ROWS),
+    ...activityFilterShape,
+  })
+  .refine(orderedRange, RANGE_MESSAGE);
+export type ActivityExportQuery = z.infer<typeof activityExportQuerySchema>;
 
 const facetCountSchema = z.object({
   value: z.string(),
@@ -115,6 +180,10 @@ const facetCountSchema = z.object({
 export const activityFacetsSchema = z.object({
   categories: z.array(facetCountSchema),
   actions: z.array(facetCountSchema),
+  // Only the verbs actually seen in the window. The full list is 14 once the
+  // WebDAV methods are counted, and rendering all of them as toggles buries the
+  // three or four a real query uses.
+  methods: z.array(facetCountSchema),
   actors: z.array(
     z.object({
       id: z.string(),

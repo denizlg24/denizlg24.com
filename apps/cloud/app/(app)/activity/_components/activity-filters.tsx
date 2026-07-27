@@ -1,10 +1,14 @@
 "use client";
 
 import {
+  ACTIVITY_ACTOR_TYPES,
   ACTIVITY_CATEGORIES,
+  ACTIVITY_METHODS,
   ACTIVITY_SEVERITIES,
+  type ActivityActorType,
   type ActivityCategory,
   type ActivityFacets,
+  type ActivityMethod,
   type ActivitySeverity,
   type ActivityStatusClass,
 } from "@repo/schemas/cloud";
@@ -31,9 +35,14 @@ const CONTROL = "h-7 text-xs";
 export interface ActivityFilterState {
   category: ActivityCategory[];
   severity: ActivitySeverity[];
+  actorType: ActivityActorType[];
+  method: ActivityMethod[];
   statusClass: ActivityStatusClass | "";
   action: string;
   actorId: string;
+  pathPrefix: string;
+  ip: string;
+  minDurationMs: string;
   windowHours: number;
   q: string;
 }
@@ -41,9 +50,14 @@ export interface ActivityFilterState {
 export const DEFAULT_FILTERS: ActivityFilterState = {
   category: [],
   severity: [],
+  actorType: [],
+  method: [],
   statusClass: "",
   action: "",
   actorId: "",
+  pathPrefix: "",
+  ip: "",
+  minDurationMs: "",
   windowHours: 24,
   q: "",
 };
@@ -66,9 +80,14 @@ export function isFiltered(filters: ActivityFilterState): boolean {
   return (
     filters.category.length > 0 ||
     filters.severity.length > 0 ||
+    filters.actorType.length > 0 ||
+    filters.method.length > 0 ||
     filters.statusClass !== "" ||
     filters.action !== "" ||
     filters.actorId !== "" ||
+    filters.pathPrefix !== "" ||
+    filters.ip !== "" ||
+    filters.minDurationMs !== "" ||
     filters.q !== "" ||
     filters.windowHours !== DEFAULT_FILTERS.windowHours
   );
@@ -118,6 +137,11 @@ export function ActivityFilters({
 }) {
   const counts = new Map(
     facets?.categories.map((entry) => [entry.value, entry.count]),
+  );
+  const methodOptions = ACTIVITY_METHODS.filter(
+    (method) =>
+      filters.method.includes(method) ||
+      facets?.methods.some((entry) => entry.value === method),
   );
   // Actor ids are uuids; the trigger shows the username the facet resolved,
   // falling back to the id itself for an actor no longer in the window.
@@ -275,6 +299,77 @@ export function ActivityFilters({
           className={cn(CONTROL, "w-48")}
           value={filters.q}
           onChange={(event) => onChange({ ...filters, q: event.target.value })}
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex flex-wrap items-center gap-1">
+          {ACTIVITY_ACTOR_TYPES.map((actorType) => (
+            <Toggle
+              key={actorType}
+              active={filters.actorType.includes(actorType)}
+              onClick={() =>
+                onChange({
+                  ...filters,
+                  actorType: toggleIn(filters.actorType, actorType),
+                })
+              }
+            >
+              {actorType}
+            </Toggle>
+          ))}
+        </div>
+
+        {/* Driven by the facet rather than the full verb list: 14 toggles would
+            bury the three a real query uses. A method still selected after it
+            drops out of the window is kept so the filter stays clearable. */}
+        <div className="flex flex-wrap items-center gap-1">
+          {methodOptions.map((method) => (
+            <Toggle
+              key={method}
+              active={filters.method.includes(method)}
+              onClick={() =>
+                onChange({
+                  ...filters,
+                  method: toggleIn(filters.method, method),
+                })
+              }
+            >
+              {method}
+            </Toggle>
+          ))}
+        </div>
+
+        <Input
+          aria-label="Path prefix"
+          placeholder="/dav/home"
+          className={cn(CONTROL, "w-40 font-mono")}
+          value={filters.pathPrefix}
+          onChange={(event) =>
+            onChange({ ...filters, pathPrefix: event.target.value })
+          }
+        />
+
+        <Input
+          aria-label="IP address"
+          placeholder="ip"
+          className={cn(CONTROL, "w-32 font-mono")}
+          value={filters.ip}
+          onChange={(event) => onChange({ ...filters, ip: event.target.value })}
+        />
+
+        <Input
+          aria-label="Minimum duration in milliseconds"
+          inputMode="numeric"
+          placeholder="≥ ms"
+          className={cn(CONTROL, "w-20 tabular-nums")}
+          value={filters.minDurationMs}
+          onChange={(event) =>
+            onChange({
+              ...filters,
+              minDurationMs: event.target.value.replace(/\D/g, ""),
+            })
+          }
         />
 
         {isFiltered(filters) && (

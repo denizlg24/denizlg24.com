@@ -18,10 +18,13 @@ import {
   storageByType,
   storageByUser,
   storageStats,
+  streamActivity,
   updateTask,
 } from "@repo/cloud-core";
 import type { AuthVariables } from "@repo/cloud-core/middleware";
 import {
+  ACTIVITY_EXPORT_MAX_ROWS,
+  activityExportQuerySchema,
   activityQuerySchema,
   createTaskInputSchema,
   metricsQuerySchema,
@@ -30,6 +33,7 @@ import {
   tieringConfigPatchSchema,
   updateTaskInputSchema,
 } from "@repo/schemas/cloud";
+import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { TerminalGateway } from "../terminal/gateway";
@@ -132,21 +136,75 @@ export function opsRoutes(options: OpsRouteOptions) {
     context.json({ data: await options.health.check() }),
   );
 
+  // The paged panel and the export accept exactly the same filters, so the file
+  // a share link produces always matches the view it was taken from.
+  const activityFilters = (context: Context) => ({
+    category: emptyToUndefined(context.req.queries("category")),
+    severity: emptyToUndefined(context.req.queries("severity")),
+    actorType: emptyToUndefined(context.req.queries("actorType")),
+    method: emptyToUndefined(context.req.queries("method")),
+    statusClass: context.req.query("statusClass"),
+    action: context.req.query("action"),
+    actorId: context.req.query("actorId"),
+    pathPrefix: context.req.query("pathPrefix"),
+    ip: context.req.query("ip"),
+    minDurationMs: context.req.query("minDurationMs"),
+    from: context.req.query("from"),
+    to: context.req.query("to"),
+    q: context.req.query("q"),
+  });
+
   app.get("/activity", async (context) => {
     const query = activityQuerySchema.parse({
       page: context.req.query("page") ?? 1,
       limit: context.req.query("limit") ?? 50,
-      category: emptyToUndefined(context.req.queries("category")),
-      severity: emptyToUndefined(context.req.queries("severity")),
-      statusClass: context.req.query("statusClass"),
-      action: context.req.query("action"),
-      actorId: context.req.query("actorId"),
-      from: context.req.query("from"),
-      to: context.req.query("to"),
-      q: context.req.query("q"),
+      ...activityFilters(context),
     });
     const { entries, pagination } = await queryActivity(options.db, query);
     return context.json({ data: entries, pagination });
+  });
+
+  /**
+   * NDJSON rather than a JSON array: the rows are streamed straight out of a
+   * cursor, so nothing has to know the total up front, and the result stays
+   * greppable line by line while keeping the `metadata` jsonb intact — which a
+   * CSV flattening would have lost.
+   */
+  app.get("/activity/export", async (context) => {
+    const query = activityExportQuerySchema.parse({
+      limit: context.req.query("limit") ?? ACTIVITY_EXPORT_MAX_ROWS,
+      ...activityFilters(context),
+    });
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const encoder = new TextEncoder();
+    const rows = streamActivity(options.db, query);
+
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const next = await rows.next();
+        if (next.done) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(
+          encoder.encode(
+            `${next.value.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
+          ),
+        );
+      },
+      // A client that disconnects mid-export leaves the generator suspended on
+      // its cursor; returning it releases the batch it was holding.
+      cancel: () => void rows.return(undefined),
+    });
+
+    return new Response(body, {
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Content-Disposition": `attachment; filename="activity-${stamp}.ndjson"`,
+        "Cache-Control": "no-store",
+      },
+    });
   });
 
   app.get("/activity/facets", async (context) => {

@@ -1,6 +1,7 @@
 import type {
   ActivityActorType,
   ActivityCategory,
+  ActivityExportQuery,
   ActivityFacets,
   ActivityMetadata,
   ActivityQuery,
@@ -16,8 +17,10 @@ import {
   eq,
   gte,
   inArray,
+  lt,
   lte,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm";
 
@@ -225,7 +228,11 @@ function serializeEntry(
   };
 }
 
-function buildFilters(query: ActivityQuery) {
+function escapeLike(value: string): string {
+  return value.replace(/[%_\\]/g, (match) => `\\${match}`);
+}
+
+function buildFilters(query: ActivityQuery | ActivityExportQuery) {
   const filters = [];
   if (query.category?.length) {
     filters.push(inArray(activityLog.category, query.category));
@@ -238,6 +245,25 @@ function buildFilters(query: ActivityQuery) {
   }
   if (query.actorId) {
     filters.push(eq(activityLog.actorId, query.actorId));
+  }
+  if (query.actorType?.length) {
+    filters.push(inArray(activityLog.actorType, query.actorType));
+  }
+  if (query.method?.length) {
+    filters.push(inArray(activityLog.method, query.method));
+  }
+  if (query.pathPrefix) {
+    // Anchored so the pattern can ride the b-tree on path, unlike the leading
+    // wildcard `q` builds.
+    filters.push(
+      sql`${activityLog.path} LIKE ${`${escapeLike(query.pathPrefix)}%`}`,
+    );
+  }
+  if (query.ip) {
+    filters.push(eq(activityLog.ip, query.ip));
+  }
+  if (query.minDurationMs !== undefined) {
+    filters.push(gte(activityLog.durationMs, query.minDurationMs));
   }
   if (query.from) {
     filters.push(gte(activityLog.ts, new Date(query.from)));
@@ -261,7 +287,7 @@ function buildFilters(query: ActivityQuery) {
     // ILIKE rather than a tsvector: the searchable columns are short, the table
     // is time-pruned, and every realistic query is already narrowed by a range
     // or category filter that an index can serve.
-    const pattern = `%${query.q.replace(/[%_\\]/g, (match) => `\\${match}`)}%`;
+    const pattern = `%${escapeLike(query.q)}%`;
     filters.push(
       or(
         sql`${activityLog.path} ILIKE ${pattern}`,
@@ -305,13 +331,62 @@ export async function queryActivity(
   };
 }
 
+/** Rows pulled from Postgres per round trip while streaming an export. */
+const EXPORT_BATCH_SIZE = 1_000;
+
+/**
+ * Yields matching rows newest-first, in batches, up to `query.limit`.
+ *
+ * Keyset pagination on `(ts, id)` rather than OFFSET: an export walks far
+ * enough into the table that OFFSET would rescan everything it had already
+ * skipped on every batch, and it is the one reader that reliably goes deep.
+ * The pair is used because `ts` alone is not unique — the recorder flushes in
+ * batches, so a whole batch can share a millisecond, and a cursor on `ts` alone
+ * would drop or repeat the rest of that group.
+ */
+export async function* streamActivity(
+  db: Database,
+  query: ActivityExportQuery,
+): AsyncGenerator<SafeActivityEntry[]> {
+  const where = buildFilters(query);
+  let cursor: { ts: Date; id: string } | null = null;
+  let emitted = 0;
+
+  while (emitted < query.limit) {
+    const batchSize = Math.min(EXPORT_BATCH_SIZE, query.limit - emitted);
+    const keyset: SQL | undefined = cursor
+      ? or(
+          lt(activityLog.ts, cursor.ts),
+          and(eq(activityLog.ts, cursor.ts), lt(activityLog.id, cursor.id)),
+        )
+      : undefined;
+
+    const rows: (typeof activityLog.$inferSelect)[] = await db
+      .select()
+      .from(activityLog)
+      .where(where && keyset ? and(where, keyset) : (where ?? keyset))
+      .orderBy(desc(activityLog.ts), desc(activityLog.id))
+      .limit(batchSize);
+
+    if (rows.length === 0) return;
+
+    const last = rows[rows.length - 1];
+    if (!last) return;
+    cursor = { ts: last.ts, id: last.id };
+    emitted += rows.length;
+    yield rows.map(serializeEntry);
+
+    if (rows.length < batchSize) return;
+  }
+}
+
 const FACET_LIMIT = 50;
 
 export async function activityFacets(
   db: Database,
   since: Date,
 ): Promise<ActivityFacets> {
-  const [categories, actions, actors, oldest] = await Promise.all([
+  const [categories, actions, methods, actors, oldest] = await Promise.all([
     db
       .select({ value: activityLog.category, count: count() })
       .from(activityLog)
@@ -323,6 +398,15 @@ export async function activityFacets(
       .from(activityLog)
       .where(gte(activityLog.ts, since))
       .groupBy(activityLog.action)
+      .orderBy(desc(count()))
+      .limit(FACET_LIMIT),
+    db
+      .select({ value: activityLog.method, count: count() })
+      .from(activityLog)
+      .where(
+        and(gte(activityLog.ts, since), sql`${activityLog.method} IS NOT NULL`),
+      )
+      .groupBy(activityLog.method)
       .orderBy(desc(count()))
       .limit(FACET_LIMIT),
     db
@@ -354,6 +438,9 @@ export async function activityFacets(
       count: row.count,
     })),
     actions: actions.map((row) => ({ value: row.value, count: row.count })),
+    methods: methods.flatMap((row) =>
+      row.value === null ? [] : [{ value: row.value, count: row.count }],
+    ),
     actors: actors.flatMap((row) =>
       row.id === null
         ? []

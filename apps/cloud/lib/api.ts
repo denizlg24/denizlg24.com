@@ -1,5 +1,6 @@
 import { toApiError, toTransportError } from "@repo/cloud-ui/api-error";
 import {
+  type ActivityExportQuery,
   type ActivityFacets,
   type ActivityQuery,
   activityFacetsSchema,
@@ -129,19 +130,23 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 // Query consoles, provisioning and manual task runs legitimately take longer.
 const SLOW_TIMEOUT_MS = 120_000;
 
-async function rawRequest(
-  path: string,
-  options: RequestOptions = {},
-): Promise<unknown> {
+function buildUrl(path: string, query: RequestOptions["query"]): URL {
   const url = new URL(path, API_BASE_URL);
-  for (const [key, value] of Object.entries(options.query ?? {})) {
+  for (const [key, value] of Object.entries(query ?? {})) {
     for (const entry of Array.isArray(value) ? value : [value]) {
       if (entry !== undefined) url.searchParams.append(key, String(entry));
     }
   }
+  return url;
+}
+
+async function sendRequest(
+  path: string,
+  options: RequestOptions = {},
+): Promise<Response> {
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(buildUrl(path, options.query), {
       method: options.method ?? "GET",
       credentials: "include",
       signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
@@ -156,7 +161,42 @@ async function rawRequest(
     throw toTransportError(error);
   }
   if (!response.ok) throw await toApiError(response);
-  return response.json();
+  return response;
+}
+
+async function rawRequest(
+  path: string,
+  options: RequestOptions = {},
+): Promise<unknown> {
+  return (await sendRequest(path, options)).json();
+}
+
+/**
+ * Buffers the response and hands it to the browser as a download.
+ *
+ * A plain anchor would be lighter, but the session cookie is set on the API's
+ * origin and this app is served from another, so only a `credentials: "include"`
+ * fetch is guaranteed to carry it.
+ */
+async function requestDownload(
+  path: string,
+  fallbackFilename: string,
+  options: RequestOptions = {},
+): Promise<void> {
+  const response = await sendRequest(path, options);
+  const disposition = response.headers.get("Content-Disposition");
+  const filename =
+    disposition?.match(/filename="([^"]+)"/)?.[1] ?? fallbackFilename;
+
+  const href = URL.createObjectURL(await response.blob());
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = filename;
+    anchor.click();
+  } finally {
+    URL.revokeObjectURL(href);
+  }
 }
 
 const envelopeSchema = z.object({ data: z.unknown() });
@@ -190,6 +230,27 @@ async function requestPaginated<T extends z.ZodType>(
   return {
     items: parsed.data.map((item) => schema.parse(item)),
     pagination: parsed.pagination,
+  };
+}
+
+/** The filters the paged list and the export share, verbatim. */
+function activityFilterQuery(
+  query: Partial<ActivityQuery & ActivityExportQuery>,
+) {
+  return {
+    category: query.category,
+    severity: query.severity,
+    actorType: query.actorType,
+    method: query.method,
+    statusClass: query.statusClass,
+    action: query.action,
+    actorId: query.actorId,
+    pathPrefix: query.pathPrefix,
+    ip: query.ip,
+    minDurationMs: query.minDurationMs,
+    from: query.from,
+    to: query.to,
+    q: query.q,
   };
 }
 
@@ -278,19 +339,18 @@ export const api = {
         query: {
           page: query.page,
           limit: query.limit,
-          category: query.category,
-          severity: query.severity,
-          statusClass: query.statusClass,
-          action: query.action,
-          actorId: query.actorId,
-          from: query.from,
-          to: query.to,
-          q: query.q,
+          ...activityFilterQuery(query),
         },
       }),
     facets: (days?: number): Promise<ActivityFacets> =>
       requestData(activityFacetsSchema, "/api/ops/activity/facets", {
         query: { days },
+      }),
+    // Streams server-side, so it outlasts the default timeout on a wide filter.
+    exportNdjson: (query: Partial<ActivityExportQuery> = {}): Promise<void> =>
+      requestDownload("/api/ops/activity/export", "activity.ndjson", {
+        query: { limit: query.limit, ...activityFilterQuery(query) },
+        timeoutMs: SLOW_TIMEOUT_MS,
       }),
   },
 

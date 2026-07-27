@@ -6,6 +6,7 @@ import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
 import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Download } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import {
@@ -40,24 +41,34 @@ export default function ActivityPage() {
     setPage(1);
   }, [filters]);
 
+  // `from` is recomputed per call rather than memoised so a relative window
+  // stays relative — a poll an hour later must not still ask for the old hour.
+  const activityQuery = useCallback(
+    () => ({
+      category: filters.category.length > 0 ? filters.category : undefined,
+      severity: filters.severity.length > 0 ? filters.severity : undefined,
+      actorType: filters.actorType.length > 0 ? filters.actorType : undefined,
+      method: filters.method.length > 0 ? filters.method : undefined,
+      statusClass: filters.statusClass === "" ? undefined : filters.statusClass,
+      action: filters.action || undefined,
+      actorId: filters.actorId || undefined,
+      pathPrefix: filters.pathPrefix || undefined,
+      ip: filters.ip || undefined,
+      minDurationMs: filters.minDurationMs
+        ? Number(filters.minDurationMs)
+        : undefined,
+      q: filters.q || undefined,
+      from:
+        filters.windowHours > 0
+          ? new Date(Date.now() - filters.windowHours * HOUR_MS).toISOString()
+          : undefined,
+    }),
+    [filters],
+  );
+
   const fetchActivity = useCallback(
-    () =>
-      api.activity.list({
-        page,
-        limit: PAGE_SIZE,
-        category: filters.category.length > 0 ? filters.category : undefined,
-        severity: filters.severity.length > 0 ? filters.severity : undefined,
-        statusClass:
-          filters.statusClass === "" ? undefined : filters.statusClass,
-        action: filters.action || undefined,
-        actorId: filters.actorId || undefined,
-        q: filters.q || undefined,
-        from:
-          filters.windowHours > 0
-            ? new Date(Date.now() - filters.windowHours * HOUR_MS).toISOString()
-            : undefined,
-      }),
-    [filters, page],
+    () => api.activity.list({ page, limit: PAGE_SIZE, ...activityQuery() }),
+    [activityQuery, page],
   );
 
   const { data, error, unreachable, loading, reload } = usePoll(
@@ -73,6 +84,24 @@ export default function ActivityPage() {
     fetchNotifications,
     60_000,
   );
+
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  // Exports whatever the filters currently select, not the page on screen —
+  // pagination is a reading aid, and a shared file that stopped at 100 rows
+  // would be a trap.
+  const runExport = useCallback(async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await api.activity.exportNdjson(activityQuery());
+    } catch (cause) {
+      setExportError(cause instanceof Error ? cause.message : "export failed");
+    } finally {
+      setExporting(false);
+    }
+  }, [activityQuery]);
 
   const pagination = data?.pagination;
   const pageLabel = useMemo(
@@ -103,10 +132,23 @@ export default function ActivityPage() {
           onChange={setFilters}
         />
         {error && <p className="text-xs text-destructive">{error}</p>}
+        {exportError && (
+          <p className="text-xs text-destructive">{exportError}</p>
+        )}
         <ActivityTable entries={data.items} />
         <div className="flex items-center justify-between pt-1 text-xs text-muted-foreground">
           <span className="tabular-nums">{pageLabel}</span>
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs"
+              disabled={exporting}
+              onClick={() => void runExport()}
+            >
+              <Download className="size-3" />
+              {exporting ? "exporting…" : "export"}
+            </Button>
             <Button
               variant="ghost"
               size="sm"
