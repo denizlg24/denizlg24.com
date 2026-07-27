@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use Envoy"
+  short_description: "Automate encrypted environment workflows"
+  default_prompt: "Use $use-envoy to manage encrypted environment files non-interactively."

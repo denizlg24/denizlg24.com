@@ -1,0 +1,10 @@
+/target
+
+# Envoy
+.envoy/cache/
+.envoy/*.blob
+.envoy/manifest.enc
+
+.env
+.env.*
+!.env.example
