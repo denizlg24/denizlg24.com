@@ -109,7 +109,8 @@ and TypeScript server both validate the versioned fixtures in
   directory so workspace contracts and UI packages are available.
 - `apps/envoy-cli` is developed here and mirrored to
   [`denizlg24/envoy`](https://github.com/denizlg24/envoy), where the existing
-  CLI release workflow publishes installers and update assets.
+  CLI release workflow publishes installers and update assets. There is no
+  separate CLI release deployment from this monorepo.
 - `apps/desktop` is statically exported and bundled by Tauri.
 - `.github/workflows/release-desktop.yml` builds desktop releases.
 - `.github/workflows/sync-envoy-cli.yml` pushes the CLI subtree to its release

@@ -11,6 +11,18 @@ CLI release assets remain published from the
 Versioned API fixtures live in `contracts/v1`; both the Rust CLI and the
 monorepo's Zod schemas validate them to prevent protocol drift.
 
+## Repository and release flow
+
+The monorepo is the canonical development source. After changes under
+`apps/envoy-cli` land on `main`, the monorepo's
+`sync-envoy-cli.yml` workflow splits this directory and fast-forwards the
+`master` branch of `denizlg24/envoy`.
+
+Tags and CLI releases continue to be created in `denizlg24/envoy`, where the
+existing release workflow builds installers and update assets. Installer and
+self-update URLs therefore intentionally use the release mirror; the monorepo
+does not publish a second copy of those assets.
+
 ---
 
 ## Why Envoy?
@@ -232,7 +244,7 @@ name = "..."
 default_remote = "origin"
 
 [remotes]
-origin = "https://envoy-cli.vercel.app/api"
+origin = "https://envoy.denizlg24.com/api"
 
 ```
 
