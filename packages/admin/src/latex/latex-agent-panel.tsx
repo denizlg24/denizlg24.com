@@ -1322,7 +1322,7 @@ export function LatexAgentPanel({
           <Textarea
             value={input}
             rows={2}
-            className="min-h-14 resize-none border-0 bg-transparent text-xs shadow-none focus-visible:ring-0"
+            className="max-h-48 min-h-14 resize-none overflow-y-auto border-0 bg-transparent text-xs shadow-none focus-visible:ring-0"
             placeholder={
               effectiveModel
                 ? "Ask about this project…"
