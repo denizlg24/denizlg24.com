@@ -1,0 +1,11 @@
+
+version = 1
+project_id = "1990688f-e558-4323-bd22-8fc7599185dc"
+name = "My Envoy Project"
+
+default_remote = "origin"
+
+[remotes]
+origin = "https://envoy-cli.vercel.app/api"
+
+

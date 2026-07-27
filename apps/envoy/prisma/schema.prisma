@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String?  @unique
+  githubId  String   @unique
+  createdAt DateTime @default(now())
+
+  projects   ProjectMember[]
+  apiTokens  ApiToken[]
+  blobGrants BlobAccessGrant[]
+}
+
+model Project {
+  id               String             @id @default(uuid())
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @default(now())
+  head_commit_hash String             @default("")
+  members          ProjectMember[]
+  blobPolicies     BlobAccessPolicy[]
+}
+
+model ProjectMember {
+  userId    String
+  projectId String
+  role      String
+  nickname  String?
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, projectId])
+}
+
+model ApiToken {
+  id        String    @id @default(uuid())
+  hash      String    @unique
+  userId    String
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// The absence of a policy preserves legacy project-wide blob access. The
+// presence of a policy restricts downloads to the owner plus explicit grants.
+model BlobAccessPolicy {
+  projectId String
+  blobHash  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  grants  BlobAccessGrant[]
+
+  @@id([projectId, blobHash])
+}
+
+model BlobAccessGrant {
+  projectId String
+  blobHash  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  policy BlobAccessPolicy @relation(fields: [projectId, blobHash], references: [projectId, blobHash], onDelete: Cascade)
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, blobHash, userId])
+  @@index([userId])
+}
+
+model HealthCheck {
+  id        String   @id @default(uuid())
+  timestamp DateTime @default(now())
+
+  // Overall status
+  healthy      Boolean
+  responseTime Int? // in milliseconds
+
+  // Individual service status
+  dbHealthy      Boolean
+  dbResponseTime Int?
+  r2Healthy      Boolean
+  r2ResponseTime Int?
+  ghHealthy      Boolean
+  ghResponseTime Int?
+
+  @@index([timestamp])
+}
+
+model ApiRequest {
+  id        String   @id @default(uuid())
+  timestamp DateTime @default(now())
+
+  method       String // GET, POST, etc.
+  path         String // /api/projects, etc.
+  statusCode   Int
+  responseTime Int // in milliseconds
+  error        String? // Error message if failed
+
+  @@index([timestamp])
+  @@index([path])
+}
