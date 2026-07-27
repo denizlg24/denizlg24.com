@@ -1,8 +1,18 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use std::fs;
 
 use super::paths::envoy_home_dir;
 use super::ui::{print_info, print_success};
+
+const API_TOKEN_ENV: &str = "ENVOY_API_TOKEN";
+
+fn normalize_api_token(token: String) -> Result<String> {
+    let token = token.trim();
+    if token.is_empty() {
+        bail!("{API_TOKEN_ENV} cannot be empty");
+    }
+    Ok(token.to_owned())
+}
 
 pub fn save_token(token: &str) -> Result<()> {
     let dir = envoy_home_dir()?;
@@ -19,9 +29,15 @@ pub fn save_token(token: &str) -> Result<()> {
     Ok(())
 }
 
-use anyhow::bail;
-
 pub fn load_token() -> Result<String> {
+    match std::env::var(API_TOKEN_ENV) {
+        Ok(token) => return normalize_api_token(token),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            bail!("{API_TOKEN_ENV} must contain valid UTF-8")
+        }
+        Err(std::env::VarError::NotPresent) => {}
+    }
+
     let mut path = envoy_home_dir()?;
     path.push("config.toml");
 
@@ -47,9 +63,28 @@ pub fn logout() -> Result<()> {
         print_info("Already logged out.");
     }
 
+    if std::env::var_os(API_TOKEN_ENV).is_some() {
+        print_info("ENVOY_API_TOKEN remains active in this environment.");
+    }
+
     Ok(())
 }
 
 pub fn auth_server_url() -> String {
     "https://envoy.denizlg24.com/api".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_api_token;
+
+    #[test]
+    fn trims_automation_tokens() {
+        assert_eq!(normalize_api_token(" token \n".into()).unwrap(), "token");
+    }
+
+    #[test]
+    fn rejects_empty_automation_tokens() {
+        assert!(normalize_api_token(" \n".into()).is_err());
+    }
 }

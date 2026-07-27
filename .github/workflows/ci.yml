@@ -71,3 +71,34 @@ jobs:
 
       - name: Lint (Biome)
         run: bun run format-and-lint
+
+  envoy-cli:
+    name: Envoy CLI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/envoy-cli
+    env:
+      ENVOY_NO_UPDATE_CHECK: "1"
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/envoy-cli -> target"
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Test
+        run: cargo test --all-targets --locked
+
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings

@@ -35,6 +35,8 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `apps/envoy/` — Next.js public site and Hono/Prisma API for the Envoy CLI
   (Vercel). Uses project-scoped denizlg24 cloud S3 credentials; canonical wire
   contracts live in `packages/schemas/src/envoy`.
+- `apps/envoy-cli/` — Rust `envy` CLI. Developed in this monorepo and synced as
+  a Git subtree to `denizlg24/envoy`, whose workflow publishes CLI releases.
 - `apps/terminal/` — compiled Bun web-terminal daemon. Runs on the Pi host under systemd, not in Docker.
 - `packages/cloud-core/` — Pi-side cloud logic: drizzle schema, storage/S3, projects, ops, sync, middleware.
 - `packages/cloud-ui/`, `packages/cloud-auth-client/` — shared client pieces for the two Vercel cloud apps.

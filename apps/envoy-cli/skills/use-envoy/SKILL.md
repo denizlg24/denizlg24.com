@@ -7,6 +7,10 @@ description: Operate the Envoy (`envy`) Git-like CLI to initialize projects, sta
 
 Run `envy` from the project directory. Prefer arguments for non-secret values and named piped input for passphrases.
 
+For authenticated CI or agent runs, provide the Envoy API token through
+`ENVOY_API_TOKEN`. Keep passphrases separate and pipe them through stdin. Never
+write either value to logs, command arguments, artifacts, or cache keys.
+
 ## Supply input non-interactively
 
 Pass ordinary values with the command's documented arguments:

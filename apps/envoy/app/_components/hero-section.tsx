@@ -43,7 +43,7 @@ export async function HeroSection() {
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <Button asChild size="lg">
             <Link
-              href="https://github.com/denizlg24/envoy#readme"
+              href="https://github.com/denizlg24/denizlg24.com/tree/main/apps/envoy-cli#readme"
               target="_blank"
               rel="noreferrer"
             >

@@ -4,6 +4,11 @@
 
 It lets you **encrypt once**, **sync safely**, and **restore automatically** — without ever committing secrets to Git.
 
+Development lives in the
+[`denizlg24.com` monorepo](https://github.com/denizlg24/denizlg24.com/tree/main/apps/envoy-cli).
+CLI release assets remain published from the
+[`envoy` release mirror](https://github.com/denizlg24/envoy/releases).
+
 ---
 
 ## Why Envoy?
@@ -67,7 +72,9 @@ cargo install envoy-cli
 Or build locally:
 
 ```bash
-cargo build --release
+git clone https://github.com/denizlg24/denizlg24.com.git
+cd denizlg24.com/apps/envoy-cli
+cargo build --release --locked
 ```
 
 ---
@@ -296,6 +303,26 @@ equivalent arguments are `--file-passphrase "FILE=PASSPHRASE"` (repeatable) and
 Prefer stdin for secrets because command-line values may be visible in shell
 history and process listings. See [`skills/use-envoy/SKILL.md`](skills/use-envoy/SKILL.md)
 for the complete agent-oriented input matrix.
+
+Remote commands normally read the API token created by `envy login`. In CI,
+provide that token through `ENVOY_API_TOKEN` instead of creating a persistent
+config file. Keep the project passphrase in a separate secret and pipe it to
+stdin:
+
+```yaml
+- name: Restore environment
+  env:
+    ENVOY_API_TOKEN: ${{ secrets.ENVOY_API_TOKEN }}
+    ENVOY_PASSPHRASE: ${{ secrets.ENVOY_PASSPHRASE }}
+    ENVOY_HOME: ${{ runner.temp }}/envoy
+    ENVOY_NO_UPDATE_CHECK: "1"
+  shell: bash
+  run: printf 'passphrase=%s\n' "$ENVOY_PASSPHRASE" | envy pull
+```
+
+Do not put either secret in command arguments, workflow YAML, artifacts, or
+cache keys. Scope the API token to the Envoy project member used by the
+automation and rotate both secrets when access changes.
 
 For isolated tests, set `ENVOY_HOME` to a temporary directory and
 `ENVOY_NO_UPDATE_CHECK=1`.

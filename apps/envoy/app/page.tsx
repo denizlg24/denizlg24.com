@@ -52,7 +52,7 @@ export default function Home() {
             Status
           </Link>
           <Link
-            href="https://github.com/denizlg24/envoy"
+            href="https://github.com/denizlg24/denizlg24.com/tree/main/apps/envoy-cli"
             target="_blank"
             rel="noreferrer"
             className="ml-2 inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium shadow-xs transition-colors hover:bg-surface"
@@ -103,7 +103,7 @@ export default function Home() {
             crates.io
           </Link>
           <Link
-            href="https://github.com/denizlg24/envoy"
+            href="https://github.com/denizlg24/denizlg24.com/tree/main/apps/envoy-cli"
             target="_blank"
             rel="noreferrer"
             className="transition-colors hover:text-foreground"

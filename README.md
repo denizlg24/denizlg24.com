@@ -17,6 +17,7 @@ personal workflows.
 | `apps/web` | Next.js public website, admin dashboard, and API |
 | `apps/desktop` | Next.js dashboard packaged with Tauri |
 | `apps/envoy` | Envoy CLI public site and Hono/Prisma API |
+| `apps/envoy-cli` | Rust Envoy CLI and release-mirror source |
 | `packages/schemas` | Canonical Zod API contracts shared by both apps |
 | `packages/ui` | Shared React UI components |
 | `packages/utils` | Shared utilities |
@@ -63,6 +64,7 @@ bunx turbo dev --filter=web
 bunx turbo dev --filter=envoy
 bun --cwd apps/desktop run dev:server
 bun --cwd apps/desktop run dev
+cd apps/envoy-cli && cargo run -- --help
 ```
 
 The desktop Next.js server runs on `http://localhost:3001`. The Tauri command
@@ -75,10 +77,15 @@ bunx turbo typecheck
 bun --env-file=.env turbo run test
 bun run format-and-lint
 bun run build
+cd apps/envoy-cli
+cargo fmt --check
+cargo test --all-targets --locked
+cargo clippy --all-targets --locked -- -D warnings
 ```
 
 CI runs builds, typechecks, tests, and Biome checks for every pull request and
-push to `main`.
+push to `main`. A separate CI job applies Rust formatting, tests, and Clippy to
+`apps/envoy-cli`.
 
 ## Architecture
 
@@ -95,8 +102,26 @@ authentication, and platform integrations remain inside their respective apps.
 - `apps/web` is deployed as the website and API.
 - `apps/envoy` is deployed as the Envoy site and API, with blobs stored in the
   project-scoped denizlg24 cloud S3 bucket.
+- `apps/envoy-cli` is developed here and mirrored to
+  [`denizlg24/envoy`](https://github.com/denizlg24/envoy), where the existing
+  CLI release workflow publishes installers and update assets.
 - `apps/desktop` is statically exported and bundled by Tauri.
 - `.github/workflows/release-desktop.yml` builds desktop releases.
+- `.github/workflows/sync-envoy-cli.yml` pushes the CLI subtree to its release
+  mirror after changes land on `main`. It requires an `ENVOY_REPO_TOKEN`
+  fine-grained secret with contents write access to `denizlg24/envoy`.
+
+To sync manually, preserving the same subtree history:
+
+```bash
+git subtree push \
+  --prefix=apps/envoy-cli \
+  https://github.com/denizlg24/envoy.git \
+  master
+```
+
+Create and push CLI `v*` tags in the release mirror after the sync; its
+standalone release workflow remains responsible for cross-platform binaries.
 
 This repository contains personal infrastructure and application code. Running
 every feature locally requires your own external services and credentials.
