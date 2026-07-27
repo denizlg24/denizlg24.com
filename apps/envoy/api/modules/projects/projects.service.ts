@@ -21,7 +21,7 @@ export async function getHead(projectId: string) {
       id: projectId,
     },
   });
-  if (!project || !project.head_commit_hash) {
+  if (!project?.head_commit_hash) {
     return null;
   }
   return project.head_commit_hash;

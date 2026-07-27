@@ -45,7 +45,7 @@ const API_PROBLEM_CATEGORIES = [
 ] as const satisfies readonly ApiProblemCategory[];
 
 const API_PROBLEM_CATEGORY_LABELS = new Set<string>(
-  API_PROBLEM_CATEGORIES.map((category) => category.label)
+  API_PROBLEM_CATEGORIES.map((category) => category.label),
 );
 
 export function getApiProblemCategory(pathOrUrl: string, method?: string) {
@@ -57,7 +57,10 @@ export function getApiProblemCategory(pathOrUrl: string, method?: string) {
   const normalizedMethod = method?.toUpperCase();
 
   for (const category of API_PROBLEM_CATEGORIES) {
-    const methods = "methods" in category ? category.methods as readonly string[] : undefined;
+    const methods =
+      "methods" in category
+        ? (category.methods as readonly string[])
+        : undefined;
 
     if (
       category.pattern.test(path) &&

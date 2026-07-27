@@ -16,6 +16,7 @@ personal workflows.
 | --- | --- |
 | `apps/web` | Next.js public website, admin dashboard, and API |
 | `apps/desktop` | Next.js dashboard packaged with Tauri |
+| `apps/envoy` | Envoy CLI public site and Hono/Prisma API |
 | `packages/schemas` | Canonical Zod API contracts shared by both apps |
 | `packages/ui` | Shared React UI components |
 | `packages/utils` | Shared utilities |
@@ -59,6 +60,7 @@ Run an individual app:
 
 ```bash
 bunx turbo dev --filter=web
+bunx turbo dev --filter=envoy
 bun --cwd apps/desktop run dev:server
 bun --cwd apps/desktop run dev
 ```
@@ -91,6 +93,8 @@ authentication, and platform integrations remain inside their respective apps.
 ## Deployment
 
 - `apps/web` is deployed as the website and API.
+- `apps/envoy` is deployed as the Envoy site and API, with blobs stored in the
+  project-scoped denizlg24 cloud S3 bucket.
 - `apps/desktop` is statically exported and bundled by Tauri.
 - `.github/workflows/release-desktop.yml` builds desktop releases.
 

@@ -5,17 +5,8 @@ export const blobRoutes = new Hono();
 
 blobRoutes.use("*", authMiddleware);
 
-blobRoutes.post(
-  "/projects/:projectId/blobs/:hash/upload",
-  uploadBlob
-);
+blobRoutes.post("/projects/:projectId/blobs/:hash/upload", uploadBlob);
 
-blobRoutes.get(
-  "/projects/:projectId/blobs/:hash/download",
-  downloadBlob
-);
+blobRoutes.get("/projects/:projectId/blobs/:hash/download", downloadBlob);
 
-blobRoutes.put(
-  "/projects/:projectId/blobs/:hash/access",
-  setBlobAccess
-);
+blobRoutes.put("/projects/:projectId/blobs/:hash/access", setBlobAccess);

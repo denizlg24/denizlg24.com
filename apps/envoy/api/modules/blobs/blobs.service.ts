@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import {
-  manifestKey,
   blobKey,
-  getUploadUrl,
-  getDownloadUrl,
   commitKey,
+  getDownloadUrl,
+  getUploadUrl,
+  manifestKey,
   objectExists,
 } from "@/lib/storage";
 import { authorizeBlobPolicyUpdate, canDownloadBlob } from "./blobs.policy";
@@ -15,20 +15,20 @@ function storageKey(
   type: "blob" | "manifest" | "commit",
   userId: string,
   projectId: string,
-  hash: string
+  hash: string,
 ) {
   return type === "manifest"
     ? manifestKey(userId, projectId, hash)
     : type === "commit"
-    ? commitKey(userId, projectId, hash)
-    : blobKey(userId, projectId, hash);
+      ? commitKey(userId, projectId, hash)
+      : blobKey(userId, projectId, hash);
 }
 
 export async function getUploadSignedUrl(
   userId: string,
   projectId: string,
   hash: string,
-  type: "blob" | "manifest" | "commit"
+  type: "blob" | "manifest" | "commit",
 ) {
   const membership = await prisma.projectMember.findUnique({
     where: { userId_projectId: { userId, projectId } },
@@ -56,7 +56,7 @@ export async function getDownloadSignedUrl(
   userId: string,
   projectId: string,
   hash: string,
-  type: "blob" | "manifest" | "commit"
+  type: "blob" | "manifest" | "commit",
 ) {
   const membership = await prisma.projectMember.findUnique({
     where: { userId_projectId: { userId, projectId } },

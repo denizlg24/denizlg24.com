@@ -8,7 +8,7 @@ describe("authorizeBlobPolicyUpdate", () => {
         requesterRole: null,
         hasExistingPolicy: false,
         memberIds: null,
-      }).allowed
+      }).allowed,
     ).toBeFalse();
   });
 
@@ -18,7 +18,7 @@ describe("authorizeBlobPolicyUpdate", () => {
         requesterRole: "user",
         hasExistingPolicy: false,
         memberIds: null,
-      })
+      }),
     ).toEqual({ allowed: true });
   });
 
@@ -38,14 +38,14 @@ describe("authorizeBlobPolicyUpdate", () => {
         requesterRole: "user",
         hasExistingPolicy: false,
         memberIds: ["member-id"],
-      }).allowed
+      }).allowed,
     ).toBeFalse();
     expect(
       authorizeBlobPolicyUpdate({
         requesterRole: "owner",
         hasExistingPolicy: false,
         memberIds: [],
-      })
+      }),
     ).toEqual({ allowed: true });
   });
 });
@@ -57,7 +57,7 @@ describe("canDownloadBlob", () => {
         isOwner: false,
         hasPolicy: false,
         hasGrant: false,
-      })
+      }),
     ).toBeTrue();
   });
 
@@ -67,14 +67,14 @@ describe("canDownloadBlob", () => {
         isOwner: true,
         hasPolicy: true,
         hasGrant: false,
-      })
+      }),
     ).toBeTrue();
     expect(
       canDownloadBlob({
         isOwner: false,
         hasPolicy: true,
         hasGrant: true,
-      })
+      }),
     ).toBeTrue();
   });
 
@@ -84,7 +84,7 @@ describe("canDownloadBlob", () => {
         isOwner: false,
         hasPolicy: true,
         hasGrant: false,
-      })
+      }),
     ).toBeFalse();
   });
 });

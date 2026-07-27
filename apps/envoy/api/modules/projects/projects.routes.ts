@@ -1,14 +1,14 @@
 import { Hono } from "hono";
+import { authMiddleware } from "@/api/middleware/auth.middleware";
 import {
   addMember,
   createProject,
-  listMembers,
-  removeMember,
-  removeAllMembers,
   getProjectHead,
+  listMembers,
+  removeAllMembers,
+  removeMember,
   updateProjectHead,
 } from "./projects.controller";
-import { authMiddleware } from "@/api/middleware/auth.middleware";
 
 export const projectRoutes = new Hono();
 

@@ -1,24 +1,12 @@
-import { S3Client, HeadBucketCommand } from "@aws-sdk/client-s3";
+import { HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
+import type {
+  EnvoyHealthCheckResult,
+  EnvoyServiceHealth,
+} from "@repo/schemas/envoy";
+import { getEnv } from "./env";
 import { prisma } from "./prisma";
-import { env } from "./env";
 
-export interface ServiceHealth {
-  healthy: boolean;
-  responseTime: number;
-  error?: string;
-}
-
-export interface HealthCheckResult {
-  healthy: boolean;
-  responseTime: number;
-  services: {
-    database: ServiceHealth;
-    storage: ServiceHealth;
-    github: ServiceHealth;
-  };
-}
-
-async function checkDatabase(): Promise<ServiceHealth> {
+async function checkDatabase(): Promise<EnvoyServiceHealth> {
   const start = Date.now();
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -32,19 +20,21 @@ async function checkDatabase(): Promise<ServiceHealth> {
   }
 }
 
-async function checkStorage(): Promise<ServiceHealth> {
+async function checkStorage(): Promise<EnvoyServiceHealth> {
   const start = Date.now();
   try {
+    const env = getEnv();
     const client = new S3Client({
-      region: "auto",
-      endpoint: `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      region: env.ENVOY_S3_REGION,
+      endpoint: env.ENVOY_S3_ENDPOINT.replace(/\/+$/, ""),
+      forcePathStyle: true,
       credentials: {
-        accessKeyId: env.R2_ACCESS_KEY_ID,
-        secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+        accessKeyId: env.ENVOY_S3_ACCESS_KEY_ID,
+        secretAccessKey: env.ENVOY_S3_SECRET_ACCESS_KEY,
       },
     });
 
-    await client.send(new HeadBucketCommand({ Bucket: env.R2_BUCKET }));
+    await client.send(new HeadBucketCommand({ Bucket: env.ENVOY_S3_BUCKET }));
     return { healthy: true, responseTime: Date.now() - start };
   } catch (e) {
     return {
@@ -55,7 +45,7 @@ async function checkStorage(): Promise<ServiceHealth> {
   }
 }
 
-async function checkGitHub(): Promise<ServiceHealth> {
+async function checkGitHub(): Promise<EnvoyServiceHealth> {
   const start = Date.now();
   try {
     const res = await fetch("https://api.github.com/zen", {
@@ -78,7 +68,7 @@ async function checkGitHub(): Promise<ServiceHealth> {
   }
 }
 
-export async function performHealthCheck(): Promise<HealthCheckResult> {
+export async function performHealthCheck(): Promise<EnvoyHealthCheckResult> {
   const start = Date.now();
 
   const [database, storage, github] = await Promise.all([

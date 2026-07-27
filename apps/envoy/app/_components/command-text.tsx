@@ -1,59 +1,73 @@
 "use client";
 
+import { Button } from "@repo/ui/button";
+import { CopyButton } from "@repo/ui/copy-button";
 import { useState } from "react";
-import { CopyCommandIcon } from "./copy-command-icon";
-import { Button } from "@/components/ui/button";
-import { SiGnubash } from "react-icons/si";
-import { VscTerminalPowershell } from "react-icons/vsc";
 
-export const CommandText = () => {
-  const [shellType, setShellType] = useState<"bash" | "powershell">("bash");
+const INSTALLERS = {
+  cargo: {
+    label: "Cargo",
+    prompt: "$",
+    command: "cargo install envoy-cli",
+  },
+  shell: {
+    label: "Shell",
+    prompt: "$",
+    command:
+      "curl -fsSL https://raw.githubusercontent.com/denizlg24/envoy/master/install.sh | sh",
+  },
+  powershell: {
+    label: "PowerShell",
+    prompt: "PS>",
+    command:
+      "iwr https://raw.githubusercontent.com/denizlg24/envoy/master/install.ps1 | iex",
+  },
+} as const;
 
-  const installCommands = {
-    bash: {
-      command:
-        "curl -fsSL https://raw.githubusercontent.com/denizlg24/envoy/master/install.sh | sh",
-      icon: "$",
-    },
-    powershell: {
-      command:
-        "iwr https://raw.githubusercontent.com/denizlg24/envoy/master/install.ps1 | iex",
-      icon: "PS>",
-    },
-  };
+type Installer = keyof typeof INSTALLERS;
 
-  const installCommand = installCommands[shellType];
+export function CommandText() {
+  const [installer, setInstaller] = useState<Installer>("cargo");
+  const selected = INSTALLERS[installer];
 
   return (
-    <div className="mb-8 w-full max-w-2xl flex flex-col gap-2 items-center">
-      <div className="flex gap-2 flex-wrap items-center">
-        <Button
-          variant={shellType == "bash" ? "default" : "outline"}
-          size={"icon-sm"}
-          className={"transition-all"}
-          onClick={() => setShellType("bash")}
-        >
-          <SiGnubash />
-        </Button>
-        <Button
-          variant={shellType == "powershell" ? "default" : "outline"}
-          size={"icon-sm"}
-          className={"transition-all"}
-          onClick={() => setShellType("powershell")}
-        >
-          <VscTerminalPowershell />
-        </Button>
+    <div className="overflow-hidden rounded-xl border bg-background/90 shadow-sm backdrop-blur">
+      <div
+        className="flex items-center gap-1 border-b p-1.5"
+        role="tablist"
+        aria-label="Installation method"
+      >
+        {(
+          Object.entries(INSTALLERS) as [
+            Installer,
+            (typeof INSTALLERS)[Installer],
+          ][]
+        ).map(([key, value]) => (
+          <Button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={installer === key}
+            variant={installer === key ? "secondary" : "ghost"}
+            size="xs"
+            onClick={() => setInstaller(key)}
+          >
+            {value.label}
+          </Button>
+        ))}
       </div>
-      <div className="relative w-full">
-        <div className="absolute inset-0 -z-10 rounded-full bg-primary/20 blur-xl"></div>
-        <div className="flex items-center gap-2 rounded-full border border-primary/30 bg-card sm:p-4 px-4 py-2 font-mono text-sm backdrop-blur-sm md:text-base">
-          <span className="text-primary">{installCommand.icon}</span>
-          <code className="flex-1 text-left text-foreground truncate">
-            {installCommand.command}
-          </code>
-          <CopyCommandIcon command={installCommand.command} />
-        </div>
+      <div className="flex min-w-0 items-center gap-3 px-4 py-3.5 font-mono text-xs sm:text-sm">
+        <span className="shrink-0 text-accent-strong dark:text-accent">
+          {selected.prompt}
+        </span>
+        <code className="min-w-0 flex-1 truncate text-left text-foreground">
+          {selected.command}
+        </code>
+        <CopyButton
+          value={selected.command}
+          label={`Copy ${selected.label} install command`}
+        />
       </div>
     </div>
   );
-};
+}

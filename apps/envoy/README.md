@@ -1,27 +1,81 @@
 # Envoy App
 
-The Next.js/Hono API and public site for the Envoy encrypted environment-file
-CLI.
+The public site and Hono/Prisma API for the Envoy encrypted environment-file
+CLI. Envoy is a Bun workspace in the `denizlg24.com` monorepo; use the root
+lockfile, Turbo tasks, Biome configuration, UI theme, and shared contracts.
 
 ## Development
 
+From the repository root:
+
 ```bash
 bun install
-bunx prisma migrate dev
-bun run dev
+bunx turbo dev --filter=envoy
 ```
+
+The app runs at `http://localhost:3006`.
 
 Validation:
 
 ```bash
-bun run test
-bun run lint
-bun run build
+bunx turbo typecheck --filter=envoy
+bunx turbo test --filter=envoy
+bunx turbo build --filter=envoy
+bun run format-and-lint
 ```
+
+Database migrations use the Envoy-specific URL so they cannot target the cloud
+API database accidentally:
+
+```bash
+bun --cwd=apps/envoy run db:status
+bun --cwd=apps/envoy run db:migrate
+```
+
+## Configuration
+
+All variables are documented in the root `.env.example` and passed through by
+`turbo.json`.
+
+- `ENVOY_DATABASE_URL`
+- `ENVOY_GITHUB_CLIENT_ID`
+- `ENVOY_GITHUB_CLIENT_SECRET`
+- `ENVOY_CRON_SECRET`
+- `ENVOY_S3_ENDPOINT` (`https://storage.denizlg24.com/v2` in production)
+- `ENVOY_S3_REGION`
+- `ENVOY_S3_ACCESS_KEY_ID`
+- `ENVOY_S3_SECRET_ACCESS_KEY`
+- `ENVOY_S3_BUCKET`
+
+Create a project and project-scoped S3 credential in the cloud admin, then
+create a bucket matching the project slug. The app uses path-style S3
+addressing, which is required by the denizlg24 cloud gateway.
+
+## R2 cutover
+
+Uploads go only to denizlg24 cloud S3. During the cutover, the old `R2_*`
+variables provide a read-only fallback so existing CLI history remains
+available.
+
+Preview and execute the idempotent copy:
+
+```bash
+bun --cwd=apps/envoy run storage:migrate:r2 --dry-run
+bun --cwd=apps/envoy run storage:migrate:r2 --execute
+```
+
+The migration never deletes R2 objects. Remove the four `R2_*` variables only
+after the execute summary and an Envoy pull smoke test confirm the new bucket.
+
+## Shared contracts
+
+Canonical request/response schemas live in `@repo/schemas/envoy`. API
+controllers use them for untrusted input and the marketing status client parses
+its response with the same contract.
 
 ## Blob access API
 
-All routes require an Envoy bearer token.
+All routes require an Envoy bearer token:
 
 ```text
 POST /api/projects/:projectId/blobs/:hash/upload
@@ -31,10 +85,4 @@ PUT  /api/projects/:projectId/blobs/:hash/access
 
 The access body is `{ "memberIds": ["<project-user-id>"] }`. An empty array is
 owner-only; `null` removes a restriction. Existing blobs without a policy remain
-available to all project members for backwards compatibility. Only owners can
-create, replace, or remove restrictions; ordinary members may confirm
-unrestricted access for a new blob.
-
-Access policy rows protect file blobs only. Encrypted manifests and commits stay
-available to project members so clients can traverse history, while restricted
-file downloads return HTTP 403.
+available to all project members for backwards compatibility.

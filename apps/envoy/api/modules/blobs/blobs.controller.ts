@@ -1,22 +1,22 @@
+import {
+  envoyBlobAccessInputSchema,
+  envoyBlobParamsSchema,
+  envoyBlobTypeSchema,
+} from "@repo/schemas/envoy";
 import type { Context } from "hono";
-import { z } from "zod";
 import {
   BlobAccessDeniedError,
-  getUploadSignedUrl,
   getDownloadSignedUrl,
+  getUploadSignedUrl,
   replaceBlobAccess,
 } from "./blobs.service";
 
-const blobAccessSchema = z.object({
-  memberIds: z.array(z.string().uuid()).max(500).nullable(),
-});
-const blobParamsSchema = z.object({
-  projectId: z.string().uuid(),
-  hash: z.string().regex(/^[a-f0-9]{64}$/),
-});
-
 function parseBlobParams(c: Context) {
-  return blobParamsSchema.safeParse(c.req.param());
+  return envoyBlobParamsSchema.safeParse(c.req.param());
+}
+
+function parseBlobType(c: Context) {
+  return envoyBlobTypeSchema.catch("blob").parse(c.req.query("type"));
 }
 
 export async function uploadBlob(c: Context) {
@@ -27,12 +27,7 @@ export async function uploadBlob(c: Context) {
   }
   const { projectId, hash } = params.data;
 
-  const type =
-    c.req.query("type") === "manifest"
-      ? "manifest"
-      : c.req.query("type") === "commit"
-      ? "commit"
-      : "blob";
+  const type = parseBlobType(c);
 
   const result = await getUploadSignedUrl(user.id, projectId, hash, type);
 
@@ -47,12 +42,7 @@ export async function downloadBlob(c: Context) {
   }
   const { projectId, hash } = params.data;
 
-  const type =
-    c.req.query("type") === "manifest"
-      ? "manifest"
-      : c.req.query("type") === "commit"
-      ? "commit"
-      : "blob";
+  const type = parseBlobType(c);
 
   try {
     const result = await getDownloadSignedUrl(user.id, projectId, hash, type);
@@ -75,11 +65,11 @@ export async function setBlobAccess(c: Context) {
   const { projectId, hash } = params.data;
 
   const body = await c.req.json().catch(() => null);
-  const parsed = blobAccessSchema.safeParse(body);
+  const parsed = envoyBlobAccessInputSchema.safeParse(body);
   if (!parsed.success) {
     return c.json(
       { error: "memberIds must be null or contain valid user IDs" },
-      400
+      400,
     );
   }
 

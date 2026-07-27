@@ -1,7 +1,8 @@
-import type { NextConfig } from 'next'
+import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-}
+  crossOrigin: "anonymous",
+  transpilePackages: ["@repo/schemas", "@repo/ui"],
+};
 
-export default nextConfig
+export default nextConfig;

@@ -1,14 +1,24 @@
+import {
+  envoyAddMemberInputSchema,
+  envoyProjectMemberParamsSchema,
+  envoyProjectParamsSchema,
+  envoyUpdateHeadInputSchema,
+} from "@repo/schemas/envoy";
 import type { Context } from "hono";
+import { prisma } from "@/lib/prisma";
 import {
   addMember as serviceAddMember,
   createProject as serviceCreateProject,
-  listProjectMembers as serviceListProjectMembers,
   deleteMember as serviceDeleteMember,
   deleteProjectMembers as serviceDeleteProjectMembers,
   getHead as serviceGetHead,
+  listProjectMembers as serviceListProjectMembers,
   updateHead as serviceUpdateHead,
 } from "./projects.service";
-import { prisma } from "@/lib/prisma";
+
+function parseProjectParams(c: Context) {
+  return envoyProjectParamsSchema.safeParse(c.req.param());
+}
 
 export async function createProject(c: Context) {
   const user = c.get("user");
@@ -18,10 +28,11 @@ export async function createProject(c: Context) {
 
 export async function getProjectHead(c: Context) {
   const requestingUser = c.get("user");
-  const { projectId } = c.req.param();
-  if (!projectId) {
-    return c.json({ error: "Missing Project ID" }, 400);
+  const params = parseProjectParams(c);
+  if (!params.success) {
+    return c.json({ error: "Invalid Project ID" }, 400);
   }
+  const { projectId } = params.data;
 
   const projectMember = await prisma.projectMember.findUnique({
     where: {
@@ -35,7 +46,7 @@ export async function getProjectHead(c: Context) {
   if (!projectMember) {
     return c.json(
       { error: "Unauthorized: Only project members can get current head." },
-      403
+      403,
     );
   }
   const head = await serviceGetHead(projectId);
@@ -44,11 +55,17 @@ export async function getProjectHead(c: Context) {
 
 export async function updateProjectHead(c: Context) {
   const requestingUser = c.get("user");
-  const { projectId } = c.req.param();
-  const { new_head, expected_head } = await c.req.json();
-  if (!projectId) {
-    return c.json({ error: "Missing Project ID" }, 400);
+  const params = parseProjectParams(c);
+  if (!params.success) {
+    return c.json({ error: "Invalid Project ID" }, 400);
   }
+  const body = await c.req.json().catch(() => null);
+  const parsed = envoyUpdateHeadInputSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid head update" }, 400);
+  }
+  const { projectId } = params.data;
+  const { new_head, expected_head } = parsed.data;
 
   const projectMember = await prisma.projectMember.findUnique({
     where: {
@@ -62,7 +79,7 @@ export async function updateProjectHead(c: Context) {
   if (!projectMember) {
     return c.json(
       { error: "Unauthorized: Only project members can update current head." },
-      403
+      403,
     );
   }
   const head = await serviceUpdateHead({
@@ -78,15 +95,17 @@ export async function updateProjectHead(c: Context) {
 
 export async function addMember(c: Context) {
   const requestingUser = c.get("user");
-  const { projectId } = c.req.param();
-  const { githubId, nickname } = await c.req.json();
-
-  if (!projectId) {
-    return c.json({ error: "Missing Project ID" }, 400);
+  const params = parseProjectParams(c);
+  if (!params.success) {
+    return c.json({ error: "Invalid Project ID" }, 400);
   }
-  if (!githubId) {
-    return c.json({ error: "Missing User ID" }, 400);
+  const body = await c.req.json().catch(() => null);
+  const parsed = envoyAddMemberInputSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid GitHub user ID or nickname" }, 400);
   }
+  const { projectId } = params.data;
+  const { githubId, nickname } = parsed.data;
 
   const projectMember = await prisma.projectMember.findUnique({
     where: {
@@ -97,10 +116,10 @@ export async function addMember(c: Context) {
     },
   });
 
-  if (!projectMember || projectMember.role !== "owner") {
+  if (projectMember?.role !== "owner") {
     return c.json(
       { error: "Unauthorized: Only project owners can add members" },
-      403
+      403,
     );
   }
 
@@ -122,11 +141,11 @@ export async function addMember(c: Context) {
 
 export async function listMembers(c: Context) {
   const requestingUser = c.get("user");
-  const { projectId } = c.req.param();
-
-  if (!projectId) {
-    return c.json({ error: "Missing Project ID" }, 400);
+  const params = parseProjectParams(c);
+  if (!params.success) {
+    return c.json({ error: "Invalid Project ID" }, 400);
   }
+  const { projectId } = params.data;
 
   const projectMember = await prisma.projectMember.findUnique({
     where: {
@@ -140,7 +159,7 @@ export async function listMembers(c: Context) {
   if (!projectMember) {
     return c.json(
       { error: "Unauthorized: You are not a member of this project" },
-      403
+      403,
     );
   }
 
@@ -151,14 +170,11 @@ export async function listMembers(c: Context) {
 
 export async function removeMember(c: Context) {
   const requestingUser = c.get("user");
-  const { projectId, userId } = c.req.param();
-
-  if (!projectId) {
-    return c.json({ error: "Missing Project ID" }, 400);
+  const params = envoyProjectMemberParamsSchema.safeParse(c.req.param());
+  if (!params.success) {
+    return c.json({ error: "Invalid Project ID or User ID" }, 400);
   }
-  if (!userId) {
-    return c.json({ error: "Missing User ID" }, 400);
-  }
+  const { projectId, userId } = params.data;
 
   const projectMember = await prisma.projectMember.findUnique({
     where: {
@@ -169,10 +185,10 @@ export async function removeMember(c: Context) {
     },
   });
 
-  if (!projectMember || projectMember.role !== "owner") {
+  if (projectMember?.role !== "owner") {
     return c.json(
       { error: "Unauthorized: Only project owners can remove members" },
-      403
+      403,
     );
   }
 
@@ -187,11 +203,11 @@ export async function removeMember(c: Context) {
 
 export async function removeAllMembers(c: Context) {
   const requestingUser = c.get("user");
-  const { projectId } = c.req.param();
-
-  if (!projectId) {
-    return c.json({ error: "Missing Project ID" }, 400);
+  const params = parseProjectParams(c);
+  if (!params.success) {
+    return c.json({ error: "Invalid Project ID" }, 400);
   }
+  const { projectId } = params.data;
 
   const projectMember = await prisma.projectMember.findUnique({
     where: {
@@ -202,10 +218,10 @@ export async function removeAllMembers(c: Context) {
     },
   });
 
-  if (!projectMember || projectMember.role !== "owner") {
+  if (projectMember?.role !== "owner") {
     return c.json(
       { error: "Unauthorized: Only project owners can remove all members" },
-      403
+      403,
     );
   }
 

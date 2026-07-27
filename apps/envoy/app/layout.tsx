@@ -1,44 +1,50 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Inter } from "next/font/google";
-import "./globals.css";
+import { Calistoga, Geist_Mono, Inter } from "next/font/google";
+import type { ReactNode } from "react";
 import { ThemeProvider } from "./_components/theme-provider";
-import { PixelBlast } from "@/components/PixelBlast";
+import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
   subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const calistoga = Calistoga({
+  subsets: ["latin"],
+  variable: "--font-calistoga",
+  display: "swap",
+  weight: "400",
 });
 
 const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
   subsets: ["latin"],
+  variable: "--font-geist-mono",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://envoy.denizlg24.com"),
   title: {
-    default: "Envoy CLI — .env versioning made easy",
+    default: "Envoy CLI — Git for environment files",
     template: "%s | Envoy CLI",
   },
   description:
-    "Envoy is an open-source CLI that brings Git-style version control to your .env files. Track, sync, and share environment variables across machines and teammates without leaking secrets.",
+    "Encrypted, Git-style version control for environment files. Stage redacted diffs, commit secret history, and grant access per file.",
   applicationName: "Envoy CLI",
   keywords: [
     "envoy",
     "envoy cli",
     ".env",
     "dotenv",
-    "env versioning",
     "environment variables",
     "secrets management",
     "developer tools",
     "cli",
     "open source",
   ],
-  authors: [{ name: "denizlg24", url: "https://github.com/denizlg24" }],
-  creator: "denizlg24",
+  authors: [{ name: "Deniz Lopes Güneş", url: "https://denizlg24.com" }],
+  creator: "Deniz Lopes Güneş",
   publisher: "Envoy",
   category: "developer tools",
   icons: {
@@ -54,93 +60,51 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "Envoy CLI",
-    title: "Envoy CLI — .env versioning made easy",
+    title: "Envoy CLI — Git for environment files",
     description:
-      "Git-style version control for your .env files. Track, sync, and share environment variables safely across machines and teams.",
+      "Encrypted commits, redacted diffs, and per-file access for environment files.",
     url: "/",
     images: [
       {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "Envoy CLI — .env versioning made easy",
+        alt: "Envoy CLI — Git for environment files",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Envoy CLI — .env versioning made easy",
+    title: "Envoy CLI — Git for environment files",
     description:
-      "Git-style version control for your .env files. Track, sync, and share environment variables safely.",
+      "Encrypted commits, redacted diffs, and per-file access for environment files.",
     images: ["/og-image.png"],
   },
   robots: {
     index: true,
     follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-      "max-image-preview": "large",
-      "max-snippet": -1,
-    },
-  },
-  formatDetection: {
-    email: false,
-    address: false,
-    telephone: false,
   },
 };
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#1b9388" },
-    { media: "(prefers-color-scheme: dark)", color: "#1db6a5" },
+    { media: "(prefers-color-scheme: light)", color: "#f9f8f6" },
+    { media: "(prefers-color-scheme: dark)", color: "#303630" },
   ],
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen w-full relative`}
+        className={`${inter.variable} ${calistoga.variable} ${geistMono.variable} min-h-screen bg-background font-inter text-foreground antialiased`}
       >
         <ThemeProvider
           attribute="class"
-          defaultTheme="dark"
+          defaultTheme="system"
+          enableSystem
           disableTransitionOnChange
         >
-          <div className="w-full h-full absolute -z-10 hidden dark:block opacity-25">
-            <PixelBlast
-              variant="circle"
-              pixelSize={4}
-              color={"#1db6a5"}
-              patternScale={5}
-              patternDensity={1.5}
-              pixelSizeJitter={5}
-              speed={0.5}
-              edgeFade={0.8}
-              enableRipples={true}
-              transparent
-            />
-          </div>
-          <div className="w-full h-full absolute -z-10 dark:hidden block opacity-25">
-            <PixelBlast
-              variant="circle"
-              pixelSize={4}
-              color={"#1b9388"}
-              patternScale={5}
-              patternDensity={1.5}
-              pixelSizeJitter={5}
-              speed={0.5}
-              edgeFade={0.8}
-              enableRipples={true}
-              transparent
-            />
-          </div>
           {children}
         </ThemeProvider>
       </body>

@@ -1,4 +1,1 @@
-export interface SignedUrlResponse {
-  method: "PUT" | "GET";
-  url: string;
-}
+export type { EnvoySignedUrlResponse as SignedUrlResponse } from "@repo/schemas/envoy";
