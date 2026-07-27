@@ -2,134 +2,59 @@
 
 [![CI](https://github.com/denizlg24/denizlg24.com/actions/workflows/ci.yml/badge.svg)](https://github.com/denizlg24/denizlg24.com/actions/workflows/ci.yml)
 
-The monorepo behind [denizlg24.com](https://denizlg24.com) and its companion
-desktop life dashboard.
+This is the monorepo behind [denizlg24.com](https://denizlg24.com), my public
+website, personal applications, and self-hosted infrastructure.
 
-The public website presents projects, writing, and current work. Its
-authenticated admin API powers a Tauri desktop application for managing notes,
-people, calendar events, email, projects, resources, kanban boards, and other
-personal workflows.
+Most applications here are purpose-built for my own workflows. The two public
+projects are Envoy and its Rust CLI.
 
-## Structure
+## Public projects
 
-| Path | Purpose |
-| --- | --- |
-| `apps/web` | Next.js public website, admin dashboard, and API |
-| `apps/desktop` | Next.js dashboard packaged with Tauri |
-| `apps/envoy` | Envoy CLI public site and Hono/Prisma API |
-| `apps/envoy-cli` | Rust Envoy CLI and release-mirror source |
-| `packages/schemas` | Canonical Zod API contracts shared by both apps |
-| `packages/ui` | Shared React UI components |
-| `packages/utils` | Shared utilities |
-| `packages/typescript-config` | Shared TypeScript configuration |
-| `plans` | Implementation plans and completed engineering work |
+### Envoy
 
-## Stack
+[Envoy](https://envoy.denizlg24.com) is encrypted, Git-style version control
+for environment files. It stores encrypted blobs and commit history while
+keeping plaintext secrets and encryption keys on the user's machine.
 
-- Bun workspaces and Turborepo
-- Next.js 16, React 19, and TypeScript
-- Tauri 2 for the desktop application
-- Tailwind CSS, Radix UI, and shared `@repo/ui` components
-- MongoDB and Mongoose
-- Zod contracts shared through `@repo/schemas`
-- Biome, Bun Test, and GitHub Actions
+- [Envoy service source](apps/envoy)
+- [Envoy CLI source and documentation](apps/envoy-cli)
+- [Envoy CLI on crates.io](https://crates.io/crates/envoy-cli)
 
-## Development
+## Repository map
 
-Requirements:
-
-- [Bun](https://bun.sh/) 1.3+
-- Node.js 18+
-- Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
-  when running the desktop shell
-- A local root `.env` containing the services and credentials used by the
-  features you intend to run
-
-Install dependencies:
-
-```bash
-bun install
-```
-
-Run the web and desktop development servers through Turborepo:
-
-```bash
-bun run dev
-```
-
-Run a focused development stack:
-
-```bash
-bun run dev:web
-bun run dev:desktop
-bun run dev:cloud
-bun run dev:storage
-bun run dev:envoy
-cd apps/envoy-cli && cargo run -- --help
-```
-
-`dev:desktop` starts the web app plus the Tauri desktop app; Tauri manages its
-own Next.js server on `http://localhost:3004`. The cloud and storage commands
-also start the shared API on `http://localhost:3001`.
-
-## Verification
-
-```bash
-bunx turbo typecheck
-bun --env-file=.env turbo run test
-bun run format-and-lint
-bun run build
-cd apps/envoy-cli
-cargo fmt --check
-cargo test --all-targets --locked
-cargo clippy --all-targets --locked -- -D warnings
-```
-
-CI runs builds, typechecks, tests, and Biome checks for every pull request and
-push to `main`. A separate CI job applies Rust formatting, tests, and Clippy to
-`apps/envoy-cli`.
+| Path | Description | Audience |
+| --- | --- | --- |
+| `apps/web` | Public website, writing, projects, and private administration | Personal |
+| `apps/desktop` | Native life-dashboard client built with Tauri | Personal |
+| `apps/api` | API for my self-hosted cloud | Personal |
+| `apps/cloud` | Administration interface for cloud services | Personal |
+| `apps/storage` | Browser-based file manager | Personal |
+| `apps/terminal` | Web-terminal daemon for the cloud host | Personal |
+| `apps/envoy` | Envoy website and encrypted-storage API | Public |
+| `apps/envoy-cli` | Rust command-line client for Envoy | Public |
+| `packages/*` | Shared contracts, UI, utilities, and application modules | Shared |
+| `infra/*` | Deployment definitions for self-hosted services | Personal |
 
 ## Architecture
 
-The web app owns persistence, authentication, public pages, and the admin API.
-The desktop app consumes that API using the contracts in `@repo/schemas`.
-Browser and Tauri platform adapters keep the desktop UI runnable in both a
-normal browser and the native shell.
+The TypeScript applications are organized as Bun workspaces and coordinated by
+Turborepo. Next.js and React power the browser interfaces, Tauri packages the
+desktop application, and shared packages keep contracts and UI consistent
+across applications.
 
-Shared UI primitives live in `@repo/ui`; application-specific navigation,
-authentication, and platform integrations remain inside their respective apps.
-Envoy request and response schemas live in `@repo/schemas/envoy`. The Rust CLI
-and TypeScript server both validate the versioned fixtures in
-`apps/envoy-cli/contracts`.
+The self-hosted cloud runs a Bun and Hono API backed by PostgreSQL, MongoDB,
+Redis, and S3-compatible storage. Envoy combines a Next.js service with a Rust
+CLI and shares versioned API fixtures across both implementations.
 
-## Deployment
+## Technology
 
-- `apps/web` is deployed as the website and API.
-- `apps/envoy` is deployed as the Envoy site and API, with blobs stored in the
-  project-scoped denizlg24 cloud S3 bucket. Its Vercel project uses
-  `apps/envoy` as the Root Directory and includes source files outside that
-  directory so workspace contracts and UI packages are available.
-- `apps/envoy-cli` is developed here and mirrored to
-  [`denizlg24/envoy`](https://github.com/denizlg24/envoy), where the existing
-  CLI release workflow publishes installers and update assets. There is no
-  separate CLI release deployment from this monorepo.
-- `apps/desktop` is statically exported and bundled by Tauri.
-- `.github/workflows/release-desktop.yml` builds desktop releases.
-- `.github/workflows/sync-envoy-cli.yml` pushes the CLI subtree to its release
-  mirror after changes land on `main`. It requires an `ENVOY_REPO_TOKEN`
-  fine-grained secret with contents write access to `denizlg24/envoy`.
+- Bun, TypeScript, Turborepo
+- Next.js, React, Tailwind CSS
+- Rust and Tauri
+- Hono, PostgreSQL, MongoDB, Redis
+- Prisma and Drizzle
+- Docker, GitHub Actions, Vercel
 
-To sync manually, preserving the same subtree history:
-
-```bash
-git subtree push \
-  --prefix=apps/envoy-cli \
-  https://github.com/denizlg24/envoy.git \
-  master
-```
-
-Create and push CLI `v*` tags in the release mirror after the sync; its
-standalone release workflow remains responsible for cross-platform binaries.
-
-This repository contains personal infrastructure and application code. Running
-every feature locally requires your own external services and credentials.
+This repository is public for transparency and as a record of the systems I
+build and operate. Personal applications are tailored to my environment and
+are not presented as reusable products.

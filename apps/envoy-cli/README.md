@@ -4,24 +4,9 @@
 
 It lets you **encrypt once**, **sync safely**, and **restore automatically** — without ever committing secrets to Git.
 
-Development lives in the
-[`denizlg24.com` monorepo](https://github.com/denizlg24/denizlg24.com/tree/main/apps/envoy-cli).
-CLI release assets remain published from the
-[`envoy` release mirror](https://github.com/denizlg24/envoy/releases).
-Versioned API fixtures live in `contracts/v1`; both the Rust CLI and the
-monorepo's Zod schemas validate them to prevent protocol drift.
-
-## Repository and release flow
-
-The monorepo is the canonical development source. After changes under
-`apps/envoy-cli` land on `main`, the monorepo's
-`sync-envoy-cli.yml` workflow splits this directory and fast-forwards the
-`master` branch of `denizlg24/envoy`.
-
-Tags and CLI releases continue to be created in `denizlg24/envoy`, where the
-existing release workflow builds installers and update assets. Installer and
-self-update URLs therefore intentionally use the release mirror; the monorepo
-does not publish a second copy of those assets.
+[Website](https://envoy.denizlg24.com) ·
+[Releases](https://github.com/denizlg24/denizlg24.com/releases) ·
+[Source](https://github.com/denizlg24/denizlg24.com/tree/main/apps/envoy-cli)
 
 ---
 
@@ -63,13 +48,13 @@ If you understand Git, Envoy will feel familiar.
 **macOS/Linux:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/denizlg24/envoy/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/denizlg24/denizlg24.com/main/apps/envoy-cli/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/denizlg24/envoy/master/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/denizlg24/denizlg24.com/main/apps/envoy-cli/install.ps1 | iex
 ```
 
 ### From Source

@@ -2,7 +2,7 @@
 set -e
 
 REPO_OWNER="denizlg24"
-REPO_NAME="envoy"
+REPO_NAME="denizlg24.com"
 BINARY_NAME="envy"
 SOURCE_BINARY_NAME="envoy"
 
