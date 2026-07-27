@@ -57,18 +57,20 @@ Run the web and desktop development servers through Turborepo:
 bun run dev
 ```
 
-Run an individual app:
+Run a focused development stack:
 
 ```bash
-bunx turbo dev --filter=web
-bunx turbo dev --filter=envoy
-bun --cwd apps/desktop run dev:server
-bun --cwd apps/desktop run dev
+bun run dev:web
+bun run dev:desktop
+bun run dev:cloud
+bun run dev:storage
+bun run dev:envoy
 cd apps/envoy-cli && cargo run -- --help
 ```
 
-The desktop Next.js server runs on `http://localhost:3001`. The Tauri command
-starts that server and opens the native shell.
+`dev:desktop` starts the web app plus the Tauri desktop app; Tauri manages its
+own Next.js server on `http://localhost:3004`. The cloud and storage commands
+also start the shared API on `http://localhost:3001`.
 
 ## Verification
 
