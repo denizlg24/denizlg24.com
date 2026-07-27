@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { EnvoyEnv } from "./env";
+import type { EnvoyStorageEnv } from "./env";
 import {
   blobKey,
   commitKey,
@@ -9,15 +9,12 @@ import {
 } from "./storage";
 
 const CONFIG = {
-  ENVOY_DATABASE_URL: "postgresql://envoy:envoy@localhost:5432/envoy",
-  ENVOY_GITHUB_CLIENT_ID: "github-client",
-  ENVOY_GITHUB_CLIENT_SECRET: "github-secret",
   ENVOY_S3_ENDPOINT: "https://storage.denizlg24.com/v2/",
   ENVOY_S3_REGION: "eu-west-1",
   ENVOY_S3_ACCESS_KEY_ID: "project-access",
   ENVOY_S3_SECRET_ACCESS_KEY: "project-secret",
   ENVOY_S3_BUCKET: "envoy",
-} satisfies EnvoyEnv;
+} satisfies EnvoyStorageEnv;
 
 describe("Envoy S3 storage adapter", () => {
   it("uses the monorepo gateway with path-style addressing", () => {

@@ -1,0 +1,81 @@
+{
+  "deviceCodeResponse": {
+    "device_code": "device-code",
+    "user_code": "ABCD-EFGH",
+    "verification_uri": "https://github.com/login/device",
+    "expires_in": 900,
+    "interval": 5
+  },
+  "authTokenSuccess": {
+    "apiToken": "envoy_api_token"
+  },
+  "authTokenPending": {
+    "error": "authorization_pending",
+    "error_description": "Authorization is pending"
+  },
+  "githubTokenRequest": {
+    "device_code": "device-code"
+  },
+  "createProjectResponse": {
+    "projectId": "5211d914-5dd3-49e7-b388-488c06f8120c"
+  },
+  "signedUploadUrlResponse": {
+    "method": "PUT",
+    "url": "https://storage.denizlg24.com/v2/envoy/example"
+  },
+  "signedDownloadUrlResponse": {
+    "method": "GET",
+    "url": "https://storage.denizlg24.com/v2/envoy/example"
+  },
+  "headResponse": {
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "updateHeadRequest": {
+    "new_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "expected_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "blobAccessRequest": {
+    "memberIds": ["e7e5a675-0d31-4d1e-a9cd-fcaed1d5f7c4"]
+  },
+  "addMemberRequest": {
+    "githubId": "12345678",
+    "nickname": "release-bot"
+  },
+  "addMemberResponse": {
+    "projectMember": {
+      "userId": "e7e5a675-0d31-4d1e-a9cd-fcaed1d5f7c4",
+      "projectId": "5211d914-5dd3-49e7-b388-488c06f8120c",
+      "role": "user",
+      "nickname": "release-bot"
+    }
+  },
+  "listMembersResponse": {
+    "members": [
+      {
+        "userId": "e7e5a675-0d31-4d1e-a9cd-fcaed1d5f7c4",
+        "projectId": "5211d914-5dd3-49e7-b388-488c06f8120c",
+        "role": "user",
+        "nickname": "release-bot",
+        "user": {
+          "id": "e7e5a675-0d31-4d1e-a9cd-fcaed1d5f7c4",
+          "email": "release-bot@example.com",
+          "githubId": "12345678",
+          "createdAt": "2026-07-27T12:00:00.000Z"
+        }
+      }
+    ]
+  },
+  "removeMemberResponse": {
+    "success": true,
+    "deletedMember": {
+      "userId": "e7e5a675-0d31-4d1e-a9cd-fcaed1d5f7c4",
+      "projectId": "5211d914-5dd3-49e7-b388-488c06f8120c",
+      "role": "user",
+      "nickname": "release-bot"
+    }
+  },
+  "removeAllMembersResponse": {
+    "success": true,
+    "deletedCount": 1
+  }
+}

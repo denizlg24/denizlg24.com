@@ -3,6 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::{
+    api_contracts::CreateProjectResponse,
     commands::auth::login,
     utils::{
         config::{auth_server_url, load_token},
@@ -14,12 +15,6 @@ use crate::{
         },
     },
 };
-
-#[derive(serde::Deserialize)]
-struct CreateProjectResponse {
-    #[serde(rename = "projectId")]
-    project_id: String,
-}
 
 pub async fn ensure_logged_in() -> anyhow::Result<String> {
     match load_token() {

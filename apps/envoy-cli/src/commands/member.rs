@@ -1,49 +1,17 @@
 use console::style;
 use serde::Deserialize;
 
-use crate::utils::{
-    config::{auth_server_url, load_token},
-    project_config::load_project_config,
-    ui::{create_spinner, print_header, print_info, print_kv, print_success},
+use crate::{
+    api_contracts::{
+        AddMemberRequest, ListMembersResponse, ProjectMemberResponse, RemoveAllMembersResponse,
+        RemoveMemberResponse,
+    },
+    utils::{
+        config::{auth_server_url, load_token},
+        project_config::load_project_config,
+        ui::{create_spinner, print_header, print_info, print_kv, print_success},
+    },
 };
-
-#[derive(Deserialize)]
-struct ProjectMemberResponse {
-    #[serde(rename = "projectMember")]
-    project_member: ProjectMember,
-}
-
-#[derive(Deserialize)]
-struct ProjectMember {
-    #[serde(rename = "userId")]
-    user_id: String,
-    role: String,
-    #[serde(rename = "projectId")]
-    #[allow(dead_code)]
-    project_id: String,
-    nickname: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ListMembersResponse {
-    members: Vec<ProjectMember>,
-}
-
-#[derive(Deserialize)]
-struct RemoveMemberResponse {
-    #[allow(dead_code)]
-    success: bool,
-    #[serde(rename = "deletedMember")]
-    deleted_member: ProjectMember,
-}
-
-#[derive(Deserialize)]
-struct RemoveAllMembersResponse {
-    #[allow(dead_code)]
-    success: bool,
-    #[serde(rename = "deletedCount")]
-    deleted_count: u32,
-}
 
 async fn parse_api_response<T: for<'de> Deserialize<'de>>(
     response: reqwest::Response,
@@ -78,10 +46,10 @@ pub async fn add_member(github_id: u64, nickname: &str) -> anyhow::Result<()> {
             project.project_id
         ))
         .bearer_auth(token)
-        .json(&serde_json::json!({
-            "githubId": github_id.to_string(),
-            "nickname": nickname
-        }))
+        .json(&AddMemberRequest {
+            github_id: github_id.to_string(),
+            nickname,
+        })
         .send()
         .await?;
     let response: ProjectMemberResponse = parse_api_response(response, "Add member").await?;

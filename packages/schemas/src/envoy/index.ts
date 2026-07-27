@@ -50,6 +50,9 @@ export type EnvoyBlobAccessResponse = z.infer<
 export const envoyCreateProjectResponseSchema = z.object({
   projectId: envoyUuidSchema,
 });
+export type EnvoyCreateProjectResponse = z.infer<
+  typeof envoyCreateProjectResponseSchema
+>;
 
 export const envoyHeadResponseSchema = z.object({
   head: envoyHashSchema.nullable(),
@@ -87,8 +90,22 @@ export const envoyProjectMemberWithUserSchema = envoyProjectMemberSchema.extend(
   },
 );
 
+export const envoyProjectMemberResponseSchema = z.object({
+  projectMember: envoyProjectMemberSchema,
+});
+
 export const envoyProjectMembersResponseSchema = z.object({
   members: z.array(envoyProjectMemberWithUserSchema),
+});
+
+export const envoyRemoveMemberResponseSchema = z.object({
+  success: z.literal(true),
+  deletedMember: envoyProjectMemberSchema,
+});
+
+export const envoyRemoveAllMembersResponseSchema = z.object({
+  success: z.literal(true),
+  deletedCount: z.number().int().nonnegative(),
 });
 
 export const envoyGithubDeviceCodeSchema = z.object({

@@ -96,12 +96,17 @@ normal browser and the native shell.
 
 Shared UI primitives live in `@repo/ui`; application-specific navigation,
 authentication, and platform integrations remain inside their respective apps.
+Envoy request and response schemas live in `@repo/schemas/envoy`. The Rust CLI
+and TypeScript server both validate the versioned fixtures in
+`apps/envoy-cli/contracts`.
 
 ## Deployment
 
 - `apps/web` is deployed as the website and API.
 - `apps/envoy` is deployed as the Envoy site and API, with blobs stored in the
-  project-scoped denizlg24 cloud S3 bucket.
+  project-scoped denizlg24 cloud S3 bucket. Its Vercel project uses
+  `apps/envoy` as the Root Directory and includes source files outside that
+  directory so workspace contracts and UI packages are available.
 - `apps/envoy-cli` is developed here and mirrored to
   [`denizlg24/envoy`](https://github.com/denizlg24/envoy), where the existing
   CLI release workflow publishes installers and update assets.

@@ -1,10 +1,6 @@
 use std::path::Path;
 
-#[derive(serde::Deserialize)]
-struct SignedUrlResponse {
-    method: String,
-    url: String,
-}
+use crate::api_contracts::{BlobAccessRequest, HeadResponse, SignedUrlResponse, UpdateHeadRequest};
 
 async fn parse_signed_url_response(
     response: reqwest::Response,
@@ -23,17 +19,6 @@ async fn parse_signed_url_response(
 
     serde_json::from_str(&body)
         .map_err(|e| anyhow::anyhow!("Failed to parse {} response: {}", action, e))
-}
-
-#[derive(serde::Deserialize)]
-struct HeadResponse {
-    head: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-struct UpdateHeadRequest {
-    new_head: String,
-    expected_head: Option<String>,
 }
 
 pub async fn fetch_remote_head(
@@ -63,8 +48,8 @@ pub async fn update_remote_head(
     expected_head: Option<&str>,
 ) -> anyhow::Result<()> {
     let body = UpdateHeadRequest {
-        new_head: new_head.to_string(),
-        expected_head: expected_head.map(|s| s.to_string()),
+        new_head,
+        expected_head,
     };
 
     let response = client
@@ -244,7 +229,7 @@ pub async fn set_blob_access(
             server, project_id, hash
         ))
         .bearer_auth(token)
-        .json(&serde_json::json!({ "memberIds": member_ids }))
+        .json(&BlobAccessRequest { member_ids })
         .send()
         .await?
         .error_for_status()?;

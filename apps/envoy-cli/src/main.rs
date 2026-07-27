@@ -16,6 +16,7 @@ use crate::utils::ui::{
     prompt_input_with_default,
 };
 
+mod api_contracts;
 pub mod commands;
 pub mod utils;
 

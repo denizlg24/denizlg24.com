@@ -70,8 +70,28 @@ after the execute summary and an Envoy pull smoke test confirm the new bucket.
 ## Shared contracts
 
 Canonical request/response schemas live in `@repo/schemas/envoy`. API
-controllers use them for untrusted input and the marketing status client parses
-its response with the same contract.
+controllers validate both untrusted input and outgoing payloads, and the
+marketing status client parses its response with the same contract.
+
+Cross-language fixtures live in `apps/envoy-cli/contracts/v1`. The schema test
+suite validates them with Zod, while the Rust CLI deserializes responses into
+its production wire types and compares serialized requests exactly. Change the
+Zod schema, fixture, server, and Rust type together when the protocol changes.
+
+## Vercel deployment
+
+Connect the monorepo repository to a dedicated Vercel project with:
+
+- Root Directory: `apps/envoy`
+- Framework Preset: Next.js
+- Include source files outside the Root Directory: enabled
+- Build Command: use the `vercel.json` default
+- Install Command and Output Directory: automatically detected
+
+Add every required `ENVOY_*` variable to the intended Vercel environments.
+Deploy the Prisma migration with `db:migrate` before routing production traffic.
+Keep the four `R2_*` variables during the storage copy and pull smoke test, then
+remove them after cutover.
 
 ## Blob access API
 

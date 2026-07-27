@@ -7,7 +7,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { getEnv } from "../lib/env";
+import { getStorageEnv } from "../lib/env";
 import { getLegacyR2Config, getS3ClientOptions } from "../lib/storage";
 
 const execute = process.argv.includes("--execute");
@@ -21,7 +21,7 @@ const prefix =
     .find((argument) => argument.startsWith("--prefix="))
     ?.slice("--prefix=".length) ?? "";
 
-const env = getEnv();
+const env = getStorageEnv();
 const legacy = getLegacyR2Config(env);
 if (!legacy) {
   throw new Error("Legacy R2 credentials are required for this migration");

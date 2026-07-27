@@ -7,9 +7,9 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { type EnvoyEnv, getEnv } from "./env";
+import { type EnvoyStorageEnv, getEnv } from "./env";
 
-export function getS3ClientOptions(env: EnvoyEnv) {
+export function getS3ClientOptions(env: EnvoyStorageEnv) {
   return {
     region: env.ENVOY_S3_REGION,
     endpoint: env.ENVOY_S3_ENDPOINT.replace(/\/+$/, ""),
@@ -23,7 +23,7 @@ export function getS3ClientOptions(env: EnvoyEnv) {
   } as const;
 }
 
-export function getLegacyR2Config(env: EnvoyEnv) {
+export function getLegacyR2Config(env: EnvoyStorageEnv) {
   const values = [
     env.R2_ACCOUNT_ID,
     env.R2_ACCESS_KEY_ID,

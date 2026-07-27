@@ -1,7 +1,13 @@
 import {
   envoyAddMemberInputSchema,
+  envoyCreateProjectResponseSchema,
+  envoyHeadResponseSchema,
   envoyProjectMemberParamsSchema,
+  envoyProjectMemberResponseSchema,
+  envoyProjectMembersResponseSchema,
   envoyProjectParamsSchema,
+  envoyRemoveAllMembersResponseSchema,
+  envoyRemoveMemberResponseSchema,
   envoyUpdateHeadInputSchema,
 } from "@repo/schemas/envoy";
 import type { Context } from "hono";
@@ -23,7 +29,9 @@ function parseProjectParams(c: Context) {
 export async function createProject(c: Context) {
   const user = c.get("user");
   const project = await serviceCreateProject(user.id);
-  return c.json({ projectId: project.id });
+  return c.json(
+    envoyCreateProjectResponseSchema.parse({ projectId: project.id }),
+  );
 }
 
 export async function getProjectHead(c: Context) {
@@ -50,7 +58,7 @@ export async function getProjectHead(c: Context) {
     );
   }
   const head = await serviceGetHead(projectId);
-  return c.json({ head }, 200);
+  return c.json(envoyHeadResponseSchema.parse({ head }), 200);
 }
 
 export async function updateProjectHead(c: Context) {
@@ -90,7 +98,7 @@ export async function updateProjectHead(c: Context) {
   if (!head) {
     return c.json({ error: "Expected head doesn't match current head." }, 409);
   }
-  return c.json({ head }, 200);
+  return c.json(envoyHeadResponseSchema.parse({ head }), 200);
 }
 
 export async function addMember(c: Context) {
@@ -136,7 +144,9 @@ export async function addMember(c: Context) {
     nickname,
   });
 
-  return c.json({ projectMember: result });
+  return c.json(
+    envoyProjectMemberResponseSchema.parse({ projectMember: result }),
+  );
 }
 
 export async function listMembers(c: Context) {
@@ -165,7 +175,19 @@ export async function listMembers(c: Context) {
 
   const members = await serviceListProjectMembers(projectId);
 
-  return c.json({ members });
+  return c.json(
+    envoyProjectMembersResponseSchema.parse({
+      members: members.map(({ user, ...member }) => ({
+        ...member,
+        user: {
+          id: user.id,
+          email: user.email,
+          githubId: user.githubId,
+          createdAt: user.createdAt.toISOString(),
+        },
+      })),
+    }),
+  );
 }
 
 export async function removeMember(c: Context) {
@@ -198,7 +220,12 @@ export async function removeMember(c: Context) {
 
   const deleted = await serviceDeleteMember({ projectId, userId });
 
-  return c.json({ success: true, deletedMember: deleted });
+  return c.json(
+    envoyRemoveMemberResponseSchema.parse({
+      success: true,
+      deletedMember: deleted,
+    }),
+  );
 }
 
 export async function removeAllMembers(c: Context) {
@@ -227,5 +254,10 @@ export async function removeAllMembers(c: Context) {
 
   const deletedCount = await serviceDeleteProjectMembers(projectId);
 
-  return c.json({ success: true, deletedCount });
+  return c.json(
+    envoyRemoveAllMembersResponseSchema.parse({
+      success: true,
+      deletedCount,
+    }),
+  );
 }

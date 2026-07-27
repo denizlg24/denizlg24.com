@@ -10,9 +10,9 @@
     "lint": "biome check .",
     "typecheck": "prisma generate && tsc --noEmit",
     "test": "bun test",
-    "db:migrate": "prisma migrate deploy",
-    "db:status": "prisma migrate status",
-    "storage:migrate:r2": "bun scripts/migrate-r2-to-s3.ts"
+    "db:migrate": "bun --env-file=../../.env prisma migrate deploy",
+    "db:status": "bun --env-file=../../.env prisma migrate status",
+    "storage:migrate:r2": "bun --env-file=../../.env scripts/migrate-r2-to-s3.ts"
   },
   "dependencies": {
     "@repo/schemas": "workspace:*",

@@ -8,6 +8,8 @@ Development lives in the
 [`denizlg24.com` monorepo](https://github.com/denizlg24/denizlg24.com/tree/main/apps/envoy-cli).
 CLI release assets remain published from the
 [`envoy` release mirror](https://github.com/denizlg24/envoy/releases).
+Versioned API fixtures live in `contracts/v1`; both the Rust CLI and the
+monorepo's Zod schemas validate them to prevent protocol drift.
 
 ---
 

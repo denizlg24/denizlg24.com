@@ -1,4 +1,8 @@
-import { envoyGithubTokenInputSchema } from "@repo/schemas/envoy";
+import {
+  envoyAuthTokenResponseSchema,
+  envoyGithubDeviceCodeSchema,
+  envoyGithubTokenInputSchema,
+} from "@repo/schemas/envoy";
 import type { Context } from "hono";
 import {
   completeGithubDeviceFlow,
@@ -7,7 +11,7 @@ import {
 
 export async function githubDevice(c: Context) {
   const data = await startGithubDeviceFlow();
-  return c.json(data);
+  return c.json(envoyGithubDeviceCodeSchema.parse(data));
 }
 
 export async function githubToken(c: Context) {
@@ -18,5 +22,5 @@ export async function githubToken(c: Context) {
   }
 
   const result = await completeGithubDeviceFlow(parsed.data.device_code);
-  return c.json(result);
+  return c.json(envoyAuthTokenResponseSchema.parse(result));
 }

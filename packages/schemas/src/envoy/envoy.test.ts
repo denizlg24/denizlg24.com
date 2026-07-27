@@ -1,9 +1,19 @@
 import { describe, expect, it } from "bun:test";
-
+import contractFixtures from "../../../../apps/envoy-cli/contracts/v1/fixtures.json";
 import {
+  envoyAddMemberInputSchema,
+  envoyAuthTokenResponseSchema,
   envoyBlobAccessInputSchema,
   envoyBlobParamsSchema,
+  envoyCreateProjectResponseSchema,
+  envoyGithubDeviceCodeSchema,
   envoyGithubTokenInputSchema,
+  envoyHeadResponseSchema,
+  envoyProjectMemberResponseSchema,
+  envoyProjectMembersResponseSchema,
+  envoyRemoveAllMembersResponseSchema,
+  envoyRemoveMemberResponseSchema,
+  envoySignedUrlResponseSchema,
   envoyStatusStatsSchema,
   envoyUpdateHeadInputSchema,
 } from "./index";
@@ -59,6 +69,78 @@ describe("Envoy API contracts", () => {
         errorsByCategory: [],
         lastCheck: null,
       }).success,
+    ).toBe(true);
+  });
+
+  it("validates the CLI's canonical response fixtures", () => {
+    expect(
+      envoyGithubDeviceCodeSchema.safeParse(contractFixtures.deviceCodeResponse)
+        .success,
+    ).toBe(true);
+    expect(
+      envoyAuthTokenResponseSchema.safeParse(contractFixtures.authTokenSuccess)
+        .success,
+    ).toBe(true);
+    expect(
+      envoyAuthTokenResponseSchema.safeParse(contractFixtures.authTokenPending)
+        .success,
+    ).toBe(true);
+    expect(
+      envoyCreateProjectResponseSchema.safeParse(
+        contractFixtures.createProjectResponse,
+      ).success,
+    ).toBe(true);
+    expect(
+      envoySignedUrlResponseSchema.safeParse(
+        contractFixtures.signedUploadUrlResponse,
+      ).success,
+    ).toBe(true);
+    expect(
+      envoySignedUrlResponseSchema.safeParse(
+        contractFixtures.signedDownloadUrlResponse,
+      ).success,
+    ).toBe(true);
+    expect(
+      envoyHeadResponseSchema.safeParse(contractFixtures.headResponse).success,
+    ).toBe(true);
+    expect(
+      envoyProjectMemberResponseSchema.safeParse(
+        contractFixtures.addMemberResponse,
+      ).success,
+    ).toBe(true);
+    expect(
+      envoyProjectMembersResponseSchema.safeParse(
+        contractFixtures.listMembersResponse,
+      ).success,
+    ).toBe(true);
+    expect(
+      envoyRemoveMemberResponseSchema.safeParse(
+        contractFixtures.removeMemberResponse,
+      ).success,
+    ).toBe(true);
+    expect(
+      envoyRemoveAllMembersResponseSchema.safeParse(
+        contractFixtures.removeAllMembersResponse,
+      ).success,
+    ).toBe(true);
+  });
+
+  it("validates the CLI's canonical request fixtures", () => {
+    expect(
+      envoyGithubTokenInputSchema.safeParse(contractFixtures.githubTokenRequest)
+        .success,
+    ).toBe(true);
+    expect(
+      envoyUpdateHeadInputSchema.safeParse(contractFixtures.updateHeadRequest)
+        .success,
+    ).toBe(true);
+    expect(
+      envoyBlobAccessInputSchema.safeParse(contractFixtures.blobAccessRequest)
+        .success,
+    ).toBe(true);
+    expect(
+      envoyAddMemberInputSchema.safeParse(contractFixtures.addMemberRequest)
+        .success,
     ).toBe(true);
   });
 });

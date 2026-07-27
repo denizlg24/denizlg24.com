@@ -1,7 +1,9 @@
 import {
   envoyBlobAccessInputSchema,
+  envoyBlobAccessResponseSchema,
   envoyBlobParamsSchema,
   envoyBlobTypeSchema,
+  envoySignedUrlResponseSchema,
 } from "@repo/schemas/envoy";
 import type { Context } from "hono";
 import {
@@ -31,7 +33,7 @@ export async function uploadBlob(c: Context) {
 
   const result = await getUploadSignedUrl(user.id, projectId, hash, type);
 
-  return c.json(result);
+  return c.json(envoySignedUrlResponseSchema.parse(result));
 }
 
 export async function downloadBlob(c: Context) {
@@ -47,7 +49,7 @@ export async function downloadBlob(c: Context) {
   try {
     const result = await getDownloadSignedUrl(user.id, projectId, hash, type);
 
-    return c.json(result);
+    return c.json(envoySignedUrlResponseSchema.parse(result));
   } catch (error) {
     if (error instanceof BlobAccessDeniedError) {
       return c.json({ error: "Not authorized to download this blob" }, 403);
@@ -80,7 +82,7 @@ export async function setBlobAccess(c: Context) {
       blobHash: hash,
       memberIds: parsed.data.memberIds,
     });
-    return c.json(policy);
+    return c.json(envoyBlobAccessResponseSchema.parse(policy));
   } catch (error) {
     if (error instanceof BlobAccessDeniedError) {
       return c.json({ error: error.message }, 403);

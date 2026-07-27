@@ -1,34 +1,15 @@
 use anyhow::{Ok, Result, bail};
 use console::style;
 use reqwest::Client;
-use serde::Deserialize;
 use tokio::time::{Duration, Instant, sleep};
 
-use crate::utils::{
-    config::{auth_server_url, load_token, logout, save_token},
-    ui::{create_spinner, print_header, print_info, print_kv, print_success},
+use crate::{
+    api_contracts::{DeviceCodeResponse, GithubTokenRequest, TokenResponse},
+    utils::{
+        config::{auth_server_url, load_token, logout, save_token},
+        ui::{create_spinner, print_header, print_info, print_kv, print_success},
+    },
 };
-
-#[derive(Deserialize)]
-struct DeviceCodeResponse {
-    device_code: String,
-    user_code: String,
-    verification_uri: String,
-    interval: u64,
-    expires_in: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum TokenResponse {
-    Success {
-        #[serde(rename = "apiToken")]
-        api_token: String,
-    },
-    Pending {
-        error: String,
-    },
-}
 
 pub async fn login() -> Result<()> {
     if load_token().is_ok() {
@@ -68,9 +49,9 @@ pub async fn login() -> Result<()> {
 
         let response_text = client
             .post(format!("{}/auth/github/token", auth_server_url()))
-            .json(&serde_json::json!({
-                "device_code": device.device_code
-            }))
+            .json(&GithubTokenRequest {
+                device_code: &device.device_code,
+            })
             .send()
             .await?
             .text()
