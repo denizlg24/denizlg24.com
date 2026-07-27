@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 
 # --- CONFIGURATION ---
 $repoOwner = "denizlg24"
-$repoName = "envoy"
+$repoName = "denizlg24.com"
 $binaryName = "envy.exe"
 $forceTag = "" 
 # ---------------------
@@ -39,8 +39,13 @@ try {
             exit 1
         }
 
-        # 2. Pick the very first one (most recent), regardless of stability
-        $latestRelease = $allReleases | Select-Object -First 1
+        # 2. Pick the newest Envoy CLI release containing the Windows asset.
+        $latestRelease = $allReleases |
+            Where-Object {
+                $_.tag_name -like "envoy-v*" -and
+                $_.assets.name -contains $zipName
+            } |
+            Select-Object -First 1
 
         if (!$latestRelease) {
             throw "API worked but returned 0 releases. Did you click 'Publish' on GitHub?"

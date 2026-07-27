@@ -35,8 +35,9 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `apps/envoy/` — Next.js public site and Hono/Prisma API for the Envoy CLI
   (Vercel). Uses project-scoped denizlg24 cloud S3 credentials; canonical wire
   contracts live in `packages/schemas/src/envoy`.
-- `apps/envoy-cli/` — Rust `envy` CLI. Developed in this monorepo and synced as
-  a Git subtree to `denizlg24/envoy`, whose workflow publishes CLI releases.
+- `apps/envoy-cli/` — Rust `envy` CLI. This monorepo is the canonical source
+  and release owner; `.github/workflows/release-envoy-cli.yml` publishes
+  `envoy-v*` releases when its Cargo package version changes on `main`.
 - `apps/terminal/` — compiled Bun web-terminal daemon. Runs on the Pi host under systemd, not in Docker.
 - `packages/cloud-core/` — Pi-side cloud logic: drizzle schema, storage/S3, projects, ops, sync, middleware.
 - `packages/cloud-ui/`, `packages/cloud-auth-client/` — shared client pieces for the two Vercel cloud apps.
@@ -45,6 +46,19 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `_archive/` — the original standalone repos with full git history (gitignored; read-only rollback material).
 
 Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=web|desktop|api|cloud|storage|envoy]`; `bun run format-and-lint` at root.
+
+### Envoy CLI release ownership
+
+- Do not restore subtree sync. `apps/envoy-cli` is maintained directly here,
+  and the nested standalone-repository workflows were removed.
+- CLI releases use `envoy-v<version>` tags so they cannot collide with tags for
+  other applications in the monorepo.
+- The updater and installers read releases from `denizlg24/denizlg24.com`.
+- A release starts when the version in `apps/envoy-cli/Cargo.toml` changes on
+  `main`; update `Cargo.lock` in the same change.
+- Before archiving `denizlg24/envoy`, publish one final release there containing
+  a build with the new update endpoint. Older installed binaries only poll that
+  repository and otherwise cannot discover the monorepo release feed.
 
 ## The self-hosted cloud (apps/api, apps/cloud, apps/storage, apps/terminal)
 

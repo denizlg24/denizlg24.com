@@ -14,13 +14,13 @@ const INSTALLERS = {
     label: "Shell",
     prompt: "$",
     command:
-      "curl -fsSL https://raw.githubusercontent.com/denizlg24/envoy/master/install.sh | sh",
+      "curl -fsSL https://raw.githubusercontent.com/denizlg24/denizlg24.com/main/apps/envoy-cli/install.sh | sh",
   },
   powershell: {
     label: "PowerShell",
     prompt: "PS>",
     command:
-      "iwr https://raw.githubusercontent.com/denizlg24/envoy/master/install.ps1 | iex",
+      "iwr https://raw.githubusercontent.com/denizlg24/denizlg24.com/main/apps/envoy-cli/install.ps1 | iex",
   },
 } as const;
 

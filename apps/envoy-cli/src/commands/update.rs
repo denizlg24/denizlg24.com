@@ -7,7 +7,8 @@ use crate::utils::ui::{
     create_spinner, print_header, print_info, print_kv, print_success, print_warn,
 };
 
-const REPO: &str = "denizlg24/envoy";
+const REPO: &str = "denizlg24/denizlg24.com";
+const RELEASE_TAG_PREFIX: &str = "envoy-v";
 const USER_AGENT: &str = "envy-cli";
 
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -28,7 +29,8 @@ pub async fn update() -> Result<()> {
     let spinner = create_spinner("Checking for updates...");
 
     let release = fetch_latest_release().await?;
-    let latest = release.tag_name.trim_start_matches('v');
+    let latest = release_version(&release.tag_name)
+        .ok_or_else(|| anyhow!("Invalid Envoy CLI release tag"))?;
 
     spinner.finish_and_clear();
 
@@ -67,19 +69,31 @@ pub async fn update() -> Result<()> {
 }
 
 async fn fetch_latest_release() -> Result<Release> {
-    let url = format!("https://api.github.com/repos/{}/releases/latest", REPO);
+    let url = format!(
+        "https://api.github.com/repos/{}/releases?per_page=100",
+        REPO
+    );
 
     let client = reqwest::Client::new();
-    let res = client
+    let releases = client
         .get(url)
         .header("User-Agent", USER_AGENT)
         .send()
         .await?
         .error_for_status()?
-        .json::<Release>()
+        .json::<Vec<Release>>()
         .await?;
 
-    Ok(res)
+    releases
+        .into_iter()
+        .find(|release| release_version(&release.tag_name).is_some())
+        .ok_or_else(|| anyhow!("No Envoy CLI release found"))
+}
+
+fn release_version(tag_name: &str) -> Option<&str> {
+    tag_name
+        .strip_prefix(RELEASE_TAG_PREFIX)
+        .filter(|version| !version.is_empty())
 }
 
 fn platform_asset_name() -> Result<&'static str> {
@@ -204,7 +218,7 @@ fn replace_self(new_binary: &Path) -> Result<()> {
 
 pub async fn check_for_update() -> Option<String> {
     let release = fetch_latest_release().await.ok()?;
-    let latest = release.tag_name.trim_start_matches('v').to_string();
+    let latest = release_version(&release.tag_name)?.to_string();
 
     if latest != CURRENT_VERSION {
         Some(latest)
@@ -220,4 +234,16 @@ pub fn print_update_notification(latest_version: &str) {
         CURRENT_VERSION, latest_version
     ));
     print_info("Run `envy update` to update");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::release_version;
+
+    #[test]
+    fn parses_only_envoy_release_tags() {
+        assert_eq!(release_version("envoy-v0.5.1"), Some("0.5.1"));
+        assert_eq!(release_version("v0.5.1"), None);
+        assert_eq!(release_version("envoy-v"), None);
+    }
 }
