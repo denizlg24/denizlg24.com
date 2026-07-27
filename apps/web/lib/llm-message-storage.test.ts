@@ -81,4 +81,55 @@ describe("LLM message storage", () => {
       },
     ]);
   });
+
+  test("keeps the url of an attached image so it stays reachable later", () => {
+    const content: Anthropic.ContentBlockParam[] = [
+      {
+        type: "image",
+        source: { type: "url", url: "https://storage.example/photo.png" },
+      },
+      { type: "text", text: "this is me" },
+    ];
+
+    expect(messageContentToStored(content)).toEqual([
+      {
+        type: "image",
+        source: { type: "url", url: "https://storage.example/photo.png" },
+      },
+      { type: "text", text: "this is me" },
+    ]);
+  });
+
+  test("keeps the url and name of an attached document", () => {
+    const content = [
+      {
+        type: "document",
+        name: "notes.pdf",
+        source: { type: "url", url: "https://storage.example/notes.pdf" },
+      },
+    ] as unknown as Anthropic.ContentBlockParam[];
+
+    expect(messageContentToStored(content)).toEqual([
+      {
+        type: "document",
+        name: "notes.pdf",
+        source: { type: "url", url: "https://storage.example/notes.pdf" },
+      },
+    ]);
+  });
+
+  test("drops inline base64 payloads instead of bloating the conversation", () => {
+    const content: Anthropic.ContentBlockParam[] = [
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: "large-base64-image",
+        },
+      },
+    ];
+
+    expect(messageContentToStored(content)).toEqual([{ type: "image" }]);
+  });
 });

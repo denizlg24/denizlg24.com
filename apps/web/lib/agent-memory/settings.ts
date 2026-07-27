@@ -3,6 +3,7 @@ import type {
   AgentGateVerification,
   AgentReleaseGateName,
   AgentReleaseGates,
+  AgentSourceType,
   SetAgentReleaseGate,
   UpdateAgentMemorySettings,
 } from "@repo/schemas";
@@ -56,6 +57,22 @@ type InternalSettings = Pick<
   | "updatedAt"
 >;
 
+/**
+ * A source type absent from the persisted array means the settings document was
+ * written before that type existed, not that it was switched off — nothing
+ * exposes a way to disable a source today. Without this union, adding a member
+ * to the enum silently drops every event of the new type as "source-disabled",
+ * which is exactly how attachment evidence went missing. Revisit if disabling a
+ * source ever becomes a real control.
+ */
+function mergeEnabledSources(
+  persisted: AgentSourceType[] | undefined,
+  defaults: AgentSourceType[],
+): AgentSourceType[] {
+  if (!persisted) return defaults;
+  return [...new Set([...persisted, ...defaults])];
+}
+
 function defaultSettings(): typeof DEFAULT_AGENT_MEMORY_SETTINGS & {
   createdAt: Date;
   updatedAt: Date;
@@ -78,7 +95,10 @@ export async function getAgentMemorySettings(): Promise<InternalSettings> {
     ...settings,
     releaseGates: { ...defaults.releaseGates, ...settings.releaseGates },
     gateVerifications: settings.gateVerifications ?? {},
-    enabledSources: settings.enabledSources ?? defaults.enabledSources,
+    enabledSources: mergeEnabledSources(
+      settings.enabledSources,
+      defaults.enabledSources,
+    ),
     excludedSourceRefs:
       settings.excludedSourceRefs ?? defaults.excludedSourceRefs,
     retrieval: { ...defaults.retrieval, ...settings.retrieval },

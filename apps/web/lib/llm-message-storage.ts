@@ -135,8 +135,30 @@ export function messageContentToStored(
           tool_use_id: block.tool_use_id,
           content: block.content,
         };
+      case "image":
+      case "document":
+        return storedAttachmentBlock(block);
       default:
         return { type: block.type };
     }
   });
+}
+
+/**
+ * Attachments previously fell through to the `default` case, which keeps only
+ * the block type — the url was dropped on save, so a stored conversation had no
+ * way back to the file it carried. Only url sources are persisted: base64
+ * payloads would bloat the conversation document, and those bytes are inline in
+ * the request rather than something we can point at later.
+ */
+function storedAttachmentBlock(
+  block: Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam,
+): StoredContentBlock {
+  const stored: StoredContentBlock = { type: block.type };
+  const name = "name" in block ? block.name : undefined;
+  if (typeof name === "string") stored.name = name;
+  if (block.source.type === "url") {
+    stored.source = { type: "url", url: block.source.url };
+  }
+  return stored;
 }
