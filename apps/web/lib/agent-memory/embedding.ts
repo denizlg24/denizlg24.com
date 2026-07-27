@@ -1,10 +1,11 @@
-import { embedText } from "@/lib/llm-service";
+import { embedMultimodal } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
 import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { AgentMemorySimilarity } from "@/models/AgentMemorySimilarity";
+import { loadAttachmentParts } from "./attachments";
 import { stableContentHash } from "./evidence";
 import { sourceRefIsExcluded } from "./policy";
 import { findDeniedContent } from "./security";
@@ -16,6 +17,44 @@ import {
   upsertSimilarityLinks,
 } from "./similarity";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
+
+interface EvidenceImageSource {
+  sourceType?: string;
+  provenance?: Record<string, unknown> | null;
+}
+
+/**
+ * Re-fetches the picture behind an image-backed memory so the stored vector
+ * covers the image itself, not just the sentence written about it. Only the
+ * first image is used — one memory holds one vector — and a dead attachment URL
+ * degrades to a text-only embedding rather than failing the memory.
+ */
+async function loadMemoryImage(
+  evidence: EvidenceImageSource[],
+): Promise<string | undefined> {
+  const source = evidence.find(
+    (item) =>
+      item.sourceType === "attachment" &&
+      item.provenance?.hasImage === true &&
+      typeof item.provenance?.attachmentUrl === "string",
+  );
+  if (!source) return undefined;
+
+  try {
+    const loaded = await loadAttachmentParts({
+      type: "image",
+      url: source.provenance?.attachmentUrl as string,
+      name: String(source.provenance?.attachmentName ?? "attachment"),
+    });
+    return loaded.parts[0]?.image;
+  } catch (error) {
+    console.warn(
+      "[agent-memory] Image unavailable for embedding; falling back to text",
+      error instanceof Error ? error.message : String(error),
+    );
+    return undefined;
+  }
+}
 
 export async function processEmbeddingJob(
   job: IAgentMemoryJob,
@@ -51,7 +90,7 @@ export async function processEmbeddingJob(
       redactedAt: { $exists: false },
       memoryEligible: true,
     })
-      .select("sourceRef")
+      .select("sourceRef sourceType provenance")
       .lean();
     if (
       evidence.length !== memory.evidenceIds.length ||
@@ -65,13 +104,19 @@ export async function processEmbeddingJob(
       continue;
     }
     try {
-      const result = await embedText({
+      const image = await loadMemoryImage(evidence);
+      const result = await embedMultimodal({
         purpose: "agent-memory-embedding",
         source: "agent-memory-revision-embedding",
         model: AGENT_MEMORY_VECTOR_CONFIG.model,
         dimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
-        value: memory.statement,
+        inputType: "search_document",
+        // Statement and image embed as a single item, so one vector carries
+        // both what the memory says and what the picture looked like.
+        inputs: [{ text: memory.statement, ...(image ? { image } : {}) }],
       });
+      const vector = result.vectors[0];
+      if (!vector) throw new Error("Embedding returned no vector");
       await AgentMemoryEmbedding.updateOne(
         {
           memoryRevisionId: memory.currentRevisionId,
@@ -81,7 +126,7 @@ export async function processEmbeddingJob(
           $set: {
             memoryId: memory._id,
             dimensions: result.dimensions,
-            vector: result.vector,
+            vector,
             contentHash: stableContentHash(memory.statement),
             sensitivity: memory.sensitivity,
             status: memory.status,
@@ -98,7 +143,7 @@ export async function processEmbeddingJob(
         // Refresh the memory's precomputed graph links. The vector index is
         // eventually consistent, so a miss here self-heals on the next
         // consolidation sweep.
-        const neighbors = await findSimilarMemories(result.vector, {
+        const neighbors = await findSimilarMemories(vector, {
           limit: SIMILARITY_TOP_K + 1,
         });
         await upsertSimilarityLinks(memory._id, neighbors);

@@ -83,6 +83,9 @@ const SOURCE_POLICY: Record<
   journal: { actors: ["user", "system"], maximumTrust: "high" },
   file: { actors: ["user", "external"], maximumTrust: "untrusted" },
   manual: { actors: ["user", "system"], maximumTrust: "highest" },
+  // Contents of a file the sender chose to attach; the sender vouches for
+  // sending it, never for what is inside it.
+  attachment: { actors: ["user", "agent"], maximumTrust: "low" },
 };
 
 export interface EvidencePolicyInput {
