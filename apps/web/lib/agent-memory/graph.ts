@@ -1,5 +1,6 @@
 import type { AgentMemoryGraphLink, AgentMemoryGraphNode } from "@repo/schemas";
 import { connectDB } from "@/lib/mongodb";
+import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
 import { AgentMemorySimilarity } from "@/models/AgentMemorySimilarity";
@@ -17,6 +18,8 @@ export interface GraphMemoryInput {
   entityRefs: { entityType: string; entityId: string; label?: string }[];
   contradictionIds: string[];
   supersedesMemoryId?: string;
+  /** Attachment image behind this memory, when one of its evidence rows has one. */
+  imageUrl?: string;
 }
 
 export interface GraphSimilarityInput {
@@ -98,6 +101,7 @@ export function buildAgentMemoryGraph(
     confidence: memory.confidence,
     importance: memory.importance,
     hasEmbedding: embeddedIds.has(memory.id),
+    ...(memory.imageUrl ? { imageUrl: memory.imageUrl } : {}),
   }));
 
   const links: AgentMemoryGraphLink[] = [];
@@ -194,6 +198,50 @@ export function buildAgentMemoryGraph(
   return { nodes, links, embeddedCount: embeddedIds.size };
 }
 
+/**
+ * Maps memories to the attachment image they were formed from, so the graph can
+ * draw the picture itself instead of a generic node. One query covers the whole
+ * graph: evidence does not point back at memories, so the lookup goes through
+ * the evidence ids each memory already carries.
+ */
+async function resolveMemoryImages(
+  memories: { _id: { toString(): string }; evidenceIds?: unknown[] }[],
+): Promise<Map<string, string>> {
+  const eventIds = memories.flatMap((memory) =>
+    (memory.evidenceIds ?? []).map(String),
+  );
+  if (eventIds.length === 0) return new Map();
+
+  const events = await AgentEvidenceEvent.find({
+    eventId: { $in: eventIds },
+    sourceType: "attachment",
+    redactedAt: { $exists: false },
+    memoryEligible: true,
+    "provenance.hasImage": true,
+  })
+    .select("eventId provenance")
+    .lean<{ eventId: string; provenance?: Record<string, unknown> }[]>();
+
+  const urlByEventId = new Map<string, string>();
+  for (const event of events) {
+    const url = event.provenance?.attachmentUrl;
+    if (typeof url === "string" && url) urlByEventId.set(event.eventId, url);
+  }
+  if (urlByEventId.size === 0) return new Map();
+
+  const imageByMemoryId = new Map<string, string>();
+  for (const memory of memories) {
+    for (const eventId of memory.evidenceIds ?? []) {
+      const url = urlByEventId.get(String(eventId));
+      if (url) {
+        imageByMemoryId.set(memory._id.toString(), url);
+        break;
+      }
+    }
+  }
+  return imageByMemoryId;
+}
+
 export async function loadAgentMemoryGraph() {
   await connectDB();
   // Single-admin app: the better-auth user collection holds exactly the owner.
@@ -213,7 +261,7 @@ export async function loadAgentMemoryGraph() {
   const [memories, embeddedMemoryIds, similarityDocs] = await Promise.all([
     AgentMemory.find({ status: "active" })
       .select(
-        "statement memoryType status confidence importance entityRefs contradictionIds supersedesMemoryId",
+        "statement memoryType status confidence importance entityRefs contradictionIds supersedesMemoryId evidenceIds",
       )
       .sort({ createdAt: 1 })
       .lean(),
@@ -222,6 +270,8 @@ export async function loadAgentMemoryGraph() {
       .select("sourceMemoryId targetMemoryId strength")
       .lean(),
   ]);
+
+  const imageByMemoryId = await resolveMemoryImages(memories);
 
   const graph = buildAgentMemoryGraph(
     memories.map((memory) => ({
@@ -234,6 +284,7 @@ export async function loadAgentMemoryGraph() {
       entityRefs: (memory.entityRefs ?? []) as GraphMemoryInput["entityRefs"],
       contradictionIds: (memory.contradictionIds ?? []).map(String),
       supersedesMemoryId: memory.supersedesMemoryId?.toString(),
+      imageUrl: imageByMemoryId.get(memory._id.toString()),
     })),
     {
       embeddedMemoryIds: embeddedMemoryIds.map(String),

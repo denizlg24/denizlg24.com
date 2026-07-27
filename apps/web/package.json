@@ -6,6 +6,7 @@
     "agent-memory:indexes": "bun scripts/agent-memory-indexes.ts",
     "agent-memory:eval-retrieval": "bun scripts/eval-agent-memory-retrieval.ts",
     "agent-memory:auto-accept": "bun scripts/agent-memory-auto-accept.ts",
+    "agent-memory:reembed": "bun --env-file=../../.env scripts/reembed-agent-memory.ts",
     "dev": "bun --env-file=../../.env next dev",
     "build": "next build",
     "start": "next start",
@@ -99,6 +100,7 @@
     "sonner": "^2.0.7",
     "swr": "^2.4.2",
     "tailwind-merge": "^3.6.0",
+    "unpdf": "^1.8.0",
     "vaul": "^1.1.2",
     "xlsx": "^0.18.5",
     "zod": "^4.4.3"

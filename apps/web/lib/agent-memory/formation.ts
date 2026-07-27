@@ -8,7 +8,7 @@ import type {
 import { agentFormationResultSchema } from "@repo/schemas";
 import { Types } from "mongoose";
 import {
-  embedText,
+  embedMultimodal,
   generateToolResult,
   getSemanticModel,
   type LlmUsageResult,
@@ -312,14 +312,17 @@ async function loadNoveltyContextMemories(
     return recentActiveMemories(50);
   }
   try {
-    const embedded = await embedText({
+    const embedded = await embedMultimodal({
       purpose: "agent-memory-embedding",
       source: "agent-memory-formation-novelty",
       model: AGENT_MEMORY_VECTOR_CONFIG.model,
       dimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
-      value: snapshotText,
+      inputType: "search_query",
+      inputs: [{ text: snapshotText }],
     });
-    const neighbors = await findSimilarMemories(embedded.vector, {
+    const noveltyVector = embedded.vectors[0];
+    if (!noveltyVector) return recentActiveMemories(50);
+    const neighbors = await findSimilarMemories(noveltyVector, {
       limit: NOVELTY_NEAREST_LIMIT,
       minSimilarity: 0.2,
     });

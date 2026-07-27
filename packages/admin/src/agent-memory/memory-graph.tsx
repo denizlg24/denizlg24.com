@@ -10,8 +10,51 @@ import {
   useState,
 } from "react";
 import type { ForceGraphMethods, ForceGraphProps } from "react-force-graph-3d";
+import * as THREE from "three";
 
 type GraphRef = ForceGraphMethods<AgentMemoryGraphNode, AgentMemoryGraphLink>;
+
+/**
+ * Textures are cached per URL and shared across nodes: the force engine
+ * re-renders constantly and the same attachment can back several memories, so
+ * decoding once per image matters. A failed load resolves to null and the node
+ * falls back to the default sphere.
+ */
+const textureCache = new Map<string, THREE.Texture | null>();
+const textureLoader = new THREE.TextureLoader();
+textureLoader.setCrossOrigin("anonymous");
+
+/** `Texture.image` is an untyped source union; narrow it to what actually loads. */
+function textureAspect(texture: THREE.Texture): number {
+  const source: unknown = texture.image;
+  if (source instanceof HTMLImageElement) {
+    return source.naturalWidth / source.naturalHeight;
+  }
+  if (source instanceof HTMLCanvasElement) {
+    return source.width / source.height;
+  }
+  if (typeof ImageBitmap !== "undefined" && source instanceof ImageBitmap) {
+    return source.width / source.height;
+  }
+  return 1;
+}
+
+function loadTexture(url: string, onReady: () => void): THREE.Texture | null {
+  const cached = textureCache.get(url);
+  if (cached !== undefined) return cached;
+  textureCache.set(url, null);
+  textureLoader.load(
+    url,
+    (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      textureCache.set(url, texture);
+      onReady();
+    },
+    undefined,
+    () => textureCache.set(url, null),
+  );
+  return null;
+}
 
 /** The force engine writes position/velocity onto the node objects. */
 type PositionedNode = AgentMemoryGraphNode & {
@@ -128,6 +171,9 @@ export function MemoryGraph({
   const graphRef = useRef<GraphRef | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [theme, setTheme] = useState<Theme | null>(null);
+  // Bumped when a texture finishes decoding so the graph swaps the placeholder
+  // sphere for the real image without re-running the force layout.
+  const [texturesReady, setTexturesReady] = useState(0);
 
   // Fresh copies: the force engine mutates node/link objects (x/y/z, source/
   // target become object refs), so never hand it the parsed response objects.
@@ -164,6 +210,12 @@ export function MemoryGraph({
       links: links.map((link) => ({ ...link })),
     };
   }, [nodes, links]);
+
+  // react-force-graph caches node objects, so a texture that decodes after
+  // first paint only appears once the scene is explicitly refreshed.
+  useEffect(() => {
+    if (texturesReady > 0) graphRef.current?.refresh();
+  }, [texturesReady]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -256,6 +308,22 @@ export function MemoryGraph({
           nodeColor={(node) => nodeColor(node, theme.scheme)}
           nodeOpacity={0.85}
           nodeLabel={(node) => nodeTooltip(node, theme)}
+          // Image-backed memories render as the picture itself. Everything else
+          // returns undefined and keeps the default sphere.
+          nodeThreeObject={(node) => {
+            if (!node.imageUrl) return undefined as unknown as THREE.Object3D;
+            const texture = loadTexture(node.imageUrl, () =>
+              setTexturesReady((count) => count + 1),
+            );
+            if (!texture) return undefined as unknown as THREE.Object3D;
+            const sprite = new THREE.Sprite(
+              new THREE.SpriteMaterial({ map: texture, transparent: true }),
+            );
+            const aspect = textureAspect(texture);
+            const scale = 12 + (node.importance ?? 0.5) * 10;
+            sprite.scale.set(scale * aspect, scale, 1);
+            return sprite;
+          }}
           linkColor={(link) => {
             if (link.type === "contradiction") return "#e5484d";
             if (link.type === "similar") return theme.foreground;

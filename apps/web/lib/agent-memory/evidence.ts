@@ -7,6 +7,7 @@ import type {
   AgentSourceType,
   AgentTrust,
   CreateAgentEvidenceEvent,
+  IChatMessageAttachment,
 } from "@repo/schemas";
 import { createAgentEvidenceEventSchema } from "@repo/schemas";
 import type { ClientSession } from "mongoose";
@@ -15,6 +16,7 @@ import { AgentAuditEvent } from "@/models/AgentAuditEvent";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemoryJob } from "@/models/AgentMemoryJob";
 import type { IConversationMessage } from "@/models/Conversation";
+import { type AttachmentPart, loadAttachmentParts } from "./attachments";
 import {
   AgentMemoryPolicyError,
   assertEvidencePolicy,
@@ -235,6 +237,133 @@ function containsToolResult(message: IConversationMessage): boolean {
   );
 }
 
+/**
+ * Attachments are persisted as content blocks rather than a separate field, so
+ * they are recovered from the stored message shape that `messageContent`
+ * writes: an `image`/`document` block carrying a url source.
+ */
+function messageAttachments(
+  message: IConversationMessage,
+): IChatMessageAttachment[] {
+  if (!Array.isArray(message.content)) return [];
+  const attachments: IChatMessageAttachment[] = [];
+  for (const block of message.content) {
+    if (block.type !== "image" && block.type !== "document") continue;
+    const url = block.source?.url;
+    if (typeof url !== "string" || !url) continue;
+    attachments.push({
+      type: block.type === "image" ? "image" : "pdf",
+      url,
+      name: block.name ?? url.split("/").pop() ?? "attachment",
+    });
+  }
+  return attachments;
+}
+
+/**
+ * Describes an attachment part well enough to be useful on its own once it is
+ * detached from the message that carried it. Image parts have no text of their
+ * own, so the filename plus surrounding message is all the snapshot can offer;
+ * the retrievable signal for those comes from the image embedding itself.
+ */
+function attachmentSnapshot(
+  attachment: IChatMessageAttachment,
+  part: AttachmentPart,
+  messageText: string,
+): string {
+  const where = part.page ? ` (page ${part.page})` : "";
+  const header = `${attachment.type === "image" ? "Image" : "PDF"} attachment "${attachment.name}"${where}`;
+  if (part.text) return `${header}\n\n${part.text}`;
+  const context = messageText.trim().slice(0, 500);
+  return context ? `${header}\n\nSent with: ${context}` : header;
+}
+
+/**
+ * Emits one evidence row per attachment part — a whole image, or a single PDF
+ * chunk. Failures are per-attachment: an unreachable URL or an unreadable PDF
+ * must not lose the message's text evidence.
+ */
+async function observeMessageAttachments(options: {
+  conversationId: string;
+  memoryMode: AgentMemoryMode;
+  message: IConversationMessage;
+  messageText: string;
+  session?: ClientSession;
+  stats: {
+    created: number;
+    duplicate: number;
+    skipped: number;
+    rejected: number;
+  };
+}): Promise<void> {
+  const attachments = messageAttachments(options.message);
+  for (const [position, attachment] of attachments.entries()) {
+    let loaded: Awaited<ReturnType<typeof loadAttachmentParts>>;
+    try {
+      loaded = await loadAttachmentParts(attachment);
+    } catch (error) {
+      options.stats.skipped += 1;
+      console.warn("[agent-memory] Attachment could not be read", {
+        name: attachment.name,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+    if (loaded.parts.length === 0) {
+      // A scanned PDF with no text layer: nothing to say about it.
+      options.stats.skipped += 1;
+      continue;
+    }
+
+    for (const part of loaded.parts) {
+      try {
+        const result = await observeEvidence({
+          memoryMode: options.memoryMode,
+          session: options.session,
+          evidence: buildEvidenceInput({
+            idempotencyKey: `conversation:${options.conversationId}:message:${options.message.eventId}:attachment:${position}:part:${part.index}`,
+            sourceType: "attachment",
+            sourceRef: {
+              entityType: "conversation",
+              entityId: options.conversationId,
+              revision: options.message.eventId,
+            },
+            sourceRevision: options.message.eventId,
+            content: {
+              url: attachment.url,
+              part: part.index,
+              text: part.text ?? null,
+            },
+            snapshot: attachmentSnapshot(attachment, part, options.messageText),
+            occurredAt: options.message.createdAt,
+            actor: options.message.role === "user" ? "user" : "agent",
+            // Attaching a file vouches for sending it, never for what is
+            // inside it, so contents stay below conversational trust.
+            trust: "low",
+            sensitivity: "personal",
+            provenance: {
+              attachmentName: attachment.name,
+              attachmentType: attachment.type,
+              attachmentUrl: attachment.url,
+              part: part.index,
+              page: part.page ?? null,
+              // Retrieval re-embeds from this, so it must survive the round trip.
+              hasImage: Boolean(part.image),
+            },
+          }),
+        });
+        options.stats[result.status] += 1;
+      } catch (error) {
+        if (!(error instanceof AgentMemoryPolicyError)) throw error;
+        options.stats.rejected += 1;
+        console.warn("[agent-memory] Attachment evidence rejected", {
+          code: error.code,
+        });
+      }
+    }
+  }
+}
+
 export async function observeConversationMessages(options: {
   conversationId: string;
   memoryMode: AgentMemoryMode;
@@ -290,6 +419,15 @@ export async function observeConversationMessages(options: {
         code: error.code,
       });
     }
+
+    await observeMessageAttachments({
+      conversationId: options.conversationId,
+      memoryMode: options.memoryMode,
+      message,
+      messageText: content,
+      session: options.session,
+      stats,
+    });
   }
   return stats;
 }

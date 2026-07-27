@@ -1,8 +1,20 @@
+/**
+ * Text and images only compare meaningfully when one model embeds both, so this
+ * model is authoritative for the whole corpus rather than images alone. Every
+ * `$vectorSearch` filters on `model`, which makes the switchover safe — old
+ * vectors stay in the collection and are simply never matched — but it also
+ * means retrieval returns nothing until the re-embed migration has run. Deploy
+ * a model change only after `scripts/reembed-agent-memory.ts --execute`
+ * reports full coverage.
+ *
+ * embed-v4.0 emits 1536 dimensions, which matches the existing Atlas index, so
+ * the index definition itself is unchanged.
+ */
 export const AGENT_MEMORY_VECTOR_CONFIG = {
   collection: "agent_memory_embeddings",
   indexName: "agent_memory_vector_v1",
   path: "vector",
-  model: "openai/text-embedding-3-small",
+  model: "cohere/embed-v4.0",
   dimensions: 1_536,
   similarity: "cosine",
   quantization: "scalar",

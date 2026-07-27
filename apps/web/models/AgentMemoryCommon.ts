@@ -13,6 +13,7 @@ export const AGENT_SOURCE_TYPES = [
   "journal",
   "file",
   "manual",
+  "attachment",
 ] as const;
 
 export const AGENT_ACTORS = ["user", "agent", "external", "system"] as const;

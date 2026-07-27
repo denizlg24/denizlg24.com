@@ -20,6 +20,7 @@ export const agentSourceTypeSchema = z.enum([
   "journal",
   "file",
   "manual",
+  "attachment",
 ]);
 export type AgentSourceType = z.infer<typeof agentSourceTypeSchema>;
 
@@ -958,6 +959,8 @@ export const agentMemoryExploreEventSchema = z.object({
   occurredAt: isoDateSchema,
   actor: agentActorSchema,
   trust: agentTrustSchema,
+  /** Set for attachment evidence backed by an image. */
+  imageUrl: z.string().optional(),
 });
 export type AgentMemoryExploreEvent = z.infer<
   typeof agentMemoryExploreEventSchema
@@ -991,6 +994,8 @@ export const agentMemoryGraphNodeSchema = z.object({
   hasEmbedding: z.boolean().optional(),
   count: z.number().int().nonnegative().optional(),
   isOwner: z.boolean().optional(),
+  /** Attachment image this memory was formed from, rendered in place of a node. */
+  imageUrl: z.string().optional(),
 });
 export type AgentMemoryGraphNode = z.infer<typeof agentMemoryGraphNodeSchema>;
 

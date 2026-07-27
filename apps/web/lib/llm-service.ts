@@ -9,6 +9,11 @@ import {
 } from "@/lib/llm-model-catalog";
 import { getGatewayAnthropicClient } from "@/lib/llm-transports/anthropic-gateway";
 import { requestChatCompletion } from "@/lib/llm-transports/chat-completions";
+import {
+  type CohereEmbedInputType,
+  type MultimodalEmbeddingInput,
+  requestMultimodalEmbedding,
+} from "@/lib/llm-transports/cohere-embeddings";
 import { requestEmbedding } from "@/lib/llm-transports/embeddings";
 import { connectDB } from "@/lib/mongodb";
 import type { TokenUsage } from "@/models/Conversation";
@@ -313,6 +318,37 @@ export interface EmbedTextResult {
   usage: LlmUsageResult;
 }
 
+export interface EmbedMultimodalRequest extends LlmRequestContext {
+  model: string;
+  dimensions: number;
+  /** Each entry becomes one vector; text and image together embed as one item. */
+  inputs: MultimodalEmbeddingInput[];
+  inputType: CohereEmbedInputType;
+}
+
+export interface EmbedMultimodalResult {
+  model: string;
+  dimensions: number;
+  vectors: number[][];
+  usage: LlmUsageResult;
+}
+
+/**
+ * Cohere is not in the Gateway catalog, so pricing cannot be resolved live the
+ * way `estimateCost` does for Gateway models. These rates are USD per token and
+ * must be updated by hand when Cohere changes them — a stale rate here shows up
+ * as wrong spend in LLM usage reporting, not as a failure.
+ */
+const COHERE_EMBED_PRICING: Record<
+  string,
+  { inputTokens: number; imageTokens: number }
+> = {
+  "cohere/embed-v4.0": {
+    inputTokens: 0.12 / 1_000_000,
+    imageTokens: 0.47 / 1_000_000,
+  },
+};
+
 export async function embedText({
   source,
   model,
@@ -353,6 +389,63 @@ export async function embedText({
     vector: result.vector,
     usage,
   };
+}
+
+/**
+ * Embeds text, images, or both into one shared vector space, so a text query
+ * can retrieve an image and vice versa. Unlike every other operation here this
+ * bypasses the Gateway, which cannot express a multimodal embedding request.
+ */
+export async function embedMultimodal({
+  source,
+  model,
+  dimensions,
+  inputs,
+  inputType,
+}: EmbedMultimodalRequest): Promise<EmbedMultimodalResult> {
+  if (inputs.length === 0) {
+    throw new LlmModelError("Multimodal embedding requires at least one input");
+  }
+  if (!Number.isInteger(dimensions) || dimensions < 1 || dimensions > 4_096) {
+    throw new LlmModelError("Embedding dimensions must be between 1 and 4096");
+  }
+
+  const result = await requestMultimodalEmbedding({
+    model,
+    inputs,
+    dimensions,
+    inputType,
+  });
+
+  const pricing = COHERE_EMBED_PRICING[model];
+  if (!pricing) {
+    console.warn(
+      `[llm-service] No local pricing for multimodal model "${model}"; recording cost as 0`,
+    );
+  }
+  const costUsd = pricing
+    ? result.inputTokens * pricing.inputTokens +
+      result.imageTokens * pricing.imageTokens
+    : 0;
+
+  const usage = {
+    // Image tokens are billed on a separate meter; fold them in so usage
+    // reporting reflects everything that was actually charged.
+    inputTokens: result.inputTokens + result.imageTokens,
+    outputTokens: 0,
+    costUsd,
+  };
+  await logLlmUsage({
+    llmModel: model,
+    inputTokens: usage.inputTokens,
+    outputTokens: 0,
+    costUsd,
+    systemPrompt: "Generate a multimodal semantic embedding.",
+    userPrompt: "[agent-memory multimodal embedding input redacted]",
+    source,
+  });
+
+  return { model, dimensions, vectors: result.vectors, usage };
 }
 
 export interface GenerateTextRequest extends LlmRequestContext {

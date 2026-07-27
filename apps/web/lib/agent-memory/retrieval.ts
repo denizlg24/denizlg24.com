@@ -10,7 +10,7 @@ import type {
   AgentTrust,
 } from "@repo/schemas";
 import mongoose from "mongoose";
-import { embedText } from "@/lib/llm-service";
+import { embedMultimodal } from "@/lib/llm-service";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
@@ -589,13 +589,18 @@ async function loadCandidateSignals(
     },
     vector: async () => {
       if (!allowVector) return [];
-      const embedded = await embedText({
+      const embedded = await embedMultimodal({
         purpose: "agent-memory-retrieval",
         source: "agent-memory-shadow-retrieval",
         model: AGENT_MEMORY_VECTOR_CONFIG.model,
         dimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
-        value: query,
+        // Queries and stored documents embed differently; using the document
+        // mode here measurably degrades recall.
+        inputType: "search_query",
+        inputs: [{ text: query }],
       });
+      const queryVector = embedded.vectors[0];
+      if (!queryVector) return [];
       const vector = await AgentMemoryEmbedding.aggregate<{
         memoryId: mongoose.Types.ObjectId;
         score: number;
@@ -604,7 +609,7 @@ async function loadCandidateSignals(
           $vectorSearch: {
             index: AGENT_MEMORY_VECTOR_CONFIG.indexName,
             path: AGENT_MEMORY_VECTOR_CONFIG.path,
-            queryVector: embedded.vector,
+            queryVector,
             numCandidates: Math.max(100, maxCandidates * 5),
             limit: maxCandidates,
             filter: {

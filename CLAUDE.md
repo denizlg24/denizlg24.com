@@ -164,7 +164,7 @@ order (schema → users → s3). Full reference in `docs/internal/cutover/`.
 
 ### Key Patterns
 
-**API calls**: `denizApi` class in `lib/api-wrapper.ts`. Base URL: `https://denizlg24.com/api/admin`. Auth via Bearer token.
+**API calls**: `denizApi` class in `lib/api-wrapper.ts`. Base URL comes from `NEXT_PUBLIC_DESKTOP_API_BASE_URL`, not a hardcoded host. Auth via Bearer token.
 ```ts
 const api = useMemo(() => {
   if (loadingSettings) return null;
@@ -229,14 +229,14 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 - Checks run from the backend in the health-check cron (`runAllSubResourceChecks` in `lib/resource-agent.ts`); logs share `HealthCheckLog` keyed by sub-resource id; public `/api/public/resource-status` nests `subResources` per parent
 
 ### Upload
-- `POST /upload` → FormData with "file" field → `{ url, hash }` (Pinata, images only, max 5MB)
+- `POST /upload` → FormData with "file" field → `{ url, hash }`. Stores to the self-hosted cloud S3 via `uploadFileToStorage(file, "image")`, where `"image"` is the bucket name, not a type filter — the route enforces no type or size limit. (Pinata is still used, but only by the spreadsheets routes.)
 
 ### CV
 - `GET /cv` → `{ cv: ICvFile | null, project: LatexProject | null }` (metadata and LaTeX source are stored on the AppSettings singleton)
 - `GET /cv/file` → PDF bytes proxied from storage (admin preview renders these via react-pdf; webviews can't embed remote PDFs natively)
 - `PUT /cv` → validates and saves a multi-file LaTeX project draft without publishing it
 - `POST /cv/compile` → validates and compiles the LaTeX project with sandboxed Tectonic, uploads the generated PDF to the storage `file` bucket, persists source and metadata, and revalidates `/`
-- `POST /cv` remains as the legacy PDF upload endpoint
+- `POST /cv` remains as the legacy PDF upload endpoint; `POST /cv/publish` revalidates the public page separately
 - The reusable editor workspace lives in `packages/latex-editor`; it supports files, folders, tabs, binary assets, a compile log, and a PDF preview slot
 - Public homepage resume button reads the stored URL via `lib/cv.ts` `getCvUrl()`, falling back to the bundled `/assets/DenizGunesCV2026.pdf`; shared admin UI is `packages/admin/src/cv/cv-page.tsx`
 
@@ -244,6 +244,15 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 - `GET /llm/usage` → usage stats, breakdowns, recent requests
 - `GET /llm/models` → `{ models: LlmCatalogModel[], stale, fetchedAt }` — Vercel AI Gateway language-model catalog (fully qualified ids like `anthropic/claude-haiku-4.5`, capability tags, context/output limits); filters: `?creator=` and repeatable `?requiredCapability=`; 503 when the catalog is cold
 - All server LLM traffic goes through `apps/web/lib/llm-service.ts` (Vercel AI Gateway; `AI_GATEWAY_API_KEY`). Never import a provider SDK or build provider URLs in app code — add operations to the service instead. Model ids are fully qualified Gateway ids; legacy dashed ids resolve via the service's alias map.
+- **One documented exception**: `embedMultimodal()` calls Cohere directly via
+  `lib/llm-transports/cohere-embeddings.ts` (`COHERE_API_KEY`). The Gateway's
+  `/v1/embeddings` validates the OpenAI-shaped `input` field and drops Cohere's
+  `inputs`/`images`, so multimodal embedding is unreachable through it — every
+  Gateway embedding model reports text-only input. App code still only calls
+  `llm-service`; the transport is the sole place a Cohere URL appears. Cohere is
+  not in the Gateway catalog, so its pricing is a hand-maintained constant in
+  `llm-service.ts` rather than resolved live. Do not widen this exception without
+  the same kind of evidence — see `docs/internal/plans/attachment-memory.md`.
 
 ## Porting Features from apps/web
 
