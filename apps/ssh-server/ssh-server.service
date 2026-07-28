@@ -1,0 +1,14 @@
+[Unit]
+Description=SSH Terminal Card
+After=network.target
+
+[Service]
+ExecStart=/home/denizlg24/ssh-website/ssh-server
+WorkingDirectory=/home/denizlg24/ssh-website
+Restart=always
+RestartSec=5
+Environment=PORT=22
+Environment=HOST_KEY_PATH=/home/denizlg24/ssh-website/.ssh/host_key
+
+[Install]
+WantedBy=multi-user.target
