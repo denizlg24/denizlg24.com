@@ -31,6 +31,16 @@ import {
   bulkAgentCandidateDecisionResponseSchema,
   generateAgentResourceSuggestionsResponseSchema,
 } from "@repo/schemas";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/alert-dialog";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
@@ -79,6 +89,7 @@ import {
   Sparkles,
   Terminal,
   ThumbsUp,
+  Trash2,
   Undo2,
   X,
 } from "lucide-react";
@@ -113,7 +124,15 @@ export function AgentMemorySkeleton() {
         icon={<BrainCircuit className="size-4 text-muted-foreground" />}
         title="Agent Memory"
       >
-        <Button size="icon" variant="ghost" title="Refresh memory data">
+        {/* Disabled to match the live header's first render, which starts in
+            the loading state — otherwise hydrating over this skeleton reports
+            an attribute mismatch. */}
+        <Button
+          size="icon"
+          variant="ghost"
+          disabled
+          title="Refresh memory data"
+        >
           <RefreshCw />
         </Button>
       </PageHeader>
@@ -1053,7 +1072,10 @@ export function AgentMemoryPage() {
             )}
 
             {section === "procedures" && (
-              <ProcedureTable procedures={reflection?.procedures ?? []} />
+              <ProcedureTable
+                procedures={reflection?.procedures ?? []}
+                onDeleted={() => void load(true)}
+              />
             )}
 
             {section === "runs" && <RunTable runs={reflection?.runs ?? []} />}
@@ -1910,7 +1932,32 @@ function GoalTable({ goals }: { goals: AgentGoal[] }) {
   );
 }
 
-function ProcedureTable({ procedures }: { procedures: AgentProcedure[] }) {
+function ProcedureTable({
+  procedures,
+  onDeleted,
+}: {
+  procedures: AgentProcedure[];
+  onDeleted: () => void;
+}) {
+  const { client } = useAdmin();
+  const [deleteTarget, setDeleteTarget] = useState<AgentProcedure | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await client.del(`agent-memory/procedures/${deleteTarget.id}`);
+      toast.success("Procedure deleted");
+      setDeleteTarget(null);
+      onDeleted();
+    } catch {
+      toast.error("Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (procedures.length === 0) return <EmptyRow text="No learned procedures" />;
   return (
     <div className="overflow-x-auto border-y">
@@ -1922,6 +1969,7 @@ function ProcedureTable({ procedures }: { procedures: AgentProcedure[] }) {
             <TableHead>Behavior</TableHead>
             <TableHead>Lifecycle</TableHead>
             <TableHead className="text-right">Confidence</TableHead>
+            <TableHead className="w-8" />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -1942,10 +1990,44 @@ function ProcedureTable({ procedures }: { procedures: AgentProcedure[] }) {
               <TableCell className="text-right tabular-nums">
                 {percent(procedure.confidence)}
               </TableCell>
+              <TableCell className="text-right">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-destructive"
+                  onClick={() => setDeleteTarget(procedure)}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete procedure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.behavior}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

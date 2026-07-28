@@ -21,6 +21,9 @@ export interface GraphMemoryInput {
   supersedesMemoryId?: string;
   /** Attachment image behind this memory, when one of its evidence rows has one. */
   imageUrl?: string;
+  /** What the memory is about, not when it was stored. See the graph node schema. */
+  occurredAt?: string;
+  occurredUntil?: string;
 }
 
 export interface GraphSimilarityInput {
@@ -103,6 +106,8 @@ export function buildAgentMemoryGraph(
     importance: memory.importance,
     hasEmbedding: embeddedIds.has(memory.id),
     ...(memory.imageUrl ? { imageUrl: memory.imageUrl } : {}),
+    ...(memory.occurredAt ? { occurredAt: memory.occurredAt } : {}),
+    ...(memory.occurredUntil ? { occurredUntil: memory.occurredUntil } : {}),
   }));
 
   const links: AgentMemoryGraphLink[] = [];
@@ -243,6 +248,57 @@ async function resolveMemoryImages(
   return imageByMemoryId;
 }
 
+/**
+ * `temporal.*` is stored as an ISO string and `createdAt` as a Date, while the
+ * graph schema demands an offset-bearing ISO string. Unparseable values drop
+ * rather than failing the whole graph read.
+ */
+function isoOrUndefined(value: string | Date | undefined): string | undefined {
+  if (!value) return undefined;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+/**
+ * Earliest evidence timestamp per memory — the fallback for memories that do
+ * not state their own `temporal.validFrom`. Evidence is what the memory was
+ * formed from, so its oldest event is the best available "when".
+ */
+async function resolveMemoryEvidenceDates(
+  memories: { _id: { toString(): string }; evidenceIds?: unknown[] }[],
+): Promise<Map<string, string>> {
+  const eventIds = memories.flatMap((memory) =>
+    (memory.evidenceIds ?? []).map(String),
+  );
+  if (eventIds.length === 0) return new Map();
+
+  const events = await AgentEvidenceEvent.find({
+    eventId: { $in: eventIds },
+  })
+    .select("eventId occurredAt")
+    .lean<{ eventId: string; occurredAt: Date }[]>();
+
+  const dateByEventId = new Map<string, Date>();
+  for (const event of events) {
+    if (event.occurredAt) dateByEventId.set(event.eventId, event.occurredAt);
+  }
+
+  const dateByMemoryId = new Map<string, string>();
+  for (const memory of memories) {
+    let earliest: Date | undefined;
+    for (const eventId of memory.evidenceIds ?? []) {
+      const occurredAt = dateByEventId.get(String(eventId));
+      if (occurredAt && (!earliest || occurredAt < earliest)) {
+        earliest = occurredAt;
+      }
+    }
+    if (earliest) {
+      dateByMemoryId.set(memory._id.toString(), earliest.toISOString());
+    }
+  }
+  return dateByMemoryId;
+}
+
 export async function loadAgentMemoryGraph() {
   await connectDB();
   // Single-admin app: the better-auth user collection holds exactly the owner.
@@ -262,7 +318,7 @@ export async function loadAgentMemoryGraph() {
   const [memories, embeddedMemoryIds, similarityDocs] = await Promise.all([
     AgentMemory.find({ status: "active" })
       .select(
-        "statement memoryType status confidence importance entityRefs contradictionIds supersedesMemoryId evidenceIds",
+        "statement memoryType status confidence importance entityRefs contradictionIds supersedesMemoryId evidenceIds temporal createdAt",
       )
       .sort({ createdAt: 1 })
       .lean(),
@@ -272,7 +328,10 @@ export async function loadAgentMemoryGraph() {
       .lean(),
   ]);
 
-  const imageByMemoryId = await resolveMemoryImages(memories);
+  const [imageByMemoryId, evidenceDateByMemoryId] = await Promise.all([
+    resolveMemoryImages(memories),
+    resolveMemoryEvidenceDates(memories),
+  ]);
 
   const graph = buildAgentMemoryGraph(
     memories.map((memory) => ({
@@ -286,6 +345,11 @@ export async function loadAgentMemoryGraph() {
       contradictionIds: (memory.contradictionIds ?? []).map(String),
       supersedesMemoryId: memory.supersedesMemoryId?.toString(),
       imageUrl: imageByMemoryId.get(memory._id.toString()),
+      occurredAt:
+        isoOrUndefined(memory.temporal?.validFrom) ??
+        evidenceDateByMemoryId.get(memory._id.toString()) ??
+        isoOrUndefined(memory.createdAt),
+      occurredUntil: isoOrUndefined(memory.temporal?.validUntil),
     })),
     {
       embeddedMemoryIds: embeddedMemoryIds.map(String),

@@ -1012,6 +1012,14 @@ export const agentMemoryGraphNodeSchema = z.object({
   isOwner: z.boolean().optional(),
   /** Attachment image this memory was formed from, rendered in place of a node. */
   imageUrl: z.string().optional(),
+  /**
+   * When the memory is about, not when it was stored: `temporal.validFrom`,
+   * else the earliest evidence `occurredAt`, else `createdAt`. Drives the
+   * timeline axis and the date line on a node card.
+   */
+  occurredAt: isoDateSchema.optional(),
+  /** Set only when the memory states a closed range (`temporal.validUntil`). */
+  occurredUntil: isoDateSchema.optional(),
 });
 export type AgentMemoryGraphNode = z.infer<typeof agentMemoryGraphNodeSchema>;
 
