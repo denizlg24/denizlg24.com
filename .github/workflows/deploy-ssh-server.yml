@@ -1,0 +1,106 @@
+name: Deploy ssh-server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/ssh-server/**"
+      - "!apps/ssh-server/README.md"
+      - ".github/workflows/deploy-ssh-server.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ssh-server-pi-two
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build ARMv6 and deploy to pi-two
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: pi
+    defaults:
+      run:
+        shell: bash
+    env:
+      PI_HOST: ${{ vars.PI_TAILNET_HOST }}
+      PI_TWO_HOST: ${{ vars.PI_TWO_LAN_HOST }}
+      STAGE_DIR: /tmp/ssh-server-deploy
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/ssh-server/go.mod
+          cache-dependency-path: apps/ssh-server/go.sum
+
+      - name: Vet
+        working-directory: apps/ssh-server
+        run: go vet ./...
+
+      # Pi Zero W is ARMv6, and too slow to build Go itself.
+      - name: Build for the Pi
+        working-directory: apps/ssh-server
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: arm
+          GOARM: "6"
+        run: |
+          mkdir -p "$STAGE_DIR"
+          go build -trimpath -ldflags="-s -w" -o "$STAGE_DIR/ssh-server" .
+          cp ssh-server.service scripts/deploy-from-pi-cloud.sh "$STAGE_DIR/"
+          file "$STAGE_DIR/ssh-server"
+
+      - name: Join the tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Validate deployment settings
+        run: |
+          test -n "$PI_HOST"
+          test -n "$PI_TWO_HOST"
+          [[ "$PI_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$PI_TWO_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+
+      - name: Resolve pi-cloud on the tailnet
+        run: |
+          # tailscale/github-action leaves --accept-dns=false so MagicDNS names
+          # never resolve on the runner; tailscaled answers from the netmap.
+          if ! PI_ADDR="$(tailscale ip -4 "$PI_HOST")"; then
+            tailscale status --peers >&2
+            exit 1
+          fi
+          [[ "$PI_ADDR" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "PI_ADDR=$PI_ADDR" >> "$GITHUB_ENV"
+
+      # pi-two is not on the tailnet, so pi-cloud stages the payload and drives
+      # the LAN hop itself with its own key.
+      - name: Stage the build on pi-cloud
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "rm -rf '${STAGE_DIR}' && mkdir -p '${STAGE_DIR}'"
+          scp -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+            "${STAGE_DIR}/ssh-server" \
+            "${STAGE_DIR}/ssh-server.service" \
+            "${STAGE_DIR}/deploy-from-pi-cloud.sh" \
+            "denizlg24@${PI_ADDR}:${STAGE_DIR}/"
+
+      - name: Install on pi-two
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "chmod +x '${STAGE_DIR}/deploy-from-pi-cloud.sh' && PI_TWO_HOST='${PI_TWO_HOST}' STAGE_DIR='${STAGE_DIR}' '${STAGE_DIR}/deploy-from-pi-cloud.sh'"
+
+      - name: Clean up the staging directory
+        if: always()
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "rm -rf '${STAGE_DIR}'" || true
