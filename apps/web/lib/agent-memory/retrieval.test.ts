@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RetrievalMemory } from "./retrieval";
 import {
+  buildLexicalRetrievalQuery,
   collectRetrievalSourceSignals,
   hardFilterMemory,
   rankAndBudgetRetrieval,
@@ -173,7 +174,7 @@ describe("agent memory retrieval", () => {
             revisionId: "000000000000000000000023",
             statement: "Deniz uses bun for every workspace.",
           }),
-          signals: { vector: 0.5 },
+          signals: { vector: 0.6 },
         },
       ],
       {
@@ -193,6 +194,46 @@ describe("agent memory retrieval", () => {
       memoryId: "duplicate-of-a",
       reason: "near-duplicate",
     });
+  });
+
+  test("drops weak matches when a much stronger query match exists", () => {
+    const result = rankAndBudgetRetrieval(
+      [
+        {
+          memory: memory({
+            id: "headshot",
+            revisionId: "000000000000000000000031",
+            statement: "Admin shared a photographic headshot of themselves.",
+          }),
+          signals: { vector: 0.29, lexical: 0.65 },
+        },
+        {
+          memory: memory({
+            id: "computer-memory",
+            revisionId: "000000000000000000000032",
+            statement: "A computer memory system uses cache coherence.",
+            memoryType: "core",
+          }),
+          signals: { vector: 0.3 },
+        },
+      ],
+      { maxItems: 12, maxTokens: 2_500, now: NOW },
+    );
+
+    expect(result.selected.map((item) => item.memory.id)).toEqual(["headshot"]);
+    expect(result.exclusions).toContainEqual({
+      memoryId: "computer-memory",
+      reason: "weak-query-relevance",
+    });
+  });
+
+  test("removes conversational boilerplate from lexical search", () => {
+    expect(
+      buildLexicalRetrievalQuery(
+        "Using your memory, can you retrieve my profile headshot?",
+      ),
+    ).toBe("profile headshot");
+    expect(buildLexicalRetrievalQuery("What is my birthday?")).toBe("birthday");
   });
 
   test("keeps structured and lexical candidates during a vector outage", async () => {
