@@ -4,6 +4,7 @@
 # Authentication for this hop is pi-cloud's own key; no private key is ever
 # handed to GitHub Actions.
 set -euo pipefail
+trap 'echo "deploy-from-pi-cloud.sh failed at line ${LINENO}" >&2' ERR
 
 : "${PI_TWO_HOST:?PI_TWO_HOST is required}"
 PI_TWO_PORT="${PI_TWO_PORT:-2222}"
@@ -14,9 +15,18 @@ STAGE_DIR="${STAGE_DIR:-/tmp/ssh-server-deploy}"
 target="${PI_TWO_USER}@${PI_TWO_HOST}"
 common_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10)
 
-test -x "${STAGE_DIR}/ssh-server"
-test -f "${STAGE_DIR}/ssh-server.service"
+# Mode is deliberately not checked: scp's SFTP backend does not carry the
+# source mode across, and the binary never runs here anyway — the installer on
+# pi-two sets the real mode with `install -m 755`.
+for f in ssh-server ssh-server.service; do
+  if [ ! -f "${STAGE_DIR}/${f}" ]; then
+    echo "staged payload is missing ${f}; ${STAGE_DIR} holds:" >&2
+    ls -la "${STAGE_DIR}" >&2 || true
+    exit 1
+  fi
+done
 
+echo "copying $(du -h "${STAGE_DIR}/ssh-server" | cut -f1) to ${target}"
 scp "${common_opts[@]}" -P "${PI_TWO_PORT}" \
   "${STAGE_DIR}/ssh-server" \
   "${STAGE_DIR}/ssh-server.service" \
