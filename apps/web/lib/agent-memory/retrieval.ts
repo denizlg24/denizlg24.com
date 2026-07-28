@@ -23,6 +23,7 @@ import {
   type DerivedContextResult,
 } from "./derived-context";
 import { sourceRefIsExcluded } from "./policy";
+import { agentMemoryQueryEmbeddingRequest } from "./query-embedding";
 import { findDeniedContent } from "./security";
 import { getAgentMemorySettings } from "./settings";
 import { scoreToCosine } from "./similarity";
@@ -589,16 +590,12 @@ async function loadCandidateSignals(
     },
     vector: async () => {
       if (!allowVector) return [];
-      const embedded = await embedMultimodal({
-        purpose: "agent-memory-retrieval",
-        source: "agent-memory-shadow-retrieval",
-        model: AGENT_MEMORY_VECTOR_CONFIG.model,
-        dimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
-        // Queries and stored documents embed differently; using the document
-        // mode here measurably degrades recall.
-        inputType: "search_query",
-        inputs: [{ text: query }],
-      });
+      const embedded = await embedMultimodal(
+        agentMemoryQueryEmbeddingRequest(
+          query,
+          "agent-memory-shadow-retrieval",
+        ),
+      );
       const queryVector = embedded.vectors[0];
       if (!queryVector) return [];
       const vector = await AgentMemoryEmbedding.aggregate<{

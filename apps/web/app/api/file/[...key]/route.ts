@@ -1,8 +1,36 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getStorageObject, isPubliclyServableKey } from "@/lib/storage-api";
+import {
+  getStorageObject,
+  isPubliclyServableKey,
+  type StorageObjectStream,
+} from "@/lib/storage-api";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
+
+export function publicFileHeaders(
+  object: Pick<
+    StorageObjectStream,
+    "contentType" | "contentLength" | "etag" | "lastModified"
+  >,
+): Headers {
+  const headers = new Headers({
+    "content-type": object.contentType,
+    // Public immutable assets are rendered by the separate desktop origin.
+    "access-control-allow-origin": "*",
+    "cross-origin-resource-policy": "cross-origin",
+    // Keys are UUID-suffixed and immutable, so responses cache indefinitely.
+    "cache-control": "public, max-age=31536000, immutable",
+  });
+  if (object.contentLength !== undefined) {
+    headers.set("content-length", String(object.contentLength));
+  }
+  if (object.etag) headers.set("etag", object.etag);
+  if (object.lastModified) {
+    headers.set("last-modified", object.lastModified.toUTCString());
+  }
+  return headers;
+}
 
 // Public, unauthenticated: blog images and the CV link render for anonymous
 // visitors, and the desktop app fetches file URLs without a bearer header.
@@ -23,20 +51,9 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const headers = new Headers({
-      "content-type": object.contentType,
-      // Keys are UUID-suffixed and immutable, so responses cache indefinitely.
-      "cache-control": "public, max-age=31536000, immutable",
+    return new NextResponse(object.body, {
+      headers: publicFileHeaders(object),
     });
-    if (object.contentLength !== undefined) {
-      headers.set("content-length", String(object.contentLength));
-    }
-    if (object.etag) headers.set("etag", object.etag);
-    if (object.lastModified) {
-      headers.set("last-modified", object.lastModified.toUTCString());
-    }
-
-    return new NextResponse(object.body, { headers });
   } catch {
     return NextResponse.json(
       { error: "Failed to read object" },

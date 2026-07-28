@@ -4,6 +4,7 @@ import {
 } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
+import { agentMemoryQueryEmbeddingRequest } from "@/lib/agent-memory/query-embedding";
 import {
   RETRIEVABLE_SENSITIVITIES,
   retrievalQueryContainsDeniedContent,
@@ -11,7 +12,7 @@ import {
 import { serializeAgentMemory } from "@/lib/agent-memory/serialize";
 import { scoreToCosine } from "@/lib/agent-memory/similarity";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "@/lib/agent-memory/vector-config";
-import { embedText } from "@/lib/llm-service";
+import { embedMultimodal } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
@@ -47,13 +48,16 @@ export async function POST(request: NextRequest) {
 
   await connectDB();
   const startedAt = Date.now();
-  const embedded = await embedText({
-    purpose: "agent-memory-retrieval",
-    source: "agent-memory-explore",
-    model: AGENT_MEMORY_VECTOR_CONFIG.model,
-    dimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
-    value: query,
-  });
+  const embedded = await embedMultimodal(
+    agentMemoryQueryEmbeddingRequest(query, "agent-memory-explore"),
+  );
+  const queryVector = embedded.vectors[0];
+  if (!queryVector) {
+    return NextResponse.json(
+      { error: "Embedding provider returned no query vector" },
+      { status: 502 },
+    );
+  }
   const hits = await AgentMemoryEmbedding.aggregate<{
     memoryId: mongoose.Types.ObjectId;
     score: number;
@@ -62,7 +66,7 @@ export async function POST(request: NextRequest) {
       $vectorSearch: {
         index: AGENT_MEMORY_VECTOR_CONFIG.indexName,
         path: AGENT_MEMORY_VECTOR_CONFIG.path,
-        queryVector: embedded.vector,
+        queryVector,
         numCandidates: Math.max(150, limit * 15),
         limit,
         filter: {
