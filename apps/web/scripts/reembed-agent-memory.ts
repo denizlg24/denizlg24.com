@@ -18,6 +18,7 @@ import { stableContentHash } from "@/lib/agent-memory/evidence";
 import { findDeniedContent } from "@/lib/agent-memory/security";
 import {
   findSimilarMemories,
+  pruneSimilarityLinksOutside,
   SIMILARITY_TOP_K,
   upsertSimilarityLinks,
 } from "@/lib/agent-memory/similarity";
@@ -130,6 +131,14 @@ async function main() {
     (memory) => !embeddedRevisions.has(String(memory.currentRevisionId)),
   );
 
+  // Re-embedding a revised statement moves it in the vector space, so the links
+  // it used to claim can disappear from the new neighbor set. Upserts alone
+  // never retract those, and cleanupAgentMemoryEmbeddings keeps them because
+  // both endpoints and the model are still active — so the pass records what it
+  // claimed and reconciles once the corpus is settled.
+  const refreshedMemoryIds = new Set<string>();
+  const claimedPairKeys = new Set<string>();
+
   for (let start = 0; start < pending.length; start += BATCH_SIZE) {
     const batch = pending.slice(start, start + BATCH_SIZE);
     for (const memory of batch) {
@@ -181,10 +190,10 @@ async function main() {
           const neighbors = await findSimilarMemories(vector, {
             limit: SIMILARITY_TOP_K + 1,
           });
-          summary.rebuiltSimilarityLinks += await upsertSimilarityLinks(
-            memory._id,
-            neighbors,
-          );
+          const pairKeys = await upsertSimilarityLinks(memory._id, neighbors);
+          for (const pairKey of pairKeys) claimedPairKeys.add(pairKey);
+          refreshedMemoryIds.add(String(memory._id));
+          summary.rebuiltSimilarityLinks += pairKeys.length;
         } catch (error) {
           // The vector is authoritative; link refresh is eventually repaired by
           // consolidation and should not prevent the settings cutover.
@@ -206,6 +215,13 @@ async function main() {
     );
   }
 
+  if (execute) {
+    summary.removedSimilarityLinks += await pruneSimilarityLinksOutside(
+      refreshedMemoryIds,
+      claimedPairKeys,
+    );
+  }
+
   if (execute && pruneStale) {
     const result = await AgentMemoryEmbedding.deleteMany({
       model: { $ne: model },
@@ -214,7 +230,7 @@ async function main() {
     const links = await AgentMemorySimilarity.deleteMany({
       model: { $ne: model },
     });
-    summary.removedSimilarityLinks = links.deletedCount;
+    summary.removedSimilarityLinks += links.deletedCount;
   }
 
   // The embedding job refuses to run when persisted settings disagree with the

@@ -685,6 +685,9 @@ export const agentMemorySettingsSchema = z.object({
      *  summary; null disables the summary and retrieval uses only the latest
      *  message. */
     querySummaryModel: z.string().nullable(),
+    /** Cosine floor for manual recall (the Explore dock and the graph probe).
+     *  Those surfaces are uncapped: every memory at or above this scores. */
+    exploreMinSimilarity: z.number().min(0).max(1),
   }),
   retention: z.object({
     terminalJobDays: z.number().int().min(1).max(365),
@@ -959,9 +962,13 @@ export type AgentMemoryContradictionListResponse = z.infer<
   typeof agentMemoryContradictionListResponseSchema
 >;
 
+/**
+ * Manual recall is unbounded by design: the result set is whatever clears
+ * `retrieval.exploreMinSimilarity`, not a fixed top-N. The chat-injection budget
+ * (`retrieval.maxRetrievedItems`) is a separate control and still applies there.
+ */
 export const agentMemoryExploreRequestSchema = z.object({
   query: z.string().trim().min(2).max(500),
-  limit: z.number().int().min(1).max(25).default(10),
 });
 export type AgentMemoryExploreRequest = z.infer<
   typeof agentMemoryExploreRequestSchema
@@ -992,6 +999,8 @@ export type AgentMemoryExploreHit = z.infer<typeof agentMemoryExploreHitSchema>;
 export const agentMemoryExploreResponseSchema = z.object({
   query: z.string(),
   tookMs: z.number().nonnegative(),
+  /** The cosine floor the result set was cut at. */
+  minSimilarity: z.number().min(0).max(1),
   results: z.array(agentMemoryExploreHitSchema),
 });
 export type AgentMemoryExploreResponse = z.infer<

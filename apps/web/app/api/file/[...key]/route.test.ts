@@ -17,6 +17,8 @@ describe("publicFileHeaders", () => {
     expect(headers.get("cross-origin-resource-policy")).toBe("cross-origin");
     expect(headers.get("content-type")).toBe("image/jpeg");
     expect(headers.get("content-length")).toBe("73218");
+    expect(headers.get("etag")).toBe('"profile-photo"');
+    expect(headers.get("last-modified")).toBe("Tue, 28 Jul 2026 09:00:00 GMT");
     expect(headers.get("cache-control")).toContain("immutable");
   });
 });

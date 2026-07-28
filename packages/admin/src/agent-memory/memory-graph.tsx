@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import type { ForceGraphMethods, ForceGraphProps } from "react-force-graph-3d";
+import { toast } from "sonner";
 import * as THREE from "three";
 import { useAdmin } from "../provider";
 import {
@@ -49,23 +50,69 @@ type ImageEntry =
  * through `fetch` rather than an `<img crossOrigin>`: the same attachments are
  * rendered by plain `<img>` in the Explore dock, and reusing that cache entry
  * under a CORS-mode request yields a texture WebGL refuses to upload.
+ *
+ * The cache is module-level and so outlives every mount — hence the cap and the
+ * `close()` on eviction, and hence decoding at card resolution rather than at
+ * source resolution: a card body is a few hundred pixels wide and the full
+ * decode of a phone photo is two orders of magnitude larger.
  */
 const imageCache = new Map<string, ImageEntry>();
+const MAX_CACHED_IMAGES = 64;
+/** Cover-fit target for a card body, with headroom for the emphasis scale-up. */
+const DECODE_WIDTH = CARD_WIDTH;
+const DECODE_HEIGHT = CARD_HEIGHT;
+/** A hung request must settle, or its nodes stay queued for the tab's lifetime. */
+const IMAGE_TIMEOUT_MS = 15_000;
 
-function requestImage(url: string, onReady: () => void): ImageBitmap | null {
+function evictOldestImages(): void {
+  for (const [url, entry] of imageCache) {
+    if (imageCache.size <= MAX_CACHED_IMAGES) return;
+    // Loading entries have an in-flight writer; dropping one would let it
+    // resurrect the key after eviction.
+    if (entry.status !== "ready") continue;
+    entry.bitmap.close();
+    imageCache.delete(url);
+  }
+}
+
+/** Decode straight down to card resolution, preserving cover-fit sharpness. */
+async function decodeAtCardResolution(blob: Blob): Promise<ImageBitmap> {
+  const source = await createImageBitmap(blob);
+  const scale = Math.max(
+    DECODE_WIDTH / source.width,
+    DECODE_HEIGHT / source.height,
+  );
+  if (scale >= 1) return source;
+  const resized = await createImageBitmap(source, {
+    resizeWidth: Math.max(1, Math.round(source.width * scale)),
+    resizeHeight: Math.max(1, Math.round(source.height * scale)),
+    resizeQuality: "high",
+  });
+  source.close();
+  return resized;
+}
+
+function requestImage(url: string, onSettled: () => void): ImageBitmap | null {
   const cached = imageCache.get(url);
   if (cached?.status === "ready") return cached.bitmap;
   if (cached) return null;
   imageCache.set(url, { status: "loading" });
   void (async () => {
     try {
-      const response = await fetch(url, { credentials: "omit" });
+      const response = await fetch(url, {
+        credentials: "omit",
+        signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS),
+      });
       if (!response.ok) throw new Error(`Image request failed`);
-      const bitmap = await createImageBitmap(await response.blob());
-      imageCache.set(url, { status: "ready", bitmap });
-      onReady();
+      imageCache.set(url, {
+        status: "ready",
+        bitmap: await decodeAtCardResolution(await response.blob()),
+      });
+      evictOldestImages();
     } catch {
       imageCache.set(url, { status: "error" });
+    } finally {
+      onSettled();
     }
   })();
   return null;
@@ -121,6 +168,14 @@ function cardWidthFor(node: AgentMemoryGraphNode): number {
 // the whole force layout from a random spread. Single-user app, one graph.
 let previousNodes = new Map<string, PositionedNode>();
 
+/**
+ * `pending` — drawn before its image arrived, and the fetch is still in flight;
+ * the card is *not* stale, or it would be rebuilt on every pass for as long as
+ * the request lasts. `dirty` — the image has since landed, so one redraw is
+ * owed. `settleImage` performs the transition.
+ */
+type CardImageState = "none" | "pending" | "dirty";
+
 interface SpriteEntry {
   node: AgentMemoryGraphNode;
   sprite: THREE.Sprite;
@@ -129,8 +184,14 @@ interface SpriteEntry {
   card: THREE.Texture | null;
   /** Emphasis the current card was drawn with, so a probe change redraws it. */
   cardEmphasis: boolean;
-  /** Set when the card was drawn before its image arrived, so it can be redrawn. */
-  awaitingImage: boolean;
+  imageState: CardImageState;
+}
+
+/** Three.js frees neither on scene removal, so every drop site must call this. */
+function disposeEntry(entry: SpriteEntry): void {
+  entry.card?.dispose();
+  entry.card = null;
+  entry.material.dispose();
 }
 
 export function MemoryGraph({
@@ -179,11 +240,15 @@ export function MemoryGraph({
     return matched;
   }, [probeIds, range, nodes]);
 
-  // Read by the LOD loop, which must not restart when these change.
+  // Read by the LOD loop, which must not restart when these change. Written in
+  // an effect rather than during render: both readers are post-commit, so this
+  // is equally live without mutating a ref a discarded render could poison.
   const highlightRef = useRef(highlight);
-  highlightRef.current = highlight;
   const themeRef = useRef(theme);
-  themeRef.current = theme;
+  useEffect(() => {
+    highlightRef.current = highlight;
+    themeRef.current = theme;
+  }, [highlight, theme]);
 
   // Fresh copies: the force engine mutates node/link objects (x/y/z, source/
   // target become object refs), so never hand it the parsed response objects.
@@ -215,12 +280,49 @@ export function MemoryGraph({
     // The engine keeps mutating these objects, so the map always reads the
     // latest simulated positions on the next refresh.
     previousNodes = new Map(nextNodes.map((node) => [node.id, node]));
-    sprites.current.clear();
     return {
       nodes: nextNodes,
       links: links.map((link) => ({ ...link })),
     };
   }, [nodes, links]);
+
+  // Retire sprites whose node left the graph. Pruning by id rather than
+  // clearing wholesale keeps this safe against ordering: react-force-graph may
+  // already have re-registered the surviving ids by the time this runs.
+  useEffect(() => {
+    const live = new Set(graphData.nodes.map((node) => node.id));
+    for (const [id, entry] of sprites.current) {
+      if (live.has(id)) continue;
+      disposeEntry(entry);
+      sprites.current.delete(id);
+    }
+  }, [graphData]);
+
+  useEffect(() => {
+    const registry = sprites.current;
+    const outline = outlineTexture;
+    return () => {
+      for (const entry of registry.values()) disposeEntry(entry);
+      registry.clear();
+      outline.current?.dispose();
+      outline.current = null;
+    };
+  }, []);
+
+  /**
+   * Called once a URL's fetch settles. Cards drawn while it was in flight are
+   * marked for exactly one redraw; cards whose fetch failed go back to being
+   * fresh so a dead attachment never re-enters the rebuild queue.
+   */
+  const settleImage = useCallback((url: string) => {
+    const ready = imageCache.get(url)?.status === "ready";
+    for (const entry of sprites.current.values()) {
+      if (entry.node.imageUrl !== url || entry.imageState !== "pending") {
+        continue;
+      }
+      entry.imageState = ready ? "dirty" : "none";
+    }
+  }, []);
 
   const applyAppearance = useCallback((entry: SpriteEntry) => {
     const active = highlightRef.current;
@@ -258,9 +360,6 @@ export function MemoryGraph({
   // react-force-graph rebuild every node object when a filter changes.
   useEffect(() => {
     for (const entry of sprites.current.values()) applyAppearance(entry);
-  }, [applyAppearance]);
-  useEffect(() => {
-    for (const entry of sprites.current.values()) applyAppearance(entry);
   }, [highlight, applyAppearance]);
 
   /**
@@ -285,40 +384,36 @@ export function MemoryGraph({
 
       const halfFovTangent = Math.tan(((camera.fov ?? 50) * Math.PI) / 360);
       const active = highlightRef.current;
-      const wanted: SpriteEntry[] = [];
+      // Distance is carried through rather than recomputed in the comparator:
+      // the sort runs over the whole live set several times a second.
+      const wanted: { entry: SpriteEntry; distance: number; hit: boolean }[] =
+        [];
       for (const entry of sprites.current.values()) {
         const distance = camera.position.distanceTo(entry.sprite.position);
         const pixels =
           ((entry.width / CARD_ASPECT) * size.height) /
           (2 * Math.max(distance, 1) * halfFovTangent);
+        const hit = Boolean(active?.has(entry.node.id));
         // A probe hit always gets a card regardless of distance — being able
         // to read the results is the point of searching. Hover does not:
         // hovering a card that is already legible adds nothing.
-        if (
-          active?.has(entry.node.id) ||
-          entry.node.isOwner === true ||
-          pixels >= DETAIL_MIN_PIXELS
-        ) {
-          wanted.push(entry);
+        if (hit || entry.node.isOwner === true || pixels >= DETAIL_MIN_PIXELS) {
+          wanted.push({ entry, distance, hit });
         }
       }
       // Hits first, then nearest, so a full budget never starves the results.
-      wanted.sort((a, b) => {
-        const hitA = active?.has(a.node.id) ? 0 : 1;
-        const hitB = active?.has(b.node.id) ? 0 : 1;
-        if (hitA !== hitB) return hitA - hitB;
-        return (
-          camera.position.distanceTo(a.sprite.position) -
-          camera.position.distanceTo(b.sprite.position)
-        );
-      });
-      const keep = new Set(wanted.slice(0, DETAIL_BUDGET));
+      wanted.sort((a, b) =>
+        a.hit === b.hit ? a.distance - b.distance : a.hit ? -1 : 1,
+      );
+      const keep = new Set(
+        wanted.slice(0, DETAIL_BUDGET).map((candidate) => candidate.entry),
+      );
 
       for (const entry of sprites.current.values()) {
         if (entry.card && !keep.has(entry)) {
           entry.card.dispose();
           entry.card = null;
-          entry.awaitingImage = false;
+          entry.imageState = "none";
           entry.material.map = outlineTexture.current;
           applyAppearance(entry);
         }
@@ -330,15 +425,13 @@ export function MemoryGraph({
       for (const entry of keep) {
         const emphasis = Boolean(active?.has(entry.node.id));
         const stale =
-          !entry.card || entry.awaitingImage || entry.cardEmphasis !== emphasis;
+          !entry.card ||
+          entry.imageState === "dirty" ||
+          entry.cardEmphasis !== emphasis;
         if (!stale) continue;
         if (built >= CARDS_PER_PASS) break;
         const url = entry.node.imageUrl;
-        const bitmap = url
-          ? requestImage(url, () => {
-              // Redraw happens on a later pass; awaitingImage keeps it queued.
-            })
-          : null;
+        const bitmap = url ? requestImage(url, () => settleImage(url)) : null;
         entry.card?.dispose();
         const texture = new THREE.CanvasTexture(
           drawMemoryCard(entry.node, currentTheme, bitmap, emphasis),
@@ -346,9 +439,10 @@ export function MemoryGraph({
         texture.colorSpace = THREE.SRGBColorSpace;
         entry.card = texture;
         entry.cardEmphasis = emphasis;
-        entry.awaitingImage = Boolean(
-          url && !bitmap && imageCache.get(url)?.status !== "error",
-        );
+        entry.imageState =
+          url && !bitmap && imageCache.get(url)?.status === "loading"
+            ? "pending"
+            : "none";
         entry.material.map = texture;
         applyAppearance(entry);
         built += 1;
@@ -357,25 +451,37 @@ export function MemoryGraph({
 
     frame = requestAnimationFrame(run);
     return () => cancelAnimationFrame(frame);
-  }, [theme, size.width, size.height]);
+  }, [theme, size.width, size.height, applyAppearance, settleImage]);
 
   // Same retrieval path as the Explore dock: the embedding index, no model in
   // between. Only the matched ids are kept — the graph is the result view.
+  const probeSequence = useRef(0);
   const runProbe = async () => {
     const query = probe.trim();
     if (query.length < 2) {
       setProbeIds(null);
       return;
     }
+    // A slower earlier probe must not overwrite a newer one's results.
+    const sequence = probeSequence.current + 1;
+    probeSequence.current = sequence;
     setProbing(true);
     try {
       const raw = await client.post<unknown>("agent-memory/explore", { query });
       const response = agentMemoryExploreResponseSchema.parse(raw);
+      if (probeSequence.current !== sequence) return;
       setProbeIds(new Set(response.results.map((hit) => hit.memory.id)));
-    } catch {
-      setProbeIds(null);
+    } catch (error) {
+      if (probeSequence.current !== sequence) return;
+      // A failed probe is not a probe that recalled nothing: keep the previous
+      // filter and say so, rather than silently clearing it.
+      toast.error(
+        error instanceof Error
+          ? `Probe failed: ${error.message}`
+          : "Probe failed",
+      );
     } finally {
-      setProbing(false);
+      if (probeSequence.current === sequence) setProbing(false);
     }
   };
 
@@ -457,8 +563,10 @@ export function MemoryGraph({
               width: cardWidthFor(node),
               card: null,
               cardEmphasis: false,
-              awaitingImage: false,
+              imageState: "none",
             };
+            const previous = sprites.current.get(node.id);
+            if (previous) disposeEntry(previous);
             sprites.current.set(node.id, entry);
             applyAppearance(entry);
             return sprite;
@@ -498,12 +606,25 @@ export function MemoryGraph({
               }
             }}
             placeholder="probe the memory lattice…"
+            aria-label="Probe the memory lattice"
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground/40"
             spellCheck={false}
             autoComplete="off"
           />
+          <span aria-live="polite" className="sr-only">
+            {probing
+              ? "Probing"
+              : probeIds
+                ? `${probeIds.size} memories matched`
+                : ""}
+          </span>
           {probing ? (
-            <span className="animate-pulse text-muted-foreground">▮</span>
+            <span
+              aria-hidden="true"
+              className="animate-pulse text-muted-foreground"
+            >
+              ▮
+            </span>
           ) : (
             probeIds && (
               <button
@@ -512,9 +633,10 @@ export function MemoryGraph({
                   setProbe("");
                   setProbeIds(null);
                 }}
+                aria-label={`Clear probe, ${probeIds.size} matched`}
                 className="shrink-0 tabular-nums text-muted-foreground hover:text-foreground"
               >
-                {probeIds.size} ✕
+                <span aria-hidden="true">{probeIds.size} ✕</span>
               </button>
             )
           )}

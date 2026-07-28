@@ -1969,7 +1969,9 @@ function ProcedureTable({
             <TableHead>Behavior</TableHead>
             <TableHead>Lifecycle</TableHead>
             <TableHead className="text-right">Confidence</TableHead>
-            <TableHead className="w-8" />
+            <TableHead className="w-8">
+              <span className="sr-only">Actions</span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -1995,6 +1997,7 @@ function ProcedureTable({
                   variant="ghost"
                   size="icon"
                   className="size-7 text-muted-foreground hover:text-destructive"
+                  aria-label={`Delete procedure: ${procedure.scope}`}
                   onClick={() => setDeleteTarget(procedure)}
                 >
                   <Trash2 className="size-3.5" />
@@ -2291,6 +2294,9 @@ const QUERY_SUMMARY_MODEL_DISABLED = "__disabled__";
 const RETRIEVAL_MAX_ITEM_OPTIONS = [4, 8, 12, 20, 30, 50];
 const RETRIEVAL_MAX_TOKEN_OPTIONS = [
   1_000, 1_500, 2_500, 4_000, 6_000, 8_000, 10_000,
+];
+const EXPLORE_MIN_SIMILARITY_OPTIONS = [
+  0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7,
 ];
 
 function useModelCatalog() {
@@ -2648,7 +2654,8 @@ function SettingsPanel({
           <p className="text-xs text-muted-foreground">
             Caps how much memory context is injected into a chat request: the
             maximum number of retrieved memories and the serialized token budget
-            (shared with the derived profile context).
+            (shared with the derived profile context). The recall floor applies
+            to manual probes instead, which are uncapped by count.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2728,6 +2735,45 @@ function SettingsPanel({
                   className="text-xs"
                 >
                   {option.toLocaleString()} tokens
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={String(settings.retrieval.exploreMinSimilarity)}
+            onValueChange={(value) =>
+              void onUpdate(
+                {
+                  retrieval: {
+                    ...settings.retrieval,
+                    exploreMinSimilarity: Number(value),
+                  },
+                },
+                `Manual recall floor set to ${value}`,
+              )
+            }
+          >
+            <SelectTrigger className="h-8 w-48 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {!EXPLORE_MIN_SIMILARITY_OPTIONS.includes(
+                settings.retrieval.exploreMinSimilarity,
+              ) && (
+                <SelectItem
+                  value={String(settings.retrieval.exploreMinSimilarity)}
+                  className="text-xs"
+                >
+                  ≥ {settings.retrieval.exploreMinSimilarity} cosine (current)
+                </SelectItem>
+              )}
+              {EXPLORE_MIN_SIMILARITY_OPTIONS.map((option) => (
+                <SelectItem
+                  key={option}
+                  value={String(option)}
+                  className="text-xs"
+                >
+                  ≥ {option} cosine
                 </SelectItem>
               ))}
             </SelectContent>

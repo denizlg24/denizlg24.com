@@ -61,11 +61,17 @@ export async function DELETE(
 ) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
+  const { procedureId } = await params;
   try {
-    const { procedureId } = await params;
     await deleteProcedure(procedureId);
     return NextResponse.json({ success: true });
   } catch (error) {
+    console.error("Error deleting agent procedure:", {
+      procedureId,
+      code:
+        error instanceof AgentMemoryPolicyError ? error.code : "unknown-error",
+      error,
+    });
     const status =
       error instanceof AgentMemoryPolicyError && error.code === "not-found"
         ? 404

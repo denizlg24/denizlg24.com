@@ -48,15 +48,20 @@ export interface CardTheme {
   scheme: "dark" | "light";
 }
 
-function rgba(hex: string, alpha: number): string {
-  // Theme values arrive as CSS colors of unknown notation; let the canvas
-  // resolve them once and apply alpha through globalAlpha instead of parsing.
-  return hex.startsWith("#") && hex.length === 7
-    ? `rgba(${Number.parseInt(hex.slice(1, 3), 16)}, ${Number.parseInt(
-        hex.slice(3, 5),
-        16,
-      )}, ${Number.parseInt(hex.slice(5, 7), 16)}, ${alpha})`
-    : hex;
+/**
+ * Theme values arrive as CSS colors of unknown notation — under Tailwind v4
+ * `--background`/`--foreground` resolve to OKLCH — so alpha is applied around
+ * the draw call rather than by parsing the color.
+ */
+function withAlpha(
+  context: CanvasRenderingContext2D,
+  alpha: number,
+  draw: () => void,
+): void {
+  const previous = context.globalAlpha;
+  context.globalAlpha = previous * alpha;
+  draw();
+  context.globalAlpha = previous;
 }
 
 function formatDay(value: string): string {
@@ -88,37 +93,36 @@ function wrap(
   maxWidth: number,
   maxLines: number,
 ): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
+  const fits = (value: string) => context.measureText(value).width <= maxWidth;
   const lines: string[] = [];
   let line = "";
-  for (const word of words) {
+
+  for (const word of text.split(/\s+/).filter(Boolean)) {
     const candidate = line ? `${line} ${word}` : word;
-    if (context.measureText(candidate).width <= maxWidth) {
+    if (fits(candidate)) {
       line = candidate;
       continue;
     }
     if (line) lines.push(line);
-    line = word;
-    if (lines.length === maxLines) break;
-  }
-  if (lines.length < maxLines && line) lines.push(line);
-
-  if (lines.length === maxLines) {
-    // Trim the final line until the ellipsis fits rather than letting it spill.
-    let last = lines[maxLines - 1] ?? "";
-    if (
-      words.join(" ") !== lines.join(" ") &&
-      context.measureText(`${last}…`).width > maxWidth
-    ) {
-      while (last && context.measureText(`${last}…`).width > maxWidth) {
-        last = last.slice(0, -1);
-      }
-      lines[maxLines - 1] = `${last}…`;
-    } else if (words.join(" ") !== lines.join(" ")) {
-      lines[maxLines - 1] = `${last}…`;
+    // A token wider than the card — a URL or a hash — offers no break
+    // opportunity of its own, so it is split by character rather than painted
+    // past the frame.
+    let rest = word;
+    while (!fits(rest)) {
+      let head = rest;
+      while (head.length > 1 && !fits(head)) head = head.slice(0, -1);
+      lines.push(head);
+      rest = rest.slice(head.length);
     }
+    line = rest;
   }
-  return lines;
+  if (line) lines.push(line);
+
+  if (lines.length <= maxLines) return lines;
+  // Trim the last kept line until the ellipsis fits rather than letting it spill.
+  let last = lines[maxLines - 1] ?? "";
+  while (last && !fits(`${last}…`)) last = last.slice(0, -1);
+  return [...lines.slice(0, maxLines - 1), `${last}…`];
 }
 
 function drawBrackets(
@@ -171,15 +175,18 @@ export function drawMemoryCard(
   context.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
   const accent = accentFor(node, theme.scheme);
-  context.strokeStyle = emphasis ? accent : rgba(theme.foreground, 0.4);
+  context.strokeStyle = emphasis ? accent : theme.foreground;
   context.lineWidth = emphasis ? 3 : 1.5;
   const frameInset = context.lineWidth / 2;
-  context.strokeRect(
-    frameInset,
-    frameInset,
-    CARD_WIDTH - context.lineWidth,
-    CARD_HEIGHT - context.lineWidth,
-  );
+  const strokeFrame = () =>
+    context.strokeRect(
+      frameInset,
+      frameInset,
+      CARD_WIDTH - context.lineWidth,
+      CARD_HEIGHT - context.lineWidth,
+    );
+  if (emphasis) strokeFrame();
+  else withAlpha(context, 0.4, strokeFrame);
   drawBrackets(context, accent, emphasis ? 1.5 : 1);
 
   const mono = "ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -201,18 +208,21 @@ export function drawMemoryCard(
 
   if (node.status && node.status !== "active") {
     context.font = `400 11px ${mono}`;
-    context.fillStyle = rgba(theme.mutedForeground, 0.85);
+    const status = node.status.toUpperCase();
+    context.fillStyle = theme.mutedForeground;
     context.textAlign = "right";
-    context.fillText(node.status.toUpperCase(), CARD_WIDTH - PADDING, 26);
+    withAlpha(context, 0.85, () => {
+      context.fillText(status, CARD_WIDTH - PADDING, 26);
+    });
     context.textAlign = "left";
   }
 
   context.beginPath();
   context.moveTo(PADDING, 36.5);
   context.lineTo(CARD_WIDTH - PADDING, 36.5);
-  context.strokeStyle = rgba(theme.foreground, 0.3);
+  context.strokeStyle = theme.foreground;
   context.lineWidth = 1;
-  context.stroke();
+  withAlpha(context, 0.3, () => context.stroke());
 
   const bodyHeight = BODY_BOTTOM - BODY_TOP;
   if (image) {
@@ -274,8 +284,8 @@ export function drawOutlineCard(theme: CardTheme): HTMLCanvasElement {
   const context = canvas.getContext("2d");
   if (!context) return canvas;
 
-  context.fillStyle = rgba(theme.background, 0.55);
-  context.fillRect(0, 0, width, height);
+  context.fillStyle = theme.background;
+  withAlpha(context, 0.55, () => context.fillRect(0, 0, width, height));
 
   context.strokeStyle = "rgba(255, 255, 255, 0.35)";
   context.lineWidth = 1;

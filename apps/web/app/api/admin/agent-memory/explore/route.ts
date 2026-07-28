@@ -10,6 +10,7 @@ import {
   retrievalQueryContainsDeniedContent,
 } from "@/lib/agent-memory/retrieval";
 import { serializeAgentMemory } from "@/lib/agent-memory/serialize";
+import { getAgentMemorySettings } from "@/lib/agent-memory/settings";
 import { scoreToCosine } from "@/lib/agent-memory/similarity";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "@/lib/agent-memory/vector-config";
 import { embedMultimodal } from "@/lib/llm-service";
@@ -20,10 +21,19 @@ import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
 
 const EVENTS_PER_MEMORY = 3;
+/**
+ * $vectorSearch has no "return everything above a score" mode, so the cut is
+ * made client-side and this only has to be larger than any plausible result
+ * set. It is capped rather than unbounded because the aggregation still hydrates
+ * one document per candidate.
+ */
+const CANDIDATE_CEILING = 1_000;
 
 /**
  * Embedding-only recall probe for the explore dock: the query is embedded and
  * matched against memory vectors directly — no LLM reranking or synthesis.
+ * Uncapped by count — every memory clearing `retrieval.exploreMinSimilarity`
+ * comes back, so the threshold is the only knob.
  */
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
@@ -38,7 +48,7 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const { query, limit } = body.data;
+  const { query } = body.data;
   if (retrievalQueryContainsDeniedContent(query)) {
     return NextResponse.json(
       { error: "Query touches content the memory system refuses to recall" },
@@ -48,16 +58,40 @@ export async function POST(request: NextRequest) {
 
   await connectDB();
   const startedAt = Date.now();
-  const embedded = await embedMultimodal(
-    agentMemoryQueryEmbeddingRequest(query, "agent-memory-explore"),
-  );
-  const queryVector = embedded.vectors[0];
+  const { exploreMinSimilarity: minSimilarity } = (
+    await getAgentMemorySettings()
+  ).retrieval;
+  let queryVector: number[] | undefined;
+  try {
+    const embedded = await embedMultimodal(
+      agentMemoryQueryEmbeddingRequest(query, "agent-memory-explore"),
+    );
+    queryVector = embedded.vectors[0];
+  } catch (error) {
+    console.error("Error embedding agent memory explore query:", {
+      model: AGENT_MEMORY_VECTOR_CONFIG.model,
+      queryLength: query.length,
+      error,
+    });
+  }
   if (!queryVector) {
     return NextResponse.json(
       { error: "Embedding provider returned no query vector" },
       { status: 502 },
     );
   }
+  const searchFilter = {
+    model: AGENT_MEMORY_VECTOR_CONFIG.model,
+    status: "active" as const,
+    sensitivity: { $in: RETRIEVABLE_SENSITIVITIES },
+  };
+  const limit = Math.max(
+    1,
+    Math.min(
+      CANDIDATE_CEILING,
+      await AgentMemoryEmbedding.countDocuments(searchFilter),
+    ),
+  );
   const hits = await AgentMemoryEmbedding.aggregate<{
     memoryId: mongoose.Types.ObjectId;
     score: number;
@@ -67,27 +101,30 @@ export async function POST(request: NextRequest) {
         index: AGENT_MEMORY_VECTOR_CONFIG.indexName,
         path: AGENT_MEMORY_VECTOR_CONFIG.path,
         queryVector,
-        numCandidates: Math.max(150, limit * 15),
+        numCandidates: Math.min(10_000, Math.max(150, limit * 2)),
         limit,
-        filter: {
-          model: AGENT_MEMORY_VECTOR_CONFIG.model,
-          status: "active",
-          sensitivity: { $in: RETRIEVABLE_SENSITIVITIES },
-        },
+        filter: searchFilter,
       },
     },
     {
       $project: { _id: 0, memoryId: 1, score: { $meta: "vectorSearchScore" } },
     },
   ]);
-  // scoreToCosine folds Atlas's (1 + cosine) / 2 back to cosine; anything at 0
-  // is noise the index surfaced only to fill the requested limit.
-  const scored = hits
-    .map((hit) => ({
-      memoryId: String(hit.memoryId),
-      score: scoreToCosine(hit.score),
-    }))
-    .filter((hit) => hit.score > 0);
+  // scoreToCosine folds Atlas's (1 + cosine) / 2 back to cosine. Several
+  // revisions of one memory can be indexed, so the best score per memory wins.
+  const bestByMemory = new Map<string, number>();
+  for (const hit of hits) {
+    const memoryId = String(hit.memoryId);
+    const score = scoreToCosine(hit.score);
+    if (score < minSimilarity) continue;
+    const existing = bestByMemory.get(memoryId);
+    if (existing === undefined || existing < score) {
+      bestByMemory.set(memoryId, score);
+    }
+  }
+  const scored = [...bestByMemory.entries()]
+    .map(([memoryId, score]) => ({ memoryId, score }))
+    .sort((a, b) => b.score - a.score);
 
   const memories = await AgentMemory.find({
     _id: {
@@ -143,6 +180,7 @@ export async function POST(request: NextRequest) {
   const response = agentMemoryExploreResponseSchema.parse({
     query,
     tookMs: Date.now() - startedAt,
+    minSimilarity,
     results,
   });
   return NextResponse.json(response);

@@ -322,7 +322,12 @@ export async function loadAgentMemoryGraph() {
       )
       .sort({ createdAt: 1 })
       .lean(),
-    AgentMemoryEmbedding.distinct("memoryId"),
+    // Scoped to the deployed vector contract: a vector from a retired model is
+    // not reachable by recall, so it must not light the node up as embedded.
+    AgentMemoryEmbedding.distinct("memoryId", {
+      model: AGENT_MEMORY_VECTOR_CONFIG.model,
+      status: "active",
+    }),
     AgentMemorySimilarity.find({ model: AGENT_MEMORY_VECTOR_CONFIG.model })
       .select("sourceMemoryId targetMemoryId strength")
       .lean(),

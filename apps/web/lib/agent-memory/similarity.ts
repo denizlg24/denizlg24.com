@@ -76,14 +76,17 @@ export async function findSimilarMemories(
 }
 
 /**
- * Persist this memory's top-K neighbor links for the graph. Upsert-only: a
- * link also claimed by the other endpoint stays valid, and stale links vanish
- * from the graph once an endpoint is removed via removeSimilarityLinks.
+ * Persist this memory's top-K neighbor links for the graph and return the pair
+ * keys it claims. Upsert-only: a link also claimed by the other endpoint stays
+ * valid, and stale links vanish from the graph once an endpoint is removed via
+ * removeSimilarityLinks. Callers that re-embed an existing memory must reconcile
+ * the returned keys against the links already incident to it — see
+ * pruneSimilarityLinksOutside.
  */
 export async function upsertSimilarityLinks(
   memoryId: mongoose.Types.ObjectId,
   neighbors: MemoryNeighbor[],
-): Promise<number> {
+): Promise<string[]> {
   const self = memoryId.toString();
   const linked = neighbors
     .filter(
@@ -91,8 +94,11 @@ export async function upsertSimilarityLinks(
         neighbor.memoryId !== self && neighbor.similarity >= MIN_SIMILARITY,
     )
     .slice(0, SIMILARITY_TOP_K);
-  if (linked.length === 0) return 0;
+  if (linked.length === 0) return [];
   await connectDB();
+  const pairKeys = linked.map(
+    (neighbor) => similarityPair(self, neighbor.memoryId).pairKey,
+  );
   await AgentMemorySimilarity.bulkWrite(
     linked.map((neighbor) => {
       const { source, target, pairKey } = similarityPair(
@@ -118,7 +124,39 @@ export async function upsertSimilarityLinks(
       };
     }),
   );
-  return linked.length;
+  return pairKeys;
+}
+
+/**
+ * Drop links incident to the given memories that the current pass did not
+ * reclaim. Links are undirected and either endpoint can own one, so scoping by
+ * incidence alone would delete a neighbor's still-valid link — only pairs whose
+ * *both* endpoints were re-embedded in this pass are safe to reconcile.
+ */
+export async function pruneSimilarityLinksOutside(
+  refreshedMemoryIds: Iterable<string>,
+  keptPairKeys: Iterable<string>,
+): Promise<number> {
+  const refreshed = [...new Set(refreshedMemoryIds)];
+  if (refreshed.length === 0) return 0;
+  const kept = new Set(keptPairKeys);
+  await connectDB();
+  const objectIds = refreshed.map((id) => new Types.ObjectId(id));
+  const candidates = await AgentMemorySimilarity.find({
+    model: AGENT_MEMORY_VECTOR_CONFIG.model,
+    sourceMemoryId: { $in: objectIds },
+    targetMemoryId: { $in: objectIds },
+  })
+    .select("pairKey")
+    .lean();
+  const obsolete = candidates
+    .map((link) => link.pairKey)
+    .filter((pairKey) => !kept.has(pairKey));
+  if (obsolete.length === 0) return 0;
+  const result = await AgentMemorySimilarity.deleteMany({
+    pairKey: { $in: obsolete },
+  });
+  return result.deletedCount;
 }
 
 export async function removeSimilarityLinks(
