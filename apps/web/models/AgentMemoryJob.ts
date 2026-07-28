@@ -13,7 +13,8 @@ export interface IAgentMemoryJob extends Document {
     | "insight"
     | "consolidation"
     | "resource-suggestion"
-    | "training";
+    | "training"
+    | "chat-run";
   evidenceIds: string[];
   memoryIds: mongoose.Types.ObjectId[];
   status:
@@ -50,6 +51,7 @@ const AgentMemoryJobSchema = new Schema<IAgentMemoryJob>(
         "consolidation",
         "resource-suggestion",
         "training",
+        "chat-run",
       ],
       required: true,
     },

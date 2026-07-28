@@ -84,3 +84,53 @@ export type FortuneSheet = z.infer<typeof fortuneSheetSchema>;
 
 export const fortuneSheetBookSchema = z.array(fortuneSheetSchema);
 export type FortuneSheetBook = z.infer<typeof fortuneSheetBookSchema>;
+
+function hasPersistableCellData(cell: unknown): cell is FortuneSheetCellValue {
+  return (
+    cell != null &&
+    typeof cell === "object" &&
+    !Array.isArray(cell) &&
+    Object.keys(cell).length > 0
+  );
+}
+
+function matrixToCelldata(matrix: unknown[][]) {
+  const celldata: FortuneSheetCellData[] = [];
+
+  for (let row = 0; row < matrix.length; row += 1) {
+    const cells = matrix[row];
+    if (!cells) continue;
+
+    for (let column = 0; column < cells.length; column += 1) {
+      const cell = cells[column];
+      if (!hasPersistableCellData(cell)) continue;
+      celldata.push({ r: row, c: column, v: cell });
+    }
+  }
+
+  return celldata;
+}
+
+/**
+ * Fortune Sheet expands `celldata` into a dense `data` matrix while editing,
+ * then emits that runtime shape from `onChange`. Persist only the sparse shape
+ * that Fortune Sheet accepts when the workbook is loaded again.
+ */
+export function normalizeFortuneSheetBook(
+  book: readonly unknown[],
+): FortuneSheetBook {
+  return book.map((input) => {
+    const runtimeSheet = input as FortuneSheet & {
+      data?: unknown[][];
+    };
+    const { data, ...sheet } = runtimeSheet;
+    const celldata = Array.isArray(data)
+      ? matrixToCelldata(data)
+      : (sheet.celldata ?? []).filter((cell) => hasPersistableCellData(cell.v));
+
+    return {
+      ...sheet,
+      celldata,
+    };
+  });
+}

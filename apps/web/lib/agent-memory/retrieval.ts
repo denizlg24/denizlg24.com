@@ -87,6 +87,12 @@ export interface RetrievalEvidenceReference {
   sourceRef: AgentSourceRef;
 }
 
+export interface RetrievedMemoryImage {
+  eventId: string;
+  url: string;
+  name: string;
+}
+
 export interface RetrievalSignals {
   vector?: number;
   lexical?: number;
@@ -805,6 +811,7 @@ async function loadNearDuplicateStrengths(
 interface EvidenceState {
   invalidMemoryIds: Set<string>;
   referencesByEventId: Map<string, RetrievalEvidenceReference>;
+  imagesByEventId: Map<string, RetrievedMemoryImage>;
 }
 
 function attachEvidenceReferences(
@@ -826,7 +833,7 @@ async function loadEvidenceState(
 ): Promise<EvidenceState> {
   const eventIds = [...new Set(memories.flatMap((item) => item.evidenceIds))];
   const evidence = await AgentEvidenceEvent.find({ eventId: { $in: eventIds } })
-    .select("eventId sourceType sourceRef memoryEligible redactedAt")
+    .select("eventId sourceType sourceRef memoryEligible redactedAt provenance")
     .lean();
   const validEvidence = evidence.filter(
     (item) =>
@@ -853,7 +860,49 @@ async function loadEvidenceState(
         },
       ]),
     ),
+    imagesByEventId: new Map(
+      validEvidence.flatMap((item) => {
+        const provenance = item.provenance as Record<string, unknown>;
+        const url = provenance.attachmentUrl;
+        if (
+          item.sourceType !== "attachment" ||
+          provenance.hasImage !== true ||
+          typeof url !== "string" ||
+          url.length === 0
+        ) {
+          return [];
+        }
+        const name = provenance.attachmentName;
+        const image: RetrievedMemoryImage = {
+          eventId: item.eventId,
+          url,
+          name:
+            typeof name === "string" && name.length > 0 ? name : "Memory image",
+        };
+        return [[item.eventId, image] as const];
+      }),
+    ),
   };
+}
+
+const MAX_RETRIEVED_MEMORY_IMAGES = 4;
+
+export function collectRetrievedMemoryImages(
+  memories: Pick<RetrievalMemory, "evidenceIds">[],
+  imagesByEventId: ReadonlyMap<string, RetrievedMemoryImage>,
+): RetrievedMemoryImage[] {
+  const result: RetrievedMemoryImage[] = [];
+  const seenUrls = new Set<string>();
+  for (const memory of memories) {
+    for (const eventId of memory.evidenceIds) {
+      const image = imagesByEventId.get(eventId);
+      if (!image || seenUrls.has(image.url)) continue;
+      seenUrls.add(image.url);
+      result.push(image);
+      if (result.length >= MAX_RETRIEVED_MEMORY_IMAGES) return result;
+    }
+  }
+  return result;
 }
 
 export interface ChatMemoryRetrievalResult {
@@ -863,6 +912,7 @@ export interface ChatMemoryRetrievalResult {
   estimatedTokens: number;
   injected: boolean;
   context: string | null;
+  images: RetrievedMemoryImage[];
 }
 
 export async function retrieveMemoriesForChat(options: {
@@ -1003,5 +1053,46 @@ export async function retrieveMemoriesForChat(options: {
     estimatedTokens,
     injected,
     context,
+    images: shouldInject
+      ? collectRetrievedMemoryImages(
+          selected.map((item) => item.memory),
+          evidenceState.imagesByEventId,
+        )
+      : [],
   };
+}
+
+/**
+ * Rehydrates image evidence for an approval/client-tool continuation. The
+ * original retrieval trace is authoritative, but current memory and evidence
+ * policy are checked again so deleted, redacted, or excluded images never
+ * re-enter a later model turn.
+ */
+export async function loadInjectedMemoryImages(
+  traceId: string,
+): Promise<RetrievedMemoryImage[]> {
+  const trace = await AgentRetrievalTrace.findOne({ traceId, injected: true })
+    .select("selectedRevisionIds")
+    .lean();
+  if (!trace) return [];
+  const selectedRevisionIds = trace.selectedRevisionIds.map(String);
+  if (selectedRevisionIds.length === 0) return [];
+
+  const settings = await getAgentMemorySettings();
+  const memories = (
+    await AgentMemory.find({
+      currentRevisionId: { $in: selectedRevisionIds },
+      status: "active",
+    }).lean()
+  ).map((item) =>
+    toRetrievalMemory(item as unknown as Record<string, unknown>),
+  );
+  const evidenceState = await loadEvidenceState(
+    memories,
+    settings.excludedSourceRefs,
+  );
+  const eligible = memories.filter(
+    (memory) => !evidenceState.invalidMemoryIds.has(memory.id),
+  );
+  return collectRetrievedMemoryImages(eligible, evidenceState.imagesByEventId);
 }

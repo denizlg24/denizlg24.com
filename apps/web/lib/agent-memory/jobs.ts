@@ -4,7 +4,10 @@ import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { getAgentMemorySettings } from "./settings";
 
 const MAX_ATTEMPTS = 5;
-export const AGENT_MEMORY_JOB_LEASE_MS = 2 * 60 * 1_000;
+// Agent chat/training turns may use the full five-minute route allowance. The
+// lease must outlive that window or a cron drain can start the same run while
+// the immediate worker is still executing tools.
+export const AGENT_MEMORY_JOB_LEASE_MS = 6 * 60 * 1_000;
 
 export function retryDelayMs(attempt: number): number {
   return Math.min(60 * 60 * 1_000, 5_000 * 2 ** Math.max(0, attempt - 1));
@@ -22,6 +25,7 @@ export function operationIsEnabled(
   if (operation === "backfill") return gates.evidenceLedger;
   if (operation === "resource-suggestion") return gates.formation;
   if (operation === "training") return true;
+  if (operation === "chat-run") return true;
   return gates.evidenceLedger;
 }
 

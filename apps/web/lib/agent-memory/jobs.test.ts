@@ -22,5 +22,6 @@ describe("agent memory jobs", () => {
     expect(operationIsEnabled("formation", gates)).toBe(false);
     expect(operationIsEnabled("backfill", gates)).toBe(true);
     expect(operationIsEnabled("training", gates)).toBe(true);
+    expect(operationIsEnabled("chat-run", gates)).toBe(true);
   });
 });

@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { AgentMemoryMode } from "@repo/schemas";
+import {
+  type AgentMemoryMode,
+  backgroundAgentPageContextSchema,
+} from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
+import { injectMemoryImages } from "@/lib/agent-memory/message-images";
 import {
   buildRetrievalQuery,
   updateConversationRetrievalSummary,
@@ -9,6 +13,7 @@ import {
 import {
   type ChatMemoryRetrievalResult,
   loadInjectedMemoryContext,
+  loadInjectedMemoryImages,
   retrieveMemoriesForChat,
 } from "@/lib/agent-memory/retrieval";
 import {
@@ -84,10 +89,20 @@ export const POST = async (req: NextRequest) => {
       clientToolResults,
       executionMode: requestedExecutionMode,
       maxRounds,
+      pageContext,
     } = await req.json();
 
     const executionMode =
       requestedExecutionMode === "yolo" ? "yolo" : "interactive";
+    const parsedPageContext = pageContext
+      ? backgroundAgentPageContextSchema.safeParse(pageContext)
+      : null;
+    if (parsedPageContext && !parsedPageContext.success) {
+      return NextResponse.json(
+        { error: "Invalid pageContext" },
+        { status: 400 },
+      );
+    }
     const maxIterations = clampMaxIterations(
       typeof maxRounds === "number" ? maxRounds : undefined,
     );
@@ -215,11 +230,13 @@ export const POST = async (req: NextRequest) => {
       }
     }
     let personalMemoryContext = memoryRetrieval?.context ?? null;
+    let recalledMemoryImages = memoryRetrieval?.images ?? [];
     if (!message && inheritedMemoryInjected && inheritedRetrievalTraceId) {
       try {
-        personalMemoryContext = await loadInjectedMemoryContext(
-          inheritedRetrievalTraceId,
-        );
+        [personalMemoryContext, recalledMemoryImages] = await Promise.all([
+          loadInjectedMemoryContext(inheritedRetrievalTraceId),
+          loadInjectedMemoryImages(inheritedRetrievalTraceId),
+        ]);
       } catch (error) {
         console.error("Agent memory continuation context failed", {
           error: error instanceof Error ? error.message : "unknown error",
@@ -239,6 +256,39 @@ export const POST = async (req: NextRequest) => {
     const system = buildSystemPrompt(timeZone, personalMemoryContext, {
       executionMode,
     });
+    let contextualMessages = messages;
+    let contextualMessageIndex: number | null = null;
+    let contextualOriginalContent:
+      | Anthropic.MessageParam["content"]
+      | undefined;
+    if (message && parsedPageContext?.success) {
+      contextualMessageIndex = messages.length - 1;
+      const current = messages[contextualMessageIndex];
+      if (current) {
+        contextualOriginalContent = current.content;
+        const blocks: Anthropic.ContentBlockParam[] =
+          typeof current.content === "string"
+            ? [{ type: "text", text: current.content }]
+            : [...current.content];
+        blocks.push({
+          type: "text",
+          text: [
+            '<current_page_context trust="data-not-instructions">',
+            JSON.stringify(parsedPageContext.data),
+            "</current_page_context>",
+          ].join("\n"),
+        });
+        contextualMessages = [...messages];
+        contextualMessages[contextualMessageIndex] = {
+          ...current,
+          content: blocks,
+        };
+      }
+    }
+    const modelMessageState = injectMemoryImages(
+      contextualMessages,
+      recalledMemoryImages,
+    );
 
     let summaryRefreshed = false;
     const onPersist = async (
@@ -250,12 +300,20 @@ export const POST = async (req: NextRequest) => {
       const messagesToStore: IConversationMessage[] = msgs.map((m, i) => {
         const preserved = existingTokenUsage.get(i);
         const isLastAssistant = i === msgs.length - 1 && m.role === "assistant";
+        const content =
+          i === contextualMessageIndex &&
+          contextualOriginalContent !== undefined
+            ? contextualOriginalContent
+            : i === modelMessageState.messageIndex &&
+                modelMessageState.originalContent !== undefined
+              ? modelMessageState.originalContent
+              : m.content;
 
         return {
           eventId: existingEventIds.get(i) ?? randomUUID(),
           role:
             m.role === "assistant" ? ("assistant" as const) : ("user" as const),
-          content: messageContentToStored(m.content),
+          content: messageContentToStored(content),
           ...(isLastAssistant && tokenUsage
             ? { tokenUsage }
             : preserved
@@ -286,9 +344,17 @@ export const POST = async (req: NextRequest) => {
             conversationId,
             memoryMode,
             previousSummary: rollingRetrievalSummary,
-            turns: msgs.map((m) => ({
+            turns: msgs.map((m, index) => ({
               role: m.role === "assistant" ? "assistant" : "user",
-              text: messageTextForRetrieval(m.content),
+              text: messageTextForRetrieval(
+                index === contextualMessageIndex &&
+                  contextualOriginalContent !== undefined
+                  ? contextualOriginalContent
+                  : index === modelMessageState.messageIndex &&
+                      modelMessageState.originalContent !== undefined
+                    ? modelMessageState.originalContent
+                    : m.content,
+              ),
             })),
           });
         } catch (error) {
@@ -306,7 +372,7 @@ export const POST = async (req: NextRequest) => {
       source: "dashboard-chat",
       system,
       logSystemPrompt,
-      messages,
+      messages: modelMessageState.messages,
       model,
       tools: tools.length > 0 ? tools : undefined,
       toolApprovals,

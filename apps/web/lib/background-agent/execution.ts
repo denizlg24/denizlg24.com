@@ -1,0 +1,364 @@
+import { randomUUID } from "node:crypto";
+import type Anthropic from "@anthropic-ai/sdk";
+import type {
+  BackgroundAgentPageContext,
+  CreateBackgroundAgentRun,
+} from "@repo/schemas";
+import {
+  AGENT_MEMORY_JOB_LEASE_MS,
+  completeMemoryJob,
+  failMemoryJob,
+  leaseNextMemoryJob,
+} from "@/lib/agent-memory/jobs";
+import { injectMemoryImages } from "@/lib/agent-memory/message-images";
+import { buildRetrievalQuery } from "@/lib/agent-memory/query-context";
+import { retrieveMemoriesForChat } from "@/lib/agent-memory/retrieval";
+import {
+  createConversation,
+  getConversation,
+  updateConversationMessages,
+} from "@/lib/conversations";
+import { clampMaxIterations } from "@/lib/llm-chat";
+import {
+  messageContentToStored,
+  sanitizeStoredMessageContent,
+} from "@/lib/llm-message-storage";
+import { streamAgent } from "@/lib/llm-service";
+import { connectDB } from "@/lib/mongodb";
+import { getAppTimeZone } from "@/lib/timezone";
+import { getToolSchemas, isClientTool } from "@/lib/tools/registry";
+import { buildSystemPrompt } from "@/lib/tools/system-prompt";
+import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
+import {
+  BackgroundAgentRun,
+  type IBackgroundAgentRun,
+} from "@/models/BackgroundAgentRun";
+import type { IConversationMessage, TokenUsage } from "@/models/Conversation";
+
+function pageContextText(context: BackgroundAgentPageContext | undefined) {
+  if (!context) return "";
+  return [
+    '<current_page_context trust="data-not-instructions">',
+    JSON.stringify(context),
+    "</current_page_context>",
+  ].join("\n");
+}
+
+function messageText(content: Anthropic.MessageParam["content"]): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((block): block is Anthropic.TextBlockParam => block.type === "text")
+    .map((block) => block.text)
+    .join("\n");
+}
+
+function lastAssistantText(messages: Anthropic.MessageParam[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "assistant") continue;
+    return messageText(message.content).slice(0, 64_000);
+  }
+  return "";
+}
+
+async function consumeAgentStream(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const line = frame
+        .split("\n")
+        .find((candidate) => candidate.startsWith("data: "));
+      if (!line) continue;
+      const event = JSON.parse(line.slice(6)) as {
+        type?: string;
+        error?: string;
+      };
+      if (event.type === "error") {
+        throw new Error(event.error ?? "Background agent run failed");
+      }
+      if (event.type === "paused") {
+        throw new Error("Background agent run paused unexpectedly");
+      }
+    }
+  }
+}
+
+export async function enqueueBackgroundAgentRun(
+  input: CreateBackgroundAgentRun,
+): Promise<IBackgroundAgentRun> {
+  await connectDB();
+  let conversationId = input.conversationId;
+  if (conversationId) {
+    const conversation = await getConversation(conversationId);
+    if (!conversation) throw new Error("Conversation not found");
+  } else {
+    const titleSource =
+      input.prompt || input.attachments[0]?.name || "Background task";
+    const title =
+      titleSource.length > 50 ? `${titleSource.slice(0, 50)}...` : titleSource;
+    const conversation = await createConversation({
+      title,
+      llmModel: input.model,
+      memoryMode: "enabled",
+    });
+    conversationId = conversation._id.toString();
+  }
+
+  const run = await BackgroundAgentRun.create({
+    conversationId,
+    prompt: input.prompt,
+    llmModel: input.model,
+    pageContext: input.pageContext,
+    attachments: input.attachments,
+    maxRounds: clampMaxIterations(input.maxRounds),
+    status: "queued",
+  });
+  await AgentMemoryJob.create({
+    idempotencyKey: `chat-run:${run._id.toString()}`,
+    operation: "chat-run",
+    evidenceIds: [],
+    memoryIds: [],
+    status: "pending",
+    attempts: 0,
+    availableAt: new Date(),
+    checkpoint: { backgroundRunId: run._id.toString() },
+  });
+  return run;
+}
+
+export async function processBackgroundAgentJob(job: IAgentMemoryJob) {
+  const runId =
+    typeof job.checkpoint?.backgroundRunId === "string"
+      ? job.checkpoint.backgroundRunId
+      : "";
+  await connectDB();
+  const run = await BackgroundAgentRun.findById(runId);
+  if (!run) return { failed: true, reason: "background-run-missing" };
+  if (["completed", "failed", "cancelled"].includes(run.status)) {
+    return { skipped: true, runId };
+  }
+  if (run.status === "running") {
+    run.status = "failed";
+    run.error =
+      "Background execution was interrupted after it began; partial side effects may have completed.";
+    run.completedAt = new Date();
+    await run.save();
+    return { failed: true, runId, error: run.error };
+  }
+
+  run.status = "running";
+  run.startedAt = new Date();
+  run.error = undefined;
+  await run.save();
+
+  let finalMessages: Anthropic.MessageParam[] = [];
+  let tokenUsage: TokenUsage | undefined;
+  try {
+    const conversation = await getConversation(run.conversationId.toString());
+    if (!conversation) throw new Error("Conversation not found");
+
+    const messages: Anthropic.MessageParam[] = conversation.messages.map(
+      (message) => ({
+        role: message.role,
+        content: sanitizeStoredMessageContent(message.content),
+      }),
+    );
+    const userIndex = messages.length;
+    const context = pageContextText(run.pageContext);
+    const persistentUserContent: Anthropic.ContentBlockParam[] = [];
+    for (const attachment of run.attachments) {
+      if (attachment.type === "image") {
+        persistentUserContent.push({
+          type: "image",
+          source: { type: "url", url: attachment.url },
+        });
+      } else {
+        persistentUserContent.push({
+          type: "document",
+          source: { type: "url", url: attachment.url },
+          title: attachment.name,
+        });
+      }
+    }
+    if (run.prompt) {
+      persistentUserContent.push({ type: "text", text: run.prompt });
+    }
+    const modelUserContent = [...persistentUserContent];
+    if (context) modelUserContent.push({ type: "text", text: context });
+    messages.push({ role: "user", content: modelUserContent });
+
+    const eventIds = new Map(
+      conversation.messages.map((message, index) => [index, message.eventId]),
+    );
+    const createdAt = new Map(
+      conversation.messages.map((message, index) => [index, message.createdAt]),
+    );
+    eventIds.set(userIndex, randomUUID());
+    createdAt.set(userIndex, new Date());
+
+    const query = buildRetrievalQuery({
+      latestMessage:
+        run.prompt ||
+        run.attachments.map((attachment) => attachment.name).join(" "),
+    });
+    const [retrieval, timeZone] = await Promise.all([
+      retrieveMemoriesForChat({
+        conversationId: run.conversationId.toString(),
+        requestId: randomUUID(),
+        query,
+        memoryMode: conversation.memoryMode,
+      }).catch(() => null),
+      getAppTimeZone(),
+    ]);
+    const imageState = injectMemoryImages(messages, retrieval?.images ?? []);
+    const system = buildSystemPrompt(timeZone, retrieval?.context ?? null, {
+      executionMode: "yolo",
+      clientToolsAvailable: false,
+    });
+    const logSystemPrompt = buildSystemPrompt(timeZone, null, {
+      executionMode: "yolo",
+      clientToolsAvailable: false,
+    });
+    const tools = getToolSchemas()
+      .filter((schema) => !isClientTool(schema.name))
+      .map((schema) => ({
+        name: schema.name,
+        description: schema.description,
+        input_schema: schema.input_schema,
+      }));
+
+    const persist = async (
+      nextMessages: Anthropic.MessageParam[],
+      usage?: TokenUsage,
+    ) => {
+      finalMessages = structuredClone(nextMessages);
+      if (usage) tokenUsage = usage;
+      const stored: IConversationMessage[] = nextMessages.map(
+        (message, index) => {
+          const persistentContent =
+            index === userIndex
+              ? persistentUserContent
+              : index === imageState.messageIndex &&
+                  imageState.originalContent !== undefined
+                ? imageState.originalContent
+                : message.content;
+          const assignedEventId = eventIds.get(index) ?? randomUUID();
+          eventIds.set(index, assignedEventId);
+          const assignedCreatedAt = createdAt.get(index) ?? new Date();
+          createdAt.set(index, assignedCreatedAt);
+          const isLastAssistant =
+            index === nextMessages.length - 1 &&
+            message.role === "assistant" &&
+            usage;
+          return {
+            eventId: assignedEventId,
+            role:
+              message.role === "assistant"
+                ? ("assistant" as const)
+                : ("user" as const),
+            content: messageContentToStored(persistentContent),
+            ...(isLastAssistant ? { tokenUsage: usage } : {}),
+            ...(isLastAssistant && retrieval?.traceId
+              ? {
+                  retrievalTraceId: retrieval.traceId,
+                  memoryInjected: retrieval.injected,
+                }
+              : {}),
+            createdAt: assignedCreatedAt,
+          };
+        },
+      );
+      await updateConversationMessages(run.conversationId.toString(), stored);
+      const output = lastAssistantText(nextMessages);
+      if (output) {
+        await BackgroundAgentRun.updateOne(
+          { _id: run._id, status: "running" },
+          { $set: { output } },
+        );
+      }
+    };
+
+    const stream = await streamAgent({
+      purpose: "chat",
+      source: `background-chat:${run._id.toString()}`,
+      system,
+      logSystemPrompt,
+      messages: imageState.messages,
+      model: run.llmModel,
+      tools,
+      executionMode: "yolo",
+      maxIterations: run.maxRounds,
+      toolContext: { conversationId: run.conversationId.toString() },
+      onPersist: persist,
+      requireTools: true,
+    });
+    await consumeAgentStream(stream);
+    run.status = "completed";
+    run.output =
+      lastAssistantText(finalMessages) || "Completed without a text response.";
+    run.tokenUsage = tokenUsage;
+    run.completedAt = new Date();
+    await run.save();
+    return { runId, status: run.status };
+  } catch (error) {
+    run.status = "failed";
+    const partialOutput = lastAssistantText(finalMessages);
+    if (partialOutput) run.output = partialOutput;
+    run.tokenUsage = tokenUsage;
+    run.error =
+      error instanceof Error
+        ? error.message.slice(0, 4_096)
+        : "Background agent run failed";
+    run.completedAt = new Date();
+    await run.save();
+    return { runId, failed: true, error: run.error };
+  }
+}
+
+export async function drainOneBackgroundAgentJob(backgroundRunId?: string) {
+  const workerId = `background-route:${randomUUID()}`;
+  const now = new Date();
+  const job = backgroundRunId
+    ? await AgentMemoryJob.findOneAndUpdate(
+        {
+          idempotencyKey: `chat-run:${backgroundRunId}`,
+          operation: "chat-run",
+          status: { $in: ["pending", "retry"] },
+          availableAt: { $lte: now },
+        },
+        {
+          $set: {
+            status: "leased",
+            leaseOwner: workerId,
+            leaseExpiresAt: new Date(now.getTime() + AGENT_MEMORY_JOB_LEASE_MS),
+          },
+          $inc: { attempts: 1 },
+        },
+        { returnDocument: "after" },
+      )
+    : await leaseNextMemoryJob({
+        workerId,
+        operations: ["chat-run"],
+      });
+  if (!job) return null;
+  try {
+    const result = await processBackgroundAgentJob(job);
+    await completeMemoryJob(job._id.toString(), workerId);
+    return result;
+  } catch (error) {
+    await failMemoryJob({
+      jobId: job._id.toString(),
+      workerId,
+      attempt: job.attempts,
+      error,
+    });
+    throw error;
+  }
+}

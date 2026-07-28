@@ -43,6 +43,7 @@ export const TOOL_LABELS: Record<string, string> = {
   get_resource_health: "Checked resource health",
   get_resources: "Fetched resources",
   get_timetable: "Fetched timetable",
+  import_sandbox_spreadsheet: "Importing spreadsheet",
   list_account_emails: "Listed account emails",
   list_blogs: "Listed blog posts",
   list_contacts: "Listed contacts",
@@ -59,6 +60,7 @@ export const TOOL_LABELS: Record<string, string> = {
   list_projects: "Listed projects",
   list_timeline_items: "Fetched timeline",
   mark_email_as_read: "Marking email as read",
+  query_emails: "Searched emails",
   reboot_resource: "Rebooting resource",
   reorder_kanban_cards: "Reordering kanban cards",
   reply_to_contact: "Replying to contact",
@@ -88,6 +90,7 @@ export const TOOL_LABELS: Record<string, string> = {
   update_person_group: "Updating people group",
   update_resource: "Updating resource",
   update_timetable_entry: "Updating timetable entry",
+  upload_sandbox_file: "Uploading generated file",
   web_search: "Searched the web",
 };
 

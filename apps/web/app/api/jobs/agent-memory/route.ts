@@ -32,7 +32,10 @@ import {
 } from "@/lib/agent-memory/resource-suggestions";
 import { processTrainingJob } from "@/lib/agent-training/execution";
 import { scheduleDueTrainingRuns } from "@/lib/agent-training/scheduling";
+import { processBackgroundAgentJob } from "@/lib/background-agent/execution";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
+
+export const maxDuration = 300;
 
 const MAX_JOBS_PER_REQUEST = 10;
 const ACTIVE_OPERATIONS: IAgentMemoryJob["operation"][] = [
@@ -45,6 +48,7 @@ const ACTIVE_OPERATIONS: IAgentMemoryJob["operation"][] = [
   "consolidation",
   "resource-suggestion",
   "training",
+  "chat-run",
 ];
 
 export function preferredOperationsForSlot(
@@ -54,6 +58,7 @@ export function preferredOperationsForSlot(
   if (index % 3 === 1) return ["formation", "backfill"];
   return [
     "training",
+    "chat-run",
     "reflection",
     "insight",
     "consolidation",
@@ -88,6 +93,7 @@ async function processJob(job: IAgentMemoryJob) {
     return processResourceSuggestionJob(job);
   }
   if (job.operation === "training") return processTrainingJob(job);
+  if (job.operation === "chat-run") return processBackgroundAgentJob(job);
   throw new Error(`No agent-memory handler for ${job.operation}`);
 }
 

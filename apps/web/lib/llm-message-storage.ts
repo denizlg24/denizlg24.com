@@ -83,6 +83,23 @@ function sanitizeContentBlock(
         content:
           block.content as Anthropic.WebSearchToolResultBlockParam["content"],
       };
+    case "image": {
+      const url = block.source?.url;
+      if (typeof url !== "string" || url.length === 0) return null;
+      return {
+        type: "image",
+        source: { type: "url", url },
+      };
+    }
+    case "document": {
+      const url = block.source?.url;
+      if (typeof url !== "string" || url.length === 0) return null;
+      return {
+        type: "document",
+        source: { type: "url", url },
+        ...(block.name ? { title: block.name } : {}),
+      };
+    }
     default:
       return null;
   }
@@ -155,7 +172,12 @@ function storedAttachmentBlock(
   block: Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam,
 ): StoredContentBlock {
   const stored: StoredContentBlock = { type: block.type };
-  const name = "name" in block ? block.name : undefined;
+  const name =
+    "name" in block
+      ? block.name
+      : block.type === "document"
+        ? block.title
+        : undefined;
   if (typeof name === "string") stored.name = name;
   if (block.source.type === "url") {
     stored.source = { type: "url", url: block.source.url };

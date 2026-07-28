@@ -1,5 +1,6 @@
 import "server-only";
 
+import { normalizeFortuneSheetBook } from "@repo/schemas";
 import * as XLSX from "xlsx";
 import { connectDB } from "@/lib/mongodb";
 import {
@@ -51,6 +52,13 @@ export interface FortuneSheet {
 
 export type FortuneSheetBook = FortuneSheet[];
 
+export class InvalidSpreadsheetFileError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "InvalidSpreadsheetFileError";
+  }
+}
+
 export interface SpreadsheetStats {
   sheetCount: number;
   rowCount: number;
@@ -58,9 +66,10 @@ export interface SpreadsheetStats {
 }
 
 export function computeStats(book: FortuneSheetBook): SpreadsheetStats {
+  const normalizedBook = normalizeFortuneSheetBook(book);
   let maxRow = 0;
   let maxCol = 0;
-  for (const sheet of book) {
+  for (const sheet of normalizedBook) {
     if (sheet.row && sheet.row > maxRow) maxRow = sheet.row;
     if (sheet.column && sheet.column > maxCol) maxCol = sheet.column;
     for (const cell of sheet.celldata ?? []) {
@@ -69,7 +78,7 @@ export function computeStats(book: FortuneSheetBook): SpreadsheetStats {
     }
   }
   return {
-    sheetCount: book.length || 1,
+    sheetCount: normalizedBook.length || 1,
     rowCount: maxRow,
     colCount: maxCol,
   };
@@ -93,7 +102,7 @@ export async function uploadBookToStorage(
   book: FortuneSheetBook,
   filename = "spreadsheet.json",
 ): Promise<{ cid: string; id: string; url: string; size: number }> {
-  const json = JSON.stringify(book);
+  const json = JSON.stringify(normalizeFortuneSheetBook(book));
   const blob = new Blob([json], { type: "application/json" });
   const file = new File([blob], filename, { type: "application/json" });
 
@@ -126,10 +135,13 @@ export async function fetchBookFromStorage(
       );
     }
 
-    return (await response.json()) as FortuneSheetBook;
+    return normalizeFortuneSheetBook(
+      (await response.json()) as FortuneSheetBook,
+    );
   }
 
-  return downloadJsonFromStorage<FortuneSheetBook>(fileId);
+  const book = await downloadJsonFromStorage<FortuneSheetBook>(fileId);
+  return normalizeFortuneSheetBook(book);
 }
 
 export async function deleteStoredBook(
@@ -143,8 +155,30 @@ export async function deleteStoredBook(
   }
 }
 
-export function xlsxBufferToBook(buffer: ArrayBuffer): FortuneSheetBook {
-  const wb = XLSX.read(buffer, { type: "array", cellStyles: true });
+export function xlsxBufferToBook(
+  buffer: ArrayBuffer | Uint8Array,
+): FortuneSheetBook {
+  // Copy the exact view. A Node Buffer can share a larger pooled ArrayBuffer;
+  // passing that backing buffer to a ZIP reader includes unrelated bytes.
+  const bytes =
+    buffer instanceof ArrayBuffer
+      ? new Uint8Array(buffer.slice(0))
+      : Uint8Array.from(buffer);
+  if (bytes.byteLength === 0) {
+    throw new InvalidSpreadsheetFileError("The spreadsheet file is empty.");
+  }
+
+  let wb: XLSX.WorkBook;
+  try {
+    wb = XLSX.read(bytes, { type: "array", cellStyles: true });
+  } catch (error) {
+    const detail =
+      error instanceof Error && error.message ? ` ${error.message}` : "";
+    throw new InvalidSpreadsheetFileError(
+      `The spreadsheet file is corrupt or incomplete.${detail}`,
+      { cause: error },
+    );
+  }
   const book: FortuneSheetBook = [];
 
   wb.SheetNames.forEach((sheetName, sheetIdx) => {
@@ -211,8 +245,9 @@ export function xlsxBufferToBook(buffer: ArrayBuffer): FortuneSheetBook {
 }
 
 export function bookToXlsxBuffer(book: FortuneSheetBook): Buffer {
+  const normalizedBook = normalizeFortuneSheetBook(book);
   const wb = XLSX.utils.book_new();
-  for (const sheet of book) {
+  for (const sheet of normalizedBook) {
     const aoa: (string | number | boolean | null)[][] = [];
     for (const cell of sheet.celldata ?? []) {
       if (!aoa[cell.r]) aoa[cell.r] = [];

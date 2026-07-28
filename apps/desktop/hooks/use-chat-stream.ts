@@ -1,6 +1,9 @@
+import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
+import { captureAgentPageContext } from "@/lib/agent-page-context";
 import type { denizApi } from "@/lib/api-wrapper";
 import type {
+  BackgroundAgentPageContext,
   IChatClientToolResult,
   IChatContentSegment,
   IChatPendingAction,
@@ -27,6 +30,7 @@ interface ChatStreamBody {
   clientToolResults?: ClientToolResult[];
   executionMode?: "interactive" | "yolo";
   maxRounds?: number;
+  pageContext?: BackgroundAgentPageContext;
 }
 
 export interface StreamResult {
@@ -71,6 +75,7 @@ function isApiError<T>(value: T | { code: number; message: string }): value is {
 }
 
 export function useChatStream(API: denizApi | null) {
+  const router = useRouter();
   const [streamSegments, setStreamSegments] = useState<IChatContentSegment[]>(
     [],
   );
@@ -204,45 +209,85 @@ export function useChatStream(API: denizApi | null) {
           if (aborted) throw new Error("Aborted");
           updateToolCall(request.toolId, { status: "calling" });
 
-          if (request.toolName !== "semantic_classify_note") {
-            throw new Error(`Unknown client tool "${request.toolName}"`);
+          if (request.toolName === "get_current_page_context") {
+            const content = JSON.stringify(captureAgentPageContext());
+            updateToolCall(request.toolId, {
+              result: content,
+              isError: false,
+              status: "done",
+            });
+            return { toolUseId: request.toolId, content };
           }
 
-          const noteId =
-            typeof request.input.noteId === "string"
-              ? request.input.noteId
-              : "";
-          if (!noteId) throw new Error("noteId is required");
+          if (request.toolName === "navigate_desktop") {
+            const path =
+              typeof request.input.path === "string" ? request.input.path : "";
+            if (!path.startsWith("/dashboard")) {
+              throw new Error("path must start with /dashboard");
+            }
+            router.push(path);
+            const content = JSON.stringify({ ok: true, path });
+            updateToolCall(request.toolId, {
+              result: content,
+              isError: false,
+              status: "done",
+            });
+            return { toolUseId: request.toolId, content };
+          }
 
-          const graphResult = await API.GET<INoteGraph>({ endpoint: "notes" });
-          if (isApiError(graphResult)) throw new Error(graphResult.message);
+          if (request.toolName === "refresh_current_page") {
+            router.refresh();
+            const content = JSON.stringify({
+              ok: true,
+              path: window.location.pathname,
+            });
+            updateToolCall(request.toolId, {
+              result: content,
+              isError: false,
+              status: "done",
+            });
+            return { toolUseId: request.toolId, content };
+          }
 
-          const note = graphResult.notes.find((item) => item._id === noteId);
-          if (!note) throw new Error("Note not found");
+          if (request.toolName === "semantic_classify_note") {
+            const noteId =
+              typeof request.input.noteId === "string"
+                ? request.input.noteId
+                : "";
+            if (!noteId) throw new Error("noteId is required");
 
-          const result = await classifyNoteLocally({
-            api: API,
-            note,
-            groups: graphResult.groups,
-            signal: controller.signal,
-          });
-          // Send Claude only the minimum needed to confirm the operation.
-          const content = JSON.stringify({
-            ok: true,
-            noteId: result.note._id,
-            assignedGroupIds: result.classification.assignedGroupIds,
-            suggestedGroupIds: result.classification.suggestedGroupIds,
-            suggestedTags: result.classification.suggestedTags,
-            mode: result.classification.mode,
-          });
+            const graphResult = await API.GET<INoteGraph>({
+              endpoint: "notes",
+            });
+            if (isApiError(graphResult)) throw new Error(graphResult.message);
 
-          updateToolCall(request.toolId, {
-            result: content,
-            isError: false,
-            status: "done",
-          });
+            const note = graphResult.notes.find((item) => item._id === noteId);
+            if (!note) throw new Error("Note not found");
 
-          return { toolUseId: request.toolId, content };
+            const result = await classifyNoteLocally({
+              api: API,
+              note,
+              groups: graphResult.groups,
+              signal: controller.signal,
+            });
+            const content = JSON.stringify({
+              ok: true,
+              noteId: result.note._id,
+              assignedGroupIds: result.classification.assignedGroupIds,
+              suggestedGroupIds: result.classification.suggestedGroupIds,
+              suggestedTags: result.classification.suggestedTags,
+              mode: result.classification.mode,
+            });
+
+            updateToolCall(request.toolId, {
+              result: content,
+              isError: false,
+              status: "done",
+            });
+            return { toolUseId: request.toolId, content };
+          }
+
+          throw new Error(`Unknown client tool "${request.toolName}"`);
         } catch (error) {
           const content =
             error instanceof Error ? error.message : "Client tool failed";
@@ -487,7 +532,7 @@ export function useChatStream(API: denizApi | null) {
         };
       }
     },
-    [API],
+    [API, router],
   );
 
   return {
