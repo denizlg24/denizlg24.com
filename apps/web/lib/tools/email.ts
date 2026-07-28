@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { z } from "zod";
+import { fetchEmailBody, queryEmailMailbox } from "@/lib/email";
 import { connectDB } from "@/lib/mongodb";
 import { isSmtpConfigured, sendMailFromAccount } from "@/lib/smtp";
 import { EmailModel } from "@/models/Email";
@@ -11,6 +12,41 @@ import { EmailDraftModel, type ILeanEmailDraft } from "@/models/EmailDraft";
 import type { ToolDefinition } from "./types";
 
 const MAX_RECIPIENTS = 50;
+const QUERY_EMAIL_LIMIT = 20;
+
+const queryEmailInputSchema = z
+  .object({
+    account: z.string().trim().min(1).max(320).optional(),
+    query: z.string().trim().min(1).max(500).optional(),
+    from: z.string().trim().min(1).max(320).optional(),
+    to: z.string().trim().min(1).max(320).optional(),
+    subject: z.string().trim().min(1).max(500).optional(),
+    startDate: z
+      .string()
+      .trim()
+      .refine((value) => !Number.isNaN(Date.parse(value)), "Invalid start date")
+      .optional(),
+    endDate: z
+      .string()
+      .trim()
+      .refine((value) => !Number.isNaN(Date.parse(value)), "Invalid end date")
+      .optional(),
+    unreadOnly: z.boolean().optional().default(false),
+    scope: z.enum(["all", "inbox"]).optional().default("all"),
+    includeBody: z.boolean().optional().default(false),
+    limit: z.number().int().min(1).max(QUERY_EMAIL_LIMIT).default(20),
+    offset: z.number().int().min(0).max(100_000).default(0),
+  })
+  .refine(
+    (value) =>
+      !value.startDate ||
+      !value.endDate ||
+      Date.parse(value.startDate) < Date.parse(value.endDate),
+    {
+      message: "endDate must be after startDate",
+      path: ["endDate"],
+    },
+  );
 
 const emailDraftInputSchema = z
   .object({
@@ -66,6 +102,36 @@ function serializeEmailDraft(
     replyToMessageId: draft.replyToMessageId,
     previousDraftId: draft.previousDraftId?.toString(),
     status: draft.status,
+  };
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function serializeFetchedBody(
+  fetched: Awaited<ReturnType<typeof fetchEmailBody>>,
+) {
+  if (!fetched) {
+    return {
+      bodyAvailable: false,
+      body: "",
+      bodyFormat: "text" as const,
+      bodyTruncated: false,
+      attachmentText: [],
+    };
+  }
+
+  const textBody = fetched.text.trim();
+  const htmlBody = fetched.html.trim();
+  const completeBody = textBody || htmlBody;
+  const body = completeBody.slice(0, 16_000);
+  return {
+    bodyAvailable: true,
+    body,
+    bodyFormat: textBody ? ("text" as const) : ("html" as const),
+    bodyTruncated: completeBody.length > body.length,
+    attachmentText: fetched.attachmentText,
   };
 }
 
@@ -137,8 +203,191 @@ export const emailTools: ToolDefinition[] = [
   },
   {
     schema: {
+      name: "query_emails",
+      description:
+        "Search live IMAP mailboxes, including historical emails that are not in the local sync. Supports server-side full-text, sender, recipient, subject, unread, and date-range filters across all accounts, plus merged pagination. By default it uses the server's All Mail folder when available and falls back to the configured inbox. Use includeBody when the email contents are needed. startDate is inclusive and endDate is exclusive.",
+      input_schema: {
+        type: "object",
+        properties: {
+          account: {
+            type: "string",
+            description:
+              "Optional account ID, email address, or display name. Omit to query every configured account.",
+          },
+          query: {
+            type: "string",
+            description:
+              "Full-text search across message headers and body (optional).",
+          },
+          from: {
+            type: "string",
+            description: "Sender name or address to match (optional).",
+          },
+          to: {
+            type: "string",
+            description: "Recipient name or address to match (optional).",
+          },
+          subject: {
+            type: "string",
+            description: "Subject text to match (optional).",
+          },
+          startDate: {
+            type: "string",
+            description:
+              "Inclusive received date in ISO format, such as 2026-07-01.",
+          },
+          endDate: {
+            type: "string",
+            description:
+              "Exclusive received date in ISO format, such as 2026-08-01.",
+          },
+          unreadOnly: {
+            type: "boolean",
+            description: "Only return unread messages (default false).",
+          },
+          scope: {
+            type: "string",
+            description:
+              "Search all mail when the server exposes an All Mail folder, or only the configured inbox (default all).",
+            enum: ["all", "inbox"],
+          },
+          includeBody: {
+            type: "boolean",
+            description:
+              "Include message bodies and small text-like attachments (default false).",
+          },
+          limit: {
+            type: "number",
+            description: `Results per page (default 20, maximum ${QUERY_EMAIL_LIMIT}).`,
+          },
+          offset: {
+            type: "number",
+            description:
+              "Number of matching messages to skip. Use nextOffset to continue.",
+          },
+        },
+      },
+    },
+    isWrite: false,
+    category: "email",
+    execute: async (input) => {
+      const parsed = queryEmailInputSchema.safeParse(input);
+      if (!parsed.success) {
+        throw new Error(
+          parsed.error.issues[0]?.message ?? "Invalid email query",
+        );
+      }
+
+      await connectDB();
+      const accountRef = parsed.data.account;
+      const accountFilter = accountRef
+        ? {
+            $or: [
+              ...(mongoose.Types.ObjectId.isValid(accountRef)
+                ? [{ _id: accountRef }]
+                : []),
+              { user: new RegExp(`^${escapeRegex(accountRef)}$`, "i") },
+              {
+                displayName: new RegExp(`^${escapeRegex(accountRef)}$`, "i"),
+              },
+            ],
+          }
+        : {};
+      const accounts =
+        await EmailAccountModel.find(accountFilter).lean<ILeanEmailAccount[]>();
+      if (accountRef && accounts.length === 0) {
+        throw new Error("Email account not found");
+      }
+
+      const candidateLimit = parsed.data.offset + parsed.data.limit;
+      const settled = await Promise.all(
+        accounts.map(async (account) => {
+          try {
+            const result = await queryEmailMailbox(account, {
+              text: parsed.data.query,
+              from: parsed.data.from,
+              to: parsed.data.to,
+              subject: parsed.data.subject,
+              since: parsed.data.startDate
+                ? new Date(parsed.data.startDate)
+                : undefined,
+              before: parsed.data.endDate
+                ? new Date(parsed.data.endDate)
+                : undefined,
+              seen: parsed.data.unreadOnly ? false : undefined,
+              scope: parsed.data.scope,
+              candidateLimit,
+              includeBody: parsed.data.includeBody,
+              includeAttachmentText: parsed.data.includeBody,
+            });
+            return { account, result };
+          } catch (error) {
+            return {
+              account,
+              error:
+                error instanceof Error ? error.message : "Mailbox query failed",
+            };
+          }
+        }),
+      );
+
+      const failures = settled.flatMap((entry) =>
+        "error" in entry
+          ? [
+              {
+                accountId: entry.account._id.toString(),
+                account: entry.account.user,
+                error: entry.error,
+              },
+            ]
+          : [],
+      );
+      const successful = settled.filter(
+        (
+          entry,
+        ): entry is (typeof settled)[number] & {
+          result: Awaited<ReturnType<typeof queryEmailMailbox>>;
+        } => "result" in entry,
+      );
+      const total = successful.reduce(
+        (sum, entry) => sum + entry.result.total,
+        0,
+      );
+      const emails = successful
+        .flatMap((entry) =>
+          entry.result.emails.map((email) => ({
+            ...email,
+            accountId: entry.account._id.toString(),
+            account: entry.account.user,
+            accountName: entry.account.displayName,
+            mailbox: entry.result.mailbox,
+          })),
+        )
+        .sort(
+          (left, right) =>
+            new Date(right.date).getTime() - new Date(left.date).getTime(),
+        )
+        .slice(parsed.data.offset, parsed.data.offset + parsed.data.limit);
+      const nextOffset = parsed.data.offset + emails.length;
+      const hasMore = nextOffset < total;
+
+      return {
+        emails,
+        total,
+        offset: parsed.data.offset,
+        limit: parsed.data.limit,
+        hasMore,
+        nextOffset: hasMore ? nextOffset : null,
+        partial: failures.length > 0,
+        failures,
+      };
+    },
+  },
+  {
+    schema: {
       name: "get_email",
-      description: "Get details of a specific email by its ID.",
+      description:
+        "Get a locally synced email by ID, including its body and small text-like attachments. This does not mark the email as read.",
       input_schema: {
         type: "object",
         properties: {
@@ -153,12 +402,21 @@ export const emailTools: ToolDefinition[] = [
       await connectDB();
       const email = await EmailModel.findById(input.id as string).lean();
       if (!email) return { success: false, error: "Email not found" };
+      const fetched = await fetchEmailBody(
+        email.accountId.toString(),
+        email.uid,
+        { includeAttachmentText: true },
+      );
       return {
         _id: email._id.toString(),
+        accountId: email.accountId.toString(),
+        messageId: email.messageId,
         subject: email.subject,
         from: email.from,
         date: email.date,
         seen: email.seen,
+        uid: email.uid,
+        ...serializeFetchedBody(fetched),
       };
     },
   },

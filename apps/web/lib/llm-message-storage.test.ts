@@ -118,6 +118,68 @@ describe("LLM message storage", () => {
     ]);
   });
 
+  test("uses the Anthropic document title as the stored attachment name", () => {
+    const content: Anthropic.ContentBlockParam[] = [
+      {
+        type: "document",
+        title: "background-notes.pdf",
+        source: {
+          type: "url",
+          url: "https://storage.example/background-notes.pdf",
+        },
+      },
+    ];
+
+    expect(messageContentToStored(content)).toEqual([
+      {
+        type: "document",
+        name: "background-notes.pdf",
+        source: {
+          type: "url",
+          url: "https://storage.example/background-notes.pdf",
+        },
+      },
+    ]);
+  });
+
+  test("restores URL-backed attachments for later model turns", () => {
+    expect(
+      sanitizeStoredMessageContent([
+        {
+          type: "image",
+          source: { type: "url", url: "https://storage.example/me.jpg" },
+        },
+        {
+          type: "document",
+          name: "notes.pdf",
+          source: { type: "url", url: "https://storage.example/notes.pdf" },
+        },
+        { type: "text", text: "Remember these." },
+      ]),
+    ).toEqual([
+      {
+        type: "image",
+        source: { type: "url", url: "https://storage.example/me.jpg" },
+      },
+      {
+        type: "document",
+        source: { type: "url", url: "https://storage.example/notes.pdf" },
+        title: "notes.pdf",
+      },
+      { type: "text", text: "Remember these." },
+    ]);
+  });
+
+  test("does not restore attachment placeholders that have no durable URL", () => {
+    expect(
+      sanitizeStoredMessageContent([
+        { type: "image" },
+        { type: "document", name: "lost.pdf" },
+        { type: "text", text: "Still valid." },
+      ]),
+    ).toEqual([{ type: "text", text: "Still valid." }]);
+  });
+
   test("drops inline base64 payloads instead of bloating the conversation", () => {
     const content: Anthropic.ContentBlockParam[] = [
       {

@@ -18,7 +18,11 @@ export function BackgroundTasksIndicator() {
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            if (task.href) router.push(task.href);
+            if (task.href) {
+              router.push(task.href);
+            } else if (task.id.startsWith("agent:")) {
+              window.dispatchEvent(new Event("agent:open"));
+            }
           }}
           className="flex items-center gap-1.5 rounded-full bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-foreground/80 hover:bg-secondary transition-colors"
         >

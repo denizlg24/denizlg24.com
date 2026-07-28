@@ -11,7 +11,7 @@ import {
   MessageScrollerViewport,
 } from "@repo/ui/message-scroller";
 import { ScrollArea } from "@repo/ui/scroll-area";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@repo/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@repo/ui/sheet";
 import { Skeleton } from "@repo/ui/skeleton";
 import {
   ArrowLeft,
@@ -33,14 +33,17 @@ import {
 } from "@/hooks/use-chat-stream";
 import {
   isModelEligible,
+  type ModelCatalogState,
   modelDisplayName,
   pickDefaultModel,
   useModelCatalog,
 } from "@/hooks/use-model-catalog";
+import { captureAgentPageContext } from "@/lib/agent-page-context";
 import { denizApi } from "@/lib/api-wrapper";
 import { mergeContentSegments } from "@/lib/chat-segments";
 import type {
   AgentMemoryMode,
+  BackgroundAgentRun,
   ConversationListResponse,
   IChatAttachment,
   IChatContentSegment,
@@ -51,6 +54,7 @@ import type {
   IConversation,
   IConversationMeta,
 } from "@/lib/data-types";
+import { useBackgroundTasksStore } from "@/stores/background-tasks";
 import { ChatInput, DEFAULT_MAX_ROUNDS } from "./chat-input";
 import { ChatMessage } from "./chat-message";
 import { DashboardSummary } from "./dashboard-summary";
@@ -148,6 +152,161 @@ function groupConversationsByDate(
   return orderedLabels
     .filter((label) => groups[label].length > 0)
     .map((label) => ({ label, conversations: groups[label] }));
+}
+
+function ConversationSidebar({
+  contained = false,
+  searchQuery,
+  onSearchQueryChange,
+  onClose,
+  onNewChat,
+  loading,
+  groups,
+  models,
+  onLoadConversation,
+  onDeleteConversation,
+  hasMore,
+  loadingMore,
+  onLoadMore,
+}: {
+  contained?: boolean;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
+  onClose?: () => void;
+  onNewChat: () => void;
+  loading: boolean;
+  groups: ConversationGroup[];
+  models: ModelCatalogState["models"];
+  onLoadConversation: (conversation: IConversationMeta) => void;
+  onDeleteConversation: (id: string, event: React.MouseEvent) => void;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col bg-popover">
+      <div className="border-b px-4 py-3">
+        <div className="flex items-center justify-between gap-2">
+          {contained ? (
+            <h2 className="text-sm font-medium">Conversations</h2>
+          ) : (
+            <SheetTitle className="text-sm font-medium">
+              Conversations
+            </SheetTitle>
+          )}
+          {contained ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={onClose}
+              aria-label="Close conversations"
+            >
+              <X className="size-4" />
+            </Button>
+          ) : null}
+        </div>
+        <div className="relative mt-2">
+          <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/50" />
+          <Input
+            placeholder="Search conversations..."
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.target.value)}
+            className="h-8 pl-8 text-sm"
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={() => onSearchQueryChange("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2"
+              aria-label="Clear conversation search"
+            >
+              <X className="size-3.5 text-muted-foreground/50 hover:text-foreground" />
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <ScrollArea className="min-h-0 flex-1 overflow-hidden">
+        <div className="overflow-hidden p-2">
+          <button
+            type="button"
+            onClick={onNewChat}
+            className="mb-2 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface"
+          >
+            <Plus className="size-3.5 shrink-0 text-muted-foreground/40" />
+            <span className="text-sm text-foreground/70">New chat</span>
+          </button>
+          {loading ? (
+            <div className="flex flex-col gap-0.5">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="flex items-center gap-3 px-3 py-2">
+                  <Skeleton className="size-3.5 shrink-0 rounded bg-surface" />
+                  <Skeleton
+                    className="h-4 flex-1 rounded bg-surface"
+                    style={{ maxWidth: `${55 + ((index * 23) % 35)}%` }}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : groups.length === 0 ? (
+            <p className="px-3 py-4 text-center text-xs text-muted-foreground/50">
+              {searchQuery ? "No conversations found" : "No conversations yet"}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {groups.map((group) => (
+                <div key={group.label}>
+                  <p className="px-3 py-1 text-[11px] uppercase tracking-wider text-muted-foreground/50">
+                    {group.label}
+                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    {group.conversations.map((conversation) => (
+                      <div
+                        key={conversation._id}
+                        onClick={() => onLoadConversation(conversation)}
+                        className="group grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-surface"
+                      >
+                        <MessageSquare className="size-3.5 text-muted-foreground/40" />
+                        <span className="truncate text-sm text-foreground/70">
+                          {conversation.title}
+                        </span>
+                        <span className="hidden text-[10px] text-muted-foreground/30 group-hover:hidden sm:inline">
+                          {modelDisplayName(conversation.llmModel, models)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(event) =>
+                            onDeleteConversation(conversation._id, event)
+                          }
+                          className="col-start-3 hidden size-5 items-center justify-center rounded transition-colors hover:bg-destructive/10 group-hover:flex"
+                          aria-label={`Delete ${conversation.title}`}
+                        >
+                          <Trash2 className="size-3 text-muted-foreground/50 hover:text-destructive" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {hasMore && !searchQuery ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs text-muted-foreground"
+                  onClick={onLoadMore}
+                  disabled={loadingMore}
+                >
+                  {loadingMore ? "Loading..." : "Load more"}
+                </Button>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
 }
 
 function storedToolResultText(content: unknown): string {
@@ -346,7 +505,16 @@ function convertApiMessagesToDisplay(
   return display;
 }
 
-export function ChatView() {
+export function ChatView({
+  surface = "page",
+  allowBackground = false,
+  observedBackgroundRunId,
+}: {
+  surface?: "page" | "sheet";
+  allowBackground?: boolean;
+  observedBackgroundRunId?: string;
+}) {
+  const isSheet = surface === "sheet";
   const { settings, loading: loadingSettings, setSettings } = useUserSettings();
 
   const API = useMemo(() => {
@@ -379,14 +547,20 @@ export function ChatView() {
   // agent loop. Both are session-scoped like the model selection above.
   const [yoloEnabled, setYoloEnabled] = useState(false);
   const [maxRounds, setMaxRounds] = useState(DEFAULT_MAX_ROUNDS);
+  const [backgroundEnabled, setBackgroundEnabled] = useState(false);
+  const [backgroundRunId, setBackgroundRunId] = useState<string | null>(null);
   const [memoryMode, setMemoryMode] = useState<AgentMemoryMode>("enabled");
+  const [attachments, setAttachments] = useState<IChatAttachment[]>([]);
   const modelCatalog = useModelCatalog(API);
   const requiredCapabilities = useMemo(
     () => [
       ...(toolsEnabled ? ["tool-use"] : []),
       ...(webSearchEnabled ? ["web-search"] : []),
+      ...(attachments.some((attachment) => attachment.type === "image")
+        ? ["vision"]
+        : []),
     ],
-    [toolsEnabled, webSearchEnabled],
+    [attachments, toolsEnabled, webSearchEnabled],
   );
   const modelIncompatible =
     !!model &&
@@ -411,10 +585,10 @@ export function ChatView() {
     useState(false);
   const [active, setActive] = useState(false);
   const [title, setTitle] = useState("");
-  const [attachments, setAttachments] = useState<IChatAttachment[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(settings.chatSidebarOpen);
   const attachmentsRef = useRef<IChatAttachment[]>([]);
+  const adoptedBackgroundRunIds = useRef(new Set<string>());
 
   const isActive = active || messages.length > 0;
 
@@ -445,6 +619,7 @@ export function ChatView() {
     setTitle("");
     setInput("");
     setAttachments([]);
+    setBackgroundRunId(null);
     setMemoryMode("enabled");
     setSearchQuery("");
     toggleSidebar(false);
@@ -491,6 +666,65 @@ export function ChatView() {
   useEffect(() => {
     attachmentsRef.current = attachments;
   }, [attachments]);
+
+  useEffect(() => {
+    if (
+      observedBackgroundRunId &&
+      !backgroundRunId &&
+      !adoptedBackgroundRunIds.current.has(observedBackgroundRunId)
+    ) {
+      adoptedBackgroundRunIds.current.add(observedBackgroundRunId);
+      setBackgroundRunId(observedBackgroundRunId);
+      setActive(true);
+    }
+  }, [backgroundRunId, observedBackgroundRunId]);
+
+  useEffect(() => {
+    if (!API || !backgroundRunId) return;
+    let cancelled = false;
+    const refresh = async () => {
+      const result = await API.GET<{ run: BackgroundAgentRun }>({
+        endpoint: `background-agent/runs/${backgroundRunId}`,
+      });
+      if (cancelled || "code" in result) return;
+      const run = result.run;
+      const backgroundTasks = useBackgroundTasksStore.getState();
+      backgroundTasks.update(`agent:${run.id}`, {
+        statusText:
+          run.status === "queued"
+            ? "Queued"
+            : run.status === "running"
+              ? "Working"
+              : run.status,
+        active: run.status === "queued" || run.status === "running",
+      });
+      if (run.status === "queued" || run.status === "running") return;
+
+      const conversation = await API.GET<{ conversation: IConversation }>({
+        endpoint: `conversations/${run.conversationId}`,
+      });
+      if (!cancelled && !("code" in conversation)) {
+        setConversationId(run.conversationId);
+        setMessages(
+          convertApiMessagesToDisplay(conversation.conversation.messages),
+        );
+        setTitle(conversation.conversation.title);
+      }
+      backgroundTasks.unregister(`agent:${run.id}`);
+      setBackgroundRunId(null);
+      if (run.status === "completed") {
+        toast.success("Agent finished");
+      } else {
+        toast.error(run.error ?? "Background run failed");
+      }
+    };
+    void refresh();
+    const interval = setInterval(() => void refresh(), 2_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [API, backgroundRunId]);
 
   useEffect(() => {
     if (API && (!isActive || sidebarOpen)) fetchConversations();
@@ -545,6 +779,7 @@ export function ChatView() {
     setTitle("");
     setInput("");
     setAttachments([]);
+    setBackgroundRunId(null);
     setMemoryMode("enabled");
   };
 
@@ -719,6 +954,42 @@ export function ChatView() {
       setConversationId(currentConversationId);
     }
 
+    if (backgroundEnabled) {
+      const result = await API.POST<{ run: BackgroundAgentRun }>({
+        endpoint: "background-agent/runs",
+        body: {
+          prompt: messageContent,
+          model,
+          conversationId: currentConversationId,
+          pageContext: captureAgentPageContext(),
+          attachments: messageAttachments ?? [],
+          maxRounds,
+        },
+      });
+      if ("code" in result) {
+        setMessages([
+          ...currentMessages,
+          {
+            role: "assistant",
+            content: "",
+            error: result.message,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        return;
+      }
+      adoptedBackgroundRunIds.current.add(result.run.id);
+      setBackgroundRunId(result.run.id);
+      useBackgroundTasksStore.getState().register({
+        id: `agent:${result.run.id}`,
+        label: "Agent",
+        statusText: "Queued",
+        color: "bg-violet-500",
+        active: true,
+      });
+      return;
+    }
+
     const streamResult = await streamChat({
       conversationId: currentConversationId,
       message: messagePayload,
@@ -727,6 +998,7 @@ export function ChatView() {
       webSearchEnabled,
       executionMode: yoloEnabled ? "yolo" : "interactive",
       maxRounds,
+      pageContext: captureAgentPageContext(),
     });
 
     if (isStreamError(streamResult)) {
@@ -1029,151 +1301,111 @@ export function ChatView() {
     await continueChat(denials);
   };
 
+  const conversationSidebar = (
+    <ConversationSidebar
+      searchQuery={searchQuery}
+      onSearchQueryChange={setSearchQuery}
+      onNewChat={handleNewChat}
+      loading={loadingConversations}
+      groups={groupedConversations}
+      models={modelCatalog.models}
+      onLoadConversation={loadConversation}
+      onDeleteConversation={deleteConversation}
+      hasMore={hasMoreConversations}
+      loadingMore={loadingMoreConversations}
+      onLoadMore={loadMoreConversations}
+    />
+  );
+
+  const pageConversationSidebar = !isSheet ? (
+    <Sheet open={sidebarOpen} onOpenChange={toggleSidebar}>
+      <SheetContent
+        side="left"
+        className="flex w-[82vw] max-w-80 flex-col p-0 sm:w-80"
+      >
+        {conversationSidebar}
+      </SheetContent>
+    </Sheet>
+  ) : null;
+
+  const containedConversationSidebar =
+    isSheet && sidebarOpen ? (
+      <div className="absolute inset-0 z-[100] isolate overflow-hidden border-r bg-popover shadow-xl">
+        <ConversationSidebar
+          contained
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          onClose={() => toggleSidebar(false)}
+          onNewChat={handleNewChat}
+          loading={loadingConversations}
+          groups={groupedConversations}
+          models={modelCatalog.models}
+          onLoadConversation={loadConversation}
+          onDeleteConversation={deleteConversation}
+          hasMore={hasMoreConversations}
+          loadingMore={loadingMoreConversations}
+          onLoadMore={loadMoreConversations}
+        />
+      </div>
+    ) : null;
+
   if (!isActive) {
     return (
       <>
-        <Sheet open={sidebarOpen} onOpenChange={toggleSidebar}>
-          <SheetContent
-            side="left"
-            className="w-[82vw] max-w-80 p-0 flex flex-col sm:w-80"
-          >
-            <SheetHeader className="px-4 py-3 border-b">
-              <SheetTitle className="text-sm font-medium">
-                Conversations
-              </SheetTitle>
-              <div className="relative mt-2">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50" />
-                <Input
-                  placeholder="Search conversations..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-8 pl-8 text-sm"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2"
-                  >
-                    <X className="w-3.5 h-3.5 text-muted-foreground/50 hover:text-foreground" />
-                  </button>
-                )}
-              </div>
-            </SheetHeader>
-            <ScrollArea className="flex-1 overflow-hidden">
-              <div className="p-2 pt-0! overflow-hidden">
-                <div
-                  onClick={handleNewChat}
-                  className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-surface transition-colors cursor-pointer mb-2"
-                >
-                  <Plus className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
-                  <span className="text-sm text-foreground/70">New chat</span>
-                </div>
-                {loadingConversations ? (
-                  <div className="flex flex-col gap-0.5">
-                    {Array.from({ length: 6 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center gap-3 px-3 py-2"
-                      >
-                        <Skeleton className="w-3.5 h-3.5 rounded shrink-0 bg-surface" />
-                        <Skeleton
-                          className="h-4 flex-1 rounded bg-surface"
-                          style={{ maxWidth: `${55 + ((i * 23) % 35)}%` }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                ) : groupedConversations.length === 0 ? (
-                  <p className="text-xs text-muted-foreground/50 px-3 py-4 text-center">
-                    {searchQuery
-                      ? "No conversations found"
-                      : "No conversations yet"}
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-4">
-                    {groupedConversations.map((group) => (
-                      <div key={group.label}>
-                        <p className="text-[11px] text-muted-foreground/50 px-3 py-1 uppercase tracking-wider">
-                          {group.label}
-                        </p>
-                        <div className="flex flex-col gap-0.5">
-                          {group.conversations.map((conv) => (
-                            <div
-                              key={conv._id}
-                              onClick={() => loadConversation(conv)}
-                              className="group grid grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-2 rounded-lg hover:bg-surface transition-colors cursor-pointer"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5 text-muted-foreground/40" />
-                              <span className="text-sm text-foreground/70 truncate">
-                                {conv.title}
-                              </span>
-                              <span className="hidden text-[10px] text-muted-foreground/30 group-hover:hidden sm:inline">
-                                {modelDisplayName(
-                                  conv.llmModel,
-                                  modelCatalog.models,
-                                )}
-                              </span>
-                              <button
-                                onClick={(e) => deleteConversation(conv._id, e)}
-                                className="hidden group-hover:flex col-start-3 items-center justify-center w-5 h-5 rounded hover:bg-destructive/10 transition-colors"
-                              >
-                                <Trash2 className="w-3 h-3 text-muted-foreground/50 hover:text-destructive" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                    {hasMoreConversations && !searchQuery && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 text-xs text-muted-foreground"
-                        onClick={loadMoreConversations}
-                        disabled={loadingMoreConversations}
-                      >
-                        {loadingMoreConversations ? "Loading..." : "Load more"}
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-          </SheetContent>
-        </Sheet>
+        {pageConversationSidebar}
 
-        <div className="relative flex h-full min-h-0 flex-col items-center justify-center overflow-y-auto px-3 py-6 sm:px-4 sm:py-8">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => toggleSidebar(true)}
-            className="absolute top-4 left-4"
-          >
-            <Menu className="w-4 h-4" />
-          </Button>
-          <SidebarTrigger className="absolute left-14 top-4 size-9 md:hidden" />
-          <div className="flex w-full max-w-2xl flex-col items-center gap-5 sm:gap-6">
-            <div className="flex flex-col items-center gap-1">
-              <p className="text-3xl font-light text-foreground/80 tabular-nums tracking-tight">
-                {now.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-              <p className="text-xs text-muted-foreground/50">
-                {now.toLocaleDateString([], {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                })}
-              </p>
-            </div>
-            <p
-              className={`min-h-5 max-w-full px-2 text-center text-sm leading-5 text-muted-foreground/40 italic transition-opacity duration-300 ${suggestion.visible ? "opacity-100" : "opacity-0"}`}
+        <div
+          className={
+            isSheet
+              ? "relative flex h-full min-h-0 flex-col items-center overflow-hidden"
+              : "relative flex h-full min-h-0 flex-col items-center justify-center overflow-y-auto px-3 py-6 sm:px-4 sm:py-8"
+          }
+        >
+          {containedConversationSidebar}
+          {!(isSheet && sidebarOpen) ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => toggleSidebar(true)}
+              className="absolute top-4 left-4"
             >
-              {suggestion.text}
-            </p>
+              <Menu className="w-4 h-4" />
+            </Button>
+          ) : null}
+          {!isSheet && (
+            <SidebarTrigger className="absolute left-14 top-4 size-9 md:hidden" />
+          )}
+          <div
+            className={
+              isSheet
+                ? "flex min-h-0 w-full flex-1 flex-col items-center justify-end pt-14"
+                : "flex w-full max-w-2xl flex-col items-center gap-5 sm:gap-6"
+            }
+          >
+            {!isSheet ? (
+              <>
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-3xl font-light text-foreground/80 tabular-nums tracking-tight">
+                    {now.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                  <p className="text-xs text-muted-foreground/50">
+                    {now.toLocaleDateString([], {
+                      weekday: "long",
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </p>
+                </div>
+                <p
+                  className={`min-h-5 max-w-full px-2 text-center text-sm leading-5 text-muted-foreground/40 italic transition-opacity duration-300 ${suggestion.visible ? "opacity-100" : "opacity-0"}`}
+                >
+                  {suggestion.text}
+                </p>
+              </>
+            ) : null}
             <ChatInput
               value={input}
               onChange={setInput}
@@ -1183,9 +1415,11 @@ export function ChatView() {
               modelCatalog={modelCatalog}
               requiredCapabilities={requiredCapabilities}
               modelIncompatible={modelIncompatible}
-              disabled={isStreaming}
+              disabled={isStreaming || backgroundRunId !== null}
               streaming={isStreaming}
               onAbort={abort}
+              docked={isSheet}
+              flush={isSheet}
               toolsEnabled={toolsEnabled}
               onToolsEnabledChange={setToolsEnabled}
               webSearchEnabled={webSearchEnabled}
@@ -1194,15 +1428,21 @@ export function ChatView() {
               onYoloEnabledChange={setYoloEnabled}
               maxRounds={maxRounds}
               onMaxRoundsChange={setMaxRounds}
+              backgroundEnabled={backgroundEnabled}
+              onBackgroundEnabledChange={
+                allowBackground ? setBackgroundEnabled : undefined
+              }
               memoryMode={memoryMode}
               onMemoryModeChange={handleMemoryModeChange}
               incognitoLocked={messages.length > 0 || isStreaming}
               attachments={attachments}
               onAttachmentsChange={handleAttachmentsChange}
             />
-            <div className="mt-4 w-full min-w-0 max-w-3xl">
-              <DashboardSummary />
-            </div>
+            {!isSheet && (
+              <div className="mt-4 w-full min-w-0 max-w-3xl">
+                <DashboardSummary />
+              </div>
+            )}
           </div>
         </div>
       </>
@@ -1211,125 +1451,24 @@ export function ChatView() {
 
   return (
     <>
-      <Sheet open={sidebarOpen} onOpenChange={toggleSidebar}>
-        <SheetContent
-          side="left"
-          className="w-[82vw] max-w-80 p-0 flex flex-col sm:w-80"
-        >
-          <SheetHeader className="px-4 py-3 border-b">
-            <SheetTitle className="text-sm font-medium">
-              Conversations
-            </SheetTitle>
-            <div className="relative mt-2">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50" />
-              <Input
-                placeholder="Search conversations..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-8 pl-8 text-sm"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2"
-                >
-                  <X className="w-3.5 h-3.5 text-muted-foreground/50 hover:text-foreground" />
-                </button>
-              )}
-            </div>
-          </SheetHeader>
-          <ScrollArea className="flex-1 overflow-hidden">
-            <div className="p-2 overflow-hidden">
-              <div
-                onClick={handleNewChat}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-surface transition-colors cursor-pointer mb-2"
-              >
-                <Plus className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
-                <span className="text-sm text-foreground/70">New chat</span>
-              </div>
-              {loadingConversations ? (
-                <div className="flex flex-col gap-0.5">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="flex items-center gap-3 px-3 py-2">
-                      <Skeleton className="w-3.5 h-3.5 rounded shrink-0 bg-surface" />
-                      <Skeleton
-                        className="h-4 flex-1 rounded bg-surface"
-                        style={{ maxWidth: `${55 + ((i * 23) % 35)}%` }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : groupedConversations.length === 0 ? (
-                <p className="text-xs text-muted-foreground/50 px-3 py-4 text-center">
-                  {searchQuery
-                    ? "No conversations found"
-                    : "No conversations yet"}
-                </p>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  {groupedConversations.map((group) => (
-                    <div key={group.label}>
-                      <p className="text-[11px] text-muted-foreground/50 px-3 py-1 uppercase tracking-wider">
-                        {group.label}
-                      </p>
-                      <div className="flex flex-col gap-0.5">
-                        {group.conversations.map((conv) => (
-                          <div
-                            key={conv._id}
-                            onClick={() => loadConversation(conv)}
-                            className="group grid grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-2 rounded-lg hover:bg-surface transition-colors cursor-pointer"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5 text-muted-foreground/40" />
-                            <span className="text-sm text-foreground/70 truncate">
-                              {conv.title}
-                            </span>
-                            <span className="hidden text-[10px] text-muted-foreground/30 group-hover:hidden sm:inline">
-                              {modelDisplayName(
-                                conv.llmModel,
-                                modelCatalog.models,
-                              )}
-                            </span>
-                            <button
-                              onClick={(e) => deleteConversation(conv._id, e)}
-                              className="hidden group-hover:flex col-start-3 items-center justify-center w-5 h-5 rounded hover:bg-destructive/10 transition-colors"
-                            >
-                              <Trash2 className="w-3 h-3 text-muted-foreground/50 hover:text-destructive" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                  {hasMoreConversations && !searchQuery && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 text-xs text-muted-foreground"
-                      onClick={loadMoreConversations}
-                      disabled={loadingMoreConversations}
-                    >
-                      {loadingMoreConversations ? "Loading..." : "Load more"}
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-        </SheetContent>
-      </Sheet>
+      {pageConversationSidebar}
 
-      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
+        {containedConversationSidebar}
         <div className="flex items-center gap-2 border-b px-2 py-2 sm:px-4">
-          <SidebarTrigger className="-ml-1 size-7 shrink-0 md:hidden" />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => toggleSidebar(true)}
-            className="shrink-0"
-          >
-            <Menu className="w-4 h-4" />
-          </Button>
+          {!isSheet && (
+            <SidebarTrigger className="-ml-1 size-7 shrink-0 md:hidden" />
+          )}
+          {!(isSheet && sidebarOpen) ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => toggleSidebar(true)}
+              className="shrink-0"
+            >
+              <Menu className="w-4 h-4" />
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="icon"
@@ -1406,6 +1545,13 @@ export function ChatView() {
           </MessageScroller>
         </MessageScrollerProvider>
 
+        {backgroundRunId && (
+          <div className="mx-4 mb-2 flex items-center gap-2 rounded-md border px-3 py-2 text-xs text-muted-foreground">
+            <span className="size-1.5 animate-pulse rounded-full bg-violet-500" />
+            <span>Working in background</span>
+          </div>
+        )}
+
         {backoff.active && (
           <div className="mx-4 mb-2 flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
             <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
@@ -1455,10 +1601,11 @@ export function ChatView() {
           modelCatalog={modelCatalog}
           requiredCapabilities={requiredCapabilities}
           modelIncompatible={modelIncompatible}
-          disabled={isStreaming}
+          disabled={isStreaming || backgroundRunId !== null}
           streaming={isStreaming}
           onAbort={abort}
           docked
+          flush={isSheet}
           modelLabel={
             model ? modelDisplayName(model, modelCatalog.models) : undefined
           }
@@ -1470,6 +1617,10 @@ export function ChatView() {
           onYoloEnabledChange={setYoloEnabled}
           maxRounds={maxRounds}
           onMaxRoundsChange={setMaxRounds}
+          backgroundEnabled={backgroundEnabled}
+          onBackgroundEnabledChange={
+            allowBackground ? setBackgroundEnabled : undefined
+          }
           memoryMode={memoryMode}
           onMemoryModeChange={handleMemoryModeChange}
           incognitoLocked={messages.length > 0 || isStreaming}

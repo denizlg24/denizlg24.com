@@ -3,6 +3,7 @@ import type { RetrievalMemory } from "./retrieval";
 import {
   buildLexicalRetrievalQuery,
   collectRetrievalSourceSignals,
+  collectRetrievedMemoryImages,
   hardFilterMemory,
   rankAndBudgetRetrieval,
   retrievalQueryContainsDeniedContent,
@@ -259,5 +260,30 @@ describe("agent memory retrieval", () => {
     expect(
       retrievalQueryContainsDeniedContent("what project am I building?"),
     ).toBe(false);
+  });
+
+  test("returns deduplicated memory images in selected-memory order", () => {
+    const imageA = {
+      eventId: "evidence-a",
+      url: "https://storage.example/me.jpg",
+      name: "me.jpg",
+    };
+    const imageB = {
+      eventId: "evidence-b",
+      url: "https://storage.example/chart.png",
+      name: "chart.png",
+    };
+    expect(
+      collectRetrievedMemoryImages(
+        [
+          memory({ evidenceIds: ["evidence-a", "evidence-b"] }),
+          memory({ evidenceIds: ["evidence-a"] }),
+        ],
+        new Map([
+          ["evidence-a", imageA],
+          ["evidence-b", imageB],
+        ]),
+      ),
+    ).toEqual([imageA, imageB]);
   });
 });

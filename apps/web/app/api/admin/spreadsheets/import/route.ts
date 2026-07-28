@@ -3,6 +3,7 @@ import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import {
   computeStats,
+  InvalidSpreadsheetFileError,
   uploadBookToStorage,
   xlsxBufferToBook,
 } from "@/lib/spreadsheets";
@@ -70,6 +71,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const err = error as Error;
     console.error("Error importing spreadsheet:", err);
+    if (error instanceof InvalidSpreadsheetFileError) {
+      return NextResponse.json(
+        { error: "Invalid spreadsheet file", details: err.message },
+        { status: 400 },
+      );
+    }
     return NextResponse.json(
       { error: "Failed to import spreadsheet", details: err.message },
       { status: 500 },

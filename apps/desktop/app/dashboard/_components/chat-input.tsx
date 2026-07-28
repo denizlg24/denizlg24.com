@@ -127,6 +127,7 @@ export function ChatInput({
   streaming,
   onAbort,
   docked,
+  flush,
   modelLabel,
   toolsEnabled,
   onToolsEnabledChange,
@@ -136,6 +137,8 @@ export function ChatInput({
   onYoloEnabledChange,
   maxRounds,
   onMaxRoundsChange,
+  backgroundEnabled,
+  onBackgroundEnabledChange,
   memoryMode,
   onMemoryModeChange,
   incognitoLocked,
@@ -154,6 +157,7 @@ export function ChatInput({
   streaming?: boolean;
   onAbort?: () => void;
   docked?: boolean;
+  flush?: boolean;
   modelLabel?: string;
   toolsEnabled?: boolean;
   onToolsEnabledChange?: (enabled: boolean) => void;
@@ -163,6 +167,8 @@ export function ChatInput({
   onYoloEnabledChange?: (enabled: boolean) => void;
   maxRounds?: number;
   onMaxRoundsChange?: (rounds: number) => void;
+  backgroundEnabled?: boolean;
+  onBackgroundEnabledChange?: (enabled: boolean) => void;
   memoryMode: AgentMemoryMode;
   onMemoryModeChange: (mode: AgentMemoryMode) => void;
   incognitoLocked?: boolean;
@@ -288,9 +294,11 @@ export function ChatInput({
   return (
     <div
       className={
-        docked
-          ? "w-full max-w-3xl mx-auto px-3 pb-3 sm:px-4 sm:pb-4"
-          : "w-full max-w-2xl"
+        flush
+          ? "w-full shrink-0 border-t bg-background p-2"
+          : docked
+            ? "w-full max-w-3xl mx-auto px-3 pb-3 sm:px-4 sm:pb-4"
+            : "w-full max-w-2xl"
       }
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -305,7 +313,13 @@ export function ChatInput({
         className="hidden"
       />
       <div
-        className={`relative border bg-popover shadow-lg flex flex-col ${hasAttachments || multiLine ? "rounded-lg" : "rounded-full"} ${dragging ? "ring-2 ring-foreground/20" : ""}`}
+        className={`relative flex flex-col ${
+          flush
+            ? "border-0 bg-background shadow-none"
+            : `border bg-popover shadow-lg ${
+                hasAttachments || multiLine ? "rounded-lg" : "rounded-full"
+              }`
+        } ${dragging ? "ring-2 ring-foreground/20" : ""}`}
       >
         {hasAttachments && (
           <AttachmentGroup className="px-3 pt-3 pb-0">
@@ -449,6 +463,21 @@ export function ChatInput({
                     />
                   </div>
                 )}
+                {onBackgroundEnabledChange && (
+                  <div className="flex items-center justify-between">
+                    <Label
+                      htmlFor="background-toggle"
+                      className="text-sm text-muted-foreground"
+                    >
+                      Background
+                    </Label>
+                    <Switch
+                      id="background-toggle"
+                      checked={backgroundEnabled ?? false}
+                      onCheckedChange={onBackgroundEnabledChange}
+                    />
+                  </div>
+                )}
                 {onMaxRoundsChange && (
                   <div className="flex items-center justify-between gap-3">
                     <Label
@@ -528,17 +557,19 @@ export function ChatInput({
           )}
         </div>
       </div>
-      <div
-        className="mt-1.5 flex min-h-4 items-center justify-center gap-1.5 text-[11px] text-muted-foreground"
-        role="status"
-      >
-        {memoryMode === "incognito" ? (
-          <EyeOff className="size-3" aria-hidden="true" />
-        ) : (
-          <Brain className="size-3" aria-hidden="true" />
-        )}
-        <span>{MEMORY_MODE_COPY[memoryMode].label}</span>
-      </div>
+      {!flush && (
+        <div
+          className="mt-1.5 flex min-h-4 items-center justify-center gap-1.5 text-[11px] text-muted-foreground"
+          role="status"
+        >
+          {memoryMode === "incognito" ? (
+            <EyeOff className="size-3" aria-hidden="true" />
+          ) : (
+            <Brain className="size-3" aria-hidden="true" />
+          )}
+          <span>{MEMORY_MODE_COPY[memoryMode].label}</span>
+        </div>
+      )}
     </div>
   );
 }

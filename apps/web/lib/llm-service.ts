@@ -1120,6 +1120,20 @@ export interface AgentStreamRequest extends LlmRequestContext {
   requireWebSearch?: boolean;
 }
 
+function messagesContainImages(messages: Anthropic.MessageParam[]): boolean {
+  return messages.some(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some(
+        (block) =>
+          block.type === "image" ||
+          (block.type === "tool_result" &&
+            Array.isArray(block.content) &&
+            block.content.some((nested) => nested.type === "image")),
+      ),
+  );
+}
+
 /**
  * The dashboard agent loop. Capability validation happens here, before any
  * upstream stream opens; the loop itself (SSE events, tool ordering,
@@ -1145,6 +1159,7 @@ export async function streamAgent({
   const requiredTags = [
     ...(requireTools ? ["tool-use"] : []),
     ...(requireWebSearch ? ["web-search"] : []),
+    ...(messagesContainImages(messages) ? ["vision"] : []),
   ];
   const resolved = await resolveModel({ model, purpose, requiredTags });
   const client = getGatewayAnthropicClient();

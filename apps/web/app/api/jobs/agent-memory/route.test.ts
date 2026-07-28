@@ -1,4 +1,6 @@
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+mock.module("server-only", () => ({}));
 
 const { POST, preferredOperationsForSlot } = await import("./route");
 
@@ -28,6 +30,7 @@ describe("POST /api/jobs/agent-memory", () => {
     expect(preferredOperationsForSlot(1)).toEqual(["formation", "backfill"]);
     expect(preferredOperationsForSlot(2)).toEqual([
       "training",
+      "chat-run",
       "reflection",
       "insight",
       "consolidation",
@@ -35,6 +38,7 @@ describe("POST /api/jobs/agent-memory", () => {
     ]);
     expect(preferredOperationsForSlot(8)).toEqual([
       "training",
+      "chat-run",
       "reflection",
       "insight",
       "consolidation",

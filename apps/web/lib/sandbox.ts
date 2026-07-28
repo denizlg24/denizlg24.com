@@ -12,6 +12,7 @@ const MAX_OUTPUT_CHARS = 30_000;
 const MAX_FILE_CHARS = 60_000;
 const MAX_WRITE_BYTES = 2 * 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_MAX_BINARY_BYTES = 25 * 1024 * 1024;
 
 /**
  * Host credentials forwarded into every sandbox.
@@ -177,6 +178,37 @@ export async function readSandboxFile(options: {
   const sandbox = await getSandbox(options.conversationId);
   const content = await sandbox.fs.readFile(options.path, "utf8");
   return truncate(content, MAX_FILE_CHARS);
+}
+
+/**
+ * Read a sandbox file without converting it to UTF-8 or routing its bytes
+ * through model-visible output. Use this for generated archives, images,
+ * spreadsheets, PDFs, and other binary artifacts.
+ */
+export async function readSandboxFileBytes(options: {
+  conversationId: string;
+  path: string;
+  maxBytes?: number;
+}): Promise<Buffer> {
+  const sandbox = await getSandbox(options.conversationId);
+  const maxBytes = options.maxBytes ?? DEFAULT_MAX_BINARY_BYTES;
+  const stats = await sandbox.fs.stat(options.path);
+  if (!stats.isFile()) {
+    throw new Error(`"${options.path}" is not a file`);
+  }
+  if (stats.size > maxBytes) {
+    throw new Error(
+      `"${options.path}" is ${stats.size} bytes; the limit is ${maxBytes}.`,
+    );
+  }
+
+  const content = await sandbox.fs.readFile(options.path);
+  if (content.byteLength > maxBytes) {
+    throw new Error(
+      `"${options.path}" is ${content.byteLength} bytes; the limit is ${maxBytes}.`,
+    );
+  }
+  return content;
 }
 
 export async function listSandboxFiles(options: {

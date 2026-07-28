@@ -1,10 +1,21 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { basename } from "node:path";
+import { readSandboxFileBytes } from "@/lib/sandbox";
 import { uploadFileToStorage } from "@/lib/storage-api";
-import type { ToolDefinition } from "./types";
+import type { ToolDefinition, ToolExecutionContext } from "./types";
 
 const MAX_FETCH_BYTES = 25 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
+
+function requireConversation(context?: ToolExecutionContext): string {
+  if (!context?.conversationId) {
+    throw new Error(
+      "Uploading a sandbox file needs a saved conversation. Send a message first so the conversation is created.",
+    );
+  }
+  return context.conversationId;
+}
 
 function filenameFromUrl(url: string): string {
   try {
@@ -169,9 +180,65 @@ export const uploadTools: ToolDefinition[] = [
   },
   {
     schema: {
+      name: "upload_sandbox_file",
+      description:
+        "Upload a file created in this conversation's sandbox without exposing or base64-encoding its bytes. Use this for generated binary files such as .xlsx, .pdf, archives, and images. For a workbook that should appear in Spreadsheets, use import_sandbox_spreadsheet instead.",
+      input_schema: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Path to the generated file in the sandbox.",
+          },
+          filename: {
+            type: "string",
+            description:
+              "Stored filename including extension. Defaults to the path's filename.",
+          },
+          mimeType: {
+            type: "string",
+            description: "MIME type, for example application/pdf.",
+          },
+          bucket: {
+            type: "string",
+            description:
+              "Storage bucket. Use 'image' for images and 'file' for everything else.",
+            enum: ["image", "file"],
+          },
+        },
+        required: ["path"],
+      },
+    },
+    isWrite: true,
+    category: "upload",
+    execute: async (input, context) => {
+      const path = typeof input.path === "string" ? input.path.trim() : "";
+      if (!path) throw new Error("path is required");
+      const bytes = await readSandboxFileBytes({
+        conversationId: requireConversation(context),
+        path,
+        maxBytes: MAX_FETCH_BYTES,
+      });
+      const filename =
+        typeof input.filename === "string" && input.filename.trim()
+          ? input.filename.trim()
+          : basename(path);
+      if (!filename) throw new Error("filename is required");
+      const file = new File([Uint8Array.from(bytes)], filename, {
+        type:
+          typeof input.mimeType === "string" && input.mimeType
+            ? input.mimeType
+            : "application/octet-stream",
+      });
+      const bucket = input.bucket === "image" ? "image" : "file";
+      return uploadFileToStorage(file, bucket);
+    },
+  },
+  {
+    schema: {
       name: "upload_file_from_base64",
       description:
-        "Store base64-encoded bytes in the self-hosted cloud and return the stored URL. Use it for files the sandbox generated or that arrived as an attachment.",
+        "Store base64-encoded bytes in the self-hosted cloud and return the stored URL. Use it for bytes already supplied as base64; for files generated in the sandbox, use upload_sandbox_file so binary data is not truncated in model output.",
       input_schema: {
         type: "object",
         properties: {
