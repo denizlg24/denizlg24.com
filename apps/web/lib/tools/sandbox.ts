@@ -103,7 +103,9 @@ export const sandboxTools: ToolDefinition[] = [
         required: ["command"],
       },
     },
-    isWrite: false,
+    // Arbitrary code with the forwarded production credentials — this belongs
+    // behind the approval gate even though it writes nothing itself.
+    isWrite: true,
     category: "sandbox",
     execute: async (input, context) => {
       const command = typeof input.command === "string" ? input.command : "";

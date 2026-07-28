@@ -173,6 +173,14 @@ export function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [multiLine, setMultiLine] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // Held as a string so the field can be emptied mid-edit; clamped on blur.
+  const [maxRoundsDraft, setMaxRoundsDraft] = useState(
+    String(maxRounds ?? DEFAULT_MAX_ROUNDS),
+  );
+
+  useEffect(() => {
+    setMaxRoundsDraft(String(maxRounds ?? DEFAULT_MAX_ROUNDS));
+  }, [maxRounds]);
 
   const hasAttachments = (attachments?.length ?? 0) > 0;
   // Sends are blocked while no model is selected or the selected model does
@@ -454,11 +462,17 @@ export function ChatInput({
                       type="number"
                       min={1}
                       max={100}
-                      value={maxRounds ?? DEFAULT_MAX_ROUNDS}
-                      onChange={(event) => {
-                        const next = Number.parseInt(event.target.value, 10);
-                        if (Number.isNaN(next)) return;
-                        onMaxRoundsChange(Math.min(Math.max(next, 1), 100));
+                      value={maxRoundsDraft}
+                      onChange={(event) =>
+                        setMaxRoundsDraft(event.target.value)
+                      }
+                      onBlur={() => {
+                        const parsed = Number.parseInt(maxRoundsDraft, 10);
+                        const next = Number.isNaN(parsed)
+                          ? (maxRounds ?? DEFAULT_MAX_ROUNDS)
+                          : Math.min(Math.max(parsed, 1), 100);
+                        setMaxRoundsDraft(String(next));
+                        onMaxRoundsChange(next);
                       }}
                       className="h-7 w-16 text-right text-sm tabular-nums"
                     />

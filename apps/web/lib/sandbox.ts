@@ -14,11 +14,7 @@ const MAX_WRITE_BYTES = 2 * 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
- * Host credentials forwarded into every sandbox. The owner explicitly chose
- * full access (Mongo/Postgres/Redis/S3/Pi) so generated code can query real
- * data directly; see docs/internal/plans/chat-yolo-sandbox-tools.md. Keeping
- * the set as one named list is what makes that blast radius auditable — widen
- * it here, never at a call site.
+ * Host credentials forwarded into every sandbox.
  */
 const FORWARDED_ENV_KEYS = [
   "MONGODB_URI",

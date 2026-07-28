@@ -56,21 +56,21 @@ export async function runLatexProjectCompilation(options: {
     try {
       compilation = await compileLatexProject(lease.project.project);
     } catch (error) {
-      const message =
-        error instanceof LatexCompilationError
-          ? `${error.message}\n${error.log}`.trim()
-          : error instanceof Error
-            ? error.message
-            : "Compilation failed";
-      await failLatexProjectCompilation(projectId, revision, message);
-      if (error instanceof LatexCompilationError) {
-        throw new LatexCompileFailedError(
-          error.message,
-          error.log,
-          await getLatexProject(projectId),
-        );
-      }
-      throw error;
+      // Only Tectonic failures are recorded here; anything else falls through
+      // to the outer catch, which records it once with the same message.
+      if (!(error instanceof LatexCompilationError)) throw error;
+      await failLatexProjectCompilation(
+        projectId,
+        revision,
+        `${error.message}\n${error.log}`.trim(),
+      ).catch((failError) =>
+        console.error("Failed to record LaTeX compile failure", failError),
+      );
+      throw new LatexCompileFailedError(
+        error.message,
+        error.log,
+        await getLatexProject(projectId),
+      );
     }
 
     const base = safeDownloadName(lease.project.name, "latex-project");

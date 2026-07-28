@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { ILatexFileEntry, ILatexProjectRecord } from "@repo/schemas";
 import {
+  type ILatexFileEntry,
+  type ILatexProjectRecord,
+  latexProjectPathSchema,
+} from "@repo/schemas";
+import {
+  LatexCompileBusyError,
   LatexCompileFailedError,
   runLatexProjectCompilation,
 } from "@/lib/latex-compile-run";
@@ -35,6 +40,18 @@ function numbered(content: string): string {
 async function requireProject(id: unknown): Promise<ILatexProjectRecord> {
   if (typeof id !== "string" || !id) throw new Error("projectId is required");
   return getLatexProject(id);
+}
+
+// The write path here bypasses the route schemas, so paths the model invents
+// have to clear the same check before they reach workspace materialization.
+function requirePath(value: unknown, field: string): string {
+  const parsed = latexProjectPathSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(
+      `${field} must be a project-relative path without "..", "." or a leading slash`,
+    );
+  }
+  return parsed.data;
 }
 
 export const latexTools: ToolDefinition[] = [
@@ -151,7 +168,7 @@ export const latexTools: ToolDefinition[] = [
     category: "latex",
     execute: async (input) => {
       const record = await requireProject(input.projectId);
-      const path = String(input.path);
+      const path = requirePath(input.path, "path");
       const content = String(input.content);
       const existing = record.project.entries.find(
         (entry) => entry.path === path,
@@ -246,7 +263,7 @@ export const latexTools: ToolDefinition[] = [
     execute: async (input) => {
       const mainFile =
         typeof input.mainFile === "string" && input.mainFile
-          ? input.mainFile
+          ? requirePath(input.mainFile, "mainFile")
           : "main.tex";
       const name = String(input.name);
       const record = await createLatexProject({
@@ -310,6 +327,10 @@ export const latexTools: ToolDefinition[] = [
             error: error.message,
             log: error.log.slice(-8_000),
           };
+        }
+        // Retryable, not a tool failure — let the model wait and call again.
+        if (error instanceof LatexCompileBusyError) {
+          return { compiled: false, busy: true, error: error.message };
         }
         throw error;
       }

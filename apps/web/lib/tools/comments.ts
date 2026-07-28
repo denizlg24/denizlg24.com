@@ -27,11 +27,13 @@ export const commentsTools: ToolDefinition[] = [
     isWrite: false,
     category: "comments",
     execute: async (input) => {
+      const status = typeof input.status === "string" ? input.status : null;
       const [comments, stats] = await Promise.all([
-        getAllComments(),
+        // getAllComments defaults to 100 rows and drops soft-deleted ones, so a
+        // status filter applied afterwards would silently miss matches.
+        getAllComments({ limit: 1_000, includeDeleted: status === "deleted" }),
         getCommentStats(),
       ]);
-      const status = typeof input.status === "string" ? input.status : null;
       const filtered = status
         ? comments.filter((comment) => {
             if (status === "deleted") return comment.isDeleted;

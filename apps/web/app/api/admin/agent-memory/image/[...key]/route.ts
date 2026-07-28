@@ -18,7 +18,12 @@ export async function GET(
   if (authError) return authError;
 
   const { key: segments } = await params;
-  const key = segments.map((segment) => decodeURIComponent(segment)).join("/");
+  let key: string;
+  try {
+    key = segments.map((segment) => decodeURIComponent(segment)).join("/");
+  } catch {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   if (!isPubliclyServableKey(key)) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -44,7 +49,8 @@ export async function GET(
     }
 
     return new NextResponse(object.body, { headers });
-  } catch {
+  } catch (error) {
+    console.error("Failed to read agent-memory image", key, error);
     return NextResponse.json(
       { error: "Failed to read object" },
       { status: 502 },
