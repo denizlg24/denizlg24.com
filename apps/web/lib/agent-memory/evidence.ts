@@ -256,6 +256,17 @@ function containsToolResult(message: IConversationMessage): boolean {
 }
 
 /**
+ * The agent's own prose is a response, not independent evidence about the
+ * owner. Tool results remain eligible because they report an external system
+ * observation and are already assigned lower trust.
+ */
+export function conversationMessageMemoryEligible(
+  message: IConversationMessage,
+): boolean {
+  return message.role === "user" || containsToolResult(message);
+}
+
+/**
  * Attachments are persisted as content blocks rather than a separate field, so
  * they are recovered from the stored message shape that `messageContent`
  * writes: an `image`/`document` block carrying a url source.
@@ -426,6 +437,7 @@ export async function observeConversationMessages(options: {
             actor: message.role === "user" && !toolResult ? "user" : "agent",
             trust: message.role === "user" && !toolResult ? "high" : "medium",
             sensitivity: "personal",
+            memoryEligible: conversationMessageMemoryEligible(message),
             provenance: { role: message.role, toolResult },
           }),
         });

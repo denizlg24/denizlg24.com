@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { parseFormationResult, prepareFormationCandidate } from "./formation";
+import {
+  formationSystemPrompt,
+  parseFormationResult,
+  prepareFormationCandidate,
+} from "./formation";
 
 const evidence = [
   {
@@ -14,6 +18,13 @@ const evidence = [
 ];
 
 describe("formation candidate preparation", () => {
+  test("rejects agent feedback loops and absence-of-evidence memories", () => {
+    const prompt = formationSystemPrompt();
+    expect(prompt).toContain("failed lookup");
+    expect(prompt).toContain("agent's own prose");
+    expect(prompt).toContain("conflictingMemoryIds");
+  });
+
   test("requires the strict forced-tool result shape", () => {
     expect(parseFormationResult({ candidates: [] }).success).toBe(true);
     expect(parseFormationResult(undefined).success).toBe(false);

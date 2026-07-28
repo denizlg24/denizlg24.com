@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildEvidenceInput,
+  conversationMessageMemoryEligible,
   conversationMessageSnapshot,
   observeConversationMessages,
   stableContentHash,
@@ -71,6 +72,28 @@ describe("agent evidence helpers", () => {
 
     expect(snapshot).toBe('{"title":"Saved note"}');
     expect(snapshot).not.toContain("tool_use_id");
+  });
+
+  test("does not let the agent's own prose become factual evidence", () => {
+    const assistantMessage = {
+      eventId: "4ddb52b0-15b6-4e7c-888a-fb781e5b5008",
+      role: "assistant" as const,
+      content: "I could not find a saved headshot.",
+      createdAt: new Date("2026-07-27T17:41:13.457Z"),
+    };
+    const toolResultMessage = {
+      ...assistantMessage,
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "tool-1",
+          content: '{"found":false}',
+        },
+      ],
+    };
+
+    expect(conversationMessageMemoryEligible(assistantMessage)).toBe(false);
+    expect(conversationMessageMemoryEligible(toolResultMessage)).toBe(true);
   });
 
   test("incognito conversation messages short-circuit without persistence", async () => {
