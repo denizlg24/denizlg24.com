@@ -196,21 +196,50 @@ The project owner publishes access changes with the next commit and push.
 
 ---
 
-## Quick demos
+## Demos
 
-The following animated demos show common Envoy workflows.
-
-### Initialize a project
-
-![Init demo](docs/init_demo.gif)
-
-### Encrypt a file
-
-![Encrypt demo](docs/encrypt_demo.gif)
-
-### Pull and restore secrets
-
-![Pull demo](docs/pull_demo.gif)
+<table>
+  <tr>
+    <td width="50%">
+      <strong>Core workflow</strong><br>
+      <img src="docs/demos/01-core-workflow.gif" alt="Initialize, stage, inspect, commit, and review Envoy configuration">
+    </td>
+    <td width="50%">
+      <strong>Safe diffs</strong><br>
+      <img src="docs/demos/02-redacted-diffs.gif" alt="Inspect redacted working-tree and staged Envoy changes">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <strong>Remote sync</strong><br>
+      <img src="docs/demos/03-remotes-sync.gif" alt="Connect, push, pull, and diagnose an Envoy remote">
+    </td>
+    <td width="50%">
+      <strong>Team access</strong><br>
+      <img src="docs/demos/04-team-access.gif" alt="Manage Envoy members and per-file access">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <strong>Safe removals</strong><br>
+      <img src="docs/demos/05-removals-deletions.gif" alt="Stop tracking files and synchronize committed deletions">
+    </td>
+    <td width="50%">
+      <strong>Legacy restore</strong><br>
+      <img src="docs/demos/06-legacy-restore.gif" alt="Restore and migrate legacy Envoy encrypted files">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <strong>CI automation</strong><br>
+      <img src="docs/demos/07-ci-automation.gif" alt="Use named standard input for non-interactive Envoy automation">
+    </td>
+    <td width="50%">
+      <strong>Authentication and maintenance</strong><br>
+      <img src="docs/demos/08-auth-diagnostics.gif" alt="Authenticate, diagnose, update, and log out of Envoy">
+    </td>
+  </tr>
+</table>
 
 ---
 
