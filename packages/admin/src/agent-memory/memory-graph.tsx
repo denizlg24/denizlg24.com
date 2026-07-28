@@ -14,6 +14,7 @@ import {
 import type { ForceGraphMethods, ForceGraphProps } from "react-force-graph-3d";
 import { toast } from "sonner";
 import * as THREE from "three";
+import type { AdminClient } from "../client";
 import { useAdmin } from "../provider";
 import {
   accentFor,
@@ -63,6 +64,8 @@ const DECODE_WIDTH = CARD_WIDTH;
 const DECODE_HEIGHT = CARD_HEIGHT;
 /** A hung request must settle, or its nodes stay queued for the tab's lifetime. */
 const IMAGE_TIMEOUT_MS = 15_000;
+const PUBLIC_FILE_PATH = "/api/file/";
+const ADMIN_IMAGE_PATH = "agent-memory/image/";
 
 function evictOldestImages(): void {
   for (const [url, entry] of imageCache) {
@@ -92,17 +95,39 @@ async function decodeAtCardResolution(blob: Blob): Promise<ImageBitmap> {
   return resized;
 }
 
-function requestImage(url: string, onSettled: () => void): ImageBitmap | null {
+/**
+ * Stored attachment URLs point at the public file route. Load the same object
+ * through the authenticated admin transport instead: desktop injects Tauri's
+ * CORS-free HTTP client there, while web stays same-origin. Keeping this
+ * translation here also means old evidence rows do not need rewriting.
+ */
+function adminImageEndpoint(url: string): string | null {
+  try {
+    const parsed = new URL(url, window.location.href);
+    if (!parsed.pathname.startsWith(PUBLIC_FILE_PATH)) return null;
+    const key = parsed.pathname.slice(PUBLIC_FILE_PATH.length);
+    return key ? `${ADMIN_IMAGE_PATH}${key}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function requestImage(
+  url: string,
+  client: AdminClient,
+  onSettled: () => void,
+): ImageBitmap | null {
   const cached = imageCache.get(url);
   if (cached?.status === "ready") return cached.bitmap;
   if (cached) return null;
   imageCache.set(url, { status: "loading" });
   void (async () => {
     try {
-      const response = await fetch(url, {
-        credentials: "omit",
-        signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS),
-      });
+      const signal = AbortSignal.timeout(IMAGE_TIMEOUT_MS);
+      const endpoint = adminImageEndpoint(url);
+      const response = endpoint
+        ? await client.raw(endpoint, { signal })
+        : await fetch(url, { credentials: "omit", signal });
       if (!response.ok) throw new Error(`Image request failed`);
       imageCache.set(url, {
         status: "ready",
@@ -386,25 +411,40 @@ export function MemoryGraph({
       const active = highlightRef.current;
       // Distance is carried through rather than recomputed in the comparator:
       // the sort runs over the whole live set several times a second.
-      const wanted: { entry: SpriteEntry; distance: number; hit: boolean }[] =
-        [];
+      const wanted: {
+        entry: SpriteEntry;
+        distance: number;
+        hit: boolean;
+        image: boolean;
+      }[] = [];
       for (const entry of sprites.current.values()) {
         const distance = camera.position.distanceTo(entry.sprite.position);
         const pixels =
           ((entry.width / CARD_ASPECT) * size.height) /
           (2 * Math.max(distance, 1) * halfFovTangent);
         const hit = Boolean(active?.has(entry.node.id));
+        const image = Boolean(entry.node.imageUrl);
         // A probe hit always gets a card regardless of distance — being able
-        // to read the results is the point of searching. Hover does not:
-        // hovering a card that is already legible adds nothing.
-        if (hit || entry.node.isOwner === true || pixels >= DETAIL_MIN_PIXELS) {
-          wanted.push({ entry, distance, hit });
+        // to read the results is the point of searching. Image memories also
+        // stay detailed: before cards they were always picture sprites, so
+        // demoting them to an outline at the overview camera is a regression.
+        // Hover does not: hovering a card that is already legible adds nothing.
+        if (
+          hit ||
+          image ||
+          entry.node.isOwner === true ||
+          pixels >= DETAIL_MIN_PIXELS
+        ) {
+          wanted.push({ entry, distance, hit, image });
         }
       }
-      // Hits first, then nearest, so a full budget never starves the results.
-      wanted.sort((a, b) =>
-        a.hit === b.hit ? a.distance - b.distance : a.hit ? -1 : 1,
-      );
+      // Hits first, then image memories, then nearest: a full detail budget
+      // must not make either explicit results or embedded pictures disappear.
+      wanted.sort((a, b) => {
+        const rankA = a.hit ? 0 : a.image ? 1 : 2;
+        const rankB = b.hit ? 0 : b.image ? 1 : 2;
+        return rankA === rankB ? a.distance - b.distance : rankA - rankB;
+      });
       const keep = new Set(
         wanted.slice(0, DETAIL_BUDGET).map((candidate) => candidate.entry),
       );
@@ -431,7 +471,9 @@ export function MemoryGraph({
         if (!stale) continue;
         if (built >= CARDS_PER_PASS) break;
         const url = entry.node.imageUrl;
-        const bitmap = url ? requestImage(url, () => settleImage(url)) : null;
+        const bitmap = url
+          ? requestImage(url, client, () => settleImage(url))
+          : null;
         entry.card?.dispose();
         const texture = new THREE.CanvasTexture(
           drawMemoryCard(entry.node, currentTheme, bitmap, emphasis),
@@ -451,7 +493,7 @@ export function MemoryGraph({
 
     frame = requestAnimationFrame(run);
     return () => cancelAnimationFrame(frame);
-  }, [theme, size.width, size.height, applyAppearance, settleImage]);
+  }, [theme, size.width, size.height, applyAppearance, settleImage, client]);
 
   // Same retrieval path as the Explore dock: the embedding index, no model in
   // between. Only the matched ids are kept — the graph is the result view.
