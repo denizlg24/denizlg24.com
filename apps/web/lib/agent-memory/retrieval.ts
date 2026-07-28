@@ -656,6 +656,7 @@ async function expandCandidateGraph(
   );
   const seedIds = seeds.map(([id]) => new mongoose.Types.ObjectId(id));
   const links = await AgentMemorySimilarity.find({
+    model: AGENT_MEMORY_VECTOR_CONFIG.model,
     $or: [
       { sourceMemoryId: { $in: seedIds } },
       { targetMemoryId: { $in: seedIds } },
@@ -689,6 +690,7 @@ async function loadNearDuplicateStrengths(
   if (memoryIds.length < 2) return strengths;
   const objectIds = memoryIds.map((id) => new mongoose.Types.ObjectId(id));
   const links = await AgentMemorySimilarity.find({
+    model: AGENT_MEMORY_VECTOR_CONFIG.model,
     strength: { $gte: NEAR_DUPLICATE_STRENGTH },
     sourceMemoryId: { $in: objectIds },
     targetMemoryId: { $in: objectIds },

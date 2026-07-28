@@ -174,9 +174,10 @@ export async function processEmbeddingJob(
  * belong to the current revision of an active memory, plus similarity links
  * touching anything outside that set.
  */
-export async function processEmbeddingCleanupJob(
-  _job: IAgentMemoryJob,
-): Promise<{ removedEmbeddings: number; removedLinks: number }> {
+export async function cleanupAgentMemoryEmbeddings(): Promise<{
+  removedEmbeddings: number;
+  removedLinks: number;
+}> {
   await connectDB();
   const embeddedIds = await AgentMemoryEmbedding.distinct("memoryId");
   const activeDocs = await AgentMemory.find({
@@ -213,11 +214,18 @@ export async function processEmbeddingCleanupJob(
 
   const linkResult = await AgentMemorySimilarity.deleteMany({
     $or: [
+      { model: { $ne: AGENT_MEMORY_VECTOR_CONFIG.model } },
       { sourceMemoryId: { $nin: activeIds } },
       { targetMemoryId: { $nin: activeIds } },
     ],
   });
   return { removedEmbeddings, removedLinks: linkResult.deletedCount };
+}
+
+export async function processEmbeddingCleanupJob(
+  _job: IAgentMemoryJob,
+): Promise<{ removedEmbeddings: number; removedLinks: number }> {
+  return cleanupAgentMemoryEmbeddings();
 }
 
 export async function scheduleNextEmbeddingCleanupJob(now = new Date()) {

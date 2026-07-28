@@ -13,8 +13,14 @@
  *   bun scripts/reembed-agent-memory.ts --execute --prune-stale
  */
 import { loadAttachmentParts } from "@/lib/agent-memory/attachments";
+import { cleanupAgentMemoryEmbeddings } from "@/lib/agent-memory/embedding";
 import { stableContentHash } from "@/lib/agent-memory/evidence";
 import { findDeniedContent } from "@/lib/agent-memory/security";
+import {
+  findSimilarMemories,
+  SIMILARITY_TOP_K,
+  upsertSimilarityLinks,
+} from "@/lib/agent-memory/similarity";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "@/lib/agent-memory/vector-config";
 import { embedMultimodal } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
@@ -22,6 +28,7 @@ import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
 import { AgentMemorySettings } from "@/models/AgentMemorySettings";
+import { AgentMemorySimilarity } from "@/models/AgentMemorySimilarity";
 
 const BATCH_SIZE = 50;
 
@@ -35,6 +42,9 @@ interface Summary {
   skipped: number;
   failed: number;
   prunedStale: number;
+  removedStaleRevisions: number;
+  rebuiltSimilarityLinks: number;
+  removedSimilarityLinks: number;
   settingsUpdated: boolean;
   estimatedCostUsd: number;
 }
@@ -86,6 +96,9 @@ async function main() {
     skipped: 0,
     failed: 0,
     prunedStale: 0,
+    removedStaleRevisions: 0,
+    rebuiltSimilarityLinks: 0,
+    removedSimilarityLinks: 0,
     settingsUpdated: false,
     estimatedCostUsd: 0,
   };
@@ -164,6 +177,22 @@ async function main() {
           { upsert: true },
         );
         summary.embedded += 1;
+        try {
+          const neighbors = await findSimilarMemories(vector, {
+            limit: SIMILARITY_TOP_K + 1,
+          });
+          summary.rebuiltSimilarityLinks += await upsertSimilarityLinks(
+            memory._id,
+            neighbors,
+          );
+        } catch (error) {
+          // The vector is authoritative; link refresh is eventually repaired by
+          // consolidation and should not prevent the settings cutover.
+          console.error(
+            `[reembed] similarity refresh for ${String(memory._id)} failed:`,
+            error instanceof Error ? error.message : error,
+          );
+        }
       } catch (error) {
         summary.failed += 1;
         console.error(
@@ -182,11 +211,18 @@ async function main() {
       model: { $ne: model },
     });
     summary.prunedStale = result.deletedCount;
+    const links = await AgentMemorySimilarity.deleteMany({
+      model: { $ne: model },
+    });
+    summary.removedSimilarityLinks = links.deletedCount;
   }
 
   // The embedding job refuses to run when persisted settings disagree with the
   // vector contract, so the flip only completes once settings match.
   if (execute && summary.failed === 0) {
+    const cleanup = await cleanupAgentMemoryEmbeddings();
+    summary.removedStaleRevisions = cleanup.removedEmbeddings;
+    summary.removedSimilarityLinks += cleanup.removedLinks;
     const updated = await AgentMemorySettings.updateMany(
       {},
       {

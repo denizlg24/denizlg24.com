@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentReleaseGates } from "@repo/schemas";
-import { planGateTransition } from "./settings";
+import {
+  type AgentReleaseGates,
+  updateAgentMemorySettingsSchema,
+} from "@repo/schemas";
+import { planGateTransition, resolveRetrievalSettings } from "./settings";
+import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
 const disabled: AgentReleaseGates = {
   evidenceLedger: false,
@@ -250,6 +254,46 @@ describe("agent release gates", () => {
       chatMemory: false,
       reflection: false,
       proactivity: false,
+    });
+  });
+});
+
+describe("agent retrieval settings", () => {
+  test("keeps deployment-owned vector fields authoritative", () => {
+    expect(
+      resolveRetrievalSettings({
+        maxCoreItems: 4,
+        maxRetrievedItems: 10,
+        maxTokens: 2_000,
+        embeddingModel: "openai/text-embedding-3-small",
+        embeddingDimensions: 1_536,
+        vectorIndex: "legacy-index",
+        querySummaryModel: null,
+      }),
+    ).toMatchObject({
+      maxCoreItems: 4,
+      maxRetrievedItems: 10,
+      maxTokens: 2_000,
+      embeddingModel: AGENT_MEMORY_VECTOR_CONFIG.model,
+      embeddingDimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
+      vectorIndex: AGENT_MEMORY_VECTOR_CONFIG.indexName,
+    });
+  });
+
+  test("accepts partial retrieval controls and strips vector fields", () => {
+    expect(
+      updateAgentMemorySettingsSchema.parse({
+        retrieval: {
+          querySummaryModel: "anthropic/claude-haiku-4.5",
+          embeddingModel: "openai/text-embedding-3-small",
+          embeddingDimensions: 1_536,
+          vectorIndex: "legacy-index",
+        },
+      }),
+    ).toEqual({
+      retrieval: {
+        querySummaryModel: "anthropic/claude-haiku-4.5",
+      },
     });
   });
 });

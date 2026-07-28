@@ -4,6 +4,7 @@ import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
 import { AgentMemorySimilarity } from "@/models/AgentMemorySimilarity";
+import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
 const MIN_ENTITY_MEMBERS = 2;
 const LABEL_LENGTH = 140;
@@ -266,7 +267,7 @@ export async function loadAgentMemoryGraph() {
       .sort({ createdAt: 1 })
       .lean(),
     AgentMemoryEmbedding.distinct("memoryId"),
-    AgentMemorySimilarity.find()
+    AgentMemorySimilarity.find({ model: AGENT_MEMORY_VECTOR_CONFIG.model })
       .select("sourceMemoryId targetMemoryId strength")
       .lean(),
   ]);

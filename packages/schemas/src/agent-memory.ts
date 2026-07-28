@@ -717,11 +717,19 @@ export const agentMemorySettingsSchema = z.object({
 export type AgentMemorySettings = z.infer<typeof agentMemorySettingsSchema>;
 export type AgentPromotionPolicy = AgentMemorySettings["promotion"];
 
+const updateAgentMemoryRetrievalSettingsSchema =
+  agentMemorySettingsSchema.shape.retrieval
+    .omit({
+      embeddingModel: true,
+      embeddingDimensions: true,
+      vectorIndex: true,
+    })
+    .partial();
+
 export const updateAgentMemorySettingsSchema = agentMemorySettingsSchema
   .pick({
     enabledSources: true,
     excludedSourceRefs: true,
-    retrieval: true,
     retention: true,
     reflectionSchedule: true,
     proactivity: true,
@@ -731,7 +739,15 @@ export const updateAgentMemorySettingsSchema = agentMemorySettingsSchema
     formationModel: true,
     maximumActionAutonomy: true,
   })
-  .partial();
+  .partial()
+  .extend({
+    /**
+     * Vector model, dimensions, and index are deployment-owned. Clients may
+     * update budgets and the rolling-summary model without echoing or changing
+     * the vector contract.
+     */
+    retrieval: updateAgentMemoryRetrievalSettingsSchema.optional(),
+  });
 export type UpdateAgentMemorySettings = z.infer<
   typeof updateAgentMemorySettingsSchema
 >;
