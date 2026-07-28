@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  backgroundAgentRunResponseSchema,
   backgroundAgentRunSchema,
   createBackgroundAgentRunSchema,
 } from "./background-agent";
@@ -31,6 +32,20 @@ describe("background agent contracts", () => {
         updatedAt: "2026-07-28T10:00:00.000Z",
       }).status,
     ).toBe("queued");
+    expect(
+      backgroundAgentRunResponseSchema.parse({
+        run: {
+          id: "run-1",
+          conversationId: "conversation-1",
+          prompt: "Do the work",
+          model: "anthropic/claude-sonnet-4.6",
+          status: "queued",
+          attachments: [],
+          createdAt: "2026-07-28T10:00:00.000Z",
+          updatedAt: "2026-07-28T10:00:00.000Z",
+        },
+      }).run.id,
+    ).toBe("run-1");
   });
 
   test("rejects non-dashboard-sized or empty work requests", () => {

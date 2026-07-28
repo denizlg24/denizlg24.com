@@ -10,7 +10,11 @@ export function serializeBackgroundAgentRun(
     prompt: run.prompt,
     model: run.llmModel,
     ...(run.pageContext ? { pageContext: run.pageContext } : {}),
-    attachments: run.attachments.map((attachment) => ({ ...attachment })),
+    attachments: run.attachments.map((attachment) => ({
+      type: attachment.type,
+      url: attachment.url,
+      name: attachment.name,
+    })),
     status: run.status,
     ...(run.output ? { output: run.output } : {}),
     ...(run.tokenUsage

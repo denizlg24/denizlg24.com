@@ -1,6 +1,10 @@
 import mongoose from "mongoose";
 import { z } from "zod";
-import { fetchEmailBody, queryEmailMailbox } from "@/lib/email";
+import {
+  AGENT_EMAIL_BODY_MAX_CHARS,
+  fetchEmailBody,
+  queryEmailMailbox,
+} from "@/lib/email";
 import { connectDB } from "@/lib/mongodb";
 import { isSmtpConfigured, sendMailFromAccount } from "@/lib/smtp";
 import { EmailModel } from "@/models/Email";
@@ -13,6 +17,7 @@ import type { ToolDefinition } from "./types";
 
 const MAX_RECIPIENTS = 50;
 const QUERY_EMAIL_LIMIT = 20;
+const QUERY_EMAIL_CANDIDATE_LIMIT = 500;
 
 const queryEmailInputSchema = z
   .object({
@@ -35,7 +40,7 @@ const queryEmailInputSchema = z
     scope: z.enum(["all", "inbox"]).optional().default("all"),
     includeBody: z.boolean().optional().default(false),
     limit: z.number().int().min(1).max(QUERY_EMAIL_LIMIT).default(20),
-    offset: z.number().int().min(0).max(100_000).default(0),
+    offset: z.number().int().min(0).max(QUERY_EMAIL_CANDIDATE_LIMIT).default(0),
   })
   .refine(
     (value) =>
@@ -125,7 +130,7 @@ function serializeFetchedBody(
   const textBody = fetched.text.trim();
   const htmlBody = fetched.html.trim();
   const completeBody = textBody || htmlBody;
-  const body = completeBody.slice(0, 16_000);
+  const body = completeBody.slice(0, AGENT_EMAIL_BODY_MAX_CHARS);
   return {
     bodyAvailable: true,
     body,
@@ -262,8 +267,8 @@ export const emailTools: ToolDefinition[] = [
           },
           offset: {
             type: "number",
-            description:
-              "Number of matching messages to skip. Use nextOffset to continue.",
+            description: `Number of matching messages to skip (maximum ${QUERY_EMAIL_CANDIDATE_LIMIT}). Use nextOffset to continue.`,
+            maximum: QUERY_EMAIL_CANDIDATE_LIMIT,
           },
         },
       },
@@ -299,7 +304,10 @@ export const emailTools: ToolDefinition[] = [
         throw new Error("Email account not found");
       }
 
-      const candidateLimit = parsed.data.offset + parsed.data.limit;
+      const candidateLimit = Math.min(
+        QUERY_EMAIL_CANDIDATE_LIMIT,
+        parsed.data.offset + parsed.data.limit,
+      );
       const settled = await Promise.all(
         accounts.map(async (account) => {
           try {
@@ -369,7 +377,7 @@ export const emailTools: ToolDefinition[] = [
         )
         .slice(parsed.data.offset, parsed.data.offset + parsed.data.limit);
       const nextOffset = parsed.data.offset + emails.length;
-      const hasMore = nextOffset < total;
+      const hasMore = emails.length > 0 && nextOffset < total;
 
       return {
         emails,
@@ -402,11 +410,16 @@ export const emailTools: ToolDefinition[] = [
       await connectDB();
       const email = await EmailModel.findById(input.id as string).lean();
       if (!email) return { success: false, error: "Email not found" };
-      const fetched = await fetchEmailBody(
-        email.accountId.toString(),
-        email.uid,
-        { includeAttachmentText: true },
-      );
+      let fetched: Awaited<ReturnType<typeof fetchEmailBody>> = null;
+      let bodyError: string | undefined;
+      try {
+        fetched = await fetchEmailBody(email.accountId.toString(), email.uid, {
+          includeAttachmentText: true,
+        });
+      } catch (error) {
+        bodyError =
+          error instanceof Error ? error.message : "Failed to fetch email body";
+      }
       return {
         _id: email._id.toString(),
         accountId: email.accountId.toString(),
@@ -417,6 +430,7 @@ export const emailTools: ToolDefinition[] = [
         seen: email.seen,
         uid: email.uid,
         ...serializeFetchedBody(fetched),
+        ...(bodyError ? { bodyError } : {}),
       };
     },
   },

@@ -288,7 +288,6 @@ export function serializeAgentMemorySettings(
     | "proactivity"
     | "promotion"
     | "consolidation"
-    | "resourceSuggestions"
     | "formationModel"
     | "maximumActionAutonomy"
     | "revision"
@@ -312,7 +311,6 @@ export function serializeAgentMemorySettings(
     proactivity: settings.proactivity,
     promotion: settings.promotion,
     consolidation: settings.consolidation,
-    resourceSuggestions: settings.resourceSuggestions,
     formationModel: settings.formationModel,
     maximumActionAutonomy: settings.maximumActionAutonomy,
     revision: settings.revision,

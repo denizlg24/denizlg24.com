@@ -3,10 +3,43 @@ import { type NextRequest, NextResponse } from "next/server";
 import { AgentMemoryPolicyError } from "@/lib/agent-memory/policy";
 import {
   acceptResourceSuggestion,
+  attachExistingPersonSuggestion,
   dismissResourceSuggestion,
+  getResourceSuggestionMemories,
+  splitMemoryFromResourceSuggestion,
 } from "@/lib/agent-memory/resource-suggestions";
-import { serializeAgentResourceSuggestion } from "@/lib/agent-memory/serialize";
+import {
+  serializeAgentMemory,
+  serializeAgentResourceSuggestion,
+} from "@/lib/agent-memory/serialize";
 import { requireAdmin } from "@/lib/require-admin";
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ suggestionId: string }> },
+) {
+  const authError = await requireAdmin(request);
+  if (authError) return authError;
+  try {
+    const { suggestionId } = await params;
+    const memories = await getResourceSuggestionMemories(suggestionId);
+    return NextResponse.json({
+      memories: memories.map(serializeAgentMemory),
+    });
+  } catch (error) {
+    if (error instanceof AgentMemoryPolicyError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.code === "not-found" ? 404 : 409 },
+      );
+    }
+    console.error("Error loading resource suggestion memories:", error);
+    return NextResponse.json(
+      { error: "Failed to load related memories" },
+      { status: 500 },
+    );
+  }
+}
 
 export async function POST(
   request: NextRequest,
@@ -31,11 +64,23 @@ export async function POST(
             suggestionId,
             reason: parsed.data.reason,
           })
-        : await acceptResourceSuggestion({
-            suggestionId,
-            reason: parsed.data.reason,
-            draftOverride: parsed.data.draft,
-          });
+        : parsed.data.action === "attach"
+          ? await attachExistingPersonSuggestion({
+              suggestionId,
+              resourceId: parsed.data.resourceId as string,
+              reason: parsed.data.reason,
+            })
+          : parsed.data.action === "split-memory"
+            ? await splitMemoryFromResourceSuggestion({
+                suggestionId,
+                memoryId: parsed.data.memoryId as string,
+                reason: parsed.data.reason,
+              })
+            : await acceptResourceSuggestion({
+                suggestionId,
+                reason: parsed.data.reason,
+                draftOverride: parsed.data.draft,
+              });
     return NextResponse.json({
       suggestion: serializeAgentResourceSuggestion(suggestion),
     });

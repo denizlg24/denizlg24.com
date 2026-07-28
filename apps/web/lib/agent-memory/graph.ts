@@ -4,6 +4,7 @@ import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
 import { AgentMemorySimilarity } from "@/models/AgentMemorySimilarity";
+import { Person } from "@/models/Person";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
 const MIN_ENTITY_MEMBERS = 2;
@@ -16,7 +17,12 @@ export interface GraphMemoryInput {
   status: string;
   confidence: number;
   importance: number;
-  entityRefs: { entityType: string; entityId: string; label?: string }[];
+  entityRefs: {
+    entityType: string;
+    entityId: string;
+    label?: string;
+    resourceId?: string;
+  }[];
   contradictionIds: string[];
   supersedesMemoryId?: string;
   /** Attachment image behind this memory, when one of its evidence rows has one. */
@@ -34,8 +40,11 @@ export interface GraphSimilarityInput {
 }
 
 export interface GraphOwnerInput {
+  id?: string;
   name: string;
   email: string;
+  displayName?: string;
+  resourceId?: string;
 }
 
 const OWNER_NODE_ID = "entity:person:owner";
@@ -58,6 +67,7 @@ function normalizeIdentity(value: string): string {
 export function ownerRefMatcher(
   owner: GraphOwnerInput,
 ): (ref: { entityType: string; entityId: string; label?: string }) => boolean {
+  const ownerId = owner.id ? normalizeIdentity(owner.id) : "";
   const email = normalizeIdentity(owner.email);
   const nameTokens = normalizeIdentity(owner.name).split(" ").filter(Boolean);
   const firstName = nameTokens[0] ?? "";
@@ -74,9 +84,18 @@ export function ownerRefMatcher(
       nameTokens.every((token) => tokens.includes(token))
     );
   };
-  return (ref) =>
-    ref.entityType === "person" &&
-    (matchesValue(ref.entityId) || matchesValue(ref.label));
+  return (ref) => {
+    if (ref.entityType !== "person") return false;
+    const entityId = normalizeIdentity(ref.entityId);
+    return (
+      entityId === "owner" ||
+      entityId === "admin" ||
+      entityId === "user" ||
+      (ownerId.length > 0 && entityId === ownerId) ||
+      matchesValue(ref.entityId) ||
+      matchesValue(ref.label)
+    );
+  };
 }
 
 export function buildAgentMemoryGraph(
@@ -130,7 +149,12 @@ export function buildAgentMemoryGraph(
   const isOwnerRef = owner ? ownerRefMatcher(owner) : () => false;
   const entityMembers = new Map<
     string,
-    { entityType: string; label: string; memberIds: string[] }
+    {
+      entityType: string;
+      label: string;
+      resourceId?: string;
+      memberIds: string[];
+    }
   >();
   for (const memory of memories) {
     const seen = new Set<string>();
@@ -146,6 +170,9 @@ export function buildAgentMemoryGraph(
         memberIds: [],
       };
       if (!entry.label && ref.label?.trim()) entry.label = ref.label.trim();
+      if (!entry.resourceId && ref.resourceId) {
+        entry.resourceId = ref.resourceId;
+      }
       entry.memberIds.push(memory.id);
       entityMembers.set(id, entry);
     }
@@ -153,7 +180,8 @@ export function buildAgentMemoryGraph(
   if (owner && !entityMembers.has(OWNER_NODE_ID)) {
     entityMembers.set(OWNER_NODE_ID, {
       entityType: "person",
-      label: owner.name,
+      label: owner.displayName ?? owner.name,
+      resourceId: owner.resourceId,
       memberIds: [],
     });
   }
@@ -163,8 +191,11 @@ export function buildAgentMemoryGraph(
     const isOwnerNode = id === OWNER_NODE_ID;
     if (!isOwnerNode && entry.memberIds.length < MIN_ENTITY_MEMBERS) continue;
     const label = isOwnerNode
-      ? (owner?.name ?? entry.label)
+      ? owner?.displayName || owner?.name || entry.label || "Owner"
       : entry.label || id.split(":").slice(2).join(":");
+    const resourceId = isOwnerNode
+      ? (owner?.resourceId ?? entry.resourceId)
+      : entry.resourceId;
     nodes.push({
       id,
       kind: "entity",
@@ -173,6 +204,7 @@ export function buildAgentMemoryGraph(
           ? `${label.slice(0, LABEL_LENGTH)}…`
           : label,
       entityType: entry.entityType,
+      ...(resourceId ? { resourceId } : {}),
       count: entry.memberIds.length,
       ...(isOwnerNode ? { isOwner: true } : {}),
     });
@@ -304,13 +336,28 @@ export async function loadAgentMemoryGraph() {
   // Single-admin app: the better-auth user collection holds exactly the owner.
   const ownerDoc = await AgentMemory.db
     .collection("user")
-    .findOne<{ name?: string; email?: string }>(
+    .findOne<{ _id: unknown; name?: string; email?: string }>(
       {},
-      { projection: { name: 1, email: 1 } },
+      { projection: { _id: 1, name: 1, email: 1 } },
     );
+  const ownerPerson =
+    ownerDoc?.email &&
+    (await Person.findOne({ email: ownerDoc.email.trim().toLowerCase() })
+      .select("name")
+      .lean<{ _id: unknown; name: string }>());
   const owner: GraphOwnerInput | undefined =
     ownerDoc?.name && ownerDoc?.email
-      ? { name: ownerDoc.name, email: ownerDoc.email }
+      ? {
+          id: String(ownerDoc._id),
+          name: ownerDoc.name,
+          email: ownerDoc.email,
+          ...(ownerPerson
+            ? {
+                displayName: ownerPerson.name,
+                resourceId: String(ownerPerson._id),
+              }
+            : {}),
+        }
       : undefined;
   // Similarity is precomputed by the embedding/consolidation jobs, so the
   // graph is a plain read and stays uncapped. Active only: superseded and

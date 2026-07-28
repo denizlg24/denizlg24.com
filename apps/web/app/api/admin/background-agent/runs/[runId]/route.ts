@@ -1,3 +1,5 @@
+import { backgroundAgentRunResponseSchema } from "@repo/schemas";
+import { Types } from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { serializeBackgroundAgentRun } from "@/lib/background-agent/serialize";
 import { connectDB } from "@/lib/mongodb";
@@ -11,13 +13,20 @@ export async function GET(
 ) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  await connectDB();
   const { runId } = await params;
+  if (!Types.ObjectId.isValid(runId)) {
+    return NextResponse.json({ error: "Run not found" }, { status: 404 });
+  }
+  await connectDB();
   const run = await BackgroundAgentRun.findById(runId);
   if (!run) {
     return NextResponse.json({ error: "Run not found" }, { status: 404 });
   }
-  return NextResponse.json({ run: serializeBackgroundAgentRun(run) });
+  return NextResponse.json(
+    backgroundAgentRunResponseSchema.parse({
+      run: serializeBackgroundAgentRun(run),
+    }),
+  );
 }
 
 export async function DELETE(
@@ -26,8 +35,11 @@ export async function DELETE(
 ) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  await connectDB();
   const { runId } = await params;
+  if (!Types.ObjectId.isValid(runId)) {
+    return NextResponse.json({ error: "Run not found" }, { status: 404 });
+  }
+  await connectDB();
   const run = await BackgroundAgentRun.findOneAndUpdate(
     { _id: runId, status: "queued" },
     { $set: { status: "cancelled", completedAt: new Date() } },
@@ -46,5 +58,9 @@ export async function DELETE(
     },
     { $set: { status: "cancelled", completedAt: new Date() } },
   );
-  return NextResponse.json({ run: serializeBackgroundAgentRun(run) });
+  return NextResponse.json(
+    backgroundAgentRunResponseSchema.parse({
+      run: serializeBackgroundAgentRun(run),
+    }),
+  );
 }

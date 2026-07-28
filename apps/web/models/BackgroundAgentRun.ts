@@ -1,7 +1,8 @@
-import type {
-  BackgroundAgentPageContext,
-  BackgroundAgentRunStatus,
-  IChatMessageAttachment,
+import {
+  type BackgroundAgentPageContext,
+  type BackgroundAgentRunStatus,
+  backgroundAgentRunStatusSchema,
+  type IChatMessageAttachment,
 } from "@repo/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
 import { existingModel } from "./AgentMemoryCommon";
@@ -48,14 +49,14 @@ const BackgroundAgentRunSchema = new Schema<IBackgroundAgentRun>(
       ref: "Conversation",
       required: true,
     },
-    prompt: { type: String, required: true, maxlength: 32_000 },
+    prompt: { type: String, maxlength: 32_000, default: "" },
     llmModel: { type: String, required: true, maxlength: 200 },
     pageContext: { type: Schema.Types.Mixed, default: undefined },
     attachments: { type: [BackgroundAttachmentSchema], default: [] },
     maxRounds: { type: Number, required: true, min: 1, max: 100 },
     status: {
       type: String,
-      enum: ["queued", "running", "completed", "failed", "cancelled"],
+      enum: backgroundAgentRunStatusSchema.options,
       default: "queued",
       required: true,
     },

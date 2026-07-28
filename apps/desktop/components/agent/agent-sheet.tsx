@@ -33,11 +33,12 @@ function BackgroundAgentObserver({
 }) {
   useEffect(() => {
     let cancelled = false;
-    const refresh = async () => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const refresh = async (): Promise<boolean> => {
       const result = await api.GET<BackgroundAgentRunList>({
         endpoint: "background-agent/runs?active=true",
       });
-      if (cancelled || "code" in result) return;
+      if (cancelled || "code" in result) return false;
       const store = useBackgroundTasksStore.getState();
       const activeIds = new Set(result.runs.map((run) => `agent:${run.id}`));
       for (const run of result.runs) {
@@ -51,12 +52,17 @@ function BackgroundAgentObserver({
         }
       }
       onActiveRunChange(result.runs[0] ?? null);
+      return result.runs.length > 0;
     };
-    void refresh();
-    const interval = setInterval(() => void refresh(), 4_000);
+    const poll = async () => {
+      const hasActiveRuns = await refresh();
+      if (cancelled) return;
+      timeout = setTimeout(poll, hasActiveRuns ? 4_000 : 15_000);
+    };
+    void poll();
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timeout) clearTimeout(timeout);
     };
   }, [api, onActiveRunChange]);
   return null;
@@ -114,7 +120,8 @@ export function AgentSheet() {
           side="right"
           showCloseButton
           data-agent-sheet
-          className="gap-0 p-0"
+          inert={!open}
+          className="data-[state=closed]:invisible gap-0 p-0"
           style={{ width: "min(96vw, 56rem)", maxWidth: "56rem" }}
         >
           <SheetTitle className="sr-only">Agent</SheetTitle>

@@ -3,19 +3,11 @@ import { isIP } from "node:net";
 import { basename } from "node:path";
 import { readSandboxFileBytes } from "@/lib/sandbox";
 import { uploadFileToStorage } from "@/lib/storage-api";
-import type { ToolDefinition, ToolExecutionContext } from "./types";
+import { requireConversation } from "./require-conversation";
+import type { ToolDefinition } from "./types";
 
 const MAX_FETCH_BYTES = 25 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
-
-function requireConversation(context?: ToolExecutionContext): string {
-  if (!context?.conversationId) {
-    throw new Error(
-      "Uploading a sandbox file needs a saved conversation. Send a message first so the conversation is created.",
-    );
-  }
-  return context.conversationId;
-}
 
 function filenameFromUrl(url: string): string {
   try {
@@ -215,7 +207,7 @@ export const uploadTools: ToolDefinition[] = [
       const path = typeof input.path === "string" ? input.path.trim() : "";
       if (!path) throw new Error("path is required");
       const bytes = await readSandboxFileBytes({
-        conversationId: requireConversation(context),
+        conversationId: requireConversation(context, "Uploading"),
         path,
         maxBytes: MAX_FETCH_BYTES,
       });

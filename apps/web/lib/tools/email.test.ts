@@ -49,6 +49,7 @@ const draftFindByIdAndUpdateMock = mock(async () => ({}));
 
 mock.module("@/lib/mongodb", () => ({ connectDB: connectDBMock }));
 mock.module("@/lib/email", () => ({
+  AGENT_EMAIL_BODY_MAX_CHARS: 16_000,
   fetchEmailBody: fetchEmailBodyMock,
   queryEmailMailbox: queryEmailMailboxMock,
 }));
@@ -263,6 +264,101 @@ describe("email chat tools", () => {
     ]);
   });
 
+  test("query_emails reports one failed account without discarding results", async () => {
+    const workAccount = { ...smtpAccount };
+    const failedAccount = {
+      ...smtpAccount,
+      _id: { toString: () => "failed-id" },
+      user: "failed@example.com",
+      displayName: "Failed",
+    };
+    accountLeanMock.mockResolvedValue([workAccount, failedAccount]);
+    queryEmailMailboxMock.mockImplementation(async (account) => {
+      if ((account as typeof failedAccount).user === failedAccount.user) {
+        throw new Error("IMAP unavailable");
+      }
+      return {
+        total: 1,
+        emails: [
+          {
+            uid: 12,
+            subject: "Available result",
+            from: [{ address: "sender@example.com" }],
+            to: [{ address: workAccount.user }],
+            date: new Date("2026-07-24T10:00:00.000Z"),
+            seen: false,
+          },
+        ],
+      };
+    });
+
+    const result = (await getTool("query_emails").execute?.({
+      query: "result",
+      limit: 2,
+    })) as {
+      partial: boolean;
+      failures: { accountId: string; account: string; error: string }[];
+      emails: unknown[];
+    };
+
+    expect(result.partial).toBe(true);
+    expect(result.emails).toHaveLength(1);
+    expect(result.failures).toEqual([
+      {
+        accountId: "failed-id",
+        account: "failed@example.com",
+        error: "IMAP unavailable",
+      },
+    ]);
+  });
+
+  test("query_emails advances short pages and stops when no rows are returned", async () => {
+    accountLeanMock.mockResolvedValue([smtpAccount]);
+    queryEmailMailboxMock.mockResolvedValue({
+      total: 10,
+      emails: [
+        {
+          uid: 12,
+          subject: "One available result",
+          from: [{ address: "sender@example.com" }],
+          to: [{ address: smtpAccount.user }],
+          date: new Date("2026-07-24T10:00:00.000Z"),
+          seen: false,
+        },
+      ],
+    });
+
+    const shortPage = (await getTool("query_emails").execute?.({
+      query: "result",
+      limit: 2,
+      offset: 0,
+    })) as { hasMore: boolean; nextOffset: number | null };
+    expect(shortPage).toEqual(
+      expect.objectContaining({ hasMore: true, nextOffset: 1 }),
+    );
+
+    queryEmailMailboxMock.mockResolvedValue({ total: 10, emails: [] });
+    const emptyPage = (await getTool("query_emails").execute?.({
+      query: "result",
+      limit: 2,
+      offset: 1,
+    })) as { hasMore: boolean; nextOffset: number | null };
+    expect(emptyPage).toEqual(
+      expect.objectContaining({ hasMore: false, nextOffset: null }),
+    );
+  });
+
+  test("query_emails rejects offsets beyond the bounded candidate window", async () => {
+    await expect(
+      getTool("query_emails").execute?.({
+        query: "result",
+        limit: 20,
+        offset: 501,
+      }),
+    ).rejects.toThrow();
+    expect(queryEmailMailboxMock).not.toHaveBeenCalled();
+  });
+
   test("get_email fetches the message body without changing read state", async () => {
     emailByIdLeanMock.mockResolvedValue({
       _id: { toString: () => "email-id" },
@@ -296,6 +392,31 @@ describe("email chat tools", () => {
         body: "Total: EUR 18.00",
         bodyFormat: "text",
         bodyAvailable: true,
+      }),
+    );
+  });
+
+  test("get_email preserves metadata when body fetching fails", async () => {
+    emailByIdLeanMock.mockResolvedValue({
+      _id: { toString: () => "email-id" },
+      accountId: { toString: () => "account-id" },
+      messageId: "<receipt@example.com>",
+      subject: "Receipt",
+      from: [{ address: "shop@example.com" }],
+      date: new Date("2026-07-22T10:00:00.000Z"),
+      seen: false,
+      uid: 42,
+    });
+    fetchEmailBodyMock.mockRejectedValue(new Error("Mailbox unavailable"));
+
+    const result = await getTool("get_email").execute?.({ id: "email-id" });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        _id: "email-id",
+        subject: "Receipt",
+        bodyAvailable: false,
+        bodyError: "Mailbox unavailable",
       }),
     );
   });

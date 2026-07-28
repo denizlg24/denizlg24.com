@@ -63,16 +63,19 @@ export interface SpreadsheetStats {
   sheetCount: number;
   rowCount: number;
   colCount: number;
+  totalCells: number;
 }
 
 export function computeStats(book: FortuneSheetBook): SpreadsheetStats {
   const normalizedBook = normalizeFortuneSheetBook(book);
   let maxRow = 0;
   let maxCol = 0;
+  let totalCells = 0;
   for (const sheet of normalizedBook) {
     if (sheet.row && sheet.row > maxRow) maxRow = sheet.row;
     if (sheet.column && sheet.column > maxCol) maxCol = sheet.column;
     for (const cell of sheet.celldata ?? []) {
+      totalCells += 1;
       if (cell.r + 1 > maxRow) maxRow = cell.r + 1;
       if (cell.c + 1 > maxCol) maxCol = cell.c + 1;
     }
@@ -81,6 +84,7 @@ export function computeStats(book: FortuneSheetBook): SpreadsheetStats {
     sheetCount: normalizedBook.length || 1,
     rowCount: maxRow,
     colCount: maxCol,
+    totalCells,
   };
 }
 

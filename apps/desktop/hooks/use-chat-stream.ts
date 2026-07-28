@@ -210,7 +210,12 @@ export function useChatStream(API: denizApi | null) {
           updateToolCall(request.toolId, { status: "calling" });
 
           if (request.toolName === "get_current_page_context") {
-            const content = JSON.stringify(captureAgentPageContext());
+            if (!body.pageContext) {
+              throw new Error("Page context is unavailable in Incognito mode");
+            }
+            const content = JSON.stringify(
+              captureAgentPageContext({ includeVisibleText: true }),
+            );
             updateToolCall(request.toolId, {
               result: content,
               isError: false,

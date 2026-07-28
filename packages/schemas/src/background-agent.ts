@@ -64,6 +64,13 @@ export const backgroundAgentRunSchema = z.object({
 });
 export type BackgroundAgentRun = z.infer<typeof backgroundAgentRunSchema>;
 
+export const backgroundAgentRunResponseSchema = z.object({
+  run: backgroundAgentRunSchema,
+});
+export type BackgroundAgentRunResponse = z.infer<
+  typeof backgroundAgentRunResponseSchema
+>;
+
 export const backgroundAgentRunListSchema = z.object({
   runs: z.array(backgroundAgentRunSchema),
 });

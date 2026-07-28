@@ -87,6 +87,7 @@ export const AgentEntityRefSchema = new Schema(
     },
     entityId: { type: String, required: true, maxlength: 256 },
     label: { type: String, maxlength: 256 },
+    resourceId: { type: String, maxlength: 256 },
   },
   { _id: false },
 );

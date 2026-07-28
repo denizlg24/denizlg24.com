@@ -53,6 +53,26 @@ describe("agent memory graph builder", () => {
     ).toEqual(["m1", "m2"]);
   });
 
+  test("exposes an entity's attached resource id", () => {
+    const person = {
+      entityType: "person",
+      entityId: "sereffatin-gunes",
+      label: "Sereffatin Gunes",
+      resourceId: "person-record-1",
+    };
+    const graph = buildAgentMemoryGraph(
+      [
+        memory({ id: "m1", entityRefs: [person] }),
+        memory({ id: "m2", entityRefs: [person] }),
+      ],
+      NO_SIMILARITY,
+    );
+    expect(
+      graph.nodes.find((node) => node.id === "entity:person:sereffatin-gunes")
+        ?.resourceId,
+    ).toBe("person-record-1");
+  });
+
   test("adds contradiction and supersession links only between present nodes", () => {
     const graph = buildAgentMemoryGraph(
       [
@@ -111,7 +131,9 @@ describe("agent memory graph builder", () => {
     expect(
       matcher({ entityType: "person", entityId: "user", label: "Deniz Gunes" }),
     ).toBe(true);
-    expect(matcher({ entityType: "person", entityId: "user" })).toBe(false);
+    expect(matcher({ entityType: "person", entityId: "user" })).toBe(true);
+    expect(matcher({ entityType: "person", entityId: "admin" })).toBe(true);
+    expect(matcher({ entityType: "person", entityId: "owner" })).toBe(true);
     expect(
       matcher({
         entityType: "person",
@@ -167,6 +189,33 @@ describe("agent memory graph builder", () => {
     });
     const ownerNode = graph.nodes.find((node) => node.isOwner);
     expect(ownerNode?.count).toBe(0);
+  });
+
+  test("uses the attached directory person as the owner display object", () => {
+    const graph = buildAgentMemoryGraph(
+      [
+        memory({
+          id: "m1",
+          entityRefs: [{ entityType: "person", entityId: "owner" }],
+        }),
+      ],
+      NO_SIMILARITY,
+      {
+        id: "auth-owner-id",
+        name: "Deniz Gunes",
+        email: "deniz@example.com",
+        displayName: "Deniz Lopes Günes",
+        resourceId: "directory-person-id",
+      },
+    );
+
+    expect(
+      graph.nodes.find((node) => node.id === "entity:person:owner"),
+    ).toMatchObject({
+      label: "Deniz Lopes Günes",
+      resourceId: "directory-person-id",
+      isOwner: true,
+    });
   });
 
   test("marks embedded memories and truncates long labels", () => {
