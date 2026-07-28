@@ -862,10 +862,15 @@ async function loadEvidenceState(
     ),
     imagesByEventId: new Map(
       validEvidence.flatMap((item) => {
-        const provenance = item.provenance as Record<string, unknown>;
+        if (item.sourceType !== "attachment") return [];
+        const provenance =
+          item.provenance &&
+          typeof item.provenance === "object" &&
+          !Array.isArray(item.provenance)
+            ? (item.provenance as Record<string, unknown>)
+            : {};
         const url = provenance.attachmentUrl;
         if (
-          item.sourceType !== "attachment" ||
           provenance.hasImage !== true ||
           typeof url !== "string" ||
           url.length === 0

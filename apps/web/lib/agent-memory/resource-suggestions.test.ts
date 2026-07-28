@@ -2,15 +2,21 @@ import { describe, expect, test } from "bun:test";
 import {
   buildPersonEntityClusters,
   matchExistingPeople,
-  parseResourceSuggestionResult,
   personDraftIsComplete,
+  resolveAttachedPersonResourceId,
+  splitPersonEntityRefs,
 } from "./resource-suggestions";
 
 const owner = { name: "Deniz Lopes Günes", email: "owner@example.com" };
 
 function memory(
   id: string,
-  refs: { entityId: string; label?: string; entityType?: string }[],
+  refs: {
+    entityId: string;
+    label?: string;
+    entityType?: string;
+    resourceId?: string;
+  }[],
 ) {
   return {
     id,
@@ -20,6 +26,7 @@ function memory(
       entityType: ref.entityType ?? "person",
       entityId: ref.entityId,
       label: ref.label,
+      resourceId: ref.resourceId,
     })),
   };
 }
@@ -36,8 +43,14 @@ describe("buildPersonEntityClusters", () => {
         entityKey: "person:henrique",
         label: "Henrique",
         memoryIds: ["m1", "m2"],
+        resourceIds: [],
       },
-      { entityKey: "person:sofia", label: "Sofia", memoryIds: ["m3"] },
+      {
+        entityKey: "person:sofia",
+        label: "Sofia",
+        memoryIds: ["m3"],
+        resourceIds: [],
+      },
     ]);
   });
 
@@ -54,7 +67,12 @@ describe("buildPersonEntityClusters", () => {
       owner,
     );
     expect(clusters).toEqual([
-      { entityKey: "person:henrique", label: "Henrique", memoryIds: ["m1"] },
+      {
+        entityKey: "person:henrique",
+        label: "Henrique",
+        memoryIds: ["m1"],
+        resourceIds: [],
+      },
     ]);
   });
 
@@ -63,8 +81,63 @@ describe("buildPersonEntityClusters", () => {
       memory("m1", [{ entityId: "henrique" }, { entityId: "henrique" }]),
     ]);
     expect(clusters).toEqual([
-      { entityKey: "person:henrique", label: "henrique", memoryIds: ["m1"] },
+      {
+        entityKey: "person:henrique",
+        label: "henrique",
+        memoryIds: ["m1"],
+        resourceIds: [],
+      },
     ]);
+  });
+
+  test("retains attached person resource ids for the entity", () => {
+    const clusters = buildPersonEntityClusters([
+      memory("m1", [
+        {
+          entityId: "sereffatin-gunes",
+          label: "Sereffatin Gunes",
+          resourceId: "person-record-1",
+        },
+      ]),
+      memory("m2", [
+        {
+          entityId: "sereffatin-gunes",
+          label: "Sereffatin Gunes",
+          resourceId: "person-record-1",
+        },
+      ]),
+    ]);
+    expect(clusters[0]?.resourceIds).toEqual(["person-record-1"]);
+  });
+});
+
+describe("splitPersonEntityRefs", () => {
+  test("moves only the selected person identity and clears its attachment", () => {
+    expect(
+      splitPersonEntityRefs(
+        [
+          {
+            entityType: "person",
+            entityId: "nuno",
+            label: "Nuno",
+            resourceId: "wrong-person",
+          },
+          { entityType: "project", entityId: "project-1", label: "Project" },
+        ],
+        "nuno",
+        "person-split-memory-1",
+      ),
+    ).toEqual({
+      changed: true,
+      entityRefs: [
+        {
+          entityType: "person",
+          entityId: "person-split-memory-1",
+          label: "Nuno",
+        },
+        { entityType: "project", entityId: "project-1", label: "Project" },
+      ],
+    });
   });
 });
 
@@ -75,28 +148,54 @@ describe("personDraftIsComplete", () => {
     notes: "Met at FEUP; climbs with Admin on Tuesdays.",
   };
 
-  test("accepts a full name with relation and notes", () => {
+  test("accepts a named person with optional enrichment", () => {
     expect(personDraftIsComplete(base)).toBe(true);
+    expect(
+      personDraftIsComplete({
+        name: "Henrique",
+        relationToOwner: "",
+        notes: "",
+      }),
+    ).toBe(true);
   });
 
-  test("rejects a bare first name", () => {
-    expect(personDraftIsComplete({ ...base, name: "Henrique" })).toBe(false);
-    expect(personDraftIsComplete({ ...base, name: "  Henrique  " })).toBe(
-      false,
-    );
+  test("rejects an empty name", () => {
+    expect(personDraftIsComplete({ ...base, name: " " })).toBe(false);
+  });
+});
+
+describe("resolveAttachedPersonResourceId", () => {
+  const cluster = {
+    entityKey: "person:sereffatin-gunes",
+    label: "Sereffatin Gunes",
+    memoryIds: ["m1"],
+    resourceIds: [],
+  };
+
+  test("leaves an organic person entity unattached even after one mention", () => {
+    expect(resolveAttachedPersonResourceId(cluster, new Set())).toBeUndefined();
   });
 
-  test("rejects whitespace-only relation or notes", () => {
-    expect(personDraftIsComplete({ ...base, relationToOwner: "  " })).toBe(
-      false,
-    );
-    expect(personDraftIsComplete({ ...base, notes: " " })).toBe(false);
-  });
-
-  test("normalizes accents when counting name tokens", () => {
-    expect(personDraftIsComplete({ ...base, name: "José-María Núñez" })).toBe(
-      true,
-    );
+  test("recognizes explicit, direct-id, and legacy accepted attachments", () => {
+    expect(
+      resolveAttachedPersonResourceId(
+        { ...cluster, resourceIds: ["person-record-1"] },
+        new Set(["person-record-1"]),
+      ),
+    ).toBe("person-record-1");
+    expect(
+      resolveAttachedPersonResourceId(
+        { ...cluster, entityKey: "person:person-record-2" },
+        new Set(["person-record-2"]),
+      ),
+    ).toBe("person-record-2");
+    expect(
+      resolveAttachedPersonResourceId(
+        cluster,
+        new Set(["person-record-3"]),
+        "person-record-3",
+      ),
+    ).toBe("person-record-3");
   });
 });
 
@@ -127,39 +226,5 @@ describe("matchExistingPeople", () => {
     const result = matchExistingPeople(["Joana Alves"], people);
     expect(result.exact).toBe(false);
     expect(result.matches).toEqual([]);
-  });
-});
-
-describe("parseResourceSuggestionResult", () => {
-  test("accepts a well-formed suggestion payload", () => {
-    const parsed = parseResourceSuggestionResult({
-      suggestions: [
-        {
-          entityKey: "person:henrique",
-          draft: {
-            name: "Henrique Sousa",
-            relationToOwner: "University friend",
-            notes: "Climbs with Admin.",
-          },
-          confidence: 0.8,
-          reason: "Recurring climbing partner across five memories.",
-        },
-      ],
-    });
-    expect(parsed.success).toBe(true);
-  });
-
-  test("rejects drafts missing the relation to the owner", () => {
-    const parsed = parseResourceSuggestionResult({
-      suggestions: [
-        {
-          entityKey: "person:henrique",
-          draft: { name: "Henrique Sousa", notes: "Climbs with Admin." },
-          confidence: 0.8,
-          reason: "Recurring person.",
-        },
-      ],
-    });
-    expect(parsed.success).toBe(false);
   });
 });

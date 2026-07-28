@@ -1,5 +1,6 @@
 import {
   type BackgroundAgentRunList,
+  backgroundAgentRunResponseSchema,
   createBackgroundAgentRunSchema,
 } from "@repo/schemas";
 import { after, type NextRequest, NextResponse } from "next/server";
@@ -33,7 +34,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  const parsed = createBackgroundAgentRunSchema.safeParse(await request.json());
+  const body = await request.json().catch(() => null);
+  const parsed = createBackgroundAgentRunSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid run" },
@@ -50,7 +52,9 @@ export async function POST(request: NextRequest) {
       }
     });
     return NextResponse.json(
-      { run: serializeBackgroundAgentRun(run) },
+      backgroundAgentRunResponseSchema.parse({
+        run: serializeBackgroundAgentRun(run),
+      }),
       { status: 202 },
     );
   } catch (error) {

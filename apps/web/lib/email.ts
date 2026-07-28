@@ -17,7 +17,7 @@ const TRIAGE_ATTACHMENT_MAX_COUNT = 3;
 const TRIAGE_ATTACHMENT_MAX_BYTES = 512 * 1024;
 const TRIAGE_ATTACHMENT_MAX_CHARS = 2200;
 const TRIAGE_ATTACHMENT_TOTAL_CHARS = 6000;
-const AGENT_EMAIL_BODY_MAX_CHARS = 16_000;
+export const AGENT_EMAIL_BODY_MAX_CHARS = 16_000;
 const AGENT_EMAIL_SOURCE_MAX_BYTES = 2 * 1024 * 1024;
 
 export async function createImapClient(account: {
@@ -333,14 +333,15 @@ export async function queryEmailMailbox(
   });
 
   let mailbox = account.inboxName || "INBOX";
-  if (options.scope !== "inbox") {
-    const folders = await client.list();
-    mailbox =
-      folders.find((folder) => folder.specialUse === "\\All")?.path ?? mailbox;
-  }
-
-  const lock = await client.getMailboxLock(mailbox);
+  let lock: Awaited<ReturnType<(typeof client)["getMailboxLock"]>> | undefined;
   try {
+    if (options.scope !== "inbox") {
+      const folders = await client.list();
+      mailbox =
+        folders.find((folder) => folder.specialUse === "\\All")?.path ??
+        mailbox;
+    }
+    lock = await client.getMailboxLock(mailbox);
     const search: SearchObject = {
       ...(options.text ? { text: options.text } : {}),
       ...(options.from ? { from: options.from } : {}),
@@ -354,9 +355,11 @@ export async function queryEmailMailbox(
 
     const matched = await client.search(search, { uid: true });
     const uids = matched === false ? [] : matched;
-    const candidateUids = [...uids]
-      .sort((left, right) => left - right)
-      .slice(-options.candidateLimit);
+    const candidateLimit = Math.max(0, Math.floor(options.candidateLimit));
+    const candidateUids =
+      candidateLimit === 0
+        ? []
+        : [...uids].sort((left, right) => left - right).slice(-candidateLimit);
     if (candidateUids.length === 0) {
       return { emails: [], total: uids.length, mailbox };
     }
@@ -412,7 +415,7 @@ export async function queryEmailMailbox(
       mailbox,
     };
   } finally {
-    lock.release();
+    lock?.release();
     await client.logout();
   }
 }

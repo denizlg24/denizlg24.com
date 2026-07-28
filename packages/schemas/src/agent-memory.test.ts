@@ -3,6 +3,7 @@ import {
   agentEvidenceEventSchema,
   agentFormationResultSchema,
   agentMemoryDecisionSchema,
+  agentResourceSuggestionDecisionSchema,
   agentTemporalSchema,
   createAgentMemoryFeedbackSchema,
 } from "./agent-memory";
@@ -100,6 +101,35 @@ describe("agent memory schemas", () => {
       createAgentMemoryFeedbackSchema.safeParse({
         feedbackId,
         kind: "useful",
+      }).success,
+    ).toBe(true);
+  });
+
+  test("requires a person id only for explicit attachment decisions", () => {
+    expect(
+      agentResourceSuggestionDecisionSchema.safeParse({
+        action: "attach",
+        reason: "Confirmed from related memories",
+      }).success,
+    ).toBe(false);
+    expect(
+      agentResourceSuggestionDecisionSchema.safeParse({
+        action: "attach",
+        resourceId: "507f1f77bcf86cd799439012",
+        reason: "Confirmed from related memories",
+      }).success,
+    ).toBe(true);
+    expect(
+      agentResourceSuggestionDecisionSchema.safeParse({
+        action: "split-memory",
+        reason: "This memory refers to a different person",
+      }).success,
+    ).toBe(false);
+    expect(
+      agentResourceSuggestionDecisionSchema.safeParse({
+        action: "split-memory",
+        memoryId: "507f1f77bcf86cd799439011",
+        reason: "This memory refers to a different person",
       }).success,
     ).toBe(true);
   });

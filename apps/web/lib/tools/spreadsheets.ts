@@ -10,19 +10,11 @@ import {
   xlsxBufferToBook,
 } from "@/lib/spreadsheets";
 import { Spreadsheet } from "@/models/Spreadsheet";
-import type { ToolDefinition, ToolExecutionContext } from "./types";
+import { requireConversation } from "./require-conversation";
+import type { ToolDefinition } from "./types";
 
 const MAX_CELLS = 2_000;
 const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
-
-function requireConversation(context?: ToolExecutionContext): string {
-  if (!context?.conversationId) {
-    throw new Error(
-      "Importing a sandbox file needs a saved conversation. Send a message first so the conversation is created.",
-    );
-  }
-  return context.conversationId;
-}
 
 export const spreadsheetTools: ToolDefinition[] = [
   {
@@ -90,12 +82,17 @@ export const spreadsheetTools: ToolDefinition[] = [
       }
 
       const bytes = await readSandboxFileBytes({
-        conversationId: requireConversation(context),
+        conversationId: requireConversation(context, "Importing"),
         path,
         maxBytes: MAX_IMPORT_BYTES,
       });
       const book = xlsxBufferToBook(bytes);
       const stats = computeStats(book);
+      if (stats.totalCells > MAX_CELLS) {
+        throw new Error(
+          `Workbook exceeds the ${MAX_CELLS.toLocaleString()}-cell import limit`,
+        );
+      }
       const fallbackTitle = basename(path).replace(/\.(xlsx|xls|csv)$/i, "");
       const title =
         typeof input.title === "string" && input.title.trim()

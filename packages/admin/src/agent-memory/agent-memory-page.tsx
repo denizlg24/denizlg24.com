@@ -27,6 +27,7 @@ import {
   agentMemorySchema,
   agentReflectionOverviewSchema,
   agentResourceSuggestionListResponseSchema,
+  agentResourceSuggestionMemoriesResponseSchema,
   agentRetrievalTraceListResponseSchema,
   bulkAgentCandidateDecisionResponseSchema,
   generateAgentResourceSuggestionsResponseSchema,
@@ -44,6 +45,14 @@ import {
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@repo/ui/dialog";
 import { Input } from "@repo/ui/input";
 import { PageHeader } from "@repo/ui/page-header";
 import {
@@ -80,6 +89,7 @@ import {
   ChevronUp,
   Clock,
   History,
+  Link2,
   List,
   Loader2,
   Orbit,
@@ -91,6 +101,8 @@ import {
   ThumbsUp,
   Trash2,
   Undo2,
+  Unlink,
+  UserPlus,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -613,8 +625,8 @@ export function AgentMemoryPage() {
 
   const decideSuggestion = async (
     suggestion: AgentResourceSuggestion,
-    action: "accept" | "dismiss",
-    draft?: AgentPersonDraft,
+    action: "accept" | "attach" | "dismiss",
+    options?: { draft?: AgentPersonDraft; resourceId?: string },
   ) => {
     // Optimistic: the decided suggestion leaves the list immediately; a
     // background refresh reconciles stats and restores it on failure.
@@ -630,13 +642,22 @@ export function AgentMemoryPage() {
         reason:
           action === "accept"
             ? "Accepted from resource suggestion review"
-            : "Dismissed from resource suggestion review",
-        ...(action === "accept" && draft ? { draft } : {}),
+            : action === "attach"
+              ? "Attached existing person from resource suggestion review"
+              : "Dismissed from resource suggestion review",
+        ...(action === "accept" && options?.draft
+          ? { draft: options.draft }
+          : {}),
+        ...(action === "attach" && options?.resourceId
+          ? { resourceId: options.resourceId }
+          : {}),
       });
       toast.success(
         action === "accept"
-          ? `Created ${(draft ?? suggestion.draft).name}`
-          : "Suggestion dismissed",
+          ? `Created and attached ${(options?.draft ?? suggestion.draft).name}`
+          : action === "attach"
+            ? "Existing person attached"
+            : "Suggestion dismissed",
       );
       void load(true);
     } catch {
@@ -646,17 +667,37 @@ export function AgentMemoryPage() {
     }
   };
 
-  const generateSuggestions = async (model?: string) => {
+  const splitSuggestionMemory = async (
+    suggestion: AgentResourceSuggestion,
+    memoryId: string,
+  ): Promise<boolean> => {
+    try {
+      await client.post(`agent-memory/resource-suggestions/${suggestion.id}`, {
+        action: "split-memory",
+        memoryId,
+        reason:
+          "Separated a related memory that refers to a different person with the same extracted name",
+      });
+      toast.success("Memory separated into a new person suggestion");
+      void load(true);
+      return true;
+    } catch {
+      toast.error("Failed to separate related memory");
+      return false;
+    }
+  };
+
+  const generateSuggestions = async () => {
     setGeneratingSuggestions(true);
     try {
       const raw = await client.post<unknown>(
         "agent-memory/resource-suggestions",
-        model ? { model } : {},
+        {},
       );
       const result = generateAgentResourceSuggestionsResponseSchema.parse(raw);
       if (result.created === 0) {
         toast.info(
-          `No new suggestions — ${result.skipped} entities skipped (already suggested, already in the directory, or too little to go on)`,
+          `Suggestions are current — ${result.skipped} people are already suggested, dismissed, or attached`,
         );
       } else {
         toast.success(
@@ -1049,10 +1090,11 @@ export function AgentMemoryPage() {
             {section === "suggestions" && (
               <ResourceSuggestionInbox
                 suggestions={suggestions}
-                enabled={settings?.resourceSuggestions.enabled ?? false}
                 generating={generatingSuggestions}
                 onGenerate={generateSuggestions}
                 onDecide={decideSuggestion}
+                onSplitMemory={splitSuggestionMemory}
+                onSelectMemory={setSelectedMemory}
               />
             )}
 
@@ -2328,77 +2370,55 @@ function useModelCatalog() {
 
 function ResourceSuggestionInbox({
   suggestions,
-  enabled,
   generating,
   onGenerate,
   onDecide,
+  onSplitMemory,
+  onSelectMemory,
 }: {
   suggestions: AgentResourceSuggestion[];
-  enabled: boolean;
   generating: boolean;
-  onGenerate: (model?: string) => void;
+  onGenerate: () => void;
   onDecide: (
     suggestion: AgentResourceSuggestion,
-    action: "accept" | "dismiss",
-    draft?: AgentPersonDraft,
+    action: "accept" | "attach" | "dismiss",
+    options?: { draft?: AgentPersonDraft; resourceId?: string },
   ) => void;
+  onSplitMemory: (
+    suggestion: AgentResourceSuggestion,
+    memoryId: string,
+  ) => Promise<boolean>;
+  onSelectMemory: (memory: AgentMemory) => void;
 }) {
-  const { models } = useModelCatalog();
-  const [modelOverride, setModelOverride] = useState(FORMATION_MODEL_DEFAULT);
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={modelOverride} onValueChange={setModelOverride}>
-          <SelectTrigger className="h-7 w-64 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={FORMATION_MODEL_DEFAULT} className="text-xs">
-              Configured model
-            </SelectItem>
-            {models.map((model) => (
-              <SelectItem key={model.id} value={model.id} className="text-xs">
-                {model.name} · {model.id}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <Button
           size="sm"
           className="h-7 text-xs"
           disabled={generating}
-          onClick={() =>
-            onGenerate(
-              modelOverride === FORMATION_MODEL_DEFAULT
-                ? undefined
-                : modelOverride,
-            )
-          }
+          onClick={onGenerate}
         >
           {generating ? (
             <Loader2 className="size-3.5 animate-spin" />
           ) : (
             <Sparkles className="size-3.5" />
           )}
-          Generate suggestions
+          Refresh suggestions
         </Button>
-        {!enabled && (
-          <span className="text-xs text-muted-foreground">
-            Daily sweep is off — enable it in settings or generate on demand.
-          </span>
-        )}
       </div>
 
       {suggestions.length === 0 ? (
-        <EmptyRow text="No pending suggestions — recurring people in memories surface here as ready-to-review person records" />
+        <EmptyRow text="Every person in the memory graph is attached, dismissed, or already reviewed" />
       ) : (
-        <div className="divide-y border-y">
+        <div className="space-y-2">
           {suggestions.map((suggestion) => (
             <SuggestionRow
               key={suggestion.id}
               suggestion={suggestion}
               onDecide={onDecide}
+              onSplitMemory={onSplitMemory}
+              onSelectMemory={onSelectMemory}
             />
           ))}
         </div>
@@ -2410,123 +2430,259 @@ function ResourceSuggestionInbox({
 function SuggestionRow({
   suggestion,
   onDecide,
+  onSplitMemory,
+  onSelectMemory,
 }: {
   suggestion: AgentResourceSuggestion;
   onDecide: (
     suggestion: AgentResourceSuggestion,
-    action: "accept" | "dismiss",
-    draft?: AgentPersonDraft,
+    action: "accept" | "attach" | "dismiss",
+    options?: { draft?: AgentPersonDraft; resourceId?: string },
   ) => void;
+  onSplitMemory: (
+    suggestion: AgentResourceSuggestion,
+    memoryId: string,
+  ) => Promise<boolean>;
+  onSelectMemory: (memory: AgentMemory) => void;
 }) {
+  const { client } = useAdmin();
   const [draft, setDraft] = useState<AgentPersonDraft>({
     ...suggestion.draft,
   });
-  // Mirror the server's completeness bar so an accept never bounces: full
-  // name (two tokens), relation to the owner, and notes.
-  const complete =
-    draft.name.trim().split(/\s+/).length >= 2 &&
-    draft.relationToOwner.trim().length > 0 &&
-    draft.notes.trim().length > 0;
-  const contact = [draft.email, draft.phone, draft.website, draft.placeMet]
-    .filter(Boolean)
-    .join(" · ");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [memoriesOpen, setMemoriesOpen] = useState(false);
+  const [relatedMemories, setRelatedMemories] = useState<AgentMemory[] | null>(
+    null,
+  );
+  const [memoriesLoading, setMemoriesLoading] = useState(false);
+  const [splittingMemoryId, setSplittingMemoryId] = useState<string | null>(
+    null,
+  );
+  const complete = draft.name.trim().length > 0;
+
+  const toggleMemories = async () => {
+    const nextOpen = !memoriesOpen;
+    setMemoriesOpen(nextOpen);
+    if (!nextOpen || relatedMemories || memoriesLoading) return;
+    setMemoriesLoading(true);
+    try {
+      const raw = await client.get<unknown>(
+        `agent-memory/resource-suggestions/${suggestion.id}`,
+      );
+      const parsed = agentResourceSuggestionMemoriesResponseSchema.parse(raw);
+      setRelatedMemories(parsed.memories);
+    } catch {
+      setMemoriesOpen(false);
+      toast.error("Failed to load related memories");
+    } finally {
+      setMemoriesLoading(false);
+    }
+  };
+
+  const splitMemory = async (memoryId: string) => {
+    setSplittingMemoryId(memoryId);
+    const split = await onSplitMemory(suggestion, memoryId);
+    if (split) {
+      setRelatedMemories(
+        (current) =>
+          current?.filter((memory) => memory.id !== memoryId) ?? current,
+      );
+    }
+    setSplittingMemoryId(null);
+  };
 
   return (
-    <div className="space-y-2 py-3">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-medium">{suggestion.entityLabel}</span>
-        <Badge variant="outline">{suggestion.resourceType}</Badge>
-        <span className="text-xs text-muted-foreground">
-          confidence{" "}
-          <span className="tabular-nums">{percent(suggestion.confidence)}</span>{" "}
-          · from{" "}
-          <span className="tabular-nums">{suggestion.memoryIds.length}</span>{" "}
-          memories · {suggestion.model}
-        </span>
-        <div className="ml-auto flex shrink-0 gap-1">
+    <div className="rounded-md border bg-card">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">
+            {suggestion.entityLabel}
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Unattached person · {suggestion.memoryIds.length}{" "}
+            {suggestion.memoryIds.length === 1 ? "memory" : "memories"}
+          </p>
+        </div>
+
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+          {suggestion.existingResourceMatches.map((match) => (
+            <Button
+              key={match.resourceId}
+              size="sm"
+              variant="outline"
+              className="h-7 max-w-48 text-xs"
+              title={`Attach this graph entity to ${match.name}`}
+              onClick={() =>
+                onDecide(suggestion, "attach", {
+                  resourceId: match.resourceId,
+                })
+              }
+            >
+              <Link2 className="size-3.5" />
+              <span className="truncate">Attach {match.name}</span>
+            </Button>
+          ))}
           <Button
             size="sm"
+            variant="outline"
             className="h-7 text-xs"
-            disabled={!complete}
-            title={
-              complete
-                ? "Create the person record"
-                : "Needs a full name, a relation to you, and notes"
-            }
-            onClick={() => onDecide(suggestion, "accept", draft)}
+            onClick={() => setCreateOpen(true)}
           >
-            <Check className="size-3.5" />
+            <UserPlus className="size-3.5" />
             Create person
           </Button>
           <Button
             size="sm"
             variant="ghost"
             className="h-7 text-xs"
+            title="Dismiss suggestion"
             onClick={() => onDecide(suggestion, "dismiss")}
           >
             <X className="size-3.5" />
-            Dismiss
+            <span className="sr-only">Dismiss</span>
           </Button>
         </div>
       </div>
-      {suggestion.existingResourceMatches.length > 0 && (
-        <p className="text-xs text-amber-600 dark:text-amber-500">
-          Possible existing match:{" "}
-          {suggestion.existingResourceMatches
-            .map((match) => match.name)
-            .join(", ")}
-        </p>
-      )}
-      <div className="grid gap-2 sm:grid-cols-2">
-        <label
-          htmlFor={`suggestion-${suggestion.id}-name`}
-          className="space-y-1 text-xs text-muted-foreground"
-        >
-          Name
-          <Input
-            id={`suggestion-${suggestion.id}-name`}
-            value={draft.name}
-            className="h-7 text-xs"
-            onChange={(event) =>
-              setDraft((prev) => ({ ...prev, name: event.target.value }))
-            }
-          />
-        </label>
-        <label
-          htmlFor={`suggestion-${suggestion.id}-relation`}
-          className="space-y-1 text-xs text-muted-foreground"
-        >
-          Relation to you
-          <Input
-            id={`suggestion-${suggestion.id}-relation`}
-            value={draft.relationToOwner}
-            className="h-7 text-xs"
-            onChange={(event) =>
-              setDraft((prev) => ({
-                ...prev,
-                relationToOwner: event.target.value,
-              }))
-            }
-          />
-        </label>
-      </div>
-      <label
-        htmlFor={`suggestion-${suggestion.id}-notes`}
-        className="block space-y-1 text-xs text-muted-foreground"
+
+      <button
+        type="button"
+        className="flex w-full items-center gap-1 border-t px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+        onClick={() => void toggleMemories()}
       >
-        Notes
-        <Textarea
-          id={`suggestion-${suggestion.id}-notes`}
-          value={draft.notes}
-          rows={3}
-          className="text-xs"
-          onChange={(event) =>
-            setDraft((prev) => ({ ...prev, notes: event.target.value }))
-          }
-        />
-      </label>
-      {contact && <p className="text-xs text-muted-foreground">{contact}</p>}
-      <p className="text-xs text-muted-foreground">{suggestion.reason}</p>
+        {memoriesLoading ? (
+          <Loader2 className="size-3 animate-spin" />
+        ) : memoriesOpen ? (
+          <ChevronUp className="size-3" />
+        ) : (
+          <ChevronDown className="size-3" />
+        )}
+        {memoriesOpen ? "Hide" : "Review"} related memories
+      </button>
+
+      {memoriesOpen && (
+        <div className="space-y-1 border-t bg-muted/20 p-2">
+          {relatedMemories?.map((memory) => (
+            <div
+              key={memory.id}
+              className="flex items-center gap-1 rounded-sm hover:bg-muted"
+            >
+              <button
+                type="button"
+                className="min-w-0 flex-1 px-2 py-1.5 text-left"
+                onClick={() => onSelectMemory(memory)}
+              >
+                <p className="line-clamp-2 text-xs">{memory.statement}</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  {memory.memoryType} · {formatDate(memory.updatedAt)}
+                </p>
+              </button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="mr-1 size-7 shrink-0"
+                disabled={
+                  suggestion.memoryIds.length <= 1 || splittingMemoryId !== null
+                }
+                title={
+                  suggestion.memoryIds.length <= 1
+                    ? "A suggestion must retain one memory"
+                    : "This memory refers to a different person"
+                }
+                onClick={() => void splitMemory(memory.id)}
+              >
+                {splittingMemoryId === memory.id ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <Unlink className="size-3" />
+                )}
+                <span className="sr-only">
+                  Remove from this person suggestion
+                </span>
+              </Button>
+            </div>
+          ))}
+          {relatedMemories?.length === 0 && (
+            <p className="px-2 py-1 text-xs text-muted-foreground">
+              No related memories are still available.
+            </p>
+          )}
+        </div>
+      )}
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create and attach person</DialogTitle>
+            <DialogDescription>
+              Review the extracted name and add any details you want before
+              creating the directory record.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <label
+              htmlFor={`suggestion-${suggestion.id}-name`}
+              className="block space-y-1 text-xs text-muted-foreground"
+            >
+              Name
+              <Input
+                id={`suggestion-${suggestion.id}-name`}
+                value={draft.name}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, name: event.target.value }))
+                }
+              />
+            </label>
+            <label
+              htmlFor={`suggestion-${suggestion.id}-relation`}
+              className="block space-y-1 text-xs text-muted-foreground"
+            >
+              Relation to you
+              <Input
+                id={`suggestion-${suggestion.id}-relation`}
+                value={draft.relationToOwner}
+                placeholder="Optional"
+                onChange={(event) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    relationToOwner: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label
+              htmlFor={`suggestion-${suggestion.id}-notes`}
+              className="block space-y-1 text-xs text-muted-foreground"
+            >
+              Notes
+              <Textarea
+                id={`suggestion-${suggestion.id}-notes`}
+                value={draft.notes}
+                placeholder="Optional"
+                rows={4}
+                onChange={(event) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    notes: event.target.value,
+                  }))
+                }
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={!complete}
+              onClick={() => {
+                onDecide(suggestion, "accept", { draft });
+                setCreateOpen(false);
+              }}
+            >
+              <UserPlus className="size-4" />
+              Create and attach
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2971,82 +3127,10 @@ function SettingsPanel({
         <div>
           <h3 className="text-sm font-medium">Resource suggestions</h3>
           <p className="text-xs text-muted-foreground">
-            A recurring sweep drafts complete person records from people who
-            keep surfacing in memories (full name, relation to you, notes).
-            Drafts always wait in the Suggestions inbox for manual approval —
-            nothing is created automatically.
+            Every non-owner person in the memory graph without an attached
+            people-directory record appears in Suggestions. Creating a person
+            from there also attaches the new record to the graph entity.
           </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select
-            value={
-              settings.resourceSuggestions.enabled ? "enabled" : "disabled"
-            }
-            onValueChange={(value) =>
-              void onUpdate(
-                {
-                  resourceSuggestions: {
-                    ...settings.resourceSuggestions,
-                    enabled: value === "enabled",
-                  },
-                },
-                `Resource suggestion sweep ${value}`,
-              )
-            }
-          >
-            <SelectTrigger className="h-8 w-32 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="enabled" className="text-xs">
-                Enabled
-              </SelectItem>
-              <SelectItem value="disabled" className="text-xs">
-                Disabled
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={
-              settings.resourceSuggestions.model ?? FORMATION_MODEL_DEFAULT
-            }
-            onValueChange={(value) =>
-              void onUpdate(
-                {
-                  resourceSuggestions: {
-                    ...settings.resourceSuggestions,
-                    model: value === FORMATION_MODEL_DEFAULT ? null : value,
-                  },
-                },
-                `Set resource suggestion model to ${value === FORMATION_MODEL_DEFAULT ? "server default" : value}`,
-              )
-            }
-          >
-            <SelectTrigger className="h-8 w-full max-w-md text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={FORMATION_MODEL_DEFAULT} className="text-xs">
-                Server default (semantic model)
-              </SelectItem>
-              {settings.resourceSuggestions.model &&
-                !models.some(
-                  (model) => model.id === settings.resourceSuggestions.model,
-                ) && (
-                  <SelectItem
-                    value={settings.resourceSuggestions.model}
-                    className="text-xs"
-                  >
-                    {settings.resourceSuggestions.model} (current)
-                  </SelectItem>
-                )}
-              {models.map((model) => (
-                <SelectItem key={model.id} value={model.id} className="text-xs">
-                  {model.name} · {model.id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       </section>
 

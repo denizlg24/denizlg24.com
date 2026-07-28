@@ -43,7 +43,7 @@ import { denizApi } from "@/lib/api-wrapper";
 import { mergeContentSegments } from "@/lib/chat-segments";
 import type {
   AgentMemoryMode,
-  BackgroundAgentRun,
+  BackgroundAgentRunResponse,
   ConversationListResponse,
   IChatAttachment,
   IChatContentSegment,
@@ -264,7 +264,16 @@ function ConversationSidebar({
                     {group.conversations.map((conversation) => (
                       <div
                         key={conversation._id}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => onLoadConversation(conversation)}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) return;
+                          if (event.key !== "Enter" && event.key !== " ")
+                            return;
+                          event.preventDefault();
+                          onLoadConversation(conversation);
+                        }}
                         className="group grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-surface"
                       >
                         <MessageSquare className="size-3.5 text-muted-foreground/40" />
@@ -674,6 +683,13 @@ export function ChatView({
       !adoptedBackgroundRunIds.current.has(observedBackgroundRunId)
     ) {
       adoptedBackgroundRunIds.current.add(observedBackgroundRunId);
+      useBackgroundTasksStore.getState().register({
+        id: `agent:${observedBackgroundRunId}`,
+        label: "Agent",
+        statusText: "Working",
+        color: "bg-violet-500",
+        active: true,
+      });
       setBackgroundRunId(observedBackgroundRunId);
       setActive(true);
     }
@@ -682,40 +698,49 @@ export function ChatView({
   useEffect(() => {
     if (!API || !backgroundRunId) return;
     let cancelled = false;
+    let refreshInFlight = false;
+    let terminalHandled = false;
     const refresh = async () => {
-      const result = await API.GET<{ run: BackgroundAgentRun }>({
-        endpoint: `background-agent/runs/${backgroundRunId}`,
-      });
-      if (cancelled || "code" in result) return;
-      const run = result.run;
-      const backgroundTasks = useBackgroundTasksStore.getState();
-      backgroundTasks.update(`agent:${run.id}`, {
-        statusText:
-          run.status === "queued"
-            ? "Queued"
-            : run.status === "running"
-              ? "Working"
-              : run.status,
-        active: run.status === "queued" || run.status === "running",
-      });
-      if (run.status === "queued" || run.status === "running") return;
+      if (cancelled || refreshInFlight || terminalHandled) return;
+      refreshInFlight = true;
+      try {
+        const result = await API.GET<BackgroundAgentRunResponse>({
+          endpoint: `background-agent/runs/${backgroundRunId}`,
+        });
+        if (cancelled || "code" in result) return;
+        const run = result.run;
+        const backgroundTasks = useBackgroundTasksStore.getState();
+        backgroundTasks.update(`agent:${run.id}`, {
+          statusText:
+            run.status === "queued"
+              ? "Queued"
+              : run.status === "running"
+                ? "Working"
+                : run.status,
+          active: run.status === "queued" || run.status === "running",
+        });
+        if (run.status === "queued" || run.status === "running") return;
 
-      const conversation = await API.GET<{ conversation: IConversation }>({
-        endpoint: `conversations/${run.conversationId}`,
-      });
-      if (!cancelled && !("code" in conversation)) {
-        setConversationId(run.conversationId);
-        setMessages(
-          convertApiMessagesToDisplay(conversation.conversation.messages),
-        );
-        setTitle(conversation.conversation.title);
-      }
-      backgroundTasks.unregister(`agent:${run.id}`);
-      setBackgroundRunId(null);
-      if (run.status === "completed") {
-        toast.success("Agent finished");
-      } else {
-        toast.error(run.error ?? "Background run failed");
+        terminalHandled = true;
+        const conversation = await API.GET<{ conversation: IConversation }>({
+          endpoint: `conversations/${run.conversationId}`,
+        });
+        if (!cancelled && !("code" in conversation)) {
+          setConversationId(run.conversationId);
+          setMessages(
+            convertApiMessagesToDisplay(conversation.conversation.messages),
+          );
+          setTitle(conversation.conversation.title);
+        }
+        backgroundTasks.unregister(`agent:${run.id}`);
+        setBackgroundRunId(null);
+        if (run.status === "completed") {
+          toast.success("Agent finished");
+        } else {
+          toast.error(run.error ?? "Background run failed");
+        }
+      } finally {
+        refreshInFlight = false;
       }
     };
     void refresh();
@@ -954,14 +979,17 @@ export function ChatView({
       setConversationId(currentConversationId);
     }
 
+    const pageContext =
+      memoryMode === "incognito" ? undefined : captureAgentPageContext();
+
     if (backgroundEnabled) {
-      const result = await API.POST<{ run: BackgroundAgentRun }>({
+      const result = await API.POST<BackgroundAgentRunResponse>({
         endpoint: "background-agent/runs",
         body: {
           prompt: messageContent,
           model,
           conversationId: currentConversationId,
-          pageContext: captureAgentPageContext(),
+          pageContext,
           attachments: messageAttachments ?? [],
           maxRounds,
         },
@@ -998,7 +1026,7 @@ export function ChatView({
       webSearchEnabled,
       executionMode: yoloEnabled ? "yolo" : "interactive",
       maxRounds,
-      pageContext: captureAgentPageContext(),
+      pageContext,
     });
 
     if (isStreamError(streamResult)) {
@@ -1053,6 +1081,8 @@ export function ChatView({
       webSearchEnabled,
       executionMode: yoloEnabled ? "yolo" : "interactive",
       maxRounds,
+      pageContext:
+        memoryMode === "incognito" ? undefined : captureAgentPageContext(),
     });
 
     if (isStreamError(streamResult)) {
@@ -1166,6 +1196,8 @@ export function ChatView({
       webSearchEnabled,
       executionMode: yoloEnabled ? "yolo" : "interactive",
       maxRounds,
+      pageContext:
+        memoryMode === "incognito" ? undefined : captureAgentPageContext(),
     });
 
     if (isStreamError(streamResult)) {

@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "agent-memory:migrate": "cd apps/web && bun --env-file=../../.env scripts/migrate-agent-memory.ts",
+    "agent-memory:repair-people": "cd apps/web && bun --env-file=../../.env scripts/migrate-agent-memory-person-identities.ts",
     "papers:migrate": "cd apps/web && bun --env-file=../../.env scripts/migrate-papers-from-notes.ts",
     "build": "bun --env-file=.env turbo run build",
     "build:prod": "bun --env-file=.env.prod turbo run build",

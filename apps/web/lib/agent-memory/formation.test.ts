@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   formationSystemPrompt,
+  normalizeFormationEntityRefs,
   parseFormationResult,
   prepareFormationCandidate,
 } from "./formation";
@@ -33,6 +34,39 @@ describe("formation candidate preparation", () => {
         candidates: [{ statement: "Missing required provenance" }],
       }).success,
     ).toBe(false);
+  });
+
+  test("resolves person evidence UUIDs to the canonical directory person", () => {
+    const eventId = "9b09b474-7524-4850-9ecc-aa4ab4b227f2";
+    expect(
+      normalizeFormationEntityRefs(
+        [{ entityType: "person", entityId: eventId }],
+        [
+          {
+            eventId,
+            sourceType: "person",
+            sourceRef: {
+              entityType: "person",
+              entityId: "69ea9f1392a06bf41c2ea7a1",
+            },
+            trust: "high",
+            sensitivity: "sensitive",
+            actor: "user",
+            snapshot: JSON.stringify({
+              name: "Francisco Maria Barreira Bandeira",
+            }),
+            occurredAt: new Date("2026-07-13T10:00:00.000Z"),
+          },
+        ],
+      ),
+    ).toEqual([
+      {
+        entityType: "person",
+        entityId: "69ea9f1392a06bf41c2ea7a1",
+        label: "Francisco Maria Barreira Bandeira",
+        resourceId: "69ea9f1392a06bf41c2ea7a1",
+      },
+    ]);
   });
 
   test("cannot raise trust above its cited evidence", () => {

@@ -32,11 +32,17 @@ function bookFingerprint(book: FortuneSheetBook) {
         id?: string;
         luckysheet_select_save?: unknown;
         luckysheet_selection_range?: unknown;
+        scrollLeft?: unknown;
+        scrollTop?: unknown;
+        zoomRatio?: unknown;
       };
       const {
         id: _id,
         luckysheet_select_save: _selection,
         luckysheet_selection_range: _selectionRange,
+        scrollLeft: _scrollLeft,
+        scrollTop: _scrollTop,
+        zoomRatio: _zoomRatio,
         ...persisted
       } = sheet;
       return persisted;
@@ -168,9 +174,13 @@ export default function SpreadsheetEditor({ initial, onChange }: Props) {
       if (columnHandle) {
         const header = root.querySelector<HTMLElement>(".fortune-col-header");
         if (!header) return;
+        const denseColumnCount = (sheet.data ?? []).reduce(
+          (maximum, row) => Math.max(maximum, row?.length ?? 0),
+          0,
+        );
         const count =
           sheet.column ??
-          sheet.data?.[0]?.length ??
+          (denseColumnCount > 0 ? denseColumnCount : undefined) ??
           Math.max(1, ...(sheet.celldata ?? []).map((cell) => cell.c + 1));
         const columns = Array.from({ length: count }, (_, index) => index);
         const widths = workbook.getColumnWidth(columns);

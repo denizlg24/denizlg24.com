@@ -22,13 +22,19 @@ const spreadsheetCreateMock = mock(async (data: Record<string, unknown>) => ({
   ...data,
   _id: { toString: () => "spreadsheet-id" },
 }));
+const computeStatsMock = mock(() => ({
+  sheetCount: 1,
+  rowCount: 10,
+  colCount: 4,
+  totalCells: 40,
+}));
 
 mock.module("@/lib/mongodb", () => ({ connectDB: connectDBMock }));
 mock.module("@/lib/sandbox", () => ({
   readSandboxFileBytes: readSandboxFileBytesMock,
 }));
 mock.module("@/lib/spreadsheets", () => ({
-  computeStats: () => ({ sheetCount: 1, rowCount: 10, colCount: 4 }),
+  computeStats: computeStatsMock,
   fetchBookFromStorage: mock(async () => []),
   getAllSpreadsheets: mock(async () => []),
   getSpreadsheetById: mock(async () => null),
@@ -81,5 +87,29 @@ describe("spreadsheet tools", () => {
         }),
       }),
     );
+  });
+
+  test("rejects oversized workbooks before upload or persistence", async () => {
+    computeStatsMock.mockReturnValue({
+      sheetCount: 1,
+      rowCount: 501,
+      colCount: 4,
+      totalCells: 2_004,
+    });
+    uploadBookToStorageMock.mockClear();
+    spreadsheetCreateMock.mockClear();
+    const tool = spreadsheetTools.find(
+      (candidate) => candidate.schema.name === "import_sandbox_spreadsheet",
+    );
+    if (!tool?.execute) throw new Error("Missing import tool");
+
+    await expect(
+      tool.execute(
+        { path: "/vercel/sandbox/oversized.xlsx" },
+        { conversationId: "conversation-id" },
+      ),
+    ).rejects.toThrow("2,000-cell import limit");
+    expect(uploadBookToStorageMock).not.toHaveBeenCalled();
+    expect(spreadsheetCreateMock).not.toHaveBeenCalled();
   });
 });

@@ -49,7 +49,6 @@ type InternalSettings = Pick<
   | "proactivity"
   | "promotion"
   | "consolidation"
-  | "resourceSuggestions"
   | "formationModel"
   | "maximumActionAutonomy"
   | "revision"
@@ -127,10 +126,6 @@ export async function getAgentMemorySettings(): Promise<InternalSettings> {
     proactivity: { ...defaults.proactivity, ...settings.proactivity },
     promotion: { ...defaults.promotion, ...settings.promotion },
     consolidation: { ...defaults.consolidation, ...settings.consolidation },
-    resourceSuggestions: {
-      ...defaults.resourceSuggestions,
-      ...settings.resourceSuggestions,
-    },
     formationModel: settings.formationModel ?? defaults.formationModel,
   };
 }

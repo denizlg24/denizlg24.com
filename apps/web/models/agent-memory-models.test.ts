@@ -4,6 +4,8 @@ import { AgentMemory } from "./AgentMemory";
 import { AgentMemoryCandidate } from "./AgentMemoryCandidate";
 import { AgentMemoryJob } from "./AgentMemoryJob";
 import { AgentMemoryRevision } from "./AgentMemoryRevision";
+import { AgentResourceSuggestion } from "./AgentResourceSuggestion";
+import { BackgroundAgentRun } from "./BackgroundAgentRun";
 import { Conversation } from "./Conversation";
 
 function indexIsUnique(
@@ -88,6 +90,76 @@ describe("agent memory models", () => {
     });
 
     await expect(memory.validate()).rejects.toThrow();
+  });
+
+  test("accepts empty enrichment fields in deterministic person suggestions", async () => {
+    const suggestion = new AgentResourceSuggestion({
+      resourceType: "person",
+      entityKey: "person:sereffatin-gunes",
+      entityLabel: "Sereffatin Gunes",
+      draft: {
+        name: "Sereffatin Gunes",
+        relationToOwner: "",
+        notes: "",
+      },
+      memoryIds: ["507f1f77bcf86cd799439011"],
+      confidence: 1,
+      reason: "Person entity has no attached directory record.",
+      existingResourceMatches: [],
+      status: "pending",
+      model: "deterministic",
+    });
+
+    await expect(suggestion.validate()).resolves.toBeUndefined();
+  });
+
+  test("accepts attachment-only background runs and rejects unknown statuses", async () => {
+    const run = new BackgroundAgentRun({
+      conversationId: "507f1f77bcf86cd799439011",
+      prompt: "",
+      llmModel: "anthropic/claude-sonnet-4.6",
+      attachments: [
+        {
+          type: "image",
+          url: "https://storage.example/photo.jpg",
+          name: "photo.jpg",
+        },
+      ],
+      maxRounds: 10,
+      status: "queued",
+    });
+    await expect(run.validate()).resolves.toBeUndefined();
+
+    run.set("status", "unknown");
+    await expect(run.validate()).rejects.toThrow();
+  });
+
+  test("persists a person resource attachment on entity refs", async () => {
+    const memory = new AgentMemory({
+      currentRevisionId: "507f1f77bcf86cd799439011",
+      revision: 1,
+      statement: "Sereffatin Gunes is the owner's father.",
+      memoryType: "semantic",
+      status: "active",
+      explicitness: "explicit",
+      confidence: 0.95,
+      importance: 0.8,
+      trust: "high",
+      sensitivity: "personal",
+      temporal: { precision: "unknown" },
+      entityRefs: [
+        {
+          entityType: "person",
+          entityId: "sereffatin-gunes",
+          label: "Sereffatin Gunes",
+          resourceId: "507f1f77bcf86cd799439012",
+        },
+      ],
+      evidenceIds: ["9fa3e791-b155-4719-bda8-f6542ea421f3"],
+    });
+
+    await memory.validate();
+    expect(memory.entityRefs[0]?.resourceId).toBe("507f1f77bcf86cd799439012");
   });
 
   test("rejects inverted temporal ranges", async () => {

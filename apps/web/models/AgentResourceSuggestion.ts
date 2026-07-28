@@ -31,8 +31,8 @@ const AgentResourceSuggestionSchema = new Schema<IAgentResourceSuggestion>(
       type: new Schema(
         {
           name: { type: String, required: true, maxlength: 256 },
-          relationToOwner: { type: String, required: true, maxlength: 1_000 },
-          notes: { type: String, required: true, maxlength: 8_192 },
+          relationToOwner: { type: String, default: "", maxlength: 1_000 },
+          notes: { type: String, default: "", maxlength: 8_192 },
           placeMet: { type: String, maxlength: 512 },
           email: { type: String, maxlength: 320 },
           phone: { type: String, maxlength: 64 },

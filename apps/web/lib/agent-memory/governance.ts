@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type {
+  AgentEntityRef,
   AgentExplicitness,
   AgentFormationCandidate,
   AgentMemoryStatus,
@@ -694,6 +695,78 @@ export async function editMemory(options: {
       statement: options.statement,
     }),
   });
+}
+
+export async function replaceMemoryEntityRefs(options: {
+  memoryId: string;
+  entityRefs: AgentEntityRef[];
+  reason: string;
+}): Promise<IAgentMemory> {
+  return reviseExistingMemory({
+    memoryId: options.memoryId,
+    action: "edit",
+    reason: options.reason,
+    actor: "policy",
+    buildState: (memory) => ({
+      ...memoryToRevisionState(memory),
+      entityRefs: options.entityRefs,
+    }),
+  });
+}
+
+/**
+ * Attach a graph person entity to its directory record without changing the
+ * entity's stable graph identity. Each affected memory gets a normal governed
+ * revision so the attachment remains auditable and rollback-safe.
+ */
+export async function attachPersonResourceToEntity(options: {
+  entityId: string;
+  resourceId: string;
+  reason: string;
+}): Promise<number> {
+  await connectDB();
+  const memories = await AgentMemory.find({
+    status: "active",
+    entityRefs: {
+      $elemMatch: {
+        entityType: "person",
+        entityId: options.entityId,
+        resourceId: { $ne: options.resourceId },
+      },
+    },
+  })
+    .select("_id")
+    .lean<{ _id: mongoose.Types.ObjectId }[]>();
+
+  let attached = 0;
+  for (const memory of memories) {
+    await reviseExistingMemory({
+      memoryId: memory._id.toString(),
+      action: "edit",
+      reason: options.reason,
+      actor: "policy",
+      buildState: (current) => ({
+        ...memoryToRevisionState(current),
+        entityRefs: current.entityRefs.map((ref) =>
+          ref.entityType === "person" && ref.entityId === options.entityId
+            ? {
+                entityType: ref.entityType,
+                entityId: ref.entityId,
+                label: ref.label,
+                resourceId: options.resourceId,
+              }
+            : {
+                entityType: ref.entityType,
+                entityId: ref.entityId,
+                label: ref.label,
+                resourceId: ref.resourceId,
+              },
+        ),
+      }),
+    });
+    attached += 1;
+  }
+  return attached;
 }
 
 export async function archiveMemory(options: {

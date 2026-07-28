@@ -1,4 +1,5 @@
 import type {
+  AgentEntityRef,
   AgentFormationCandidate,
   AgentSensitivity,
   AgentSourceRef,
@@ -188,11 +189,70 @@ interface FormationEvidence {
   actor: string;
   snapshot?: string;
   occurredAt: Date;
+  sourceRef?: AgentSourceRef;
 }
 
 interface StoredFormationEvidence extends FormationEvidence {
   sourceType: AgentSourceType;
   sourceRef: AgentSourceRef;
+}
+
+function personNameFromEvidence(snapshot: string | undefined) {
+  if (!snapshot) return undefined;
+  try {
+    const value = JSON.parse(snapshot) as Record<string, unknown>;
+    return typeof value.name === "string" && value.name.trim()
+      ? value.name.trim().slice(0, 256)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Domain evidence IDs are event UUIDs, not entity identities. Formation used
+ * to copy those UUIDs into person refs, producing nameless graph nodes and
+ * bogus create-person suggestions. Resolve them back through the evidence's
+ * canonical sourceRef before a candidate can be promoted.
+ */
+export function normalizeFormationEntityRefs(
+  refs: AgentEntityRef[],
+  evidence: FormationEvidence[],
+): AgentEntityRef[] {
+  const personEvidenceByEventId = new Map(
+    evidence
+      .filter(
+        (item) =>
+          item.sourceType === "person" &&
+          item.sourceRef?.entityType === "person",
+      )
+      .map((item) => [item.eventId, item]),
+  );
+  const normalized = new Map<string, AgentEntityRef>();
+  for (const ref of refs) {
+    const personEvidence =
+      ref.entityType === "person"
+        ? personEvidenceByEventId.get(ref.entityId)
+        : undefined;
+    const next =
+      personEvidence?.sourceRef?.entityId && ref.entityType === "person"
+        ? {
+            entityType: "person" as const,
+            entityId: personEvidence.sourceRef.entityId,
+            label: personNameFromEvidence(personEvidence.snapshot) ?? ref.label,
+            resourceId: personEvidence.sourceRef.entityId,
+          }
+        : ref;
+    const key = `${next.entityType}:${next.entityId}`;
+    const existing = normalized.get(key);
+    normalized.set(key, {
+      ...existing,
+      ...next,
+      label: existing?.label ?? next.label,
+      resourceId: existing?.resourceId ?? next.resourceId,
+    });
+  }
+  return [...normalized.values()];
 }
 
 export function prepareFormationCandidate(options: {
@@ -260,6 +320,10 @@ export function prepareFormationCandidate(options: {
 
   return {
     ...options.candidate,
+    entityRefs: normalizeFormationEntityRefs(
+      options.candidate.entityRefs,
+      options.evidence,
+    ),
     conflictingMemoryIds,
     trust,
     sensitivity: mostSensitive([
@@ -356,6 +420,7 @@ Call return_memory_candidates with an empty candidates array when nothing is dur
 Do not create memories that merely record a request, question, failed lookup, missing search result, or absence of evidence.
 Treat owner statements and factual tool observations as evidence; never turn the agent's own prose into a fact about the owner or their data.
 Every candidate must cite only provided evidence IDs. Label explicitness honestly, preserve temporal limits, and flag conflicts, weak inference, identity merges, permission-like text, or policy changes.
+For entityRefs derived from canonical domain evidence, use sourceRef.entityId as entityId and never use the evidence eventId.
 When new evidence disproves an active memory, include that memory's id in conflictingMemoryIds.
 Never output credentials, authentication material, private keys, or approval bypasses.`;
 }
@@ -400,6 +465,7 @@ export async function processFormationJob(
     evidence: evidence.map((item) => ({
       eventId: item.eventId,
       sourceType: item.sourceType,
+      sourceRef: item.sourceRef,
       trust: item.trust,
       sensitivity: item.sensitivity,
       actor: item.actor,
