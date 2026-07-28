@@ -10,6 +10,7 @@ import {
   AttachmentMedia,
   AttachmentTitle,
 } from "@repo/ui/attachment";
+import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import {
@@ -47,6 +48,8 @@ import type { AgentMemoryMode, IChatAttachment } from "@/lib/data-types";
 const ACCEPTED_TYPES =
   "image/jpeg,image/png,image/gif,image/webp,application/pdf";
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
+
+export const DEFAULT_MAX_ROUNDS = 15;
 
 function fileToAttachment(file: File): IChatAttachment | null {
   const isImage = file.type.startsWith("image/");
@@ -129,6 +132,10 @@ export function ChatInput({
   onToolsEnabledChange,
   webSearchEnabled,
   onWebSearchEnabledChange,
+  yoloEnabled,
+  onYoloEnabledChange,
+  maxRounds,
+  onMaxRoundsChange,
   memoryMode,
   onMemoryModeChange,
   incognitoLocked,
@@ -152,6 +159,10 @@ export function ChatInput({
   onToolsEnabledChange?: (enabled: boolean) => void;
   webSearchEnabled?: boolean;
   onWebSearchEnabledChange?: (enabled: boolean) => void;
+  yoloEnabled?: boolean;
+  onYoloEnabledChange?: (enabled: boolean) => void;
+  maxRounds?: number;
+  onMaxRoundsChange?: (rounds: number) => void;
   memoryMode: AgentMemoryMode;
   onMemoryModeChange: (mode: AgentMemoryMode) => void;
   incognitoLocked?: boolean;
@@ -412,6 +423,44 @@ export function ChatInput({
                       id="web-search-toggle"
                       checked={webSearchEnabled ?? false}
                       onCheckedChange={onWebSearchEnabledChange}
+                    />
+                  </div>
+                )}
+                {onYoloEnabledChange && (
+                  <div className="flex items-center justify-between">
+                    <Label
+                      htmlFor="yolo-toggle"
+                      className="text-sm text-muted-foreground"
+                    >
+                      YOLO
+                    </Label>
+                    <Switch
+                      id="yolo-toggle"
+                      checked={yoloEnabled ?? false}
+                      onCheckedChange={onYoloEnabledChange}
+                    />
+                  </div>
+                )}
+                {onMaxRoundsChange && (
+                  <div className="flex items-center justify-between gap-3">
+                    <Label
+                      htmlFor="max-rounds"
+                      className="text-sm text-muted-foreground"
+                    >
+                      Max rounds
+                    </Label>
+                    <Input
+                      id="max-rounds"
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={maxRounds ?? DEFAULT_MAX_ROUNDS}
+                      onChange={(event) => {
+                        const next = Number.parseInt(event.target.value, 10);
+                        if (Number.isNaN(next)) return;
+                        onMaxRoundsChange(Math.min(Math.max(next, 1), 100));
+                      }}
+                      className="h-7 w-16 text-right text-sm tabular-nums"
                     />
                   </div>
                 )}

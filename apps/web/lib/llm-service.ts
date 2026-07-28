@@ -16,6 +16,7 @@ import {
 } from "@/lib/llm-transports/cohere-embeddings";
 import { requestEmbedding } from "@/lib/llm-transports/embeddings";
 import { connectDB } from "@/lib/mongodb";
+import type { ToolExecutionContext } from "@/lib/tools/types";
 import type { TokenUsage } from "@/models/Conversation";
 import { LlmUsage } from "@/models/LlmUsage";
 
@@ -1101,8 +1102,15 @@ export interface AgentStreamRequest extends LlmRequestContext {
   tools?: Anthropic.ToolUnion[];
   toolApprovals?: Record<string, boolean>;
   clientToolResults?: ClientToolResultInput[];
-  /** YOLO is reserved for explicitly pre-authorized unattended training runs. */
+  /**
+   * YOLO executes every registered write without an approval round-trip. It is
+   * used by unattended training runs and by the owner's explicit chat toggle.
+   */
   executionMode?: "interactive" | "yolo";
+  /** Model turns allowed before the loop stops. Clamped to [1, 100]. */
+  maxIterations?: number;
+  /** Per-turn state handed to every server tool execution. */
+  toolContext?: ToolExecutionContext;
   onPersist?: (
     messages: Anthropic.MessageParam[],
     tokenUsage?: TokenUsage,
@@ -1128,6 +1136,8 @@ export async function streamAgent({
   toolApprovals,
   clientToolResults,
   executionMode = "interactive",
+  maxIterations,
+  toolContext,
   onPersist,
   requireTools = false,
   requireWebSearch = false,
@@ -1155,6 +1165,8 @@ export async function streamAgent({
     toolApprovals,
     clientToolResults,
     executionMode,
+    maxIterations,
+    toolContext,
     onPersist,
     transport: {
       streamMessages: (params) => client.messages.stream(params),

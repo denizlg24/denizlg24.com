@@ -51,7 +51,7 @@ import type {
   IConversation,
   IConversationMeta,
 } from "@/lib/data-types";
-import { ChatInput } from "./chat-input";
+import { ChatInput, DEFAULT_MAX_ROUNDS } from "./chat-input";
 import { ChatMessage } from "./chat-message";
 import { DashboardSummary } from "./dashboard-summary";
 
@@ -375,6 +375,10 @@ export function ChatView() {
   const [model, setModel] = useState<string | null>(null);
   const [toolsEnabled, setToolsEnabled] = useState(true);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  // YOLO runs every write without the approval round-trip; max rounds caps the
+  // agent loop. Both are session-scoped like the model selection above.
+  const [yoloEnabled, setYoloEnabled] = useState(false);
+  const [maxRounds, setMaxRounds] = useState(DEFAULT_MAX_ROUNDS);
   const [memoryMode, setMemoryMode] = useState<AgentMemoryMode>("enabled");
   const modelCatalog = useModelCatalog(API);
   const requiredCapabilities = useMemo(
@@ -721,6 +725,8 @@ export function ChatView() {
       model,
       toolsEnabled,
       webSearchEnabled,
+      executionMode: yoloEnabled ? "yolo" : "interactive",
+      maxRounds,
     });
 
     if (isStreamError(streamResult)) {
@@ -773,6 +779,8 @@ export function ChatView() {
       model,
       toolsEnabled,
       webSearchEnabled,
+      executionMode: yoloEnabled ? "yolo" : "interactive",
+      maxRounds,
     });
 
     if (isStreamError(streamResult)) {
@@ -884,6 +892,8 @@ export function ChatView() {
       model,
       toolsEnabled,
       webSearchEnabled,
+      executionMode: yoloEnabled ? "yolo" : "interactive",
+      maxRounds,
     });
 
     if (isStreamError(streamResult)) {
@@ -1180,6 +1190,10 @@ export function ChatView() {
               onToolsEnabledChange={setToolsEnabled}
               webSearchEnabled={webSearchEnabled}
               onWebSearchEnabledChange={setWebSearchEnabled}
+              yoloEnabled={yoloEnabled}
+              onYoloEnabledChange={setYoloEnabled}
+              maxRounds={maxRounds}
+              onMaxRoundsChange={setMaxRounds}
               memoryMode={memoryMode}
               onMemoryModeChange={handleMemoryModeChange}
               incognitoLocked={messages.length > 0 || isStreaming}
@@ -1410,7 +1424,8 @@ export function ChatView() {
         {maxIterations.active && (
           <div className="mx-4 mb-2 flex items-center justify-between gap-2 rounded-md border border-orange-500/20 bg-orange-500/5 px-3 py-2 text-xs text-orange-700">
             <span>
-              Reached max tool iterations ({maxIterations.iterations}).
+              Reached max tool iterations ({maxIterations.iterations}/
+              {maxIterations.maxIterations}).
               {maxIterations.hasUnansweredTools
                 ? " Some tool calls were not completed."
                 : ""}
@@ -1420,6 +1435,7 @@ export function ChatView() {
                 setMaxIterations({
                   active: false,
                   iterations: 0,
+                  maxIterations: 0,
                   hasUnansweredTools: false,
                 })
               }
@@ -1450,6 +1466,10 @@ export function ChatView() {
           onToolsEnabledChange={setToolsEnabled}
           webSearchEnabled={webSearchEnabled}
           onWebSearchEnabledChange={setWebSearchEnabled}
+          yoloEnabled={yoloEnabled}
+          onYoloEnabledChange={setYoloEnabled}
+          maxRounds={maxRounds}
+          onMaxRoundsChange={setMaxRounds}
           memoryMode={memoryMode}
           onMemoryModeChange={handleMemoryModeChange}
           incognitoLocked={messages.length > 0 || isStreaming}
