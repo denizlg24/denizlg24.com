@@ -1,7 +1,10 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { APIError } from "@anthropic-ai/sdk";
 import { getToolByName, isClientTool, isWriteTool } from "@/lib/tools/registry";
-import { isToolImageResult } from "@/lib/tools/types";
+import {
+  isToolImageResult,
+  type ToolExecutionContext,
+} from "@/lib/tools/types";
 import type { TokenUsage } from "@/models/Conversation";
 
 // Internal agent-loop module. The LLM service owns transports, model limits,
@@ -13,9 +16,17 @@ interface AgentCacheUsage {
   cacheReadInputTokens: number;
 }
 
-const MAX_ITERATIONS = 15;
+export const DEFAULT_MAX_ITERATIONS = 15;
+export const MAX_ITERATIONS_CEILING = 100;
 const MAX_RATE_LIMIT_RETRIES = 3;
 const BASE_BACKOFF_MS = 15_000;
+
+export function clampMaxIterations(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_MAX_ITERATIONS;
+  }
+  return Math.min(Math.max(Math.floor(value), 1), MAX_ITERATIONS_CEILING);
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,6 +62,7 @@ export interface ClientToolResultInput {
 
 async function runTool(
   toolUse: Anthropic.ToolUseBlock,
+  context: ToolExecutionContext,
 ): Promise<ToolRunResult> {
   const tool = getToolByName(toolUse.name);
   if (!tool) {
@@ -82,7 +94,10 @@ async function runTool(
       };
     }
 
-    const result = await tool.execute(toolUse.input as Record<string, unknown>);
+    const result = await tool.execute(
+      toolUse.input as Record<string, unknown>,
+      context,
+    );
     if (isToolImageResult(result)) {
       const summary = JSON.stringify(result.summary);
       return {
@@ -287,6 +302,10 @@ interface AgenticStreamParams {
   toolApprovals?: Record<string, boolean>;
   clientToolResults?: ClientToolResultInput[];
   executionMode?: "interactive" | "yolo";
+  /** Model turns allowed before the loop stops. Clamped to [1, 100]. */
+  maxIterations?: number;
+  /** Per-turn state handed to every server tool execution. */
+  toolContext?: ToolExecutionContext;
   onPersist?: (
     messages: Anthropic.MessageParam[],
     tokenUsage?: TokenUsage,
@@ -322,6 +341,8 @@ export function createAgenticSSEStream({
   toolApprovals,
   clientToolResults,
   executionMode = "interactive",
+  maxIterations: maxIterationsOverride,
+  toolContext = {},
   onPersist,
   transport,
   maxTokens: maxTokensOverride,
@@ -330,6 +351,7 @@ export function createAgenticSSEStream({
   logUsage,
 }: AgenticStreamParams): ReadableStream {
   const encoder = new TextEncoder();
+  const maxIterations = clampMaxIterations(maxIterationsOverride);
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalCacheCreationInputTokens = 0;
@@ -554,7 +576,10 @@ export function createAgenticSSEStream({
                   toolId: tu.id,
                   input: tu.input as Record<string, unknown>,
                 });
-                const { content, isError, toolResult } = await runTool(tu);
+                const { content, isError, toolResult } = await runTool(
+                  tu,
+                  toolContext,
+                );
                 send({
                   type: "tool_result",
                   toolId: tu.id,
@@ -571,7 +596,10 @@ export function createAgenticSSEStream({
                 toolId: tu.id,
                 input: tu.input as Record<string, unknown>,
               });
-              const { content, isError, toolResult } = await runTool(tu);
+              const { content, isError, toolResult } = await runTool(
+                tu,
+                toolContext,
+              );
               send({
                 type: "tool_result",
                 toolId: tu.id,
@@ -610,7 +638,7 @@ export function createAgenticSSEStream({
           },
         ];
 
-        while (iterations < MAX_ITERATIONS) {
+        while (iterations < maxIterations) {
           if (aborted) return;
           iterations++;
 
@@ -813,7 +841,7 @@ export function createAgenticSSEStream({
             const { content, isError, toolResult } =
               executionMode === "yolo" && isClientTool(toolUse.name)
                 ? unsupportedClientToolResult(toolUse)
-                : await runTool(toolUse);
+                : await runTool(toolUse, toolContext);
             send({
               type: "tool_result",
               toolId: toolUse.id,
@@ -830,7 +858,7 @@ export function createAgenticSSEStream({
         }
 
         // ===== Loop exited =====
-        const hitMaxIterations = iterations >= MAX_ITERATIONS;
+        const hitMaxIterations = iterations >= maxIterations;
         if (hitMaxIterations) {
           // Check if last assistant message still has unanswered tool_use
           const last = workingMessages[workingMessages.length - 1];
@@ -843,6 +871,7 @@ export function createAgenticSSEStream({
           send({
             type: "max_iterations_reached",
             iterations,
+            maxIterations,
             hasUnansweredTools,
           });
         }

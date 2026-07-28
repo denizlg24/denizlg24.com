@@ -237,7 +237,7 @@ describe("createAgenticSSEStream", () => {
       "delta",
       "done",
     ]);
-    expect(readExecuteMock).toHaveBeenCalledWith({ q: "x" });
+    expect(readExecuteMock).toHaveBeenCalledWith({ q: "x" }, {});
 
     // Second model call got the tool_result turn as the last user message.
     const secondCall = transport.calls[1];

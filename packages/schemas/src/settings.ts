@@ -11,7 +11,7 @@ export const appSettingsResponseSchema = z.object({
 });
 export type AppSettingsResponse = z.infer<typeof appSettingsResponseSchema>;
 
-const latexProjectPathSchema = z
+export const latexProjectPathSchema = z
   .string()
   .min(1)
   .max(240)

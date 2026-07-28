@@ -15,12 +15,20 @@ export interface ToolSchema {
   };
 }
 
+/** Per-turn state a tool may need that is not part of the model's input. */
+export interface ToolExecutionContext {
+  conversationId?: string;
+}
+
 export interface ToolDefinition {
   schema: ToolSchema;
   isWrite: boolean;
   category: string;
   runtime?: "server" | "client";
-  execute?: (input: Record<string, unknown>) => Promise<unknown>;
+  execute?: (
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext,
+  ) => Promise<unknown>;
 }
 
 /** Returned from execute() to attach an image block to the tool result.

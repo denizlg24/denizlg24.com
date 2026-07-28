@@ -25,6 +25,8 @@ interface ChatStreamBody {
   webSearchEnabled?: boolean;
   toolApprovals?: Record<string, boolean>;
   clientToolResults?: ClientToolResult[];
+  executionMode?: "interactive" | "yolo";
+  maxRounds?: number;
 }
 
 export interface StreamResult {
@@ -57,6 +59,7 @@ export interface BackoffState {
 export interface MaxIterationsState {
   active: boolean;
   iterations: number;
+  maxIterations: number;
   hasUnansweredTools: boolean;
 }
 
@@ -84,6 +87,7 @@ export function useChatStream(API: denizApi | null) {
   const [maxIterations, setMaxIterations] = useState<MaxIterationsState>({
     active: false,
     iterations: 0,
+    maxIterations: 0,
     hasUnansweredTools: false,
   });
   const abortRef = useRef<(() => void) | null>(null);
@@ -106,6 +110,7 @@ export function useChatStream(API: denizApi | null) {
       setMaxIterations({
         active: false,
         iterations: 0,
+        maxIterations: 0,
         hasUnansweredTools: false,
       });
 
@@ -363,6 +368,10 @@ export function useChatStream(API: denizApi | null) {
                 setMaxIterations({
                   active: true,
                   iterations: event.iterations as number,
+                  maxIterations:
+                    typeof event.maxIterations === "number"
+                      ? event.maxIterations
+                      : (event.iterations as number),
                   hasUnansweredTools: Boolean(event.hasUnansweredTools),
                 });
               } else if (event.type === "persist_warning") {
@@ -405,6 +414,8 @@ export function useChatStream(API: denizApi | null) {
                     model: body.model,
                     toolsEnabled: body.toolsEnabled,
                     webSearchEnabled: body.webSearchEnabled,
+                    executionMode: body.executionMode,
+                    maxRounds: body.maxRounds,
                     clientToolResults: [...accumulatedClientToolResults],
                     ...(requestBody.toolApprovals
                       ? { toolApprovals: requestBody.toolApprovals }

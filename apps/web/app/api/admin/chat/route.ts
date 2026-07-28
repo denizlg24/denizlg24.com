@@ -15,7 +15,7 @@ import {
   getConversation,
   updateConversationMessages,
 } from "@/lib/conversations";
-import { hasPendingToolContinuation } from "@/lib/llm-chat";
+import { clampMaxIterations, hasPendingToolContinuation } from "@/lib/llm-chat";
 import {
   CatalogUnavailableError,
   LlmConfigurationError,
@@ -82,7 +82,15 @@ export const POST = async (req: NextRequest) => {
       webSearchEnabled = false,
       toolApprovals,
       clientToolResults,
+      executionMode: requestedExecutionMode,
+      maxRounds,
     } = await req.json();
+
+    const executionMode =
+      requestedExecutionMode === "yolo" ? "yolo" : "interactive";
+    const maxIterations = clampMaxIterations(
+      typeof maxRounds === "number" ? maxRounds : undefined,
+    );
 
     const hasMessage = !!message;
     const hasContinuation = !!toolApprovals || !!clientToolResults;
@@ -225,8 +233,12 @@ export const POST = async (req: NextRequest) => {
       ? (memoryRetrieval?.injected ?? false)
       : inheritedMemoryInjected && personalMemoryContext !== null;
     const timeZone = await getAppTimeZone();
-    const logSystemPrompt = buildSystemPrompt(timeZone);
-    const system = buildSystemPrompt(timeZone, personalMemoryContext);
+    const logSystemPrompt = buildSystemPrompt(timeZone, null, {
+      executionMode,
+    });
+    const system = buildSystemPrompt(timeZone, personalMemoryContext, {
+      executionMode,
+    });
 
     let summaryRefreshed = false;
     const onPersist = async (
@@ -299,6 +311,9 @@ export const POST = async (req: NextRequest) => {
       tools: tools.length > 0 ? tools : undefined,
       toolApprovals,
       clientToolResults,
+      executionMode,
+      maxIterations,
+      toolContext: { conversationId },
       onPersist,
       requireTools: toolsEnabled,
       requireWebSearch: webSearchEnabled,

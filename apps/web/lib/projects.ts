@@ -222,6 +222,92 @@ export async function toggleProjectActive(id: string) {
   return serializeProject(project.toObject());
 }
 
+export interface ProjectWriteInput {
+  title?: string;
+  subtitle?: string;
+  markdown?: string;
+  tags?: string[];
+  topicGroups?: unknown;
+  images?: string[];
+  links?: SerializableLink[];
+  isActive?: boolean;
+  isFeatured?: boolean;
+}
+
+function projectUpdatePayload(input: ProjectWriteInput) {
+  const payload: Record<string, unknown> = {};
+  if (input.title !== undefined) payload.title = input.title;
+  if (input.subtitle !== undefined) payload.subtitle = input.subtitle;
+  if (input.markdown !== undefined) payload.markdown = input.markdown;
+  if (input.tags !== undefined) payload.tags = sanitizeTags(input.tags);
+  if (input.topicGroups !== undefined) {
+    payload.topicGroups = sanitizeProjectTopicGroups(input.topicGroups);
+  }
+  if (input.images !== undefined) payload.images = input.images;
+  if (input.links !== undefined) payload.links = input.links;
+  if (input.isActive !== undefined) payload.isActive = input.isActive;
+  if (input.isFeatured !== undefined) payload.isFeatured = input.isFeatured;
+  return payload;
+}
+
+export async function createProject(input: ProjectWriteInput) {
+  await connectDB();
+  const project = await Project.create({
+    title: input.title ?? "",
+    subtitle: input.subtitle ?? "",
+    images: input.images ?? [],
+    media: [],
+    links: input.links ?? [],
+    markdown: input.markdown ?? "",
+    tags: sanitizeTags(input.tags ?? []),
+    topicGroups: sanitizeProjectTopicGroups(input.topicGroups),
+    isActive: input.isActive ?? false,
+    isFeatured: input.isFeatured ?? false,
+    order: await getNextProjectOrder(),
+  });
+  return serializeProject(project.toObject());
+}
+
+export async function updateProject(id: string, input: ProjectWriteInput) {
+  await connectDB();
+  const project = await Project.findByIdAndUpdate(
+    id,
+    projectUpdatePayload(input),
+    { returnDocument: "after", runValidators: true },
+  )
+    .lean()
+    .exec();
+  return project ? serializeProject(project) : null;
+}
+
+export async function deleteProject(id: string): Promise<boolean> {
+  await connectDB();
+  const result = await Project.deleteOne({ _id: id }).exec();
+  return result.deletedCount > 0;
+}
+
+export async function toggleProjectFeatured(id: string) {
+  await connectDB();
+  const project = await Project.findById(id);
+  if (!project) return null;
+
+  project.isFeatured = !project.isFeatured;
+  await project.save();
+
+  return serializeProject(project.toObject());
+}
+
+/** Rewrites `order` to match the given id sequence; ids not listed keep theirs. */
+export async function reorderProjects(orderedIds: string[]) {
+  await connectDB();
+  await Promise.all(
+    orderedIds.map((id, index) =>
+      Project.findByIdAndUpdate(id, { order: index + 1 }).exec(),
+    ),
+  );
+  return getAllProjects();
+}
+
 export async function saveGitHubProjectDraft(
   input: SaveGitHubProjectDraftInput,
 ): Promise<SaveGitHubProjectDraftResult> {

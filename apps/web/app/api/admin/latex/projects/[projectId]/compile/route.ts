@@ -1,26 +1,13 @@
-import {
-  compileLatexProjectRequestSchema,
-  type ILatexProjectRecord,
-} from "@repo/schemas";
+import { compileLatexProjectRequestSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import {
-  compileLatexProject,
-  LatexCompilationError,
-  tryAcquireLatexCompileLock,
-} from "@/lib/latex-compiler";
-import {
-  latexProjectErrorResponse,
-  safeDownloadName,
-} from "@/lib/latex-project-route";
-import {
-  beginLatexProjectCompilation,
-  failLatexProjectCompilation,
-  finishLatexProjectCompilation,
-  getLatexProject,
-} from "@/lib/latex-projects";
+  LatexCompileBusyError,
+  LatexCompileFailedError,
+  runLatexProjectCompilation,
+} from "@/lib/latex-compile-run";
+import { latexProjectErrorResponse } from "@/lib/latex-project-route";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
-import { deleteFileFromStorage, uploadFileToStorage } from "@/lib/storage-api";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -54,85 +41,29 @@ export async function POST(
   }
 
   const { projectId } = await context.params;
-  const release = tryAcquireLatexCompileLock(`project:${projectId}`);
-  if (!release) {
-    return NextResponse.json(
-      { error: "This project is already compiling" },
-      { status: 409 },
-    );
-  }
-
-  let revision: number | null = null;
   try {
-    const lease = await beginLatexProjectCompilation(
+    const { project, log } = await runLatexProjectCompilation({
       projectId,
-      parsed.data.baseRevision,
-      parsed.data.project,
-    );
-    revision = lease.project.revision;
-    let compilation: Awaited<ReturnType<typeof compileLatexProject>>;
-    try {
-      compilation = await compileLatexProject(lease.project.project);
-    } catch (error) {
-      const message =
-        error instanceof LatexCompilationError
-          ? `${error.message}\n${error.log}`.trim()
-          : error instanceof Error
-            ? error.message
-            : "Compilation failed";
-      await failLatexProjectCompilation(projectId, revision, message);
-      if (error instanceof LatexCompilationError) {
-        const failedProject = await getLatexProject(projectId);
-        return NextResponse.json(
-          { error: error.message, log: error.log, project: failedProject },
-          { status: 422 },
-        );
-      }
-      throw error;
-    }
-
-    const base = safeDownloadName(lease.project.name, "latex-project");
-    const filename = `${base}.pdf`;
-    const file = new File([new Uint8Array(compilation.pdf)], filename, {
-      type: "application/pdf",
+      baseRevision: parsed.data.baseRevision,
+      project: parsed.data.project,
     });
-    const uploaded = await uploadFileToStorage(file, "file");
-    let project: ILatexProjectRecord;
-    try {
-      project = await finishLatexProjectCompilation(projectId, revision, {
-        storageKey: uploaded.id,
-        filename,
-        size: uploaded.sizeBytes,
-        revision,
-        updatedAt: new Date(),
-      });
-    } catch (error) {
-      await deleteFileFromStorage(uploaded.id).catch(() => undefined);
-      throw error;
+    return NextResponse.json({ project, log });
+  } catch (error) {
+    if (error instanceof LatexCompileBusyError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
     }
-    const staleKey = lease.previousPdf?.storageKey;
-    if (staleKey && staleKey !== uploaded.id) {
-      await deleteFileFromStorage(staleKey).catch((error) =>
-        console.error("Failed to remove stale LaTeX PDF", error),
+    if (error instanceof LatexCompileFailedError) {
+      return NextResponse.json(
+        { error: error.message, log: error.log, project: error.project },
+        { status: 422 },
       );
     }
-    return NextResponse.json({ project, log: compilation.log });
-  } catch (error) {
     const handled = latexProjectErrorResponse(error);
     if (handled) return handled;
-    if (revision !== null) {
-      await failLatexProjectCompilation(
-        projectId,
-        revision,
-        error instanceof Error ? error.message : "Compilation failed",
-      ).catch(() => undefined);
-    }
     console.error("LaTeX project compilation failed", error);
     return NextResponse.json(
       { error: "Failed to compile LaTeX project" },
       { status: 500 },
     );
-  } finally {
-    release();
   }
 }
