@@ -440,6 +440,50 @@ export async function updateProcedure(
   return completed;
 }
 
+/**
+ * Hard delete, not retirement: a retired procedure stays in the reflection
+ * overview as history, and this exists for the owner to drop a procedure that
+ * should never have been learned. The audit row is the only record kept.
+ */
+export async function deleteProcedure(
+  procedureId: string,
+  reason?: string,
+): Promise<void> {
+  if (!mongoose.isValidObjectId(procedureId)) {
+    throw new AgentMemoryPolicyError("Procedure not found", "not-found");
+  }
+  await connectDB();
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const procedure =
+        await AgentProcedure.findById(procedureId).session(session);
+      if (!procedure) {
+        throw new AgentMemoryPolicyError("Procedure not found", "not-found");
+      }
+      await procedure.deleteOne({ session });
+      await audit(
+        {
+          action: "procedure.delete",
+          targetType: "procedure",
+          targetId: procedureId,
+          targetRevision: procedure.revision,
+          reason: reason ?? "Owner deleted procedure",
+          metadata: {
+            lifecycle: procedure.lifecycle,
+            scope: procedure.scope,
+            trigger: procedure.trigger,
+            behavior: procedure.behavior,
+          },
+        },
+        session,
+      );
+    });
+  } finally {
+    await session.endSession();
+  }
+}
+
 export const AGENT_PROCEDURE_PROMOTION_POLICY = {
   minimumSignals: MIN_PROCEDURE_SIGNALS,
   minimumSessions: MIN_PROCEDURE_SESSIONS,

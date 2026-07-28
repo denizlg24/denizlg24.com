@@ -5,14 +5,15 @@ import {
 } from "./retrieval-eval";
 
 describe("agent memory retrieval evaluation", () => {
-  test("passes every initial synthetic Gate C threshold", () => {
+  test("passes every synthetic ranker threshold", () => {
     const metrics = runRetrievalEvaluation();
     expect(metrics).toEqual({
-      evaluatedQueries: 7,
+      evaluatedQueries: 8,
       provenanceCoverage: 1,
       exclusionCoverage: 1,
       maliciousPromotions: 0,
       recallAt10: 1,
+      precisionAt10: 1,
       temporalAccuracy: 1,
       abstentionAccuracy: 1,
       budgetViolations: 0,

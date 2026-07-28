@@ -13,8 +13,15 @@
  *   bun scripts/reembed-agent-memory.ts --execute --prune-stale
  */
 import { loadAttachmentParts } from "@/lib/agent-memory/attachments";
+import { cleanupAgentMemoryEmbeddings } from "@/lib/agent-memory/embedding";
 import { stableContentHash } from "@/lib/agent-memory/evidence";
 import { findDeniedContent } from "@/lib/agent-memory/security";
+import {
+  findSimilarMemories,
+  pruneSimilarityLinksOutside,
+  SIMILARITY_TOP_K,
+  upsertSimilarityLinks,
+} from "@/lib/agent-memory/similarity";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "@/lib/agent-memory/vector-config";
 import { embedMultimodal } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
@@ -22,6 +29,7 @@ import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
 import { AgentMemorySettings } from "@/models/AgentMemorySettings";
+import { AgentMemorySimilarity } from "@/models/AgentMemorySimilarity";
 
 const BATCH_SIZE = 50;
 
@@ -35,6 +43,9 @@ interface Summary {
   skipped: number;
   failed: number;
   prunedStale: number;
+  removedStaleRevisions: number;
+  rebuiltSimilarityLinks: number;
+  removedSimilarityLinks: number;
   settingsUpdated: boolean;
   estimatedCostUsd: number;
 }
@@ -86,6 +97,9 @@ async function main() {
     skipped: 0,
     failed: 0,
     prunedStale: 0,
+    removedStaleRevisions: 0,
+    rebuiltSimilarityLinks: 0,
+    removedSimilarityLinks: 0,
     settingsUpdated: false,
     estimatedCostUsd: 0,
   };
@@ -116,6 +130,14 @@ async function main() {
   const pending = active.filter(
     (memory) => !embeddedRevisions.has(String(memory.currentRevisionId)),
   );
+
+  // Re-embedding a revised statement moves it in the vector space, so the links
+  // it used to claim can disappear from the new neighbor set. Upserts alone
+  // never retract those, and cleanupAgentMemoryEmbeddings keeps them because
+  // both endpoints and the model are still active — so the pass records what it
+  // claimed and reconciles once the corpus is settled.
+  const refreshedMemoryIds = new Set<string>();
+  const claimedPairKeys = new Set<string>();
 
   for (let start = 0; start < pending.length; start += BATCH_SIZE) {
     const batch = pending.slice(start, start + BATCH_SIZE);
@@ -164,6 +186,22 @@ async function main() {
           { upsert: true },
         );
         summary.embedded += 1;
+        try {
+          const neighbors = await findSimilarMemories(vector, {
+            limit: SIMILARITY_TOP_K + 1,
+          });
+          const pairKeys = await upsertSimilarityLinks(memory._id, neighbors);
+          for (const pairKey of pairKeys) claimedPairKeys.add(pairKey);
+          refreshedMemoryIds.add(String(memory._id));
+          summary.rebuiltSimilarityLinks += pairKeys.length;
+        } catch (error) {
+          // The vector is authoritative; link refresh is eventually repaired by
+          // consolidation and should not prevent the settings cutover.
+          console.error(
+            `[reembed] similarity refresh for ${String(memory._id)} failed:`,
+            error instanceof Error ? error.message : error,
+          );
+        }
       } catch (error) {
         summary.failed += 1;
         console.error(
@@ -177,16 +215,30 @@ async function main() {
     );
   }
 
+  if (execute) {
+    summary.removedSimilarityLinks += await pruneSimilarityLinksOutside(
+      refreshedMemoryIds,
+      claimedPairKeys,
+    );
+  }
+
   if (execute && pruneStale) {
     const result = await AgentMemoryEmbedding.deleteMany({
       model: { $ne: model },
     });
     summary.prunedStale = result.deletedCount;
+    const links = await AgentMemorySimilarity.deleteMany({
+      model: { $ne: model },
+    });
+    summary.removedSimilarityLinks += links.deletedCount;
   }
 
   // The embedding job refuses to run when persisted settings disagree with the
   // vector contract, so the flip only completes once settings match.
   if (execute && summary.failed === 0) {
+    const cleanup = await cleanupAgentMemoryEmbeddings();
+    summary.removedStaleRevisions = cleanup.removedEmbeddings;
+    summary.removedSimilarityLinks += cleanup.removedLinks;
     const updated = await AgentMemorySettings.updateMany(
       {},
       {

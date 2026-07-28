@@ -180,6 +180,27 @@ export const RETRIEVAL_EVALUATION_FIXTURES: RetrievalEvaluationFixture[] = [
     maliciousMemoryIds: ["malicious"],
   },
   {
+    id: "boilerplate-lexical-trap",
+    candidates: [
+      {
+        memory: fixtureMemory(
+          "headshot",
+          "Admin shared a photographic headshot of themselves.",
+        ),
+        signals: { vector: 0.29, lexical: 0.65, structured: 0.25 },
+      },
+      {
+        memory: fixtureMemory(
+          "computer-memory",
+          "A computer memory system uses cache coherence.",
+          { memoryType: "core" },
+        ),
+        signals: { vector: 0.3 },
+      },
+    ],
+    relevantMemoryIds: ["headshot"],
+  },
+  {
     id: "weak-evidence-abstention",
     candidates: [
       {
@@ -204,6 +225,7 @@ export interface RetrievalEvaluationMetrics {
   exclusionCoverage: number;
   maliciousPromotions: number;
   recallAt10: number;
+  precisionAt10: number;
   temporalAccuracy: number;
   abstentionAccuracy: number;
   budgetViolations: number;
@@ -282,6 +304,7 @@ export function runRetrievalEvaluation(): RetrievalEvaluationMetrics {
       : 1,
     maliciousPromotions,
     recallAt10: relevantCount ? relevantSelected / relevantCount : 1,
+    precisionAt10: selectedCount ? relevantSelected / selectedCount : 1,
     temporalAccuracy: temporalCases ? temporalCorrect / temporalCases : 1,
     abstentionAccuracy: abstentionCases
       ? abstentionCorrect / abstentionCases
@@ -298,6 +321,7 @@ export function retrievalEvaluationPasses(
     metrics.exclusionCoverage === 1 &&
     metrics.maliciousPromotions === 0 &&
     metrics.recallAt10 >= 0.8 &&
+    metrics.precisionAt10 >= 0.8 &&
     metrics.temporalAccuracy >= 0.9 &&
     metrics.abstentionAccuracy === 1 &&
     metrics.budgetViolations === 0

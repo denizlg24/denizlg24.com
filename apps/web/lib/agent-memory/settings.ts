@@ -85,6 +85,27 @@ function defaultSettings(): typeof DEFAULT_AGENT_MEMORY_SETTINGS & {
   };
 }
 
+type RetrievalSettings = InternalSettings["retrieval"];
+
+/**
+ * Vector fields are a deployment contract, not mutable user settings. Older
+ * persisted documents may name the previous model during a rolling migration;
+ * runtime callers must still see the model that matches the deployed index.
+ */
+export function resolveRetrievalSettings(
+  persisted?: Partial<RetrievalSettings>,
+  patch?: UpdateAgentMemorySettings["retrieval"],
+): RetrievalSettings {
+  return {
+    ...DEFAULT_AGENT_MEMORY_SETTINGS.retrieval,
+    ...persisted,
+    ...patch,
+    embeddingModel: AGENT_MEMORY_VECTOR_CONFIG.model,
+    embeddingDimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
+    vectorIndex: AGENT_MEMORY_VECTOR_CONFIG.indexName,
+  };
+}
+
 export async function getAgentMemorySettings(): Promise<InternalSettings> {
   await connectDB();
   const settings = await AgentMemorySettings.findById("singleton").lean();
@@ -101,7 +122,7 @@ export async function getAgentMemorySettings(): Promise<InternalSettings> {
     ),
     excludedSourceRefs:
       settings.excludedSourceRefs ?? defaults.excludedSourceRefs,
-    retrieval: { ...defaults.retrieval, ...settings.retrieval },
+    retrieval: resolveRetrievalSettings(settings.retrieval),
     retention: { ...defaults.retention, ...settings.retention },
     proactivity: { ...defaults.proactivity, ...settings.proactivity },
     promotion: { ...defaults.promotion, ...settings.promotion },
@@ -112,21 +133,6 @@ export async function getAgentMemorySettings(): Promise<InternalSettings> {
     },
     formationModel: settings.formationModel ?? defaults.formationModel,
   };
-}
-
-function assertVectorSettings(input: UpdateAgentMemorySettings) {
-  if (!input.retrieval) return;
-  if (
-    input.retrieval.embeddingModel !== AGENT_MEMORY_VECTOR_CONFIG.model ||
-    input.retrieval.embeddingDimensions !==
-      AGENT_MEMORY_VECTOR_CONFIG.dimensions ||
-    input.retrieval.vectorIndex !== AGENT_MEMORY_VECTOR_CONFIG.indexName
-  ) {
-    throw new AgentMemoryPolicyError(
-      "Embedding model, dimensions, and vector index are versioned deployment settings",
-      "conflict",
-    );
-  }
 }
 
 function assertVerification(
@@ -298,7 +304,6 @@ export async function updateAgentMemorySettings(
   reason: string,
 ): Promise<IAgentMemorySettings> {
   const parsed = updateAgentMemorySettingsSchema.parse(input);
-  assertVectorSettings(parsed);
   await connectDB();
   const session = await AgentMemorySettings.startSession();
   let result: IAgentMemorySettings | null = null;
@@ -309,7 +314,13 @@ export async function updateAgentMemorySettings(
         (await AgentMemorySettings.findById("singleton").session(session)) ??
         new AgentMemorySettings(DEFAULT_AGENT_MEMORY_SETTINGS);
       const nextRevision = current.revision + (current.isNew ? 0 : 1);
-      current.set(parsed);
+      const currentRetrieval = current.toObject().retrieval;
+      current.set({
+        ...parsed,
+        // Persist the authoritative vector contract whenever settings are
+        // touched, while safely merging partial retrieval-control patches.
+        retrieval: resolveRetrievalSettings(currentRetrieval, parsed.retrieval),
+      });
       current.revision = nextRevision;
       await current.save({ session });
       await auditSettings(

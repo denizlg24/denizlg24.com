@@ -23,6 +23,7 @@ import {
   type DerivedContextResult,
 } from "./derived-context";
 import { sourceRefIsExcluded } from "./policy";
+import { agentMemoryQueryEmbeddingRequest } from "./query-embedding";
 import { findDeniedContent } from "./security";
 import { getAgentMemorySettings } from "./settings";
 import { scoreToCosine } from "./similarity";
@@ -35,6 +36,8 @@ export const RETRIEVABLE_SENSITIVITIES: AgentSensitivity[] = [
   "restricted",
 ];
 const MINIMUM_RETRIEVAL_SCORE = 0.3;
+const MINIMUM_QUERY_RELEVANCE = 0.08;
+const RELATIVE_QUERY_RELEVANCE_RATIO = 0.65;
 /** Top vector hits whose precomputed similarity neighbors join the candidate
  *  pool with a decayed vector score. */
 const GRAPH_EXPANSION_SEEDS = 8;
@@ -255,9 +258,24 @@ export function rankAndBudgetRetrieval(
   let relevanceFreeSelected = 0;
   const minimumScore = options.minimumScore ?? MINIMUM_RETRIEVAL_SCORE;
   const maxCoreItems = options.maxCoreItems ?? Number.POSITIVE_INFINITY;
+  const strongestQueryRelevance = candidates.reduce(
+    (strongest, candidate) =>
+      candidate.score >= minimumScore
+        ? Math.max(
+            strongest,
+            candidate.components.vector + candidate.components.lexical,
+          )
+        : strongest,
+    0,
+  );
+  const minimumQueryRelevance = Math.max(
+    MINIMUM_QUERY_RELEVANCE,
+    strongestQueryRelevance * RELATIVE_QUERY_RELEVANCE_RATIO,
+  );
   for (const candidate of candidates) {
-    const hasQueryRelevance =
-      candidate.components.vector > 0 || candidate.components.lexical > 0;
+    const queryRelevance =
+      candidate.components.vector + candidate.components.lexical;
+    const hasQueryRelevance = queryRelevance > 0;
     if (!hasQueryRelevance) {
       // Memories with no tie to the query only earn always-on core slots;
       // structured/prior boosts alone should not put a memory in context.
@@ -281,6 +299,12 @@ export function rankAndBudgetRetrieval(
       exclusions.push({
         memoryId: candidate.memory.id,
         reason: "below-score-threshold",
+      });
+      continue;
+    } else if (queryRelevance < minimumQueryRelevance) {
+      exclusions.push({
+        memoryId: candidate.memory.id,
+        reason: "weak-query-relevance",
       });
       continue;
     }
@@ -366,6 +390,75 @@ export async function collectRetrievalSourceSignals(
 
 function normalizedTextScore(value: number): number {
   return value <= 0 ? 0 : value / (value + 1);
+}
+
+const LEXICAL_QUERY_STOP_WORDS = new Set([
+  "a",
+  "about",
+  "admin",
+  "agent",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "can",
+  "could",
+  "did",
+  "do",
+  "does",
+  "for",
+  "from",
+  "give",
+  "have",
+  "i",
+  "in",
+  "is",
+  "it",
+  "me",
+  "memory",
+  "my",
+  "of",
+  "on",
+  "please",
+  "recall",
+  "remember",
+  "retrieve",
+  "show",
+  "system",
+  "tell",
+  "that",
+  "the",
+  "this",
+  "to",
+  "using",
+  "want",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "with",
+  "would",
+  "you",
+  "your",
+]);
+
+/**
+ * Mongo text search is bag-of-words, so conversational retrieval boilerplate
+ * otherwise dominates exact topic terms (notably the word "memory" itself).
+ */
+export function buildLexicalRetrievalQuery(query: string): string {
+  const terms =
+    query
+      .toLocaleLowerCase("en")
+      .match(/[\p{L}\p{N}][\p{L}\p{N}._'-]*/gu)
+      ?.filter(
+        (term) => term.length > 1 && !LEXICAL_QUERY_STOP_WORDS.has(term),
+      ) ?? [];
+  return terms.length > 0 ? terms.join(" ") : query;
 }
 
 export function retrievalQueryContainsDeniedContent(query: string): boolean {
@@ -555,6 +648,7 @@ async function loadCandidateSignals(
   signals: Map<string, CandidateSignals>;
   exclusions: RetrievalExclusion[];
 }> {
+  const lexicalQuery = buildLexicalRetrievalQuery(query);
   return collectRetrievalSourceSignals({
     structured: async () => {
       const structured = await AgentMemory.find({
@@ -573,7 +667,7 @@ async function loadCandidateSignals(
     lexical: async () => {
       const lexical = await AgentMemory.find(
         {
-          $text: { $search: query },
+          $text: { $search: lexicalQuery },
           status: "active",
           sensitivity: { $in: RETRIEVABLE_SENSITIVITIES },
         },
@@ -589,16 +683,12 @@ async function loadCandidateSignals(
     },
     vector: async () => {
       if (!allowVector) return [];
-      const embedded = await embedMultimodal({
-        purpose: "agent-memory-retrieval",
-        source: "agent-memory-shadow-retrieval",
-        model: AGENT_MEMORY_VECTOR_CONFIG.model,
-        dimensions: AGENT_MEMORY_VECTOR_CONFIG.dimensions,
-        // Queries and stored documents embed differently; using the document
-        // mode here measurably degrades recall.
-        inputType: "search_query",
-        inputs: [{ text: query }],
-      });
+      const embedded = await embedMultimodal(
+        agentMemoryQueryEmbeddingRequest(
+          query,
+          "agent-memory-shadow-retrieval",
+        ),
+      );
       const queryVector = embedded.vectors[0];
       if (!queryVector) return [];
       const vector = await AgentMemoryEmbedding.aggregate<{
@@ -656,6 +746,7 @@ async function expandCandidateGraph(
   );
   const seedIds = seeds.map(([id]) => new mongoose.Types.ObjectId(id));
   const links = await AgentMemorySimilarity.find({
+    model: AGENT_MEMORY_VECTOR_CONFIG.model,
     $or: [
       { sourceMemoryId: { $in: seedIds } },
       { targetMemoryId: { $in: seedIds } },
@@ -689,6 +780,7 @@ async function loadNearDuplicateStrengths(
   if (memoryIds.length < 2) return strengths;
   const objectIds = memoryIds.map((id) => new mongoose.Types.ObjectId(id));
   const links = await AgentMemorySimilarity.find({
+    model: AGENT_MEMORY_VECTOR_CONFIG.model,
     strength: { $gte: NEAR_DUPLICATE_STRENGTH },
     sourceMemoryId: { $in: objectIds },
     targetMemoryId: { $in: objectIds },

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildEvidenceInput,
+  conversationMessageMemoryEligible,
+  conversationMessageSnapshot,
   observeConversationMessages,
   stableContentHash,
 } from "./evidence";
@@ -26,6 +28,72 @@ describe("agent evidence helpers", () => {
     });
     expect(evidence.snapshot?.length).toBe(8_192);
     expect(evidence.contentHash).toHaveLength(64);
+  });
+
+  test("keeps attachment URLs out of conversational snapshots", () => {
+    const snapshot = conversationMessageSnapshot({
+      eventId: "9fa3e791-b155-4719-bda8-f6542ea421f3",
+      role: "user",
+      content: [
+        {
+          type: "image",
+          name: "profile.jpg",
+          source: {
+            type: "url",
+            url: "https://denizlg24.com/api/file/uploads/images/profile.jpg",
+          },
+        },
+        {
+          type: "text",
+          text: "This is my headshot. Remember my face.",
+        },
+      ],
+      createdAt: new Date("2026-07-28T07:26:28.077Z"),
+    });
+
+    expect(snapshot).toBe("This is my headshot. Remember my face.");
+    expect(snapshot).not.toContain("https://");
+    expect(snapshot).not.toContain('"type":"image"');
+  });
+
+  test("retains text returned by tools without serializing block metadata", () => {
+    const snapshot = conversationMessageSnapshot({
+      eventId: "a7dad10a-871b-44d1-b6db-cd2bbfdb0db0",
+      role: "assistant",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "tool-1",
+          content: '{"title":"Saved note"}',
+        },
+      ],
+      createdAt: new Date("2026-07-28T08:00:00.000Z"),
+    });
+
+    expect(snapshot).toBe('{"title":"Saved note"}');
+    expect(snapshot).not.toContain("tool_use_id");
+  });
+
+  test("does not let the agent's own prose become factual evidence", () => {
+    const assistantMessage = {
+      eventId: "4ddb52b0-15b6-4e7c-888a-fb781e5b5008",
+      role: "assistant" as const,
+      content: "I could not find a saved headshot.",
+      createdAt: new Date("2026-07-27T17:41:13.457Z"),
+    };
+    const toolResultMessage = {
+      ...assistantMessage,
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "tool-1",
+          content: '{"found":false}',
+        },
+      ],
+    };
+
+    expect(conversationMessageMemoryEligible(assistantMessage)).toBe(false);
+    expect(conversationMessageMemoryEligible(toolResultMessage)).toBe(true);
   });
 
   test("incognito conversation messages short-circuit without persistence", async () => {

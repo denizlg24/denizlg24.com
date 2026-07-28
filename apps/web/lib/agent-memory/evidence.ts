@@ -225,9 +225,27 @@ export async function observeEvidence(options: {
   return { status: "created", eventId };
 }
 
-function contentSnapshot(message: IConversationMessage): string {
+/**
+ * Keeps human-readable message text while excluding attachment transport
+ * metadata. Raw block JSON used to put immutable file URLs into the formation
+ * prompt, encouraging duplicate memories about where an image was stored.
+ */
+export function conversationMessageSnapshot(
+  message: IConversationMessage,
+): string {
   if (typeof message.content === "string") return message.content;
-  return JSON.stringify(message.content);
+  return message.content
+    .flatMap((block) => {
+      if (block.type === "text" && typeof block.text === "string") {
+        return block.text;
+      }
+      if (block.type === "tool_result" && typeof block.content === "string") {
+        return block.content;
+      }
+      return [];
+    })
+    .join("\n")
+    .trim();
 }
 
 function containsToolResult(message: IConversationMessage): boolean {
@@ -235,6 +253,17 @@ function containsToolResult(message: IConversationMessage): boolean {
     Array.isArray(message.content) &&
     message.content.some((block) => block.type === "tool_result")
   );
+}
+
+/**
+ * The agent's own prose is a response, not independent evidence about the
+ * owner. Tool results remain eligible because they report an external system
+ * observation and are already assigned lower trust.
+ */
+export function conversationMessageMemoryEligible(
+  message: IConversationMessage,
+): boolean {
+  return message.role === "user" || containsToolResult(message);
 }
 
 /**
@@ -387,37 +416,44 @@ export async function observeConversationMessages(options: {
   const stats = { created: 0, duplicate: 0, skipped: 0, rejected: 0 };
   for (const message of options.messages) {
     const toolResult = containsToolResult(message);
-    const content = contentSnapshot(message);
-    try {
-      const result = await observeEvidence({
-        memoryMode: options.memoryMode,
-        session: options.session,
-        evidence: buildEvidenceInput({
-          idempotencyKey: `conversation:${options.conversationId}:message:${message.eventId}`,
+    const content = conversationMessageSnapshot(message);
+    if (content) {
+      try {
+        const result = await observeEvidence({
+          memoryMode: options.memoryMode,
+          session: options.session,
+          evidence: buildEvidenceInput({
+            idempotencyKey: `conversation:${options.conversationId}:message:${message.eventId}`,
+            sourceType: toolResult ? "tool-result" : "conversation",
+            sourceRef: {
+              entityType: "conversation",
+              entityId: options.conversationId,
+              revision: message.eventId,
+            },
+            sourceRevision: message.eventId,
+            content: message.content,
+            snapshot: content,
+            occurredAt: message.createdAt,
+            actor: message.role === "user" && !toolResult ? "user" : "agent",
+            trust: message.role === "user" && !toolResult ? "high" : "medium",
+            sensitivity: "personal",
+            memoryEligible: conversationMessageMemoryEligible(message),
+            provenance: { role: message.role, toolResult },
+          }),
+        });
+        stats[result.status] += 1;
+      } catch (error) {
+        if (!(error instanceof AgentMemoryPolicyError)) throw error;
+        stats.rejected += 1;
+        console.warn("[agent-memory] Evidence observation rejected", {
           sourceType: toolResult ? "tool-result" : "conversation",
-          sourceRef: {
-            entityType: "conversation",
-            entityId: options.conversationId,
-            revision: message.eventId,
-          },
-          sourceRevision: message.eventId,
-          content: message.content,
-          snapshot: content,
-          occurredAt: message.createdAt,
-          actor: message.role === "user" && !toolResult ? "user" : "agent",
-          trust: message.role === "user" && !toolResult ? "high" : "medium",
-          sensitivity: "personal",
-          provenance: { role: message.role, toolResult },
-        }),
-      });
-      stats[result.status] += 1;
-    } catch (error) {
-      if (!(error instanceof AgentMemoryPolicyError)) throw error;
-      stats.rejected += 1;
-      console.warn("[agent-memory] Evidence observation rejected", {
-        sourceType: toolResult ? "tool-result" : "conversation",
-        code: error.code,
-      });
+          code: error.code,
+        });
+      }
+    } else {
+      // Attachment-only and tool-use-only turns are represented by their
+      // dedicated evidence rows; an empty conversational row adds no signal.
+      stats.skipped += 1;
     }
 
     await observeMessageAttachments({

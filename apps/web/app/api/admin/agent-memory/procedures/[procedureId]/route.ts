@@ -1,6 +1,6 @@
 import { updateAgentProcedureSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
-import { updateProcedure } from "@/lib/agent-memory/lifecycle";
+import { deleteProcedure, updateProcedure } from "@/lib/agent-memory/lifecycle";
 import { AgentMemoryPolicyError } from "@/lib/agent-memory/policy";
 import { serializeAgentProcedure } from "@/lib/agent-memory/serialize";
 import { getAgentMemorySettings } from "@/lib/agent-memory/settings";
@@ -49,6 +49,39 @@ export async function PATCH(
       {
         error:
           error instanceof Error ? error.message : "Procedure update failed",
+      },
+      { status },
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ procedureId: string }> },
+) {
+  const authError = await requireAdmin(request);
+  if (authError) return authError;
+  const { procedureId } = await params;
+  try {
+    await deleteProcedure(procedureId);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting agent procedure:", {
+      procedureId,
+      code:
+        error instanceof AgentMemoryPolicyError ? error.code : "unknown-error",
+      error,
+    });
+    const status =
+      error instanceof AgentMemoryPolicyError && error.code === "not-found"
+        ? 404
+        : error instanceof AgentMemoryPolicyError
+          ? 409
+          : 500;
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Procedure delete failed",
       },
       { status },
     );

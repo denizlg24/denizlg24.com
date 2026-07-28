@@ -476,7 +476,7 @@ export async function processConsolidationJob(job: IAgentMemoryJob): Promise<{
       const neighbors = (
         await findSimilarMemories(vector, { limit: NEIGHBOR_LIMIT })
       ).filter((neighbor) => neighbor.memoryId !== memoryId);
-      linked += await upsertSimilarityLinks(memory._id, neighbors);
+      linked += (await upsertSimilarityLinks(memory._id, neighbors)).length;
       neighborsBySeed.set(memoryId, neighbors);
     } catch (error) {
       console.error(

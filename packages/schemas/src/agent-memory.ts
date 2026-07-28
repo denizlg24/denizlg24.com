@@ -685,6 +685,9 @@ export const agentMemorySettingsSchema = z.object({
      *  summary; null disables the summary and retrieval uses only the latest
      *  message. */
     querySummaryModel: z.string().nullable(),
+    /** Cosine floor for manual recall (the Explore dock and the graph probe).
+     *  Those surfaces are uncapped: every memory at or above this scores. */
+    exploreMinSimilarity: z.number().min(0).max(1),
   }),
   retention: z.object({
     terminalJobDays: z.number().int().min(1).max(365),
@@ -717,11 +720,19 @@ export const agentMemorySettingsSchema = z.object({
 export type AgentMemorySettings = z.infer<typeof agentMemorySettingsSchema>;
 export type AgentPromotionPolicy = AgentMemorySettings["promotion"];
 
+const updateAgentMemoryRetrievalSettingsSchema =
+  agentMemorySettingsSchema.shape.retrieval
+    .omit({
+      embeddingModel: true,
+      embeddingDimensions: true,
+      vectorIndex: true,
+    })
+    .partial();
+
 export const updateAgentMemorySettingsSchema = agentMemorySettingsSchema
   .pick({
     enabledSources: true,
     excludedSourceRefs: true,
-    retrieval: true,
     retention: true,
     reflectionSchedule: true,
     proactivity: true,
@@ -731,7 +742,15 @@ export const updateAgentMemorySettingsSchema = agentMemorySettingsSchema
     formationModel: true,
     maximumActionAutonomy: true,
   })
-  .partial();
+  .partial()
+  .extend({
+    /**
+     * Vector model, dimensions, and index are deployment-owned. Clients may
+     * update budgets and the rolling-summary model without echoing or changing
+     * the vector contract.
+     */
+    retrieval: updateAgentMemoryRetrievalSettingsSchema.optional(),
+  });
 export type UpdateAgentMemorySettings = z.infer<
   typeof updateAgentMemorySettingsSchema
 >;
@@ -943,9 +962,13 @@ export type AgentMemoryContradictionListResponse = z.infer<
   typeof agentMemoryContradictionListResponseSchema
 >;
 
+/**
+ * Manual recall is unbounded by design: the result set is whatever clears
+ * `retrieval.exploreMinSimilarity`, not a fixed top-N. The chat-injection budget
+ * (`retrieval.maxRetrievedItems`) is a separate control and still applies there.
+ */
 export const agentMemoryExploreRequestSchema = z.object({
   query: z.string().trim().min(2).max(500),
-  limit: z.number().int().min(1).max(25).default(10),
 });
 export type AgentMemoryExploreRequest = z.infer<
   typeof agentMemoryExploreRequestSchema
@@ -976,6 +999,8 @@ export type AgentMemoryExploreHit = z.infer<typeof agentMemoryExploreHitSchema>;
 export const agentMemoryExploreResponseSchema = z.object({
   query: z.string(),
   tookMs: z.number().nonnegative(),
+  /** The cosine floor the result set was cut at. */
+  minSimilarity: z.number().min(0).max(1),
   results: z.array(agentMemoryExploreHitSchema),
 });
 export type AgentMemoryExploreResponse = z.infer<
@@ -996,6 +1021,14 @@ export const agentMemoryGraphNodeSchema = z.object({
   isOwner: z.boolean().optional(),
   /** Attachment image this memory was formed from, rendered in place of a node. */
   imageUrl: z.string().optional(),
+  /**
+   * When the memory is about, not when it was stored: `temporal.validFrom`,
+   * else the earliest evidence `occurredAt`, else `createdAt`. Drives the
+   * timeline axis and the date line on a node card.
+   */
+  occurredAt: isoDateSchema.optional(),
+  /** Set only when the memory states a closed range (`temporal.validUntil`). */
+  occurredUntil: isoDateSchema.optional(),
 });
 export type AgentMemoryGraphNode = z.infer<typeof agentMemoryGraphNodeSchema>;
 
