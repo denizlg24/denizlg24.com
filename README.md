@@ -32,6 +32,7 @@ keeping plaintext secrets and encryption keys on the user's machine.
 | `apps/terminal` | Web-terminal daemon for the cloud host | Personal |
 | `apps/envoy` | Envoy website and encrypted-storage API | Public |
 | `apps/envoy-cli` | Rust command-line client for Envoy | Public |
+| `apps/ssh-server` | Go based ssh-server that powers my business card | Personal |
 | `packages/*` | Shared contracts, UI, utilities, and application modules | Shared |
 | `infra/*` | Deployment definitions for self-hosted services | Personal |
 
