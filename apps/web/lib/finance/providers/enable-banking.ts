@@ -17,7 +17,6 @@ import {
 
 const API_URL = "https://api.enablebanking.com";
 const JWT_TTL_SECONDS = 300;
-const REQUEST_TIMEOUT_MS = 30_000;
 
 let cachedJwt:
   | {
@@ -233,24 +232,13 @@ export class EnableBankingProvider implements BankProvider {
     }
 
     let response: Response;
-    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
     try {
       response = await this.#fetch(`${this.#baseUrl}${path}`, {
         ...init,
         headers,
-        signal: init?.signal
-          ? AbortSignal.any([init.signal, timeout])
-          : timeout,
       });
     } catch (error) {
       if (requestKind) await this.#context.onRequestFailure?.(requestKind);
-      if (timeout.aborted) {
-        throw new EnableBankingError(
-          "Enable Banking request timed out",
-          504,
-          "REQUEST_TIMEOUT",
-        );
-      }
       throw error;
     }
     if (!response.ok) {
