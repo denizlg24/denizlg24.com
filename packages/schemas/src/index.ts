@@ -27,4 +27,5 @@ export * from "./spreadsheet";
 export * from "./timetable";
 export * from "./tool-labels";
 export * from "./triage";
+export * from "./voice-notes";
 export * from "./whiteboard";

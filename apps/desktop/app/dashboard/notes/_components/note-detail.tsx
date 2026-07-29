@@ -39,6 +39,7 @@ import {
   FolderTree,
   Image as ImageIcon,
   Link as LinkIcon,
+  Mic,
   Plus,
   Shapes,
   Tag as TagIcon,
@@ -49,6 +50,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TagAutocomplete } from "@/app/dashboard/notes/_components/tag-autocomplete";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { VoiceNoteAttachments } from "@/components/voice-notes/voice-note-attachments";
 import type { denizApi } from "@/lib/api-wrapper";
 import type { INote, INoteEdge, INoteGroup } from "@/lib/data-types";
 import { buildPathLabelMap } from "@/lib/note-group-tree";
@@ -373,6 +375,16 @@ export function NoteDetail({
                   emptyMessage="No groups yet"
                 />
               </PropertyRow>
+
+              {!isDraft && api && (
+                <PropertyRow icon={<Mic className="size-3" />} label="voice">
+                  <VoiceNoteAttachments
+                    api={api}
+                    note={note}
+                    onPatch={onPatch}
+                  />
+                </PropertyRow>
+              )}
 
               {!isDraft && (
                 <PropertyRow

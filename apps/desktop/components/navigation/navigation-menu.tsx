@@ -35,6 +35,7 @@ import {
   Table,
   UserSquare,
   UsersRound,
+  Waves,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -210,6 +211,11 @@ export const GROUPS: NavGroup[] = [
         label: "Notes",
         href: "/notes",
         icon: FileText,
+      },
+      {
+        label: "Voice Notes",
+        href: "/voice-notes",
+        icon: Waves,
       },
       {
         label: "Papers",

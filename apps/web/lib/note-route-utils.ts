@@ -15,6 +15,7 @@ export function serializeNote(note: ILeanNote) {
     paperId: note.paperId ? String(note.paperId) : undefined,
     groupIds: (note.groupIds ?? []).map(String),
     manualGroupIds: (note.manualGroupIds ?? []).map(String),
+    voiceNoteIds: (note.voiceNoteIds ?? []).map(String),
   };
 }
 

@@ -49,6 +49,7 @@ const KNOWN_ROUTES = new Set([
   "/dashboard/calendar",
   "/dashboard/timetable",
   "/dashboard/notes",
+  "/dashboard/voice-notes",
   "/dashboard/papers",
   "/dashboard/whiteboard",
   "/dashboard/whiteboard/today",

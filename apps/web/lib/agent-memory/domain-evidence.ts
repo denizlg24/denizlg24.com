@@ -86,6 +86,7 @@ function compactRecord(kind: AgentDomainKind, raw: Record<string, unknown>) {
       siteName: text(raw.siteName, 300),
       tags: strings(raw.tags),
       groupIds: ids(raw.groupIds),
+      voiceNoteIds: ids(raw.voiceNoteIds),
       status: raw.status,
       class: text(raw.class, 100),
     };

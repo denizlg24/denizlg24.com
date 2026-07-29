@@ -26,6 +26,7 @@ export function operationIsEnabled(
   if (operation === "resource-suggestion") return gates.formation;
   if (operation === "training") return true;
   if (operation === "chat-run") return true;
+  if (operation === "voice-transcription") return true;
   return gates.evidenceLedger;
 }
 

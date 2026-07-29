@@ -9,7 +9,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 
-export type StorageBucket = "image" | "file" | "spreadsheet";
+export type StorageBucket = "image" | "file" | "spreadsheet" | "voice";
 
 interface StorageConfig {
   endpoint: string;
@@ -20,6 +20,7 @@ interface StorageConfig {
   imagePrefix: string;
   filePrefix: string;
   spreadsheetPrefix: string;
+  voicePrefix: string;
 }
 
 export interface StoredFile {
@@ -69,6 +70,9 @@ function getStorageConfig(): StorageConfig {
     ),
     spreadsheetPrefix: trimSlashes(
       process.env.STORAGE_SPREADSHEET_UPLOAD_PATH ?? "spreadsheets",
+    ),
+    voicePrefix: trimSlashes(
+      process.env.STORAGE_VOICE_UPLOAD_PATH ?? "uploads/voice-notes",
     ),
   };
 }
@@ -142,6 +146,8 @@ function getBucketPrefix(bucket: StorageBucket): string {
       return config.filePrefix;
     case "spreadsheet":
       return config.spreadsheetPrefix;
+    case "voice":
+      return config.voicePrefix;
   }
 }
 
@@ -261,6 +267,21 @@ export async function downloadJsonFromStorage<T>(key: string): Promise<T> {
 
   const text = await response.Body.transformToString();
   return JSON.parse(text) as T;
+}
+
+export async function downloadBytesFromStorage(
+  key: string,
+): Promise<Uint8Array> {
+  const response = await getClient().send(
+    new GetObjectCommand({
+      Bucket: getStorageConfig().bucket,
+      Key: key,
+    }),
+  );
+  if (!response.Body) {
+    throw new Error(`Storage object has no body: ${key}`);
+  }
+  return response.Body.transformToByteArray();
 }
 
 export async function getStorageObject(
