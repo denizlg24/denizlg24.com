@@ -14,6 +14,7 @@ export const AGENT_SOURCE_TYPES = [
   "file",
   "manual",
   "attachment",
+  "voice-note",
 ] as const;
 
 export const AGENT_ACTORS = ["user", "agent", "external", "system"] as const;

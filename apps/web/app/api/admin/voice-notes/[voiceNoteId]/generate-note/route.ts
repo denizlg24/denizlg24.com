@@ -20,6 +20,8 @@ export async function POST(
     const { voiceNoteId } = await params;
     const body = (await request.json().catch(() => ({}))) as {
       groupIds?: unknown;
+      model?: unknown;
+      instructions?: unknown;
     };
     const result = await generateNoteFromVoice({
       voiceNoteId,
@@ -28,6 +30,9 @@ export async function POST(
             (value): value is string => typeof value === "string",
           )
         : undefined,
+      model: typeof body.model === "string" ? body.model : undefined,
+      instructions:
+        typeof body.instructions === "string" ? body.instructions : undefined,
     });
     return NextResponse.json({
       note: serializeNote(result.note),

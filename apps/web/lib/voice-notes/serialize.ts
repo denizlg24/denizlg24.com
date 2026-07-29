@@ -8,6 +8,7 @@ export function serializeVoiceNote(voiceNote: ILeanVoiceNote) {
   return {
     _id: String(voiceNote._id),
     title: voiceNote.title,
+    titleSource: voiceNote.titleSource ?? "manual",
     filename: voiceNote.filename,
     mimeType: voiceNote.mimeType,
     sizeBytes: voiceNote.sizeBytes,

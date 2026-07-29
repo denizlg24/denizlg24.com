@@ -13,8 +13,15 @@ export interface IVoiceNoteTranscriptSegment {
   endSecond: number;
 }
 
+/**
+ * Where the current title came from. Only a `placeholder` is overwritten once
+ * the transcript arrives — a title the owner typed is never regenerated.
+ */
+export type VoiceNoteTitleSource = "placeholder" | "generated" | "manual";
+
 export interface IVoiceNote extends Document {
   title: string;
+  titleSource: VoiceNoteTitleSource;
   storageKey: string;
   filename: string;
   mimeType: string;
@@ -42,6 +49,7 @@ export interface IVoiceNote extends Document {
 export interface ILeanVoiceNote {
   _id: mongoose.Types.ObjectId | string;
   title: string;
+  titleSource?: VoiceNoteTitleSource;
   storageKey: string;
   filename: string;
   mimeType: string;
@@ -78,6 +86,11 @@ const TranscriptSegmentSchema = new Schema<IVoiceNoteTranscriptSegment>(
 const VoiceNoteSchema = new Schema<IVoiceNote>(
   {
     title: { type: String, required: true, trim: true, maxlength: 300 },
+    titleSource: {
+      type: String,
+      enum: ["placeholder", "generated", "manual"],
+      default: "manual",
+    },
     storageKey: { type: String, required: true, unique: true },
     filename: { type: String, required: true, maxlength: 500 },
     mimeType: { type: String, required: true, maxlength: 200 },

@@ -1,10 +1,20 @@
 "use client";
 
 import type { INote, IVoiceNote } from "@repo/schemas";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import {
   ChevronDown,
-  FilePlus2,
   Loader2,
   Pause,
   Play,
@@ -13,9 +23,11 @@ import {
   RotateCw,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useVoiceNotePlayback } from "@/hooks/use-voice-note-playback";
 import type { denizApi } from "@/lib/api-wrapper";
+import { GenerateNoteDialog } from "./generate-note-dialog";
 import { formatDuration } from "./voice-recorder-provider";
 
 interface VoiceNoteCardProps {
@@ -66,16 +78,22 @@ export function VoiceNoteCard({
   onDeleted,
   onGenerated,
 }: VoiceNoteCardProps) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [audioUrl, setAudioUrl] = useState<string>();
-  const [loadingAudio, setLoadingAudio] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const [currentMs, setCurrentMs] = useState(0);
-  const [durationMs, setDurationMs] = useState(voiceNote.durationMs ?? 0);
+  const {
+    audioProps,
+    playing,
+    loadingAudio,
+    currentMs,
+    durationMs,
+    progress,
+    togglePlayback,
+    seek,
+    seekToFraction,
+  } = useVoiceNotePlayback(api, voiceNote);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
-  const [generating, setGenerating] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(voiceNote.title);
   const waveform = useMemo(
     () =>
       voiceNote.waveform.length > 4
@@ -83,86 +101,6 @@ export function VoiceNoteCard({
         : fallbackWaveform(voiceNote._id),
     [voiceNote._id, voiceNote.waveform],
   );
-  const progress = durationMs > 0 ? currentMs / durationMs : 0;
-
-  useEffect(() => {
-    setDurationMs(voiceNote.durationMs ?? 0);
-  }, [voiceNote.durationMs]);
-
-  useEffect(
-    () => () => {
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
-    },
-    [audioUrl],
-  );
-
-  const ensureAudio = useCallback(async () => {
-    if (audioUrl) return audioUrl;
-    setLoadingAudio(true);
-    const result = await api.GET_RAW({
-      endpoint: `voice-notes/${voiceNote._id}/audio`,
-    });
-    setLoadingAudio(false);
-    if ("code" in result) {
-      toast.error(result.message);
-      return undefined;
-    }
-    const url = URL.createObjectURL(await result.blob());
-    setAudioUrl(url);
-    return url;
-  }, [api, audioUrl, voiceNote._id]);
-
-  const togglePlayback = useCallback(async () => {
-    const url = await ensureAudio();
-    if (!url) return;
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (!audio.src) {
-      audio.src = url;
-      audio.load();
-    }
-    if (audio.paused) {
-      try {
-        await audio.play();
-      } catch {
-        toast.error("This audio format could not be played");
-      }
-    } else audio.pause();
-  }, [ensureAudio]);
-
-  const seek = useCallback(
-    async (seconds: number) => {
-      const url = await ensureAudio();
-      if (!url || !audioRef.current) return;
-      if (!audioRef.current.src) {
-        audioRef.current.src = url;
-        audioRef.current.load();
-      }
-      audioRef.current.currentTime = Math.max(
-        0,
-        Math.min(
-          audioRef.current.duration || durationMs / 1_000,
-          audioRef.current.currentTime + seconds,
-        ),
-      );
-    },
-    [durationMs, ensureAudio],
-  );
-
-  const seekToFraction = useCallback(
-    async (fraction: number) => {
-      const url = await ensureAudio();
-      if (!url || !audioRef.current) return;
-      if (!audioRef.current.src) {
-        audioRef.current.src = url;
-        audioRef.current.load();
-      }
-      audioRef.current.currentTime =
-        fraction * (audioRef.current.duration || durationMs / 1_000);
-    },
-    [durationMs, ensureAudio],
-  );
-
   const transcribe = useCallback(async () => {
     setTranscribing(true);
     const result = await api.POST<{
@@ -181,27 +119,26 @@ export function VoiceNoteCard({
     toast.success(result.queued ? "Transcription queued" : "Already queued");
   }, [api, onChanged, voiceNote._id, voiceNote.transcription.status]);
 
-  const generateNote = useCallback(async () => {
-    setGenerating(true);
-    const result = await api.POST<{
-      note: INote;
-      voiceNote: IVoiceNote;
-    }>({
-      endpoint: `voice-notes/${voiceNote._id}/generate-note`,
-      body: {},
+  const commitTitle = useCallback(async () => {
+    const title = titleDraft.trim().slice(0, 300);
+    setEditingTitle(false);
+    if (!title || title === voiceNote.title) return;
+    const previous = voiceNote.title;
+    onChanged?.({ ...voiceNote, title, titleSource: "manual" });
+    const result = await api.PATCH<{ voiceNote: IVoiceNote }>({
+      endpoint: `voice-notes/${voiceNote._id}`,
+      body: { title },
     });
-    setGenerating(false);
     if ("code" in result) {
+      onChanged?.({ ...voiceNote, title: previous });
+      setTitleDraft(previous);
       toast.error(result.message);
       return;
     }
     onChanged?.(result.voiceNote);
-    onGenerated?.(result.note);
-    toast.success("Note generated");
-  }, [api, onChanged, onGenerated, voiceNote._id]);
+  }, [api, onChanged, titleDraft, voiceNote]);
 
   const deleteVoiceNote = useCallback(async () => {
-    if (!window.confirm(`Delete “${voiceNote.title}”?`)) return;
     setDeleting(true);
     const result = await api.DELETE<{ success: true }>({
       endpoint: `voice-notes/${voiceNote._id}`,
@@ -217,48 +154,89 @@ export function VoiceNoteCard({
 
   return (
     <article className="group border bg-background">
-      {/* The complete transcript is rendered beside this control when available. */}
-      {/* biome-ignore lint/a11y/useMediaCaption: generated transcript is not a timed VTT track */}
-      <audio
-        ref={audioRef}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-        onTimeUpdate={(event) =>
-          setCurrentMs(event.currentTarget.currentTime * 1_000)
-        }
-        onLoadedMetadata={(event) => {
-          if (Number.isFinite(event.currentTarget.duration)) {
-            setDurationMs(event.currentTarget.duration * 1_000);
-          }
-        }}
-      />
+      <audio {...audioProps} />
 
       <div className={compact ? "p-2.5" : "p-4"}>
         <div className="mb-3 flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="truncate text-xs font-medium">{voiceNote.title}</h3>
+          <div className="min-w-0 flex-1">
+            {editingTitle ? (
+              <input
+                // biome-ignore lint/a11y/noAutofocus: replaces the title the owner just clicked
+                autoFocus
+                value={titleDraft}
+                onChange={(event) => setTitleDraft(event.target.value)}
+                onBlur={() => void commitTitle()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void commitTitle();
+                  }
+                  if (event.key === "Escape") {
+                    setTitleDraft(voiceNote.title);
+                    setEditingTitle(false);
+                  }
+                }}
+                maxLength={300}
+                className="w-full bg-transparent text-xs font-medium outline-none"
+                aria-label="Voice note title"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setTitleDraft(voiceNote.title);
+                  setEditingTitle(true);
+                }}
+                className="block w-full truncate text-left text-xs font-medium hover:text-muted-foreground"
+                title="Rename"
+              >
+                {voiceNote.title}
+              </button>
+            )}
             <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">
               {timestamp(voiceNote.createdAt)} ·{" "}
               {statusLabel(voiceNote.transcription.status)}
             </p>
           </div>
           {!compact && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              disabled={deleting}
-              onClick={() => void deleteVoiceNote()}
-              className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
-              title="Delete voice note"
-            >
-              {deleting ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <Trash2 className="size-3" />
-              )}
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={deleting}
+                  className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
+                  title="Delete voice note"
+                >
+                  {deleting ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-3" />
+                  )}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="truncate">
+                    Delete “{voiceNote.title}”?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    The audio, its transcript, and memories formed from it are
+                    removed.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => void deleteVoiceNote()}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </div>
 
@@ -352,21 +330,12 @@ export function VoiceNoteCard({
           </span>
           <div className="ml-auto flex items-center gap-1">
             {voiceNote.transcription.status === "transcribed" ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 text-[10px]"
-                disabled={generating}
-                onClick={() => void generateNote()}
-              >
-                {generating ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <FilePlus2 className="size-3" />
-                )}
-                Note
-              </Button>
+              <GenerateNoteDialog
+                api={api}
+                voiceNote={voiceNote}
+                onChanged={onChanged}
+                onGenerated={onGenerated}
+              />
             ) : (
               <Button
                 type="button"

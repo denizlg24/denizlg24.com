@@ -445,7 +445,29 @@ export async function processFormationJob(
       settings.enabledSources.includes(item.sourceType) &&
       !sourceRefIsExcluded(item.sourceRef, settings.excludedSourceRefs),
   );
-  if (evidence.length === 0) return { candidates: 0, promoted: 0, rejected: 0 };
+  if (evidence.length === 0) {
+    // Dropping every row still completes the job, so the evidence is consumed
+    // and never retried. The usual cause is a deploy skew: a worker running
+    // older code has no entry for a source type the writer already emits, and
+    // the merge with stored settings cannot invent one.
+    if (rawEvidence.length > 0) {
+      const dropped = [
+        ...new Set(
+          rawEvidence
+            .filter(
+              (item) => !settings.enabledSources.includes(item.sourceType),
+            )
+            .map((item) => item.sourceType),
+        ),
+      ];
+      if (dropped.length > 0) {
+        console.warn(
+          `[agent-memory] Formation discarded ${rawEvidence.length} evidence row(s): source type(s) ${dropped.join(", ")} are not enabled on this worker`,
+        );
+      }
+    }
+    return { candidates: 0, promoted: 0, rejected: 0 };
+  }
 
   const activeMemories = await loadNoveltyContextMemories(evidence);
   const activeMemoryIds = new Set(
@@ -512,7 +534,15 @@ export async function processFormationJob(
     });
     const parsed = parseFormationResult(generated.input);
     if (!parsed.success) {
-      throw new Error("Formation output failed the strict candidate schema");
+      // Path and code only: the offending value is candidate text, which is
+      // exactly what the surrounding logging redacts.
+      const issues = parsed.error.issues
+        .slice(0, 8)
+        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.code}`)
+        .join(", ");
+      throw new Error(
+        `Formation output failed the strict candidate schema — ${issues}`,
+      );
     }
 
     let promoted = 0;

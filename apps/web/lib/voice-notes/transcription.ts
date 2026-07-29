@@ -1,7 +1,7 @@
 import "server-only";
 
 import mongoose from "mongoose";
-import OpenAI from "openai";
+import { transcribeAudio } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import { downloadBytesFromStorage } from "@/lib/storage-api";
 import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
@@ -11,6 +11,7 @@ import {
   type VoiceNoteTranscriptionStatus,
 } from "@/models/VoiceNote";
 import { observeVoiceNoteTranscript } from "./memory";
+import { generateVoiceNoteTitle } from "./title";
 
 const DEFAULT_TRANSCRIPTION_MODEL = "gpt-transcribe";
 const MAX_TRANSCRIPTION_BYTES = 25 * 1024 * 1024;
@@ -20,14 +21,6 @@ export function getVoiceTranscriptionModel() {
   return (
     process.env.VOICE_TRANSCRIPTION_MODEL?.trim() || DEFAULT_TRANSCRIPTION_MODEL
   );
-}
-
-function getOpenAIClient() {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is required for voice transcription");
-  }
-  return new OpenAI({ apiKey });
 }
 
 function voiceNoteIdFromJob(job: IAgentMemoryJob) {
@@ -119,6 +112,10 @@ export async function enqueueNightlyVoiceTranscriptions() {
   await connectDB();
   const candidates = await VoiceNote.find({
     "transcription.status": { $in: ["untranscribed", "failed"] },
+    $or: [
+      { "transcription.text": { $exists: false } },
+      { "transcription.text": "" },
+    ],
   })
     .select("_id")
     .sort({ createdAt: 1 })
@@ -136,58 +133,92 @@ export async function enqueueNightlyVoiceTranscriptions() {
   return { considered: candidates.length, queued };
 }
 
-export async function processVoiceTranscriptionJob(job: IAgentMemoryJob) {
-  const voiceNoteId = voiceNoteIdFromJob(job);
-  const requestVersion =
-    typeof job.checkpoint?.requestVersion === "number"
-      ? job.checkpoint.requestVersion
-      : undefined;
-  if (requestVersion === undefined) {
-    throw new Error("Voice transcription job has no requestVersion");
-  }
-
-  const voiceNote = await VoiceNote.findOneAndUpdate(
-    {
-      _id: voiceNoteId,
-      "transcription.requestVersion": requestVersion,
-      "transcription.status": { $in: ["queued", "transcribing", "failed"] },
-    },
-    {
-      $set: {
-        "transcription.status": "transcribing",
-        "transcription.startedAt": new Date(),
-      },
-      $unset: { "transcription.error": "" },
-    },
-    { returnDocument: "after" },
-  )
-    .lean<ILeanVoiceNote>()
+/**
+ * Heals notes marked `failed` that already hold a transcript — the shape left
+ * behind when transcription succeeded and a step after it threw. Re-queueing
+ * them would spend the audio budget a second time for text already on disk, so
+ * the status is corrected and only the cheap steps re-run. Evidence is
+ * idempotent, and the query goes empty once there is nothing left to heal.
+ */
+export async function repairTranscribedVoiceNotes() {
+  await connectDB();
+  const candidates = await VoiceNote.find({
+    "transcription.status": "failed",
+    "transcription.text": { $exists: true, $nin: [null, ""] },
+  })
+    .sort({ createdAt: 1 })
+    .limit(NIGHTLY_BATCH_SIZE)
+    .lean<ILeanVoiceNote[]>()
     .exec();
-  if (!voiceNote) return { skipped: true, voiceNoteId };
-  if (voiceNote.sizeBytes > MAX_TRANSCRIPTION_BYTES) {
-    throw new Error("Voice note exceeds the 25 MB transcription limit");
-  }
 
+  let repaired = 0;
+  const failures: Array<{ voiceNoteId: string; error: string }> = [];
+  for (const candidate of candidates) {
+    try {
+      await VoiceNote.updateOne(
+        { _id: candidate._id },
+        {
+          $set: {
+            "transcription.status": "transcribed",
+            "transcription.completedAt":
+              candidate.transcription.completedAt ?? new Date(),
+          },
+          $unset: { "transcription.error": "" },
+        },
+      ).exec();
+      candidate.transcription.status = "transcribed";
+      const titled = await applyGeneratedTitle(candidate);
+      await observeVoiceNoteTranscript(titled);
+      repaired += 1;
+    } catch (error) {
+      failures.push({
+        voiceNoteId: String(candidate._id),
+        error: error instanceof Error ? error.message : "Repair failed",
+      });
+    }
+  }
+  return { considered: candidates.length, repaired, failures };
+}
+
+/** The single place voice audio is sent for transcription. */
+export async function transcribeAudioFile(file: File, source: string) {
+  if (file.size > MAX_TRANSCRIPTION_BYTES) {
+    throw new Error("Audio exceeds the 25 MB transcription limit");
+  }
+  return transcribeAudio({
+    purpose: "transcription",
+    source,
+    model: getVoiceTranscriptionModel(),
+    file,
+    signal: AbortSignal.timeout(270_000),
+  });
+}
+
+/**
+ * Transcribes the audio and persists the transcript. Returns null when another
+ * worker already moved the note past this request version.
+ */
+async function transcribeVoiceNote(
+  voiceNote: ILeanVoiceNote,
+  requestVersion: number,
+): Promise<ILeanVoiceNote | null> {
+  const voiceNoteId = String(voiceNote._id);
   try {
-    const audio = await downloadBytesFromStorage(voiceNote.storageKey);
-    if (audio.byteLength > MAX_TRANSCRIPTION_BYTES) {
+    if (voiceNote.sizeBytes > MAX_TRANSCRIPTION_BYTES) {
       throw new Error("Voice note exceeds the 25 MB transcription limit");
     }
-    const model = getVoiceTranscriptionModel();
+    const audio = await downloadBytesFromStorage(voiceNote.storageKey);
     const fileBytes = Uint8Array.from(audio).buffer;
-    const result = await getOpenAIClient().audio.transcriptions.create(
-      {
-        file: new File([fileBytes], voiceNote.filename, {
-          type: voiceNote.mimeType,
-        }),
-        model,
-        response_format: "json",
-      },
-      { signal: AbortSignal.timeout(270_000) },
+    const {
+      text,
+      model,
+      language,
+      durationSeconds: durationInSeconds,
+    } = await transcribeAudioFile(
+      new File([fileBytes], voiceNote.filename, { type: voiceNote.mimeType }),
+      "voice-note-transcription",
     );
-    const durationInSeconds =
-      result.usage?.type === "duration" ? result.usage.seconds : undefined;
-    const completed = await VoiceNote.findOneAndUpdate(
+    return await VoiceNote.findOneAndUpdate(
       {
         _id: voiceNoteId,
         "transcription.requestVersion": requestVersion,
@@ -195,8 +226,8 @@ export async function processVoiceTranscriptionJob(job: IAgentMemoryJob) {
       {
         $set: {
           "transcription.status": "transcribed",
-          "transcription.text": result.text.trim(),
-          "transcription.language": result.languages?.[0]?.code,
+          "transcription.text": text,
+          "transcription.language": language,
           "transcription.model": model,
           "transcription.completedAt": new Date(),
           ...(durationInSeconds && !voiceNote.durationMs
@@ -212,14 +243,6 @@ export async function processVoiceTranscriptionJob(job: IAgentMemoryJob) {
     )
       .lean<ILeanVoiceNote>()
       .exec();
-    if (!completed) return { skipped: true, voiceNoteId };
-    await observeVoiceNoteTranscript(completed);
-    return {
-      skipped: false,
-      voiceNoteId,
-      characters: completed.transcription.text?.length ?? 0,
-      model,
-    };
   } catch (error) {
     await VoiceNote.updateOne(
       {
@@ -236,4 +259,85 @@ export async function processVoiceTranscriptionJob(job: IAgentMemoryJob) {
     ).exec();
     throw error;
   }
+}
+
+/**
+ * Rows written before `titleSource` existed carry no marker, so fall back to
+ * recognising the shape both placeholder generators produce.
+ */
+function titleIsPlaceholder(voiceNote: ILeanVoiceNote): boolean {
+  if (voiceNote.titleSource) return voiceNote.titleSource === "placeholder";
+  return /^voice note\b/i.test(voiceNote.title ?? "");
+}
+
+/** Replaces an auto-generated title with one derived from the transcript. */
+async function applyGeneratedTitle(
+  voiceNote: ILeanVoiceNote,
+): Promise<ILeanVoiceNote> {
+  if (!titleIsPlaceholder(voiceNote)) return voiceNote;
+  const transcript = voiceNote.transcription?.text?.trim();
+  if (!transcript) return voiceNote;
+  const title = await generateVoiceNoteTitle(transcript);
+  if (!title) return voiceNote;
+  const updated = await VoiceNote.findOneAndUpdate(
+    { _id: voiceNote._id, titleSource: { $ne: "manual" } },
+    { $set: { title, titleSource: "generated" } },
+    { returnDocument: "after", runValidators: true },
+  )
+    .lean<ILeanVoiceNote>()
+    .exec();
+  return updated ?? voiceNote;
+}
+
+export async function processVoiceTranscriptionJob(job: IAgentMemoryJob) {
+  const voiceNoteId = voiceNoteIdFromJob(job);
+  const requestVersion =
+    typeof job.checkpoint?.requestVersion === "number"
+      ? job.checkpoint.requestVersion
+      : undefined;
+  if (requestVersion === undefined) {
+    throw new Error("Voice transcription job has no requestVersion");
+  }
+
+  const claimed = await VoiceNote.findOneAndUpdate(
+    {
+      _id: voiceNoteId,
+      "transcription.requestVersion": requestVersion,
+      "transcription.status": { $in: ["queued", "transcribing", "failed"] },
+    },
+    {
+      $set: {
+        "transcription.status": "transcribing",
+        "transcription.startedAt": new Date(),
+      },
+      $unset: { "transcription.error": "" },
+    },
+    { returnDocument: "after" },
+  )
+    .lean<ILeanVoiceNote>()
+    .exec();
+
+  // Nothing to claim means the audio is already transcribed at this version.
+  // Titling and evidence still run: they are idempotent, and a retry exists
+  // precisely because one of them failed after the transcript was persisted.
+  const transcribed =
+    claimed === null
+      ? await VoiceNote.findOne({
+          _id: voiceNoteId,
+          "transcription.requestVersion": requestVersion,
+          "transcription.status": "transcribed",
+        })
+          .lean<ILeanVoiceNote>()
+          .exec()
+      : await transcribeVoiceNote(claimed, requestVersion);
+  if (!transcribed) return { skipped: true, voiceNoteId };
+
+  const titled = await applyGeneratedTitle(transcribed);
+  await observeVoiceNoteTranscript(titled);
+  return {
+    skipped: false,
+    voiceNoteId,
+    characters: titled.transcription.text?.length ?? 0,
+    model: titled.transcription.model,
+  };
 }

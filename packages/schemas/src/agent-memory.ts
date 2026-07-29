@@ -21,6 +21,7 @@ export const agentSourceTypeSchema = z.enum([
   "file",
   "manual",
   "attachment",
+  "voice-note",
 ]);
 export type AgentSourceType = z.infer<typeof agentSourceTypeSchema>;
 

@@ -20,9 +20,17 @@ export type VoiceNoteTranscriptSegment = z.infer<
   typeof voiceNoteTranscriptSegmentSchema
 >;
 
+export const voiceNoteTitleSourceSchema = z.enum([
+  "placeholder",
+  "generated",
+  "manual",
+]);
+export type VoiceNoteTitleSource = z.infer<typeof voiceNoteTitleSourceSchema>;
+
 export const voiceNoteSchema = z.object({
   _id: z.string(),
   title: z.string(),
+  titleSource: voiceNoteTitleSourceSchema,
   filename: z.string(),
   mimeType: z.string(),
   sizeBytes: z.number().nonnegative(),

@@ -163,6 +163,7 @@ export function VoiceRecorderProvider({
       const formData = new FormData();
       formData.set("file", new File([blob], filename, { type: blob.type }));
       formData.set("title", titleRef.current);
+      formData.set("titleSource", "placeholder");
       formData.set("durationMs", String(durationMs));
       formData.set("waveform", JSON.stringify(waveform));
       formData.set("source", "recording");

@@ -1,15 +1,20 @@
 import { NextResponse } from "next/server";
 import { isAuthorizedJobRequest } from "@/lib/job-authorization";
-import { enqueueNightlyVoiceTranscriptions } from "@/lib/voice-notes/transcription";
+import {
+  enqueueNightlyVoiceTranscriptions,
+  repairTranscribedVoiceNotes,
+} from "@/lib/voice-notes/transcription";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 async function schedule(request: Request) {
   if (!isAuthorizedJobRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
-    return NextResponse.json(await enqueueNightlyVoiceTranscriptions());
+    const scheduled = await enqueueNightlyVoiceTranscriptions();
+    const repair = await repairTranscribedVoiceNotes();
+    return NextResponse.json({ ...scheduled, repair });
   } catch (error) {
     console.error("[voice-notes] Nightly scheduling failed", error);
     return NextResponse.json(

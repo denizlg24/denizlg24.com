@@ -4,6 +4,7 @@ import { connectDB } from "@/lib/mongodb";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
 import { deleteFileFromStorage, uploadFileToStorage } from "@/lib/storage-api";
+import { isSupportedAudio, MAX_AUDIO_BYTES } from "@/lib/voice-notes/audio";
 import { serializeVoiceNote } from "@/lib/voice-notes/serialize";
 import { enqueueVoiceNoteTranscription } from "@/lib/voice-notes/transcription";
 import { Note } from "@/models/Note";
@@ -12,26 +13,7 @@ import { type ILeanVoiceNote, VoiceNote } from "@/models/VoiceNote";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_WAVEFORM_SAMPLES = 240;
-const ALLOWED_MIME_TYPES = new Set([
-  "audio/webm",
-  "audio/ogg",
-  "audio/mpeg",
-  "audio/mp4",
-  "audio/wav",
-  "audio/x-m4a",
-]);
-const ALLOWED_EXTENSIONS = new Set([
-  ".webm",
-  ".ogg",
-  ".mp3",
-  ".mp4",
-  ".mpeg",
-  ".mpga",
-  ".m4a",
-  ".wav",
-]);
 
 function parseWaveform(value: FormDataEntryValue | null) {
   if (typeof value !== "string" || !value) return [];
@@ -45,18 +27,6 @@ function parseWaveform(value: FormDataEntryValue | null) {
   } catch {
     return [];
   }
-}
-
-function extension(filename: string) {
-  const dot = filename.lastIndexOf(".");
-  return dot >= 0 ? filename.slice(dot).toLowerCase() : "";
-}
-
-function isSupportedAudio(file: File) {
-  const mime = file.type.toLowerCase().split(";")[0]?.trim() ?? "";
-  return (
-    ALLOWED_MIME_TYPES.has(mime) && ALLOWED_EXTENSIONS.has(extension(file.name))
-  );
 }
 
 export async function GET(request: NextRequest) {
@@ -143,10 +113,16 @@ export async function POST(request: NextRequest) {
     }
 
     const rawTitle = data.get("title");
-    const title =
-      typeof rawTitle === "string" && rawTitle.trim()
-        ? rawTitle.trim().slice(0, 300)
-        : `Voice note ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+    const hasTitle = typeof rawTitle === "string" && rawTitle.trim().length > 0;
+    const title = hasTitle
+      ? rawTitle.trim().slice(0, 300)
+      : `Voice note ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+    // A caller that auto-derived the title says so, and transcription replaces
+    // it with a real one. Anything else is treated as the owner's own wording.
+    const titleSource =
+      data.get("titleSource") === "placeholder" || !hasTitle
+        ? "placeholder"
+        : "manual";
     const rawDuration = Number(data.get("durationMs"));
     const durationMs =
       Number.isFinite(rawDuration) && rawDuration >= 0
@@ -169,6 +145,7 @@ export async function POST(request: NextRequest) {
     await connectDB();
     const created = await VoiceNote.create({
       title,
+      titleSource,
       storageKey: uploaded.id,
       filename: entry.name,
       mimeType: uploaded.mimeType,

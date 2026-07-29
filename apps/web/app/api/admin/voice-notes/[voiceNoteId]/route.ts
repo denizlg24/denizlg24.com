@@ -67,7 +67,7 @@ export async function PATCH(
     await connectDB();
     const voiceNote = await VoiceNote.findByIdAndUpdate(
       voiceNoteId,
-      { $set: { title } },
+      { $set: { title, titleSource: "manual" } },
       { returnDocument: "after", runValidators: true },
     )
       .lean<ILeanVoiceNote>()

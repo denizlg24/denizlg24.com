@@ -11,11 +11,11 @@ import {
   CommandList,
 } from "@repo/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
-import { Check, ChevronsUpDown, Loader2, Mic, X } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, Mic } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
-import { VoiceNoteCard } from "./voice-note-card";
+import { VoiceNoteBar } from "./voice-note-bar";
 
 interface VoiceNoteAttachmentsProps {
   api: denizApi;
@@ -86,26 +86,6 @@ export function VoiceNoteAttachments({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1">
-        {selected.map((voiceNote) => (
-          <span
-            key={voiceNote._id}
-            className="inline-flex h-6 items-center gap-1 border bg-muted/20 px-1.5 text-[10px]"
-          >
-            <Mic className="size-3" />
-            <span className="max-w-48 truncate">{voiceNote.title}</span>
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground"
-              aria-label={`Detach ${voiceNote.title}`}
-              onClick={() =>
-                void commit(selectedIds.filter((id) => id !== voiceNote._id))
-              }
-            >
-              <X className="size-3" />
-            </button>
-          </span>
-        ))}
-
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -162,15 +142,12 @@ export function VoiceNoteAttachments({
       </div>
 
       {selected.map((voiceNote) => (
-        <VoiceNoteCard
+        <VoiceNoteBar
           key={voiceNote._id}
           api={api}
           voiceNote={voiceNote}
-          compact
-          onChanged={(next) =>
-            setVoiceNotes((current) =>
-              current.map((item) => (item._id === next._id ? next : item)),
-            )
+          onDetach={() =>
+            void commit(selectedIds.filter((id) => id !== voiceNote._id))
           }
         />
       ))}

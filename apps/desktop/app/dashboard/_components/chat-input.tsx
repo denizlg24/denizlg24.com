@@ -25,9 +25,11 @@ import { Switch } from "@repo/ui/switch";
 import {
   ArrowUp,
   Brain,
+  Check,
   EyeOff,
   FileText,
   Image,
+  Mic,
   Paperclip,
   Settings,
   Square,
@@ -42,6 +44,11 @@ import {
   useState,
 } from "react";
 import { ModelSelector } from "@/components/ui/model-selector";
+import {
+  formatDuration,
+  useVoiceRecorder,
+} from "@/components/voice-notes/voice-recorder-provider";
+import { useDictation } from "@/hooks/use-dictation";
 import type { ModelCatalogState } from "@/hooks/use-model-catalog";
 import type { AgentMemoryMode, IChatAttachment } from "@/lib/data-types";
 
@@ -179,6 +186,23 @@ export function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [multiLine, setMultiLine] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const dictation = useDictation({
+    onTranscript: useCallback(
+      (text: string) => {
+        onChange(value.trim() ? `${value.trimEnd()} ${text}` : text);
+        textareaRef.current?.focus();
+      },
+      [onChange, value],
+    ),
+  });
+  // One microphone: a voice note being recorded owns it until it is saved.
+  const voiceNoteStatus = useVoiceRecorder().status;
+  const voiceNoteBusy =
+    voiceNoteStatus === "requesting" ||
+    voiceNoteStatus === "recording" ||
+    voiceNoteStatus === "uploading";
+  const recording = dictation.status === "recording";
+  const transcribing = dictation.status === "transcribing";
   // Held as a string so the field can be emptied mid-edit; clamped on blur.
   const [maxRoundsDraft, setMaxRoundsDraft] = useState(
     String(maxRounds ?? DEFAULT_MAX_ROUNDS),
@@ -519,24 +543,86 @@ export function ChatInput({
               <Paperclip className="w-4 h-4" />
             </button>
           )}
-          <textarea
-            ref={textareaRef}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            disabled={disabled}
-            placeholder="Ask anything..."
-            rows={1}
-            className="min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-sm outline-none placeholder:text-muted-foreground/60 max-h-50 disabled:opacity-50 scrollbar-none sm:px-3"
-            style={{ lineHeight: "1.5" }}
-          />
-          {docked && modelLabel && (
+          {recording ? (
+            <div className="flex min-w-0 flex-1 items-center gap-2 px-2 py-3 sm:px-3">
+              <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-red-500" />
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                {formatDuration(dictation.elapsedMs)}
+              </span>
+              <div
+                className="flex h-4 min-w-0 flex-1 items-center gap-px overflow-hidden"
+                aria-hidden="true"
+              >
+                {dictation.levels.map((level, index) => (
+                  <span
+                    key={index}
+                    className="w-0.5 shrink-0 rounded-full bg-foreground/40"
+                    style={{ height: `${Math.max(10, level * 100)}%` }}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <textarea
+              ref={textareaRef}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              disabled={disabled}
+              placeholder={transcribing ? "Transcribing..." : "Ask anything..."}
+              rows={1}
+              className="min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-sm outline-none placeholder:text-muted-foreground/60 max-h-50 disabled:opacity-50 scrollbar-none sm:px-3"
+              style={{ lineHeight: "1.5" }}
+            />
+          )}
+          {docked && modelLabel && !recording && (
             <span className="hidden text-[11px] text-muted-foreground/50 pr-2 pb-3 whitespace-nowrap select-none sm:inline">
               {modelLabel}
             </span>
           )}
-          {streaming ? (
+          {recording ? (
+            <button
+              type="button"
+              onClick={dictation.cancel}
+              className="shrink-0 mb-2 flex items-center justify-center w-7 h-7 rounded-full text-muted-foreground/50 transition-colors hover:bg-surface hover:text-foreground"
+              aria-label="Discard dictation"
+              title="Discard dictation"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={dictation.start}
+              disabled={
+                disabled ||
+                transcribing ||
+                voiceNoteBusy ||
+                !dictation.available
+              }
+              className="shrink-0 mb-2 flex items-center justify-center w-7 h-7 rounded-full text-muted-foreground/50 transition-colors hover:bg-surface hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground/50"
+              aria-label="Dictate"
+              title={voiceNoteBusy ? "Recording a voice note" : "Dictate"}
+            >
+              {transcribing ? (
+                <Spinner className="size-4 text-muted-foreground/60" />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
+            </button>
+          )}
+          {recording ? (
+            <button
+              type="button"
+              onClick={dictation.stop}
+              className="shrink-0 mr-2 mb-2 flex items-center justify-center w-7 h-7 rounded-full bg-foreground text-background transition-opacity hover:opacity-80"
+              aria-label="Finish dictation"
+              title="Finish dictation"
+            >
+              <Check className="w-4 h-4" />
+            </button>
+          ) : streaming ? (
             <button
               type="button"
               onClick={onAbort}

@@ -56,7 +56,7 @@ export async function observeVoiceNoteTranscript(
       memoryMode: "enabled",
       evidence: buildEvidenceInput({
         idempotencyKey: `voice-note:${voiceNoteId}:${voiceNote.transcription.requestVersion}:${index}`,
-        sourceType: "attachment",
+        sourceType: "voice-note",
         sourceRef: {
           entityType: "voice-note",
           entityId: voiceNoteId,

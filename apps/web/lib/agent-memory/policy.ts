@@ -86,6 +86,9 @@ const SOURCE_POLICY: Record<
   // Contents of a file the sender chose to attach; the sender vouches for
   // sending it, never for what is inside it.
   attachment: { actors: ["user", "agent"], maximumTrust: "low" },
+  // A transcript of the owner dictating. First-party like a journal entry —
+  // the words are his, only the transcription sits in between.
+  "voice-note": { actors: ["user", "system"], maximumTrust: "high" },
 };
 
 export interface EvidencePolicyInput {
