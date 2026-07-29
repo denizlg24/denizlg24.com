@@ -42,6 +42,7 @@ export type FinanceConnectionState = z.infer<
 
 export const financeProviderAccountSchema = z.object({
   accountRef: z.string().min(1),
+  providerSessionRef: z.string().min(1).optional(),
   identificationHash: z.string().min(1),
   institutionId: z.string().min(1),
   institutionName: z.string().min(1),
@@ -102,7 +103,6 @@ export const financeAccountSchema = z.object({
   provider: z.enum(["enable-banking", "csv"]),
   providerAccountRef: z.string().min(1),
   identificationHash: z.string().min(1),
-  providerSessionRef: z.string().min(1).optional(),
   institutionId: z.string().min(1),
   institutionName: z.string().min(1),
   displayName: z.string().min(1),
