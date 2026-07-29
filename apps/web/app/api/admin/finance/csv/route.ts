@@ -1,6 +1,7 @@
 import { financeCsvImportInputSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { serializeFinanceAccount } from "@/lib/finance/dashboard";
+import { observeFinanceMemorySafely } from "@/lib/finance/memory";
 import { importFinanceCsv } from "@/lib/finance/operations";
 import { requireAdmin } from "@/lib/require-admin";
 
@@ -13,6 +14,7 @@ export async function POST(request: NextRequest) {
   }
   try {
     const account = await importFinanceCsv(parsed.data);
+    await observeFinanceMemorySafely();
     return NextResponse.json(
       { account: serializeFinanceAccount(account) },
       { status: 201 },

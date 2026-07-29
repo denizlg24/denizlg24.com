@@ -83,6 +83,25 @@ describe("agent memory security policy", () => {
     ).toThrow("attachment evidence cannot claim high trust");
   });
 
+  test("keeps computed finance evidence system-owned and derived", () => {
+    const financeEvidence = {
+      sourceType: "finance" as const,
+      sourceRef: { entityType: "finance-month", entityId: "2026-07" },
+      actor: "system" as const,
+      trust: "derived" as const,
+      sensitivity: "sensitive" as const,
+      snapshot: '{"spendMinor":48000}',
+      provenance: { adapter: "finance-aggregate-v1" },
+    };
+    expect(() => assertEvidencePolicy(financeEvidence)).not.toThrow();
+    expect(() =>
+      assertEvidencePolicy({ ...financeEvidence, actor: "user" }),
+    ).toThrow("Actor user is invalid for finance evidence");
+    expect(() =>
+      assertEvidencePolicy({ ...financeEvidence, trust: "high" }),
+    ).toThrow("finance evidence cannot claim high trust");
+  });
+
   test("rejects permission-like candidates even with trusted evidence", () => {
     expect(() =>
       assertCandidateSafety({

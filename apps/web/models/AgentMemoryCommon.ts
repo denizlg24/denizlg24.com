@@ -11,6 +11,7 @@ export const AGENT_SOURCE_TYPES = [
   "course",
   "email-triage",
   "journal",
+  "finance",
   "file",
   "manual",
   "attachment",

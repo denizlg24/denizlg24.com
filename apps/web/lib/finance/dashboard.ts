@@ -195,7 +195,9 @@ function convertMinorToBase(
   return Math.round((amountMinor * applicable.rateMicros) / 1_000_000);
 }
 
-export async function getFinanceDashboard(): Promise<FinanceDashboardResponse> {
+export async function getFinanceDashboard(
+  now = new Date(),
+): Promise<FinanceDashboardResponse> {
   await connectDB();
   const [accounts, balances, ledgerRows, rules, reviews, fxSnapshots] =
     await Promise.all([
@@ -240,7 +242,6 @@ export async function getFinanceDashboard(): Promise<FinanceDashboardResponse> {
       aggregateBaseMinor += converted;
     }
   }
-  const now = new Date();
   const asOfDate = now.toISOString().slice(0, 10);
   const forecastLedger = ledger.flatMap((row) => {
     const converted = convertMinorToBase(

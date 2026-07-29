@@ -81,6 +81,7 @@ const SOURCE_POLICY: Record<
     maximumTrust: "untrusted",
   },
   journal: { actors: ["user", "system"], maximumTrust: "high" },
+  finance: { actors: ["system"], maximumTrust: "derived" },
   file: { actors: ["user", "external"], maximumTrust: "untrusted" },
   manual: { actors: ["user", "system"], maximumTrust: "highest" },
   // Contents of a file the sender chose to attach; the sender vouches for

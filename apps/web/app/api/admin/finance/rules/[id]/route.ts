@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { serializeFinanceRecurringRule } from "@/lib/finance/dashboard";
 import { materializeRecurringFinanceEntries } from "@/lib/finance/ledger";
+import { observeFinanceMemorySafely } from "@/lib/finance/memory";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import { FinanceLedgerEntry, FinanceRecurringRule } from "@/models/Finance";
@@ -34,6 +35,7 @@ export async function PATCH(request: NextRequest, context: Context) {
     return NextResponse.json({ error: "Rule not found" }, { status: 404 });
   }
   await materializeRecurringFinanceEntries();
+  await observeFinanceMemorySafely();
   return NextResponse.json({ rule: serializeFinanceRecurringRule(rule) });
 }
 
@@ -56,5 +58,6 @@ export async function DELETE(request: NextRequest, context: Context) {
     },
     { $set: { state: "void" } },
   );
+  await observeFinanceMemorySafely();
   return NextResponse.json({ success: true });
 }

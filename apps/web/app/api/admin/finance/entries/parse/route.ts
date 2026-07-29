@@ -1,6 +1,7 @@
 import { financeNaturalEntryInputSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { serializeFinanceLedgerEntry } from "@/lib/finance/dashboard";
+import { observeFinanceMemorySafely } from "@/lib/finance/memory";
 import { createNaturalFinanceEntry } from "@/lib/finance/operations";
 import { requireAdmin } from "@/lib/require-admin";
 
@@ -17,6 +18,7 @@ export async function POST(request: NextRequest) {
   try {
     const entry = await createNaturalFinanceEntry(parsed.data);
     if (!entry) throw new Error("Finance entry was not persisted");
+    await observeFinanceMemorySafely();
     return NextResponse.json(
       { entry: serializeFinanceLedgerEntry(entry) },
       { status: 201 },

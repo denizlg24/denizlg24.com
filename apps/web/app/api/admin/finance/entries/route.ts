@@ -2,6 +2,7 @@ import { financeManualEntryInputSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { serializeFinanceLedgerEntry } from "@/lib/finance/dashboard";
 import { createManualFinanceEntry } from "@/lib/finance/ledger";
+import { observeFinanceMemorySafely } from "@/lib/finance/memory";
 import { requireAdmin } from "@/lib/require-admin";
 
 export async function POST(request: NextRequest) {
@@ -17,6 +18,7 @@ export async function POST(request: NextRequest) {
   try {
     const entry = await createManualFinanceEntry(parsed.data);
     if (!entry) throw new Error("Finance entry was not persisted");
+    await observeFinanceMemorySafely();
     return NextResponse.json(
       { entry: serializeFinanceLedgerEntry(entry) },
       { status: 201 },

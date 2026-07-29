@@ -10,6 +10,7 @@ import {
   ingestBankTransactions,
   materializeRecurringFinanceEntries,
 } from "./ledger";
+import { observeFinanceMemorySafely } from "./memory";
 import {
   EnableBankingError,
   EnableBankingProvider,
@@ -162,6 +163,7 @@ export async function syncFinanceAccount(
     );
     await reservation.releaseUnused();
     const nextSyncAt = await updateFinanceNextSync(account._id, now);
+    await observeFinanceMemorySafely(now);
     return {
       status: "synced" as const,
       fetchedAt: now.toISOString(),
@@ -212,6 +214,7 @@ export async function runFinanceCron(now = new Date()) {
     });
     results.push({ accountId: account._id.toString(), status: result.status });
   }
+  await observeFinanceMemorySafely(now);
   return { planned: accounts.length, attempted: results.length, results };
 }
 
