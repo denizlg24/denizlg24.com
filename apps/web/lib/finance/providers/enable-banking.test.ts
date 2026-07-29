@@ -113,4 +113,25 @@ describe("Enable Banking adapter", () => {
       ),
     ).toBe(true);
   });
+
+  test("never sends date_to without date_from", async () => {
+    configureCredentials();
+    const requests: Request[] = [];
+    const fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        requests.push(new Request(input, init));
+        return Response.json({ transactions: [], continuation_key: null });
+      },
+    );
+    const provider = new EnableBankingProvider({
+      fetch: fetchMock as unknown as typeof fetch,
+      context: { dateTo: "2026-07-29", initialBackfill: true },
+    });
+
+    await provider.fetchTransactions("account-ref");
+    const query = new URL(requests[0]!.url).searchParams;
+    expect(query.get("date_from")).toBeNull();
+    expect(query.get("date_to")).toBeNull();
+    expect(query.get("strategy")).toBe("longest");
+  });
 });

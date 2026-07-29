@@ -19,11 +19,18 @@ import { ProviderBudgetExhaustedError } from "./providers/types";
 import { decryptFinanceSecret } from "./secrets";
 
 const OVERLAP_DAYS = 5;
+const FIRST_SYNC_LOOKBACK_DAYS = 90;
 
-function overlapDate(lastBookingDate: string | undefined, now: Date) {
-  if (!lastBookingDate) return undefined;
-  const date = new Date(`${lastBookingDate}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() - OVERLAP_DAYS);
+// An account has no lastBookingDate until a sync returns booked rows, so the
+// first sync needs its own bounded window rather than an open-ended one.
+export function overlapDate(lastBookingDate: string | undefined, now: Date) {
+  const date = lastBookingDate
+    ? new Date(`${lastBookingDate}T00:00:00.000Z`)
+    : new Date(now);
+  date.setUTCDate(
+    date.getUTCDate() -
+      (lastBookingDate ? OVERLAP_DAYS : FIRST_SYNC_LOOKBACK_DAYS),
+  );
   return date.toISOString().slice(0, 10);
 }
 
@@ -115,8 +122,12 @@ export async function syncFinanceAccount(
     };
   }
 
-  const dateFrom = overlapDate(account.lastBookingDate, now);
-  const dateTo = now.toISOString().slice(0, 10);
+  // A backfill asks the provider for the longest history it will serve, which
+  // a date range would cap. Otherwise the two are always sent as a pair.
+  const dateFrom = options.initialBackfill
+    ? undefined
+    : overlapDate(account.lastBookingDate, now);
+  const dateTo = dateFrom ? now.toISOString().slice(0, 10) : undefined;
   const provider = new EnableBankingProvider({
     context: {
       sessionRef: decryptFinanceSecret(account.encryptedProviderSessionRef),

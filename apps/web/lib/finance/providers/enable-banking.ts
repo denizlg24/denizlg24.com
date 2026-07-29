@@ -395,10 +395,12 @@ export class EnableBankingProvider implements BankProvider {
 
     do {
       const query = new URLSearchParams();
+      // Enable Banking rejects date_to without date_from (422), so the range
+      // is only ever sent as a pair.
       if (this.#context.dateFrom) {
         query.set("date_from", this.#context.dateFrom);
+        if (this.#context.dateTo) query.set("date_to", this.#context.dateTo);
       }
-      if (this.#context.dateTo) query.set("date_to", this.#context.dateTo);
       if (this.#context.initialBackfill) query.set("strategy", "longest");
       if (continuationKey) {
         query.set("continuation_key", continuationKey);
