@@ -93,6 +93,9 @@ export async function ingestBankTransactions(input: {
   fetchedDateFrom?: string;
   fetchedDateTo?: string;
   completeWindow: boolean;
+  // Skips the LLM-backed and cross-account passes so the caller can run them
+  // off the response path; deterministic linking always stays inline.
+  deferEnrichment?: boolean;
 }) {
   const accountId = new mongoose.Types.ObjectId(input.accountId);
   const batchDates = input.transactions
@@ -228,13 +231,28 @@ export async function ingestBankTransactions(input: {
     }
   }
 
-  await reconcileFinanceLedger(accountId);
+  await reconcileFinanceLedger(accountId, {
+    skipSuggestions: input.deferEnrichment,
+  });
+  if (!input.deferEnrichment) await runFinanceEnrichment(accountId);
+
+  return { observed: seenIds.size };
+}
+
+// Everything a sync produces that the dashboard reads later rather than the
+// sync response needing: match suggestions, merchant categories, transfers.
+export async function runFinanceEnrichment(
+  accountId: string | mongoose.Types.ObjectId,
+) {
+  await reconcileFinanceLedger(accountId).catch((error) => {
+    console.warn("[finance] Match review deferred", error);
+  });
   await categorizeUnknownMerchants(accountId).catch((error) => {
     console.warn("[finance] Merchant categorization deferred", error);
   });
-  await detectAndStoreTransfers();
-
-  return { observed: seenIds.size };
+  await detectAndStoreTransfers().catch((error) => {
+    console.warn("[finance] Transfer detection deferred", error);
+  });
 }
 
 async function linkLedgerRows(

@@ -9,6 +9,7 @@ import {
 import {
   ingestBankTransactions,
   materializeRecurringFinanceEntries,
+  runFinanceEnrichment,
 } from "./ledger";
 import { observeFinanceMemorySafely } from "./memory";
 import {
@@ -19,7 +20,9 @@ import { ProviderBudgetExhaustedError } from "./providers/types";
 import { decryptFinanceSecret } from "./secrets";
 
 const OVERLAP_DAYS = 5;
-const FIRST_SYNC_LOOKBACK_DAYS = 90;
+// Kept short so the first sync — the only one that fetches a wide window — can
+// finish inside a request. Later syncs only overlap the last booked day.
+const FIRST_SYNC_LOOKBACK_DAYS = 30;
 
 // An account has no lastBookingDate until a sync returns booked rows, so the
 // first sync needs its own bounded window rather than an open-ended one.
@@ -81,6 +84,9 @@ export async function syncFinanceAccount(
     psuIpAddress?: string;
     psuUserAgent?: string;
     now?: Date;
+    // Route handlers pass Next's after() so enrichment and agent-memory work
+    // run once the response is sent. Cron runs them inline.
+    defer?: (task: () => Promise<void>) => void;
   },
 ) {
   await connectDB();
@@ -155,6 +161,7 @@ export async function syncFinanceAccount(
         fetchedDateFrom: dateFrom,
         fetchedDateTo: dateTo,
         completeWindow: provider.lastTransactionFetchComplete,
+        deferEnrichment: Boolean(options.defer),
       }),
     ]);
     const lastBookingDate = transactions
@@ -174,7 +181,13 @@ export async function syncFinanceAccount(
     );
     await reservation.releaseUnused();
     const nextSyncAt = await updateFinanceNextSync(account._id, now);
-    await observeFinanceMemorySafely(now);
+    const accountId = account._id;
+    const finish = async () => {
+      if (options.defer) await runFinanceEnrichment(accountId);
+      await observeFinanceMemorySafely(now);
+    };
+    if (options.defer) options.defer(finish);
+    else await finish();
     return {
       status: "synced" as const,
       fetchedAt: now.toISOString(),

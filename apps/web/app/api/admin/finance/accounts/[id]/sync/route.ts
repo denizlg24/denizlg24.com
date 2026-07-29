@@ -1,7 +1,11 @@
 import mongoose from "mongoose";
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { attendedFinanceHeaders, syncFinanceAccount } from "@/lib/finance/sync";
 import { requireAdmin } from "@/lib/require-admin";
+
+// Balance and transaction calls reach the bank live; this matches the finance
+// cron route, which runs the same work.
+export const maxDuration = 300;
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -16,6 +20,7 @@ export async function POST(request: NextRequest, context: Context) {
     return NextResponse.json(
       await syncFinanceAccount(id, {
         mode: "manual",
+        defer: after,
         ...attendedFinanceHeaders(request),
       }),
     );

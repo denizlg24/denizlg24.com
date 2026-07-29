@@ -11,6 +11,6 @@ describe("finance sync window", () => {
   test("falls back to a bounded window before the first booked row", () => {
     // Enable Banking rejects date_to without date_from, so this must never be
     // undefined while a date_to is being sent alongside it.
-    expect(overlapDate(undefined, now)).toBe("2026-04-30");
+    expect(overlapDate(undefined, now)).toBe("2026-06-29");
   });
 });
