@@ -1,17 +1,21 @@
 import type { DockerClient } from "@repo/cloud-core";
 import {
   activityFacets,
+  createAlertRule,
   createTask,
   type Database,
+  deleteAlertRule,
   deleteTask,
   findTaskByType,
   getLatestTaskRuns,
   getTask,
   largestFiles,
+  listAlertRules,
   listBucketUsage,
   listNotificationEvents,
   listTaskRuns,
   listTasks,
+  metricCatalog,
   queryActivity,
   queryMetricSeries,
   type StorageConfig,
@@ -19,6 +23,7 @@ import {
   storageByUser,
   storageStats,
   streamActivity,
+  updateAlertRule,
   updateTask,
 } from "@repo/cloud-core";
 import type { AuthVariables } from "@repo/cloud-core/middleware";
@@ -26,6 +31,8 @@ import {
   ACTIVITY_EXPORT_MAX_ROWS,
   activityExportQuerySchema,
   activityQuerySchema,
+  alertRuleCreateSchema,
+  alertRuleUpdateSchema,
   createTaskInputSchema,
   metricsQuerySchema,
   mintTerminalTicketInputSchema,
@@ -238,6 +245,56 @@ export function opsRoutes(options: OpsRouteOptions) {
       { force: true },
     );
     return context.json({ data: { deliveries } });
+  });
+
+  app.get("/alert-rules", async (context) =>
+    context.json({ data: { rules: await listAlertRules(options.db) } }),
+  );
+
+  app.get("/alert-rules/catalog", async (context) => {
+    // Reads the cached overview, so naming containers costs no Docker call.
+    // If it is unavailable the catalog still returns, just with truncated ids.
+    const containerNames = await options.sampler
+      .overview()
+      .then(
+        (overview) =>
+          new Map(
+            overview.containers.map((container) => [
+              container.id,
+              container.name,
+            ]),
+          ),
+      )
+      .catch(() => undefined);
+
+    return context.json({
+      data: { series: await metricCatalog(options.db, { containerNames }) },
+    });
+  });
+
+  app.post("/alert-rules", async (context) => {
+    const input = alertRuleCreateSchema.parse(await context.req.json());
+    return context.json(
+      { data: { rule: await createAlertRule(options.db, input) } },
+      201,
+    );
+  });
+
+  app.patch("/alert-rules/:id", async (context) => {
+    const input = alertRuleUpdateSchema.parse(await context.req.json());
+    const rule = await updateAlertRule(
+      options.db,
+      context.req.param("id"),
+      input,
+    );
+    if (!rule) return context.json({ error: "Alert rule not found" }, 404);
+    return context.json({ data: { rule } });
+  });
+
+  app.delete("/alert-rules/:id", async (context) => {
+    const deleted = await deleteAlertRule(options.db, context.req.param("id"));
+    if (!deleted) return context.json({ error: "Alert rule not found" }, 404);
+    return context.json({ data: { status: "deleted" } });
   });
 
   const tieringSettings = async () => {

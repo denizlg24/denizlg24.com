@@ -27,11 +27,14 @@ function Tile({
   label,
   value,
   sub,
+  detail,
   percent,
 }: {
   label: string;
   value: string;
   sub?: string;
+  /** A third line, for a rate that only matters when it is non-zero. */
+  detail?: string;
   percent?: number;
 }) {
   return (
@@ -48,13 +51,34 @@ function Tile({
         </span>
       )}
       {percent !== undefined && <Meter percent={percent} />}
+      {detail !== undefined && (
+        <span className="truncate text-[11px] tabular-nums text-muted-foreground/80">
+          {detail}
+        </span>
+      )}
     </div>
   );
 }
 
+/** Counts get thousands separators; a bare 1048576 is unreadable at a glance. */
+function formatCount(value: number): string {
+  return value.toLocaleString();
+}
+
 export function OverviewTiles({ overview }: { overview: OpsOverview }) {
+  const { swap, fileDescriptors: fds, connections } = overview;
+  // Run-queue depth per core: 1.0 means the machine is exactly saturated, which
+  // is the reading a bare load average cannot give without knowing the host.
+  const loadPerCore =
+    overview.cpu.cores > 0 ? overview.cpu.load1 / overview.cpu.cores : 0;
+
+  const swapPaging =
+    swap.outBytesPerSecond !== undefined && swap.inBytesPerSecond !== undefined
+      ? `${formatBytes(swap.inBytesPerSecond)}/s in · ${formatBytes(swap.outBytesPerSecond)}/s out`
+      : `${formatBytes(swap.totalBytes)} total`;
+
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
       <Tile
         label="cpu"
         value={formatPercent(overview.cpu.usagePercent)}
@@ -63,14 +87,52 @@ export function OverviewTiles({ overview }: { overview: OpsOverview }) {
       />
       <Tile
         label="load"
-        value={overview.cpu.load1.toFixed(2)}
-        sub={`${overview.cpu.load5.toFixed(2)} · ${overview.cpu.load15.toFixed(2)}`}
+        value={loadPerCore.toFixed(2)}
+        sub={`${overview.cpu.load1.toFixed(2)} · ${overview.cpu.load5.toFixed(2)} · ${overview.cpu.load15.toFixed(2)}`}
+        // 100% of the meter is one runnable task per core; beyond that the
+        // meter pins and the number carries the overload.
+        percent={loadPerCore * 100}
       />
       <Tile
         label="memory"
         value={formatPercent(overview.memory.usagePercent)}
         sub={`${formatBytes(overview.memory.usedBytes)} / ${formatBytes(overview.memory.totalBytes)}`}
         percent={overview.memory.usagePercent}
+      />
+      <Tile
+        label="swap"
+        value={swap.totalBytes === 0 ? "off" : formatPercent(swap.usagePercent)}
+        sub={
+          swap.totalBytes === 0
+            ? "not configured"
+            : `${formatBytes(swap.usedBytes)} / ${formatBytes(swap.totalBytes)}`
+        }
+        percent={swap.totalBytes === 0 ? undefined : swap.usagePercent}
+        detail={swap.totalBytes === 0 ? undefined : swapPaging}
+      />
+      <Tile
+        label="fds"
+        value={
+          fds.processOpen === null
+            ? formatCount(fds.allocated)
+            : formatCount(fds.processOpen)
+        }
+        sub={
+          fds.processLimit === null
+            ? `${formatCount(fds.allocated)} / ${formatCount(fds.max)} host`
+            : `of ${formatCount(fds.processLimit)} · host ${formatPercent(fds.usagePercent)}`
+        }
+        percent={fds.processUsagePercent ?? fds.usagePercent}
+      />
+      <Tile
+        label="conns"
+        value={formatCount(connections.established)}
+        sub={`${formatCount(connections.inbound)} in · ${formatCount(connections.outbound)} out`}
+        detail={
+          connections.timeWait > 0
+            ? `${formatCount(connections.timeWait)} time-wait`
+            : undefined
+        }
       />
       <Tile
         label="temp"

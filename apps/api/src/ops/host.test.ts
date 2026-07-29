@@ -2,16 +2,24 @@ import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 
 import {
+  classifySockets,
   diskActivityBetween,
   diskstatsKey,
   HostCollector,
   hasDeviceRows,
+  PAGE_SIZE_BYTES,
   parseCpuStat,
   parseDf,
   parseDiskstats,
+  parseFileNr,
   parseLoadAverage,
   parseMeminfo,
+  parseOpenFileLimit,
   parseProcNetDev,
+  parseProcNetTcp,
+  parseSockstat,
+  parseSwapInfo,
+  parseVmstat,
   readCpuTemperature,
 } from "./host";
 
@@ -45,6 +53,83 @@ describe("host metric parsers", () => {
       interface: "eth0",
       rxBytes: 123_456,
       txBytes: 654_321,
+    });
+  });
+
+  it("parses swap totals, and reports zeroes when swap is disabled", async () => {
+    const swap = parseSwapInfo(await fixture("meminfo-swap.txt"));
+    expect(swap.totalBytes).toBe(409_600_000);
+    expect(swap.freeBytes).toBe(307_200_000);
+    expect(swap.usedBytes).toBe(102_400_000);
+    expect(swap.cachedBytes).toBe(10_240_000);
+    expect(swap.usagePercent).toBeCloseTo(25, 5);
+
+    // A host without swap is a valid reading, not a parse failure — unlike
+    // MemTotal, a missing SwapTotal must not throw.
+    const none = parseSwapInfo(await fixture("meminfo.txt"));
+    expect(none.totalBytes).toBe(0);
+    expect(none.usagePercent).toBe(0);
+  });
+
+  it("reads cumulative swap page counters from vmstat", () => {
+    expect(
+      parseVmstat("nr_free_pages 1000\npswpin 40\npswpout 90\npgfault 5\n"),
+    ).toEqual({ pagesIn: 40, pagesOut: 90 });
+    expect(parseVmstat("nr_free_pages 1000\n")).toEqual({
+      pagesIn: 0,
+      pagesOut: 0,
+    });
+  });
+
+  it("parses file-nr and the soft open-file limit", () => {
+    expect(parseFileNr("2048\t0\t2097152\n")).toEqual({
+      allocated: 2_048,
+      max: 2_097_152,
+      usagePercent: expect.closeTo(0.0977, 4),
+    });
+    expect(parseFileNr("6000 0 12000").usagePercent).toBe(50);
+    expect(() => parseFileNr("garbage")).toThrow();
+
+    const limits = [
+      "Limit                     Soft Limit           Hard Limit           Units",
+      "Max cpu time              unlimited            unlimited            seconds",
+      "Max open files            1048576              1048576              files",
+    ].join("\n");
+    expect(parseOpenFileLimit(limits)).toBe(1_048_576);
+    expect(
+      parseOpenFileLimit(
+        "Max open files            unlimited            unlimited",
+      ),
+    ).toBeNull();
+    expect(parseOpenFileLimit("Max cpu time  unlimited")).toBeNull();
+  });
+
+  it("splits established sockets into inbound and outbound by listening port", async () => {
+    const counters = classifySockets(
+      parseProcNetTcp(await fixture("proc-net-tcp.txt")),
+    );
+    expect(counters.listening).toBe(2);
+    expect(counters.established).toBe(4);
+    // Two on 5433 and one on 27018 landed on ports the host listens on.
+    expect(counters.inbound).toBe(3);
+    // The ephemeral local port dialling out to :443 is not a listening port.
+    expect(counters.outbound).toBe(1);
+    expect(counters.timeWait).toBe(1);
+    expect(counters.topInboundPorts).toEqual([
+      { port: 5_433, count: 2 },
+      { port: 27_018, count: 1 },
+    ]);
+  });
+
+  it("reads orphan and TCP memory from sockstat, defaulting when absent", () => {
+    expect(
+      parseSockstat(
+        "sockets: used 300\nTCP: inuse 40 orphan 3 tw 12 alloc 55 mem 7\n",
+      ),
+    ).toEqual({ orphan: 3, tcpMemoryBytes: 7 * PAGE_SIZE_BYTES });
+    expect(parseSockstat("sockets: used 300\n")).toEqual({
+      orphan: 0,
+      tcpMemoryBytes: 0,
     });
   });
 

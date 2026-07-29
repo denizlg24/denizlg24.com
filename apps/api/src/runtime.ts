@@ -20,6 +20,7 @@ import {
   S3CredentialResolver,
   StorageService,
   SyncWorker,
+  seedDefaultAlertRules,
   storageConfigFromEnv,
   storageUsedByOwner,
   syncRedisProjectAclUsers,
@@ -265,9 +266,20 @@ export async function createRuntimeApp() {
       addDevice(device, "hdd");
     }
     addDevice(process.env.MICROSD_DEVICE, "microsd");
-    const sampler = new MetricsSampler({ db, docker, devices });
+    const sampler = new MetricsSampler({
+      db,
+      docker,
+      devices,
+      mongo: mongoAdmin,
+      redis,
+    });
     cleanupActions.push(() => sampler.stop());
     await sampler.start();
+    // No-ops once any rule exists, so a deleted or retuned default stays that
+    // way across restarts.
+    await seedDefaultAlertRules(db).catch((error) => {
+      console.error("[alerts] Seeding default rules failed", error);
+    });
     const health = new OpsHealthService({
       db,
       mongo: mongoAdmin,

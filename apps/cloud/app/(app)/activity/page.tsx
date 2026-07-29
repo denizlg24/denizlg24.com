@@ -15,6 +15,7 @@ import {
   DEFAULT_FILTERS,
 } from "./_components/activity-filters";
 import { ActivityTable } from "./_components/activity-table";
+import { AlertRules } from "./_components/alert-rules";
 import { NotificationHistory } from "./_components/notification-history";
 
 const PAGE_SIZE = 100;
@@ -84,6 +85,16 @@ export default function ActivityPage() {
     fetchNotifications,
     60_000,
   );
+
+  const fetchAlertRules = useCallback(() => api.alertRules.list(), []);
+  const { data: alertRules, reload: reloadAlertRules } = usePoll(
+    fetchAlertRules,
+    60_000,
+  );
+  // The catalog only grows when a new collector ships, so it is fetched once
+  // rather than polled alongside the rules.
+  const fetchCatalog = useCallback(() => api.alertRules.catalog(), []);
+  const { data: catalog } = usePoll(fetchCatalog, 10 * 60_000);
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -172,6 +183,15 @@ export default function ActivityPage() {
           </div>
         </div>
       </Section>
+
+      <AlertRules
+        rules={alertRules?.rules ?? []}
+        catalog={catalog?.series ?? []}
+        onChanged={() => {
+          void reloadAlertRules();
+          void reloadNotifications();
+        }}
+      />
 
       <NotificationHistory
         events={notifications ?? []}

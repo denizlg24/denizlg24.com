@@ -81,6 +81,101 @@ export const containerSnapshotSchema = z.object({
   networkTxBytes: z.number().nonnegative().nullable(),
 });
 
+/**
+ * Swap rates need a previous sample to difference against, so they are absent
+ * on the first sample after a restart rather than reported as a spike derived
+ * from boot-time totals — the same rule the network and diskstats rates follow.
+ */
+export const swapSnapshotSchema = z.object({
+  totalBytes: z.number().nonnegative(),
+  usedBytes: z.number().nonnegative(),
+  freeBytes: z.number().nonnegative(),
+  cachedBytes: z.number().nonnegative(),
+  usagePercent: z.number().nonnegative(),
+  inBytesPerSecond: z.number().nonnegative().optional(),
+  outBytesPerSecond: z.number().nonnegative().optional(),
+});
+export type SwapSnapshot = z.infer<typeof swapSnapshotSchema>;
+
+/**
+ * `allocated`/`max` are the kernel's system-wide file-nr counters; `process*`
+ * are the API container's own, which is the pair that actually goes critical
+ * first when a client leaks sockets.
+ */
+export const fileDescriptorSnapshotSchema = z.object({
+  allocated: z.number().nonnegative(),
+  max: z.number().nonnegative(),
+  usagePercent: z.number().nonnegative(),
+  processOpen: z.number().nonnegative().nullable(),
+  processLimit: z.number().nonnegative().nullable(),
+  processUsagePercent: z.number().nonnegative().nullable(),
+});
+export type FileDescriptorSnapshot = z.infer<
+  typeof fileDescriptorSnapshotSchema
+>;
+
+export const listeningPortSchema = z.object({
+  port: z.number().int().nonnegative(),
+  count: z.number().int().nonnegative(),
+});
+
+/**
+ * An ESTABLISHED socket is inbound when its local port is one the host is also
+ * listening on, and outbound otherwise. `topInboundPorts` is what turns "2000
+ * connections" into "2000 connections on 27018".
+ */
+export const connectionSnapshotSchema = z.object({
+  established: z.number().int().nonnegative(),
+  inbound: z.number().int().nonnegative(),
+  outbound: z.number().int().nonnegative(),
+  listening: z.number().int().nonnegative(),
+  timeWait: z.number().int().nonnegative(),
+  orphan: z.number().int().nonnegative(),
+  tcpMemoryBytes: z.number().nonnegative(),
+  topInboundPorts: z.array(listeningPortSchema),
+});
+export type ConnectionSnapshot = z.infer<typeof connectionSnapshotSchema>;
+
+export const postgresStatsSchema = z.object({
+  connections: z.number().int().nonnegative(),
+  active: z.number().int().nonnegative(),
+  idle: z.number().int().nonnegative(),
+  idleInTransaction: z.number().int().nonnegative(),
+  waiting: z.number().int().nonnegative(),
+  maxConnections: z.number().int().nonnegative(),
+  usagePercent: z.number().nonnegative(),
+});
+export type PostgresStats = z.infer<typeof postgresStatsSchema>;
+
+export const mongodbStatsSchema = z.object({
+  current: z.number().int().nonnegative(),
+  available: z.number().int().nonnegative(),
+  active: z.number().int().nonnegative(),
+  totalCreated: z.number().int().nonnegative(),
+  usagePercent: z.number().nonnegative(),
+  queuedReaders: z.number().int().nonnegative(),
+  queuedWriters: z.number().int().nonnegative(),
+  uptimeSeconds: z.number().nonnegative(),
+});
+export type MongodbStats = z.infer<typeof mongodbStatsSchema>;
+
+export const redisStatsSchema = z.object({
+  connectedClients: z.number().int().nonnegative(),
+  blockedClients: z.number().int().nonnegative(),
+  usedMemoryBytes: z.number().nonnegative(),
+  maxMemoryBytes: z.number().nonnegative(),
+  usagePercent: z.number().nonnegative().nullable(),
+});
+export type RedisStats = z.infer<typeof redisStatsSchema>;
+
+/** Each engine is best-effort: a collection failure reports null, not a throw. */
+export const databaseStatsSchema = z.object({
+  postgres: postgresStatsSchema.nullable(),
+  mongodb: mongodbStatsSchema.nullable(),
+  redis: redisStatsSchema.nullable(),
+});
+export type DatabaseStats = z.infer<typeof databaseStatsSchema>;
+
 export const opsOverviewSchema = z.object({
   timestamp: cloudDateTimeSchema,
   cpu: z.object({
@@ -97,6 +192,10 @@ export const opsOverviewSchema = z.object({
     availableBytes: z.number().nonnegative(),
     usagePercent: z.number().nonnegative(),
   }),
+  swap: swapSnapshotSchema,
+  fileDescriptors: fileDescriptorSnapshotSchema,
+  connections: connectionSnapshotSchema,
+  databases: databaseStatsSchema,
   disks: z.array(diskInfoSchema),
   network: z.array(networkSnapshotSchema),
   containers: z.array(containerSnapshotSchema),
