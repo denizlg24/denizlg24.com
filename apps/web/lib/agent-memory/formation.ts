@@ -16,6 +16,7 @@ import {
 } from "@/lib/llm-service";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
+import { AGENT_SOURCE_TYPES } from "@/models/AgentMemoryCommon";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { AgentMemoryRun } from "@/models/AgentMemoryRun";
 import { OWNER_REFERENCE } from "./consolidation";
@@ -41,6 +42,13 @@ import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
 const PROMPT_VERSION = "formation-v5";
 const SCHEMA_VERSION = "2";
+
+/**
+ * What this build can classify. Mongoose enforces the enum on write, not on
+ * read, so a row written by a newer deployment arrives intact and is
+ * recognisable here as a type this code predates.
+ */
+const KNOWN_SOURCE_TYPES = new Set<string>(AGENT_SOURCE_TYPES);
 
 const FORMATION_RESULT_TOOL = {
   name: "return_memory_candidates",
@@ -457,25 +465,27 @@ export async function processFormationJob(
       !sourceRefIsExcluded(item.sourceRef, settings.excludedSourceRefs),
   );
   if (evidence.length === 0) {
-    // Dropping every row still completes the job, so the evidence is consumed
-    // and never retried. The usual cause is a deploy skew: a worker running
-    // older code has no entry for a source type the writer already emits, and
-    // the merge with stored settings cannot invent one.
-    if (rawEvidence.length > 0) {
-      const dropped = [
-        ...new Set(
-          rawEvidence
-            .filter(
-              (item) => !settings.enabledSources.includes(item.sourceType),
-            )
-            .map((item) => item.sourceType),
-        ),
-      ];
-      if (dropped.length > 0) {
-        console.warn(
-          `[agent-memory] Formation discarded ${rawEvidence.length} evidence row(s): source type(s) ${dropped.join(", ")} are not enabled on this worker`,
-        );
-      }
+    // A source type this worker has never heard of is a rollout skew, not a
+    // setting: an older build is draining a queue a newer one writes to. That
+    // has to stay retryable, because completing consumes the evidence and the
+    // memory is then never formed by the build that *does* support it.
+    // A type the worker knows and the owner disabled is a real answer, and
+    // completes.
+    const unsupported = [
+      ...new Set(
+        rawEvidence
+          .filter(
+            (item) =>
+              !settings.enabledSources.includes(item.sourceType) &&
+              !KNOWN_SOURCE_TYPES.has(item.sourceType),
+          )
+          .map((item) => item.sourceType),
+      ),
+    ];
+    if (unsupported.length > 0) {
+      throw new Error(
+        `Formation worker does not support source type(s) ${unsupported.join(", ")}; leaving ${rawEvidence.length} evidence row(s) for a newer build`,
+      );
     }
     return { candidates: 0, promoted: 0, rejected: 0 };
   }

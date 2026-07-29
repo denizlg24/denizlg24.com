@@ -78,6 +78,11 @@ function boundedRecords(
 
 function compactRecord(kind: AgentDomainKind, raw: Record<string, unknown>) {
   if (kind === "note") {
+    // The compact record is hashed into the content digest, so an unconditional
+    // `voiceNoteIds: []` would change the digest of every note that has never
+    // had audio attached — re-emitting evidence and bumping revisions for
+    // records that did not change. The key appears only when there is one.
+    const voiceNoteIds = ids(raw.voiceNoteIds);
     return {
       title: text(raw.title, 500),
       content: text(raw.content, 5_000),
@@ -86,7 +91,7 @@ function compactRecord(kind: AgentDomainKind, raw: Record<string, unknown>) {
       siteName: text(raw.siteName, 300),
       tags: strings(raw.tags),
       groupIds: ids(raw.groupIds),
-      voiceNoteIds: ids(raw.voiceNoteIds),
+      ...(voiceNoteIds.length > 0 ? { voiceNoteIds } : {}),
       status: raw.status,
       class: text(raw.class, 100),
     };
