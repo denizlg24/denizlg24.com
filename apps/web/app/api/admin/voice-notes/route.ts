@@ -1,3 +1,4 @@
+import { voiceNoteTranscriptionStatusSchema } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
@@ -43,17 +44,9 @@ export async function GET(request: NextRequest) {
     );
     const filter: Record<string, unknown> = {};
     if (query) filter.$text = { $search: query.slice(0, 200) };
-    if (
-      status &&
-      [
-        "untranscribed",
-        "queued",
-        "transcribing",
-        "transcribed",
-        "failed",
-      ].includes(status)
-    ) {
-      filter["transcription.status"] = status;
+    const parsedStatus = voiceNoteTranscriptionStatusSchema.safeParse(status);
+    if (parsedStatus.success) {
+      filter["transcription.status"] = parsedStatus.data;
     }
     const [voiceNotes, total] = await Promise.all([
       VoiceNote.find(filter)
@@ -123,10 +116,16 @@ export async function POST(request: NextRequest) {
       data.get("titleSource") === "placeholder" || !hasTitle
         ? "placeholder"
         : "manual";
-    const rawDuration = Number(data.get("durationMs"));
+    // Number(null) is 0, so an absent field used to record a zero-length
+    // recording rather than leaving the duration unknown.
+    const rawDuration = data.get("durationMs");
+    const parsedDuration =
+      typeof rawDuration === "string" && rawDuration.trim()
+        ? Number(rawDuration)
+        : Number.NaN;
     const durationMs =
-      Number.isFinite(rawDuration) && rawDuration >= 0
-        ? Math.round(rawDuration)
+      Number.isFinite(parsedDuration) && parsedDuration >= 0
+        ? Math.round(parsedDuration)
         : undefined;
     const source =
       data.get("source") === "agent"
@@ -135,10 +134,16 @@ export async function POST(request: NextRequest) {
           ? "upload"
           : "recording";
     const noteId = data.get("noteId");
+    // Silently dropping an unusable noteId stored the recording detached from
+    // the note the caller meant to attach it to, with nothing to indicate it.
+    if (
+      noteId !== null &&
+      (typeof noteId !== "string" || !mongoose.Types.ObjectId.isValid(noteId))
+    ) {
+      return NextResponse.json({ error: "Invalid noteId" }, { status: 400 });
+    }
     const noteIds =
-      typeof noteId === "string" && mongoose.Types.ObjectId.isValid(noteId)
-        ? [new mongoose.Types.ObjectId(noteId)]
-        : [];
+      typeof noteId === "string" ? [new mongoose.Types.ObjectId(noteId)] : [];
 
     const uploaded = await uploadFileToStorage(entry, "voice");
     storageKey = uploaded.id;
@@ -171,13 +176,35 @@ export async function POST(request: NextRequest) {
       linkedNoteId = noteIds[0];
     }
     if (data.get("transcribe") === "true") {
-      const queued = await enqueueVoiceNoteTranscription(
-        created._id.toString(),
-      );
-      return NextResponse.json(
-        { voiceNote: serializeVoiceNote(queued.voiceNote) },
-        { status: 201 },
-      );
+      // The recording is already durable at this point. A queueing failure is
+      // a transcription problem, not an upload one — rolling back here would
+      // delete audio the caller was told nothing about and cannot re-record.
+      // `enqueueVoiceNoteTranscription` marks the note failed on its way out,
+      // and both the nightly sweep and the retry button can pick it up again.
+      try {
+        const queued = await enqueueVoiceNoteTranscription(
+          created._id.toString(),
+        );
+        return NextResponse.json(
+          { voiceNote: serializeVoiceNote(queued.voiceNote) },
+          { status: 201 },
+        );
+      } catch (error) {
+        console.error(
+          "Failed to queue transcription for new voice note",
+          error,
+        );
+        const stored = await VoiceNote.findById(created._id)
+          .lean<ILeanVoiceNote>()
+          .exec();
+        if (stored) {
+          return NextResponse.json(
+            { voiceNote: serializeVoiceNote(stored) },
+            { status: 201 },
+          );
+        }
+        throw error;
+      }
     }
     const lean = await VoiceNote.findById(created._id)
       .lean<ILeanVoiceNote>()

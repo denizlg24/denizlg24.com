@@ -1,3 +1,4 @@
+import { voiceNoteTitleSchema } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
@@ -52,18 +53,13 @@ export async function PATCH(
     if (!mongoose.Types.ObjectId.isValid(voiceNoteId)) {
       return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
     }
-    const body: unknown = await request.json();
-    const title =
-      body &&
-      typeof body === "object" &&
-      typeof (body as Record<string, unknown>).title === "string"
-        ? ((body as Record<string, unknown>).title as string)
-            .trim()
-            .slice(0, 300)
-        : "";
-    if (!title) {
+    const parsed = voiceNoteTitleSchema.safeParse(
+      await request.json().catch(() => null),
+    );
+    if (!parsed.success) {
       return NextResponse.json({ error: "Title is required" }, { status: 400 });
     }
+    const { title } = parsed.data;
     await connectDB();
     const voiceNote = await VoiceNote.findByIdAndUpdate(
       voiceNoteId,
@@ -113,19 +109,34 @@ export async function DELETE(
     await Promise.all([
       Note.updateMany(
         { voiceNoteIds: voiceNote._id },
-        { $pull: { voiceNoteIds: voiceNote._id } },
+        {
+          $pull: { voiceNoteIds: voiceNote._id },
+          // Losing an attachment changes what the note is; it has to be
+          // re-indexed for the same reason attaching one does.
+          $set: { semanticStatus: "stale" },
+        },
       ).exec(),
       AgentMemoryJob.updateMany(
         {
           operation: "voice-transcription",
           "checkpoint.voiceNoteId": voiceNoteId,
-          status: { $in: ["pending", "retry"] },
+          // "leased" included to match redactAgentMemorySource: a job a worker
+          // is holding still refers to audio that is about to stop existing.
+          status: { $in: ["pending", "retry", "leased"] },
         },
         { $set: { status: "cancelled", completedAt: new Date() } },
       ).exec(),
     ]);
+    // Storage first: an orphaned blob is invisible and cheap, whereas a row
+    // pointing at a deleted object makes the note unplayable and undeletable.
+    // A storage failure here is logged rather than fatal — the record is gone
+    // either way, and reporting a failure would invite a retry that 404s.
+    try {
+      await deleteFileFromStorage(voiceNote.storageKey);
+    } catch (error) {
+      console.error("Failed to delete voice note audio", error);
+    }
     await VoiceNote.deleteOne({ _id: voiceNote._id }).exec();
-    await deleteFileFromStorage(voiceNote.storageKey);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete voice note", error);

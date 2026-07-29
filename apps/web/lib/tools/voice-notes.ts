@@ -53,13 +53,20 @@ export const voiceNotesTools: ToolDefinition[] = [
         .limit(limit)
         .lean<ILeanVoiceNote[]>()
         .exec();
-      return voiceNotes.map((voiceNote) => ({
-        ...serializeVoiceNote(voiceNote),
-        transcription: {
-          ...serializeVoiceNote(voiceNote).transcription,
-          text: voiceNote.transcription.text?.slice(0, 500),
-        },
-      }));
+      // Search results carry a preview, not the whole transcript; the full
+      // text is what get_voice_note is for.
+      return voiceNotes.map((voiceNote) => {
+        const serialized = serializeVoiceNote(voiceNote);
+        return {
+          ...serialized,
+          transcription: {
+            ...serialized.transcription,
+            ...(serialized.transcription.text === undefined
+              ? {}
+              : { text: serialized.transcription.text.slice(0, 500) }),
+          },
+        };
+      });
     },
   },
   {
@@ -143,20 +150,30 @@ export const voiceNotesTools: ToolDefinition[] = [
         ...new Set([...(note.voiceNoteIds ?? []).map(String), voiceNoteId]),
       ];
       const normalized = await normalizeVoiceNoteIds(nextIds);
-      const updated = await Note.findByIdAndUpdate(
-        noteId,
-        {
-          $set: {
-            voiceNoteIds: normalized,
-            semanticStatus: "stale",
-          },
-        },
-        { returnDocument: "after", runValidators: true },
-      )
-        .lean<ILeanNote>()
-        .exec();
+      // Both sides of the link commit together; see syncVoiceNoteLinks.
+      let updated: ILeanNote | null = null;
+      const session = await Note.startSession();
+      try {
+        await session.withTransaction(async () => {
+          updated = await Note.findByIdAndUpdate(
+            noteId,
+            {
+              $set: {
+                voiceNoteIds: normalized,
+                semanticStatus: "stale",
+              },
+            },
+            { returnDocument: "after", runValidators: true, session },
+          )
+            .lean<ILeanNote>()
+            .exec();
+          if (!updated) return;
+          await syncVoiceNoteLinks(noteId, normalized, session);
+        });
+      } finally {
+        await session.endSession();
+      }
       if (!updated) throw new Error("Note not found");
-      await syncVoiceNoteLinks(noteId, normalized);
       return { note: serializeNote(updated) };
     },
   },

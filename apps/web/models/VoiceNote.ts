@@ -37,6 +37,8 @@ export interface IVoiceNote extends Document {
     model?: string;
     segments?: IVoiceNoteTranscriptSegment[];
     requestVersion: number;
+    /** Transcription attempts that have failed; caps unattended retries. */
+    failedAttempts?: number;
     requestedAt?: Date;
     startedAt?: Date;
     completedAt?: Date;
@@ -65,6 +67,8 @@ export interface ILeanVoiceNote {
     model?: string;
     segments?: IVoiceNoteTranscriptSegment[];
     requestVersion: number;
+    /** Transcription attempts that have failed; caps unattended retries. */
+    failedAttempts?: number;
     requestedAt?: Date;
     startedAt?: Date;
     completedAt?: Date;
@@ -127,6 +131,7 @@ const VoiceNoteSchema = new Schema<IVoiceNote>(
       model: { type: String, maxlength: 200 },
       segments: { type: [TranscriptSegmentSchema] },
       requestVersion: { type: Number, default: 0, min: 0 },
+      failedAttempts: { type: Number, default: 0, min: 0 },
       requestedAt: { type: Date },
       startedAt: { type: Date },
       completedAt: { type: Date },

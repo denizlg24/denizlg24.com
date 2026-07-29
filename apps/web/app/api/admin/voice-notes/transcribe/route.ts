@@ -18,6 +18,15 @@ export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
   try {
+    // Checked before formData() so an oversized upload is rejected on the
+    // headers rather than after it has been buffered, as the sibling route does.
+    const declaredLength = Number(request.headers.get("content-length") ?? 0);
+    if (declaredLength > MAX_AUDIO_BYTES + 1024 * 1024) {
+      return NextResponse.json(
+        { error: "Audio exceeds the 25 MB limit" },
+        { status: 413 },
+      );
+    }
     const data = await request.formData();
     const entry = data.get("file");
     if (!(entry instanceof File)) {

@@ -1,12 +1,20 @@
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
+// Browsers, phones and desktop recorders disagree on the label for the same
+// container, so the aliases are listed rather than the extension being trusted
+// on its own — the extension check still has to pass alongside this.
 const ALLOWED_MIME_TYPES = new Set([
   "audio/webm",
   "audio/ogg",
   "audio/mpeg",
+  "audio/mp3",
   "audio/mp4",
-  "audio/wav",
+  "audio/m4a",
   "audio/x-m4a",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/wave",
+  "audio/vnd.wave",
 ]);
 const ALLOWED_EXTENSIONS = new Set([
   ".webm",

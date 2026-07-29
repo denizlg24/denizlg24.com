@@ -16,6 +16,13 @@ import { generateVoiceNoteTitle } from "./title";
 const DEFAULT_TRANSCRIPTION_MODEL = "gpt-transcribe";
 const MAX_TRANSCRIPTION_BYTES = 25 * 1024 * 1024;
 const NIGHTLY_BATCH_SIZE = 100;
+/**
+ * Unattended transcription attempts before a note stops being picked up. A
+ * recording that fails on a permanent fault — an unsupported codec, a blob the
+ * model rejects — would otherwise be retried and billed every single night
+ * forever. The explicit retry button ignores this and resets the count.
+ */
+const MAX_UNATTENDED_TRANSCRIPTION_ATTEMPTS = 3;
 
 export function getVoiceTranscriptionModel() {
   return (
@@ -53,6 +60,9 @@ export async function enqueueVoiceNoteTranscription(
       $set: {
         "transcription.status": "queued",
         "transcription.requestedAt": now,
+        // An explicit retry is a person overriding the automatic give-up, so
+        // it clears the counter that stopped the nightly sweep.
+        ...(options.retryFailed ? { "transcription.failedAttempts": 0 } : {}),
       },
       $unset: {
         "transcription.error": "",
@@ -112,9 +122,25 @@ export async function enqueueNightlyVoiceTranscriptions() {
   await connectDB();
   const candidates = await VoiceNote.find({
     "transcription.status": { $in: ["untranscribed", "failed"] },
-    $or: [
-      { "transcription.text": { $exists: false } },
-      { "transcription.text": "" },
+    // Both clauses have to tolerate a missing field: `$lt` is type-bracketed
+    // and would skip every row written before the counter existed.
+    $and: [
+      {
+        $or: [
+          { "transcription.text": { $exists: false } },
+          { "transcription.text": "" },
+        ],
+      },
+      {
+        $or: [
+          { "transcription.failedAttempts": { $exists: false } },
+          {
+            "transcription.failedAttempts": {
+              $lt: MAX_UNATTENDED_TRANSCRIPTION_ATTEMPTS,
+            },
+          },
+        ],
+      },
     ],
   })
     .select("_id")
@@ -255,6 +281,7 @@ async function transcribeVoiceNote(
           "transcription.error":
             error instanceof Error ? error.message : "Transcription failed",
         },
+        $inc: { "transcription.failedAttempts": 1 },
       },
     ).exec();
     throw error;

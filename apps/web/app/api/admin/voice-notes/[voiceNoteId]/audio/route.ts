@@ -17,7 +17,7 @@ export async function GET(
   }
   await connectDB();
   const voiceNote = await VoiceNote.findById(voiceNoteId)
-    .select("storageKey mimeType")
+    .select("storageKey mimeType filename")
     .lean<ILeanVoiceNote>()
     .exec();
   if (!voiceNote) {

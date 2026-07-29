@@ -112,18 +112,38 @@ async function updateNote(request: NextRequest, noteId: string) {
   if (Object.keys(update).length > 0) mutation.$set = update;
   if (Object.keys(unset).length > 0) mutation.$unset = unset;
 
-  const note = await Note.findByIdAndUpdate(noteId, mutation, {
-    returnDocument: "after",
-    runValidators: true,
-  })
-    .lean<ILeanNote>()
-    .exec();
+  let note: ILeanNote | null = null;
+  if (nextVoiceNoteIds) {
+    // The note's voiceNoteIds and each voice note's noteIds are two halves of
+    // one fact. Committing the first without the second leaves the attachment
+    // visible from one side only, so they move together or not at all.
+    const session = await Note.startSession();
+    try {
+      await session.withTransaction(async () => {
+        note = await Note.findByIdAndUpdate(noteId, mutation, {
+          returnDocument: "after",
+          runValidators: true,
+          session,
+        })
+          .lean<ILeanNote>()
+          .exec();
+        if (!note) return;
+        await syncVoiceNoteLinks(noteId, nextVoiceNoteIds, session);
+      });
+    } finally {
+      await session.endSession();
+    }
+  } else {
+    note = await Note.findByIdAndUpdate(noteId, mutation, {
+      returnDocument: "after",
+      runValidators: true,
+    })
+      .lean<ILeanNote>()
+      .exec();
+  }
 
   if (!note) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  if (nextVoiceNoteIds) {
-    await syncVoiceNoteLinks(noteId, nextVoiceNoteIds);
   }
   await observeDomainRecordSafely("note", note);
 
@@ -207,22 +227,35 @@ export async function DELETE(
       );
     }
     await redactAgentMemorySource({ entityType: "note", entityId: noteId });
-    await Note.deleteOne({ _id: noteId }).exec();
 
-    await NoteEdge.deleteMany({
-      $or: [{ from: note._id }, { to: note._id }],
-    }).exec();
-    await Promise.all([
-      NoteEmbedding.deleteMany({ noteId: note._id }).exec(),
-      VoiceNote.updateMany(
-        { noteIds: note._id },
-        { $pull: { noteIds: note._id } },
-      ).exec(),
-      KnowledgeSemanticSuggestion.updateMany(
-        { noteId: note._id, status: "pending" },
-        { $set: { status: "superseded", decidedAt: new Date() } },
-      ).exec(),
-    ]);
+    // Deleting the note and unpicking everything that points at it is one
+    // change: a partial apply leaves voice notes and edges referring to a note
+    // that no longer exists, which nothing later goes back to clean up.
+    const session = await Note.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await Note.deleteOne({ _id: noteId }, { session }).exec();
+        await NoteEdge.deleteMany(
+          { $or: [{ from: note._id }, { to: note._id }] },
+          { session },
+        ).exec();
+        await Promise.all([
+          NoteEmbedding.deleteMany({ noteId: note._id }, { session }).exec(),
+          VoiceNote.updateMany(
+            { noteIds: note._id },
+            { $pull: { noteIds: note._id } },
+            { session },
+          ).exec(),
+          KnowledgeSemanticSuggestion.updateMany(
+            { noteId: note._id, status: "pending" },
+            { $set: { status: "superseded", decidedAt: new Date() } },
+            { session },
+          ).exec(),
+        ]);
+      });
+    } finally {
+      await session.endSession();
+    }
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
