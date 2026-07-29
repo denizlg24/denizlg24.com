@@ -433,7 +433,7 @@ export function sanitizeUntrusted(value: string): string {
     .trim();
 }
 
-function normalizeBodyForTriage(
+export function normalizeBodyForTriage(
   text: string,
   html: string,
   mode: TriageBodyMode,

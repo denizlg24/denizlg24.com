@@ -18,6 +18,7 @@ export const agentSourceTypeSchema = z.enum([
   "course",
   "email-triage",
   "journal",
+  "finance",
   "file",
   "manual",
   "attachment",

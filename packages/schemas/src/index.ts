@@ -9,6 +9,7 @@ export * from "./conversation";
 export * from "./course";
 export * from "./dashboard";
 export * from "./email";
+export * from "./finance";
 export * from "./journal";
 export * from "./kanban";
 export * from "./latex-agent";

@@ -27,6 +27,7 @@ const PATHNAME_TITLE_MAP = {
   "/dashboard/journal": "journal",
   "/dashboard/authenticator": "authenticator",
   "/dashboard/contacts": "contacts",
+  "/dashboard/finance": "finance",
   "/dashboard/inbox": "inbox",
   "/dashboard/blog": "blogs",
   "/dashboard/blog/new": "new blog post",

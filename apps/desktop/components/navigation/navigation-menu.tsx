@@ -15,6 +15,7 @@ import {
   Calendar,
   CalendarDays,
   ChevronRight,
+  CircleDollarSign,
   Clock,
   DollarSign,
   FileCode2,
@@ -202,6 +203,11 @@ export const GROUPS: NavGroup[] = [
   {
     groupLabel: "Personal",
     items: [
+      {
+        label: "Finance",
+        href: "/finance",
+        icon: CircleDollarSign,
+      },
       {
         label: "Journal",
         href: "/journal",
