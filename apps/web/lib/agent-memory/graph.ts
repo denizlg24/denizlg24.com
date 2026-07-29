@@ -1,10 +1,12 @@
 import type { AgentMemoryGraphLink, AgentMemoryGraphNode } from "@repo/schemas";
+import mongoose from "mongoose";
 import { connectDB } from "@/lib/mongodb";
 import { AgentEvidenceEvent } from "@/models/AgentEvidenceEvent";
 import { AgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryEmbedding } from "@/models/AgentMemoryEmbedding";
 import { AgentMemorySimilarity } from "@/models/AgentMemorySimilarity";
 import { Person } from "@/models/Person";
+import { VoiceNote } from "@/models/VoiceNote";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
 const MIN_ENTITY_MEMBERS = 2;
@@ -27,6 +29,8 @@ export interface GraphMemoryInput {
   supersedesMemoryId?: string;
   /** Attachment image behind this memory, when one of its evidence rows has one. */
   imageUrl?: string;
+  /** Voice note behind this memory, when it was formed from a transcript. */
+  voiceNote?: AgentMemoryGraphNode["voiceNote"];
   /** What the memory is about, not when it was stored. See the graph node schema. */
   occurredAt?: string;
   occurredUntil?: string;
@@ -129,6 +133,7 @@ export function buildAgentMemoryGraph(
     importance: memory.importance,
     hasEmbedding: embeddedIds.has(memory.id),
     ...(memory.imageUrl ? { imageUrl: memory.imageUrl } : {}),
+    ...(memory.voiceNote ? { voiceNote: memory.voiceNote } : {}),
     ...(memory.occurredAt ? { occurredAt: memory.occurredAt } : {}),
     ...(memory.occurredUntil ? { occurredUntil: memory.occurredUntil } : {}),
   }));
@@ -285,6 +290,81 @@ async function resolveMemoryImages(
 }
 
 /**
+ * Maps memories to the voice note they were transcribed from, so the graph can
+ * draw a recording rather than a wall of text and play it without a second
+ * round trip. Mirrors resolveMemoryImages: evidence does not point back at
+ * memories, so the lookup goes through the evidence ids each memory carries.
+ */
+async function resolveMemoryVoiceNotes(
+  memories: { _id: { toString(): string }; evidenceIds?: unknown[] }[],
+): Promise<Map<string, NonNullable<GraphMemoryInput["voiceNote"]>>> {
+  const eventIds = memories.flatMap((memory) =>
+    (memory.evidenceIds ?? []).map(String),
+  );
+  if (eventIds.length === 0) return new Map();
+
+  const events = await AgentEvidenceEvent.find({
+    eventId: { $in: eventIds },
+    sourceType: "voice-note",
+    redactedAt: { $exists: false },
+    memoryEligible: true,
+  })
+    .select("eventId sourceRef")
+    .lean<{ eventId: string; sourceRef?: { entityId?: string } }[]>();
+  if (events.length === 0) return new Map();
+
+  const voiceNoteIdByEventId = new Map<string, string>();
+  for (const event of events) {
+    const id = event.sourceRef?.entityId;
+    if (id) voiceNoteIdByEventId.set(event.eventId, id);
+  }
+  const uniqueIds = [...new Set(voiceNoteIdByEventId.values())].filter((id) =>
+    mongoose.Types.ObjectId.isValid(id),
+  );
+  if (uniqueIds.length === 0) return new Map();
+
+  const voiceNotes = await VoiceNote.find({ _id: { $in: uniqueIds } })
+    .select("title durationMs waveform")
+    .lean<
+      {
+        _id: mongoose.Types.ObjectId;
+        title: string;
+        durationMs?: number;
+        waveform?: number[];
+      }[]
+    >();
+  const byId = new Map(
+    voiceNotes.map((voiceNote) => [
+      voiceNote._id.toString(),
+      {
+        id: voiceNote._id.toString(),
+        title: voiceNote.title,
+        ...(voiceNote.durationMs !== undefined
+          ? { durationMs: voiceNote.durationMs }
+          : {}),
+        waveform: (voiceNote.waveform ?? []).slice(0, 240),
+      },
+    ]),
+  );
+
+  const byMemoryId = new Map<
+    string,
+    NonNullable<GraphMemoryInput["voiceNote"]>
+  >();
+  for (const memory of memories) {
+    for (const eventId of memory.evidenceIds ?? []) {
+      const voiceNoteId = voiceNoteIdByEventId.get(String(eventId));
+      const voiceNote = voiceNoteId ? byId.get(voiceNoteId) : undefined;
+      if (voiceNote) {
+        byMemoryId.set(memory._id.toString(), voiceNote);
+        break;
+      }
+    }
+  }
+  return byMemoryId;
+}
+
+/**
  * `temporal.*` is stored as an ISO string and `createdAt` as a Date, while the
  * graph schema demands an offset-bearing ISO string. Unparseable values drop
  * rather than failing the whole graph read.
@@ -386,10 +466,12 @@ export async function loadAgentMemoryGraph() {
       .lean(),
   ]);
 
-  const [imageByMemoryId, evidenceDateByMemoryId] = await Promise.all([
-    resolveMemoryImages(memories),
-    resolveMemoryEvidenceDates(memories),
-  ]);
+  const [imageByMemoryId, voiceNoteByMemoryId, evidenceDateByMemoryId] =
+    await Promise.all([
+      resolveMemoryImages(memories),
+      resolveMemoryVoiceNotes(memories),
+      resolveMemoryEvidenceDates(memories),
+    ]);
 
   const graph = buildAgentMemoryGraph(
     memories.map((memory) => ({
@@ -403,6 +485,7 @@ export async function loadAgentMemoryGraph() {
       contradictionIds: (memory.contradictionIds ?? []).map(String),
       supersedesMemoryId: memory.supersedesMemoryId?.toString(),
       imageUrl: imageByMemoryId.get(memory._id.toString()),
+      voiceNote: voiceNoteByMemoryId.get(memory._id.toString()),
       occurredAt:
         isoOrUndefined(memory.temporal?.validFrom) ??
         evidenceDateByMemoryId.get(memory._id.toString()) ??

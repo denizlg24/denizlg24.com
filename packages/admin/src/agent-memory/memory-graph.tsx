@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import * as THREE from "three";
 import type { AdminClient } from "../client";
 import { useAdmin } from "../provider";
+import { GraphVoicePlayer } from "./graph-voice-player";
 import {
   accentFor,
   CARD_HEIGHT,
@@ -37,6 +38,9 @@ const CARDS_PER_PASS = 6;
 const LOD_INTERVAL_MS = 180;
 
 const CARD_ASPECT = CARD_WIDTH / CARD_HEIGHT;
+
+/** Unscaled width of the focused-node DOM panel; scale is derived against it. */
+const OVERLAY_BASE_WIDTH = 300;
 
 /* -------------------------------------------------------------------------- */
 /* Source images                                                              */
@@ -219,6 +223,13 @@ function disposeEntry(entry: SpriteEntry): void {
   entry.material.dispose();
 }
 
+/** Screen placement of the focused node's DOM overlay, in CSS pixels. */
+interface OverlayPlacement {
+  left: number;
+  top: number;
+  scale: number;
+}
+
 export function MemoryGraph({
   nodes,
   links,
@@ -241,6 +252,76 @@ export function MemoryGraph({
 
   const sprites = useRef(new Map<string, SpriteEntry>());
   const outlineTexture = useRef<THREE.Texture | null>(null);
+  const [overlay, setOverlay] = useState<OverlayPlacement | null>(null);
+  // Focus is the graph's own, deliberately not the detail sheet's selection:
+  // the sheet covers the lattice, so binding the two made the player
+  // unreachable at the moment it appeared.
+  const [focusedVoiceId, setFocusedVoiceId] = useState<string | null>(null);
+
+  const focusedVoiceNode = useMemo(
+    () =>
+      focusedVoiceId
+        ? (nodes.find((node) => node.id === focusedVoiceId && node.voiceNote) ??
+          null)
+        : null,
+    [focusedVoiceId, nodes],
+  );
+
+  /**
+   * Projects the focused sprite to screen space each frame so the DOM panel
+   * tracks it through orbit, zoom and the layout still settling. Runs only
+   * while a voice node is focused, and only commits a state update when the
+   * placement actually moved — this drives a React re-render.
+   */
+  useEffect(() => {
+    if (!focusedVoiceNode || size.width === 0) {
+      setOverlay(null);
+      return;
+    }
+    let frame = 0;
+    let last: OverlayPlacement | null = null;
+
+    const run = () => {
+      frame = requestAnimationFrame(run);
+      const graph = graphRef.current;
+      const camera = graph?.camera() as THREE.PerspectiveCamera | undefined;
+      const entry = sprites.current.get(focusedVoiceNode.id);
+      if (!camera || !entry) return;
+
+      const projected = entry.sprite.position.clone().project(camera);
+      // z beyond the far plane means the node is behind the camera; NDC wraps
+      // there and would pin the panel to the wrong corner.
+      if (projected.z > 1) {
+        if (last !== null) {
+          last = null;
+          setOverlay(null);
+        }
+        return;
+      }
+      const distance = camera.position.distanceTo(entry.sprite.position);
+      const halfFovTangent = Math.tan(((camera.fov ?? 50) * Math.PI) / 360);
+      const pixelsWide =
+        (entry.width * size.height) /
+        (2 * Math.max(distance, 1) * halfFovTangent);
+      const next: OverlayPlacement = {
+        left: (projected.x * 0.5 + 0.5) * size.width,
+        top: (-projected.y * 0.5 + 0.5) * size.height,
+        scale: Math.min(1.4, Math.max(0.5, pixelsWide / OVERLAY_BASE_WIDTH)),
+      };
+      if (
+        !last ||
+        Math.abs(next.left - last.left) > 0.5 ||
+        Math.abs(next.top - last.top) > 0.5 ||
+        Math.abs(next.scale - last.scale) > 0.01
+      ) {
+        last = next;
+        setOverlay(next);
+      }
+    };
+
+    frame = requestAnimationFrame(run);
+    return () => cancelAnimationFrame(frame);
+  }, [focusedVoiceNode, size.width, size.height]);
 
   /** Probe ∩ timeline range. Null when neither filter is active. */
   const highlight = useMemo(() => {
@@ -423,7 +504,9 @@ export function MemoryGraph({
           ((entry.width / CARD_ASPECT) * size.height) /
           (2 * Math.max(distance, 1) * halfFovTangent);
         const hit = Boolean(active?.has(entry.node.id));
-        const image = Boolean(entry.node.imageUrl);
+        // A voice card counts as an image for detail purposes: its waveform is
+        // the only thing distinguishing it from a text memory at a glance.
+        const image = Boolean(entry.node.imageUrl || entry.node.voiceNote);
         // A probe hit always gets a card regardless of distance — being able
         // to read the results is the point of searching. Image memories also
         // stay detailed: before cards they were always picture sprites, so
@@ -627,8 +710,32 @@ export function MemoryGraph({
           warmupTicks={0}
           cooldownTicks={260}
           onNodeClick={(node) => {
-            if (node.kind === "memory") onSelectMemory(node.id);
+            if (node.kind !== "memory") return;
+            // A recording is played where it sits; the sheet would hide it.
+            // Everything else keeps the old behaviour of opening the detail.
+            if (node.voiceNote) {
+              setFocusedVoiceId((current) =>
+                current === node.id ? null : node.id,
+              );
+              return;
+            }
+            setFocusedVoiceId(null);
+            onSelectMemory(node.id);
           }}
+          onBackgroundClick={() => setFocusedVoiceId(null)}
+        />
+      )}
+
+      {focusedVoiceNode && overlay && theme && (
+        <GraphVoicePlayer
+          client={client}
+          node={focusedVoiceNode}
+          left={overlay.left}
+          top={overlay.top}
+          scale={overlay.scale}
+          accent={accentFor(focusedVoiceNode, theme.scheme)}
+          onOpenDetails={() => onSelectMemory(focusedVoiceNode.id)}
+          onDismiss={() => setFocusedVoiceId(null)}
         />
       )}
 

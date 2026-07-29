@@ -125,6 +125,46 @@ function wrap(
   return [...lines.slice(0, maxLines - 1), `${last}…`];
 }
 
+function formatClock(milliseconds: number): string {
+  const total = Math.max(0, Math.round(milliseconds / 1_000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+const WAVEFORM_BARS = 44;
+const WAVEFORM_HEIGHT = 34;
+
+/**
+ * A recording, drawn rather than described. The bars are the stored envelope,
+ * evenly resampled to the card's fixed count so a two-second note and a
+ * ten-minute one occupy the same strip.
+ */
+function drawWaveform(
+  context: CanvasRenderingContext2D,
+  samples: number[],
+  x: number,
+  y: number,
+  width: number,
+  color: string,
+): void {
+  const gap = 2;
+  const barWidth = (width - gap * (WAVEFORM_BARS - 1)) / WAVEFORM_BARS;
+  context.fillStyle = color;
+  for (let index = 0; index < WAVEFORM_BARS; index += 1) {
+    const level =
+      samples.length === 0
+        ? 0.3
+        : (samples[Math.floor((index / WAVEFORM_BARS) * samples.length)] ??
+          0.3);
+    const height = Math.max(2, level * WAVEFORM_HEIGHT);
+    context.fillRect(
+      x + index * (barWidth + gap),
+      y + (WAVEFORM_HEIGHT - height) / 2,
+      barWidth,
+      height,
+    );
+  }
+}
+
 function drawBrackets(
   context: CanvasRenderingContext2D,
   color: string,
@@ -243,6 +283,27 @@ export function drawMemoryCard(
       drawHeight,
     );
     context.restore();
+  } else if (node.voiceNote) {
+    // Statement first — it is why the memory exists — then the recording it
+    // came from, so the node is recognisable as audio before it is read.
+    context.font = `500 15px ${mono}`;
+    context.fillStyle = theme.foreground;
+    const lines = wrap(context, node.label, CARD_WIDTH - PADDING * 2, 3);
+    lines.forEach((line, index) => {
+      context.fillText(line, PADDING, BODY_TOP + 10 + index * 20);
+    });
+
+    const waveformTop = BODY_BOTTOM - WAVEFORM_HEIGHT;
+    withAlpha(context, 0.55, () =>
+      drawWaveform(
+        context,
+        node.voiceNote?.waveform ?? [],
+        PADDING,
+        waveformTop,
+        CARD_WIDTH - PADDING * 2,
+        accent,
+      ),
+    );
   } else {
     context.font = `500 15px ${mono}`;
     context.fillStyle = theme.foreground;
@@ -258,11 +319,17 @@ export function drawMemoryCard(
     context.fillStyle = theme.mutedForeground;
     context.fillText(date, PADDING, CARD_HEIGHT - 18);
   }
-  if (node.kind === "entity" && node.count !== undefined) {
+  const footerRight =
+    node.kind === "entity" && node.count !== undefined
+      ? `${node.count}`
+      : node.voiceNote?.durationMs !== undefined
+        ? formatClock(node.voiceNote.durationMs)
+        : null;
+  if (footerRight) {
     context.font = `500 12px ${mono}`;
     context.fillStyle = theme.mutedForeground;
     context.textAlign = "right";
-    context.fillText(`${node.count}`, CARD_WIDTH - PADDING, CARD_HEIGHT - 18);
+    context.fillText(footerRight, CARD_WIDTH - PADDING, CARD_HEIGHT - 18);
     context.textAlign = "left";
   }
 

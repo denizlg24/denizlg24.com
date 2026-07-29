@@ -1043,6 +1043,18 @@ export const agentMemoryGraphNodeSchema = z.object({
   /** Attachment image this memory was formed from, rendered in place of a node. */
   imageUrl: z.string().optional(),
   /**
+   * Voice note this memory was transcribed from. Enough to draw the card and
+   * to play the recording in place without a second round trip.
+   */
+  voiceNote: z
+    .object({
+      id: z.string(),
+      title: z.string().max(300),
+      durationMs: z.number().nonnegative().optional(),
+      waveform: z.array(z.number().min(0).max(1)).max(240),
+    })
+    .optional(),
+  /**
    * When the memory is about, not when it was stored: `temporal.validFrom`,
    * else the earliest evidence `occurredAt`, else `createdAt`. Drives the
    * timeline axis and the date line on a node card.
