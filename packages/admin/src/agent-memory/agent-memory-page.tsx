@@ -2463,7 +2463,11 @@ function SuggestionRow({
   const toggleMemories = async () => {
     const nextOpen = !memoriesOpen;
     setMemoriesOpen(nextOpen);
-    if (!nextOpen || relatedMemories || memoriesLoading) return;
+    if (!nextOpen) {
+      setRelatedMemories(null);
+      return;
+    }
+    if (relatedMemories || memoriesLoading) return;
     setMemoriesLoading(true);
     try {
       const raw = await client.get<unknown>(

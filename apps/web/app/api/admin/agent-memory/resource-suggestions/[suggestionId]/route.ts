@@ -67,13 +67,13 @@ export async function POST(
         : parsed.data.action === "attach"
           ? await attachExistingPersonSuggestion({
               suggestionId,
-              resourceId: parsed.data.resourceId as string,
+              resourceId: parsed.data.resourceId,
               reason: parsed.data.reason,
             })
           : parsed.data.action === "split-memory"
             ? await splitMemoryFromResourceSuggestion({
                 suggestionId,
-                memoryId: parsed.data.memoryId as string,
+                memoryId: parsed.data.memoryId,
                 reason: parsed.data.reason,
               })
             : await acceptResourceSuggestion({

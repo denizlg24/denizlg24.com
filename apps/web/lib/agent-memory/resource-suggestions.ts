@@ -794,6 +794,9 @@ export async function listResourceSuggestions(status?: string) {
 
 export async function getResourceSuggestionMemories(suggestionId: string) {
   await connectDB();
+  if (!Types.ObjectId.isValid(suggestionId)) {
+    throw new AgentMemoryPolicyError("Suggestion not found", "not-found");
+  }
   const suggestion = await AgentResourceSuggestion.findById(suggestionId)
     .select("memoryIds")
     .lean();

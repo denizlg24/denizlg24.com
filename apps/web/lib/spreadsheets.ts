@@ -161,7 +161,14 @@ export async function deleteStoredBook(
 
 export function xlsxBufferToBook(
   buffer: ArrayBuffer | Uint8Array,
+  maxCells?: number,
 ): FortuneSheetBook {
+  if (
+    maxCells !== undefined &&
+    (!Number.isSafeInteger(maxCells) || maxCells < 1)
+  ) {
+    throw new RangeError("maxCells must be a positive safe integer");
+  }
   // Copy the exact view. A Node Buffer can share a larger pooled ArrayBuffer;
   // passing that backing buffer to a ZIP reader includes unrelated bytes.
   const bytes =
@@ -184,6 +191,7 @@ export function xlsxBufferToBook(
     );
   }
   const book: FortuneSheetBook = [];
+  let traversedCells = 0;
 
   wb.SheetNames.forEach((sheetName, sheetIdx) => {
     const ws = wb.Sheets[sheetName];
@@ -194,6 +202,14 @@ export function xlsxBufferToBook(
 
     if (ref) {
       const range = XLSX.utils.decode_range(ref);
+      const declaredCells =
+        (range.e.r - range.s.r + 1) * (range.e.c - range.s.c + 1);
+      if (maxCells !== undefined && declaredCells > maxCells - traversedCells) {
+        throw new InvalidSpreadsheetFileError(
+          `Workbook exceeds the ${maxCells.toLocaleString()}-cell import limit`,
+        );
+      }
+      traversedCells += declaredCells;
       for (let r = range.s.r; r <= range.e.r; r++) {
         for (let c = range.s.c; c <= range.e.c; c++) {
           const addr = XLSX.utils.encode_cell({ r, c });

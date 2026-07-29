@@ -48,6 +48,21 @@ describe("spreadsheet binary import", () => {
     );
     expect(() => xlsxBufferToBook(truncated)).toThrow(/corrupt or incomplete/i);
   });
+
+  test("rejects oversized declared ranges before traversing them", () => {
+    const workbook = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([["value"]]);
+    sheet.A2001 = { t: "s", v: "last" };
+    sheet["!ref"] = "A1:A2001";
+    XLSX.utils.book_append_sheet(workbook, sheet, "Oversized");
+    const bytes = Buffer.from(
+      XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }),
+    );
+
+    expect(() => xlsxBufferToBook(bytes, 2_000)).toThrow(
+      "Workbook exceeds the 2,000-cell import limit",
+    );
+  });
 });
 
 describe("spreadsheet export", () => {

@@ -86,13 +86,8 @@ export const spreadsheetTools: ToolDefinition[] = [
         path,
         maxBytes: MAX_IMPORT_BYTES,
       });
-      const book = xlsxBufferToBook(bytes);
+      const book = xlsxBufferToBook(bytes, MAX_CELLS);
       const stats = computeStats(book);
-      if (stats.totalCells > MAX_CELLS) {
-        throw new Error(
-          `Workbook exceeds the ${MAX_CELLS.toLocaleString()}-cell import limit`,
-        );
-      }
       const fallbackTitle = basename(path).replace(/\.(xlsx|xls|csv)$/i, "");
       const title =
         typeof input.title === "string" && input.title.trim()

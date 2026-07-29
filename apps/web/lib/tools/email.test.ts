@@ -312,7 +312,7 @@ describe("email chat tools", () => {
     ]);
   });
 
-  test("query_emails advances short pages and stops when no rows are returned", async () => {
+  test("query_emails stops on short or empty pages", async () => {
     accountLeanMock.mockResolvedValue([smtpAccount]);
     queryEmailMailboxMock.mockResolvedValue({
       total: 10,
@@ -334,7 +334,7 @@ describe("email chat tools", () => {
       offset: 0,
     })) as { hasMore: boolean; nextOffset: number | null };
     expect(shortPage).toEqual(
-      expect.objectContaining({ hasMore: true, nextOffset: 1 }),
+      expect.objectContaining({ hasMore: false, nextOffset: null }),
     );
 
     queryEmailMailboxMock.mockResolvedValue({ total: 10, emails: [] });

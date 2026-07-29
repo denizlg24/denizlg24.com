@@ -39,7 +39,7 @@ import { getAgentMemorySettings } from "./settings";
 import { findSimilarMemories } from "./similarity";
 import { AGENT_MEMORY_VECTOR_CONFIG } from "./vector-config";
 
-const PROMPT_VERSION = "formation-v4";
+const PROMPT_VERSION = "formation-v5";
 const SCHEMA_VERSION = "2";
 
 const FORMATION_RESULT_TOOL = {

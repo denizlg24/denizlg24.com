@@ -74,23 +74,29 @@ export async function enqueueBackgroundAgentRun(
   if (conversationId) {
     const conversation = await getConversation(conversationId);
     if (!conversation) throw new Error("Conversation not found");
-  } else {
-    const titleSource =
-      input.prompt || input.attachments[0]?.name || "Background task";
-    const title =
-      titleSource.length > 50 ? `${titleSource.slice(0, 50)}...` : titleSource;
-    const conversation = await createConversation({
-      title,
-      llmModel: input.model,
-      memoryMode: "enabled",
-    });
-    conversationId = conversation._id.toString();
   }
 
   const session = await mongoose.startSession();
   let run: IBackgroundAgentRun | null = null;
   try {
     await session.withTransaction(async () => {
+      if (!conversationId) {
+        const titleSource =
+          input.prompt || input.attachments[0]?.name || "Background task";
+        const title =
+          titleSource.length > 50
+            ? `${titleSource.slice(0, 50)}...`
+            : titleSource;
+        const conversation = await createConversation(
+          {
+            title,
+            llmModel: input.model,
+            memoryMode: "enabled",
+          },
+          { session },
+        );
+        conversationId = conversation._id.toString();
+      }
       [run] = await BackgroundAgentRun.create(
         [
           {
@@ -136,13 +142,66 @@ export async function processBackgroundAgentJob(job: IAgentMemoryJob) {
   if (!runId || !Types.ObjectId.isValid(runId)) {
     return { failed: true, reason: "background-run-missing" };
   }
-  await connectDB();
-  const run = await BackgroundAgentRun.findById(runId);
-  if (!run) return { failed: true, reason: "background-run-missing" };
-  if (["completed", "failed", "cancelled"].includes(run.status)) {
-    return { skipped: true, runId };
+  if (!job.leaseOwner) {
+    throw new Error("Background agent job is missing an execution lease");
   }
-  if (run.status === "running") {
+  await connectDB();
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - AGENT_MEMORY_JOB_LEASE_MS);
+  const executionLeaseExpiresAt =
+    job.leaseExpiresAt && job.leaseExpiresAt > now
+      ? job.leaseExpiresAt
+      : new Date(now.getTime() + AGENT_MEMORY_JOB_LEASE_MS);
+  let run = await BackgroundAgentRun.findOneAndUpdate(
+    { _id: runId, status: "queued" },
+    {
+      $set: {
+        status: "running",
+        startedAt: now,
+        executionLeaseOwner: job.leaseOwner,
+        executionLeaseExpiresAt,
+      },
+      $unset: { error: 1, completedAt: 1 },
+    },
+    { returnDocument: "after" },
+  );
+
+  if (!run) {
+    const current = await BackgroundAgentRun.findById(runId);
+    if (!current) return { failed: true, reason: "background-run-missing" };
+    if (["completed", "failed", "cancelled"].includes(current.status)) {
+      return { skipped: true, runId };
+    }
+    if (current.status !== "running") return { skipped: true, runId };
+
+    run = await BackgroundAgentRun.findOneAndUpdate(
+      {
+        _id: runId,
+        status: "running",
+        $or: [
+          { executionLeaseExpiresAt: { $lte: now } },
+          {
+            executionLeaseExpiresAt: { $exists: false },
+            $or: [
+              { startedAt: { $lte: staleBefore } },
+              {
+                startedAt: { $exists: false },
+                updatedAt: { $lte: staleBefore },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        $set: {
+          executionLeaseOwner: job.leaseOwner,
+          executionLeaseExpiresAt,
+        },
+      },
+      { returnDocument: "after" },
+    );
+    if (!run) return { skipped: true, runId };
+
     console.error("[Background Agent] Recovered stale running run", {
       runId,
       startedAt: run.startedAt?.toISOString(),
@@ -150,15 +209,12 @@ export async function processBackgroundAgentJob(job: IAgentMemoryJob) {
     run.status = "failed";
     run.error =
       "Background execution was interrupted after it began; partial side effects may have completed.";
-    run.completedAt = new Date();
+    run.completedAt = now;
+    run.executionLeaseOwner = undefined;
+    run.executionLeaseExpiresAt = undefined;
     await run.save();
     return { failed: true, runId, error: run.error };
   }
-
-  run.status = "running";
-  run.startedAt = new Date();
-  run.error = undefined;
-  await run.save();
 
   let finalMessages: Anthropic.MessageParam[] = [];
   let tokenUsage: TokenUsage | undefined;
@@ -307,6 +363,8 @@ export async function processBackgroundAgentJob(job: IAgentMemoryJob) {
       lastAssistantText(finalMessages) || "Completed without a text response.";
     run.tokenUsage = tokenUsage;
     run.completedAt = new Date();
+    run.executionLeaseOwner = undefined;
+    run.executionLeaseExpiresAt = undefined;
     await run.save();
     return { runId, status: run.status };
   } catch (error) {
@@ -319,6 +377,8 @@ export async function processBackgroundAgentJob(job: IAgentMemoryJob) {
         ? error.message.slice(0, 4_096)
         : "Background agent run failed";
     run.completedAt = new Date();
+    run.executionLeaseOwner = undefined;
+    run.executionLeaseExpiresAt = undefined;
     await run.save();
     return { runId, failed: true, error: run.error };
   }

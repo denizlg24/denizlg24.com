@@ -70,6 +70,7 @@ describe("spreadsheet tools", () => {
     });
     expect(xlsxBufferToBookMock).toHaveBeenCalledWith(
       Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      2_000,
     );
     expect(spreadsheetCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -90,11 +91,8 @@ describe("spreadsheet tools", () => {
   });
 
   test("rejects oversized workbooks before upload or persistence", async () => {
-    computeStatsMock.mockReturnValue({
-      sheetCount: 1,
-      rowCount: 501,
-      colCount: 4,
-      totalCells: 2_004,
+    xlsxBufferToBookMock.mockImplementationOnce(() => {
+      throw new Error("Workbook exceeds the 2,000-cell import limit");
     });
     uploadBookToStorageMock.mockClear();
     spreadsheetCreateMock.mockClear();

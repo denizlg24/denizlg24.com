@@ -357,9 +357,13 @@ export const emailTools: ToolDefinition[] = [
           result: Awaited<ReturnType<typeof queryEmailMailbox>>;
         } => "result" in entry,
       );
-      const total = successful.reduce(
-        (sum, entry) => sum + entry.result.total,
-        0,
+      const total = Math.min(
+        QUERY_EMAIL_CANDIDATE_LIMIT,
+        successful.reduce((sum, entry) => sum + entry.result.total, 0),
+      );
+      const sliceEnd = Math.min(
+        QUERY_EMAIL_CANDIDATE_LIMIT,
+        parsed.data.offset + parsed.data.limit,
       );
       const emails = successful
         .flatMap((entry) =>
@@ -375,9 +379,12 @@ export const emailTools: ToolDefinition[] = [
           (left, right) =>
             new Date(right.date).getTime() - new Date(left.date).getTime(),
         )
-        .slice(parsed.data.offset, parsed.data.offset + parsed.data.limit);
+        .slice(parsed.data.offset, sliceEnd);
       const nextOffset = parsed.data.offset + emails.length;
-      const hasMore = emails.length > 0 && nextOffset < total;
+      const hasMore =
+        emails.length === parsed.data.limit &&
+        nextOffset < total &&
+        nextOffset < QUERY_EMAIL_CANDIDATE_LIMIT;
 
       return {
         emails,
