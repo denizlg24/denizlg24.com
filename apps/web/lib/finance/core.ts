@@ -2,12 +2,20 @@ import { createHash } from "node:crypto";
 import type {
   FinanceForecast,
   FinanceLedgerEntry,
+  FinanceProviderAccount,
   FinanceProviderTransaction,
   FinanceRecurrence,
+  FinanceRecurringCandidate,
   FinanceRecurringRule,
 } from "@repo/schemas";
 
 const DAY_MS = 86_400_000;
+
+export function financeAccountBindingKey(
+  account: Pick<FinanceProviderAccount, "identificationHash">,
+) {
+  return account.identificationHash;
+}
 
 export function normalizeFinanceDescriptor(value: string) {
   return value
@@ -448,4 +456,85 @@ export function plannedFinanceSyncHours(syncsPerDay: number) {
   return Array.from({ length: syncsPerDay }, (_, index) =>
     Math.floor(((index + 0.5) * 24) / syncsPerDay),
   );
+}
+
+export function detectRecurringFinanceCandidates(
+  rows: FinanceLedgerEntry[],
+): FinanceRecurringCandidate[] {
+  const groups = new Map<string, FinanceLedgerEntry[]>();
+  for (const row of rows) {
+    if (
+      row.origin !== "bank" ||
+      row.state !== "booked" ||
+      row.transferId ||
+      !row.merchantFingerprint
+    ) {
+      continue;
+    }
+    const key = [
+      row.accountId,
+      row.merchantFingerprint,
+      row.currency,
+      Math.sign(row.amountMinor),
+    ].join("\0");
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+
+  const candidates: FinanceRecurringCandidate[] = [];
+  for (const group of groups.values()) {
+    if (group.length < 3) continue;
+    const ordered = group.toSorted((left, right) =>
+      left.effectiveDate.localeCompare(right.effectiveDate),
+    );
+    const intervals = ordered
+      .slice(1)
+      .map((row, index) =>
+        dateDistanceDays(row.effectiveDate, ordered[index]!.effectiveDate),
+      )
+      .toSorted((left, right) => left - right);
+    const intervalDays = percentile(intervals, 0.5);
+    const suggestedCadence =
+      intervalDays >= 6 && intervalDays <= 8
+        ? "weekly"
+        : intervalDays >= 26 && intervalDays <= 34
+          ? "monthly"
+          : undefined;
+    if (!suggestedCadence) continue;
+    const intervalTolerance = suggestedCadence === "weekly" ? 2 : 5;
+    if (
+      intervals.some(
+        (interval) => Math.abs(interval - intervalDays) > intervalTolerance,
+      )
+    ) {
+      continue;
+    }
+    const amounts = ordered
+      .map((row) => Math.abs(row.amountMinor))
+      .toSorted((left, right) => left - right);
+    const amountMinor = percentile(amounts, 0.5);
+    if (
+      amounts.some((amount) => !amountWithinPercent(amount, amountMinor, 20))
+    ) {
+      continue;
+    }
+    const first = ordered[0]!;
+    const intervalConsistency =
+      1 -
+      Math.max(
+        ...intervals.map((interval) => Math.abs(interval - intervalDays)),
+      ) /
+        (intervalTolerance + 1);
+    candidates.push({
+      accountId: first.accountId,
+      merchantFingerprint: first.merchantFingerprint!,
+      name: first.normalizedDescriptor,
+      direction: first.amountMinor < 0 ? "expense" : "income",
+      amountMinor,
+      currency: first.currency,
+      suggestedCadence,
+      intervalDays,
+      confidence: Math.max(0, Math.min(1, intervalConsistency)),
+    });
+  }
+  return candidates;
 }

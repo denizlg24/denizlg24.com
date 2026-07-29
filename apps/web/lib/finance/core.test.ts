@@ -8,6 +8,7 @@ import {
   availableFinanceCalls,
   computeFinanceForecast,
   deduplicateLinkedLedger,
+  detectRecurringFinanceCandidates,
   detectTransferPairs,
   findPendingPromotion,
   normalizeFinanceDescriptor,
@@ -249,5 +250,34 @@ describe("finance fetch budget", () => {
 
   test("a four-call budget plans two two-call syncs across the day", () => {
     expect(plannedFinanceSyncHours(2)).toEqual([6, 18]);
+  });
+});
+
+describe("recurring detection", () => {
+  test("detects stable merchants only after three occurrences", () => {
+    const rows = ["2026-05-01", "2026-06-01", "2026-07-01"].map(
+      (effectiveDate, index) =>
+        ({
+          ...manual(`bank-${index}`, -999, {
+            effectiveDate,
+            merchantFingerprint: "merchant",
+          }),
+          origin: "bank",
+          state: "booked",
+          identityKind: "provider",
+          providerTxnId: `txn-${index}`,
+          valueDate: effectiveDate,
+          firstSeenAt: timestamp,
+          lastSeenAt: timestamp,
+        }) as FinanceLedgerEntry,
+    );
+    expect(detectRecurringFinanceCandidates(rows)).toMatchObject([
+      {
+        merchantFingerprint: "merchant",
+        suggestedCadence: "monthly",
+        amountMinor: 999,
+      },
+    ]);
+    expect(detectRecurringFinanceCandidates(rows.slice(0, 2))).toEqual([]);
   });
 });

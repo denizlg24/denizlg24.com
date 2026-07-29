@@ -237,6 +237,21 @@ export const financeRecurringRuleSchema = z.object({
 });
 export type FinanceRecurringRule = z.infer<typeof financeRecurringRuleSchema>;
 
+export const financeRecurringCandidateSchema = z.object({
+  accountId: z.string().min(1),
+  merchantFingerprint: z.string().min(1),
+  name: z.string().min(1),
+  direction: z.enum(["expense", "income"]),
+  amountMinor: z.number().int().nonnegative(),
+  currency: financeCurrencySchema,
+  suggestedCadence: z.enum(["weekly", "monthly"]),
+  intervalDays: z.number().int().positive(),
+  confidence: z.number().min(0).max(1),
+});
+export type FinanceRecurringCandidate = z.infer<
+  typeof financeRecurringCandidateSchema
+>;
+
 export const financeMatchReviewSchema = z.object({
   id: z.string().min(1),
   sourceLedgerId: z.string().min(1),
@@ -276,8 +291,13 @@ export const financeDashboardResponseSchema = z.object({
   accounts: z.array(financeAccountSchema),
   balances: z.array(financeBalanceSchema),
   aggregateBalances: z.array(financeMoneySchema),
+  monthly: financeMoneySchema.extend({
+    spendMinor: z.number().int().nonnegative(),
+    incomeMinor: z.number().int().nonnegative(),
+  }),
   ledger: z.array(financeLedgerEntrySchema),
   recurringRules: z.array(financeRecurringRuleSchema),
+  recurringCandidates: z.array(financeRecurringCandidateSchema),
   matchReviews: z.array(financeMatchReviewSchema),
   forecast: financeForecastSchema.optional(),
 });
@@ -355,3 +375,26 @@ export const financeSyncResponseSchema = z.object({
   nextSyncAt: isoDateTimeSchema.optional(),
 });
 export type FinanceSyncResponse = z.infer<typeof financeSyncResponseSchema>;
+
+export const financeCsvImportInputSchema = z.object({
+  sourceId: z.string().trim().min(1).max(120),
+  displayName: z.string().trim().min(1).max(120),
+  currency: financeCurrencySchema,
+  csv: z.string().min(1).max(10_000_000),
+});
+export type FinanceCsvImportInput = z.infer<typeof financeCsvImportInputSchema>;
+
+export const financeNaturalEntryInputSchema = z.object({
+  accountId: z.string().min(1),
+  text: z.string().trim().min(1).max(1_000),
+});
+export type FinanceNaturalEntryInput = z.infer<
+  typeof financeNaturalEntryInputSchema
+>;
+
+export const financeNarrativeResponseSchema = z.object({
+  narrative: z.string(),
+});
+export type FinanceNarrativeResponse = z.infer<
+  typeof financeNarrativeResponseSchema
+>;

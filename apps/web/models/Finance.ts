@@ -115,10 +115,7 @@ const financeBalanceSchema = new Schema<IFinanceBalance>(
   { collection: "finance_balances", timestamps: true },
 );
 
-financeBalanceSchema.index(
-  { accountId: 1, balanceType: 1, fetchedAt: -1 },
-  { unique: true },
-);
+financeBalanceSchema.index({ accountId: 1, balanceType: 1 }, { unique: true });
 financeBalanceSchema.index({ accountId: 1, fetchedAt: -1 });
 
 export interface IFinanceLedgerEntry extends Document {
