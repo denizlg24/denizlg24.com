@@ -114,6 +114,54 @@ describe("Enable Banking adapter", () => {
     ).toBe(true);
   });
 
+  test("accepts null for absent fields rather than omitted keys", async () => {
+    configureCredentials();
+    const provider = new EnableBankingProvider({
+      fetch: (async (input: string | URL | Request) => {
+        if (String(input).endsWith("/balances")) {
+          return Response.json({
+            balances: [
+              {
+                balance_amount: { amount: "10.00", currency: "EUR" },
+                balance_type: "CLBD",
+                reference_date: null,
+              },
+            ],
+          });
+        }
+        return Response.json({
+          transactions: [
+            {
+              transaction_amount: { amount: "10.00", currency: "EUR" },
+              credit_debit_indicator: "DBIT",
+              status: "BOOK",
+              value_date: "2026-07-29",
+              booking_date: null,
+              transaction_id: null,
+              entry_reference: null,
+              internal_transaction_id: null,
+              remittance_information: null,
+              creditor: null,
+              debtor: { name: null },
+              bank_transaction_code: null,
+              note: null,
+            },
+          ],
+          continuation_key: null,
+        });
+      }) as unknown as typeof fetch,
+      context: {},
+    });
+
+    const balances = await provider.fetchBalances("account-ref");
+    expect(balances[0]?.referenceDate).toBeUndefined();
+    expect(balances[0]?.amountMinor).toBe(1_000);
+
+    const transactions = await provider.fetchTransactions("account-ref");
+    expect(transactions[0]?.bookingDate).toBeUndefined();
+    expect(transactions[0]?.amountMinor).toBe(-1_000);
+  });
+
   test("never sends date_to without date_from", async () => {
     configureCredentials();
     const requests: Request[] = [];

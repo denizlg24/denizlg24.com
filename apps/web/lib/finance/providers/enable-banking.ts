@@ -26,6 +26,14 @@ let cachedJwt:
     }
   | undefined;
 
+// Enable Banking sends JSON null for absent fields rather than omitting them,
+// which plain .optional() rejects. Normalising to undefined here keeps the
+// parsed shape identical to the wire types the rest of the adapter maps to.
+const optionalString = z
+  .string()
+  .nullish()
+  .transform((value) => value ?? undefined);
+
 const amountSchema = z.object({
   currency: z.string(),
   amount: z.string(),
@@ -34,35 +42,36 @@ const amountSchema = z.object({
 const aspspSchema = z.object({
   name: z.string(),
   country: z.string(),
-  logo: z.string().optional(),
+  logo: optionalString,
   maximum_consent_validity: z.number().int().positive(),
 });
 
 const accountSchema = z.object({
   uid: z.string(),
   identification_hash: z.string(),
-  name: z.string().optional(),
-  details: z.string().optional(),
-  currency: z.string().optional(),
+  name: optionalString,
+  details: optionalString,
+  currency: optionalString,
 });
 
 const transactionSchema = z.object({
-  entry_reference: z.string().optional(),
-  transaction_id: z.string().optional(),
-  internal_transaction_id: z.string().optional(),
+  entry_reference: optionalString,
+  transaction_id: optionalString,
+  internal_transaction_id: optionalString,
   transaction_amount: amountSchema,
   credit_debit_indicator: z.enum(["CRDT", "DBIT"]),
   status: z.string(),
-  booking_date: z.string().optional(),
-  value_date: z.string().optional(),
-  transaction_date: z.string().optional(),
-  remittance_information: z.array(z.string()).optional(),
-  creditor: z.object({ name: z.string().optional() }).optional(),
-  debtor: z.object({ name: z.string().optional() }).optional(),
-  bank_transaction_code: z
-    .object({ description: z.string().optional() })
-    .optional(),
-  note: z.string().optional(),
+  booking_date: optionalString,
+  value_date: optionalString,
+  transaction_date: optionalString,
+  remittance_information: z
+    .array(z.string())
+    .nullish()
+    .transform((value) => value ?? undefined),
+  creditor: z.object({ name: optionalString }).nullish(),
+  debtor: z.object({ name: optionalString }).nullish(),
+  bank_transaction_code: z.object({ description: optionalString }).nullish(),
+  note: optionalString,
 });
 
 function requiredEnvironment() {
@@ -349,7 +358,7 @@ export class EnableBankingProvider implements BankProvider {
           z.object({
             balance_amount: amountSchema,
             balance_type: z.string(),
-            reference_date: z.string().optional(),
+            reference_date: optionalString,
           }),
         ),
       })
