@@ -119,10 +119,22 @@ export type AgentSourceRef = z.infer<typeof agentSourceRefSchema>;
 
 const isoDateSchema = z.iso.datetime({ offset: true });
 
+/**
+ * An absent optional timestamp reaches us as `""` far more often than as an
+ * omitted key: models fill every property they are shown. Treating the blank
+ * as "not set" is the difference between an open-ended memory and discarding
+ * the whole formation batch. A non-empty value is still strictly validated.
+ */
+const optionalIsoDateSchema = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim() === "" ? undefined : value,
+  isoDateSchema.optional(),
+);
+
 export const agentTemporalSchema = z
   .object({
-    validFrom: isoDateSchema.optional(),
-    validUntil: isoDateSchema.optional(),
+    validFrom: optionalIsoDateSchema,
+    validUntil: optionalIsoDateSchema,
     precision: agentTemporalPrecisionSchema.default("unknown"),
     condition: z.string().trim().max(1_000).optional(),
     timezone: z.string().trim().max(100).optional(),

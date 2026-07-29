@@ -84,8 +84,19 @@ const FORMATION_RESULT_TOOL = {
             temporal: {
               type: "object",
               properties: {
-                validFrom: { type: "string" },
-                validUntil: { type: "string" },
+                // The strict schema requires an offset. Saying so here is the
+                // only way the model can comply: a bare date or a local
+                // timestamp fails validation and discards the whole batch.
+                validFrom: {
+                  type: "string",
+                  description:
+                    "ISO 8601 timestamp including a UTC offset, e.g. 2026-07-29T00:00:00Z. Omit entirely if unknown.",
+                },
+                validUntil: {
+                  type: "string",
+                  description:
+                    "ISO 8601 timestamp including a UTC offset, e.g. 2026-07-29T00:00:00Z. Must be after validFrom. Omit entirely if open-ended.",
+                },
                 precision: {
                   type: "string",
                   enum: ["exact", "day", "month", "year", "range", "unknown"],
