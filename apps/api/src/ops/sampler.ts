@@ -6,18 +6,123 @@ import {
   insertMetricSamples,
   type MetricSampleInput,
 } from "@repo/cloud-core";
-import type { ContainerSnapshot, OpsOverview } from "@repo/schemas/cloud";
+import type {
+  ContainerSnapshot,
+  DatabaseStats,
+  OpsOverview,
+} from "@repo/schemas/cloud";
 import { count, sum } from "drizzle-orm";
+import type { MongoClient } from "mongodb";
 
+import { collectDatabaseStats } from "./database-stats";
 import { type DiskDevice, HostCollector } from "./host";
 
 const SAMPLING_INTERVAL_MS = 30_000;
+
+interface RedisInfoClient {
+  info(section: string): Promise<string>;
+}
 
 export interface MetricsSamplerOptions {
   db: Database;
   docker: DockerClient;
   devices: readonly DiskDevice[];
   intervalMs?: number;
+  /**
+   * Optional so a sampler can be stood up in tests without the engines. When
+   * absent, `databases` reports nulls and no `db:` series are written.
+   */
+  mongo?: MongoClient;
+  redis?: RedisInfoClient;
+}
+
+const EMPTY_DATABASE_STATS: DatabaseStats = {
+  postgres: null,
+  mongodb: null,
+  redis: null,
+};
+
+/**
+ * An unreachable engine writes no points rather than zeroes: a gap in the chart
+ * reads as "not collected", while a zero reads as "no connections", and those
+ * are opposite conclusions during an incident.
+ */
+function databaseSamples(ts: Date, stats: DatabaseStats): MetricSampleInput[] {
+  const samples: MetricSampleInput[] = [];
+  const { postgres, mongodb, redis } = stats;
+
+  if (postgres) {
+    samples.push(
+      {
+        ts,
+        kind: "db",
+        key: "postgres.connections",
+        value: postgres.connections,
+      },
+      {
+        ts,
+        kind: "db",
+        key: "postgres.connections_percent",
+        value: postgres.usagePercent,
+      },
+      { ts, kind: "db", key: "postgres.active", value: postgres.active },
+      {
+        ts,
+        kind: "db",
+        key: "postgres.idle_in_transaction",
+        value: postgres.idleInTransaction,
+      },
+      { ts, kind: "db", key: "postgres.waiting", value: postgres.waiting },
+    );
+  }
+
+  if (mongodb) {
+    samples.push(
+      {
+        ts,
+        kind: "db",
+        key: "mongodb.connections_current",
+        value: mongodb.current,
+      },
+      {
+        ts,
+        kind: "db",
+        key: "mongodb.connections_available",
+        value: mongodb.available,
+      },
+      {
+        ts,
+        kind: "db",
+        key: "mongodb.connections_percent",
+        value: mongodb.usagePercent,
+      },
+      {
+        ts,
+        kind: "db",
+        key: "mongodb.queued_total",
+        value: mongodb.queuedReaders + mongodb.queuedWriters,
+      },
+    );
+  }
+
+  if (redis) {
+    samples.push(
+      {
+        ts,
+        kind: "db",
+        key: "redis.connected_clients",
+        value: redis.connectedClients,
+      },
+      {
+        ts,
+        kind: "db",
+        key: "redis.used_memory_bytes",
+        value: redis.usedMemoryBytes,
+      },
+    );
+  }
+
+  return samples;
 }
 
 export class MetricsSampler {
@@ -105,19 +210,30 @@ export class MetricsSampler {
     };
   }
 
+  private async collectDatabases(): Promise<DatabaseStats> {
+    const { mongo, redis } = this.options;
+    if (!mongo || !redis) return EMPTY_DATABASE_STATS;
+    return collectDatabaseStats({ db: this.options.db, mongo, redis });
+  }
+
   private async collectAndPersist(): Promise<OpsOverview> {
     const timestamp = new Date();
-    const [host, containers, storage] = await Promise.all([
+    const [host, containers, storage, databases] = await Promise.all([
       this.host.collect(),
       this.collectContainers().catch((error) => {
         console.error("[metrics] Container collection failed", error);
         return [];
       }),
       this.storageSnapshot(),
+      this.collectDatabases().catch((error) => {
+        console.error("[metrics] Database stats failed", error);
+        return EMPTY_DATABASE_STATS;
+      }),
     ]);
     const overview: OpsOverview = {
       timestamp: timestamp.toISOString(),
       ...host,
+      databases,
       containers,
       storage,
     };
@@ -153,6 +269,121 @@ export class MetricsSampler {
         value: overview.cpu.temperatureCelsius,
       });
     }
+
+    // Run-queue depth normalised by core count, so one series reads the same on
+    // a 4-core Pi as anywhere else and a threshold can be set once.
+    if (overview.cpu.cores > 0) {
+      samples.push({
+        ts,
+        kind: "host",
+        key: "load.per_core",
+        value: overview.cpu.load1 / overview.cpu.cores,
+      });
+    }
+
+    samples.push(
+      {
+        ts,
+        kind: "host",
+        key: "swap.usage_percent",
+        value: overview.swap.usagePercent,
+      },
+      {
+        ts,
+        kind: "host",
+        key: "swap.used_bytes",
+        value: overview.swap.usedBytes,
+      },
+    );
+    // Absent on the first sample after a restart, like the other rate series.
+    if (overview.swap.inBytesPerSecond !== undefined) {
+      samples.push({
+        ts,
+        kind: "host",
+        key: "swap.in_bytes_per_second",
+        value: overview.swap.inBytesPerSecond,
+      });
+    }
+    if (overview.swap.outBytesPerSecond !== undefined) {
+      samples.push({
+        ts,
+        kind: "host",
+        key: "swap.out_bytes_per_second",
+        value: overview.swap.outBytesPerSecond,
+      });
+    }
+
+    samples.push(
+      {
+        ts,
+        kind: "host",
+        key: "fd.allocated",
+        value: overview.fileDescriptors.allocated,
+      },
+      {
+        ts,
+        kind: "host",
+        key: "fd.usage_percent",
+        value: overview.fileDescriptors.usagePercent,
+      },
+    );
+    if (overview.fileDescriptors.processOpen !== null) {
+      samples.push({
+        ts,
+        kind: "host",
+        key: "fd.process_open",
+        value: overview.fileDescriptors.processOpen,
+      });
+    }
+    if (overview.fileDescriptors.processUsagePercent !== null) {
+      samples.push({
+        ts,
+        kind: "host",
+        key: "fd.process_usage_percent",
+        value: overview.fileDescriptors.processUsagePercent,
+      });
+    }
+
+    samples.push(
+      {
+        ts,
+        kind: "host",
+        key: "connections.established",
+        value: overview.connections.established,
+      },
+      {
+        ts,
+        kind: "host",
+        key: "connections.inbound",
+        value: overview.connections.inbound,
+      },
+      {
+        ts,
+        kind: "host",
+        key: "connections.outbound",
+        value: overview.connections.outbound,
+      },
+      {
+        ts,
+        kind: "host",
+        key: "connections.listening",
+        value: overview.connections.listening,
+      },
+      {
+        ts,
+        kind: "host",
+        key: "connections.time_wait",
+        value: overview.connections.timeWait,
+      },
+      {
+        ts,
+        kind: "host",
+        key: "connections.orphan",
+        value: overview.connections.orphan,
+      },
+    );
+
+    samples.push(...databaseSamples(ts, overview.databases));
     for (const disk of overview.disks) {
       samples.push({
         ts,

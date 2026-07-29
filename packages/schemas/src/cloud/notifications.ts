@@ -20,6 +20,8 @@ export const NOTIFICATION_TYPES = [
   "auth_failure_burst",
   "tiering_moved",
   "tiering_orphaned",
+  "metric_rule",
+  "metric_rule_resolved",
   "test",
 ] as const;
 export const notificationTypeSchema = z.enum(NOTIFICATION_TYPES);
@@ -94,5 +96,9 @@ export const NOTIFICATION_COOLDOWN_MINUTES: Record<NotificationType, number> = {
   auth_failure_burst: 30,
   tiering_moved: 0,
   tiering_orphaned: 0,
+  // Rules carry their own cooldown and pass it explicitly; this is only the
+  // fallback for a dispatch that somehow arrives without one.
+  metric_rule: 60,
+  metric_rule_resolved: 0,
   test: 0,
 };

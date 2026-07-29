@@ -1,9 +1,15 @@
 import { writeFile } from "node:fs/promises";
 import {
+  aggregateSeries,
   countActivity,
   createTieringRepository,
   type Database,
+  describeCondition,
+  formatMetricValue,
+  listAlertRules,
   type MeiliSearch,
+  nextRuleState,
+  persistRuleState,
   pruneActivity,
   removeStorageDocuments,
   requestOutcomeCounts,
@@ -99,6 +105,8 @@ async function executeAllBackups(
 interface PendingAlert {
   payload: NotificationPayload;
   summary: string;
+  /** Rules carry their own; the built-in checks fall back to the task config. */
+  cooldownMinutes?: number;
 }
 
 function alert(
@@ -323,12 +331,79 @@ async function collectActivityAlerts(
 
 const MIN_REQUESTS_FOR_ERROR_RATE = 20;
 
+/**
+ * User-defined rules over any sampled series. Each rule carries its own
+ * cooldown, and `subjectKey` is the rule id so one noisy rule cannot suppress
+ * another. A rule whose series has stopped reporting holds its state rather
+ * than resolving — see `nextRuleState`.
+ */
+async function collectRuleAlerts(
+  context: ExecutorContext,
+  now: Date,
+): Promise<PendingAlert[]> {
+  const rules = await listAlertRules(context.db);
+  const alerts: PendingAlert[] = [];
+
+  for (const rule of rules) {
+    if (!rule.enabled) continue;
+
+    const value = await aggregateSeries(
+      context.db,
+      rule.series,
+      rule.aggregate,
+      rule.windowSeconds,
+      now,
+    ).catch((error) => {
+      console.error(`[alerts] Rule "${rule.name}" query failed`, error);
+      return null;
+    });
+
+    const result = nextRuleState(rule, value, now);
+    await persistRuleState(context.db, rule, result, value, now).catch(
+      (error) => {
+        console.error(`[alerts] Rule "${rule.name}" state write failed`, error);
+      },
+    );
+
+    if (result.transition === "none") continue;
+
+    const condition = describeCondition(rule);
+    const observed =
+      value === null ? "no data" : formatMetricValue(value, rule.unit);
+    const resolved = result.transition === "resolved";
+
+    alerts.push({
+      // A recovery is a one-shot state change, so it is never throttled.
+      cooldownMinutes: resolved ? 0 : rule.cooldownMinutes,
+      payload: {
+        type: resolved ? "metric_rule_resolved" : "metric_rule",
+        severity: resolved ? "info" : rule.severity,
+        subjectKey: rule.id,
+        title: resolved ? `Resolved: ${rule.name}` : rule.name,
+        message: resolved
+          ? `${rule.series} is back within ${condition} (now ${observed})`
+          : `${rule.series} is ${observed}, breaching ${condition}`,
+        details: {
+          series: rule.series,
+          condition,
+          observed,
+          ...(rule.description ? { note: rule.description } : {}),
+        },
+      },
+      summary: `${rule.name}: ${observed} ${resolved ? "resolved" : condition}`,
+    });
+  }
+
+  return alerts;
+}
+
 async function executeAlertEvaluation(
   rawConfig: TaskConfig,
   _taskId: string,
   context: ExecutorContext,
 ): Promise<ExecutorResult> {
   const config = alertEvaluationTaskConfigSchema.parse(rawConfig);
+  const now = new Date();
   const groups = await Promise.all([
     collectHostAlerts(config, context),
     collectContainerAlerts(config, context).catch((error) => {
@@ -339,13 +414,17 @@ async function executeAlertEvaluation(
       console.error("[alerts] Activity evaluation failed", error);
       return [];
     }),
+    collectRuleAlerts(context, now).catch((error) => {
+      console.error("[alerts] Rule evaluation failed", error);
+      return [];
+    }),
   ]);
   const alerts = groups.flat();
 
   let suppressed = 0;
   for (const pending of alerts) {
     const result = await context.notifications.dispatch(pending.payload, {
-      cooldownMinutes: config.throttleMinutes,
+      cooldownMinutes: pending.cooldownMinutes ?? config.throttleMinutes,
     });
     if (result.suppressed) suppressed += 1;
   }

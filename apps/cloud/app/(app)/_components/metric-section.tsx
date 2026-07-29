@@ -32,10 +32,64 @@ const CHART_COLORS = [
   "var(--chart-6)",
 ];
 
+export type ChartUnit =
+  | "percent"
+  | "bytes"
+  | "bytesPerSecond"
+  | "celsius"
+  | "count"
+  | "ratio";
+
 export interface ChartSpec {
   title: string;
-  unit: "percent" | "bytesPerSecond" | "celsius";
+  unit: ChartUnit;
   series: { name: string; label: string }[];
+}
+
+/**
+ * Percent and celsius are pinned to 0–100 so a flat line sits where it belongs
+ * rather than filling the plot. Counts and ratios have no natural ceiling, so
+ * they scale to the data.
+ */
+function axisDomain(unit: ChartUnit): [number, number | "auto"] {
+  return unit === "percent" || unit === "celsius" ? [0, 100] : [0, "auto"];
+}
+
+function formatValue(value: number, unit: ChartUnit): string {
+  switch (unit) {
+    case "percent":
+      return `${value.toFixed(1)}%`;
+    case "celsius":
+      return `${value.toFixed(1)}°C`;
+    case "bytes":
+      return formatBytes(value);
+    case "bytesPerSecond":
+      return `${formatBytes(value)}/s`;
+    case "ratio":
+      return value.toFixed(2);
+    case "count":
+      return Number.isInteger(value)
+        ? value.toLocaleString()
+        : value.toFixed(1);
+  }
+}
+
+/** Axis ticks drop the decimals that the tooltip keeps. */
+function formatTick(value: number, unit: ChartUnit): string {
+  switch (unit) {
+    case "percent":
+      return `${value}%`;
+    case "celsius":
+      return `${value}°`;
+    case "bytes":
+      return formatBytes(value);
+    case "bytesPerSecond":
+      return `${formatBytes(value)}/s`;
+    case "ratio":
+      return value.toFixed(1);
+    case "count":
+      return value.toLocaleString();
+  }
 }
 
 function seriesKey(name: string): string {
@@ -132,20 +186,8 @@ export function TimeSeriesChart({
               tickLine={false}
               axisLine={false}
               fontSize={10}
-              domain={
-                spec.unit === "percent"
-                  ? [0, 100]
-                  : spec.unit === "celsius"
-                    ? [0, 100]
-                    : [0, "auto"]
-              }
-              tickFormatter={(value: number) =>
-                spec.unit === "percent"
-                  ? `${value}%`
-                  : spec.unit === "celsius"
-                    ? `${value}°`
-                    : `${formatBytes(value)}/s`
-              }
+              domain={axisDomain(spec.unit)}
+              tickFormatter={(value: number) => formatTick(value, spec.unit)}
             />
             <ChartTooltip
               content={
@@ -166,11 +208,7 @@ export function TimeSeriesChart({
                         {config[name as string]?.label ?? name}
                       </span>
                       <span className="ml-auto font-mono tabular-nums">
-                        {spec.unit === "percent"
-                          ? `${Number(value).toFixed(1)}%`
-                          : spec.unit === "celsius"
-                            ? `${Number(value).toFixed(1)}°C`
-                            : `${formatBytes(Number(value))}/s`}
+                        {formatValue(Number(value), spec.unit)}
                       </span>
                     </>
                   )}
@@ -213,31 +251,58 @@ export function TimeSeriesChart({
   );
 }
 
+export interface ChartGroup {
+  label: string;
+  specs: ChartSpec[];
+}
+
+/**
+ * Either a flat grid of `specs` or labelled `groups`, never both. Grouping
+ * exists so a long wall of charts reads as a few named blocks; every group
+ * still shares the one range selector and the one metrics request below.
+ */
+type MetricSectionProps = {
+  title: string;
+  columns?: 1 | 2;
+  defaultRange?: Range;
+} & (
+  | { specs: ChartSpec[]; groups?: never }
+  | { groups: ChartGroup[]; specs?: never }
+);
+
 /**
  * A titled grid of charts sharing one range selector and one metrics request.
- * Callers usually derive `specs` from polled data, so the array gets a fresh
- * identity every tick; the fetch is keyed on the joined series names instead,
- * which absorbs that churn and keeps usePoll's interval from restarting.
+ * Callers usually derive their specs from polled data, so the array gets a
+ * fresh identity every tick; the fetch is keyed on the joined series names
+ * instead, which absorbs that churn and keeps usePoll's interval from
+ * restarting.
  */
 export function MetricSection({
   title,
   specs,
+  groups,
   columns = 2,
   defaultRange = "24h",
-}: {
-  title: string;
-  specs: ChartSpec[];
-  columns?: 1 | 2;
-  defaultRange?: Range;
-}) {
+}: MetricSectionProps) {
   const [range, setRange] = useState<Range>(defaultRange);
 
+  // One code path downstream, whichever form the caller used. The unlabelled
+  // group renders without a heading or a rule.
+  const resolved = useMemo<ChartGroup[]>(
+    () => groups ?? [{ label: "", specs: specs ?? [] }],
+    [groups, specs],
+  );
+
   // Keying the fetch on a joined string keeps `fetchMetrics` stable across
-  // polls of whatever produced `specs`.
+  // polls of whatever produced the specs.
   const seriesParam = useMemo(
     () =>
-      specs.flatMap((spec) => spec.series.map((entry) => entry.name)).join(","),
-    [specs],
+      resolved
+        .flatMap((group) =>
+          group.specs.flatMap((spec) => spec.series.map((entry) => entry.name)),
+        )
+        .join(","),
+    [resolved],
   );
 
   const fetchMetrics = useCallback(() => {
@@ -269,22 +334,41 @@ export function MetricSection({
         </Tabs>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
-      <div
-        className={
-          columns === 2
-            ? "grid gap-x-8 gap-y-6 md:grid-cols-2"
-            : "grid gap-x-8 gap-y-6"
-        }
-      >
-        {specs.map((spec) => (
-          <TimeSeriesChart
-            key={spec.title}
-            spec={spec}
-            series={data?.series ?? []}
-            range={range}
-          />
-        ))}
-      </div>
+      {resolved.map((group, index) => (
+        <div key={group.label || "all"} className="flex flex-col gap-4">
+          {group.label && (
+            // A hairline rule and a muted caption, matching the tile labels
+            // above — enough to separate blocks without boxing them.
+            <div
+              className={
+                index === 0
+                  ? "flex items-center"
+                  : "flex items-center border-t pt-5"
+              }
+            >
+              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                {group.label}
+              </span>
+            </div>
+          )}
+          <div
+            className={
+              columns === 2
+                ? "grid gap-x-8 gap-y-6 md:grid-cols-2"
+                : "grid gap-x-8 gap-y-6"
+            }
+          >
+            {group.specs.map((spec) => (
+              <TimeSeriesChart
+                key={spec.title}
+                spec={spec}
+                series={data?.series ?? []}
+                range={range}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
     </section>
   );
 }

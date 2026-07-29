@@ -3,7 +3,13 @@ import {
   type ActivityExportQuery,
   type ActivityFacets,
   type ActivityQuery,
+  type AlertRule,
+  type AlertRuleCreate,
+  type AlertRuleListResponse,
+  type AlertRuleUpdate,
   activityFacetsSchema,
+  alertRuleListResponseSchema,
+  alertRuleResponseSchema,
   type CompleteSignupInput,
   type CompleteSignupResult,
   type ContainerSnapshot,
@@ -27,11 +33,13 @@ import {
   issuedProjectS3CredentialSchema,
   type LargestFile,
   largestFileSchema,
+  type MetricCatalogResponse,
   type MetricsResponse,
   type MongoCollection,
   type MongoDatabase,
   type MongoFindResult,
   type MongoIndex,
+  metricCatalogResponseSchema,
   metricsResponseSchema,
   mongoCollectionSchema,
   mongoDatabaseSchema,
@@ -352,6 +360,32 @@ export const api = {
         query: { limit: query.limit, ...activityFilterQuery(query) },
         timeoutMs: SLOW_TIMEOUT_MS,
       }),
+  },
+
+  alertRules: {
+    list: (): Promise<AlertRuleListResponse> =>
+      requestData(alertRuleListResponseSchema, "/api/ops/alert-rules"),
+    catalog: (): Promise<MetricCatalogResponse> =>
+      requestData(metricCatalogResponseSchema, "/api/ops/alert-rules/catalog"),
+    create: (input: AlertRuleCreate): Promise<{ rule: AlertRule }> =>
+      requestData(alertRuleResponseSchema, "/api/ops/alert-rules", {
+        method: "POST",
+        body: input,
+      }),
+    update: (
+      id: string,
+      input: AlertRuleUpdate,
+    ): Promise<{ rule: AlertRule }> =>
+      requestData(alertRuleResponseSchema, `/api/ops/alert-rules/${id}`, {
+        method: "PATCH",
+        body: input,
+      }),
+    remove: (id: string): Promise<{ status: string }> =>
+      requestData(
+        z.object({ status: z.string() }),
+        `/api/ops/alert-rules/${id}`,
+        { method: "DELETE" },
+      ),
   },
 
   notifications: {

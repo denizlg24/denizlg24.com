@@ -89,6 +89,18 @@ export async function seedDefaultOpsTasks(db: Database): Promise<void> {
       createdBy: creator.id,
     });
   }
+  // Without this the alert rules exist but nothing evaluates them. Five
+  // minutes matches the metrics rollup and is short enough that a rule with a
+  // sustained-for window measured in minutes still fires promptly.
+  if (!existingTypes.has("alert_evaluation")) {
+    await createTask(db, {
+      name: "Alert evaluation",
+      type: "alert_evaluation",
+      cronExpression: "*/5 * * * *",
+      config: validatedTaskConfig("alert_evaluation", {}),
+      createdBy: creator.id,
+    });
+  }
   if (!existingTypes.has("tiering_pass")) {
     const task = await createTask(db, {
       name: "Nightly storage tiering",

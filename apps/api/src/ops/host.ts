@@ -38,12 +38,7 @@ export function parseCpuStat(input: string): CpuCounters {
   };
 }
 
-export function parseMeminfo(input: string): {
-  totalBytes: number;
-  usedBytes: number;
-  availableBytes: number;
-  usagePercent: number;
-} {
+function meminfoValues(input: string): Map<string, number> {
   const values = new Map<string, number>();
   for (const line of input.split(/\r?\n/)) {
     const match = line.match(/^([A-Za-z_()]+):\s+(\d+)\s+kB$/);
@@ -51,6 +46,16 @@ export function parseMeminfo(input: string): {
       values.set(match[1], Number(match[2]) * 1_024);
     }
   }
+  return values;
+}
+
+export function parseMeminfo(input: string): {
+  totalBytes: number;
+  usedBytes: number;
+  availableBytes: number;
+  usagePercent: number;
+} {
+  const values = meminfoValues(input);
   const totalBytes = values.get("MemTotal") ?? 0;
   const availableBytes =
     values.get("MemAvailable") ??
@@ -67,6 +72,208 @@ export function parseMeminfo(input: string): {
     availableBytes,
     usagePercent: (usedBytes / totalBytes) * 100,
   };
+}
+
+export interface SwapCounters {
+  totalBytes: number;
+  usedBytes: number;
+  freeBytes: number;
+  cachedBytes: number;
+  usagePercent: number;
+}
+
+/**
+ * A host with swap disabled reports SwapTotal 0, which is a valid reading and
+ * not an error — it yields zeroes rather than throwing the way MemTotal does.
+ */
+export function parseSwapInfo(input: string): SwapCounters {
+  const values = meminfoValues(input);
+  const totalBytes = values.get("SwapTotal") ?? 0;
+  const freeBytes = values.get("SwapFree") ?? 0;
+  const cachedBytes = values.get("SwapCached") ?? 0;
+  const usedBytes = Math.max(0, totalBytes - freeBytes);
+  return {
+    totalBytes,
+    usedBytes,
+    freeBytes,
+    cachedBytes,
+    usagePercent: totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0,
+  };
+}
+
+/**
+ * `pswpin`/`pswpout` are cumulative *pages*, so they are differenced between
+ * samples and scaled by the page size. They matter more than swap occupancy:
+ * a full-but-idle swap file is harmless, while sustained paging is the thing
+ * that makes every request slow.
+ */
+export const PAGE_SIZE_BYTES = 4_096;
+
+export interface SwapActivityCounters {
+  pagesIn: number;
+  pagesOut: number;
+}
+
+export function parseVmstat(input: string): SwapActivityCounters {
+  let pagesIn = 0;
+  let pagesOut = 0;
+  for (const line of input.split(/\r?\n/)) {
+    const [key, raw] = line.trim().split(/\s+/, 2);
+    const value = Number(raw);
+    if (!Number.isFinite(value)) continue;
+    if (key === "pswpin") pagesIn = value;
+    else if (key === "pswpout") pagesOut = value;
+  }
+  return { pagesIn, pagesOut };
+}
+
+export interface FileDescriptorCounters {
+  allocated: number;
+  max: number;
+  usagePercent: number;
+}
+
+/** `/proc/sys/fs/file-nr` is three fields: allocated, free (always 0 since 2.6), max. */
+export function parseFileNr(input: string): FileDescriptorCounters {
+  const [allocatedRaw, , maxRaw] = input.trim().split(/\s+/);
+  const allocated = Number(allocatedRaw);
+  const max = Number(maxRaw);
+  if (!Number.isFinite(allocated) || !Number.isFinite(max)) {
+    throw new Error("/proc/sys/fs/file-nr contains invalid counters");
+  }
+  return {
+    allocated,
+    max,
+    usagePercent: max > 0 ? (allocated / max) * 100 : 0,
+  };
+}
+
+/** The `Max open files` row of `/proc/self/limits`; `unlimited` reads as null. */
+export function parseOpenFileLimit(input: string): number | null {
+  for (const line of input.split(/\r?\n/)) {
+    if (!line.startsWith("Max open files")) continue;
+    const soft = line.slice("Max open files".length).trim().split(/\s+/)[0];
+    if (soft === "unlimited") return null;
+    const value = Number(soft);
+    return Number.isFinite(value) ? value : null;
+  }
+  return null;
+}
+
+export interface SocketCounters {
+  established: number;
+  inbound: number;
+  outbound: number;
+  listening: number;
+  timeWait: number;
+  topInboundPorts: { port: number; count: number }[];
+}
+
+/** Hex state codes from `net/tcp_states.h`. */
+const TCP_ESTABLISHED = "01";
+const TCP_TIME_WAIT = "06";
+const TCP_LISTEN = "0A";
+
+interface RawSocket {
+  localPort: number;
+  state: string;
+}
+
+/**
+ * Columns are `sl local_address rem_address st ...` with addresses as
+ * `HEXADDR:HEXPORT`. Works unchanged for tcp6, whose only difference is a
+ * longer address half.
+ */
+export function parseProcNetTcp(input: string): RawSocket[] {
+  const sockets: RawSocket[] = [];
+  for (const line of input.split(/\r?\n/).slice(1)) {
+    const columns = line.trim().split(/\s+/);
+    if (columns.length < 4) continue;
+    const local = columns[1];
+    const state = columns[3];
+    if (!local || !state) continue;
+    const portHex = local.split(":")[1];
+    if (!portHex) continue;
+    const localPort = Number.parseInt(portHex, 16);
+    if (!Number.isFinite(localPort)) continue;
+    sockets.push({ localPort, state: state.toUpperCase() });
+  }
+  return sockets;
+}
+
+const TOP_INBOUND_PORTS = 5;
+
+/**
+ * An ESTABLISHED socket whose local port is one the host also listens on was
+ * opened by somebody else; anything else is a connection this host dialled out.
+ * Ephemeral ports never appear in the LISTEN set, which is what makes the
+ * split hold without tracking who called connect().
+ */
+export function classifySockets(sockets: readonly RawSocket[]): SocketCounters {
+  const listeningPorts = new Set(
+    sockets
+      .filter((socket) => socket.state === TCP_LISTEN)
+      .map((socket) => socket.localPort),
+  );
+  const inboundByPort = new Map<number, number>();
+  let established = 0;
+  let inbound = 0;
+  let outbound = 0;
+  let timeWait = 0;
+
+  for (const socket of sockets) {
+    if (socket.state === TCP_TIME_WAIT) {
+      timeWait += 1;
+      continue;
+    }
+    if (socket.state !== TCP_ESTABLISHED) continue;
+    established += 1;
+    if (listeningPorts.has(socket.localPort)) {
+      inbound += 1;
+      inboundByPort.set(
+        socket.localPort,
+        (inboundByPort.get(socket.localPort) ?? 0) + 1,
+      );
+    } else {
+      outbound += 1;
+    }
+  }
+
+  return {
+    established,
+    inbound,
+    outbound,
+    listening: listeningPorts.size,
+    timeWait,
+    topInboundPorts: [...inboundByPort.entries()]
+      .map(([port, count]) => ({ port, count }))
+      .sort((a, b) => b.count - a.count || a.port - b.port)
+      .slice(0, TOP_INBOUND_PORTS),
+  };
+}
+
+export interface SockstatCounters {
+  orphan: number;
+  tcpMemoryBytes: number;
+}
+
+/** The `TCP: inuse N orphan N tw N alloc N mem N` line; `mem` counts pages. */
+export function parseSockstat(input: string): SockstatCounters {
+  for (const line of input.split(/\r?\n/)) {
+    if (!line.startsWith("TCP:")) continue;
+    const fields = line.slice(4).trim().split(/\s+/);
+    const values = new Map<string, number>();
+    for (let index = 0; index + 1 < fields.length; index += 2) {
+      const key = fields[index];
+      const value = Number(fields[index + 1]);
+      if (key && Number.isFinite(value)) values.set(key, value);
+    }
+    return {
+      orphan: values.get("orphan") ?? 0,
+      tcpMemoryBytes: (values.get("mem") ?? 0) * PAGE_SIZE_BYTES,
+    };
+  }
+  return { orphan: 0, tcpMemoryBytes: 0 };
 }
 
 export function parseLoadAverage(input: string): {
@@ -342,11 +549,30 @@ export function hasDeviceRows(output: string): boolean {
   return output.split(/\r?\n/).some((line) => line.trim().startsWith("/dev/"));
 }
 
+/**
+ * The container's own `/proc/self`, never the `/host/proc` mount: `self`
+ * resolves against the reading process's PID namespace, so under the host mount
+ * it would name a different process — or nothing at all.
+ */
+async function countProcessFds(): Promise<number | null> {
+  try {
+    return (await readdir("/proc/self/fd")).length;
+  } catch {
+    return null;
+  }
+}
+
+async function readProcessLimits(): Promise<string> {
+  return readFile("/proc/self/limits", "utf8");
+}
+
 export interface HostCollectorDependencies {
   now(): number;
   readDf(): Promise<string>;
   readProc(path: string): Promise<string>;
   readTemperature(): Promise<number | null>;
+  countProcessFds(): Promise<number | null>;
+  readProcessLimits(): Promise<string>;
 }
 
 const defaultHostCollectorDependencies: HostCollectorDependencies = {
@@ -354,6 +580,8 @@ const defaultHostCollectorDependencies: HostCollectorDependencies = {
   readDf,
   readProc: readHostProc,
   readTemperature: readCpuTemperature,
+  countProcessFds,
+  readProcessLimits,
 };
 
 function fallbackCpuCounters(): CpuCounters {
@@ -406,6 +634,8 @@ export class HostCollector {
   private previousNetworkAt: number | null = null;
   private previousDisk = new Map<string, DiskCounters>();
   private previousDiskAt: number | null = null;
+  private previousSwapActivity: SwapActivityCounters | null = null;
+  private previousSwapActivityAt: number | null = null;
 
   constructor(
     private readonly devices: readonly DiskDevice[],
@@ -418,7 +648,16 @@ export class HostCollector {
   }
 
   async collect(): Promise<
-    Pick<OpsOverview, "cpu" | "memory" | "disks" | "network">
+    Pick<
+      OpsOverview,
+      | "cpu"
+      | "memory"
+      | "swap"
+      | "fileDescriptors"
+      | "connections"
+      | "disks"
+      | "network"
+    >
   > {
     const now = this.dependencies.now();
     const [
@@ -429,6 +668,13 @@ export class HostCollector {
       dfResult,
       diskstatsResult,
       temp,
+      swapResult,
+      swapActivityResult,
+      fileNrResult,
+      processFdResult,
+      processLimitResult,
+      socketResult,
+      sockstatResult,
     ] = await Promise.all([
       this.dependencies
         .readProc("stat")
@@ -465,6 +711,39 @@ export class HostCollector {
         .then(parseDiskstats)
         .catch(() => new Map<string, DiskCounters>()),
       this.dependencies.readTemperature(),
+      this.dependencies
+        .readProc("meminfo")
+        .then(parseSwapInfo)
+        .catch(() => null),
+      this.dependencies
+        .readProc("vmstat")
+        .then(parseVmstat)
+        .catch(() => null),
+      this.dependencies
+        .readProc("sys/fs/file-nr")
+        .then(parseFileNr)
+        .catch(() => null),
+      this.dependencies.countProcessFds().catch(() => null),
+      this.dependencies
+        .readProcessLimits()
+        .then(parseOpenFileLimit)
+        .catch(() => null),
+      // tcp6 is absent on an IPv6-disabled kernel, so the pair is summed
+      // independently rather than failing together.
+      Promise.all([
+        this.dependencies
+          .readProc("net/tcp")
+          .then(parseProcNetTcp)
+          .catch(() => []),
+        this.dependencies
+          .readProc("net/tcp6")
+          .then(parseProcNetTcp)
+          .catch(() => []),
+      ]).then(([v4, v6]) => classifySockets([...v4, ...v6])),
+      this.dependencies
+        .readProc("net/sockstat")
+        .then(parseSockstat)
+        .catch(() => ({ orphan: 0, tcpMemoryBytes: 0 })),
     ]);
 
     const cpuDelta = this.previousCpu
@@ -516,6 +795,38 @@ export class HostCollector {
     this.previousDisk = diskstatsResult;
     this.previousDiskAt = now;
 
+    const swapElapsedSeconds =
+      this.previousSwapActivityAt !== null
+        ? Math.max((now - this.previousSwapActivityAt) / 1_000, 0.001)
+        : null;
+    const swapRates =
+      swapActivityResult && this.previousSwapActivity && swapElapsedSeconds
+        ? {
+            inBytesPerSecond:
+              (Math.max(
+                0,
+                swapActivityResult.pagesIn - this.previousSwapActivity.pagesIn,
+              ) *
+                PAGE_SIZE_BYTES) /
+              swapElapsedSeconds,
+            outBytesPerSecond:
+              (Math.max(
+                0,
+                swapActivityResult.pagesOut -
+                  this.previousSwapActivity.pagesOut,
+              ) *
+                PAGE_SIZE_BYTES) /
+              swapElapsedSeconds,
+          }
+        : {};
+    if (swapActivityResult) {
+      this.previousSwapActivity = swapActivityResult;
+      this.previousSwapActivityAt = now;
+    }
+
+    const processLimit = processLimitResult;
+    const processOpen = processFdResult;
+
     return {
       cpu: {
         usagePercent:
@@ -525,6 +836,29 @@ export class HostCollector {
         temperatureCelsius: temp,
       },
       memory: memoryResult,
+      swap: {
+        ...(swapResult ?? {
+          totalBytes: 0,
+          usedBytes: 0,
+          freeBytes: 0,
+          cachedBytes: 0,
+          usagePercent: 0,
+        }),
+        ...swapRates,
+      },
+      fileDescriptors: {
+        ...(fileNrResult ?? { allocated: 0, max: 0, usagePercent: 0 }),
+        processOpen,
+        processLimit,
+        processUsagePercent:
+          processOpen !== null && processLimit !== null && processLimit > 0
+            ? (processOpen / processLimit) * 100
+            : null,
+      },
+      connections: {
+        ...socketResult,
+        ...sockstatResult,
+      },
       disks: this.devices.map((disk) =>
         diskInfo(
           disk,

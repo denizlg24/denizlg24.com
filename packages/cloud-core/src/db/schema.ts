@@ -3,6 +3,10 @@ import {
   ACTIVITY_CATEGORIES,
   ACTIVITY_SEVERITIES,
   type ActivityMetadata,
+  ALERT_AGGREGATES,
+  ALERT_COMPARISONS,
+  ALERT_RULE_STATES,
+  ALERT_RULE_UNITS,
   NOTIFICATION_TYPES,
   type NotificationPayload,
   type TaskConfig,
@@ -106,6 +110,13 @@ export const notificationTypeEnum = pgEnum(
   "notification_type",
   NOTIFICATION_TYPES,
 );
+export const alertAggregateEnum = pgEnum("alert_aggregate", ALERT_AGGREGATES);
+export const alertComparisonEnum = pgEnum(
+  "alert_comparison",
+  ALERT_COMPARISONS,
+);
+export const alertRuleStateEnum = pgEnum("alert_rule_state", ALERT_RULE_STATES);
+export const alertRuleUnitEnum = pgEnum("alert_rule_unit", ALERT_RULE_UNITS);
 
 export interface FieldMapping {
   includeFields?: string[];
@@ -629,6 +640,52 @@ export const notificationEvents = pgTable(
     index("notification_events_last_seen_at_idx").on(table.lastSeenAt),
   ],
 );
+
+/**
+ * A threshold over any series the sampler writes, which is what makes new
+ * collectors alertable without a schema change.
+ *
+ * `breachingSince` is stamped the first time an evaluation sees the condition
+ * hold and cleared when it stops, so `forSeconds` is measured against wall time
+ * rather than against a sample count — the sampler skipping a beat must not
+ * reset a sustained breach.
+ */
+export const alertRules = pgTable(
+  "alert_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: varchar("name", { length: 120 }).notNull(),
+    description: varchar("description", { length: 500 }),
+    enabled: boolean("enabled").notNull().default(true),
+    series: varchar("series", { length: 512 }).notNull(),
+    aggregate: alertAggregateEnum("aggregate").notNull().default("avg"),
+    windowSeconds: integer("window_seconds").notNull().default(300),
+    comparison: alertComparisonEnum("comparison").notNull().default("gt"),
+    threshold: doublePrecision("threshold").notNull(),
+    forSeconds: integer("for_seconds").notNull().default(0),
+    severity: activitySeverityEnum("severity").notNull().default("warn"),
+    cooldownMinutes: integer("cooldown_minutes").notNull().default(60),
+    unit: alertRuleUnitEnum("unit").notNull().default("count"),
+    state: alertRuleStateEnum("state").notNull().default("ok"),
+    stateSince: timestamp("state_since", { withTimezone: true }),
+    breachingSince: timestamp("breaching_since", { withTimezone: true }),
+    lastValue: doublePrecision("last_value"),
+    lastEvaluatedAt: timestamp("last_evaluated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("alert_rules_enabled_idx").on(table.enabled),
+    index("alert_rules_series_idx").on(table.series),
+  ],
+);
+
+export type AlertRuleRow = InferSelectModel<typeof alertRules>;
+export type AlertRuleInsert = InferInsertModel<typeof alertRules>;
 
 export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
