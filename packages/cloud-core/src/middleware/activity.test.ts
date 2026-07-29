@@ -55,31 +55,35 @@ describe("shouldCapture", () => {
     expect(decision({ status: 500 })).toBe(true);
   });
 
-  it("skips DAV probes for OS metadata that was never stored", () => {
+  it("skips every DAV 404, whatever the client was probing for", () => {
     for (const path of [
       "/dav/home/Desktop.ini",
       "/dav/home/desktop.ini",
       "/dav/shared/AutoRun.inf",
       "/dav/home/.DS_Store",
       "/dav/shared/deniz/._report.pdf",
+      // Not on any metadata list, and just as much a negative lookup.
+      "/dav/home/report.pdf",
+      "/dav/home/.hidden",
     ]) {
       expect(decision({ method: "PROPFIND", path, status: 404 })).toBe(false);
+      expect(decision({ method: "GET", path, status: 404 })).toBe(false);
     }
   });
 
-  it("still captures a DAV 404 for a real name", () => {
-    expect(
-      decision({
-        method: "PROPFIND",
-        path: "/dav/home/report.pdf",
-        status: 404,
-      }),
-    ).toBe(true);
+  it("keeps recording DAV failures that are not a missing file", () => {
+    const dav = { path: "/dav/home/report.pdf", method: "PROPFIND" };
+    expect(decision({ ...dav, status: 403 })).toBe(true);
+    expect(decision({ ...dav, status: 423 })).toBe(true);
+    expect(decision({ ...dav, status: 500 })).toBe(true);
   });
 
-  it("does not extend metadata suppression past /dav", () => {
+  it("does not extend 404 suppression past /dav", () => {
     expect(
       decision({ path: "/api/storage/files/.DS_Store", status: 404 }),
+    ).toBe(true);
+    expect(
+      decision({ path: "/api/storage/files/report.pdf", status: 404 }),
     ).toBe(true);
   });
 

@@ -5,7 +5,6 @@ import type {
 } from "@repo/schemas/cloud";
 import type { Context, MiddlewareHandler } from "hono";
 
-import { isOsMetadataPath } from "../dav/os-metadata";
 import type { ActivityEntryInput } from "../ops/activity";
 import type { AuthVariables } from "./auth";
 
@@ -107,18 +106,22 @@ function isDavPath(path: string): boolean {
 /**
  * The two things a mount does constantly that are not news.
  *
- * A 404 on an OS-metadata name is the expected answer, not a fault: nothing was
- * ever stored under it, and both operating systems re-probe `.DS_Store`,
- * `._name`, `Desktop.ini` and `AutoRun.inf` on every directory they draw. A 401
- * on a request that carried no credentials at all is the first half of the
- * mount handshake — the client asks, is challenged, then retries with the
- * password. Neither is a failed guess; a 401 that *did* present an Authorization
- * header still records, because that one is a rejected credential.
+ * On a mounted drive a 404 is a negative lookup, not a fault — the answer to
+ * "is this here?" is allowed to be no. Suppression started with the OS-metadata
+ * names both operating systems re-probe on every directory they draw
+ * (`.DS_Store`, `._name`, `Desktop.ini`, `AutoRun.inf`), but the list was never
+ * the whole of it: Finder and Explorer also probe sidecars, thumbnails and
+ * localisation files that no fixed list can enumerate, and every one of those
+ * misses landed in the table. A 401 on a request that carried no credentials at
+ * all is the first half of the mount handshake — the client asks, is
+ * challenged, then retries with the password. A 401 that *did* present an
+ * Authorization header still records, because that one is a rejected credential.
  *
- * Together these were 90% of every row in the table.
+ * Everything else on the mount is untouched: a 403, a 423, a 5xx and every
+ * mutation still record.
  */
 function isDavHousekeeping(decision: ActivityCaptureDecision): boolean {
-  if (decision.status === 404 && isOsMetadataPath(decision.path)) return true;
+  if (decision.status === 404) return true;
   return decision.status === 401 && !decision.authenticated;
 }
 
