@@ -255,6 +255,7 @@ export function FinancePage({
   const { client, slots, platform } = useAdmin();
   const [data, setData] = useState<FinanceDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>("30d");
   const [entryOpen, setEntryOpen] = useState(false);
   const [ruleOpen, setRuleOpen] = useState(false);
@@ -269,10 +270,12 @@ export function FinancePage({
   const load = useCallback(async () => {
     try {
       setData(await fetchFinanceDashboard(client));
+      setLoadError(null);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Finance unavailable",
-      );
+      const message =
+        error instanceof Error ? error.message : "Finance unavailable";
+      setLoadError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -304,7 +307,34 @@ export function FinancePage({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  if (loading || !data) return <FinanceSkeleton />;
+  if (!data) {
+    if (loading) return <FinanceSkeleton />;
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <PageHeader
+          icon={<CircleDollarSign className="size-4 text-muted-foreground" />}
+          title="Finance"
+          leading={slots?.sidebarTrigger}
+        />
+        <div className="flex flex-1 flex-col items-center justify-center gap-3">
+          <p className="text-sm text-muted-foreground">
+            {loadError ?? "Finance unavailable"}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setLoading(true);
+              void load();
+            }}
+          >
+            <RefreshCw className="size-3.5" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -917,6 +947,7 @@ function RecurringTab({
   onReload: () => Promise<void>;
 }) {
   const { client } = useAdmin();
+  const [pendingRuleId, setPendingRuleId] = useState<string | null>(null);
   const today = todayKey();
   const currency = data.monthly.currency;
   const commitment = useMemo(
@@ -1002,7 +1033,10 @@ function RecurringTab({
                     className="shrink-0"
                     aria-label={`${rule.name} active`}
                     checked={rule.status === "active"}
+                    disabled={pendingRuleId === rule.id}
                     onCheckedChange={async (checked) => {
+                      if (pendingRuleId) return;
+                      setPendingRuleId(rule.id);
                       try {
                         await updateFinanceRule(client, rule.id, {
                           status: checked ? "active" : "paused",
@@ -1014,6 +1048,8 @@ function RecurringTab({
                             ? error.message
                             : "Update failed",
                         );
+                      } finally {
+                        setPendingRuleId(null);
                       }
                     }}
                   />
@@ -1584,7 +1620,8 @@ function RuleSheet({
 
   const account = accounts.find((item) => item.id === accountId);
   const anchor = new Date(`${anchorDate}T00:00:00Z`);
-  const ready = Boolean(account && name.trim() && amount);
+  const anchorValid = !Number.isNaN(anchor.getTime());
+  const ready = Boolean(account && name.trim() && amount && anchorValid);
 
   async function save() {
     if (!account || !ready) return;
@@ -1732,9 +1769,11 @@ function RuleSheet({
           </div>
 
           <p className="text-[11px] tabular-nums text-muted-foreground">
-            {cadence === "weekly"
-              ? `every ${anchor.toLocaleDateString("en-PT", { weekday: "long", timeZone: "UTC" })}`
-              : `day ${anchor.getUTCDate()} of each month`}
+            {!anchorValid
+              ? "—"
+              : cadence === "weekly"
+                ? `every ${anchor.toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" })}`
+                : `day ${anchor.getUTCDate()} of each month`}
           </p>
 
           <Button
@@ -1884,6 +1923,7 @@ function LinkDialog({
                       toast.error(
                         error instanceof Error ? error.message : "Link failed",
                       );
+                    } finally {
                       setLinking(null);
                     }
                   }}

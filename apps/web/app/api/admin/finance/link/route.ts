@@ -6,7 +6,9 @@ import { requireAdmin } from "@/lib/require-admin";
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  const parsed = financeBeginLinkRequestSchema.safeParse(await request.json());
+  const parsed = financeBeginLinkRequestSchema.safeParse(
+    await request.json().catch(() => null),
+  );
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid finance link request" },

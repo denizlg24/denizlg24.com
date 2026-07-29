@@ -31,7 +31,7 @@ export function shiftDay(day: string, offset: number) {
 }
 
 export function money(amountMinor: number, currency: string) {
-  return new Intl.NumberFormat("en-PT", {
+  return new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency,
     minimumFractionDigits: 2,
@@ -40,7 +40,7 @@ export function money(amountMinor: number, currency: string) {
 }
 
 export function compactMoney(amountMinor: number, currency: string) {
-  return new Intl.NumberFormat("en-PT", {
+  return new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency,
     notation: "compact",
@@ -49,7 +49,7 @@ export function compactMoney(amountMinor: number, currency: string) {
 }
 
 export function shortDay(day: string) {
-  return new Date(`${day}T00:00:00`).toLocaleDateString("en-PT", {
+  return new Date(`${day}T00:00:00`).toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
   });

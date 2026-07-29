@@ -89,7 +89,11 @@ export function BalanceChart({
       config={balanceConfig}
       className={cn("h-52 w-full", className)}
     >
-      <ComposedChart data={points} margin={{ left: 4, right: 4, top: 4 }}>
+      <ComposedChart
+        accessibilityLayer
+        data={points}
+        margin={{ left: 4, right: 4, top: 4 }}
+      >
         <defs>
           <linearGradient id="financeBand" x1="0" y1="0" x2="0" y2="1">
             <stop

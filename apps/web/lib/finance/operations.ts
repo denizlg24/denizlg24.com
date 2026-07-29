@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type {
   FinanceCsvImportInput,
+  FinanceFxSnapshot as FinanceFxSnapshotInput,
   FinanceManualEntryInput,
   FinanceNaturalEntryInput,
 } from "@repo/schemas";
@@ -117,25 +118,27 @@ export async function importFinanceCsv(input: FinanceCsvImportInput) {
     provider.fetchTransactions(input.sourceId),
   ]);
   await Promise.all([
-    FinanceBalance.bulkWrite(
-      balances.map((balance) => ({
-        updateOne: {
-          filter: {
-            accountId: account._id,
-            balanceType: balance.balanceType,
-          },
-          update: {
-            $set: {
-              amountMinor: balance.amountMinor,
-              currency: balance.currency,
-              referenceDate: balance.referenceDate,
-              fetchedAt: new Date(balance.fetchedAt),
+    balances.length > 0
+      ? FinanceBalance.bulkWrite(
+          balances.map((balance) => ({
+            updateOne: {
+              filter: {
+                accountId: account._id,
+                balanceType: balance.balanceType,
+              },
+              update: {
+                $set: {
+                  amountMinor: balance.amountMinor,
+                  currency: balance.currency,
+                  referenceDate: balance.referenceDate,
+                  fetchedAt: new Date(balance.fetchedAt),
+                },
+              },
+              upsert: true,
             },
-          },
-          upsert: true,
-        },
-      })),
-    ),
+          })),
+        )
+      : Promise.resolve(),
     ingestBankTransactions({
       accountId: account._id,
       transactions,
@@ -144,22 +147,17 @@ export async function importFinanceCsv(input: FinanceCsvImportInput) {
     }),
   ]);
   account.lastSyncedAt = now;
-  account.lastBookingDate = transactions
+  const lastBookingDate = transactions
+    .filter((transaction) => transaction.status === "booked")
     .map((transaction) => transaction.bookingDate ?? transaction.valueDate)
     .toSorted()
     .at(-1);
+  if (lastBookingDate) account.lastBookingDate = lastBookingDate;
   await account.save();
   return account;
 }
 
-export async function upsertFinanceFxSnapshot(input: {
-  date: string;
-  baseCurrency: string;
-  quoteCurrency: string;
-  rateMicros: number;
-  source: string;
-  fetchedAt: string;
-}) {
+export async function upsertFinanceFxSnapshot(input: FinanceFxSnapshotInput) {
   await connectDB();
   return FinanceFxSnapshot.findOneAndUpdate(
     {
@@ -209,6 +207,11 @@ export async function createFinanceNarrative() {
         category,
         amountMinor,
       })),
+    }),
+    logUserPrompt: JSON.stringify({
+      currency: dashboard.monthly.currency,
+      categoryCount: categoryTotals.size,
+      hasForecast: Boolean(dashboard.forecast),
     }),
   });
   return {

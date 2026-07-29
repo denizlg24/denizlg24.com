@@ -11,8 +11,23 @@ const dashboard: FinanceDashboardResponse = {
     spendMinor: 48_000,
     incomeMinor: 210_000,
     currency: "EUR",
+    unconvertedByCurrency: [],
   },
-  ledger: [],
+  ledger: [
+    {
+      id: "ledger-1",
+      accountId: "account-1",
+      origin: "manual",
+      state: "active",
+      amountMinor: -1_250,
+      currency: "EUR",
+      effectiveDate: "2026-07-20",
+      descriptor: "PADARIA CONFIDENTIAL LISBOA",
+      normalizedDescriptor: "padaria confidential lisboa",
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+    },
+  ],
   recurringRules: [
     {
       id: "rule-1",
@@ -60,6 +75,8 @@ describe("finance agent-memory evidence", () => {
     expect(first.sensitivity).toBe("sensitive");
     expect(first.snapshot).toContain('"name":"Rent"');
     expect(first.snapshot).not.toContain("descriptor");
+    expect(first.snapshot).not.toContain("PADARIA CONFIDENTIAL LISBOA");
+    expect(first.snapshot).not.toContain("padaria confidential lisboa");
     expect(first.provenance.descriptorPolicy).toBe("aggregate-only");
   });
 

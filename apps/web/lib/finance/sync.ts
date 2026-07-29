@@ -171,7 +171,9 @@ export async function syncFinanceAccount(
       nextSyncAt: nextSyncAt?.toISOString(),
     };
   } catch (error) {
-    await reservation.releaseUnused();
+    await reservation.releaseUnused().catch((releaseError) => {
+      console.warn("[finance] Budget release failed", releaseError);
+    });
     if (requiresReconnect(error)) {
       await FinanceAccount.updateOne(
         { _id: account._id },
@@ -208,11 +210,22 @@ export async function runFinanceCron(now = new Date()) {
       continue;
     }
     if (account.nextSyncAt.getTime() > now.getTime()) continue;
-    const result = await syncFinanceAccount(account._id, {
-      mode: "cron",
-      now,
-    });
-    results.push({ accountId: account._id.toString(), status: result.status });
+    try {
+      const result = await syncFinanceAccount(account._id, {
+        mode: "cron",
+        now,
+      });
+      results.push({
+        accountId: account._id.toString(),
+        status: result.status,
+      });
+    } catch (error) {
+      console.error("[finance] Account sync failed", {
+        accountId: account._id.toString(),
+        error: error instanceof Error ? error.message : "unknown error",
+      });
+      results.push({ accountId: account._id.toString(), status: "failed" });
+    }
   }
   await observeFinanceMemorySafely(now);
   return { planned: accounts.length, attempted: results.length, results };

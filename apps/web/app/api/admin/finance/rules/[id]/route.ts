@@ -1,6 +1,6 @@
 import { financeRecurringRuleInputSchema } from "@repo/schemas";
 import mongoose from "mongoose";
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { serializeFinanceRecurringRule } from "@/lib/finance/dashboard";
 import { materializeRecurringFinanceEntries } from "@/lib/finance/ledger";
 import { observeFinanceMemorySafely } from "@/lib/finance/memory";
@@ -18,7 +18,7 @@ export async function PATCH(request: NextRequest, context: Context) {
   if (!mongoose.isValidObjectId(id)) {
     return NextResponse.json({ error: "Invalid rule" }, { status: 400 });
   }
-  const parsed = updateSchema.safeParse(await request.json());
+  const parsed = updateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid recurring rule" },
@@ -35,7 +35,7 @@ export async function PATCH(request: NextRequest, context: Context) {
     return NextResponse.json({ error: "Rule not found" }, { status: 404 });
   }
   await materializeRecurringFinanceEntries();
-  await observeFinanceMemorySafely();
+  after(() => observeFinanceMemorySafely());
   return NextResponse.json({ rule: serializeFinanceRecurringRule(rule) });
 }
 
@@ -58,6 +58,6 @@ export async function DELETE(request: NextRequest, context: Context) {
     },
     { $set: { state: "void" } },
   );
-  await observeFinanceMemorySafely();
+  after(() => observeFinanceMemorySafely());
   return NextResponse.json({ success: true });
 }

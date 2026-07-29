@@ -15,7 +15,7 @@ export async function PATCH(request: NextRequest, context: Context) {
     return NextResponse.json({ error: "Invalid account" }, { status: 400 });
   }
   const parsed = financeAccountSettingsInputSchema.safeParse(
-    await request.json(),
+    await request.json().catch(() => null),
   );
   if (!parsed.success) {
     return NextResponse.json(

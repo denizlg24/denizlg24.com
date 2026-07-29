@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const isoDateTimeSchema = z.string().datetime({ offset: true });
+const isoDateTimeSchema = z.iso.datetime({ offset: true });
 
 export const financeCurrencySchema = z
   .string()
@@ -9,7 +9,7 @@ export const financeCurrencySchema = z
 export type FinanceCurrency = z.infer<typeof financeCurrencySchema>;
 
 export const financeMoneySchema = z.object({
-  amountMinor: z.number().int().safe(),
+  amountMinor: z.number().int(),
   currency: financeCurrencySchema,
 });
 export type FinanceMoney = z.infer<typeof financeMoneySchema>;
@@ -18,7 +18,7 @@ export const financeInstitutionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   country: z.string().regex(/^[A-Z]{2}$/),
-  logoUrl: z.string().url().optional(),
+  logoUrl: z.url().optional(),
 });
 export type FinanceInstitution = z.infer<typeof financeInstitutionSchema>;
 
@@ -276,14 +276,14 @@ export type FinanceFxSnapshot = z.infer<typeof financeFxSnapshotSchema>;
 export const financeForecastSchema = z.object({
   currency: financeCurrencySchema,
   asOfDate: isoDateSchema,
-  currentBalanceMinor: z.number().int().safe(),
+  currentBalanceMinor: z.number().int(),
   recurringExpensesDueMinor: z.number().int().nonnegative(),
   expectedIncomeMinor: z.number().int().nonnegative(),
   discretionaryDailyRateMinor: z.number().int().nonnegative(),
   daysRemaining: z.number().int().nonnegative(),
-  p25Minor: z.number().int().safe(),
-  p50Minor: z.number().int().safe(),
-  p75Minor: z.number().int().safe(),
+  p25Minor: z.number().int(),
+  p50Minor: z.number().int(),
+  p75Minor: z.number().int(),
 });
 export type FinanceForecast = z.infer<typeof financeForecastSchema>;
 
@@ -294,6 +294,7 @@ export const financeDashboardResponseSchema = z.object({
   monthly: financeMoneySchema.extend({
     spendMinor: z.number().int().nonnegative(),
     incomeMinor: z.number().int().nonnegative(),
+    unconvertedByCurrency: z.array(financeMoneySchema),
   }),
   ledger: z.array(financeLedgerEntrySchema),
   recurringRules: z.array(financeRecurringRuleSchema),
@@ -307,14 +308,14 @@ export type FinanceDashboardResponse = z.infer<
 
 export const financeBeginLinkRequestSchema = z.object({
   institutionId: z.string().min(1),
-  redirectUrl: z.string().url(),
+  redirectUrl: z.url(),
 });
 export type FinanceBeginLinkRequest = z.infer<
   typeof financeBeginLinkRequestSchema
 >;
 
 export const financeBeginLinkResponseSchema = z.object({
-  linkUrl: z.string().url(),
+  linkUrl: z.url(),
 });
 export type FinanceBeginLinkResponse = z.infer<
   typeof financeBeginLinkResponseSchema

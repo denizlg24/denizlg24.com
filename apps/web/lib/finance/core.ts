@@ -10,6 +10,7 @@ import type {
 } from "@repo/schemas";
 
 const DAY_MS = 86_400_000;
+const TRANSFER_DATE_PENALTY_WEIGHT = 0.25;
 
 export function financeAccountBindingKey(
   account: Pick<FinanceProviderAccount, "identificationHash">,
@@ -56,21 +57,22 @@ export function transactionSyntheticKey(
     | "descriptor"
     | "normalizedDescriptor"
   >,
+  occurrence = 0,
 ) {
   const normalized =
     transaction.normalizedDescriptor ||
     normalizeFinanceDescriptor(transaction.descriptor);
-  return createHash("sha256")
-    .update(
-      [
-        accountId,
-        transaction.valueDate,
-        transaction.amountMinor,
-        transaction.currency,
-        normalized,
-      ].join("\0"),
-    )
-    .digest("hex");
+  const parts = [
+    accountId,
+    transaction.valueDate,
+    transaction.amountMinor,
+    transaction.currency,
+    normalized,
+  ];
+  // Only suffixed past the first occurrence so keys already stored for
+  // single-occurrence transactions keep hashing to the same value.
+  if (occurrence > 0) parts.push(`#${occurrence}`);
+  return createHash("sha256").update(parts.join("\0")).digest("hex");
 }
 
 export function dateDistanceDays(left: string, right: string) {
@@ -117,6 +119,8 @@ export function findPendingPromotion(
       (candidate) =>
         candidate.currency === transaction.currency &&
         candidate.normalizedDescriptor === descriptor &&
+        Math.sign(candidate.amountMinor) ===
+          Math.sign(transaction.amountMinor) &&
         dateDistanceDays(candidate.effectiveDate, transaction.valueDate) <=
           options.dateToleranceDays &&
         amountWithinPercent(
@@ -141,13 +145,17 @@ export function findPendingPromotion(
     })[0];
 }
 
+function compareCodepoints(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export function stableFinanceContentHash(rows: Array<Record<string, unknown>>) {
   const normalized = rows
     .map(({ updatedAt: _updatedAt, lastSeenAt: _lastSeenAt, ...row }) =>
       sortObject(row),
     )
     .sort((left, right) =>
-      JSON.stringify(left).localeCompare(JSON.stringify(right)),
+      compareCodepoints(JSON.stringify(left), JSON.stringify(right)),
     );
   return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
 }
@@ -157,7 +165,7 @@ function sortObject(value: unknown): unknown {
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => compareCodepoints(left, right))
         .map(([key, child]) => [key, sortObject(child)]),
     );
   }
@@ -200,20 +208,31 @@ export function detectTransferPairs(
 
   for (const debit of available) {
     if (debit.amountMinor >= 0 || used.has(debit.id)) continue;
-    const credit = available.find(
-      (candidate) =>
-        candidate.amountMinor > 0 &&
-        !used.has(candidate.id) &&
-        candidate.accountId !== debit.accountId &&
-        candidate.currency === debit.currency &&
-        dateDistanceDays(candidate.effectiveDate, debit.effectiveDate) <=
-          dateToleranceDays &&
-        amountWithinPercent(
-          candidate.amountMinor,
-          debit.amountMinor,
-          amountTolerancePercent,
-        ),
-    );
+    const credit = available
+      .filter(
+        (candidate) =>
+          candidate.amountMinor > 0 &&
+          !used.has(candidate.id) &&
+          candidate.accountId !== debit.accountId &&
+          candidate.currency === debit.currency &&
+          dateDistanceDays(candidate.effectiveDate, debit.effectiveDate) <=
+            dateToleranceDays &&
+          amountWithinPercent(
+            candidate.amountMinor,
+            debit.amountMinor,
+            amountTolerancePercent,
+          ),
+      )
+      .sort((left, right) => {
+        const dateDelta =
+          dateDistanceDays(left.effectiveDate, debit.effectiveDate) -
+          dateDistanceDays(right.effectiveDate, debit.effectiveDate);
+        if (dateDelta !== 0) return dateDelta;
+        return (
+          Math.abs(left.amountMinor - Math.abs(debit.amountMinor)) -
+          Math.abs(right.amountMinor - Math.abs(debit.amountMinor))
+        );
+      })[0];
     if (!credit) continue;
 
     const amountDelta =
@@ -228,7 +247,9 @@ export function detectTransferPairs(
       creditLedgerId: credit.id,
       confidence: Math.max(
         0,
-        1 - amountDelta - dayDelta / (dateToleranceDays + 1) / 10,
+        1 -
+          amountDelta -
+          (dayDelta / dateToleranceDays) * TRANSFER_DATE_PENALTY_WEIGHT,
       ),
     });
     used.add(debit.id);
@@ -263,9 +284,21 @@ function percentile(sorted: number[], ratio: number) {
 }
 
 function dailyDiscretionarySpend(rows: FinanceLedgerEntry[], asOfDate: string) {
-  const from = new Date(`${asOfDate}T00:00:00.000Z`);
-  from.setUTCDate(from.getUTCDate() - 89);
-  const fromDate = from.toISOString().slice(0, 10);
+  const window = new Date(`${asOfDate}T00:00:00.000Z`);
+  window.setUTCDate(window.getUTCDate() - 89);
+  const observedFrom = rows
+    .filter((row) => row.origin !== "projected" && row.state !== "void")
+    .reduce<string | undefined>(
+      (earliest, row) =>
+        !earliest || row.effectiveDate < earliest
+          ? row.effectiveDate
+          : earliest,
+      undefined,
+    );
+  const windowStart = window.toISOString().slice(0, 10);
+  const fromDate =
+    observedFrom && observedFrom > windowStart ? observedFrom : windowStart;
+  const from = new Date(`${fromDate}T00:00:00.000Z`);
   const recurringBankIds = new Set(
     rows
       .filter(
@@ -295,8 +328,9 @@ function dailyDiscretionarySpend(rows: FinanceLedgerEntry[], asOfDate: string) {
     );
   }
 
+  const coveredDays = dateDistanceDays(fromDate, asOfDate) + 1;
   const values: number[] = [];
-  for (let offset = 0; offset < 90; offset += 1) {
+  for (let offset = 0; offset < coveredDays; offset += 1) {
     const date = new Date(from);
     date.setUTCDate(date.getUTCDate() + offset);
     values.push(daily.get(date.toISOString().slice(0, 10)) ?? 0);
@@ -384,6 +418,7 @@ function nextOccurrence(current: Date, recurrence: FinanceRecurrence): Date {
     return addMonths(current, recurrence.interval, recurrence.dayOfMonth);
   }
   const result = new Date(current);
+  result.setUTCDate(1);
   result.setUTCFullYear(result.getUTCFullYear() + recurrence.interval);
   result.setUTCMonth(recurrence.month - 1);
   const lastDay = new Date(
@@ -477,7 +512,12 @@ export function detectRecurringFinanceCandidates(
       row.currency,
       Math.sign(row.amountMinor),
     ].join("\0");
-    groups.set(key, [...(groups.get(key) ?? []), row]);
+    const group = groups.get(key);
+    if (group) {
+      group.push(row);
+    } else {
+      groups.set(key, [row]);
+    }
   }
 
   const candidates: FinanceRecurringCandidate[] = [];

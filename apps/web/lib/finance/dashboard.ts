@@ -26,6 +26,8 @@ import {
 } from "./core";
 
 const BALANCE_PREFERENCE = ["CLAV", "CLBD", "ITAV", "XPCD"];
+const LEDGER_WINDOW_DAYS = 400;
+const FX_SNAPSHOT_LIMIT = 2_000;
 
 function iso(value: Date | undefined) {
   return value?.toISOString();
@@ -180,9 +182,11 @@ function convertMinorToBase(
   date?: string,
 ) {
   if (currency === baseCurrency) return amountMinor;
+  // Snapshots arrive date-descending, so the first match on or before the row's
+  // date is the most recent applicable rate.
   const applicable = snapshots.find(
     (snapshot) =>
-      (!date || snapshot.date === date) &&
+      (!date || snapshot.date <= date) &&
       ((snapshot.baseCurrency === baseCurrency &&
         snapshot.quoteCurrency === currency) ||
         (snapshot.baseCurrency === currency &&
@@ -199,14 +203,28 @@ export async function getFinanceDashboard(
   now = new Date(),
 ): Promise<FinanceDashboardResponse> {
   await connectDB();
+  // The ledger window has to cover the 90-day discretionary-spend lookback and
+  // the forecast horizon (end of next month), with a margin for the recurring
+  // detector's history requirement.
+  const windowStart = new Date(now);
+  windowStart.setUTCDate(windowStart.getUTCDate() - LEDGER_WINDOW_DAYS);
+  const windowFrom = windowStart.toISOString().slice(0, 10);
+  const windowEnd = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 2, 0),
+  );
+  const windowTo = windowEnd.toISOString().slice(0, 10);
   const [accounts, balances, ledgerRows, rules, reviews, fxSnapshots] =
     await Promise.all([
       FinanceAccount.find().sort({ displayName: 1 }),
       FinanceBalance.find().sort({ fetchedAt: -1 }),
-      FinanceLedgerEntry.find().sort({ effectiveDate: -1, createdAt: -1 }),
+      FinanceLedgerEntry.find({
+        effectiveDate: { $gte: windowFrom, $lte: windowTo },
+      }).sort({ effectiveDate: -1, createdAt: -1 }),
       FinanceRecurringRule.find().sort({ name: 1 }),
       FinanceMatchReview.find({ status: "pending" }).sort({ createdAt: -1 }),
-      FinanceFxSnapshot.find().sort({ date: -1 }),
+      FinanceFxSnapshot.find({ date: { $lte: windowTo } })
+        .sort({ date: -1 })
+        .limit(FX_SNAPSHOT_LIMIT),
     ]);
   const ledger = ledgerRows.map(serializeFinanceLedgerEntry);
   const recurringRuleFingerprints = new Set(
@@ -243,6 +261,8 @@ export async function getFinanceDashboard(
     }
   }
   const asOfDate = now.toISOString().slice(0, 10);
+  const monthStart = `${asOfDate.slice(0, 7)}-01`;
+  const unconvertedLedgerByCurrency = new Map<string, number>();
   const forecastLedger = ledger.flatMap((row) => {
     const converted = convertMinorToBase(
       row.amountMinor,
@@ -251,11 +271,18 @@ export async function getFinanceDashboard(
       fxSnapshots,
       row.effectiveDate,
     );
-    return converted === undefined
-      ? []
-      : [{ ...row, amountMinor: converted, currency: baseCurrency }];
+    if (converted === undefined) {
+      if (row.effectiveDate >= monthStart && row.effectiveDate <= asOfDate) {
+        unconvertedLedgerByCurrency.set(
+          row.currency,
+          (unconvertedLedgerByCurrency.get(row.currency) ?? 0) +
+            row.amountMinor,
+        );
+      }
+      return [];
+    }
+    return [{ ...row, amountMinor: converted, currency: baseCurrency }];
   });
-  const monthStart = `${asOfDate.slice(0, 7)}-01`;
   const counted = deduplicateLinkedLedger(forecastLedger).filter(
     (row) =>
       row.effectiveDate >= monthStart &&
@@ -287,6 +314,9 @@ export async function getFinanceDashboard(
       amountMinor: incomeMinor - spendMinor,
       spendMinor,
       incomeMinor,
+      unconvertedByCurrency: [...unconvertedLedgerByCurrency].map(
+        ([currency, amountMinor]) => ({ currency, amountMinor }),
+      ),
     },
     ledger,
     recurringRules: rules.map(serializeFinanceRecurringRule),

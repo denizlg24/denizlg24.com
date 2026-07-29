@@ -14,6 +14,9 @@ describe("finance secret storage", () => {
   });
 
   test("refuses missing or malformed keys", () => {
+    // Bun auto-loads .env, so an ambient key would otherwise turn this into a
+    // false positive by exercising the valid-key path instead.
+    delete process.env.FINANCE_ENCRYPTION_KEY;
     expect(() => encryptFinanceSecret("secret")).toThrow();
     process.env.FINANCE_ENCRYPTION_KEY = "short";
     expect(() => encryptFinanceSecret("secret")).toThrow();

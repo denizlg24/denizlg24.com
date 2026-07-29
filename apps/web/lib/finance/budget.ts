@@ -137,7 +137,11 @@ export class FinanceBudgetReservation {
     if (this.#released || this.exempt) return;
     this.#released = true;
     const unused = this.reserved - this.#used;
-    const release = unused + this.#refundableFailures;
+    // Failure refunds are only meaningful for slots actually consumed, and the
+    // total can never exceed what was reserved — otherwise an unpaired
+    // requestFailed() would drive fetchesUsed negative and uncap the budget.
+    const refundableFailures = Math.min(this.#refundableFailures, this.#used);
+    const release = Math.min(unused + refundableFailures, this.reserved);
     if (release > 0) {
       await FinanceAccount.updateOne(
         { _id: this.accountId },

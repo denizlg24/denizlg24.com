@@ -20,11 +20,15 @@ import {
 
 const timestamp = "2026-07-29T10:00:00.000Z";
 
+type ManualLedgerEntry = Extract<FinanceLedgerEntry, { origin: "manual" }>;
+
+// The return annotation alone type-checks the literal — no cast, so a change to
+// the FinanceLedgerEntry contract breaks here instead of passing silently.
 function manual(
   id: string,
   amountMinor: number,
-  overrides: Partial<FinanceLedgerEntry> = {},
-): FinanceLedgerEntry {
+  overrides: Partial<ManualLedgerEntry> = {},
+): ManualLedgerEntry {
   return {
     id,
     accountId: "account-1",
@@ -38,7 +42,7 @@ function manual(
     createdAt: timestamp,
     updatedAt: timestamp,
     ...overrides,
-  } as FinanceLedgerEntry;
+  };
 }
 
 describe("finance ledger core", () => {
@@ -54,8 +58,39 @@ describe("finance ledger core", () => {
     };
 
     expect(normalizeFinanceDescriptor(transaction.descriptor)).toBe("cafe");
-    expect(transactionSyntheticKey("account-1", transaction)).toBe(
+    // Equivalent-but-differently-shaped input: a pre-normalized descriptor must
+    // hash the same as one normalized on the fly.
+    const preNormalized: FinanceProviderTransaction = {
+      ...transaction,
+      descriptor: "VISA PURCHASE Cafe",
+      normalizedDescriptor: "cafe",
+    };
+    expect(transactionSyntheticKey("account-1", preNormalized)).toBe(
       transactionSyntheticKey("account-1", transaction),
+    );
+    expect(transactionSyntheticKey("account-2", transaction)).not.toBe(
+      transactionSyntheticKey("account-1", transaction),
+    );
+  });
+
+  test("separates repeated id-less transactions by occurrence", () => {
+    const transaction: FinanceProviderTransaction = {
+      accountRef: "provider-account",
+      status: "pending",
+      valueDate: "2026-07-29",
+      amountMinor: -250,
+      currency: "EUR",
+      descriptor: "Cafe",
+      normalizedDescriptor: "cafe",
+    };
+
+    // Occurrence 0 must keep hashing as it did before the parameter existed,
+    // so keys already persisted stay resolvable.
+    expect(transactionSyntheticKey("account-1", transaction, 0)).toBe(
+      transactionSyntheticKey("account-1", transaction),
+    );
+    expect(transactionSyntheticKey("account-1", transaction, 1)).not.toBe(
+      transactionSyntheticKey("account-1", transaction, 0),
     );
   });
 
@@ -87,6 +122,36 @@ describe("finance ledger core", () => {
         { dateToleranceDays: 3, amountTolerancePercent: 10 },
       )?.id,
     ).toBe("pending-row");
+  });
+
+  test("does not promote a booked credit onto a pending debit", () => {
+    const refund: FinanceProviderTransaction = {
+      accountRef: "provider-account",
+      providerTxnId: "booked-1",
+      status: "booked",
+      valueDate: "2026-07-30",
+      amountMinor: 1_250,
+      currency: "EUR",
+      descriptor: "Cafe",
+      normalizedDescriptor: "cafe",
+    };
+
+    expect(
+      findPendingPromotion(
+        refund,
+        [
+          {
+            id: "pending-row",
+            amountMinor: -1_250,
+            currency: "EUR",
+            effectiveDate: "2026-07-29",
+            normalizedDescriptor: "cafe",
+            syntheticKey: "pending-key",
+          },
+        ],
+        { dateToleranceDays: 3, amountTolerancePercent: 10 },
+      ),
+    ).toBeUndefined();
   });
 
   test("content hash ignores observation timestamps and insertion order", () => {
@@ -161,6 +226,37 @@ describe("finance ledger core", () => {
       ]),
     ).toHaveLength(1);
   });
+
+  test("pairs a transfer with the closest counterpart, not the earliest", () => {
+    const [pair] = detectTransferPairs([
+      {
+        id: "far",
+        accountId: "two",
+        amountMinor: 10_000,
+        currency: "EUR",
+        effectiveDate: "2026-07-08",
+        state: "booked",
+      },
+      {
+        id: "out",
+        accountId: "one",
+        amountMinor: -10_000,
+        currency: "EUR",
+        effectiveDate: "2026-07-10",
+        state: "booked",
+      },
+      {
+        id: "near",
+        accountId: "two",
+        amountMinor: 10_000,
+        currency: "EUR",
+        effectiveDate: "2026-07-10",
+        state: "booked",
+      },
+    ]);
+
+    expect(pair?.creditLedgerId).toBe("near");
+  });
 });
 
 describe("finance forecast and recurrence", () => {
@@ -222,6 +318,36 @@ describe("finance forecast and recurrence", () => {
     expect(recurringOccurrences(rule, "2026-02-01", "2026-03-31")).toEqual([
       "2026-02-28",
       "2026-03-31",
+    ]);
+  });
+
+  test("yearly rules clamp the day without overflowing the month", () => {
+    const rule = {
+      id: "rule",
+      accountId: "account",
+      name: "Yearly",
+      direction: "expense",
+      amountKind: "fixed",
+      amountMinor: 100,
+      currency: "EUR",
+      recurrence: {
+        cadence: "yearly",
+        interval: 1,
+        month: 2,
+        dayOfMonth: 31,
+      },
+      anchorDate: "2026-01-31",
+      matchTolerancePercent: 5,
+      matchWindowDays: 2,
+      status: "active",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    } satisfies FinanceRecurringRule;
+
+    expect(recurringOccurrences(rule, "2027-01-01", "2029-12-31")).toEqual([
+      "2027-02-28",
+      "2028-02-29",
+      "2029-02-28",
     ]);
   });
 });

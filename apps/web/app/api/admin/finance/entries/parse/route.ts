@@ -1,5 +1,5 @@
 import { financeNaturalEntryInputSchema } from "@repo/schemas";
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { serializeFinanceLedgerEntry } from "@/lib/finance/dashboard";
 import { observeFinanceMemorySafely } from "@/lib/finance/memory";
 import { createNaturalFinanceEntry } from "@/lib/finance/operations";
@@ -8,7 +8,9 @@ import { requireAdmin } from "@/lib/require-admin";
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  const parsed = financeNaturalEntryInputSchema.safeParse(await request.json());
+  const parsed = financeNaturalEntryInputSchema.safeParse(
+    await request.json().catch(() => null),
+  );
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid natural finance entry" },
@@ -18,7 +20,7 @@ export async function POST(request: NextRequest) {
   try {
     const entry = await createNaturalFinanceEntry(parsed.data);
     if (!entry) throw new Error("Finance entry was not persisted");
-    await observeFinanceMemorySafely();
+    after(() => observeFinanceMemorySafely());
     return NextResponse.json(
       { entry: serializeFinanceLedgerEntry(entry) },
       { status: 201 },

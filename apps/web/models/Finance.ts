@@ -156,6 +156,17 @@ export interface IFinanceLedgerEntry extends Document {
   updatedAt: Date;
 }
 
+// Mirrors the discriminated union in packages/schemas: the wire serializer
+// dereferences these per-origin, so a row missing them would fail the whole
+// dashboard request rather than just itself.
+function requiredForBankOrigin(this: IFinanceLedgerEntry) {
+  return this.origin === "bank";
+}
+
+function requiredForProjectedOrigin(this: IFinanceLedgerEntry) {
+  return this.origin === "projected";
+}
+
 const financeLedgerEntrySchema = new Schema<IFinanceLedgerEntry>(
   {
     accountId: {
@@ -202,26 +213,34 @@ const financeLedgerEntrySchema = new Schema<IFinanceLedgerEntry>(
     identityKind: {
       type: String,
       enum: ["provider", "synthetic"],
+      required: requiredForBankOrigin,
     },
     providerTxnId: { type: String },
     syntheticKey: { type: String },
     promotedFrom: { type: String },
     bookingDate: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ },
-    valueDate: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ },
-    firstSeenAt: { type: Date },
-    lastSeenAt: { type: Date },
+    valueDate: {
+      type: String,
+      match: /^\d{4}-\d{2}-\d{2}$/,
+      required: requiredForBankOrigin,
+    },
+    firstSeenAt: { type: Date, required: requiredForBankOrigin },
+    lastSeenAt: { type: Date, required: requiredForBankOrigin },
     note: { type: String },
     recurringRuleId: {
       type: Schema.Types.ObjectId,
       ref: "FinanceRecurringRule",
+      required: requiredForProjectedOrigin,
     },
     expectedWindowStart: {
       type: String,
       match: /^\d{4}-\d{2}-\d{2}$/,
+      required: requiredForProjectedOrigin,
     },
     expectedWindowEnd: {
       type: String,
       match: /^\d{4}-\d{2}-\d{2}$/,
+      required: requiredForProjectedOrigin,
     },
   },
   { collection: "finance_ledger", timestamps: true },

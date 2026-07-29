@@ -23,7 +23,6 @@ import {
   normalizeFinanceDescriptor,
   recurringOccurrences,
   resolveProviderTransactionId,
-  stableFinanceContentHash,
   transactionSyntheticKey,
 } from "./core";
 
@@ -35,6 +34,7 @@ function bankFields(
   accountId: mongoose.Types.ObjectId,
   transaction: FinanceProviderTransaction,
   observedAt: Date,
+  occurrence = 0,
 ) {
   const providerTxnId = resolveProviderTransactionId(transaction);
   const normalizedDescriptor =
@@ -56,12 +56,18 @@ function bankFields(
     providerTxnId,
     syntheticKey: providerTxnId
       ? undefined
-      : transactionSyntheticKey(accountId.toString(), transaction),
+      : transactionSyntheticKey(accountId.toString(), transaction, occurrence),
     bookingDate: transaction.bookingDate,
     valueDate: transaction.valueDate,
     firstSeenAt: observedAt,
     lastSeenAt: observedAt,
   };
+}
+
+function shiftDate(date: string, days: number) {
+  const shifted = new Date(`${date}T00:00:00.000Z`);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
 }
 
 function bankContentChanged(
@@ -80,28 +86,6 @@ function bankContentChanged(
   );
 }
 
-export async function financeLedgerContentHash(
-  accountId?: string | mongoose.Types.ObjectId,
-) {
-  const rows = await FinanceLedgerEntry.find(
-    accountId ? { accountId } : {},
-  ).lean();
-  return stableFinanceContentHash(
-    rows.map((row) => ({
-      ...row,
-      _id: row._id.toString(),
-      accountId: row.accountId.toString(),
-      linkedLedgerId: row.linkedLedgerId?.toString(),
-      transferId: row.transferId?.toString(),
-      recurringRuleId: row.recurringRuleId?.toString(),
-      createdAt: row.createdAt?.toISOString(),
-      updatedAt: row.updatedAt?.toISOString(),
-      firstSeenAt: row.firstSeenAt?.toISOString(),
-      lastSeenAt: row.lastSeenAt?.toISOString(),
-    })),
-  );
-}
-
 export async function ingestBankTransactions(input: {
   accountId: string | mongoose.Types.ObjectId;
   transactions: FinanceProviderTransaction[];
@@ -111,10 +95,32 @@ export async function ingestBankTransactions(input: {
   completeWindow: boolean;
 }) {
   const accountId = new mongoose.Types.ObjectId(input.accountId);
+  const batchDates = input.transactions
+    .map((transaction) => transaction.bookingDate ?? transaction.valueDate)
+    .filter((date): date is string => Boolean(date))
+    .toSorted();
+  const windowFrom = input.fetchedDateFrom ?? batchDates[0];
+  const windowTo = input.fetchedDateTo ?? batchDates.at(-1);
   const existing = await FinanceLedgerEntry.find({
     accountId,
     origin: "bank",
+    $or: [
+      // Outstanding pending rows are promotion/void candidates regardless of
+      // where they fall relative to the fetched window.
+      { state: "pending" },
+      ...(windowFrom && windowTo
+        ? [
+            {
+              effectiveDate: {
+                $gte: shiftDate(windowFrom, -PROMOTION_DATE_TOLERANCE_DAYS),
+                $lte: shiftDate(windowTo, PROMOTION_DATE_TOLERANCE_DAYS),
+              },
+            },
+          ]
+        : []),
+    ],
   });
+  const byId = new Map(existing.map((row) => [row._id.toString(), row]));
   const byProviderId = new Map(
     existing
       .filter((row) => row.providerTxnId)
@@ -141,9 +147,24 @@ export async function ingestBankTransactions(input: {
       syntheticKey: row.syntheticKey as string,
     }));
   const seenIds = new Set<string>();
+  const syntheticOccurrences = new Map<string, number>();
 
   for (const transaction of input.transactions) {
-    const next = bankFields(accountId, transaction, input.observedAt);
+    let occurrence = 0;
+    if (!resolveProviderTransactionId(transaction)) {
+      const baseKey = transactionSyntheticKey(
+        accountId.toString(),
+        transaction,
+      );
+      occurrence = syntheticOccurrences.get(baseKey) ?? 0;
+      syntheticOccurrences.set(baseKey, occurrence + 1);
+    }
+    const next = bankFields(
+      accountId,
+      transaction,
+      input.observedAt,
+      occurrence,
+    );
     let row = next.providerTxnId
       ? byProviderId.get(next.providerTxnId)
       : bySyntheticKey.get(next.syntheticKey as string);
@@ -154,9 +175,7 @@ export async function ingestBankTransactions(input: {
         amountTolerancePercent: PROMOTION_AMOUNT_TOLERANCE_PERCENT,
       });
       if (promotion && !seenIds.has(promotion.id)) {
-        row = existing.find(
-          (candidate) => candidate._id.toString() === promotion.id,
-        );
+        row = byId.get(promotion.id);
         if (row) {
           row.set({
             ...next,
@@ -173,6 +192,7 @@ export async function ingestBankTransactions(input: {
     if (!row) {
       row = await FinanceLedgerEntry.create(next);
       existing.push(row);
+      byId.set(row._id.toString(), row);
       if (next.providerTxnId) byProviderId.set(next.providerTxnId, row);
       if (next.syntheticKey) bySyntheticKey.set(next.syntheticKey, row);
     } else if (bankContentChanged(row, next)) {
@@ -214,10 +234,7 @@ export async function ingestBankTransactions(input: {
   });
   await detectAndStoreTransfers();
 
-  return {
-    rowCount: await FinanceLedgerEntry.countDocuments({ accountId }),
-    contentHash: await financeLedgerContentHash(accountId),
-  };
+  return { observed: seenIds.size };
 }
 
 async function linkLedgerRows(
@@ -225,34 +242,89 @@ async function linkLedgerRows(
   bank: IFinanceLedgerEntry,
   method: "exact" | "rule" | "llm",
   confidence: number,
+  session?: mongoose.ClientSession,
 ) {
-  await FinanceLedgerEntry.bulkWrite([
-    {
-      updateOne: {
-        filter: { _id: source._id, linkedLedgerId: { $exists: false } },
-        update: {
-          $set: {
-            linkedLedgerId: bank._id,
-            state: "linked",
-            matchMethod: method,
-            matchConfidence: confidence,
+  const result = await FinanceLedgerEntry.bulkWrite(
+    [
+      {
+        updateOne: {
+          filter: { _id: source._id, linkedLedgerId: { $exists: false } },
+          update: {
+            $set: {
+              linkedLedgerId: bank._id,
+              state: "linked",
+              matchMethod: method,
+              matchConfidence: confidence,
+            },
           },
         },
       },
-    },
-    {
-      updateOne: {
-        filter: { _id: bank._id, linkedLedgerId: { $exists: false } },
-        update: {
-          $set: {
-            linkedLedgerId: source._id,
-            matchMethod: method,
-            matchConfidence: confidence,
+      {
+        updateOne: {
+          filter: { _id: bank._id, linkedLedgerId: { $exists: false } },
+          update: {
+            $set: {
+              linkedLedgerId: source._id,
+              matchMethod: method,
+              matchConfidence: confidence,
+            },
           },
         },
       },
-    },
-  ]);
+    ],
+    { session },
+  );
+
+  if (result.modifiedCount === 2) {
+    source.set({
+      linkedLedgerId: bank._id,
+      state: "linked",
+      matchMethod: method,
+      matchConfidence: confidence,
+    });
+    bank.set({
+      linkedLedgerId: source._id,
+      matchMethod: method,
+      matchConfidence: confidence,
+    });
+    return true;
+  }
+
+  // One side was already claimed. Undo whichever half took so the pair never
+  // ends up half-linked, which re-running reconciliation cannot repair.
+  await FinanceLedgerEntry.bulkWrite(
+    [
+      {
+        updateOne: {
+          filter: { _id: source._id, linkedLedgerId: bank._id },
+          update: {
+            $set: {
+              state: source.origin === "projected" ? "expected" : "active",
+            },
+            $unset: {
+              linkedLedgerId: "",
+              matchMethod: "",
+              matchConfidence: "",
+            },
+          },
+        },
+      },
+      {
+        updateOne: {
+          filter: { _id: bank._id, linkedLedgerId: source._id },
+          update: {
+            $unset: {
+              linkedLedgerId: "",
+              matchMethod: "",
+              matchConfidence: "",
+            },
+          },
+        },
+      },
+    ],
+    { session },
+  );
+  return false;
 }
 
 interface AmbiguousSuggestion {
@@ -322,22 +394,27 @@ export async function reconcileFinanceLedger(
   accountId: string | mongoose.Types.ObjectId,
   options: {
     suggest?: typeof suggestAmbiguousMatches;
+    session?: mongoose.ClientSession;
+    // Ambiguous matching calls an LLM, which must never run inside a
+    // transaction — the round trip would hold locks for seconds.
+    skipSuggestions?: boolean;
   } = {},
 ) {
+  const session = options.session;
   const [sources, bankRows, rules] = await Promise.all([
     FinanceLedgerEntry.find({
       accountId,
       origin: { $in: ["manual", "projected"] },
       state: { $in: ["active", "expected"] },
       linkedLedgerId: { $exists: false },
-    }),
+    }).session(session ?? null),
     FinanceLedgerEntry.find({
       accountId,
       origin: "bank",
       state: "booked",
       linkedLedgerId: { $exists: false },
-    }),
-    FinanceRecurringRule.find({ accountId }),
+    }).session(session ?? null),
+    FinanceRecurringRule.find({ accountId }).session(session ?? null),
   ]);
   const rulesById = new Map(rules.map((rule) => [rule._id.toString(), rule]));
   const ambiguousSources: IFinanceLedgerEntry[] = [];
@@ -352,8 +429,10 @@ export async function reconcileFinanceLedger(
         dateDistanceDays(source.effectiveDate, bank.effectiveDate) <=
           EXACT_MATCH_DATE_TOLERANCE_DAYS,
     );
-    if (exact.length === 1) {
-      await linkLedgerRows(source, exact[0]!, "exact", 1);
+    if (
+      exact.length === 1 &&
+      (await linkLedgerRows(source, exact[0]!, "exact", 1, session))
+    ) {
       continue;
     }
 
@@ -375,8 +454,10 @@ export async function reconcileFinanceLedger(
           (!rule.merchantFingerprint ||
             rule.merchantFingerprint === bank.merchantFingerprint),
       );
-      if (ruleMatches.length === 1) {
-        await linkLedgerRows(source, ruleMatches[0]!, "rule", 1);
+      if (
+        ruleMatches.length === 1 &&
+        (await linkLedgerRows(source, ruleMatches[0]!, "rule", 1, session))
+      ) {
         continue;
       }
     }
@@ -396,7 +477,7 @@ export async function reconcileFinanceLedger(
     }
   }
 
-  if (ambiguousSources.length === 0) return;
+  if (ambiguousSources.length === 0 || options.skipSuggestions) return;
   const existingReviews = await FinanceMatchReview.find({
     sourceLedgerId: { $in: ambiguousSources.map((row) => row._id) },
     status: "pending",
@@ -439,27 +520,54 @@ export async function reconcileFinanceLedger(
 
 export async function createManualFinanceEntry(input: FinanceManualEntryInput) {
   const normalizedDescriptor = normalizeFinanceDescriptor(input.descriptor);
-  const entry = await FinanceLedgerEntry.create({
-    accountId: input.accountId,
-    origin: "manual",
-    state: "active",
-    amountMinor:
-      input.direction === "expense"
-        ? -Math.abs(input.amountMinor)
-        : Math.abs(input.amountMinor),
-    currency: input.currency,
-    effectiveDate: input.effectiveDate,
-    descriptor: input.descriptor,
-    normalizedDescriptor,
-    merchantFingerprint: merchantFingerprint(normalizedDescriptor),
-    note: input.note,
+  const session = await mongoose.startSession();
+  let entryId: mongoose.Types.ObjectId | undefined;
+  try {
+    await session.withTransaction(async () => {
+      const [entry] = await FinanceLedgerEntry.create(
+        [
+          {
+            accountId: input.accountId,
+            origin: "manual",
+            state: "active",
+            amountMinor:
+              input.direction === "expense"
+                ? -Math.abs(input.amountMinor)
+                : Math.abs(input.amountMinor),
+            currency: input.currency,
+            effectiveDate: input.effectiveDate,
+            descriptor: input.descriptor,
+            normalizedDescriptor,
+            merchantFingerprint: merchantFingerprint(normalizedDescriptor),
+            note: input.note,
+          },
+        ],
+        { session },
+      );
+      entryId = entry?._id;
+      await reconcileFinanceLedger(input.accountId, {
+        session,
+        skipSuggestions: true,
+      });
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  await reconcileFinanceLedger(input.accountId).catch((error) => {
+    console.warn("[finance] Ambiguous match review deferred", error);
   });
-  await reconcileFinanceLedger(input.accountId);
-  return FinanceLedgerEntry.findById(entry._id);
+  return FinanceLedgerEntry.findById(entryId);
 }
 
-export async function materializeRecurringFinanceEntries(now = new Date()) {
-  const rules = await FinanceRecurringRule.find({ status: "active" });
+export async function materializeRecurringFinanceEntries(
+  now = new Date(),
+  options: { session?: mongoose.ClientSession; skipSuggestions?: boolean } = {},
+) {
+  const session = options.session;
+  const rules = await FinanceRecurringRule.find({ status: "active" }).session(
+    session ?? null,
+  );
   const fromDate = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
   )
@@ -536,7 +644,7 @@ export async function materializeRecurringFinanceEntries(now = new Date()) {
   }
 
   if (operations.length > 0) {
-    await FinanceLedgerEntry.bulkWrite(operations);
+    await FinanceLedgerEntry.bulkWrite(operations, { session });
   }
   const today = now.toISOString().slice(0, 10);
   await FinanceLedgerEntry.updateMany(
@@ -546,12 +654,18 @@ export async function materializeRecurringFinanceEntries(now = new Date()) {
       expectedWindowEnd: { $lt: today },
     },
     { $set: { state: "missed" } },
+    { session },
   );
-  await Promise.all(
-    [...new Set(rules.map((rule) => rule.accountId.toString()))].map(
-      (accountId) => reconcileFinanceLedger(accountId),
-    ),
-  );
+  const accountIds = [
+    ...new Set(rules.map((rule) => rule.accountId.toString())),
+  ];
+  for (const accountId of accountIds) {
+    await reconcileFinanceLedger(accountId, {
+      session,
+      skipSuggestions: options.skipSuggestions,
+    });
+  }
+  return accountIds;
 }
 
 export async function detectAndStoreTransfers() {
@@ -720,32 +834,34 @@ export async function resolveFinanceMatchReview(
     await review.save();
   } else {
     const source = await FinanceLedgerEntry.findById(review.sourceLedgerId);
-    if (source?.linkedLedgerId) {
-      const linkedId = source.linkedLedgerId;
-      await FinanceLedgerEntry.updateOne(
-        { _id: linkedId },
-        {
-          $unset: {
-            linkedLedgerId: "",
-            matchMethod: "",
-            matchConfidence: "",
-          },
+    if (!source?.linkedLedgerId) return undefined;
+    const linkedId = source.linkedLedgerId;
+    await FinanceLedgerEntry.updateOne(
+      { _id: linkedId },
+      {
+        $unset: {
+          linkedLedgerId: "",
+          matchMethod: "",
+          matchConfidence: "",
         },
-      );
-      await FinanceLedgerEntry.updateOne(
-        { _id: source._id },
-        {
-          $set: {
-            state: source.origin === "projected" ? "expected" : "active",
-          },
-          $unset: {
-            linkedLedgerId: "",
-            matchMethod: "",
-            matchConfidence: "",
-          },
+      },
+    );
+    await FinanceLedgerEntry.updateOne(
+      { _id: source._id },
+      {
+        $set: {
+          state: source.origin === "projected" ? "expected" : "active",
         },
-      );
-    }
+        $unset: {
+          linkedLedgerId: "",
+          matchMethod: "",
+          matchConfidence: "",
+        },
+      },
+    );
+    review.status = "rejected";
+    review.resolvedAt = new Date();
+    await review.save();
   }
   return review;
 }
