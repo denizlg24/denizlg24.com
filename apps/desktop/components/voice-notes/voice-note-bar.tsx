@@ -54,6 +54,7 @@ export function VoiceNoteBar({
     durationMs,
     progress,
     togglePlayback,
+    seek,
     seekToFraction,
   } = useVoiceNotePlayback(api, voiceNote);
   const bars = useMemo(
@@ -88,11 +89,34 @@ export function VoiceNoteBar({
 
       <button
         type="button"
-        aria-label="Seek"
+        role="slider"
+        tabIndex={0}
+        aria-label="Audio position"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(durationMs)}
+        aria-valuenow={Math.round(currentMs)}
         className="flex h-5 min-w-16 flex-1 items-center gap-px"
         onClick={(event) => {
           const bounds = event.currentTarget.getBoundingClientRect();
           void seekToFraction((event.clientX - bounds.left) / bounds.width);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void togglePlayback();
+          } else if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+            event.preventDefault();
+            void seek(-5);
+          } else if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+            event.preventDefault();
+            void seek(5);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            void seekToFraction(0);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            void seekToFraction(1);
+          }
         }}
       >
         {bars.map((level, index) => (

@@ -15,6 +15,7 @@ export function useVoiceNotePlayback(api: denizApi, voiceNote: IVoiceNote) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [audioUrl, setAudioUrl] = useState<string>();
   const [loadingAudio, setLoadingAudio] = useState(false);
+  const loadingRef = useRef<Promise<string | undefined> | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(voiceNote.durationMs ?? 0);
@@ -32,18 +33,31 @@ export function useVoiceNotePlayback(api: denizApi, voiceNote: IVoiceNote) {
 
   const ensureAudio = useCallback(async () => {
     if (audioUrl) return audioUrl;
+    // Play and seek both call this, and a click on the waveform does both.
+    // Without sharing the in-flight request each one downloads the file and
+    // mints its own object URL, and every URL but the last leaks.
+    if (loadingRef.current) return loadingRef.current;
+
     setLoadingAudio(true);
-    const result = await api.GET_RAW({
-      endpoint: `voice-notes/${voiceNote._id}/audio`,
-    });
-    setLoadingAudio(false);
-    if ("code" in result) {
-      toast.error(result.message);
-      return undefined;
-    }
-    const url = URL.createObjectURL(await result.blob());
-    setAudioUrl(url);
-    return url;
+    const pending = (async () => {
+      try {
+        const result = await api.GET_RAW({
+          endpoint: `voice-notes/${voiceNote._id}/audio`,
+        });
+        if ("code" in result) {
+          toast.error(result.message);
+          return undefined;
+        }
+        const url = URL.createObjectURL(await result.blob());
+        setAudioUrl(url);
+        return url;
+      } finally {
+        setLoadingAudio(false);
+        loadingRef.current = null;
+      }
+    })();
+    loadingRef.current = pending;
+    return pending;
   }, [api, audioUrl, voiceNote._id]);
 
   /** Attaches the blob on first use; returns the element once it can play. */

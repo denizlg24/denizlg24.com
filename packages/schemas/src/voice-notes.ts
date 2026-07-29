@@ -59,3 +59,20 @@ export const voiceNotesResponseSchema = z.object({
   total: z.number().nonnegative(),
 });
 export type VoiceNotesResponse = z.infer<typeof voiceNotesResponseSchema>;
+
+/** Ephemeral transcription: audio in, text out, nothing stored. */
+export const voiceTranscriptionResponseSchema = z.object({
+  text: z.string(),
+  language: z.string().optional(),
+  model: z.string().optional(),
+  durationSeconds: z.number().nonnegative().optional(),
+});
+export type VoiceTranscriptionResponse = z.infer<
+  typeof voiceTranscriptionResponseSchema
+>;
+
+/** Shared by the rename endpoint and every client that calls it. */
+export const voiceNoteTitleSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+});
+export type VoiceNoteTitleInput = z.infer<typeof voiceNoteTitleSchema>;

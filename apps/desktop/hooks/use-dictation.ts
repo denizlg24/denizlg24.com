@@ -1,12 +1,22 @@
 "use client";
 
+import { voiceTranscriptionResponseSchema } from "@repo/schemas";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
+import {
+  AUDIO_CONSTRAINTS,
+  appendLevel,
+  extensionForMime,
+  type LevelMeter,
+  RECORDING_BITS_PER_SECOND,
+  startLevelMeter,
+  supportedMimeType,
+} from "@/lib/audio-capture";
 
 const MAX_DICTATION_BYTES = 24 * 1024 * 1024;
-const DICTATION_BITS_PER_SECOND = 24_000;
+/** The composer meter is narrow; it shows the tail of the shared buffer. */
 const LEVEL_SAMPLES = 24;
 
 export type DictationStatus =
@@ -14,25 +24,6 @@ export type DictationStatus =
   | "requesting"
   | "recording"
   | "transcribing";
-
-function supportedMimeType() {
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/mp4",
-  ];
-  return (
-    candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ??
-    ""
-  );
-}
-
-function extensionForMime(mimeType: string) {
-  if (mimeType.includes("ogg")) return "ogg";
-  if (mimeType.includes("mp4")) return "m4a";
-  return "webm";
-}
 
 /**
  * Push-to-talk dictation for the agent composer. The audio is transcribed and
@@ -54,8 +45,7 @@ export function useDictation({
   const [levels, setLevels] = useState<number[]>([]);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const levelMeterRef = useRef<LevelMeter | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef(0);
   const chunksRef = useRef<Blob[]>([]);
@@ -68,14 +58,12 @@ export function useDictation({
   }, [onTranscript]);
 
   const releaseMedia = useCallback(() => {
-    if (analyserTimerRef.current) clearInterval(analyserTimerRef.current);
+    levelMeterRef.current?.stop();
+    levelMeterRef.current = null;
     if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
-    analyserTimerRef.current = null;
     elapsedTimerRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-    void audioContextRef.current?.close();
-    audioContextRef.current = null;
     recorderRef.current = null;
   }, []);
 
@@ -108,16 +96,23 @@ export function useDictation({
       const filename = `dictation-${Date.now()}.${extensionForMime(mimeType)}`;
       const formData = new FormData();
       formData.set("file", new File([blob], filename, { type: blob.type }));
-      const result = await api.UPLOAD<{ text: string }>({
+      const result = await api.UPLOAD<unknown>({
         endpoint: "voice-notes/transcribe",
         formData,
       });
       setStatus("idle");
-      if ("code" in result) {
-        toast.error(result.message);
+      if (result && typeof result === "object" && "code" in result) {
+        toast.error(String((result as { message?: unknown }).message ?? ""));
         return;
       }
-      const text = result.text.trim();
+      // A 2xx is not a guarantee of shape; parsing here keeps a malformed
+      // payload from throwing out of the recorder's onstop handler.
+      const parsed = voiceTranscriptionResponseSchema.safeParse(result);
+      if (!parsed.success) {
+        toast.error("Transcription returned an unexpected response");
+        return;
+      }
+      const text = parsed.data.text.trim();
       if (!text) {
         toast.error("Nothing was said");
         return;
@@ -132,17 +127,12 @@ export function useDictation({
     setStatus("requesting");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          autoGainControl: true,
-          echoCancellation: true,
-          noiseSuppression: true,
-          channelCount: 1,
-        },
+        audio: AUDIO_CONSTRAINTS,
       });
       const mimeType = supportedMimeType();
       const recorder = new MediaRecorder(stream, {
         ...(mimeType ? { mimeType } : {}),
-        audioBitsPerSecond: DICTATION_BITS_PER_SECOND,
+        audioBitsPerSecond: RECORDING_BITS_PER_SECOND,
       });
       const actualMimeType = recorder.mimeType || mimeType || "audio/webm";
       startedAtRef.current = Date.now();
@@ -152,22 +142,11 @@ export function useDictation({
       streamRef.current = stream;
       recorderRef.current = recorder;
 
-      const audioContext = new AudioContext();
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      audioContext.createMediaStreamSource(stream).connect(analyser);
-      audioContextRef.current = audioContext;
-      const timeDomain = new Uint8Array(analyser.fftSize);
-      analyserTimerRef.current = setInterval(() => {
-        analyser.getByteTimeDomainData(timeDomain);
-        let sum = 0;
-        for (const sample of timeDomain) {
-          const centered = (sample - 128) / 128;
-          sum += centered * centered;
-        }
-        const level = Math.min(1, Math.sqrt(sum / timeDomain.length) * 3.5);
-        setLevels((current) => [...current.slice(-(LEVEL_SAMPLES - 1)), level]);
-      }, 100);
+      levelMeterRef.current = startLevelMeter(stream, (level) => {
+        setLevels((current) =>
+          appendLevel(current, level).slice(-LEVEL_SAMPLES),
+        );
+      });
 
       recorder.ondataavailable = (event) => {
         if (event.data.size === 0) return;

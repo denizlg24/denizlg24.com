@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
+import { Skeleton } from "@repo/ui/skeleton";
 import {
   Loader2,
   Mic,
@@ -45,6 +46,33 @@ import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 
 type StatusFilter = "all" | VoiceNoteTranscriptionStatus;
+
+/** Shaped like the card grid it replaces: title, meta, waveform, controls. */
+function VoiceNotesLoadingSkeleton() {
+  return (
+    <div className="mx-auto grid w-full max-w-6xl gap-3 p-4 lg:grid-cols-2">
+      {Array.from({ length: 6 }, (_, index) => index).map((index) => (
+        <div key={index} className="border bg-background p-4">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <Skeleton className="h-3 w-2/5" />
+              <Skeleton className="mt-1.5 h-2.5 w-1/3" />
+            </div>
+            <Skeleton className="size-6 shrink-0" />
+          </div>
+          <Skeleton className="h-16 w-full" />
+          <div className="mt-3 flex items-center gap-1">
+            <Skeleton className="size-7 rounded-full" />
+            <Skeleton className="size-7 rounded-full" />
+            <Skeleton className="size-7 rounded-full" />
+            <Skeleton className="ml-1 h-3 w-16" />
+            <Skeleton className="ml-auto h-7 w-16" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function VoiceNotesPage() {
   const router = useRouter();
@@ -82,8 +110,15 @@ export default function VoiceNotesPage() {
     [api, query, status],
   );
 
+  // Only the first read blanks the page. Typing in the search box or switching
+  // the status filter refreshes underneath the results already on screen, so
+  // the list does not flash empty between keystrokes.
+  const loadedOnceRef = useRef(false);
   useEffect(() => {
-    const timer = setTimeout(() => void load(), 180);
+    const timer = setTimeout(() => {
+      void load(loadedOnceRef.current);
+      loadedOnceRef.current = true;
+    }, 180);
     return () => clearTimeout(timer);
   }, [load]);
 
@@ -261,9 +296,7 @@ export default function VoiceNotesPage() {
 
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex h-full items-center justify-center">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
+          <VoiceNotesLoadingSkeleton />
         ) : voiceNotes.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             —

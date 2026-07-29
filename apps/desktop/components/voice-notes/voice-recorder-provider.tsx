@@ -13,10 +13,19 @@ import {
 import { toast } from "sonner";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
+import {
+  AUDIO_CONSTRAINTS,
+  appendLevel,
+  downsample,
+  extensionForMime,
+  type LevelMeter,
+  RECORDING_BITS_PER_SECOND,
+  startLevelMeter,
+  supportedMimeType,
+} from "@/lib/audio-capture";
 import { useBackgroundTasksStore } from "@/stores/background-tasks";
 
 const MAX_RECORDING_BYTES = 24 * 1024 * 1024;
-const RECORDING_BITS_PER_SECOND = 24_000;
 const WAVEFORM_SAMPLES = 180;
 
 type RecorderStatus =
@@ -51,44 +60,21 @@ function formatDuration(milliseconds: number) {
     : `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function supportedMimeType() {
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/mp4",
-  ];
-  return (
-    candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ??
-    ""
-  );
-}
-
-function extensionForMime(mimeType: string) {
-  if (mimeType.includes("ogg")) return "ogg";
-  if (mimeType.includes("mp4")) return "m4a";
-  return "webm";
-}
-
-function downsample(values: number[], count: number) {
-  if (values.length <= count) return values;
-  const samples: number[] = [];
-  const stride = values.length / count;
-  for (let index = 0; index < count; index += 1) {
-    const start = Math.floor(index * stride);
-    const end = Math.max(start + 1, Math.floor((index + 1) * stride));
-    samples.push(Math.max(...values.slice(start, end)));
-  }
-  return samples;
-}
-
 export function VoiceRecorderProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { settings } = useUserSettings();
-  const api = useMemo(() => new denizApi(settings.apiKey), [settings.apiKey]);
+  const { settings, loading: loadingSettings } = useUserSettings();
+  // Null until a key exists: constructing the wrapper with an empty key made
+  // every upload fail as a 401 that read like a recording fault.
+  const api = useMemo(
+    () =>
+      loadingSettings || !settings.apiKey
+        ? null
+        : new denizApi(settings.apiKey),
+    [loadingSettings, settings.apiKey],
+  );
   const [status, setStatus] = useState<RecorderStatus>("idle");
   const [elapsedMs, setElapsedMs] = useState(0);
   const [levels, setLevels] = useState<number[]>([]);
@@ -96,8 +82,7 @@ export function VoiceRecorderProvider({
   const [lastVoiceNote, setLastVoiceNote] = useState<IVoiceNote>();
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const levelMeterRef = useRef<LevelMeter | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef(0);
   const chunksRef = useRef<Blob[]>([]);
@@ -108,9 +93,9 @@ export function VoiceRecorderProvider({
   const titleRef = useRef("");
 
   const clearTimers = useCallback(() => {
-    if (analyserTimerRef.current) clearInterval(analyserTimerRef.current);
+    levelMeterRef.current?.stop();
+    levelMeterRef.current = null;
     if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
-    analyserTimerRef.current = null;
     elapsedTimerRef.current = null;
   }, []);
 
@@ -118,8 +103,6 @@ export function VoiceRecorderProvider({
     clearTimers();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-    void audioContextRef.current?.close();
-    audioContextRef.current = null;
     recorderRef.current = null;
   }, [clearTimers]);
 
@@ -139,6 +122,19 @@ export function VoiceRecorderProvider({
         setElapsedMs(0);
         setLevels([]);
         useBackgroundTasksStore.getState().unregister("voice-recording");
+        return;
+      }
+
+      // Recording is allowed to start before the key resolves; discarding the
+      // audio silently at the upload step would lose what was just said.
+      if (!api) {
+        chunksRef.current = [];
+        samplesRef.current = [];
+        byteLengthRef.current = 0;
+        useBackgroundTasksStore.getState().unregister("voice-recording");
+        setStatus("error");
+        setError("No API key configured");
+        toast.error("No API key configured");
         return;
       }
 
@@ -194,16 +190,17 @@ export function VoiceRecorderProvider({
 
   const startRecording = useCallback(async () => {
     if (status !== "idle" && status !== "error") return;
+    if (!api) {
+      setStatus("error");
+      setError("No API key configured");
+      toast.error("No API key configured");
+      return;
+    }
     setStatus("requesting");
     setError(undefined);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          autoGainControl: true,
-          echoCancellation: true,
-          noiseSuppression: true,
-          channelCount: 1,
-        },
+        audio: AUDIO_CONSTRAINTS,
       });
       const mimeType = supportedMimeType();
       const recorder = new MediaRecorder(stream, {
@@ -230,24 +227,14 @@ export function VoiceRecorderProvider({
       streamRef.current = stream;
       recorderRef.current = recorder;
 
-      const audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      audioContextRef.current = audioContext;
-      const timeDomain = new Uint8Array(analyser.fftSize);
-      analyserTimerRef.current = setInterval(() => {
-        analyser.getByteTimeDomainData(timeDomain);
-        let sum = 0;
-        for (const sample of timeDomain) {
-          const centered = (sample - 128) / 128;
-          sum += centered * centered;
-        }
-        const level = Math.min(1, Math.sqrt(sum / timeDomain.length) * 3.5);
-        samplesRef.current.push(level);
-        setLevels((current) => [...current.slice(-79), level]);
-      }, 120);
+      levelMeterRef.current = startLevelMeter(
+        stream,
+        (level) => {
+          samplesRef.current.push(level);
+          setLevels((current) => appendLevel(current, level));
+        },
+        120,
+      );
 
       recorder.ondataavailable = (event) => {
         if (event.data.size === 0) return;
@@ -302,7 +289,7 @@ export function VoiceRecorderProvider({
       setStatus("error");
       toast.error(message);
     }
-  }, [finishRecording, releaseMedia, status]);
+  }, [api, finishRecording, releaseMedia, status]);
 
   const stopRecording = useCallback(() => {
     const recorder = recorderRef.current;
