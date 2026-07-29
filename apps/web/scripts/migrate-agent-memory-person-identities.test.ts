@@ -98,4 +98,31 @@ describe("agent-memory person identity migration", () => {
     ];
     expect(canonicalizePersonEntityRefs(refs, context)).toEqual(refs);
   });
+
+  test("merges later labels and attachments into duplicate person refs", () => {
+    expect(
+      canonicalizePersonEntityRefs(
+        [
+          {
+            entityType: "person",
+            entityId: "henrique-silva",
+          },
+          {
+            entityType: "person",
+            entityId: "henrique-silva",
+            label: "Henrique Silva",
+            resourceId: "6a4e0f1d425c95b333688299",
+          },
+        ],
+        context,
+      ),
+    ).toEqual([
+      {
+        entityType: "person",
+        entityId: "henrique-silva",
+        label: "Henrique Silva",
+        resourceId: "6a4e0f1d425c95b333688299",
+      },
+    ]);
+  });
 });

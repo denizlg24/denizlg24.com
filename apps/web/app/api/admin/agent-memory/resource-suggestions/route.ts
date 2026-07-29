@@ -12,9 +12,6 @@ export async function GET(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
   try {
-    // Keep the inbox as a projection of the graph invariant: opening it is
-    // enough to surface every person that still lacks a directory attachment.
-    await generateResourceSuggestions();
     const status = request.nextUrl.searchParams.get("status") ?? undefined;
     const result = await listResourceSuggestions(status);
     return NextResponse.json({

@@ -285,7 +285,7 @@ async function main() {
     console.log(
       JSON.stringify(
         {
-          pendingSuggestionsPlannedForRemoval: staleSuggestions.length,
+          pendingSuggestionsPlannedForDismissal: staleSuggestions.length,
           staleSuggestions,
         },
         null,
@@ -306,19 +306,24 @@ async function main() {
     revised += 1;
   }
   const staleSuggestions = await pendingSuggestionIdsToRemove(context);
-  const deleted =
+  const dismissed =
     staleSuggestions.length > 0
-      ? await AgentResourceSuggestion.deleteMany({
-          _id: { $in: staleSuggestions.map((suggestion) => suggestion.id) },
-          status: "pending",
-        })
-      : { deletedCount: 0 };
+      ? await AgentResourceSuggestion.updateMany(
+          {
+            _id: { $in: staleSuggestions.map((suggestion) => suggestion.id) },
+            status: "pending",
+          },
+          {
+            $set: { status: "dismissed", decidedAt: new Date() },
+          },
+        )
+      : { modifiedCount: 0 };
   console.log(
     JSON.stringify(
       {
         completed: true,
         memoryRevisionsCreated: revised,
-        pendingSuggestionsRemoved: deleted.deletedCount,
+        pendingSuggestionsDismissed: dismissed.modifiedCount,
       },
       null,
       2,

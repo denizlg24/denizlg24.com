@@ -19,6 +19,8 @@ export interface IBackgroundAgentRun extends Document {
   tokenUsage?: { inputTokens: number; outputTokens: number; costUsd: number };
   error?: string;
   startedAt?: Date;
+  executionLeaseOwner?: string;
+  executionLeaseExpiresAt?: Date;
   completedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -64,6 +66,8 @@ const BackgroundAgentRunSchema = new Schema<IBackgroundAgentRun>(
     tokenUsage: { type: TokenUsageSchema, default: undefined },
     error: { type: String, maxlength: 4_096 },
     startedAt: { type: Date },
+    executionLeaseOwner: { type: String },
+    executionLeaseExpiresAt: { type: Date },
     completedAt: { type: Date },
   },
   {

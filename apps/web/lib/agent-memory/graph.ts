@@ -58,6 +58,10 @@ function normalizeIdentity(value: string): string {
     .trim();
 }
 
+function exactCaseInsensitivePattern(value: string): RegExp {
+  return new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
+}
+
 /**
  * Owner person-refs are scattered across ids/labels ("deniz-gunes", "deniz",
  * the email, "user" with a full-name label, accented variants). A ref is the
@@ -342,7 +346,9 @@ export async function loadAgentMemoryGraph() {
     );
   const ownerPerson =
     ownerDoc?.email &&
-    (await Person.findOne({ email: ownerDoc.email.trim().toLowerCase() })
+    (await Person.findOne({
+      email: exactCaseInsensitivePattern(ownerDoc.email.trim()),
+    })
       .select("name")
       .lean<{ _id: unknown; name: string }>());
   const owner: GraphOwnerInput | undefined =

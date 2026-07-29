@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentMemoryMode } from "@repo/schemas";
-import { Types } from "mongoose";
+import { type ClientSession, Types } from "mongoose";
 import {
   Conversation,
   type IConversationMessage,
@@ -191,19 +191,23 @@ export async function getConversation(id: string) {
   };
 }
 
-export async function createConversation(data: {
-  title: string;
-  llmModel: string;
-  memoryMode?: AgentMemoryMode;
-}) {
+export async function createConversation(
+  data: {
+    title: string;
+    llmModel: string;
+    memoryMode?: AgentMemoryMode;
+  },
+  options?: { session?: ClientSession },
+) {
   await connectDB();
 
-  const conversation = await Conversation.create({
+  const conversation = new Conversation({
     title: data.title,
     llmModel: data.llmModel,
     memoryMode: data.memoryMode ?? "enabled",
     messages: [],
   });
+  await conversation.save({ session: options?.session });
 
   return { ...conversation, _id: conversation._id.toString() };
 }

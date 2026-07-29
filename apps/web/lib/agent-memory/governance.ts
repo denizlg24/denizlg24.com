@@ -747,21 +747,13 @@ export async function attachPersonResourceToEntity(options: {
       actor: "policy",
       buildState: (current) => ({
         ...memoryToRevisionState(current),
-        entityRefs: current.entityRefs.map((ref) =>
-          ref.entityType === "person" && ref.entityId === options.entityId
-            ? {
-                entityType: ref.entityType,
-                entityId: ref.entityId,
-                label: ref.label,
-                resourceId: options.resourceId,
-              }
-            : {
-                entityType: ref.entityType,
-                entityId: ref.entityId,
-                label: ref.label,
-                resourceId: ref.resourceId,
-              },
-        ),
+        entityRefs: current.entityRefs.map((ref) => ({
+          ...ref,
+          resourceId:
+            ref.entityType === "person" && ref.entityId === options.entityId
+              ? options.resourceId
+              : ref.resourceId,
+        })),
       }),
     });
     attached += 1;

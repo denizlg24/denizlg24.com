@@ -129,7 +129,7 @@ export function AgentSheet() {
             <ChatView
               surface="sheet"
               allowBackground
-              observedBackgroundRunId={activeRun?.id}
+              observedBackgroundRun={activeRun ?? undefined}
             />
           </div>
         </SheetContent>

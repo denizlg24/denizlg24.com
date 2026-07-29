@@ -325,30 +325,36 @@ export type GenerateAgentResourceSuggestions = z.infer<
   typeof generateAgentResourceSuggestionsSchema
 >;
 
-export const agentResourceSuggestionDecisionSchema = z
-  .object({
-    action: z.enum(["accept", "attach", "dismiss", "split-memory"]),
-    reason: z.string().trim().min(1).max(2_000),
-    draft: agentPersonDraftSchema.partial().optional(),
-    resourceId: z.string().trim().min(1).max(256).optional(),
-    memoryId: z.string().trim().min(1).max(256).optional(),
-  })
-  .superRefine((value, context) => {
-    if (value.action === "attach" && !value.resourceId) {
-      context.addIssue({
-        code: "custom",
-        path: ["resourceId"],
-        message: "An existing person is required to attach",
-      });
-    }
-    if (value.action === "split-memory" && !value.memoryId) {
-      context.addIssue({
-        code: "custom",
-        path: ["memoryId"],
-        message: "A related memory is required to split the person identity",
-      });
-    }
-  });
+const agentResourceSuggestionDecisionFields = {
+  reason: z.string().trim().min(1).max(2_000),
+  draft: agentPersonDraftSchema.partial().optional(),
+  resourceId: z.string().trim().min(1).max(256).optional(),
+  memoryId: z.string().trim().min(1).max(256).optional(),
+};
+
+export const agentResourceSuggestionDecisionSchema = z.discriminatedUnion(
+  "action",
+  [
+    z.object({
+      ...agentResourceSuggestionDecisionFields,
+      action: z.literal("accept"),
+    }),
+    z.object({
+      ...agentResourceSuggestionDecisionFields,
+      action: z.literal("attach"),
+      resourceId: z.string().trim().min(1).max(256),
+    }),
+    z.object({
+      ...agentResourceSuggestionDecisionFields,
+      action: z.literal("dismiss"),
+    }),
+    z.object({
+      ...agentResourceSuggestionDecisionFields,
+      action: z.literal("split-memory"),
+      memoryId: z.string().trim().min(1).max(256),
+    }),
+  ],
+);
 export type AgentResourceSuggestionDecision = z.infer<
   typeof agentResourceSuggestionDecisionSchema
 >;

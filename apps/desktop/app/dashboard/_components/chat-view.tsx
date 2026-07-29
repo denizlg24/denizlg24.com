@@ -43,6 +43,7 @@ import { denizApi } from "@/lib/api-wrapper";
 import { mergeContentSegments } from "@/lib/chat-segments";
 import type {
   AgentMemoryMode,
+  BackgroundAgentRun,
   BackgroundAgentRunResponse,
   ConversationListResponse,
   IChatAttachment,
@@ -74,6 +75,8 @@ const CONVERSATION_PAGE_SIZE = 30;
 const CONVERSATION_PREFETCH_PAGE_COUNT = 3;
 const CONVERSATION_FETCH_LIMIT =
   CONVERSATION_PAGE_SIZE * CONVERSATION_PREFETCH_PAGE_COUNT;
+const ACTIVE_BACKGROUND_RUN_POLL_MS = 2_000;
+const INACTIVE_BACKGROUND_RUN_POLL_MS = 15_000;
 
 function useClock() {
   const [now, setNow] = useState(new Date());
@@ -264,31 +267,27 @@ function ConversationSidebar({
                     {group.conversations.map((conversation) => (
                       <div
                         key={conversation._id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => onLoadConversation(conversation)}
-                        onKeyDown={(event) => {
-                          if (event.target !== event.currentTarget) return;
-                          if (event.key !== "Enter" && event.key !== " ")
-                            return;
-                          event.preventDefault();
-                          onLoadConversation(conversation);
-                        }}
-                        className="group grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-surface"
+                        className="group flex items-center rounded-lg transition-colors hover:bg-surface"
                       >
-                        <MessageSquare className="size-3.5 text-muted-foreground/40" />
-                        <span className="truncate text-sm text-foreground/70">
-                          {conversation.title}
-                        </span>
-                        <span className="hidden text-[10px] text-muted-foreground/30 group-hover:hidden sm:inline">
-                          {modelDisplayName(conversation.llmModel, models)}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onLoadConversation(conversation)}
+                          className="grid min-w-0 flex-1 cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-2 text-left"
+                        >
+                          <MessageSquare className="size-3.5 text-muted-foreground/40" />
+                          <span className="truncate text-sm text-foreground/70">
+                            {conversation.title}
+                          </span>
+                          <span className="hidden text-[10px] text-muted-foreground/30 group-hover:hidden sm:inline">
+                            {modelDisplayName(conversation.llmModel, models)}
+                          </span>
+                        </button>
                         <button
                           type="button"
                           onClick={(event) =>
                             onDeleteConversation(conversation._id, event)
                           }
-                          className="col-start-3 hidden size-5 items-center justify-center rounded transition-colors hover:bg-destructive/10 group-hover:flex"
+                          className="mr-3 hidden size-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-destructive/10 group-hover:flex"
                           aria-label={`Delete ${conversation.title}`}
                         >
                           <Trash2 className="size-3 text-muted-foreground/50 hover:text-destructive" />
@@ -517,11 +516,11 @@ function convertApiMessagesToDisplay(
 export function ChatView({
   surface = "page",
   allowBackground = false,
-  observedBackgroundRunId,
+  observedBackgroundRun,
 }: {
   surface?: "page" | "sheet";
   allowBackground?: boolean;
-  observedBackgroundRunId?: string;
+  observedBackgroundRun?: BackgroundAgentRun;
 }) {
   const isSheet = surface === "sheet";
   const { settings, loading: loadingSettings, setSettings } = useUserSettings();
@@ -678,36 +677,38 @@ export function ChatView({
 
   useEffect(() => {
     if (
-      observedBackgroundRunId &&
+      observedBackgroundRun &&
       !backgroundRunId &&
-      !adoptedBackgroundRunIds.current.has(observedBackgroundRunId)
+      !adoptedBackgroundRunIds.current.has(observedBackgroundRun.id)
     ) {
-      adoptedBackgroundRunIds.current.add(observedBackgroundRunId);
+      adoptedBackgroundRunIds.current.add(observedBackgroundRun.id);
       useBackgroundTasksStore.getState().register({
-        id: `agent:${observedBackgroundRunId}`,
+        id: `agent:${observedBackgroundRun.id}`,
         label: "Agent",
-        statusText: "Working",
+        statusText:
+          observedBackgroundRun.status === "queued" ? "Queued" : "Working",
         color: "bg-violet-500",
         active: true,
       });
-      setBackgroundRunId(observedBackgroundRunId);
+      setBackgroundRunId(observedBackgroundRun.id);
       setActive(true);
     }
-  }, [backgroundRunId, observedBackgroundRunId]);
+  }, [backgroundRunId, observedBackgroundRun]);
 
   useEffect(() => {
     if (!API || !backgroundRunId) return;
     let cancelled = false;
     let refreshInFlight = false;
     let terminalHandled = false;
-    const refresh = async () => {
-      if (cancelled || refreshInFlight || terminalHandled) return;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const refresh = async (): Promise<boolean> => {
+      if (cancelled || refreshInFlight || terminalHandled) return false;
       refreshInFlight = true;
       try {
         const result = await API.GET<BackgroundAgentRunResponse>({
           endpoint: `background-agent/runs/${backgroundRunId}`,
         });
-        if (cancelled || "code" in result) return;
+        if (cancelled || "code" in result) return false;
         const run = result.run;
         const backgroundTasks = useBackgroundTasksStore.getState();
         backgroundTasks.update(`agent:${run.id}`, {
@@ -719,13 +720,15 @@ export function ChatView({
                 : run.status,
           active: run.status === "queued" || run.status === "running",
         });
-        if (run.status === "queued" || run.status === "running") return;
+        if (run.status === "queued" || run.status === "running") return true;
 
         terminalHandled = true;
         const conversation = await API.GET<{ conversation: IConversation }>({
           endpoint: `conversations/${run.conversationId}`,
         });
-        if (!cancelled && !("code" in conversation)) {
+        if (cancelled) return false;
+        const conversationLoaded = !("code" in conversation);
+        if (conversationLoaded) {
           setConversationId(run.conversationId);
           setMessages(
             convertApiMessagesToDisplay(conversation.conversation.messages),
@@ -734,20 +737,34 @@ export function ChatView({
         }
         backgroundTasks.unregister(`agent:${run.id}`);
         setBackgroundRunId(null);
-        if (run.status === "completed") {
+        if (run.status === "completed" && conversationLoaded) {
           toast.success("Agent finished");
+        } else if (run.status === "completed") {
+          toast.error(
+            "Agent finished, but the conversation could not be loaded",
+          );
         } else {
           toast.error(run.error ?? "Background run failed");
         }
+        return false;
       } finally {
         refreshInFlight = false;
       }
     };
-    void refresh();
-    const interval = setInterval(() => void refresh(), 2_000);
+    const poll = async () => {
+      const hasActiveRun = await refresh();
+      if (cancelled || terminalHandled) return;
+      timeout = setTimeout(
+        poll,
+        hasActiveRun
+          ? ACTIVE_BACKGROUND_RUN_POLL_MS
+          : INACTIVE_BACKGROUND_RUN_POLL_MS,
+      );
+    };
+    void poll();
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timeout) clearTimeout(timeout);
     };
   }, [API, backgroundRunId]);
 
@@ -878,6 +895,9 @@ export function ChatView({
     [attachments, uploadSingleAttachment],
   );
 
+  const getAgentPageContext = () =>
+    memoryMode === "incognito" ? undefined : captureAgentPageContext();
+
   const sendMessage = async (messageContent: string) => {
     if (!API || isStreaming || !model || modelIncompatible) return;
 
@@ -979,8 +999,7 @@ export function ChatView({
       setConversationId(currentConversationId);
     }
 
-    const pageContext =
-      memoryMode === "incognito" ? undefined : captureAgentPageContext();
+    const pageContext = getAgentPageContext();
 
     if (backgroundEnabled) {
       const result = await API.POST<BackgroundAgentRunResponse>({
@@ -1081,8 +1100,7 @@ export function ChatView({
       webSearchEnabled,
       executionMode: yoloEnabled ? "yolo" : "interactive",
       maxRounds,
-      pageContext:
-        memoryMode === "incognito" ? undefined : captureAgentPageContext(),
+      pageContext: getAgentPageContext(),
     });
 
     if (isStreamError(streamResult)) {
@@ -1196,8 +1214,7 @@ export function ChatView({
       webSearchEnabled,
       executionMode: yoloEnabled ? "yolo" : "interactive",
       maxRounds,
-      pageContext:
-        memoryMode === "incognito" ? undefined : captureAgentPageContext(),
+      pageContext: getAgentPageContext(),
     });
 
     if (isStreamError(streamResult)) {
