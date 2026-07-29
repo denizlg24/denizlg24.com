@@ -7,6 +7,7 @@ import {
   Briefcase,
   Calendar,
   CalendarDays,
+  CircleDollarSign,
   Clock,
   Contact,
   DollarSign,
@@ -149,6 +150,11 @@ const items = [
     title: "Token Usage",
     url: "/admin/dashboard/llm-usage",
     icon: DollarSign,
+  },
+  {
+    title: "Finance",
+    url: "/admin/dashboard/finance",
+    icon: CircleDollarSign,
   },
 ];
 
