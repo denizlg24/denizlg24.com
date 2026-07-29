@@ -6,6 +6,7 @@ import { UpdateNotifier } from "@/components/window/update-notifier";
 import { UserSettingsProvider } from "@/context/user-context";
 import "./globals.css";
 import { AgentSheet } from "@/components/agent/agent-sheet";
+import { VoiceRecorderProvider } from "@/components/voice-notes/voice-recorder-provider";
 import { BackgroundTasksInitializer } from "@/components/window/background-tasks-initializer";
 import { DisableContextMenu } from "@/components/window/disable-context-menu";
 
@@ -33,10 +34,12 @@ export default function RootLayout({
         className={`${inter.variable} ${calistoga.variable} antialiased font-inter bg-background text-foreground h-screen overflow-hidden`}
       >
         <DisableContextMenu>
-          <TitleBar />
           <UserSettingsProvider>
-            {children}
-            <AgentSheet />
+            <VoiceRecorderProvider>
+              <TitleBar />
+              {children}
+              <AgentSheet />
+            </VoiceRecorderProvider>
           </UserSettingsProvider>
           <Toaster />
           <UpdateNotifier />

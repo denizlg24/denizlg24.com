@@ -15,6 +15,7 @@ import {
   requestMultimodalEmbedding,
 } from "@/lib/llm-transports/cohere-embeddings";
 import { requestEmbedding } from "@/lib/llm-transports/embeddings";
+import { requestTranscription } from "@/lib/llm-transports/openai-transcription";
 import { connectDB } from "@/lib/mongodb";
 import type { ToolExecutionContext } from "@/lib/tools/types";
 import type { TokenUsage } from "@/models/Conversation";
@@ -41,7 +42,8 @@ export type LlmPurpose =
   | "agent-memory-retrieval"
   | "agent-memory-query-summary"
   | "agent-training"
-  | "agent-training-learning";
+  | "agent-training-learning"
+  | "transcription";
 
 // Catalog capabilities each purpose requires before a request is sent.
 // Per-request needs (tools/web search in chat) are added on top of these.
@@ -63,6 +65,8 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   "agent-memory-query-summary": [],
   "agent-training": ["tool-use"],
   "agent-training-learning": ["tool-use"],
+  // Never resolved against the catalog: speech models are not in it.
+  transcription: [],
 };
 
 // Compatibility only: resolves model ids stored before the Gateway migration
@@ -445,6 +449,115 @@ export async function embedMultimodal({
   });
 
   return { model, dimensions, vectors: result.vectors, usage };
+}
+
+/**
+ * Speech models are absent from the Gateway catalog, so — exactly as with
+ * Cohere above — pricing cannot be resolved live and these rates are USD and
+ * hand-maintained. OpenAI bills transcription two different ways: newer models
+ * per token (audio and text metered separately), `whisper-1` per minute. A
+ * model missing from this table still transcribes; it logs $0 and warns.
+ */
+const OPENAI_TRANSCRIPTION_PRICING: Record<
+  string,
+  {
+    audioInputTokens?: number;
+    textInputTokens?: number;
+    textOutputTokens?: number;
+    perMinute?: number;
+  }
+> = {
+  "gpt-4o-transcribe": {
+    audioInputTokens: 6.0 / 1_000_000,
+    textInputTokens: 2.5 / 1_000_000,
+    textOutputTokens: 10.0 / 1_000_000,
+  },
+  "gpt-4o-mini-transcribe": {
+    audioInputTokens: 3.0 / 1_000_000,
+    textInputTokens: 1.25 / 1_000_000,
+    textOutputTokens: 5.0 / 1_000_000,
+  },
+  "gpt-transcribe": { perMinute: 0.0045 },
+  "whisper-1": { perMinute: 0.006 },
+};
+
+export interface TranscribeAudioRequest extends LlmRequestContext {
+  model: string;
+  file: File;
+  signal?: AbortSignal;
+}
+
+export interface TranscribeAudioResult {
+  text: string;
+  model: string;
+  language?: string;
+  /** Audio length, only when the model reports duration rather than tokens. */
+  durationSeconds?: number;
+  usage: LlmUsageResult;
+}
+
+export async function transcribeAudio({
+  source,
+  model,
+  file,
+  signal,
+}: TranscribeAudioRequest): Promise<TranscribeAudioResult> {
+  const result = await requestTranscription({ file, model, signal });
+
+  const pricing = OPENAI_TRANSCRIPTION_PRICING[model];
+  const { audioInputTokens, textInputTokens, textOutputTokens, seconds } =
+    result.usage;
+
+  // The rate table and the meter OpenAI actually billed on have to agree. A
+  // model that switches meters — or a rate entered under the wrong one —
+  // otherwise logs a silent $0 that reads as "free" rather than "unpriced".
+  let costUsd = 0;
+  if (seconds !== undefined) {
+    if (pricing?.perMinute === undefined) {
+      console.warn(
+        `[llm-service] No per-minute rate for transcription model "${model}"; recording cost as 0`,
+      );
+    } else {
+      costUsd = (seconds / 60) * pricing.perMinute;
+    }
+  } else if (
+    pricing?.audioInputTokens === undefined &&
+    pricing?.textInputTokens === undefined
+  ) {
+    console.warn(
+      `[llm-service] No per-token rate for transcription model "${model}"; recording cost as 0`,
+    );
+  } else {
+    costUsd =
+      audioInputTokens * (pricing.audioInputTokens ?? 0) +
+      textInputTokens * (pricing.textInputTokens ?? 0) +
+      textOutputTokens * (pricing.textOutputTokens ?? 0);
+  }
+
+  const usage = {
+    // A per-minute model reports no tokens at all; the cost is still exact, so
+    // zeros here mean "not metered in tokens", not "nothing was billed".
+    inputTokens: audioInputTokens + textInputTokens,
+    outputTokens: textOutputTokens,
+    costUsd,
+  };
+  await logLlmUsage({
+    llmModel: model,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    costUsd,
+    systemPrompt: "Transcribe recorded audio.",
+    userPrompt: `[audio ${file.name}, ${file.size} bytes]`,
+    source,
+  });
+
+  return {
+    text: result.text,
+    model,
+    language: result.language,
+    durationSeconds: seconds,
+    usage,
+  };
 }
 
 export interface GenerateTextRequest extends LlmRequestContext {

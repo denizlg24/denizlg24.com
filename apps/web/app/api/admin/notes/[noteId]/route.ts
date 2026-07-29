@@ -4,10 +4,16 @@ import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
 import { connectDB } from "@/lib/mongodb";
 import { pruneGroupIds, serializeNote } from "@/lib/note-route-utils";
 import { requireAdmin } from "@/lib/require-admin";
+import {
+  InvalidVoiceNoteIdsError,
+  normalizeVoiceNoteIds,
+  syncVoiceNoteLinks,
+} from "@/lib/voice-notes/linking";
 import { KnowledgeSemanticSuggestion } from "@/models/KnowledgeSemanticSuggestion";
 import { type ILeanNote, Note } from "@/models/Note";
 import { NoteEdge } from "@/models/NoteEdge";
 import { NoteEmbedding } from "@/models/NoteEmbedding";
+import { VoiceNote } from "@/models/VoiceNote";
 
 async function updateNote(request: NextRequest, noteId: string) {
   const body = await request.json();
@@ -29,6 +35,9 @@ async function updateNote(request: NextRequest, noteId: string) {
   const update: Record<string, unknown> = {};
   const unset: Record<string, unknown> = {};
   let semanticAffectingChange = false;
+  let nextVoiceNoteIds: Awaited<
+    ReturnType<typeof normalizeVoiceNoteIds>
+  > | null = null;
 
   if (typeof body.title === "string") {
     update.title = body.title.trim();
@@ -75,6 +84,18 @@ async function updateNote(request: NextRequest, noteId: string) {
   if (body.status === "open" || body.status === "archived") {
     update.status = body.status;
   }
+  if (Array.isArray(body.voiceNoteIds)) {
+    try {
+      nextVoiceNoteIds = await normalizeVoiceNoteIds(body.voiceNoteIds);
+    } catch (error) {
+      if (error instanceof InvalidVoiceNoteIdsError) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      throw error;
+    }
+    update.voiceNoteIds = nextVoiceNoteIds;
+    semanticAffectingChange = true;
+  }
   if (body.publishedDate === null) {
     unset.publishedDate = "";
   } else if (typeof body.publishedDate === "string") {
@@ -100,6 +121,9 @@ async function updateNote(request: NextRequest, noteId: string) {
 
   if (!note) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (nextVoiceNoteIds) {
+    await syncVoiceNoteLinks(noteId, nextVoiceNoteIds);
   }
   await observeDomainRecordSafely("note", note);
 
@@ -190,6 +214,10 @@ export async function DELETE(
     }).exec();
     await Promise.all([
       NoteEmbedding.deleteMany({ noteId: note._id }).exec(),
+      VoiceNote.updateMany(
+        { noteIds: note._id },
+        { $pull: { noteIds: note._id } },
+      ).exec(),
       KnowledgeSemanticSuggestion.updateMany(
         { noteId: note._id, status: "pending" },
         { $set: { status: "superseded", decidedAt: new Date() } },

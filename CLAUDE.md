@@ -244,15 +244,25 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 - `GET /llm/usage` → usage stats, breakdowns, recent requests
 - `GET /llm/models` → `{ models: LlmCatalogModel[], stale, fetchedAt }` — Vercel AI Gateway language-model catalog (fully qualified ids like `anthropic/claude-haiku-4.5`, capability tags, context/output limits); filters: `?creator=` and repeatable `?requiredCapability=`; 503 when the catalog is cold
 - All server LLM traffic goes through `apps/web/lib/llm-service.ts` (Vercel AI Gateway; `AI_GATEWAY_API_KEY`). Never import a provider SDK or build provider URLs in app code — add operations to the service instead. Model ids are fully qualified Gateway ids; legacy dashed ids resolve via the service's alias map.
-- **One documented exception**: `embedMultimodal()` calls Cohere directly via
-  `lib/llm-transports/cohere-embeddings.ts` (`COHERE_API_KEY`). The Gateway's
-  `/v1/embeddings` validates the OpenAI-shaped `input` field and drops Cohere's
-  `inputs`/`images`, so multimodal embedding is unreachable through it — every
-  Gateway embedding model reports text-only input. App code still only calls
-  `llm-service`; the transport is the sole place a Cohere URL appears. Cohere is
-  not in the Gateway catalog, so its pricing is a hand-maintained constant in
-  `llm-service.ts` rather than resolved live. Do not widen this exception without
-  the same kind of evidence — see `docs/internal/plans/attachment-memory.md`.
+- **Two documented exceptions**, both shaped the same way: the provider call
+  lives in a single `lib/llm-transports/*` module, app code still only calls
+  `llm-service`, and because neither model is in the Gateway catalog its pricing
+  is a hand-maintained constant in `llm-service.ts` rather than resolved live.
+  A stale rate shows up as wrong spend in usage reporting, not as a failure.
+  - `embedMultimodal()` → Cohere via `cohere-embeddings.ts` (`COHERE_API_KEY`).
+    The Gateway's `/v1/embeddings` validates the OpenAI-shaped `input` field and
+    drops Cohere's `inputs`/`images`, so multimodal embedding is unreachable
+    through it — every Gateway embedding model reports text-only input. See
+    `docs/internal/plans/attachment-memory.md`.
+  - `transcribeAudio()` → OpenAI via `openai-transcription.ts`
+    (`OPENAI_API_KEY`). The Gateway exposes no speech-to-text route at all and
+    its catalog lists only language and embedding models. Model set by
+    `VOICE_TRANSCRIPTION_MODEL`. OpenAI bills transcription two ways — newer
+    models per token with audio and text metered separately, `whisper-1` per
+    minute — and `OPENAI_TRANSCRIPTION_PRICING` covers both; an id missing from
+    it still transcribes but logs $0 and warns.
+- Do not widen either exception without the same kind of evidence: an operation
+  the Gateway genuinely cannot carry, not one that is merely inconvenient.
 
 ## Porting Features from apps/web
 

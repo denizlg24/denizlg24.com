@@ -77,6 +77,7 @@
     "node-latex-compiler": "^1.0.5",
     "nodemailer": "^9.0.1",
     "ogl": "^1.0.11",
+    "openai": "^7.1.0",
     "otpauth": "^9.5.1",
     "pdfjs-dist": "5.4.296",
     "puppeteer-core": "^25.4.0",

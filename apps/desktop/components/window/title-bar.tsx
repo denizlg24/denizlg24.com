@@ -3,6 +3,7 @@
 import { Copy, Minus, Square, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BackgroundActionsMenu } from "@/components/voice-notes/background-actions-menu";
 import { isTauri } from "@/lib/platform";
 import { BackgroundTasksIndicator } from "./background-tasks-indicator";
 
@@ -10,6 +11,7 @@ const PATHNAME_TITLE_MAP = {
   "/": "home",
   "/dashboard": "dashboard",
   "/dashboard/notes": "notes",
+  "/dashboard/voice-notes": "voice notes",
   "/dashboard/people": "people",
   "/dashboard/people/new": "new person",
   "/dashboard/timetable": "timetable",
@@ -91,7 +93,8 @@ export function TitleBar() {
         data-tauri-drag-region
         className="fixed top-0 left-0 right-0 z-50 flex h-8 select-none items-center bg-background"
       >
-        <div className="ml-[76px] flex items-center">
+        <div className="ml-[76px] flex items-center gap-1">
+          <BackgroundActionsMenu />
           <BackgroundTasksIndicator />
         </div>
 
@@ -117,6 +120,7 @@ export function TitleBar() {
         >
           {title}
         </span>
+        <BackgroundActionsMenu />
         <BackgroundTasksIndicator />
       </div>
 

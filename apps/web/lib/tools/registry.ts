@@ -24,6 +24,7 @@ import { todayBoardTools } from "./today-board";
 import { triageTools } from "./triage";
 import type { ToolDefinition, ToolSchema } from "./types";
 import { uploadTools } from "./upload";
+import { voiceNotesTools } from "./voice-notes";
 import { whiteboardTools } from "./whiteboard";
 
 const allTools: ToolDefinition[] = [
@@ -33,6 +34,7 @@ const allTools: ToolDefinition[] = [
   // Productivity
   ...kanbanTools,
   ...notesTools,
+  ...voiceNotesTools,
   ...calendarTools,
   ...timetableTools,
   ...whiteboardTools,

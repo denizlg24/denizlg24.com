@@ -15,6 +15,7 @@ export interface INote extends Document {
   tags: string[];
   groupIds: mongoose.Types.ObjectId[];
   manualGroupIds?: mongoose.Types.ObjectId[];
+  voiceNoteIds?: mongoose.Types.ObjectId[];
   status: NoteStatus;
   class?: string;
   paperId?: mongoose.Types.ObjectId;
@@ -42,6 +43,7 @@ export interface ILeanNote {
   tags: string[];
   groupIds: string[];
   manualGroupIds?: string[];
+  voiceNoteIds?: string[];
   status: NoteStatus;
   class?: string;
   paperId?: mongoose.Types.ObjectId | string;
@@ -81,6 +83,13 @@ const NoteSchema = new Schema<INote>(
       {
         type: Schema.Types.ObjectId,
         ref: "KnowledgeNoteGroup",
+        index: true,
+      },
+    ],
+    voiceNoteIds: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "VoiceNote",
         index: true,
       },
     ],

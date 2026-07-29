@@ -65,6 +65,24 @@ describe("agent memory security policy", () => {
     ).toThrow(AgentMemoryPolicyError);
   });
 
+  test("separates a dictated transcript from an attached file", () => {
+    const dictated = {
+      sourceRef: { entityType: "voice-note", entityId: "voice-1" },
+      actor: "user" as const,
+      trust: "high" as const,
+      sensitivity: "sensitive" as const,
+      snapshot: "Move the tiering pass to 3am.",
+      provenance: { adapter: "voice-note-transcript-v1" },
+    };
+    expect(() =>
+      assertEvidencePolicy({ ...dictated, sourceType: "voice-note" }),
+    ).not.toThrow();
+    // The owner's own words are first-party; a file he attached is not.
+    expect(() =>
+      assertEvidencePolicy({ ...dictated, sourceType: "attachment" }),
+    ).toThrow("attachment evidence cannot claim high trust");
+  });
+
   test("rejects permission-like candidates even with trusted evidence", () => {
     expect(() =>
       assertCandidateSafety({

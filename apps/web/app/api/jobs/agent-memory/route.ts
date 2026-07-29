@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { processBackfillJob } from "@/lib/agent-memory/backfill";
 import {
@@ -33,6 +33,7 @@ import {
 import { processTrainingJob } from "@/lib/agent-training/execution";
 import { scheduleDueTrainingRuns } from "@/lib/agent-training/scheduling";
 import { processBackgroundAgentJob } from "@/lib/background-agent/execution";
+import { isAuthorizedJobRequest } from "@/lib/job-authorization";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
 
 export const maxDuration = 300;
@@ -97,18 +98,8 @@ async function processJob(job: IAgentMemoryJob) {
   throw new Error(`No agent-memory handler for ${job.operation}`);
 }
 
-function isAuthorized(request: Request): boolean {
-  const token = process.env.AGENT_MEMORY_JOB_BEARER_TOKEN;
-  if (!token) return false;
-  const provided = request.headers.get("Authorization");
-  if (!provided) return false;
-  const expected = Buffer.from(`Bearer ${token}`);
-  const actual = Buffer.from(provided);
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
-}
-
 async function drainScheduledJobs(request: Request) {
-  if (!isAuthorized(request)) {
+  if (!isAuthorizedJobRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

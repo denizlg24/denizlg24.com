@@ -13,6 +13,7 @@ export const noteSchema = z.object({
   tags: z.array(z.string()),
   groupIds: z.array(z.string()),
   manualGroupIds: z.array(z.string()).optional(),
+  voiceNoteIds: z.array(z.string()).optional(),
   status: z.enum(["open", "archived"]),
   class: z.string().optional(),
   paperId: z.string().optional(),
