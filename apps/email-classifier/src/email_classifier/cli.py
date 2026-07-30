@@ -429,8 +429,11 @@ def command_predict(args: argparse.Namespace) -> int:
             or row.get("fromAddress")
             or ""
         )
+        sender_name = str(
+            row.get("sender_name") or row.get("senderName") or ""
+        )
         label, policy_reason = apply_policy(
-            model_label, sender_address, protected_senders
+            model_label, sender_address, protected_senders, sender_name
         )
         outputs.append(
             {
