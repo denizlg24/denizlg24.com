@@ -413,19 +413,21 @@ export function AgentTrainingPage() {
         ].map(({ label, value, icon }) => (
           <div
             key={label}
-            className="flex items-center gap-2 border-r px-4 py-2 last:border-r-0"
+            className="flex min-w-0 items-center gap-2 border-r px-3 py-2 last:border-r-0 sm:px-4"
           >
-            {icon}
-            <span className="text-xs text-muted-foreground">{label}</span>
-            <span className="ml-auto text-sm font-semibold tabular-nums">
+            <span className="shrink-0">{icon}</span>
+            <span className="truncate text-xs text-muted-foreground">
+              {label}
+            </span>
+            <span className="ml-auto shrink-0 text-sm font-semibold tabular-nums">
               {value}
             </span>
           </div>
         ))}
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[20rem_1fr]">
-        <div className="flex min-h-0 flex-col border-r">
+      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[20rem_minmax(0,1fr)]">
+        <div className="flex min-h-0 min-w-0 flex-col border-r">
           <div className="flex h-9 items-center border-b px-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             Tasks
           </div>
@@ -475,7 +477,7 @@ export function AgentTrainingPage() {
           </ScrollArea>
         </div>
 
-        <div className="grid min-h-0 grid-rows-[auto_1fr]">
+        <div className="grid min-h-0 min-w-0 grid-rows-[auto_1fr]">
           {selectedTask ? (
             <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
               <div className="min-w-0 flex-1">

@@ -235,7 +235,7 @@ export function GroupTreeCombobox({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={searchPlaceholder}
-            className="flex h-9 w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            className="flex h-9 w-full min-w-0 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
             onKeyDown={(event) => {
               if (event.key === "Enter" && showCreate) {
                 event.preventDefault();

@@ -170,8 +170,10 @@ export function EmailDetail({
               {senderInitial}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-baseline gap-2">
-                <span className="text-sm font-medium">{senderName}</span>
+              <div className="flex min-w-0 items-baseline gap-2">
+                <span className="truncate text-sm font-medium">
+                  {senderName}
+                </span>
                 {senderName !== senderAddress && (
                   <span className="text-xs text-muted-foreground truncate">
                     &lt;{senderAddress}&gt;

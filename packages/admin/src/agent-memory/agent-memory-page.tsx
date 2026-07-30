@@ -2168,7 +2168,7 @@ function TraceExplorer({
     return <EmptyRow text="No shadow retrieval traces" />;
   return (
     <div className="grid min-h-[30rem] border-y lg:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.6fr)]">
-      <div className="border-b lg:border-r lg:border-b-0">
+      <div className="min-w-0 border-b lg:border-r lg:border-b-0">
         {traces.map((trace) => (
           <button
             type="button"
@@ -2176,7 +2176,7 @@ function TraceExplorer({
             onClick={() => onSelect(trace.traceId)}
             className={`flex w-full flex-col gap-1 border-b px-3 py-3 text-left hover:bg-muted/50 ${selected?.traceId === trace.traceId ? "bg-muted" : ""}`}
           >
-            <span className="line-clamp-2 text-sm font-medium">
+            <span className="line-clamp-2 break-words text-sm font-medium">
               {trace.query}
             </span>
             <span className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -2514,7 +2514,7 @@ function SuggestionRow({
               key={match.resourceId}
               size="sm"
               variant="outline"
-              className="h-7 max-w-48 text-xs"
+              className="h-7 min-w-0 max-w-48 text-xs"
               title={`Attach this graph entity to ${match.name}`}
               onClick={() =>
                 onDecide(suggestion, "attach", {

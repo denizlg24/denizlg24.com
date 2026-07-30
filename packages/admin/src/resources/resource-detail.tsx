@@ -162,12 +162,14 @@ export function ResourceDetail({
   };
 
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="px-6 py-6">
-        <div className="flex items-start gap-6 mb-6">
+    <div className="min-w-0 flex-1 overflow-auto">
+      <div className="px-4 py-6 sm:px-6">
+        <div className="flex min-w-0 items-start gap-4 mb-6 sm:gap-6">
           <div className="flex-1 min-w-0">
-            <p className="text-xs text-muted-foreground/70 font-mono truncate mb-1 flex items-center gap-1.5">
-              {resource.url}
+            {/* text-overflow never applies to a flex box, so the ellipsis has
+                to live on an inner text-only span. */}
+            <p className="text-xs text-muted-foreground/70 font-mono mb-1 flex min-w-0 items-center gap-1.5">
+              <span className="truncate">{resource.url}</span>
               <button
                 type="button"
                 aria-label="Open resource URL"
@@ -213,8 +215,8 @@ export function ResourceDetail({
 
           <TabsContent value="overview" className="mt-0">
             {agent.enabled && (
-              <div className="flex items-center gap-6 mb-8 text-sm font-mono">
-                <div className="flex items-baseline gap-1.5">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-8 text-sm font-mono sm:gap-x-6">
+                <div className="flex shrink-0 items-baseline gap-1.5">
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
                     cpu
                   </span>
@@ -227,7 +229,7 @@ export function ResourceDetail({
                   </span>
                 </div>
                 <span className="text-muted-foreground/30">|</span>
-                <div className="flex items-baseline gap-1.5">
+                <div className="flex shrink-0 items-baseline gap-1.5">
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
                     ram
                   </span>
@@ -240,7 +242,7 @@ export function ResourceDetail({
                   </span>
                 </div>
                 <span className="text-muted-foreground/30">|</span>
-                <div className="flex items-baseline gap-1.5">
+                <div className="flex shrink-0 items-baseline gap-1.5">
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
                     disk
                   </span>
@@ -341,10 +343,10 @@ export function ResourceDetail({
                       <span
                         className={`size-1.5 rounded-full shrink-0 ${svc.status === "running" ? "bg-accent" : "bg-red-500"}`}
                       />
-                      <span className="text-sm font-mono flex-1">
+                      <span className="text-sm font-mono flex-1 min-w-0 truncate">
                         {svc.name}
                       </span>
-                      <span className="text-[10px] text-muted-foreground font-mono uppercase">
+                      <span className="text-[10px] text-muted-foreground font-mono uppercase shrink-0">
                         {svc.status}
                       </span>
                       <Button
