@@ -608,10 +608,7 @@ function Accounts({
             const reconnect =
               account.connection.status === "reconnect_required";
             return (
-              <div
-                key={account.id}
-                className="group flex items-center gap-4 py-2.5"
-              >
+              <div key={account.id} className="flex items-center gap-4 py-2.5">
                 <StatusDot
                   tone={CONNECTION_TONE[account.connection.status]}
                   label={account.connection.status.replaceAll("_", " ")}
@@ -655,7 +652,7 @@ function Accounts({
                     {balance?.balanceType ?? account.currency}
                   </div>
                 </div>
-                <div className="flex w-14 shrink-0 justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                <div className="flex w-14 shrink-0 justify-end gap-0.5">
                   {reconnect && manageAccounts ? (
                     <Button size="xs" variant="outline" onClick={onAddAccount}>
                       Relink
