@@ -10,6 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
+  "dependencies": {
+    "@repo/schemas": "workspace:*"
+  },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/bun": "^1.3.14",

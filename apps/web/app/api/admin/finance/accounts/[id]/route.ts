@@ -1,6 +1,7 @@
 import { financeAccountSettingsInputSchema } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
+import { serializeFinanceAccount } from "@/lib/finance/dashboard";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import { FinanceAccount } from "@/models/Finance";
@@ -40,7 +41,10 @@ export async function PATCH(request: NextRequest, context: Context) {
   }
   current.set(parsed.data);
   await current.save();
-  return NextResponse.json({ success: true });
+  return NextResponse.json({
+    success: true,
+    account: serializeFinanceAccount(current),
+  });
 }
 
 export async function DELETE(request: NextRequest, context: Context) {

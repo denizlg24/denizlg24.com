@@ -1,25 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { completeFinanceLink } from "@/lib/finance/connection";
-import { getAdminSession } from "@/lib/require-admin";
 
-function redirect(request: NextRequest, status: string) {
-  const url = new URL("/admin/dashboard/finance", request.url);
-  url.searchParams.set("link", status);
-  return NextResponse.redirect(url);
-}
-
-export async function GET(request: NextRequest) {
-  if (!(await getAdminSession(request))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const code = request.nextUrl.searchParams.get("code");
-  const state = request.nextUrl.searchParams.get("state");
-  if (!code || !state) return redirect(request, "invalid");
-  try {
-    await completeFinanceLink(code, state);
-    return redirect(request, "connected");
-  } catch (error) {
-    console.error("[finance] Link completion failed", error);
-    return redirect(request, "failed");
-  }
+/**
+ * Enable Banking's whitelisted redirect target.
+ *
+ * Stays a route handler because the URL is registered with the provider and
+ * cannot change without re-whitelisting, but it does nothing beyond forwarding
+ * the callback to `/admin/finance/link`. The handshake needs a real page: the
+ * bank redirects the *browser* here carrying a cookie session and never the
+ * desktop app's Bearer token, so an unauthenticated arrival has to be resumable
+ * through login — and login navigates client-side, which a route handler cannot
+ * serve.
+ */
+export function GET(request: NextRequest) {
+  const target = new URL("/admin/finance/link", request.url);
+  target.search = request.nextUrl.search;
+  return NextResponse.redirect(target);
 }

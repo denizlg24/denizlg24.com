@@ -20,17 +20,43 @@ export async function listFinanceInstitutions(country: string) {
   return provider.listInstitutions(country);
 }
 
+/**
+ * The OAuth callback Enable Banking sends the browser back to.
+ *
+ * Derived from the public site origin rather than the caller's, because the
+ * desktop app's origin is not a valid callback host and the URL has to match
+ * what is whitelisted with the provider.
+ *
+ * Anywhere but production, an unset origin is a misconfiguration rather than a
+ * default worth guessing: falling back to the production host would create the
+ * consent there, send the browser there, and leave the `FinanceLinkState` row
+ * written here to expire unresolved — a flow that dies silently instead of
+ * reporting anything. Production keeps the fallback because every other
+ * consumer of this variable assumes the same one.
+ */
+export function financeLinkRedirectUrl() {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (!configured) {
+    const environment = process.env.VERCEL_ENV ?? process.env.NODE_ENV;
+    if (environment !== "production") {
+      throw new Error(
+        `NEXT_PUBLIC_SITE_URL must be set to link a bank account in ${environment} — it is the callback origin whitelisted with Enable Banking`,
+      );
+    }
+    return "https://denizlg24.com/api/admin/finance/callback";
+  }
+  return `${configured.replace(/\/+$/, "")}/api/admin/finance/callback`;
+}
+
 export async function beginFinanceLink(input: FinanceBeginLinkRequest) {
   await connectDB();
+  const redirectUrl = financeLinkRedirectUrl();
   const provider = new EnableBankingProvider();
-  const result = await provider.beginLink(
-    input.institutionId,
-    input.redirectUrl,
-  );
+  const result = await provider.beginLink(input.institutionId, redirectUrl);
   await FinanceLinkState.create({
     stateHash: stateHash(result.ref),
     institutionId: input.institutionId,
-    redirectUrl: input.redirectUrl,
+    redirectUrl,
     expiresAt: new Date(Date.now() + LINK_STATE_TTL_MS),
   });
   return { linkUrl: result.linkUrl };

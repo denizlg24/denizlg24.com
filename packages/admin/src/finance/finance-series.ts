@@ -3,6 +3,7 @@ import type {
   FinanceLedgerEntry,
   FinanceRecurringRule,
 } from "@repo/schemas";
+import { formatMoney, minorToMajor, monthlyOccurrenceRate } from "@repo/utils";
 
 const DAY_MS = 86_400_000;
 
@@ -30,13 +31,10 @@ export function shiftDay(day: string, offset: number) {
   return dayKey(dayIndex(day) + offset);
 }
 
+// Delegates to the shared helper so zero-decimal currencies (JPY, KRW) aren't
+// rendered 100x too small.
 export function money(amountMinor: number, currency: string) {
-  return new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amountMinor / 100);
+  return formatMoney(amountMinor, currency);
 }
 
 export function compactMoney(amountMinor: number, currency: string) {
@@ -45,7 +43,7 @@ export function compactMoney(amountMinor: number, currency: string) {
     currency,
     notation: "compact",
     maximumFractionDigits: 1,
-  }).format(amountMinor / 100);
+  }).format(minorToMajor(amountMinor, currency));
 }
 
 export function shortDay(day: string) {
@@ -277,23 +275,19 @@ export function nextDueByRule(ledger: FinanceLedgerEntry[], today: string) {
   for (const entry of ledger) {
     if (entry.origin !== "projected" || entry.state !== "expected") continue;
     if (entry.effectiveDate < today) continue;
-    const current = due.get(entry.recurringRuleId);
+    // One-off expected entries have no rule to be due against.
+    const ruleId = entry.recurringRuleId;
+    if (!ruleId) continue;
+    const current = due.get(ruleId);
     if (!current || entry.effectiveDate < current) {
-      due.set(entry.recurringRuleId, entry.effectiveDate);
+      due.set(ruleId, entry.effectiveDate);
     }
   }
   return due;
 }
 
 function monthlyEquivalent(rule: FinanceRecurringRule) {
-  const { recurrence, amountMinor } = rule;
-  if (recurrence.cadence === "weekly") {
-    return (amountMinor * 52) / 12 / recurrence.interval;
-  }
-  if (recurrence.cadence === "monthly") {
-    return amountMinor / recurrence.interval;
-  }
-  return amountMinor / (12 * recurrence.interval);
+  return rule.amountMinor * monthlyOccurrenceRate(rule.recurrence);
 }
 
 export function monthlyCommitment(rules: FinanceRecurringRule[]) {

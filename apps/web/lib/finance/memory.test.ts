@@ -5,6 +5,8 @@ import { buildFinanceMemoryEvidence } from "./memory";
 const dashboard: FinanceDashboardResponse = {
   accounts: [],
   balances: [],
+  categories: [],
+  settings: { baseCurrency: "EUR", fxSource: "frankfurter" },
   aggregateBalances: [{ amountMinor: 120_000, currency: "EUR" }],
   monthly: {
     amountMinor: 120_000,

@@ -6,11 +6,13 @@ import type {
   FinanceInstitution,
   FinanceLedgerEntry,
   FinanceRecurringCandidate,
+  FinanceRecurringRule,
 } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { ConfirmButton } from "@repo/ui/confirm-button";
-import { DataTable, SortHeader } from "@repo/ui/data-table";
+import { CountrySelect } from "@repo/ui/country-select";
+import { CurrencySelect } from "@repo/ui/currency-select";
 import {
   Dialog,
   DialogContent,
@@ -22,13 +24,6 @@ import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { PageHeader } from "@repo/ui/page-header";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@repo/ui/select";
-import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -36,14 +31,12 @@ import {
   SheetTitle,
 } from "@repo/ui/sheet";
 import { Skeleton } from "@repo/ui/skeleton";
-import { StatusDot, type StatusTone } from "@repo/ui/status-dot";
+import { StatusDot } from "@repo/ui/status-dot";
 import { Switch } from "@repo/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { Textarea } from "@repo/ui/textarea";
-import { Toggle } from "@repo/ui/toggle";
 import { cn } from "@repo/ui/utils";
-import type { ColumnDef } from "@tanstack/react-table";
-import { formatDistanceToNowStrict } from "date-fns";
+import { describeRecurrence } from "@repo/utils";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -54,19 +47,11 @@ import {
   Plus,
   RefreshCw,
   Settings2,
-  Sparkles,
   Trash2,
   Unlink,
   X,
 } from "lucide-react";
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import {
@@ -78,9 +63,6 @@ import {
 } from "./finance-charts";
 import {
   beginFinanceLink,
-  createFinanceEntry,
-  createFinanceRule,
-  createNaturalFinanceEntry,
   deleteFinanceRule,
   disconnectFinanceAccount,
   fetchFinanceDashboard,
@@ -91,6 +73,17 @@ import {
   updateFinanceAccount,
   updateFinanceRule,
 } from "./finance-data";
+import { EntryDetailSheet, EntrySheet } from "./finance-entry-sheet";
+import { FinanceLedgerTable } from "./finance-ledger-table";
+import {
+  CONNECTION_TONE,
+  Empty,
+  FieldRow,
+  Figure,
+  relative,
+  SectionHead,
+} from "./finance-primitives";
+import { RuleSheet } from "./finance-rule-sheet";
 import {
   balanceSeries,
   categoryTotals,
@@ -109,73 +102,7 @@ import {
   todayKey,
   visibleLedger,
 } from "./finance-series";
-
-function relative(value?: string) {
-  if (!value) return "never";
-  return formatDistanceToNowStrict(new Date(value), { addSuffix: true });
-}
-
-const CONNECTION_TONE: Record<
-  FinanceAccount["connection"]["status"],
-  StatusTone
-> = {
-  active: "good",
-  pending: "warning",
-  reconnect_required: "critical",
-  disconnected: "muted",
-};
-
-function SectionHead({
-  label,
-  children,
-}: {
-  label: string;
-  children?: ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </span>
-      <span className="h-px flex-1 bg-border" />
-      {children}
-    </div>
-  );
-}
-
-function Figure({
-  label,
-  value,
-  meta,
-  tone,
-}: {
-  label: string;
-  value: string;
-  meta?: ReactNode;
-  tone?: "good" | "critical";
-}) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </div>
-      <div
-        className={cn(
-          "mt-1.5 truncate text-[26px] font-semibold leading-none tabular-nums tracking-tight",
-          tone === "good" && "text-status-good",
-          tone === "critical" && "text-status-critical",
-        )}
-      >
-        {value}
-      </div>
-      {meta !== undefined && (
-        <div className="mt-1.5 truncate text-[11px] text-muted-foreground">
-          {meta}
-        </div>
-      )}
-    </div>
-  );
-}
+import { SettingsTab } from "./finance-settings";
 
 function RangeToggle({
   value,
@@ -201,19 +128,6 @@ function RangeToggle({
           {key}
         </button>
       ))}
-    </div>
-  );
-}
-
-function Empty({ label, compact }: { label: string; compact?: boolean }) {
-  return (
-    <div
-      className={cn(
-        "text-xs text-muted-foreground",
-        compact ? "py-3" : "py-14 text-center",
-      )}
-    >
-      {label}
     </div>
   );
 }
@@ -262,10 +176,16 @@ export function FinancePage({
   const [ruleSeed, setRuleSeed] = useState<FinanceRecurringCandidate | null>(
     null,
   );
+  const [editingRule, setEditingRule] = useState<FinanceRecurringRule | null>(
+    null,
+  );
   const [linkOpen, setLinkOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<FinanceAccount | null>(
     null,
   );
+  // Held by id, not by value: linking or editing reloads the dashboard, and a
+  // captured entry object would keep rendering its pre-save state.
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -335,6 +255,9 @@ export function FinancePage({
       </div>
     );
   }
+
+  const selectedEntry =
+    data.ledger.find((row) => row.id === selectedEntryId) ?? null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -406,18 +329,30 @@ export function FinancePage({
                 )}
               </TabsTrigger>
               <TabsTrigger value="forecast">Forecast</TabsTrigger>
+              <TabsTrigger value="settings">Settings</TabsTrigger>
             </TabsList>
             <TabsContent value="ledger">
-              <LedgerTab data={data} range={range} />
+              <LedgerTab
+                data={data}
+                range={range}
+                onSelectEntry={(entry) => setSelectedEntryId(entry.id)}
+              />
             </TabsContent>
             <TabsContent value="recurring">
               <RecurringTab
                 data={data}
                 onNew={() => {
                   setRuleSeed(null);
+                  setEditingRule(null);
+                  setRuleOpen(true);
+                }}
+                onEdit={(rule) => {
+                  setRuleSeed(null);
+                  setEditingRule(rule);
                   setRuleOpen(true);
                 }}
                 onCandidate={(candidate) => {
+                  setEditingRule(null);
                   setRuleSeed(candidate);
                   setRuleOpen(true);
                 }}
@@ -430,6 +365,9 @@ export function FinancePage({
             <TabsContent value="forecast">
               <ForecastTab data={data} />
             </TabsContent>
+            <TabsContent value="settings">
+              <SettingsTab data={data} onReload={load} />
+            </TabsContent>
           </Tabs>
         </div>
       </div>
@@ -438,14 +376,27 @@ export function FinancePage({
         open={entryOpen}
         onOpenChange={setEntryOpen}
         accounts={data.accounts}
+        categories={data.categories}
         onCreated={load}
+      />
+      <EntryDetailSheet
+        entry={selectedEntry}
+        accounts={data.accounts}
+        categories={data.categories}
+        ledger={data.ledger}
+        onClose={() => setSelectedEntryId(null)}
+        onSaved={load}
       />
       <RuleSheet
         open={ruleOpen}
-        onOpenChange={setRuleOpen}
+        onOpenChange={(open) => {
+          setRuleOpen(open);
+          if (!open) setEditingRule(null);
+        }}
         accounts={data.accounts}
         seed={ruleSeed}
-        onCreated={load}
+        rule={editingRule}
+        onSaved={load}
       />
       {manageAccounts && (
         <>
@@ -657,10 +608,7 @@ function Accounts({
             const reconnect =
               account.connection.status === "reconnect_required";
             return (
-              <div
-                key={account.id}
-                className="group flex items-center gap-4 py-2.5"
-              >
+              <div key={account.id} className="flex items-center gap-4 py-2.5">
                 <StatusDot
                   tone={CONNECTION_TONE[account.connection.status]}
                   label={account.connection.status.replaceAll("_", " ")}
@@ -704,7 +652,7 @@ function Accounts({
                     {balance?.balanceType ?? account.currency}
                   </div>
                 </div>
-                <div className="flex w-14 shrink-0 justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                <div className="flex w-14 shrink-0 justify-end gap-0.5">
                   {reconnect && manageAccounts ? (
                     <Button size="xs" variant="outline" onClick={onAddAccount}>
                       Relink
@@ -754,15 +702,15 @@ function BreakdownList({
   currency: string;
 }) {
   return (
-    <div className="space-y-2.5">
+    <div className="min-w-0 space-y-2.5">
       <SectionHead label={label} />
       {items.length === 0 ? (
         <Empty label="—" compact />
       ) : (
         <div className="space-y-2.5">
           {items.map((item) => (
-            <div key={item.key} className="space-y-1">
-              <div className="flex items-baseline gap-3">
+            <div key={item.key} className="min-w-0 space-y-1">
+              <div className="flex min-w-0 items-baseline gap-3">
                 <span className="min-w-0 flex-1 truncate text-xs">
                   {item.label}
                 </span>
@@ -785,18 +733,16 @@ function BreakdownList({
 function LedgerTab({
   data,
   range,
+  onSelectEntry,
 }: {
   data: FinanceDashboardResponse;
   range: RangeKey;
+  onSelectEntry: (entry: FinanceLedgerEntry) => void;
 }) {
   const today = todayKey();
   const days = RANGE_DAYS[range];
   const currency = data.monthly.currency;
 
-  const accounts = useMemo(
-    () => new Map(data.accounts.map((account) => [account.id, account])),
-    [data.accounts],
-  );
   const realized = useMemo(() => realizedLedger(data.ledger), [data.ledger]);
   const rows = useMemo(() => visibleLedger(data.ledger), [data.ledger]);
   const flow = useMemo(
@@ -812,114 +758,21 @@ function LedgerTab({
     [realized, days, today],
   );
 
-  const columns = useMemo<ColumnDef<FinanceLedgerEntry>[]>(
-    () => [
-      {
-        accessorKey: "effectiveDate",
-        header: ({ column }) => <SortHeader label="Date" column={column} />,
-        cell: ({ row }) => (
-          <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-            {shortDay(row.original.effectiveDate)}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "descriptor",
-        header: ({ column }) => (
-          <SortHeader label="Transaction" column={column} />
-        ),
-        cell: ({ row }) => {
-          const entry = row.original;
-          const pending = entry.origin === "bank" && entry.state === "pending";
-          return (
-            <div className="min-w-44 max-w-md">
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={cn(
-                    "truncate text-sm",
-                    entry.origin === "projected" && "text-muted-foreground",
-                  )}
-                >
-                  {entry.descriptor}
-                </span>
-                {pending && (
-                  <Badge
-                    variant="outline"
-                    className="h-4 shrink-0 px-1 text-[9px]"
-                  >
-                    pending
-                  </Badge>
-                )}
-                {entry.origin === "projected" && (
-                  <Badge
-                    variant="outline"
-                    className="h-4 shrink-0 px-1 text-[9px]"
-                  >
-                    expected
-                  </Badge>
-                )}
-                {entry.transferId && (
-                  <Badge
-                    variant="secondary"
-                    className="h-4 shrink-0 px-1 text-[9px]"
-                  >
-                    transfer
-                  </Badge>
-                )}
-              </div>
-              <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                {accounts.get(entry.accountId)?.displayName ?? "—"}
-                {entry.category ? ` · ${entry.category}` : ""}
-              </div>
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: "category",
-        header: "Category",
-        meta: { className: "hidden lg:table-cell" },
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">
-            {row.original.category ?? "—"}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "amountMinor",
-        header: ({ column }) => <SortHeader label="Amount" column={column} />,
-        meta: { className: "text-right" },
-        cell: ({ row }) => (
-          <div
-            className={cn(
-              "whitespace-nowrap text-right text-sm font-medium tabular-nums",
-              row.original.amountMinor > 0 && "text-status-good",
-              row.original.origin === "projected" && "text-muted-foreground",
-            )}
-          >
-            {money(row.original.amountMinor, row.original.currency)}
-          </div>
-        ),
-      },
-    ],
-    [accounts],
-  );
-
   return (
     <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_260px]">
       <div className="min-w-0 space-y-5">
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <SectionHead label="Daily flow" />
           <CashflowChart days={flow} currency={currency} />
         </div>
-        <DataTable
-          data={rows}
-          columns={columns}
-          searchPlaceholder="Search ledger"
-          searchableColumns={["descriptor", "category"]}
+        <FinanceLedgerTable
+          entries={rows}
+          accounts={data.accounts}
+          categories={data.categories}
+          onSelect={onSelectEntry}
         />
       </div>
-      <aside className="space-y-7">
+      <aside className="min-w-0 space-y-7">
         <BreakdownList
           label={`Categories · ${range}`}
           items={categories}
@@ -938,11 +791,13 @@ function LedgerTab({
 function RecurringTab({
   data,
   onNew,
+  onEdit,
   onCandidate,
   onReload,
 }: {
   data: FinanceDashboardResponse;
   onNew: () => void;
+  onEdit: (rule: FinanceRecurringRule) => void;
   onCandidate: (candidate: FinanceRecurringCandidate) => void;
   onReload: () => Promise<void>;
 }) {
@@ -1007,7 +862,11 @@ function RecurringTab({
                   ) : (
                     <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" />
                   )}
-                  <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left transition-opacity hover:opacity-70"
+                    onClick={() => onEdit(rule)}
+                  >
                     <div
                       className={cn(
                         "truncate text-sm",
@@ -1016,11 +875,11 @@ function RecurringTab({
                     >
                       {rule.name}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-muted-foreground">
-                      {rule.recurrence.cadence}
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {describeRecurrence(rule.recurrence)}
                       {due ? ` · due ${shortDay(due)}` : ""}
                     </div>
-                  </div>
+                  </button>
                   <span
                     className={cn(
                       "shrink-0 text-sm font-medium tabular-nums",
@@ -1085,7 +944,7 @@ function RecurringTab({
           </div>
         )}
       </div>
-      <aside className="space-y-2">
+      <aside className="min-w-0 space-y-2">
         <SectionHead label="Detected" />
         {data.recurringCandidates.length === 0 ? (
           <Empty label="—" compact />
@@ -1095,14 +954,14 @@ function RecurringTab({
               <button
                 type="button"
                 key={`${candidate.accountId}-${candidate.merchantFingerprint}`}
-                className="flex w-full items-center gap-3 py-2.5 text-left transition-colors hover:text-foreground"
+                className="flex w-full min-w-0 items-center gap-3 py-2.5 text-left transition-colors hover:text-foreground"
                 onClick={() => onCandidate(candidate)}
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs font-medium">
                     {candidate.name}
                   </div>
-                  <div className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
+                  <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
                     every {candidate.intervalDays}d ·{" "}
                     {Math.round(candidate.confidence * 100)}%
                   </div>
@@ -1236,7 +1095,7 @@ function ForecastTab({ data }: { data: FinanceDashboardResponse }) {
         </SectionHead>
         <WaterfallChart steps={steps} currency={forecast.currency} />
       </div>
-      <aside className="space-y-7">
+      <aside className="min-w-0 space-y-7">
         <div className="space-y-3">
           <SectionHead label="Range" />
           <div className="relative h-6">
@@ -1285,508 +1144,6 @@ function ForecastTab({ data }: { data: FinanceDashboardResponse }) {
         </div>
       </aside>
     </div>
-  );
-}
-
-function FieldRow({
-  label,
-  children,
-  htmlFor,
-}: {
-  label: string;
-  children: ReactNode;
-  htmlFor?: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label
-        htmlFor={htmlFor}
-        className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground"
-      >
-        {label}
-      </Label>
-      {children}
-    </div>
-  );
-}
-
-function EntrySheet({
-  open,
-  onOpenChange,
-  accounts,
-  onCreated,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  accounts: FinanceAccount[];
-  onCreated: () => Promise<void>;
-}) {
-  const { client } = useAdmin();
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
-  const [amount, setAmount] = useState("");
-  const [direction, setDirection] = useState<"expense" | "income">("expense");
-  const [date, setDate] = useState(todayKey);
-  const [descriptor, setDescriptor] = useState("");
-  const [note, setNote] = useState("");
-  const [phrase, setPhrase] = useState("");
-  const [saving, setSaving] = useState(false);
-  const amountRef = useRef<HTMLInputElement>(null);
-
-  const account = accounts.find((item) => item.id === accountId) ?? accounts[0];
-
-  useEffect(() => {
-    if (!open) return;
-    setAccountId((current) =>
-      accounts.some((item) => item.id === current)
-        ? current
-        : (accounts[0]?.id ?? ""),
-    );
-    const timer = window.setTimeout(() => amountRef.current?.focus(), 60);
-    return () => window.clearTimeout(timer);
-  }, [open, accounts]);
-
-  function reset() {
-    setAmount("");
-    setDescriptor("");
-    setNote("");
-    setPhrase("");
-  }
-
-  const manualReady = Boolean(account && amount && descriptor.trim());
-
-  async function saveManual(keepOpen: boolean) {
-    if (!account || !manualReady) return;
-    setSaving(true);
-    try {
-      await createFinanceEntry(client, {
-        accountId: account.id,
-        amountMinor: Math.round(Number(amount) * 100),
-        currency: account.currency,
-        direction,
-        effectiveDate: date,
-        descriptor,
-        note: note || undefined,
-      });
-      toast.success("Entry added");
-      reset();
-      if (!keepOpen) onOpenChange(false);
-      else amountRef.current?.focus();
-      await onCreated();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Entry failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function saveNatural() {
-    if (!account || !phrase.trim()) return;
-    setSaving(true);
-    try {
-      const entry = await createNaturalFinanceEntry(client, {
-        accountId: account.id,
-        text: phrase,
-      });
-      toast.success(
-        `${entry.descriptor} · ${money(entry.amountMinor, entry.currency)}`,
-      );
-      setPhrase("");
-      await onCreated();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Parse failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const accountSelect = (
-    <FieldRow label="Account">
-      <Select value={account?.id ?? ""} onValueChange={setAccountId}>
-        <SelectTrigger className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {accounts.map((item) => (
-            <SelectItem key={item.id} value={item.id}>
-              {item.displayName}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </FieldRow>
-  );
-
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle>New entry</SheetTitle>
-          <SheetDescription className="sr-only">
-            Add a ledger entry
-          </SheetDescription>
-        </SheetHeader>
-        <Tabs defaultValue="manual" className="gap-5 px-4 pb-6">
-          <TabsList variant="line">
-            <TabsTrigger value="manual">Manual</TabsTrigger>
-            <TabsTrigger value="quick">
-              <Sparkles className="size-3" />
-              Quick
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent
-            value="manual"
-            className="space-y-5"
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                void saveManual(false);
-              }
-            }}
-          >
-            <div className="flex gap-1">
-              {(["expense", "income"] as const).map((value) => (
-                <Toggle
-                  key={value}
-                  size="sm"
-                  variant="outline"
-                  pressed={direction === value}
-                  onPressedChange={() => setDirection(value)}
-                  className="flex-1 capitalize"
-                >
-                  {value}
-                </Toggle>
-              ))}
-            </div>
-
-            <FieldRow label="Amount" htmlFor="finance-amount">
-              <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                  {account?.currency ?? ""}
-                </span>
-                <Input
-                  id="finance-amount"
-                  ref={amountRef}
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                  className="pl-12 text-right text-lg font-medium tabular-nums"
-                  placeholder="0.00"
-                />
-              </div>
-            </FieldRow>
-
-            {accountSelect}
-
-            <FieldRow label="Date" htmlFor="finance-date">
-              <div className="flex gap-2">
-                <Input
-                  id="finance-date"
-                  type="date"
-                  value={date}
-                  onChange={(event) => setDate(event.target.value)}
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setDate(todayKey())}
-                >
-                  Today
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const yesterday = new Date();
-                    yesterday.setDate(yesterday.getDate() - 1);
-                    setDate(yesterday.toISOString().slice(0, 10));
-                  }}
-                >
-                  −1d
-                </Button>
-              </div>
-            </FieldRow>
-
-            <FieldRow label="Description" htmlFor="finance-descriptor">
-              <Input
-                id="finance-descriptor"
-                value={descriptor}
-                onChange={(event) => setDescriptor(event.target.value)}
-              />
-            </FieldRow>
-
-            <FieldRow label="Note" htmlFor="finance-note">
-              <Textarea
-                id="finance-note"
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                rows={3}
-              />
-            </FieldRow>
-
-            <div className="flex gap-2">
-              <Button
-                className="flex-1"
-                onClick={() => void saveManual(false)}
-                disabled={saving || !manualReady}
-              >
-                {saving && <Loader2 className="size-4 animate-spin" />}
-                Add
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => void saveManual(true)}
-                disabled={saving || !manualReady}
-              >
-                Add & next
-              </Button>
-            </div>
-          </TabsContent>
-
-          <TabsContent
-            value="quick"
-            className="space-y-5"
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                void saveNatural();
-              }
-            }}
-          >
-            <Textarea
-              value={phrase}
-              onChange={(event) => setPhrase(event.target.value)}
-              rows={3}
-              placeholder="lunch 12.40 yesterday"
-              autoFocus
-            />
-            {accountSelect}
-            <Button
-              className="w-full"
-              onClick={() => void saveNatural()}
-              disabled={saving || !phrase.trim() || !account}
-            >
-              {saving ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Sparkles className="size-4" />
-              )}
-              Parse
-            </Button>
-          </TabsContent>
-        </Tabs>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
-function RuleSheet({
-  open,
-  onOpenChange,
-  accounts,
-  seed,
-  onCreated,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  accounts: FinanceAccount[];
-  seed: FinanceRecurringCandidate | null;
-  onCreated: () => Promise<void>;
-}) {
-  const { client } = useAdmin();
-  const [name, setName] = useState("");
-  const [amount, setAmount] = useState("");
-  const [direction, setDirection] = useState<"expense" | "income">("expense");
-  const [cadence, setCadence] = useState<"weekly" | "monthly">("monthly");
-  const [anchorDate, setAnchorDate] = useState(todayKey);
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setName(seed?.name ?? "");
-    setAmount(seed ? String(seed.amountMinor / 100) : "");
-    setDirection(seed?.direction ?? "expense");
-    setCadence(seed?.suggestedCadence ?? "monthly");
-    setAnchorDate(todayKey());
-    setAccountId(seed?.accountId ?? accounts[0]?.id ?? "");
-  }, [open, seed, accounts]);
-
-  const account = accounts.find((item) => item.id === accountId);
-  const anchor = new Date(`${anchorDate}T00:00:00Z`);
-  const anchorValid = !Number.isNaN(anchor.getTime());
-  const ready = Boolean(account && name.trim() && amount && anchorValid);
-
-  async function save() {
-    if (!account || !ready) return;
-    setSaving(true);
-    try {
-      await createFinanceRule(client, {
-        accountId: account.id,
-        name,
-        direction,
-        amountKind: "fixed",
-        amountMinor: Math.round(Number(amount) * 100),
-        currency: account.currency,
-        recurrence:
-          cadence === "weekly"
-            ? { cadence: "weekly", interval: 1, weekday: anchor.getUTCDay() }
-            : {
-                cadence: "monthly",
-                interval: 1,
-                dayOfMonth: anchor.getUTCDate(),
-              },
-        anchorDate,
-        matchTolerancePercent: 10,
-        matchWindowDays: 3,
-        merchantFingerprint: seed?.merchantFingerprint,
-        status: "active",
-      });
-      toast.success("Rule added");
-      onOpenChange(false);
-      await onCreated();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Rule failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle>Recurring rule</SheetTitle>
-          <SheetDescription className="sr-only">
-            Create a recurring finance rule
-          </SheetDescription>
-        </SheetHeader>
-        <div
-          className="space-y-5 px-4 pb-6"
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              void save();
-            }
-          }}
-        >
-          {seed && (
-            <div className="flex items-baseline gap-2 text-[11px] text-muted-foreground">
-              <span className="tabular-nums">every {seed.intervalDays}d</span>
-              <span>·</span>
-              <span className="tabular-nums">
-                {Math.round(seed.confidence * 100)}% confidence
-              </span>
-            </div>
-          )}
-
-          <div className="flex gap-1">
-            {(["expense", "income"] as const).map((value) => (
-              <Toggle
-                key={value}
-                size="sm"
-                variant="outline"
-                pressed={direction === value}
-                onPressedChange={() => setDirection(value)}
-                className="flex-1 capitalize"
-              >
-                {value}
-              </Toggle>
-            ))}
-          </div>
-
-          <FieldRow label="Name" htmlFor="rule-name">
-            <Input
-              id="rule-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </FieldRow>
-
-          <FieldRow label="Amount" htmlFor="rule-amount">
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                {account?.currency ?? ""}
-              </span>
-              <Input
-                id="rule-amount"
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.01"
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-                className="pl-12 text-right font-medium tabular-nums"
-                placeholder="0.00"
-              />
-            </div>
-          </FieldRow>
-
-          <FieldRow label="Account">
-            <Select value={accountId} onValueChange={setAccountId}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {accounts.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.displayName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FieldRow>
-
-          <div className="grid grid-cols-2 gap-3">
-            <FieldRow label="Cadence">
-              <Select
-                value={cadence}
-                onValueChange={(value) => setCadence(value as typeof cadence)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                </SelectContent>
-              </Select>
-            </FieldRow>
-            <FieldRow label="Anchor" htmlFor="rule-anchor">
-              <Input
-                id="rule-anchor"
-                type="date"
-                value={anchorDate}
-                onChange={(event) => setAnchorDate(event.target.value)}
-              />
-            </FieldRow>
-          </div>
-
-          <p className="text-[11px] tabular-nums text-muted-foreground">
-            {!anchorValid
-              ? "—"
-              : cadence === "weekly"
-                ? `every ${anchor.toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" })}`
-                : `day ${anchor.getUTCDate()} of each month`}
-          </p>
-
-          <Button
-            className="w-full"
-            onClick={() => void save()}
-            disabled={saving || !ready}
-          >
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Add rule
-          </Button>
-        </div>
-      </SheetContent>
-    </Sheet>
   );
 }
 
@@ -1874,20 +1231,16 @@ function LinkDialog({
           </TabsList>
 
           <TabsContent value="bank" className="space-y-3">
-            <div className="flex gap-2">
-              <Input
+            <div className="flex min-w-0 items-center gap-2">
+              <CountrySelect
                 value={country}
-                maxLength={2}
-                aria-label="Country code"
-                className="w-16 text-center uppercase"
-                onChange={(event) =>
-                  setCountry(event.target.value.toUpperCase())
-                }
+                onValueChange={setCountry}
+                className="w-40 shrink-0"
               />
               <Input
                 value={query}
                 placeholder="Filter"
-                className="flex-1"
+                className="min-w-0 flex-1"
                 onChange={(event) => setQuery(event.target.value)}
               />
               <Button
@@ -1916,7 +1269,6 @@ function LinkDialog({
                     try {
                       const result = await beginFinanceLink(client, {
                         institutionId: institution.id,
-                        redirectUrl: `${window.location.origin}/api/admin/finance/callback`,
                       });
                       onNavigate(result.linkUrl);
                     } catch (error) {
@@ -1945,23 +1297,18 @@ function LinkDialog({
           </TabsContent>
 
           <TabsContent value="csv" className="space-y-4">
-            <div className="grid grid-cols-[1fr_90px] gap-3">
-              <FieldRow label="Name" htmlFor="csv-name">
+            <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
+              <FieldRow label="Name" htmlFor="csv-name" className="min-w-0">
                 <Input
                   id="csv-name"
                   value={csvName}
                   onChange={(event) => setCsvName(event.target.value)}
                 />
               </FieldRow>
-              <FieldRow label="Currency" htmlFor="csv-currency">
-                <Input
-                  id="csv-currency"
+              <FieldRow label="Currency" className="min-w-0">
+                <CurrencySelect
                   value={csvCurrency}
-                  maxLength={3}
-                  className="text-center uppercase"
-                  onChange={(event) =>
-                    setCsvCurrency(event.target.value.toUpperCase())
-                  }
+                  onValueChange={setCsvCurrency}
                 />
               </FieldRow>
             </div>
@@ -2019,6 +1366,7 @@ function AccountSheet({
   onSaved: () => Promise<void>;
 }) {
   const { client } = useAdmin();
+  const [displayName, setDisplayName] = useState("");
   const [dailyLimit, setDailyLimit] = useState(4);
   const [reserve, setReserve] = useState(1);
   const [timezone, setTimezone] = useState("UTC");
@@ -2028,6 +1376,7 @@ function AccountSheet({
 
   useEffect(() => {
     if (!account) return;
+    setDisplayName(account.displayName);
     setDailyLimit(account.budget.dailyFetchLimit);
     setReserve(account.budget.reservedManualFetches);
     setTimezone(account.budget.budgetTimezone);
@@ -2062,6 +1411,14 @@ function AccountSheet({
                   : "—"}
               </span>
             </div>
+
+            <FieldRow label="Name" htmlFor="account-name">
+              <Input
+                id="account-name"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+              />
+            </FieldRow>
 
             <div className="grid grid-cols-2 gap-3">
               <FieldRow label="Daily limit" htmlFor="account-limit">
@@ -2124,11 +1481,12 @@ function AccountSheet({
 
             <Button
               className="w-full"
-              disabled={saving || reserve >= dailyLimit}
+              disabled={saving || reserve >= dailyLimit || !displayName.trim()}
               onClick={async () => {
                 setSaving(true);
                 try {
                   await updateFinanceAccount(client, account.id, {
+                    displayName: displayName.trim(),
                     dailyFetchLimit: dailyLimit,
                     reservedManualFetches: reserve,
                     budgetTimezone: timezone,

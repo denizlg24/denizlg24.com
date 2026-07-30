@@ -1,20 +1,24 @@
 import type {
   FinanceAccount as FinanceAccountWire,
   FinanceBalance as FinanceBalanceWire,
+  FinanceCategory as FinanceCategoryWire,
   FinanceDashboardResponse,
   FinanceLedgerEntry as FinanceLedgerEntryWire,
   FinanceRecurringRule as FinanceRecurringRuleWire,
 } from "@repo/schemas";
+import { convertMinorWithRate } from "@repo/utils";
 import { connectDB } from "@/lib/mongodb";
 import {
   FinanceAccount,
   FinanceBalance,
+  FinanceCategory,
   FinanceFxSnapshot,
   FinanceLedgerEntry,
   FinanceMatchReview,
   FinanceRecurringRule,
   type IFinanceAccount,
   type IFinanceBalance,
+  type IFinanceCategory,
   type IFinanceFxSnapshot,
   type IFinanceLedgerEntry,
   type IFinanceRecurringRule,
@@ -24,6 +28,7 @@ import {
   deduplicateLinkedLedger,
   detectRecurringFinanceCandidates,
 } from "./core";
+import { getFinanceSettings, serializeFinanceSettings } from "./settings";
 
 const BALANCE_PREFERENCE = ["CLAV", "CLBD", "ITAV", "XPCD"];
 const LEDGER_WINDOW_DAYS = 400;
@@ -123,7 +128,8 @@ export function serializeFinanceLedgerEntry(
       ...shared,
       origin: "projected",
       state: row.state as "expected" | "linked" | "missed" | "void",
-      recurringRuleId: row.recurringRuleId!.toString(),
+      // Absent on a one-off expected entry, which has no rule behind it.
+      recurringRuleId: row.recurringRuleId?.toString(),
       expectedWindowStart: row.expectedWindowStart!,
       expectedWindowEnd: row.expectedWindowEnd!,
     };
@@ -156,6 +162,19 @@ export function serializeFinanceRecurringRule(
     endDate: rule.endDate,
     createdAt: rule.createdAt.toISOString(),
     updatedAt: rule.updatedAt.toISOString(),
+  };
+}
+
+export function serializeFinanceCategory(
+  category: IFinanceCategory,
+): FinanceCategoryWire {
+  return {
+    id: category._id.toString(),
+    name: category.name,
+    color: category.color,
+    sortOrder: category.sortOrder,
+    createdAt: category.createdAt.toISOString(),
+    updatedAt: category.updatedAt.toISOString(),
   };
 }
 
@@ -193,10 +212,15 @@ function convertMinorToBase(
           snapshot.quoteCurrency === baseCurrency)),
   );
   if (!applicable) return undefined;
-  if (applicable.baseCurrency === baseCurrency) {
-    return Math.round((amountMinor * 1_000_000) / applicable.rateMicros);
-  }
-  return Math.round((amountMinor * applicable.rateMicros) / 1_000_000);
+  // Rates are major-unit ratios, so the minor-unit exponents of the two
+  // currencies have to be applied — JPY has none where EUR has two.
+  return convertMinorWithRate({
+    amountMinor,
+    fromCurrency: currency,
+    toCurrency: baseCurrency,
+    rateMicros: applicable.rateMicros,
+    direction: applicable.baseCurrency === baseCurrency ? "toBase" : "toQuote",
+  });
 }
 
 export async function getFinanceDashboard(
@@ -213,19 +237,29 @@ export async function getFinanceDashboard(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 2, 0),
   );
   const windowTo = windowEnd.toISOString().slice(0, 10);
-  const [accounts, balances, ledgerRows, rules, reviews, fxSnapshots] =
-    await Promise.all([
-      FinanceAccount.find().sort({ displayName: 1 }),
-      FinanceBalance.find().sort({ fetchedAt: -1 }),
-      FinanceLedgerEntry.find({
-        effectiveDate: { $gte: windowFrom, $lte: windowTo },
-      }).sort({ effectiveDate: -1, createdAt: -1 }),
-      FinanceRecurringRule.find().sort({ name: 1 }),
-      FinanceMatchReview.find({ status: "pending" }).sort({ createdAt: -1 }),
-      FinanceFxSnapshot.find({ date: { $lte: windowTo } })
-        .sort({ date: -1 })
-        .limit(FX_SNAPSHOT_LIMIT),
-    ]);
+  const [
+    accounts,
+    balances,
+    ledgerRows,
+    rules,
+    reviews,
+    fxSnapshots,
+    categories,
+    settings,
+  ] = await Promise.all([
+    FinanceAccount.find().sort({ displayName: 1 }),
+    FinanceBalance.find().sort({ fetchedAt: -1 }),
+    FinanceLedgerEntry.find({
+      effectiveDate: { $gte: windowFrom, $lte: windowTo },
+    }).sort({ effectiveDate: -1, createdAt: -1 }),
+    FinanceRecurringRule.find().sort({ name: 1 }),
+    FinanceMatchReview.find({ status: "pending" }).sort({ createdAt: -1 }),
+    FinanceFxSnapshot.find({ date: { $lte: windowTo } })
+      .sort({ date: -1 })
+      .limit(FX_SNAPSHOT_LIMIT),
+    FinanceCategory.find().sort({ sortOrder: 1, name: 1 }),
+    getFinanceSettings(),
+  ]);
   const ledger = ledgerRows.map(serializeFinanceLedgerEntry);
   const recurringRuleFingerprints = new Set(
     rules
@@ -240,7 +274,7 @@ export async function getFinanceDashboard(
     balances,
     accounts.map((account) => account._id.toString()),
   );
-  const baseCurrency = process.env.FINANCE_BASE_CURRENCY?.trim() || "EUR";
+  const baseCurrency = settings.baseCurrency;
   let aggregateBaseMinor = 0;
   const unconvertedByCurrency = new Map<string, number>();
   for (const balance of selectedBalances) {
@@ -321,6 +355,8 @@ export async function getFinanceDashboard(
     ledger,
     recurringRules: rules.map(serializeFinanceRecurringRule),
     recurringCandidates,
+    categories: categories.map(serializeFinanceCategory),
+    settings: serializeFinanceSettings(settings),
     matchReviews: reviews.map((review) => ({
       id: review._id.toString(),
       sourceLedgerId: review.sourceLedgerId.toString(),

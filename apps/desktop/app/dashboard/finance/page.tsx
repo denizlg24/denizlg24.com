@@ -8,7 +8,7 @@ export default function FinanceRoute() {
   const { value, loading } = useDesktopAdmin();
   return (
     <AdminProvider value={value}>
-      {loading ? <FinanceSkeleton /> : <FinancePage />}
+      {loading ? <FinanceSkeleton /> : <FinancePage manageAccounts />}
     </AdminProvider>
   );
 }
