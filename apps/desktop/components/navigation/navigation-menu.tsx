@@ -28,6 +28,7 @@ import {
   Kanban,
   KeyRound,
   MessageCircle,
+  Mic,
   NotebookPen,
   PenTool,
   Plus,
@@ -36,7 +37,6 @@ import {
   Table,
   UserSquare,
   UsersRound,
-  Waves,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -221,7 +221,7 @@ export const GROUPS: NavGroup[] = [
       {
         label: "Voice Notes",
         href: "/voice-notes",
-        icon: Waves,
+        icon: Mic,
       },
       {
         label: "Papers",

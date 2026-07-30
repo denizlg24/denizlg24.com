@@ -24,7 +24,6 @@ import {
   Square,
   Trash2,
   Upload,
-  Waves,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
@@ -177,7 +176,7 @@ export default function VoiceNotesPage() {
     <div className="flex h-full flex-col">
       <div className="flex min-h-12 flex-wrap items-center gap-2 border-b px-4 py-2 md:h-12 md:flex-nowrap md:py-0">
         <SidebarTrigger className="-ml-1 size-7 md:hidden" />
-        <Waves className="size-4" />
+        <Mic className="size-4" />
         <h1 className="text-sm font-medium">Voice notes</h1>
         <span className="text-xs tabular-nums text-muted-foreground">
           {voiceNotes.length} / {total}
