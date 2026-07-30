@@ -68,8 +68,8 @@ interface ClassifyResult {
   };
 }
 
-function semanticModel() {
-  return resolveLegacyAlias(getSemanticModel());
+async function semanticModel() {
+  return resolveLegacyAlias(await getSemanticModel());
 }
 
 function normalizeTags(tags: unknown, max = 5) {
@@ -112,7 +112,7 @@ async function callSemanticLlm<T>({
   system: string;
   user: string;
 }) {
-  const model = semanticModel();
+  const model = await semanticModel();
   const { json } = await generateJson<T>({
     purpose: "semantic",
     source: SOURCE,
@@ -625,7 +625,7 @@ export async function runSemanticKeywordSync({
   limit,
 }: SemanticKeywordSyncOptions = {}) {
   await connectDB();
-  const model = semanticModel();
+  const model = await semanticModel();
   const effectiveLimit = Math.max(
     1,
     Math.min(limit ?? (force ? 10_000 : BULK_LIMIT), 10_000),

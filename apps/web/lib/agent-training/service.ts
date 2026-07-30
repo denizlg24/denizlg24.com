@@ -51,7 +51,7 @@ export async function createTrainingTask(input: CreateAgentTrainingTask) {
   const task = await AgentTrainingTask.create({
     ...fields,
     timeZone,
-    llmModel: model ?? getUnattendedModel(),
+    llmModel: model ?? (await getUnattendedModel()),
     status: "active",
     autonomy: "yolo",
     nextRunAt: nextDailyOccurrence({

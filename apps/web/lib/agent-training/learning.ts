@@ -120,7 +120,7 @@ async function distillLessons(options: {
   const result = await generateToolResult({
     purpose: "agent-training-learning",
     source: "agent-training-feedback",
-    model: getUnattendedModel(),
+    model: await getUnattendedModel(),
     system: `Distill explicit owner feedback into globally reusable working procedures.
 Generalize beyond the exact task, while staying specific enough to retrieve for genuinely similar work.
 Capture method, quality bar, format, decision rule, or exception—not facts unique to this one output.

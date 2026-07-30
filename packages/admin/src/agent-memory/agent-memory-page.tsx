@@ -107,6 +107,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ModelSelect, useModelCatalog } from "../llm/model-select";
 import { useAdmin } from "../provider";
 import { ExploreDock } from "./explore-dock";
 import { fetchAgentMemoryGraph } from "./graph-prefetch";
@@ -2331,7 +2332,6 @@ function TraceCandidate({
   );
 }
 
-const FORMATION_MODEL_DEFAULT = "__default__";
 const QUERY_SUMMARY_MODEL_DISABLED = "__disabled__";
 const RETRIEVAL_MAX_ITEM_OPTIONS = [4, 8, 12, 20, 30, 50];
 const RETRIEVAL_MAX_TOKEN_OPTIONS = [
@@ -2340,33 +2340,6 @@ const RETRIEVAL_MAX_TOKEN_OPTIONS = [
 const EXPLORE_MIN_SIMILARITY_OPTIONS = [
   0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7,
 ];
-
-function useModelCatalog() {
-  const { client } = useAdmin();
-  const [models, setModels] = useState<{ id: string; name: string }[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const raw = await client.get<{
-          models?: { id: string; name: string; tags?: string[] }[];
-        }>("llm/models?requiredCapability=tool-use");
-        if (!cancelled) setModels(raw.models ?? []);
-      } catch {
-        // Catalog cold or unreachable — the free-form value still renders.
-      } finally {
-        if (!cancelled) setModelsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [client]);
-
-  return { models, modelsLoading };
-}
 
 function ResourceSuggestionInbox({
   suggestions,
@@ -2698,12 +2671,7 @@ function SettingsPanel({
   settings: AgentMemorySettings;
   onUpdate: (patch: Record<string, unknown>, reason: string) => Promise<void>;
 }) {
-  const { models, modelsLoading } = useModelCatalog();
-
-  const formationValue = settings.formationModel ?? FORMATION_MODEL_DEFAULT;
-  const knownModel = models.some(
-    (model) => model.id === settings.formationModel,
-  );
+  const { models, modelsLoading } = useModelCatalog("tool-use");
 
   return (
     <div className="max-w-2xl space-y-8">
@@ -2714,37 +2682,17 @@ function SettingsPanel({
             LLM used to extract memory candidates from evidence.
           </p>
         </div>
-        <Select
-          value={formationValue}
-          onValueChange={(value) =>
+        <ModelSelect
+          value={settings.formationModel}
+          models={models}
+          defaultLabel="Server default (semantic model)"
+          onChange={(value) =>
             void onUpdate(
-              {
-                formationModel:
-                  value === FORMATION_MODEL_DEFAULT ? null : value,
-              },
-              `Set formation model to ${value === FORMATION_MODEL_DEFAULT ? "server default" : value}`,
+              { formationModel: value },
+              `Set formation model to ${value ?? "server default"}`,
             )
           }
-        >
-          <SelectTrigger className="h-8 w-full max-w-md text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={FORMATION_MODEL_DEFAULT} className="text-xs">
-              Server default (semantic model)
-            </SelectItem>
-            {settings.formationModel && !knownModel && (
-              <SelectItem value={settings.formationModel} className="text-xs">
-                {settings.formationModel} (current)
-              </SelectItem>
-            )}
-            {models.map((model) => (
-              <SelectItem key={model.id} value={model.id} className="text-xs">
-                {model.name} · {model.id}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        />
         {modelsLoading && (
           <p className="text-xs text-muted-foreground">
             Loading model catalog…

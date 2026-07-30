@@ -5,7 +5,6 @@ import { type ILeanNote, Note } from "@/models/Note";
 import { type ILeanNoteEmbedding, NoteEmbedding } from "@/models/NoteEmbedding";
 import { type ILeanNoteGroup, NoteGroup } from "@/models/NoteGroup";
 
-const MODEL = getUnattendedModel();
 const SOURCE = "generate-hierarchy-draft";
 const DRAFT_COLLECTION = "knowledge_hierarchy_drafts";
 const PREFERRED_EMBEDDING_MODELS = [
@@ -98,7 +97,7 @@ async function callHaiku<T>({
   const { text } = await generateText({
     purpose: "hierarchy-draft",
     source: SOURCE,
-    model: MODEL,
+    model: await getUnattendedModel(),
     system,
     prompt,
     maxTokens: 4096,
@@ -443,7 +442,7 @@ async function main() {
     _id: draftId,
     kind: "hierarchy-draft",
     status: "pending-review",
-    model: MODEL,
+    model: await getUnattendedModel(),
     embeddingModel,
     createdAt: new Date(),
     stats: {

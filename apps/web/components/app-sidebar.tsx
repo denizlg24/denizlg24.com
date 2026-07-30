@@ -23,6 +23,7 @@ import {
   NotebookPen,
   Server,
   Settings,
+  Settings2,
 } from "lucide-react";
 import Link from "next/link";
 import { FaInstagram } from "react-icons/fa6";
@@ -155,6 +156,11 @@ const items = [
     title: "Finance",
     url: "/admin/dashboard/finance",
     icon: CircleDollarSign,
+  },
+  {
+    title: "Settings",
+    url: "/admin/dashboard/settings",
+    icon: Settings2,
   },
 ];
 

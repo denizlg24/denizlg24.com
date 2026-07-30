@@ -7,7 +7,7 @@ import type {
 } from "@repo/schemas";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { generateJson } from "@/lib/llm-service";
+import { generateJson, getSemanticModel } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
 import {
   FinanceLedgerEntry,
@@ -1238,6 +1238,7 @@ export async function categorizeUnknownMerchants(
     allowed.has(merchant.fingerprint),
   );
   if (classifications.length === 0) return;
+  const classifierModel = await getSemanticModel();
   await FinanceMerchant.bulkWrite(
     classifications.map((merchant) => ({
       updateOne: {
@@ -1245,7 +1246,7 @@ export async function categorizeUnknownMerchants(
         update: {
           $setOnInsert: {
             ...merchant,
-            classifierModel: process.env.SEMANTIC_LLM_MODEL,
+            classifierModel,
           },
         },
         upsert: true,

@@ -526,10 +526,7 @@ export async function processFormationJob(
     })),
   };
   const inputHash = stableContentHash(input);
-  const model =
-    settings.formationModel ||
-    process.env.AGENT_MEMORY_FORMATION_MODEL?.trim() ||
-    getSemanticModel();
+  const model = settings.formationModel || (await getSemanticModel());
   const run = await AgentMemoryRun.create({
     operation: "formation",
     status: "running",

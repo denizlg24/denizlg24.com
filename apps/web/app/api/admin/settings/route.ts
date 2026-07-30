@@ -1,4 +1,6 @@
+import { modelSettingSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
+import { getModelSettings, setModelSetting } from "@/lib/llm-model-settings";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import {
@@ -12,10 +14,12 @@ async function buildSettingsResponse() {
   const settings = await AppSettings.findById("singleton")
     .lean<ILeanAppSettings>()
     .exec();
+  const models = await getModelSettings();
   return {
     settings: {
       timeZone: settings?.timeZone ?? null,
       effectiveTimeZone: await getAppTimeZone(),
+      ...models,
     },
   };
 }
@@ -41,24 +45,41 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const body = (await request.json()) as Record<string, unknown>;
-    if (!("timeZone" in body)) {
+    const modelKeys = ["semanticModel", "unattendedModel"] as const;
+    const touchedModels = modelKeys.filter((key) => key in body);
+    if (!("timeZone" in body) && touchedModels.length === 0) {
       return NextResponse.json(
-        { error: "timeZone is required" },
+        { error: "timeZone, semanticModel or unattendedModel is required" },
         { status: 400 },
       );
     }
 
-    const timeZone = body.timeZone;
-    if (timeZone !== null) {
-      if (typeof timeZone !== "string" || !isValidTimeZone(timeZone)) {
+    for (const key of touchedModels) {
+      const parsed = modelSettingSchema.safeParse(body[key]);
+      if (!parsed.success) {
         return NextResponse.json(
-          { error: "timeZone must be a valid IANA timezone or null" },
+          { error: `${key} must be a model id or null` },
           { status: 400 },
         );
       }
     }
 
-    await setAppTimeZone(timeZone);
+    if ("timeZone" in body) {
+      const timeZone = body.timeZone;
+      if (timeZone !== null) {
+        if (typeof timeZone !== "string" || !isValidTimeZone(timeZone)) {
+          return NextResponse.json(
+            { error: "timeZone must be a valid IANA timezone or null" },
+            { status: 400 },
+          );
+        }
+      }
+      await setAppTimeZone(timeZone);
+    }
+
+    for (const key of touchedModels) {
+      await setModelSetting(key, modelSettingSchema.parse(body[key]));
+    }
     return NextResponse.json(await buildSettingsResponse());
   } catch {
     return NextResponse.json(

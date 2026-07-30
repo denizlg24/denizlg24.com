@@ -284,10 +284,7 @@ async function runConsolidationModel(options: {
   const rewriteIdSet = new Set(rewriteCandidates.map((item) => item.id));
   const input = { clusters, rewriteCandidates };
   const inputHash = stableContentHash(input);
-  const model =
-    options.formationModel ||
-    process.env.AGENT_MEMORY_FORMATION_MODEL?.trim() ||
-    getSemanticModel();
+  const model = options.formationModel || (await getSemanticModel());
   const run = await AgentMemoryRun.create({
     operation: "consolidation",
     status: "running",

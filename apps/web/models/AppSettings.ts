@@ -12,6 +12,8 @@ export interface IStoredCv {
 export interface IAppSettings extends Document<string> {
   _id: "singleton";
   timeZone: string | null;
+  semanticModel: string | null;
+  unattendedModel: string | null;
   cv: IStoredCv | null;
   cvDraft: IStoredCv | null;
   cvProject: ILatexProject | null;
@@ -22,6 +24,8 @@ export interface IAppSettings extends Document<string> {
 export interface ILeanAppSettings {
   _id: "singleton";
   timeZone: string | null;
+  semanticModel: string | null;
+  unattendedModel: string | null;
   cv: IStoredCv | null;
   cvDraft: IStoredCv | null;
   cvProject: ILatexProject | null;
@@ -44,6 +48,8 @@ const AppSettingsSchema = new Schema<IAppSettings>(
   {
     _id: { type: String, default: "singleton" },
     timeZone: { type: String, default: null },
+    semanticModel: { type: String, default: null, maxlength: 200 },
+    unattendedModel: { type: String, default: null, maxlength: 200 },
     cv: { type: StoredCvSchema, default: null },
     cvDraft: { type: StoredCvSchema, default: null },
     cvProject: { type: Schema.Types.Mixed, default: null },

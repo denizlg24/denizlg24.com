@@ -8,8 +8,12 @@ process.env.AI_GATEWAY_API_KEY ??= "test-gateway-key";
 // The service's agent-loop dependency pulls the tools registry, whose module
 // graph asserts unrelated credentials at import time.
 process.env.RESEND_API_KEY ??= "test-resend-key";
-// Exercise the built-in unattended-job default rather than a local override.
-delete process.env.SEMANTIC_LLM_MODEL;
+// Exercise the built-in unattended-job defaults rather than a stored override.
+mock.module("@/models/AppSettings", () => ({
+  AppSettings: {
+    findById: () => ({ lean: () => ({ exec: async () => null }) }),
+  },
+}));
 
 const llmUsageCreateMock = mock(
   async (_entry: Record<string, unknown>) => ({}),
@@ -406,7 +410,7 @@ describe("generateToolResult", () => {
 
 describe("generateJson", () => {
   test("defaults to the configured semantic model and parses JSON", async () => {
-    expect(getSemanticModel()).toBe("deepseek/deepseek-v3.2");
+    expect(await getSemanticModel()).toBe("deepseek/deepseek-v3.2");
     nextCompletion = () => completionResponse('{"keywords":["a"]}');
 
     const result = await generateJson<{ keywords: string[] }>({

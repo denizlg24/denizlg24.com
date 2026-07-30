@@ -7,6 +7,7 @@ import {
   listModels,
   type ModelFilter,
 } from "@/lib/llm-model-catalog";
+import { getSemanticModel } from "@/lib/llm-model-settings";
 import { getGatewayAnthropicClient } from "@/lib/llm-transports/anthropic-gateway";
 import { requestChatCompletion } from "@/lib/llm-transports/chat-completions";
 import {
@@ -110,19 +111,12 @@ const ADAPTIVE_THINKING_MODELS = new Set([
 const DEFAULT_CONTEXT_WINDOW = 200_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
 
-// Unattended-job defaults. Policy, not catalog: overridable via env and
-// always fully qualified Gateway ids.
-const DEFAULT_SEMANTIC_MODEL = "deepseek/deepseek-v3.2";
-const DEFAULT_UNATTENDED_MODEL = "anthropic/claude-haiku-4.5";
-
-export function getSemanticModel(): string {
-  return process.env.SEMANTIC_LLM_MODEL?.trim() || DEFAULT_SEMANTIC_MODEL;
-}
-
-/** Default model for unattended text jobs (note categorization, drafts). */
-export function getUnattendedModel(): string {
-  return process.env.LLM_UNATTENDED_MODEL?.trim() || DEFAULT_UNATTENDED_MODEL;
-}
+export {
+  DEFAULT_SEMANTIC_MODEL,
+  DEFAULT_UNATTENDED_MODEL,
+  getUnattendedModel,
+} from "./llm-model-settings";
+export { getSemanticModel };
 
 export function resolveLegacyAlias(model: string): string {
   return LEGACY_MODEL_ALIASES[model] ?? model;
@@ -1020,7 +1014,7 @@ export async function generateJson<T>({
   temperature,
 }: GenerateJsonRequest): Promise<JsonResult<T>> {
   const resolved = await resolveModel({
-    model: model ?? getSemanticModel(),
+    model: model ?? (await getSemanticModel()),
     purpose,
   });
 

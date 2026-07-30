@@ -10,11 +10,18 @@ deleted from the Vercel projects and the turbo passthrough list.
 - `AI_GATEWAY_API_KEY` — server-only Gateway key. Validated lazily when a
   generation/token-counting call starts; model discovery works without it.
   Never expose it to browser code.
-- `SEMANTIC_LLM_MODEL` — optional, fully qualified Gateway id for the
-  semantic/topic classification jobs (default `deepseek/deepseek-v3.2`).
-- `LLM_UNATTENDED_MODEL` — optional, fully qualified Gateway id for unattended
-  text jobs such as note categorization (default
+
+Model choices are settings, not environment variables. Pick them under
+`/admin/dashboard/settings`; each stores a fully qualified Gateway id, and
+clearing one falls back to the built-in default in `lib/llm-model-settings.ts`.
+
+- Semantic model — JSON and classification work: note keywords, merchant
+  classification, and the fallback for agent-memory formation (default
+  `deepseek/deepseek-v3.2`).
+- Unattended model — background text jobs such as note categorization,
+  voice-note drafts and titles, and agent training (default
   `anthropic/claude-haiku-4.5`).
+
 - `LLM_LIVE_TESTS=1` — opt-in switch for the live Gateway contract tests in
   `lib/llm-live.test.ts` (requires a real, scoped `AI_GATEWAY_API_KEY`; never
   enable in untrusted PR CI).

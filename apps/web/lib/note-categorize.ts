@@ -277,7 +277,7 @@ async function callLlm(
   const { text } = await generateText({
     purpose: "note-categorize",
     source,
-    model: getUnattendedModel(),
+    model: await getUnattendedModel(),
     system,
     prompt,
     maxTokens: 4096,

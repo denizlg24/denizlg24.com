@@ -180,7 +180,7 @@ describeLive("gateway live contracts", () => {
       });
       expect(result.json?.answer).toBe("yes");
       expect(result.usage.inputTokens).toBeGreaterThan(0);
-      console.info(`[live] json (${getSemanticModel()}): ok`);
+      console.info(`[live] json (${await getSemanticModel()}): ok`);
     },
     LIVE_TIMEOUT_MS,
   );

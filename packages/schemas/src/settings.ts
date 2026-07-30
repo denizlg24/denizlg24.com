@@ -1,8 +1,14 @@
 import { z } from "zod";
 
+export const modelSettingSchema = z.string().trim().min(1).max(200).nullable();
+
 export const appSettingsSchema = z.object({
   timeZone: z.string().nullable(),
   effectiveTimeZone: z.string(),
+  semanticModel: modelSettingSchema,
+  effectiveSemanticModel: z.string(),
+  unattendedModel: modelSettingSchema,
+  effectiveUnattendedModel: z.string(),
 });
 export type IAppSettings = z.infer<typeof appSettingsSchema>;
 
