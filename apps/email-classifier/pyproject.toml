@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.40,<2",
+    "fastapi>=0.135.3,<1",
     "joblib>=1.5.1,<2",
     "numpy>=2.2,<2.5",
     "scikit-learn>=1.7,<2",
@@ -20,12 +21,14 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx2>=2,<3",
     "pytest>=8.4,<10",
     "ruff>=0.12,<1",
 ]
 
 [tool.pytest.ini_options]
 addopts = "-q"
+pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.ruff]
@@ -34,6 +37,3 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
-
-[tool.vercel]
-entrypoint = "src.email_classifier.http_api:handler"
