@@ -84,7 +84,14 @@ export const emailTriageSchema = z.object({
   accountId: z.string(),
   stage: z.enum(["prefilter", "full"]),
   category: triageCategorySchema,
+  modelCategory: triageCategorySchema.optional(),
   confidence: z.number(),
+  classificationThreshold: z.number().min(0).max(1).optional(),
+  classificationProbabilities: z
+    .record(triageCategorySchema, z.number().min(0).max(1))
+    .optional(),
+  reviewRequired: z.boolean(),
+  reviewReason: z.string().optional(),
   summary: z.string().optional(),
   matchedCourseId: z.string().optional(),
   matchedCourseName: z.string().optional(),
@@ -94,6 +101,7 @@ export const emailTriageSchema = z.object({
   suggestedEvents: z.array(triageEventSuggestionSchema),
   userStatus: z.enum(["pending", "reviewed", "archived"]),
   modelUsed: z.string(),
+  extractionModelUsed: z.string().optional(),
   triagedAt: z.string(),
   email: z
     .object({
@@ -125,6 +133,7 @@ export const triageSettingsSchema = z.object({
   runIntervalMinutes: z.number(),
   prefilterModel: z.string(),
   fullModel: z.string(),
+  classificationConfidenceThreshold: z.number().min(0).max(1),
   categoryRouting: z.record(triageCategorySchema, triageCategoryRoutingSchema),
   lastRunAt: z.string().optional(),
 });
@@ -132,6 +141,7 @@ export type ITriageSettings = z.infer<typeof triageSettingsSchema>;
 
 export const triageFilterSchema = z.union([
   triageCategorySchema,
+  z.literal("review"),
   z.literal("archived"),
 ]);
 

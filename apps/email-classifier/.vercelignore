@@ -1,0 +1,14 @@
+.data/
+.venv/
+.pytest_cache/
+.ruff_cache/
+tests/
+__pycache__/
+*.pyc
+adjudicate-triage-with-codex.py
+build-datasets.py
+generate-triage-augmentation.py
+review-triage-dataset.py
+TRAINING_PLAN.md
+augmentation-schema.json
+triage-adjudication-schema.json

@@ -68,6 +68,8 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     settings: {
       ...settingsObject,
+      classificationConfidenceThreshold:
+        settingsObject.classificationConfidenceThreshold ?? 0.8,
       categoryRouting: normalizeCategoryRouting(settingsObject.categoryRouting),
     },
   });
@@ -94,6 +96,15 @@ export async function PATCH(request: NextRequest) {
     update.prefilterModel = payload.prefilterModel;
   if (typeof payload.fullModel === "string")
     update.fullModel = payload.fullModel;
+  if (
+    typeof payload.classificationConfidenceThreshold === "number" &&
+    Number.isFinite(payload.classificationConfidenceThreshold) &&
+    payload.classificationConfidenceThreshold >= 0 &&
+    payload.classificationConfidenceThreshold <= 1
+  ) {
+    update.classificationConfidenceThreshold =
+      payload.classificationConfidenceThreshold;
+  }
 
   const categoryRouting = parseCategoryRouting(payload.categoryRouting);
   if (categoryRouting) {
@@ -119,6 +130,8 @@ export async function PATCH(request: NextRequest) {
     settings: updatedObject
       ? {
           ...updatedObject,
+          classificationConfidenceThreshold:
+            updatedObject.classificationConfidenceThreshold ?? 0.8,
           categoryRouting: normalizeCategoryRouting(
             updatedObject.categoryRouting,
           ),

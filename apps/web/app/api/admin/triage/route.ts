@@ -67,13 +67,18 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const category = searchParams.get("category");
   const status = searchParams.get("status");
+  const reviewRequired = searchParams.get("reviewRequired") === "true";
   const cursor = searchParams.get("cursor");
   const limit = parseLimit(searchParams.get("limit"));
   const offset = parseOffset(searchParams.get("offset"));
 
   const query: Record<string, unknown> = {};
-  if (category !== "all" && isTriageCategory(category))
+  if (reviewRequired) {
+    query.reviewRequired = true;
+  } else if (category !== "all" && isTriageCategory(category)) {
     query.category = category;
+    query.reviewRequired = { $ne: true };
+  }
   if (status === "open") {
     query.userStatus = { $ne: "archived" };
   } else if (status !== "all" && isTriageUserStatus(status)) {
@@ -107,7 +112,12 @@ export async function GET(request: NextRequest) {
       accountId: t.accountId.toString(),
       stage: t.stage,
       category: t.category,
+      modelCategory: t.modelCategory,
       confidence: t.confidence,
+      classificationThreshold: t.classificationThreshold,
+      classificationProbabilities: t.classificationProbabilities,
+      reviewRequired: t.reviewRequired === true,
+      reviewReason: t.reviewReason,
       summary: t.summary,
       attachmentTextUsed: t.attachmentTextUsed === true,
       attachmentTextSources: Array.isArray(t.attachmentTextSources)
@@ -136,6 +146,7 @@ export async function GET(request: NextRequest) {
       })),
       userStatus: t.userStatus,
       modelUsed: t.modelUsed,
+      extractionModelUsed: t.extractionModelUsed,
       triagedAt: t.triagedAt,
       email: e
         ? {

@@ -1,0 +1,36 @@
+[project]
+name = "email-classifier"
+version = "0.1.0"
+description = "Local classical email classifier for personalized inbox triage"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.40,<2",
+    "joblib>=1.5.1,<2",
+    "numpy>=2.2,<2.5",
+    "scikit-learn>=1.7,<2",
+]
+
+[project.scripts]
+email-classifier = "email_classifier.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9.21,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4,<10",
+    "ruff>=0.12,<1",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

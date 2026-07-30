@@ -89,8 +89,9 @@ export default function TriageSettingsPage() {
       body: {
         enabled: data.enabled,
         runIntervalMinutes: data.runIntervalMinutes,
-        prefilterModel: data.prefilterModel,
         fullModel: data.fullModel,
+        classificationConfidenceThreshold:
+          data.classificationConfidenceThreshold,
         categoryRouting: data.categoryRouting,
       },
     });
@@ -161,23 +162,44 @@ export default function TriageSettingsPage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <Label className="text-xs">Prefilter model</Label>
-            <Input
-              value={data.prefilterModel}
-              onChange={(e) =>
-                setData({ ...data, prefilterModel: e.target.value })
-              }
-              className="h-8 text-xs"
-            />
-          </div>
-          <div className="flex flex-col gap-1 sm:col-span-2">
-            <Label className="text-xs">Full triage model</Label>
+            <Label className="text-xs">Extraction model</Label>
             <Input
               value={data.fullModel}
               onChange={(e) => setData({ ...data, fullModel: e.target.value })}
               className="h-8 text-xs"
             />
           </div>
+        </div>
+
+        <Separator />
+
+        <div className="flex flex-col gap-2">
+          <div className="flex justify-between">
+            <div>
+              <Label className="text-xs font-medium">
+                Manual review threshold
+              </Label>
+              <p className="text-[11px] text-muted-foreground">
+                Python predictions below this confidence skip extraction and
+                wait for review.
+              </p>
+            </div>
+            <span className="text-xs tabular-nums">
+              {(data.classificationConfidenceThreshold * 100).toFixed(0)}%
+            </span>
+          </div>
+          <Slider
+            min={0.5}
+            max={1}
+            step={0.01}
+            value={[data.classificationConfidenceThreshold]}
+            onValueChange={([value]) =>
+              setData({
+                ...data,
+                classificationConfidenceThreshold: value,
+              })
+            }
+          />
         </div>
 
         <Separator />

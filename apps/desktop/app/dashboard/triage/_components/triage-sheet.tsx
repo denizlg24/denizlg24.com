@@ -8,6 +8,13 @@ import {
   CollapsibleTrigger,
 } from "@repo/ui/collapsible";
 import { Progress } from "@repo/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/select";
 import { Separator } from "@repo/ui/separator";
 import {
   Sheet,
@@ -30,8 +37,22 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
-import type { IEmailTriage } from "@/lib/data-types";
+import type { IEmailTriage, TriageCategory } from "@/lib/data-types";
 import { CategoryBadge } from "./category-badge";
+
+const TRIAGE_CATEGORIES: TriageCategory[] = [
+  "spam",
+  "newsletter",
+  "promo",
+  "purchases",
+  "fyi",
+  "action-needed",
+  "scheduled",
+];
+
+function isTriageCategory(value: string): value is TriageCategory {
+  return TRIAGE_CATEGORIES.some((category) => category === value);
+}
 
 interface DetailResponse {
   triage: IEmailTriage;
@@ -70,6 +91,7 @@ export function TriageSheet({
   const [bodyOpen, setBodyOpen] = useState(false);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [reviewCategory, setReviewCategory] = useState<TriageCategory>("fyi");
 
   useEffect(() => {
     if (!triageId || !open) {
@@ -80,8 +102,10 @@ export function TriageSheet({
     api
       .GET<DetailResponse>({ endpoint: `triage/${triageId}` })
       .then((res) => {
-        if (!("code" in res)) setDetail(res);
-        else toast.error("Failed to load triage");
+        if (!("code" in res)) {
+          setDetail(res);
+          setReviewCategory(res.triage.category);
+        } else toast.error("Failed to load triage");
       })
       .finally(() => setLoading(false));
   }, [triageId, open, api]);
@@ -153,6 +177,33 @@ export function TriageSheet({
     onOpenChange(false);
   };
 
+  const handleClassificationReview = async () => {
+    if (!triageId) return;
+
+    setUpdatingStatus(true);
+    const res = await api.PATCH<{ ok: boolean; error?: string }>({
+      endpoint: `triage/${triageId}`,
+      body: {
+        category: reviewCategory,
+        userStatus: "reviewed",
+      },
+    });
+    setUpdatingStatus(false);
+
+    if ("code" in res || res.ok === false) {
+      toast.error(
+        "error" in res && typeof res.error === "string"
+          ? res.error
+          : "Failed to save classification review",
+      );
+      return;
+    }
+
+    toast.success("Classification reviewed");
+    await onSuggestionUpdated();
+    onOpenChange(false);
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full! max-w-lg! overflow-x-auto overflow-y-auto max-h-screen!">
@@ -185,6 +236,11 @@ export function TriageSheet({
               <Badge variant="outline" className="text-xs tabular-nums">
                 {(detail.triage.confidence * 100).toFixed(0)}%
               </Badge>
+              {detail.triage.reviewRequired && (
+                <Badge variant="destructive" className="text-xs">
+                  Manual review
+                </Badge>
+              )}
               {detail.triage.attachmentTextUsed && (
                 <Badge variant="secondary" className="text-xs">
                   <Paperclip className="size-3" />
@@ -225,6 +281,56 @@ export function TriageSheet({
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {detail.triage.summary}
               </p>
+            )}
+
+            {detail.triage.reviewRequired && (
+              <div className="flex flex-col gap-3 rounded-md border p-3">
+                <div>
+                  <p className="text-xs font-medium">
+                    Confirm the email category
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    The Python model scored below the configured threshold.
+                    Extraction and automation were skipped.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={reviewCategory}
+                    onValueChange={(value) => {
+                      if (isTriageCategory(value)) setReviewCategory(value);
+                    }}
+                  >
+                    <SelectTrigger size="sm" className="h-8 flex-1 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TRIAGE_CATEGORIES.map((category) => (
+                        <SelectItem
+                          key={category}
+                          value={category}
+                          className="text-xs"
+                        >
+                          {category}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    disabled={updatingStatus}
+                    onClick={handleClassificationReview}
+                  >
+                    {updatingStatus ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Check className="size-3.5" />
+                    )}
+                    Confirm
+                  </Button>
+                </div>
+              </div>
             )}
 
             <Collapsible open={bodyOpen} onOpenChange={setBodyOpen}>

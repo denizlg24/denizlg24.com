@@ -23,6 +23,7 @@ const TRIAGE_PAGE_SIZE = 10;
 const PREFETCH_PAGE_COUNT = 3;
 
 const FILTERS: { value: TriageFilter; label: string }[] = [
+  { value: "review", label: "Needs Review" },
   { value: "action-needed", label: "Action Needed" },
   { value: "purchases", label: "Purchases" },
   { value: "scheduled", label: "Scheduled" },
@@ -83,6 +84,10 @@ function getTriageEndpoint(
   }
 
   params.set("status", "open");
+  if (filter === "review") {
+    params.set("reviewRequired", "true");
+    return `triage?${params.toString()}`;
+  }
   params.set("category", filter);
   return `triage?${params.toString()}`;
 }
@@ -112,7 +117,7 @@ export default function TriagePage() {
   >({});
   const [totalRows, setTotalRows] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<TriageFilter>("action-needed");
+  const [filter, setFilter] = useState<TriageFilter>("review");
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: TRIAGE_PAGE_SIZE,
@@ -211,6 +216,7 @@ export default function TriagePage() {
         scanned: number;
         prefilteredSpam: number;
         fullTriaged: number;
+        manualReview: number;
       };
     }>({ endpoint: "triage/run", body: {} });
     setRunning(false);
@@ -219,7 +225,7 @@ export default function TriagePage() {
       return;
     }
     toast.success(
-      `Scanned ${res.stats.scanned} · ${res.stats.fullTriaged} triaged · ${res.stats.prefilteredSpam} spam`,
+      `Scanned ${res.stats.scanned} · ${res.stats.fullTriaged} classified · ${res.stats.manualReview} need review`,
     );
     await refreshItems();
   };
@@ -380,7 +386,7 @@ export default function TriagePage() {
           </TabsList>
         </Tabs>
 
-        {filter !== "archived" && (
+        {filter !== "archived" && filter !== "review" && (
           <div>
             <Button
               size="sm"

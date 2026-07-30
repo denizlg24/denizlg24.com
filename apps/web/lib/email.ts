@@ -125,6 +125,7 @@ export interface FetchedEmailBody {
   date: Date;
   text: string;
   html: string;
+  attachmentCount: number;
   attachmentText: FetchedEmailAttachmentText[];
 }
 
@@ -461,6 +462,7 @@ export async function fetchEmailBody(
       date: parsed.date ?? msg.envelope?.date ?? new Date(),
       text: parsed.text ?? "",
       html: typeof parsed.html === "string" ? parsed.html : "",
+      attachmentCount: parsed.attachments?.length ?? 0,
       attachmentText: options?.includeAttachmentText
         ? extractAttachmentText(parsed.attachments ?? [])
         : [],
