@@ -741,6 +741,17 @@ export const agentMemorySettingsSchema = z.object({
 export type AgentMemorySettings = z.infer<typeof agentMemorySettingsSchema>;
 export type AgentPromotionPolicy = AgentMemorySettings["promotion"];
 
+/**
+ * `GET`/`PATCH /agent-memory/settings`. The PATCH route omits `settings` when
+ * the payload changed nothing, so it stays optional.
+ */
+export const agentMemorySettingsResponseSchema = z.object({
+  settings: agentMemorySettingsSchema.optional(),
+});
+export type AgentMemorySettingsResponse = z.infer<
+  typeof agentMemorySettingsResponseSchema
+>;
+
 const updateAgentMemoryRetrievalSettingsSchema =
   agentMemorySettingsSchema.shape.retrieval
     .omit({

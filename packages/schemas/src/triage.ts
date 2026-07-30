@@ -10,6 +10,8 @@ export const triageCategorySchema = z.enum([
   "scheduled",
 ]);
 export type TriageCategory = z.infer<typeof triageCategorySchema>;
+/** The same seven labels as an array, for mongoose enums and runtime guards. */
+export const TRIAGE_CATEGORIES = triageCategorySchema.options;
 
 export const triageSuggestionStatusSchema = z.enum([
   "pending",
@@ -85,6 +87,8 @@ export const emailTriageSchema = z.object({
   stage: z.enum(["prefilter", "full"]),
   category: triageCategorySchema,
   modelCategory: triageCategorySchema.optional(),
+  /** Pre-correction label; present only once a human has overridden `category`. */
+  llmCategory: triageCategorySchema.optional(),
   confidence: z.number(),
   classificationThreshold: z.number().min(0).max(1).optional(),
   classificationProbabilities: z
@@ -119,6 +123,26 @@ export const emailTriageSchema = z.object({
 });
 export type IEmailTriage = z.infer<typeof emailTriageSchema>;
 
+/**
+ * `GET /triage/{id}`. The detail route returns the email as a sibling of the
+ * triage row rather than nested inside it, and adds the fetched message body.
+ */
+export const triageDetailResponseSchema = z.object({
+  triage: emailTriageSchema.omit({ email: true }),
+  email: z.object({
+    _id: z.string(),
+    accountId: z.string(),
+    subject: z.string(),
+    from: z.array(
+      z.object({ name: z.string().optional(), address: z.string() }),
+    ),
+    date: z.string(),
+    threadId: z.string().optional(),
+    body: z.object({ text: z.string(), html: z.string() }).nullable(),
+  }),
+});
+export type TriageDetailResponse = z.infer<typeof triageDetailResponseSchema>;
+
 export const triageCategoryRoutingSchema = z.object({
   autoCreateCard: z.boolean(),
   autoAcceptThreshold: z.number(),
@@ -139,6 +163,14 @@ export const triageSettingsSchema = z.object({
 });
 export type ITriageSettings = z.infer<typeof triageSettingsSchema>;
 
+/** `GET`/`PATCH /triage/settings`. */
+export const triageSettingsResponseSchema = z.object({
+  settings: triageSettingsSchema,
+});
+export type TriageSettingsResponse = z.infer<
+  typeof triageSettingsResponseSchema
+>;
+
 export const triageFilterSchema = z.union([
   triageCategorySchema,
   z.literal("review"),
@@ -150,6 +182,11 @@ export type TriageFilter = z.infer<typeof triageFilterSchema>;
 export const triageListResponseSchema = z.object({
   items: z.array(emailTriageSchema),
   totalRows: z.number(),
+  /**
+   * Count per filter tab, keyed by category plus "review" and "archived".
+   * Only sent for the first page — the badges do not change while paging.
+   */
+  stats: z.partialRecord(triageFilterSchema, z.number()).optional(),
   offset: z.number(),
   limit: z.number(),
 });

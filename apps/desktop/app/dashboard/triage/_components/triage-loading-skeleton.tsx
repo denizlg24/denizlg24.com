@@ -1,78 +1,44 @@
 import { Skeleton } from "@repo/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@repo/ui/table";
 import { Brain } from "lucide-react";
 
-const FILTER_SKELETON_IDS = [
-  "filter-all",
-  "filter-action",
-  "filter-scheduled",
-  "filter-fyi",
-  "filter-newsletters",
-] as const;
+const FILTER_WIDTHS = ["w-24", "w-28", "w-20", "w-24", "w-14"] as const;
 
-const ROW_SKELETON_IDS = [
-  "row-1",
-  "row-2",
-  "row-3",
-  "row-4",
-  "row-5",
-  "row-6",
-  "row-7",
-  "row-8",
-] as const;
-
-const TABLE_HEADERS = [
-  "Subject",
-  "Category",
-  "Suggestions",
-  "Confidence",
-  "Triaged",
+// Widths alternate so the loading list reads as varied subjects rather than a
+// block of identical bars.
+const ROW_WIDTHS = [
+  "w-64",
+  "w-48",
+  "w-72",
+  "w-56",
+  "w-60",
+  "w-44",
+  "w-80",
+  "w-52",
 ] as const;
 
 function TriageContentSkeleton() {
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          {TABLE_HEADERS.map((header) => (
-            <TableHead key={header} className="text-xs">
-              {header}
-            </TableHead>
-          ))}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {ROW_SKELETON_IDS.map((rowId) => (
-          <TableRow key={rowId}>
-            <TableCell>
-              <div className="flex flex-col">
-                <Skeleton className="h-3 w-40 max-w-xs" />
-                <Skeleton className="mt-2 h-3 w-28 max-w-xs" />
-              </div>
-            </TableCell>
-            <TableCell>
-              <Skeleton className="h-5 w-20 rounded-full" />
-            </TableCell>
-            <TableCell>
-              <Skeleton className="h-3 w-12" />
-            </TableCell>
-            <TableCell>
-              <Skeleton className="h-3 w-10" />
-            </TableCell>
-            <TableCell>
-              <Skeleton className="h-3 w-14" />
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <div className="divide-y">
+      {ROW_WIDTHS.map((width, index) => (
+        <div
+          key={width + String(index)}
+          className="flex items-center gap-3 py-2.5 pl-3 pr-1"
+        >
+          <div className="min-w-0 flex-1">
+            <Skeleton className={`h-3.5 max-w-full ${width}`} />
+            <div className="mt-2 flex items-center gap-2">
+              <Skeleton className="h-2.5 w-16" />
+              <Skeleton className="h-2.5 w-28" />
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <Skeleton className="h-2.5 w-8" />
+            <Skeleton className="h-[3px] w-10 rounded-full" />
+            <Skeleton className="h-2.5 w-6" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -86,18 +52,18 @@ export function TriageLoadingSkeleton({
   }
 
   return (
-    <div className="flex flex-col gap-2 pb-8">
-      <div className="flex items-center gap-2 px-4 border-b h-12 shrink-0">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
         <Brain className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold flex-1">Triage</span>
+        <span className="flex-1 text-sm font-semibold">Triage</span>
         <Skeleton className="h-7 w-24" />
       </div>
-      <div className="px-4 flex gap-2">
-        {FILTER_SKELETON_IDS.map((filterId) => (
-          <Skeleton key={filterId} className="h-7 w-20" />
-        ))}
-      </div>
-      <div className="px-4 mt-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-4 pb-4 pt-2">
+        <div className="flex shrink-0 gap-4 border-b pb-2">
+          {FILTER_WIDTHS.map((width, index) => (
+            <Skeleton key={index} className={`h-3 ${width}`} />
+          ))}
+        </div>
         <TriageContentSkeleton />
       </div>
     </div>

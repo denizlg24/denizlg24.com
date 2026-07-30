@@ -7,10 +7,14 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
-import { Activity, ChevronDown, Mic, Square, Trash2 } from "lucide-react";
+import { ChevronDown, Loader, Mic, Square, Trash2 } from "lucide-react";
 import { formatDuration, useVoiceRecorder } from "./voice-recorder-provider";
 
-export function BackgroundActionsMenu() {
+export function BackgroundActionsMenu({
+  align = "end",
+}: {
+  align?: "start" | "end";
+}) {
   const recorder = useVoiceRecorder();
   const recording = recorder.status === "recording";
   const busy =
@@ -28,7 +32,7 @@ export function BackgroundActionsMenu() {
           {recording ? (
             <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
           ) : (
-            <Activity className="size-3" />
+            <Loader className="size-3" />
           )}
           {recording && (
             <span className="tabular-nums">
@@ -38,7 +42,7 @@ export function BackgroundActionsMenu() {
           <ChevronDown className="size-2.5" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align={align} className="w-52">
         <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
           Background actions
         </DropdownMenuLabel>

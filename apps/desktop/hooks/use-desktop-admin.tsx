@@ -1,6 +1,7 @@
 "use client";
 
 import type { AdminContextValue } from "@repo/admin/provider";
+import { Laptop } from "lucide-react";
 import { useMemo } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUserSettings } from "@/context/user-context";
@@ -22,8 +23,18 @@ export function useDesktopAdmin(): {
     () => ({
       client: createDesktopAdminClient(settings.apiKey),
       platform: desktopPlatform,
+      routes: { settings: "/dashboard/settings" },
       slots: {
         sidebarTrigger: <SidebarTrigger className="-ml-1 size-7 md:hidden" />,
+        // Device settings read the Tauri store and updater, so the route lives
+        // in this app and only its rail entry is handed to the shared shell.
+        settingsExtraSections: [
+          {
+            slug: "device",
+            label: "Device",
+            icon: <Laptop className="size-3.5" />,
+          },
+        ],
       },
     }),
     [settings.apiKey],

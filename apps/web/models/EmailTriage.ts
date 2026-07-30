@@ -1,13 +1,7 @@
+import { TRIAGE_CATEGORIES, type TriageCategory } from "@repo/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
 
-export type TriageCategory =
-  | "spam"
-  | "newsletter"
-  | "promo"
-  | "purchases"
-  | "fyi"
-  | "action-needed"
-  | "scheduled";
+export type { TriageCategory };
 
 export type TriageSuggestionStatus = "pending" | "accepted" | "dismissed";
 export type TriagePriority = "none" | "low" | "medium" | "high" | "urgent";
@@ -58,6 +52,13 @@ export interface IEmailTriage extends Document {
   stage: "prefilter" | "full";
   category: TriageCategory;
   modelCategory?: TriageCategory;
+  /**
+   * The label as triage produced it, snapshotted the first time a human
+   * overrides `category`. Absent means nobody has corrected this row, so
+   * `category` is still the model's own answer. Dataset building reads this to
+   * tell a weak LLM label apart from a verified human one.
+   */
+  llmCategory?: TriageCategory;
   confidence: number;
   classificationThreshold?: number;
   classificationProbabilities?: Record<TriageCategory, number>;
@@ -147,29 +148,17 @@ const EmailTriageSchema = new Schema<IEmailTriage>(
     },
     category: {
       type: String,
-      enum: [
-        "spam",
-        "newsletter",
-        "promo",
-        "purchases",
-        "fyi",
-        "action-needed",
-        "scheduled",
-      ],
+      enum: TRIAGE_CATEGORIES,
       required: true,
       index: true,
     },
     modelCategory: {
       type: String,
-      enum: [
-        "spam",
-        "newsletter",
-        "promo",
-        "purchases",
-        "fyi",
-        "action-needed",
-        "scheduled",
-      ],
+      enum: TRIAGE_CATEGORIES,
+    },
+    llmCategory: {
+      type: String,
+      enum: TRIAGE_CATEGORIES,
     },
     confidence: { type: Number, required: true, min: 0, max: 1 },
     classificationThreshold: { type: Number, min: 0, max: 1 },
@@ -208,6 +197,9 @@ const EmailTriageSchema = new Schema<IEmailTriage>(
 EmailTriageSchema.index({ userStatus: 1, triagedAt: -1 });
 EmailTriageSchema.index({ category: 1, userStatus: 1 });
 EmailTriageSchema.index({ reviewRequired: 1, userStatus: 1, triagedAt: -1 });
+// Covers the filter-tab badge aggregation, which groups on exactly these three
+// fields and so can run as an index scan instead of a collection scan.
+EmailTriageSchema.index({ userStatus: 1, reviewRequired: 1, category: 1 });
 
 export const EmailTriageModel: mongoose.Model<IEmailTriage> =
   mongoose.models.EmailTriage ||

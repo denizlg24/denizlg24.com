@@ -1,3 +1,4 @@
+import { TRIAGE_CATEGORIES } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { fetchEmailBody } from "@/lib/email";
@@ -7,15 +8,6 @@ import { EmailModel } from "@/models/Email";
 import { EmailTriageModel } from "@/models/EmailTriage";
 
 const TRIAGE_USER_STATUSES = ["pending", "reviewed", "archived"] as const;
-const TRIAGE_CATEGORIES = [
-  "spam",
-  "newsletter",
-  "promo",
-  "purchases",
-  "fyi",
-  "action-needed",
-  "scheduled",
-] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -128,24 +120,44 @@ export async function PATCH(
   if (isTriageUserStatus(payload.userStatus)) {
     update.userStatus = payload.userStatus;
   }
-  if (isTriageCategory(payload.category)) {
-    update.category = payload.category;
-  }
   if (payload.userStatus === "reviewed") {
     update.reviewRequired = false;
   }
+
+  if (isTriageCategory(payload.category)) {
+    const current = await EmailTriageModel.findById(id)
+      .select("category")
+      .lean();
+    if (!current) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    if (payload.category !== current.category) {
+      update.category = payload.category;
+      // Snapshot the pre-correction label once, so dataset building can still
+      // tell what triage originally answered. Re-corrections keep the first one.
+      // Resolved server-side so concurrent PATCHes cannot each read an unset
+      // llmCategory and overwrite the earlier snapshot with their own category.
+      update.llmCategory = { $ifNull: ["$llmCategory", "$category"] };
+      // A category override is a human verdict whether or not the caller said so.
+      update.userStatus = update.userStatus ?? "reviewed";
+      update.reviewRequired = false;
+    }
+  }
+
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
+  const clearsReviewReason =
+    payload.userStatus === "reviewed" || update.reviewRequired === false;
+
   const triage = await EmailTriageModel.findByIdAndUpdate(
     id,
-    {
-      $set: update,
-      ...(payload.userStatus === "reviewed"
-        ? { $unset: { reviewReason: 1 } }
-        : {}),
-    },
+    [
+      { $set: update },
+      ...(clearsReviewReason ? [{ $unset: "reviewReason" }] : []),
+    ],
     {
       returnDocument: "after",
     },

@@ -38,7 +38,13 @@ const PATHNAME_TITLE_MAP = {
   "/dashboard/timeline/new": "new timeline item",
   "/dashboard/now": "now page",
   "/dashboard/triage": "triage",
-  "/dashboard/triage/settings": "triage settings",
+  "/dashboard/settings/general": "settings · general",
+  "/dashboard/settings/models": "settings · models",
+  "/dashboard/settings/triage": "settings · triage",
+  "/dashboard/settings/agent-memory": "settings · agent memory",
+  "/dashboard/settings/finance": "settings · finance",
+  "/dashboard/settings/tokens": "settings · tokens",
+  "/dashboard/settings/device": "settings · device",
 };
 
 type AppWindow = {
@@ -94,17 +100,16 @@ export function TitleBar() {
         data-tauri-drag-region
         className="fixed top-0 left-0 right-0 z-50 flex h-8 select-none items-center bg-background"
       >
-        <div className="ml-[76px] flex items-center gap-1">
-          <BackgroundActionsMenu />
-          <BackgroundTasksIndicator />
-        </div>
-
         <span
           data-tauri-drag-region
           className="absolute left-1/2 -translate-x-1/2 text-xs text-foreground font-semibold"
         >
           {title}
         </span>
+        <div className="ml-auto mr-4 flex items-center gap-1">
+          <BackgroundActionsMenu align="end" />
+          <BackgroundTasksIndicator />
+        </div>
       </header>
     );
   }
@@ -121,7 +126,7 @@ export function TitleBar() {
         >
           {title}
         </span>
-        <BackgroundActionsMenu />
+        <BackgroundActionsMenu align="start" />
         <BackgroundTasksIndicator />
       </div>
 

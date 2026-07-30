@@ -19,6 +19,10 @@ from urllib.request import Request, urlopen
 import joblib
 
 from email_classifier.data import LABELS, prepare_inference_row
+from email_classifier.policy import (
+    is_protected_sender,
+    vercel_deployment_category,
+)
 
 MAX_MODEL_BYTES = 100 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
@@ -72,9 +76,33 @@ class RuntimeClassifier:
         if category not in probability_map:
             raise RuntimeError("classifier returned an unknown category")
 
+        policy_category = vercel_deployment_category(raw_email)
+        policy_confidence: float | None = None
+        if policy_category is not None:
+            category = policy_category
+            policy_confidence = 1.0
+        elif category == "spam" and is_protected_sender(
+            str(raw_email.get("sender_name") or raw_email.get("senderName") or ""),
+            str(
+                raw_email.get("sender_address")
+                or raw_email.get("senderAddress")
+                or raw_email.get("fromAddress")
+                or ""
+            ),
+            frozenset(),
+        ):
+            category = max(
+                (label for label in self.classes if label != "spam"),
+                key=probability_map.__getitem__,
+            )
+
         return ClassificationPrediction(
             category=category,
-            confidence=max(values),
+            confidence=(
+                policy_confidence
+                if policy_confidence is not None
+                else probability_map[category]
+            ),
             probabilities=probability_map,
             model_version=self.model_version,
         )

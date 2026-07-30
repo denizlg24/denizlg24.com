@@ -13,10 +13,12 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { cn } from "@repo/ui/utils";
+import { formatMoney } from "@repo/utils";
 import { Check, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import { SettingsGroup, SettingsRow } from "../settings/settings-shell";
 import {
   createFinanceCategory,
   deleteFinanceCategory,
@@ -24,7 +26,7 @@ import {
   updateFinanceCategory,
   updateFinanceSettings,
 } from "./finance-data";
-import { Empty, FieldRow, relative, SectionHead } from "./finance-primitives";
+import { Empty, relative } from "./finance-primitives";
 
 function CategoryRow({
   category,
@@ -174,7 +176,7 @@ function CategoryRow({
   );
 }
 
-export function SettingsTab({
+export function FinanceSettingsForm({
   data,
   onReload,
 }: {
@@ -251,117 +253,133 @@ export function SettingsTab({
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-2">
-      <section className="min-w-0 space-y-5">
-        <SectionHead label="Currency" />
-        <FieldRow label="Dashboard currency">
+    <>
+      <SettingsGroup label="Currency">
+        <div className="space-y-6">
+          <SettingsRow
+            label="Dashboard currency"
+            hint="Everything on the finance dashboard is converted into this."
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <CurrencySelect
+                value={baseCurrency}
+                onValueChange={setBaseCurrency}
+                className="min-w-0 flex-1"
+              />
+              <Button
+                variant="outline"
+                className="shrink-0"
+                disabled={
+                  savingCurrency || baseCurrency === data.settings.baseCurrency
+                }
+                onClick={() => void saveCurrency()}
+              >
+                {savingCurrency && (
+                  <Loader2 className="size-3.5 animate-spin" />
+                )}
+                Pin
+              </Button>
+            </div>
+          </SettingsRow>
+
+          <SettingsRow
+            label="Exchange rates"
+            hint={
+              <span className="tabular-nums">
+                {data.settings.fxSource} ·{" "}
+                {data.settings.fxUpdatedAt
+                  ? relative(data.settings.fxUpdatedAt)
+                  : "never"}
+              </span>
+            }
+          >
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled={refreshing}
+              onClick={() => void refreshRates()}
+            >
+              <RefreshCw
+                className={cn("size-3.5", refreshing && "animate-spin")}
+              />
+              Refresh rates
+            </Button>
+          </SettingsRow>
+
+          {unconverted.length > 0 && (
+            <SettingsRow label="Unconverted" stacked>
+              <div className="divide-y">
+                {unconverted.map((balance) => (
+                  <div
+                    key={balance.currency}
+                    className="flex items-baseline justify-between py-1.5 text-xs"
+                  >
+                    <span className="text-muted-foreground">
+                      {balance.currency}
+                    </span>
+                    <span className="tabular-nums">
+                      {formatMoney(balance.amountMinor, balance.currency, {
+                        style: "decimal",
+                      })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </SettingsRow>
+          )}
+        </div>
+      </SettingsGroup>
+
+      <SettingsGroup
+        label="Categories"
+        actions={
+          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+            {data.categories.length}
+          </span>
+        }
+      >
+        <div className="space-y-3">
           <div className="flex min-w-0 items-center gap-2">
-            <CurrencySelect
-              value={baseCurrency}
-              onValueChange={setBaseCurrency}
-              className="min-w-0 flex-1"
+            <Input
+              value={newCategory}
+              placeholder="New category"
+              className="h-9 min-w-0 flex-1"
+              onChange={(event) => setNewCategory(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void addCategory();
+              }}
             />
             <Button
               variant="outline"
               className="shrink-0"
-              disabled={
-                savingCurrency || baseCurrency === data.settings.baseCurrency
-              }
-              onClick={() => void saveCurrency()}
+              aria-label="Add category"
+              disabled={creating || !newCategory.trim()}
+              onClick={() => void addCategory()}
             >
-              {savingCurrency && <Loader2 className="size-3.5 animate-spin" />}
-              Pin
+              {creating ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Plus className="size-3.5" />
+              )}
             </Button>
           </div>
-        </FieldRow>
-
-        <div className="space-y-2.5">
-          <div className="flex items-baseline justify-between text-xs">
-            <span className="text-muted-foreground">Rates</span>
-            <span className="tabular-nums">
-              {data.settings.fxSource} ·{" "}
-              {data.settings.fxUpdatedAt
-                ? relative(data.settings.fxUpdatedAt)
-                : "never"}
-            </span>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full"
-            disabled={refreshing}
-            onClick={() => void refreshRates()}
-          >
-            <RefreshCw
-              className={cn("size-3.5", refreshing && "animate-spin")}
-            />
-            Refresh rates
-          </Button>
-          {unconverted.length > 0 && (
-            <div className="space-y-1 pt-1">
-              <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                Unconverted
-              </div>
-              {unconverted.map((balance) => (
-                <div
-                  key={balance.currency}
-                  className="flex items-baseline justify-between text-xs"
-                >
-                  <span className="text-muted-foreground">
-                    {balance.currency}
-                  </span>
-                  <span className="tabular-nums">
-                    {(balance.amountMinor / 100).toFixed(2)}
-                  </span>
-                </div>
+          {data.categories.length === 0 ? (
+            <Empty label="—" compact />
+          ) : (
+            <div className="divide-y">
+              {data.categories.map((category) => (
+                <CategoryRow
+                  key={category.id}
+                  category={category}
+                  categories={data.categories}
+                  usage={usage.get(category.name) ?? 0}
+                  onChanged={onReload}
+                />
               ))}
             </div>
           )}
         </div>
-      </section>
-
-      <section className="min-w-0 space-y-3">
-        <SectionHead label={`Categories · ${data.categories.length}`} />
-        <div className="flex min-w-0 items-center gap-2">
-          <Input
-            value={newCategory}
-            placeholder="New category"
-            className="h-9 min-w-0 flex-1"
-            onChange={(event) => setNewCategory(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void addCategory();
-            }}
-          />
-          <Button
-            variant="outline"
-            className="shrink-0"
-            aria-label="Add category"
-            disabled={creating || !newCategory.trim()}
-            onClick={() => void addCategory()}
-          >
-            {creating ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Plus className="size-3.5" />
-            )}
-          </Button>
-        </div>
-        {data.categories.length === 0 ? (
-          <Empty label="—" compact />
-        ) : (
-          <div className="divide-y">
-            {data.categories.map((category) => (
-              <CategoryRow
-                key={category.id}
-                category={category}
-                categories={data.categories}
-                usage={usage.get(category.name) ?? 0}
-                onChanged={onReload}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
+      </SettingsGroup>
+    </>
   );
 }

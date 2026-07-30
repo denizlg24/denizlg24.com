@@ -51,6 +51,22 @@ export const countryOptionSchema = z.object({
 });
 export type ICountryOption = z.infer<typeof countryOptionSchema>;
 
+/** `GET`/`PATCH /calendar/settings`. */
+export const calendarSettingsResponseSchema = z.object({
+  settings: calendarSettingsSchema,
+});
+export type CalendarSettingsResponse = z.infer<
+  typeof calendarSettingsResponseSchema
+>;
+
+/** `GET /calendar/countries`. */
+export const countryOptionsResponseSchema = z.object({
+  countries: z.array(countryOptionSchema),
+});
+export type CountryOptionsResponse = z.infer<
+  typeof countryOptionsResponseSchema
+>;
+
 export const calendarExternalProviderSchema = z.literal("google");
 
 export const calendarExternalConnectionSchema = z.object({

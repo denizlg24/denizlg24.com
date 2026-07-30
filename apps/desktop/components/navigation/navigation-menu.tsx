@@ -163,20 +163,8 @@ export const GROUPS: NavGroup[] = [
       },
       {
         label: "Triage",
-        href: "",
+        href: "/triage",
         icon: Brain,
-        children: [
-          {
-            label: "Review",
-            href: "/triage",
-            icon: Inbox,
-          },
-          {
-            label: "Settings",
-            href: "/triage/settings",
-            icon: Settings,
-          },
-        ],
       },
     ],
   },
@@ -368,7 +356,7 @@ export function NavigationMenu() {
 }
 
 function LeafNavItem({ item, pathname }: { item: NavItem; pathname: string }) {
-  const isActive = pathname === item.href;
+  const isActive = pathname === DASHBOARD_PREFIX + item.href;
   const Icon = item.icon;
 
   return (
@@ -391,7 +379,9 @@ function CollapsibleNavItem({
   pathname: string;
 }) {
   const Icon = item.icon;
-  const isChildActive = item.children?.some((c) => pathname === c.href);
+  const isChildActive = item.children?.some(
+    (c) => pathname === DASHBOARD_PREFIX + c.href,
+  );
 
   return (
     <Collapsible
@@ -411,7 +401,7 @@ function CollapsibleNavItem({
         <CollapsibleContent>
           <SidebarMenuSub>
             {item.children?.map((child) => {
-              const isActive = pathname === child.href;
+              const isActive = pathname === DASHBOARD_PREFIX + child.href;
               const ChildIcon = child.icon;
 
               return (

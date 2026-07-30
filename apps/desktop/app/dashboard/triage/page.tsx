@@ -1,9 +1,8 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
-import { PaginatedDataTable } from "@repo/ui/paginated-data-table";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import type { ColumnDef, PaginationState } from "@tanstack/react-table";
+import { cn } from "@repo/ui/utils";
 import { Archive, Brain, Loader2, Play } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -15,11 +14,12 @@ import type {
   TriageFilter,
   TriageListResponse,
 } from "@/lib/data-types";
-import { CategoryBadge } from "./_components/category-badge";
+import { TriageDetail } from "./_components/triage-detail";
 import { TriageLoadingSkeleton } from "./_components/triage-loading-skeleton";
-import { TriageSheet } from "./_components/triage-sheet";
+import { TriagePagination } from "./_components/triage-pagination";
+import { TriageRow } from "./_components/triage-row";
 
-const TRIAGE_PAGE_SIZE = 10;
+const TRIAGE_PAGE_SIZE = 12;
 const PREFETCH_PAGE_COUNT = 3;
 
 const FILTERS: { value: TriageFilter; label: string }[] = [
@@ -92,19 +92,6 @@ function getTriageEndpoint(
   return `triage?${params.toString()}`;
 }
 
-function formatRelative(iso: string): string {
-  const d = new Date(iso);
-  const diff = Date.now() - d.getTime();
-  const min = Math.floor(diff / 60_000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min}m ago`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `${h}h ago`;
-  const days = Math.floor(h / 24);
-  if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString();
-}
-
 export default function TriagePage() {
   const { settings, loading: loadingSettings } = useUserSettings();
   const api = useMemo(() => {
@@ -116,97 +103,98 @@ export default function TriagePage() {
     Record<number, IEmailTriage[]>
   >({});
   const [totalRows, setTotalRows] = useState(0);
+  const [stats, setStats] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<TriageFilter>("review");
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: TRIAGE_PAGE_SIZE,
-  });
+  const [pageIndex, setPageIndex] = useState(0);
   const [running, setRunning] = useState(false);
   const [archivingAll, setArchivingAll] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const loadedBlocksRef = useRef<Set<string>>(new Set());
+  const inFlightBlocksRef = useRef<Set<string>>(new Set());
   const cacheGenerationRef = useRef(0);
 
-  const items = itemsByPage[pagination.pageIndex] ?? [];
+  const items = itemsByPage[pageIndex] ?? [];
   const currentPageLoading = loading && items.length === 0;
 
-  const cacheItems = useCallback(
-    (page: TriageListResponse, pageSize: number) => {
-      setItemsByPage((prev) => ({
-        ...prev,
-        ...splitItemsIntoPages(page.items, page.offset, pageSize),
-      }));
-      setTotalRows(page.totalRows);
-    },
-    [],
-  );
+  const cacheItems = useCallback((page: TriageListResponse) => {
+    setItemsByPage((prev) => ({
+      ...prev,
+      ...splitItemsIntoPages(page.items, page.offset, TRIAGE_PAGE_SIZE),
+    }));
+    setTotalRows(page.totalRows);
+    if (page.stats) setStats(page.stats);
+  }, []);
 
   const resetItemsCache = useCallback(() => {
     loadedBlocksRef.current = new Set();
+    inFlightBlocksRef.current = new Set();
     cacheGenerationRef.current += 1;
     setItemsByPage({});
     setTotalRows(0);
   }, []);
 
   const fetchItems = useCallback(
-    async (options?: {
-      force?: boolean;
-      pageIndex?: number;
-      pageSize?: number;
-    }) => {
+    async (options?: { force?: boolean; pageIndex?: number }) => {
       if (!api) return;
-      const pageIndex = options?.pageIndex ?? pagination.pageIndex;
-      const pageSize = options?.pageSize ?? pagination.pageSize;
-      const blockKey = getPrefetchBlockKey(filter, pageIndex, pageSize);
+      const targetPage = options?.pageIndex ?? pageIndex;
+      const blockKey = getPrefetchBlockKey(
+        filter,
+        targetPage,
+        TRIAGE_PAGE_SIZE,
+      );
       if (!options?.force && loadedBlocksRef.current.has(blockKey)) {
         setLoading(false);
         return;
       }
 
-      const blockStart = getPrefetchBlockStart(pageIndex);
+      const blockStart = getPrefetchBlockStart(targetPage);
       const generation = cacheGenerationRef.current;
-      const offset = blockStart * pageSize;
-      const limit = pageSize * PREFETCH_PAGE_COUNT;
+
+      // A forced fetch has not registered its block key by the time the effect
+      // re-runs on the new pageIndex, so without an in-flight guard the same
+      // request goes out twice. Scoped by generation so a cache reset can
+      // immediately refetch a key that the previous generation still has open.
+      const inFlightKey = `${generation}:${blockKey}`;
+      if (inFlightBlocksRef.current.has(inFlightKey)) return;
+      inFlightBlocksRef.current.add(inFlightKey);
+
+      const offset = blockStart * TRIAGE_PAGE_SIZE;
+      const limit = TRIAGE_PAGE_SIZE * PREFETCH_PAGE_COUNT;
 
       setLoading(true);
-      const endpoint = getTriageEndpoint(filter, offset, limit);
-      const res = await api.GET<TriageListResponse>({ endpoint });
-      if (generation !== cacheGenerationRef.current) return;
+      try {
+        const res = await api.GET<TriageListResponse>({
+          endpoint: getTriageEndpoint(filter, offset, limit),
+        });
+        if (generation !== cacheGenerationRef.current) return;
 
-      if ("code" in res) {
-        toast.error("Failed to load triage");
-      } else {
-        loadedBlocksRef.current.add(blockKey);
-        cacheItems(res, pageSize);
+        if ("code" in res) {
+          toast.error("Failed to load triage");
+        } else {
+          loadedBlocksRef.current.add(blockKey);
+          cacheItems(res);
+        }
+        setLoading(false);
+      } finally {
+        inFlightBlocksRef.current.delete(inFlightKey);
       }
-      setLoading(false);
     },
-    [api, cacheItems, filter, pagination.pageIndex, pagination.pageSize],
+    [api, cacheItems, filter, pageIndex],
   );
 
   const refreshItems = useCallback(async () => {
     resetItemsCache();
-    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+    setPageIndex(0);
     await fetchItems({ force: true, pageIndex: 0 });
   }, [fetchItems, resetItemsCache]);
-
-  const handlePaginationChange = useCallback(
-    (next: PaginationState) => {
-      if (next.pageSize !== pagination.pageSize) {
-        resetItemsCache();
-        setPagination({ pageIndex: 0, pageSize: next.pageSize });
-        return;
-      }
-
-      setPagination(next);
-    },
-    [pagination.pageSize, resetItemsCache],
-  );
 
   useEffect(() => {
     void fetchItems();
   }, [fetchItems]);
+
+  const activeFilterLabel =
+    FILTERS.find((entry) => entry.value === filter)?.label ?? "Items";
 
   const handleRun = async () => {
     if (!api) return;
@@ -229,9 +217,6 @@ export default function TriagePage() {
     );
     await refreshItems();
   };
-
-  const activeFilterLabel =
-    FILTERS.find((entry) => entry.value === filter)?.label ?? "Items";
 
   const handleArchiveAll = async () => {
     if (!api || filter === "archived") return;
@@ -270,81 +255,56 @@ export default function TriagePage() {
     await refreshItems();
   };
 
-  const columns = useMemo<ColumnDef<IEmailTriage>[]>(
-    () => [
-      {
-        id: "subject",
-        header: "Subject",
-        cell: ({ row }) => (
-          <div className="flex flex-col">
-            <span className="text-xs font-medium truncate max-w-xs">
-              {row.original.email?.subject ?? "(no subject)"}
-            </span>
-            <span className="text-[10px] text-muted-foreground truncate max-w-xs">
-              {row.original.email?.from
-                .map((f) => f.name ?? f.address)
-                .join(", ")}
-            </span>
-          </div>
-        ),
-      },
-      {
-        id: "category",
-        header: "Category",
-        cell: ({ row }) => <CategoryBadge category={row.original.category} />,
-      },
-      {
-        id: "suggestions",
-        meta: { className: "hidden md:table-cell" },
-        header: "Suggestions",
-        cell: ({ row }) => {
-          const t = row.original.suggestedTasks.length;
-          const e = row.original.suggestedEvents.length;
-          if (t + e === 0)
-            return <span className="text-xs text-muted-foreground">—</span>;
-          return (
-            <span className="text-xs tabular-nums">
-              {t > 0 && `${t}t`}
-              {t > 0 && e > 0 && " · "}
-              {e > 0 && `${e}e`}
-            </span>
-          );
-        },
-      },
-      {
-        id: "confidence",
-        meta: { className: "hidden md:table-cell" },
-        header: "Confidence",
-        cell: ({ row }) => (
-          <span className="text-xs tabular-nums">
-            {(row.original.confidence * 100).toFixed(0)}%
-          </span>
-        ),
-      },
-      {
-        id: "triagedAt",
-        meta: { className: "hidden lg:table-cell" },
-        header: "Triaged",
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {formatRelative(row.original.triagedAt)}
-          </span>
-        ),
-      },
-    ],
-    [],
-  );
-
   if (loadingSettings) {
     return <TriageLoadingSkeleton />;
   }
 
+  const reviewCount = stats.review ?? 0;
+
+  // Selecting an item swaps the whole surface for the email, matching the
+  // inbox's list/detail flow rather than overlaying a sheet.
+  if (api && selectedId) {
+    return (
+      <TriageDetail
+        api={api}
+        triageId={selectedId}
+        onBack={() => setSelectedId(null)}
+        onChanged={() => refreshItems()}
+      />
+    );
+  }
+
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <DashboardPageHeader
         icon={<Brain className="size-4 text-muted-foreground" />}
-        title="Triage"
+        title={
+          <span className="flex items-baseline gap-2">
+            <span>Triage</span>
+            {reviewCount > 0 && (
+              <span className="text-xs font-normal tabular-nums text-status-warning">
+                {reviewCount} to review
+              </span>
+            )}
+          </span>
+        }
       >
+        {filter !== "archived" && filter !== "review" && totalRows > 0 && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1.5 text-xs"
+            onClick={handleArchiveAll}
+            disabled={loading || archivingAll}
+          >
+            {archivingAll ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Archive className="size-3.5" />
+            )}
+            Archive {totalRows}
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"
@@ -361,15 +321,15 @@ export default function TriagePage() {
         </Button>
       </DashboardPageHeader>
 
-      <div className="px-4 flex flex-1 min-h-0 flex-col gap-4 overflow-hidden pt-3 pb-8">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-4 pb-4 pt-2">
         <Tabs
-          className="min-w-0"
+          className="min-w-0 shrink-0"
           value={filter}
           onValueChange={(value) => {
             if (isTriageFilter(value) && value !== filter) {
               setSelectedId(null);
               resetItemsCache();
-              setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+              setPageIndex(0);
               setFilter(value);
             }
           }}
@@ -378,63 +338,58 @@ export default function TriagePage() {
             variant="line"
             className="max-w-full justify-start overflow-x-auto overflow-y-hidden"
           >
-            {FILTERS.map((f) => (
-              <TabsTrigger key={f.value} value={f.value}>
-                {f.label}
-              </TabsTrigger>
-            ))}
+            {FILTERS.map((entry) => {
+              const count = stats[entry.value] ?? 0;
+              return (
+                <TabsTrigger key={entry.value} value={entry.value}>
+                  {entry.label}
+                  {count > 0 && (
+                    <span
+                      className={cn(
+                        "ml-1.5 tabular-nums",
+                        entry.value === filter
+                          ? "text-muted-foreground"
+                          : "text-muted-foreground/50",
+                      )}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
         </Tabs>
 
-        {filter !== "archived" && filter !== "review" && (
-          <div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 gap-1.5 text-xs"
-              onClick={handleArchiveAll}
-              disabled={loading || archivingAll || totalRows === 0}
-            >
-              {archivingAll ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Archive className="size-3.5" />
-              )}
-              Archive all in {activeFilterLabel}
-            </Button>
-          </div>
+        {totalRows > 0 && (
+          <TriagePagination
+            pageIndex={pageIndex}
+            pageSize={TRIAGE_PAGE_SIZE}
+            totalRows={totalRows}
+            disabled={loading}
+            onPageChange={setPageIndex}
+          />
         )}
 
-        <div className="min-h-0 flex-1">
-          {loading ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {currentPageLoading ? (
             <TriageLoadingSkeleton contentOnly />
+          ) : items.length === 0 ? (
+            <p className="py-16 text-center text-xs text-muted-foreground">—</p>
           ) : (
-            <PaginatedDataTable
-              columns={columns}
-              data={items}
-              emptyMessage="No triage items"
-              onRowClick={(item) => setSelectedId(item._id)}
-              manualPagination={{
-                pageIndex: pagination.pageIndex,
-                pageSize: pagination.pageSize,
-                totalRows,
-                loading: currentPageLoading,
-                onPaginationChange: handlePaginationChange,
-              }}
-            />
+            <div className="divide-y">
+              {items.map((item) => (
+                <TriageRow
+                  key={item._id}
+                  item={item}
+                  selected={item._id === selectedId}
+                  onSelect={() => setSelectedId(item._id)}
+                />
+              ))}
+            </div>
           )}
         </div>
       </div>
-
-      {api && (
-        <TriageSheet
-          api={api}
-          triageId={selectedId}
-          open={!!selectedId}
-          onOpenChange={(open) => !open && setSelectedId(null)}
-          onSuggestionUpdated={() => refreshItems()}
-        />
-      )}
     </div>
   );
 }

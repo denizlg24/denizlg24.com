@@ -1,5 +1,6 @@
 "use client";
 
+import type { LlmCatalogModel, LlmModelsResponse } from "@repo/schemas";
 import {
   Select,
   SelectContent,
@@ -7,10 +8,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAdmin } from "../provider";
 
-export type CatalogModel = { id: string; name: string };
+/**
+ * Catalog entries are the full Gateway records so hosts that ship a rich picker
+ * (creator/capability filters, pricing) get everything they need; `ModelSelect`
+ * only ever reads `id` and `name`.
+ */
+export type CatalogModel = LlmCatalogModel;
 
 const DEFAULT_SENTINEL = "__default__";
 
@@ -18,20 +24,30 @@ export function useModelCatalog(requiredCapability?: string) {
   const { client } = useAdmin();
   const [models, setModels] = useState<CatalogModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     const query = requiredCapability
       ? `llm/models?requiredCapability=${encodeURIComponent(requiredCapability)}`
       : "llm/models";
+    setModelsLoading(true);
     (async () => {
       try {
-        const raw = await client.get<{
-          models?: { id: string; name: string; tags?: string[] }[];
-        }>(query);
-        if (!cancelled) setModels(raw.models ?? []);
-      } catch {
-        // Catalog cold or unreachable — the free-form value still renders.
+        const raw = await client.get<Partial<LlmModelsResponse>>(query);
+        if (cancelled) return;
+        setModels(raw.models ?? []);
+        setStale(raw.stale === true);
+        setModelsError(null);
+      } catch (error) {
+        // Catalog cold or unreachable — the stored value still renders.
+        if (!cancelled) {
+          setModelsError(
+            error instanceof Error ? error.message : "Catalog unavailable",
+          );
+        }
       } finally {
         if (!cancelled) setModelsLoading(false);
       }
@@ -39,9 +55,11 @@ export function useModelCatalog(requiredCapability?: string) {
     return () => {
       cancelled = true;
     };
-  }, [client, requiredCapability]);
+  }, [client, requiredCapability, reloadToken]);
 
-  return { models, modelsLoading };
+  const retry = useCallback(() => setReloadToken((token) => token + 1), []);
+
+  return { models, modelsLoading, modelsError, stale, retry };
 }
 
 /**
@@ -82,6 +100,47 @@ export function ModelSelect({
           {defaultLabel}
         </SelectItem>
         {value !== null && !known && (
+          <SelectItem value={value} className="text-xs">
+            {value} (current)
+          </SelectItem>
+        )}
+        {models.map((model) => (
+          <SelectItem key={model.id} value={model.id} className="text-xs">
+            {model.name} · {model.id}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/**
+ * Same picker for settings whose model id is required — no "server default"
+ * entry. A stored id missing from the catalog stays selectable for the same
+ * reason as in `ModelSelect`.
+ */
+export function RequiredModelSelect({
+  value,
+  onChange,
+  models,
+  disabled,
+  className,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  models: CatalogModel[];
+  disabled?: boolean;
+  className?: string;
+}) {
+  const known = models.some((model) => model.id === value);
+
+  return (
+    <Select value={value} disabled={disabled} onValueChange={onChange}>
+      <SelectTrigger className={className ?? "h-8 w-full max-w-md text-xs"}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {value && !known && (
           <SelectItem value={value} className="text-xs">
             {value} (current)
           </SelectItem>

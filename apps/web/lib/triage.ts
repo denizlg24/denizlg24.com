@@ -13,7 +13,7 @@ import {
   getCoursesForMatching,
   updateCourseDeadline,
 } from "@/lib/courses";
-import { fetchEmailBody } from "@/lib/email";
+import { type FetchedEmailBody, fetchEmailBodies } from "@/lib/email";
 import { classifyEmail } from "@/lib/email-classifier";
 import { createCard } from "@/lib/kanban";
 import { generateToolResult } from "@/lib/llm-service";
@@ -127,14 +127,30 @@ export interface CourseTarget {
   events: CourseTargetEvent[];
 }
 
-interface TriageRunStats {
+export interface TriageRunStats {
   scanned: number;
   prefilteredSpam: number;
   fullTriaged: number;
   manualReview: number;
   autoAcceptedTasks: number;
   autoAcceptedEvents: number;
+  skippedUnavailable: number;
   errors: number;
+  remaining: number;
+}
+
+export interface RunTriageOptions {
+  since?: Date;
+  limit?: number;
+  concurrency?: number;
+  extractionConcurrency?: number;
+  fetchBatchSize?: number;
+  timeBudgetMs?: number;
+  autoAccept?: boolean;
+  skipUnavailable?: boolean;
+  force?: boolean;
+  ignoreSchedule?: boolean;
+  updateLastRunAt?: boolean;
 }
 
 export interface TriageEmailContext {
@@ -152,6 +168,65 @@ function isTriagePriority(value: unknown): value is TriagePriority {
     typeof value === "string" &&
     PRIORITIES.some((priority) => priority === value)
   );
+}
+
+function boundedInteger(
+  value: number | undefined,
+  fallback: number,
+  maximum: number,
+): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(1, Math.trunc(value)), maximum);
+}
+
+const SCAN_PAGE_SIZE = 500;
+const MAX_RUN_CANDIDATES = 10_000;
+
+/**
+ * Count emails in the window that have no triage row, without materializing
+ * them. The anti-join runs server-side so a large mailbox costs one count
+ * rather than two full result sets in the process heap.
+ */
+async function countUntriagedEmails(
+  windowFilter: Record<string, unknown>,
+): Promise<number> {
+  const [result] = await EmailModel.aggregate<{ total: number }>([
+    { $match: windowFilter },
+    {
+      $lookup: {
+        from: EmailTriageModel.collection.name,
+        localField: "_id",
+        foreignField: "emailId",
+        pipeline: [{ $project: { _id: 1 } }, { $limit: 1 }],
+        as: "triageMatch",
+      },
+    },
+    { $match: { triageMatch: { $size: 0 } } },
+    { $count: "total" },
+  ]);
+  return result?.total ?? 0;
+}
+
+function createConcurrencyLimiter(limit: number) {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+
+  return async function limitConcurrency<T>(
+    task: () => Promise<T>,
+  ): Promise<T> {
+    if (active >= limit) {
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    } else {
+      active++;
+    }
+    try {
+      return await task();
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else active--;
+    }
+  };
 }
 
 function isCourseAssignmentType(value: unknown): value is CourseAssignmentType {
@@ -471,9 +546,7 @@ export function normalizeBodyForTriage(
 }
 
 function formatAttachmentTextForTriage(
-  attachments: NonNullable<
-    Awaited<ReturnType<typeof fetchEmailBody>>
-  >["attachmentText"],
+  attachments: FetchedEmailBody["attachmentText"],
 ): string {
   if (attachments.length === 0) return "";
 
@@ -847,9 +920,7 @@ export async function runExtraction(
   body: {
     text: string;
     html: string;
-    attachmentText?: NonNullable<
-      Awaited<ReturnType<typeof fetchEmailBody>>
-    >["attachmentText"];
+    attachmentText?: FetchedEmailBody["attachmentText"];
   },
   classification: ClassificationResult,
   kanbanTargets: CompactKanbanTarget[],
@@ -1209,14 +1280,14 @@ async function autoAccept(
   return { tasks: taskCount, events: eventCount };
 }
 
-export async function runTriage(options?: {
-  since?: Date;
-}): Promise<TriageRunStats> {
+export async function runTriage(
+  options: RunTriageOptions = {},
+): Promise<TriageRunStats> {
   await connectDB();
   const settings = await getOrCreateTriageSettings();
   const categoryRouting = normalizeCategoryRouting(settings.categoryRouting);
 
-  if (!settings.enabled) {
+  if (!settings.enabled && !options.force) {
     return {
       scanned: 0,
       prefilteredSpam: 0,
@@ -1224,12 +1295,14 @@ export async function runTriage(options?: {
       manualReview: 0,
       autoAcceptedTasks: 0,
       autoAcceptedEvents: 0,
+      skippedUnavailable: 0,
       errors: 0,
+      remaining: 0,
     };
   }
 
-  const isManualRun = options?.since !== undefined;
-  if (!isManualRun && settings.lastRunAt) {
+  const isManualRun = options.since !== undefined;
+  if (!isManualRun && !options.ignoreSchedule && settings.lastRunAt) {
     const nextRunAt = new Date(
       settings.lastRunAt.getTime() + settings.runIntervalMinutes * 60 * 1000,
     );
@@ -1245,68 +1318,159 @@ export async function runTriage(options?: {
         manualReview: 0,
         autoAcceptedTasks: 0,
         autoAcceptedEvents: 0,
+        skippedUnavailable: 0,
         errors: 0,
+        remaining: 0,
       };
     }
   }
 
   console.log("Starting triage run with settings:", options);
+  const runStartedAt = new Date();
 
   const since =
-    options?.since ??
+    options.since ??
     settings.lastRunAt ??
     new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const alreadyTriaged = await EmailTriageModel.find({
-    triagedAt: { $gte: since },
-  })
-    .select("emailId")
-    .lean();
-  const alreadyIds = new Set(
-    alreadyTriaged.map((triage) => triage.emailId.toString()),
-  );
-
-  const emails = await EmailModel.find({
-    $or: [
-      { createdAt: { $gte: since } },
-      { createdAt: { $exists: false }, date: { $gte: since } },
+  const emailWindowFilter = {
+    $and: [
+      {
+        $or: [
+          { createdAt: { $gte: since } },
+          { createdAt: { $exists: false }, date: { $gte: since } },
+        ],
+      },
+      {
+        $or: [
+          { triageSkippedAt: { $exists: false } },
+          { triageSkippedAt: null },
+        ],
+      },
     ],
-  })
-    .sort({ date: 1 })
-    .lean();
+  };
 
-  const candidates = emails.filter(
-    (email) => !alreadyIds.has(email._id.toString()),
+  function fetchEmailPage(skip: number) {
+    return EmailModel.find(emailWindowFilter)
+      .sort({ date: 1 })
+      .skip(skip)
+      .limit(SCAN_PAGE_SIZE)
+      .lean();
+  }
+  type CandidateEmail = Awaited<ReturnType<typeof fetchEmailPage>>[number];
+
+  // Scan in bounded pages and anti-join one page at a time. Loading the whole
+  // window and passing every id through a single $in exceeds MongoDB's 16MB
+  // BSON limit on a large mailbox, and does so before any email is triaged.
+  const targetCount = boundedInteger(
+    options.limit,
+    MAX_RUN_CANDIDATES,
+    MAX_RUN_CANDIDATES,
   );
+  const candidates: CandidateEmail[] = [];
+  let scannedEmails = 0;
 
-  console.log(candidates.length, "emails found since", since.toISOString());
+  while (candidates.length < targetCount) {
+    const page = await fetchEmailPage(scannedEmails);
+    if (page.length === 0) break;
+    scannedEmails += page.length;
+
+    const triaged = await EmailTriageModel.find({
+      emailId: { $in: page.map((email) => email._id) },
+    })
+      .select("emailId")
+      .lean();
+    const triagedIds = new Set(
+      triaged.map((triage) => triage.emailId.toString()),
+    );
+
+    for (const email of page) {
+      if (triagedIds.has(email._id.toString())) continue;
+      candidates.push(email);
+      if (candidates.length === targetCount) break;
+    }
+
+    if (page.length < SCAN_PAGE_SIZE) break;
+  }
+
+  const totalCandidates = await countUntriagedEmails(emailWindowFilter);
+
+  console.log(
+    totalCandidates,
+    "emails found since",
+    since.toISOString(),
+    candidates.length < totalCandidates
+      ? `(processing ${candidates.length})`
+      : "",
+  );
 
   const stats: TriageRunStats = {
-    scanned: candidates.length,
+    scanned: 0,
     prefilteredSpam: 0,
     fullTriaged: 0,
     manualReview: 0,
     autoAcceptedTasks: 0,
     autoAcceptedEvents: 0,
+    skippedUnavailable: 0,
     errors: 0,
+    remaining: totalCandidates,
   };
 
   if (candidates.length === 0) {
-    await updateLastRunAt(settings);
+    if (options.updateLastRunAt !== false) {
+      await updateLastRunAt(settings, runStartedAt);
+    }
     return stats;
   }
 
-  let kanbanTargetsCache: CompactKanbanTarget[] | undefined;
-  let courseTargetsCache: CourseTarget[] | undefined;
+  let kanbanTargetsPromise: Promise<CompactKanbanTarget[]> | undefined;
+  let courseTargetsPromise: Promise<CourseTarget[]> | undefined;
+  // Clear the slot on failure: caching a rejection would make one transient
+  // error fail every remaining candidate in the run.
+  const getKanbanTargetsCached = () =>
+    (kanbanTargetsPromise ??= getKanbanTargets().catch((error) => {
+      kanbanTargetsPromise = undefined;
+      throw error;
+    }));
+  const getCourseTargetsCached = () =>
+    (courseTargetsPromise ??= getCoursesForMatching()
+      .then(buildCourseTargets)
+      .catch((error) => {
+        courseTargetsPromise = undefined;
+        throw error;
+      }));
   const classificationThreshold =
     settings.classificationConfidenceThreshold ?? 0.8;
+  const limitExtraction = createConcurrencyLimiter(
+    boundedInteger(options.extractionConcurrency, 2, 8),
+  );
 
-  for (const email of candidates) {
+  async function processCandidate(
+    email: (typeof candidates)[number],
+    prefetchedBody: FetchedEmailBody | undefined,
+    confirmedMissing: boolean,
+  ): Promise<void> {
+    stats.scanned++;
     try {
-      let body = await fetchEmailBody(String(email.accountId), email.uid);
+      const body = prefetchedBody;
       if (!body) {
+        if (options.skipUnavailable && confirmedMissing) {
+          const skipped = await EmailModel.updateOne(
+            { _id: email._id, uid: email.uid },
+            {
+              $set: {
+                triageSkippedAt: new Date(),
+                triageSkipReason: "imap-message-missing",
+              },
+            },
+          );
+          if (skipped.modifiedCount === 1) {
+            stats.skippedUnavailable++;
+            return;
+          }
+        }
         stats.errors++;
-        continue;
+        return;
       }
 
       const emailContext: TriageEmailContext = {
@@ -1342,7 +1506,10 @@ export async function runTriage(options?: {
         needsEventExtraction:
           !reviewRequired && prediction.category === "scheduled",
       };
-      let bodyForExtraction = body;
+      let bodyForExtraction: FetchedEmailBody = {
+        ...body,
+        attachmentText: [],
+      };
       let fullResult: FullTriageResult = {
         ...classification,
         tasks: [],
@@ -1353,12 +1520,7 @@ export async function runTriage(options?: {
         classification.needsTaskExtraction ||
         classification.needsEventExtraction
       ) {
-        if (!courseTargetsCache) {
-          courseTargetsCache = buildCourseTargets(
-            await getCoursesForMatching(),
-          );
-        }
-        const courseTargets = courseTargetsCache;
+        const courseTargets = await getCourseTargetsCached();
         const deterministicCourse = matchCourseDeterministic(
           emailContext,
           courseTargets,
@@ -1369,35 +1531,25 @@ export async function runTriage(options?: {
           classification.needsEventExtraction = true;
           fullResult.matchedCourseId = deterministicCourse.courseId;
           fullResult.matchedCourseName = deterministicCourse.name;
-
-          const bodyWithAttachments = await fetchEmailBody(
-            String(email.accountId),
-            email.uid,
-            { includeAttachmentText: true },
-          );
-          if (bodyWithAttachments) {
-            body = bodyWithAttachments;
-            bodyForExtraction = bodyWithAttachments;
-          }
+          bodyForExtraction = body;
         }
 
         let kanbanTargets: CompactKanbanTarget[] = [];
         if (classification.needsTaskExtraction) {
-          if (!kanbanTargetsCache) {
-            kanbanTargetsCache = await getKanbanTargets();
-          }
-          kanbanTargets = kanbanTargetsCache;
+          kanbanTargets = await getKanbanTargetsCached();
         }
 
         extractionModelUsed = settings.fullModel;
-        let extraction = await runExtraction(
-          settings.fullModel,
-          emailContext,
-          bodyForExtraction,
-          classification,
-          kanbanTargets,
-          courseTargets,
-          deterministicCourse,
+        let extraction = await limitExtraction(() =>
+          runExtraction(
+            settings.fullModel,
+            emailContext,
+            bodyForExtraction,
+            classification,
+            kanbanTargets,
+            courseTargets,
+            deterministicCourse,
+          ),
         );
         if (!extraction) {
           stats.errors++;
@@ -1412,26 +1564,21 @@ export async function runTriage(options?: {
             const matchedCourseForAttachments = courseTargets.find(
               (course) => course.courseId === extraction?.matchedCourseId,
             );
-            if (matchedCourseForAttachments) {
-              const bodyWithAttachments = await fetchEmailBody(
-                String(email.accountId),
-                email.uid,
-                { includeAttachmentText: true },
-              );
-              if (bodyWithAttachments?.attachmentText.length) {
-                const attachmentExtraction = await runExtraction(
+            if (matchedCourseForAttachments && body.attachmentText.length > 0) {
+              const attachmentExtraction = await limitExtraction(() =>
+                runExtraction(
                   settings.fullModel,
                   emailContext,
-                  bodyWithAttachments,
+                  body,
                   classification,
                   kanbanTargets,
                   courseTargets,
                   matchedCourseForAttachments,
-                );
-                if (attachmentExtraction) {
-                  extraction = attachmentExtraction;
-                  bodyForExtraction = bodyWithAttachments;
-                }
+                ),
+              );
+              if (attachmentExtraction) {
+                extraction = attachmentExtraction;
+                bodyForExtraction = body;
               }
             }
           }
@@ -1526,7 +1673,7 @@ export async function runTriage(options?: {
         stats.prefilteredSpam++;
       }
 
-      if (!reviewRequired) {
+      if (!reviewRequired && options.autoAccept !== false) {
         const accepted = await autoAccept(
           doc._id,
           fullResult,
@@ -1541,14 +1688,91 @@ export async function runTriage(options?: {
     }
   }
 
-  await updateLastRunAt(settings);
+  const concurrency = boundedInteger(options.concurrency, 4, 16);
+  const fetchBatchSize = boundedInteger(options.fetchBatchSize, 50, 200);
+  const deadline =
+    options.timeBudgetMs === undefined
+      ? undefined
+      : Date.now() + Math.max(1_000, options.timeBudgetMs);
+
+  for (
+    let batchStart = 0;
+    batchStart < candidates.length;
+    batchStart += fetchBatchSize
+  ) {
+    if (deadline !== undefined && Date.now() >= deadline) break;
+
+    const batch = candidates.slice(batchStart, batchStart + fetchBatchSize);
+    const emailsByAccount = new Map<string, typeof batch>();
+    for (const email of batch) {
+      const accountId = email.accountId.toString();
+      const accountEmails = emailsByAccount.get(accountId);
+      if (accountEmails) accountEmails.push(email);
+      else emailsByAccount.set(accountId, [email]);
+    }
+
+    const prefetched = new Map<string, FetchedEmailBody>();
+    const confirmedMissing = new Set<string>();
+    await Promise.all(
+      [...emailsByAccount].map(async ([accountId, accountEmails]) => {
+        try {
+          const result = await fetchEmailBodies(
+            accountId,
+            accountEmails.map((email) => email.uid),
+            { includeAttachmentText: true },
+          );
+          for (const [uid, body] of result.bodies) {
+            prefetched.set(`${accountId}:${uid}`, body);
+          }
+          for (const uid of result.missingUids) {
+            confirmedMissing.add(`${accountId}:${uid}`);
+          }
+        } catch (error) {
+          console.error(
+            `Failed to fetch triage email batch for account ${accountId}:`,
+            error,
+          );
+        }
+      }),
+    );
+
+    let nextIndex = 0;
+    async function work(): Promise<void> {
+      while (nextIndex < batch.length) {
+        if (deadline !== undefined && Date.now() >= deadline) return;
+        const email = batch[nextIndex++];
+        await processCandidate(
+          email,
+          prefetched.get(`${email.accountId.toString()}:${email.uid}`),
+          confirmedMissing.has(`${email.accountId.toString()}:${email.uid}`),
+        );
+      }
+    }
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, batch.length) }, () => work()),
+    );
+  }
+
+  stats.remaining = Math.max(
+    0,
+    totalCandidates - stats.fullTriaged - stats.skippedUnavailable,
+  );
+  if (
+    options.updateLastRunAt !== false &&
+    stats.remaining === 0 &&
+    stats.errors === 0
+  ) {
+    await updateLastRunAt(settings, runStartedAt);
+  }
   return stats;
 }
 
 async function updateLastRunAt(
   settings: mongoose.HydratedDocument<ITriageSettings>,
+  completedThrough: Date,
 ): Promise<void> {
-  settings.lastRunAt = new Date();
+  settings.lastRunAt = completedThrough;
   await settings.save();
 }
 

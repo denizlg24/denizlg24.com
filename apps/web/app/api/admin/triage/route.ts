@@ -89,14 +89,45 @@ export async function GET(request: NextRequest) {
     if (!Number.isNaN(d.getTime())) query.triagedAt = { $lt: d };
   }
 
-  const [triages, totalRows] = await Promise.all([
+  // The badge counts are collection-wide, so they are identical for every page
+  // of a filter. Computing them only for the first page keeps the unindexable
+  // $group off every page change and tab switch.
+  const wantsBadges = offset === 0 && !cursor;
+
+  const [triages, totalRows, facets] = await Promise.all([
     EmailTriageModel.find(query)
       .sort({ triagedAt: -1, _id: -1 })
       .skip(offset)
       .limit(limit)
       .lean(),
     EmailTriageModel.countDocuments(query),
+    wantsBadges
+      ? EmailTriageModel.aggregate<{ _id: string; count: number }>([
+          {
+            $group: {
+              _id: {
+                $cond: [
+                  { $eq: ["$userStatus", "archived"] },
+                  "archived",
+                  {
+                    $cond: [
+                      { $eq: ["$reviewRequired", true] },
+                      "review",
+                      "$category",
+                    ],
+                  },
+                ],
+              },
+              count: { $sum: 1 },
+            },
+          },
+        ])
+      : Promise.resolve(null),
   ]);
+
+  const stats = facets
+    ? Object.fromEntries(facets.map((facet) => [facet._id, facet.count]))
+    : undefined;
 
   const emailIds = triages.map((t) => t.emailId);
   const emails = await EmailModel.find({ _id: { $in: emailIds } })
@@ -113,6 +144,7 @@ export async function GET(request: NextRequest) {
       stage: t.stage,
       category: t.category,
       modelCategory: t.modelCategory,
+      llmCategory: t.llmCategory,
       confidence: t.confidence,
       classificationThreshold: t.classificationThreshold,
       classificationProbabilities: t.classificationProbabilities,
@@ -162,6 +194,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     items,
     totalRows,
+    stats,
     offset,
     limit,
     nextCursor: items.at(-1)?.triagedAt.toISOString() ?? null,
