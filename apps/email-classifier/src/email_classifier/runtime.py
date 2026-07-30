@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import re
 import tempfile
 import threading
 from dataclasses import dataclass
@@ -203,6 +204,21 @@ def _sign_s3_get(
     )
 
 
+def _s3_error_detail(error: HTTPError) -> str:
+    """Summarize an S3 error response for server-side logs."""
+    try:
+        body = error.read(2048).decode("utf-8", "replace")
+    except OSError:
+        body = ""
+
+    code = re.search(r"<Code>([^<]+)</Code>", body)
+    message = re.search(r"<Message>([^<]+)</Message>", body)
+    if code is None:
+        return f"HTTP {error.code} {body[:200].strip()}".rstrip()
+    detail = f"HTTP {error.code} {code.group(1)}"
+    return f"{detail}: {message.group(1)}" if message else detail
+
+
 def _download_s3_model() -> tuple[Path, str] | None:
     configured_values = [os.getenv(name, "").strip() for name in S3_ENV_NAMES]
     if not any(configured_values):
@@ -253,7 +269,11 @@ def _download_s3_model() -> tuple[Path, str] | None:
                 "downloaded classifier model SHA-256 does not match"
             )
         temporary.replace(destination)
-    except (HTTPError, OSError, TimeoutError, URLError, ValueError) as exc:
+    except HTTPError as exc:
+        raise RuntimeConfigurationError(
+            f"classifier model was rejected by S3 ({_s3_error_detail(exc)})"
+        ) from exc
+    except (OSError, TimeoutError, URLError, ValueError) as exc:
         raise RuntimeConfigurationError(
             "classifier model could not be downloaded from S3"
         ) from exc
