@@ -13,11 +13,7 @@ import {
   getCoursesForMatching,
   updateCourseDeadline,
 } from "@/lib/courses";
-import {
-  type FetchedEmailBody,
-  fetchEmailBodies,
-  type fetchEmailBody,
-} from "@/lib/email";
+import { type FetchedEmailBody, fetchEmailBodies } from "@/lib/email";
 import { classifyEmail } from "@/lib/email-classifier";
 import { createCard } from "@/lib/kanban";
 import { generateToolResult } from "@/lib/llm-service";
@@ -181,6 +177,34 @@ function boundedInteger(
 ): number {
   if (value === undefined || !Number.isFinite(value)) return fallback;
   return Math.min(Math.max(1, Math.trunc(value)), maximum);
+}
+
+const SCAN_PAGE_SIZE = 500;
+const MAX_RUN_CANDIDATES = 10_000;
+
+/**
+ * Count emails in the window that have no triage row, without materializing
+ * them. The anti-join runs server-side so a large mailbox costs one count
+ * rather than two full result sets in the process heap.
+ */
+async function countUntriagedEmails(
+  windowFilter: Record<string, unknown>,
+): Promise<number> {
+  const [result] = await EmailModel.aggregate<{ total: number }>([
+    { $match: windowFilter },
+    {
+      $lookup: {
+        from: EmailTriageModel.collection.name,
+        localField: "_id",
+        foreignField: "emailId",
+        pipeline: [{ $project: { _id: 1 } }, { $limit: 1 }],
+        as: "triageMatch",
+      },
+    },
+    { $match: { triageMatch: { $size: 0 } } },
+    { $count: "total" },
+  ]);
+  return result?.total ?? 0;
 }
 
 function createConcurrencyLimiter(limit: number) {
@@ -522,9 +546,7 @@ export function normalizeBodyForTriage(
 }
 
 function formatAttachmentTextForTriage(
-  attachments: NonNullable<
-    Awaited<ReturnType<typeof fetchEmailBody>>
-  >["attachmentText"],
+  attachments: FetchedEmailBody["attachmentText"],
 ): string {
   if (attachments.length === 0) return "";
 
@@ -898,9 +920,7 @@ export async function runExtraction(
   body: {
     text: string;
     html: string;
-    attachmentText?: NonNullable<
-      Awaited<ReturnType<typeof fetchEmailBody>>
-    >["attachmentText"];
+    attachmentText?: FetchedEmailBody["attachmentText"];
   },
   classification: ClassificationResult,
   kanbanTargets: CompactKanbanTarget[],
@@ -1313,7 +1333,7 @@ export async function runTriage(
     settings.lastRunAt ??
     new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const emails = await EmailModel.find({
+  const emailWindowFilter = {
     $and: [
       {
         $or: [
@@ -1328,32 +1348,58 @@ export async function runTriage(
         ],
       },
     ],
-  })
-    .sort({ date: 1 })
-    .lean();
+  };
 
-  const alreadyTriaged = await EmailTriageModel.find({
-    emailId: { $in: emails.map((email) => email._id) },
-  })
-    .select("emailId")
-    .lean();
-  const alreadyIds = new Set(
-    alreadyTriaged.map((triage) => triage.emailId.toString()),
+  function fetchEmailPage(skip: number) {
+    return EmailModel.find(emailWindowFilter)
+      .sort({ date: 1 })
+      .skip(skip)
+      .limit(SCAN_PAGE_SIZE)
+      .lean();
+  }
+  type CandidateEmail = Awaited<ReturnType<typeof fetchEmailPage>>[number];
+
+  // Scan in bounded pages and anti-join one page at a time. Loading the whole
+  // window and passing every id through a single $in exceeds MongoDB's 16MB
+  // BSON limit on a large mailbox, and does so before any email is triaged.
+  const targetCount = boundedInteger(
+    options.limit,
+    MAX_RUN_CANDIDATES,
+    MAX_RUN_CANDIDATES,
   );
-  const allCandidates = emails.filter(
-    (email) => !alreadyIds.has(email._id.toString()),
-  );
-  const limit =
-    options.limit === undefined
-      ? allCandidates.length
-      : boundedInteger(options.limit, allCandidates.length, 10_000);
-  const candidates = allCandidates.slice(0, limit);
+  const candidates: CandidateEmail[] = [];
+  let scannedEmails = 0;
+
+  while (candidates.length < targetCount) {
+    const page = await fetchEmailPage(scannedEmails);
+    if (page.length === 0) break;
+    scannedEmails += page.length;
+
+    const triaged = await EmailTriageModel.find({
+      emailId: { $in: page.map((email) => email._id) },
+    })
+      .select("emailId")
+      .lean();
+    const triagedIds = new Set(
+      triaged.map((triage) => triage.emailId.toString()),
+    );
+
+    for (const email of page) {
+      if (triagedIds.has(email._id.toString())) continue;
+      candidates.push(email);
+      if (candidates.length === targetCount) break;
+    }
+
+    if (page.length < SCAN_PAGE_SIZE) break;
+  }
+
+  const totalCandidates = await countUntriagedEmails(emailWindowFilter);
 
   console.log(
-    allCandidates.length,
+    totalCandidates,
     "emails found since",
     since.toISOString(),
-    candidates.length < allCandidates.length
+    candidates.length < totalCandidates
       ? `(processing ${candidates.length})`
       : "",
   );
@@ -1367,7 +1413,7 @@ export async function runTriage(
     autoAcceptedEvents: 0,
     skippedUnavailable: 0,
     errors: 0,
-    remaining: allCandidates.length,
+    remaining: totalCandidates,
   };
 
   if (candidates.length === 0) {
@@ -1379,10 +1425,20 @@ export async function runTriage(
 
   let kanbanTargetsPromise: Promise<CompactKanbanTarget[]> | undefined;
   let courseTargetsPromise: Promise<CourseTarget[]> | undefined;
+  // Clear the slot on failure: caching a rejection would make one transient
+  // error fail every remaining candidate in the run.
   const getKanbanTargetsCached = () =>
-    (kanbanTargetsPromise ??= getKanbanTargets());
+    (kanbanTargetsPromise ??= getKanbanTargets().catch((error) => {
+      kanbanTargetsPromise = undefined;
+      throw error;
+    }));
   const getCourseTargetsCached = () =>
-    (courseTargetsPromise ??= getCoursesForMatching().then(buildCourseTargets));
+    (courseTargetsPromise ??= getCoursesForMatching()
+      .then(buildCourseTargets)
+      .catch((error) => {
+        courseTargetsPromise = undefined;
+        throw error;
+      }));
   const classificationThreshold =
     settings.classificationConfidenceThreshold ?? 0.8;
   const limitExtraction = createConcurrencyLimiter(
@@ -1700,7 +1756,7 @@ export async function runTriage(
 
   stats.remaining = Math.max(
     0,
-    allCandidates.length - stats.fullTriaged - stats.skippedUnavailable,
+    totalCandidates - stats.fullTriaged - stats.skippedUnavailable,
   );
   if (
     options.updateLastRunAt !== false &&

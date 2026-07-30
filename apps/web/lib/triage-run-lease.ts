@@ -49,11 +49,12 @@ async function acquireLease(owner: string, leaseMs: number): Promise<boolean> {
   return lease?.owner === owner;
 }
 
-async function renewLease(owner: string, leaseMs: number): Promise<void> {
-  await TriageRunLeaseModel.updateOne(
+async function renewLease(owner: string, leaseMs: number): Promise<boolean> {
+  const result = await TriageRunLeaseModel.updateOne(
     { _id: "singleton", owner },
     { $set: { expiresAt: new Date(Date.now() + leaseMs) } },
   );
+  return result.matchedCount === 1;
 }
 
 export async function releaseTriageRunLease(owner: string): Promise<boolean> {
@@ -95,11 +96,23 @@ export async function withTriageRunLease<T>(
   const acquired = await acquireLease(owner, leaseMs);
   if (!acquired) return { acquired: false };
 
+  // A renewal that matches nothing means the lease expired and another worker
+  // took it. Two runs are now walking the same candidate set, so say so loudly
+  // rather than letting the loser finish silently.
+  let lost = false;
   const heartbeat = setInterval(
     () => {
-      void renewLease(owner, leaseMs).catch((error) => {
-        console.error("Failed to renew triage run lease:", error);
-      });
+      void renewLease(owner, leaseMs)
+        .then((renewed) => {
+          if (renewed || lost) return;
+          lost = true;
+          console.error(
+            `Triage run lease ${owner} was lost — another worker holds it; this run is now a duplicate.`,
+          );
+        })
+        .catch((error) => {
+          console.error("Failed to renew triage run lease:", error);
+        });
     },
     Math.max(1_000, Math.floor(leaseMs / 3)),
   );
@@ -109,8 +122,11 @@ export async function withTriageRunLease<T>(
     return { acquired: true, result: await task() };
   } finally {
     clearInterval(heartbeat);
-    await releaseTriageRunLease(owner).catch((error) => {
-      console.error("Failed to release triage run lease:", error);
-    });
+    // Releasing after the lease was lost would clear the new owner's lease.
+    if (!lost) {
+      await releaseTriageRunLease(owner).catch((error) => {
+        console.error("Failed to release triage run lease:", error);
+      });
+    }
   }
 }

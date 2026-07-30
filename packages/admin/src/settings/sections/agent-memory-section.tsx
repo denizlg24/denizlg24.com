@@ -1,6 +1,9 @@
 "use client";
 
-import type { AgentMemorySettings } from "@repo/schemas";
+import type {
+  AgentMemorySettings,
+  AgentMemorySettingsResponse,
+} from "@repo/schemas";
 import {
   Select,
   SelectContent,
@@ -80,10 +83,10 @@ export function AgentMemorySection() {
     let cancelled = false;
     (async () => {
       try {
-        const data = await client.get<{ settings: AgentMemorySettings }>(
+        const data = await client.get<AgentMemorySettingsResponse>(
           "agent-memory/settings",
         );
-        if (!cancelled) setSettings(data.settings);
+        if (!cancelled && data.settings) setSettings(data.settings);
       } catch {
         if (!cancelled) toast.error("Failed to load agent-memory settings");
       } finally {
@@ -98,7 +101,7 @@ export function AgentMemorySection() {
   const update = useCallback(
     async (patch: Record<string, unknown>, reason: string) => {
       try {
-        const raw = await client.patch<{ settings?: AgentMemorySettings }>(
+        const raw = await client.patch<AgentMemorySettingsResponse>(
           "agent-memory/settings",
           { settings: patch, reason },
         );
@@ -138,10 +141,7 @@ export function AgentMemorySection() {
         }
       >
         <div className="space-y-6">
-          <SettingsRow
-            label="Formation"
-            hint="Extracts memory candidates from evidence."
-          >
+          <SettingsRow label="Formation">
             <SettingsModelPicker
               value={settings.formationModel}
               models={models}
@@ -160,10 +160,7 @@ export function AgentMemorySection() {
             />
           </SettingsRow>
 
-          <SettingsRow
-            label="Retrieval summary"
-            hint="Rolling per-conversation topic summary so short follow-ups still retrieve. Disabled means latest message only."
-          >
+          <SettingsRow label="Retrieval summary">
             <SettingsModelPicker
               value={retrieval.querySummaryModel}
               models={models}
@@ -185,10 +182,7 @@ export function AgentMemorySection() {
         </div>
       </SettingsGroup>
 
-      <SettingsGroup
-        label="Retrieval budget"
-        description="Caps memory context injected into a chat request. The recall floor applies to manual probes instead, which are uncapped by count."
-      >
+      <SettingsGroup label="Retrieval budget">
         <div className="space-y-6">
           <SettingsRow label="Injected memories">
             <NumericSelect
@@ -232,10 +226,7 @@ export function AgentMemorySection() {
         </div>
       </SettingsGroup>
 
-      <SettingsGroup
-        label="Review policy"
-        description="Single-user auto-accepts safe candidates and queues only low-confidence email-only proposals. Conservative restores the strict multi-flag pipeline. Hard safety rules always apply."
-      >
+      <SettingsGroup label="Review policy">
         <div className="space-y-6">
           <SettingsRow label="Mode">
             <Select
@@ -288,10 +279,7 @@ export function AgentMemorySection() {
         </div>
       </SettingsGroup>
 
-      <SettingsGroup
-        label="Consolidation"
-        description="A recurring sweep clusters near-duplicates, supersedes outdated facts, and rewrites statements to refer to the owner as “Admin”. Proposals at or above the threshold are applied by policy (revisioned and rollbackable)."
-      >
+      <SettingsGroup label="Consolidation">
         <div className="space-y-6">
           <SettingsRow label="Sweep">
             <Select

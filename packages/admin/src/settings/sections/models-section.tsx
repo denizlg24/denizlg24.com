@@ -72,10 +72,7 @@ export function ModelsSection() {
       }
     >
       <div className="space-y-6">
-        <SettingsRow
-          label="Semantic"
-          hint="Note keywords, merchant classification, agent-memory fallback."
-        >
+        <SettingsRow label="Semantic">
           {settings ? (
             <SettingsModelPicker
               value={settings.semanticModel}
@@ -93,10 +90,7 @@ export function ModelsSection() {
           )}
         </SettingsRow>
 
-        <SettingsRow
-          label="Unattended"
-          hint="Note categorization, voice-note drafts and titles, agent training."
-        >
+        <SettingsRow label="Unattended">
           {settings ? (
             <SettingsModelPicker
               value={settings.unattendedModel}

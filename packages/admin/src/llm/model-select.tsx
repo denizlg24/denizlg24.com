@@ -1,6 +1,6 @@
 "use client";
 
-import type { LlmCatalogModel } from "@repo/schemas";
+import type { LlmCatalogModel, LlmModelsResponse } from "@repo/schemas";
 import {
   Select,
   SelectContent,
@@ -36,10 +36,7 @@ export function useModelCatalog(requiredCapability?: string) {
     setModelsLoading(true);
     (async () => {
       try {
-        const raw = await client.get<{
-          models?: CatalogModel[];
-          stale?: boolean;
-        }>(query);
+        const raw = await client.get<Partial<LlmModelsResponse>>(query);
         if (cancelled) return;
         setModels(raw.models ?? []);
         setStale(raw.stale === true);

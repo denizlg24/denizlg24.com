@@ -89,6 +89,11 @@ export async function GET(request: NextRequest) {
     if (!Number.isNaN(d.getTime())) query.triagedAt = { $lt: d };
   }
 
+  // The badge counts are collection-wide, so they are identical for every page
+  // of a filter. Computing them only for the first page keeps the unindexable
+  // $group off every page change and tab switch.
+  const wantsBadges = offset === 0 && !cursor;
+
   const [triages, totalRows, facets] = await Promise.all([
     EmailTriageModel.find(query)
       .sort({ triagedAt: -1, _id: -1 })
@@ -96,33 +101,33 @@ export async function GET(request: NextRequest) {
       .limit(limit)
       .lean(),
     EmailTriageModel.countDocuments(query),
-    // One pass for every filter tab's badge, so switching tabs never costs a
-    // round trip just to learn a count.
-    EmailTriageModel.aggregate<{ _id: string; count: number }>([
-      {
-        $group: {
-          _id: {
-            $cond: [
-              { $eq: ["$userStatus", "archived"] },
-              "archived",
-              {
+    wantsBadges
+      ? EmailTriageModel.aggregate<{ _id: string; count: number }>([
+          {
+            $group: {
+              _id: {
                 $cond: [
-                  { $eq: ["$reviewRequired", true] },
-                  "review",
-                  "$category",
+                  { $eq: ["$userStatus", "archived"] },
+                  "archived",
+                  {
+                    $cond: [
+                      { $eq: ["$reviewRequired", true] },
+                      "review",
+                      "$category",
+                    ],
+                  },
                 ],
               },
-            ],
+              count: { $sum: 1 },
+            },
           },
-          count: { $sum: 1 },
-        },
-      },
-    ]),
+        ])
+      : Promise.resolve(null),
   ]);
 
-  const stats = Object.fromEntries(
-    facets.map((facet) => [facet._id, facet.count]),
-  );
+  const stats = facets
+    ? Object.fromEntries(facets.map((facet) => [facet._id, facet.count]))
+    : undefined;
 
   const emailIds = triages.map((t) => t.emailId);
   const emails = await EmailModel.find({ _id: { $in: emailIds } })

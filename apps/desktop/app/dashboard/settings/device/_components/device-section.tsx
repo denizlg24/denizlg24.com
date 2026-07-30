@@ -40,6 +40,10 @@ function FieldControl({
   const [local, setLocal] = useState(String(value));
   const inputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) setLocal(String(value));
+  }, [value]);
+
   const commit = () => {
     if (local !== String(value)) onChange(local);
   };

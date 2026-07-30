@@ -20,6 +20,38 @@ interface BasePickerProps {
 }
 
 /**
+ * The plain Select has nowhere to show catalog trouble, so hosts without a
+ * rich picker get this line under it instead of silently rendering a short or
+ * empty model list as if it were the whole catalog.
+ */
+function CatalogStatus({
+  error,
+  stale,
+  onRetry,
+}: Pick<BasePickerProps, "error" | "stale" | "onRetry">) {
+  if (!error && !stale) return null;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="min-w-0 flex-1 truncate text-[11px] text-status-warning">
+        {error ?? "Stale catalog"}
+      </span>
+      {onRetry && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 shrink-0 gap-1 px-1.5 text-[11px]"
+          onClick={onRetry}
+        >
+          <RotateCcw className="size-3" />
+          Retry
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
  * Model picker for settings rows. Hosts that expose a rich catalog picker
  * (desktop's `ModelSelector`, with search, creator/capability filters and
  * pricing) get it; the plain Select is the fallback for hosts that don't.
@@ -49,14 +81,17 @@ export function SettingsModelPicker({
 
   if (!Hosted) {
     return (
-      <ModelSelect
-        value={value}
-        onChange={onChange}
-        models={models}
-        defaultLabel={defaultLabel}
-        disabled={disabled}
-        className="h-8 w-full text-xs"
-      />
+      <div className="space-y-1.5">
+        <ModelSelect
+          value={value}
+          onChange={onChange}
+          models={models}
+          defaultLabel={defaultLabel}
+          disabled={disabled}
+          className="h-8 w-full text-xs"
+        />
+        <CatalogStatus error={error} stale={stale} onRetry={onRetry} />
+      </div>
     );
   }
 
@@ -115,13 +150,16 @@ export function RequiredSettingsModelPicker({
 
   if (!Hosted) {
     return (
-      <RequiredModelSelect
-        value={value}
-        onChange={onChange}
-        models={models}
-        disabled={disabled}
-        className="h-8 w-full text-xs"
-      />
+      <div className="space-y-1.5">
+        <RequiredModelSelect
+          value={value}
+          onChange={onChange}
+          models={models}
+          disabled={disabled}
+          className="h-8 w-full text-xs"
+        />
+        <CatalogStatus error={error} stale={stale} onRetry={onRetry} />
+      </div>
     );
   }
 

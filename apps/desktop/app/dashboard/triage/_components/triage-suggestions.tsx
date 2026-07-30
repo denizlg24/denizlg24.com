@@ -151,7 +151,7 @@ export function TriageSuggestions({
   pendingIds,
   onDecide,
 }: {
-  triage: IEmailTriage;
+  triage: Pick<IEmailTriage, "suggestedTasks" | "suggestedEvents">;
   pendingIds: Set<string>;
   onDecide: (
     id: string,

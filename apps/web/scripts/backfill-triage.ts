@@ -6,6 +6,7 @@
  * create assignments, cards, or calendar events unexpectedly.
  */
 import { randomUUID } from "node:crypto";
+import mongoose from "mongoose";
 import { runTriage, type TriageRunStats } from "@/lib/triage";
 import {
   releaseTriageRunLease,
@@ -111,6 +112,16 @@ function validateEnvironment(): void {
 }
 
 async function main(): Promise<void> {
+  try {
+    await backfill();
+  } finally {
+    // runTriage() opens the shared mongoose connection; without this the
+    // script keeps an open handle and never exits on its own.
+    await mongoose.disconnect();
+  }
+}
+
+async function backfill(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv.includes("--help")) {
     console.log(usage());
@@ -118,6 +129,7 @@ async function main(): Promise<void> {
   }
 
   if (argv.includes("--reset-lease")) {
+    validateEnvironment();
     const previous = await resetTriageRunLease();
     console.log(
       previous.owner

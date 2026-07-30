@@ -6,7 +6,8 @@ export async function getInstagramToken(): Promise<IInstagramToken | null> {
   const token = await InstagramToken.findOne().sort({ createdAt: -1 }).lean();
   return token ? { ...token, _id: token._id.toString() } : null;
 }
-export async function deleteInstagramToken(id: string): Promise<void> {
+export async function deleteInstagramToken(): Promise<number> {
   await connectDB();
-  await InstagramToken.findByIdAndDelete(id);
+  const { deletedCount } = await InstagramToken.deleteMany({});
+  return deletedCount;
 }

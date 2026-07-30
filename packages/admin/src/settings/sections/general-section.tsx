@@ -1,9 +1,13 @@
 "use client";
 
-import type {
-  AppSettingsResponse,
-  ICalendarSettings,
-  ICountryOption,
+import {
+  type AppSettingsResponse,
+  type CalendarSettingsResponse,
+  type CountryOptionsResponse,
+  calendarSettingsResponseSchema,
+  countryOptionsResponseSchema,
+  type ICalendarSettings,
+  type ICountryOption,
 } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import {
@@ -136,27 +140,37 @@ function HolidayCountrySetting() {
   const [value, setValue] = useState(COUNTRY_NONE);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [countriesFailed, setCountriesFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const [settingsResult, countriesResult] = await Promise.allSettled([
-        client.get<{ settings: ICalendarSettings }>("calendar/settings"),
-        client.get<{ countries: ICountryOption[] }>("calendar/countries"),
+        client.get<CalendarSettingsResponse>("calendar/settings"),
+        client.get<CountryOptionsResponse>("calendar/countries"),
       ]);
       if (cancelled) return;
 
       if (settingsResult.status === "fulfilled") {
-        setStored(settingsResult.value.settings);
-        setValue(
-          settingsResult.value.settings.holidayCountryCode ?? COUNTRY_NONE,
+        const parsed = calendarSettingsResponseSchema.parse(
+          settingsResult.value,
         );
+        setStored(parsed.settings);
+        setValue(parsed.settings.holidayCountryCode ?? COUNTRY_NONE);
       } else {
         toast.error("Failed to load calendar settings");
       }
 
       if (countriesResult.status === "fulfilled") {
-        setCountries(countriesResult.value.countries);
+        setCountries(
+          countryOptionsResponseSchema.parse(countriesResult.value).countries,
+        );
+        setCountriesFailed(false);
+      } else {
+        // An empty picker is indistinguishable from "no countries available",
+        // so the failure has to be visible rather than silent.
+        setCountriesFailed(true);
+        toast.error("Failed to load countries");
       }
 
       setLoading(false);
@@ -181,11 +195,11 @@ function HolidayCountrySetting() {
     setValue(next);
     setSaving(true);
     try {
-      const data = await client.patch<{ settings: ICalendarSettings }>(
+      const data = await client.patch<CalendarSettingsResponse>(
         "calendar/settings",
         { holidayCountryCode: next === COUNTRY_NONE ? null : next },
       );
-      setStored(data.settings);
+      setStored(calendarSettingsResponseSchema.parse(data).settings);
     } catch {
       setValue(previous);
       toast.error("Failed to save");
@@ -205,6 +219,11 @@ function HolidayCountrySetting() {
         <div className="flex items-center gap-1.5">
           {saving && (
             <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+          )}
+          {countriesFailed && (
+            <span className="shrink-0 text-[11px] text-status-warning">
+              Countries unavailable
+            </span>
           )}
           <Select value={value} onValueChange={(next) => void commit(next)}>
             <SelectTrigger className="h-8 w-full min-w-0 text-xs">

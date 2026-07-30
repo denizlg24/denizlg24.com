@@ -4,6 +4,7 @@ import type {
   ITriageCategoryRouting,
   ITriageSettings,
   TriageCategory,
+  TriageSettingsResponse,
 } from "@repo/schemas";
 import { Input } from "@repo/ui/input";
 import { Skeleton } from "@repo/ui/skeleton";
@@ -111,9 +112,7 @@ export function TriageSection() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await client.get<{ settings: ITriageSettings }>(
-          "triage/settings",
-        );
+        const res = await client.get<TriageSettingsResponse>("triage/settings");
         if (cancelled) return;
         setData(res.settings);
         latest.current = res.settings;
@@ -142,7 +141,7 @@ export function TriageSection() {
       latest.current = optimistic;
       setData(optimistic);
       try {
-        const res = await client.patch<{ settings: ITriageSettings }>(
+        const res = await client.patch<TriageSettingsResponse>(
           "triage/settings",
           next,
         );
@@ -231,10 +230,7 @@ export function TriageSection() {
         }
       >
         <div className="space-y-6">
-          <SettingsRow
-            label="Enabled"
-            hint="Triage new mail automatically on a schedule."
-          >
+          <SettingsRow label="Enabled">
             <div className="flex sm:justify-end">
               <Switch
                 checked={data.enabled}
@@ -243,10 +239,7 @@ export function TriageSection() {
             </div>
           </SettingsRow>
 
-          <SettingsRow
-            label="Interval"
-            hint="Minutes between runs. Minimum 15."
-          >
+          <SettingsRow label="Interval">
             <Input
               type="number"
               min={15}
@@ -260,10 +253,7 @@ export function TriageSection() {
             />
           </SettingsRow>
 
-          <SettingsRow
-            label="Extraction model"
-            hint="Reads flagged mail and proposes tasks and events."
-          >
+          <SettingsRow label="Extraction model">
             <RequiredSettingsModelPicker
               value={data.fullModel}
               models={models}
@@ -279,7 +269,6 @@ export function TriageSection() {
 
       <SettingsGroup
         label="Review threshold"
-        description="Python predictions below this confidence skip extraction and wait for review."
         actions={
           <span className="shrink-0 text-sm font-medium tabular-nums">
             {(data.classificationConfidenceThreshold * 100).toFixed(0)}%
@@ -303,10 +292,7 @@ export function TriageSection() {
         />
       </SettingsGroup>
 
-      <SettingsGroup
-        label="Category automation"
-        description="Board and column targets are inferred during triage from your current boards."
-      >
+      <SettingsGroup label="Category automation">
         <div className="divide-y">
           {TRIAGE_CATEGORIES.map((category) => (
             <RoutingRow

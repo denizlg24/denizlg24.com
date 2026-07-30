@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { cn } from "@repo/ui/utils";
+import { formatMoney } from "@repo/utils";
 import { Check, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -317,7 +318,9 @@ export function FinanceSettingsForm({
                       {balance.currency}
                     </span>
                     <span className="tabular-nums">
-                      {(balance.amountMinor / 100).toFixed(2)}
+                      {formatMoney(balance.amountMinor, balance.currency, {
+                        style: "decimal",
+                      })}
                     </span>
                   </div>
                 ))}

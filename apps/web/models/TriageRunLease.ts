@@ -14,7 +14,7 @@ const TriageRunLeaseSchema = new Schema<ITriageRunLease>(
     owner: { type: String },
     expiresAt: { type: Date, required: true, default: () => new Date(0) },
   },
-  { timestamps: true, _id: false },
+  { timestamps: true },
 );
 
 export const TriageRunLeaseModel: mongoose.Model<ITriageRunLease> =

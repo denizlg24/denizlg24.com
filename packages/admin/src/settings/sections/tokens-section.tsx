@@ -19,6 +19,7 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -285,12 +286,15 @@ function InstagramGroup() {
   const { client, platform } = useAdmin();
   const [status, setStatus] = useState<InstagramTokenStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
+    setFailed(false);
     try {
       setStatus(await client.get<InstagramTokenStatus>("instagram-token"));
     } catch {
       toast.error("Failed to load Instagram token");
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -320,6 +324,21 @@ function InstagramGroup() {
     <SettingsGroup label="Instagram">
       {loading ? (
         <Skeleton className="h-9 w-full" />
+      ) : failed ? (
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-[11px] text-status-warning">
+            Load failed
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 shrink-0 gap-1 px-1.5 text-[11px]"
+            onClick={() => void load()}
+          >
+            <RotateCcw className="size-3" />
+            Retry
+          </Button>
+        </div>
       ) : (
         <div className="flex flex-wrap items-center gap-3">
           {status?.token ? (
@@ -384,10 +403,8 @@ function InstagramGroup() {
           )}
         </div>
       )}
-      {!loading && !authorizeUrl && (
-        <p className="text-[11px] text-muted-foreground">
-          INSTAGRAM_APP_ID / INSTAGRAM_REDIRECT_URI unset on the server.
-        </p>
+      {!loading && !failed && !authorizeUrl && (
+        <p className="text-[11px] text-muted-foreground">Unavailable</p>
       )}
     </SettingsGroup>
   );

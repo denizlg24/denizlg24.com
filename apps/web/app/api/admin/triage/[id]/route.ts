@@ -1,3 +1,4 @@
+import { TRIAGE_CATEGORIES } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { fetchEmailBody } from "@/lib/email";
@@ -7,15 +8,6 @@ import { EmailModel } from "@/models/Email";
 import { EmailTriageModel } from "@/models/EmailTriage";
 
 const TRIAGE_USER_STATUSES = ["pending", "reviewed", "archived"] as const;
-const TRIAGE_CATEGORIES = [
-  "spam",
-  "newsletter",
-  "promo",
-  "purchases",
-  "fyi",
-  "action-needed",
-  "scheduled",
-] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -134,7 +126,7 @@ export async function PATCH(
 
   if (isTriageCategory(payload.category)) {
     const current = await EmailTriageModel.findById(id)
-      .select("category llmCategory")
+      .select("category")
       .lean();
     if (!current) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -144,9 +136,9 @@ export async function PATCH(
       update.category = payload.category;
       // Snapshot the pre-correction label once, so dataset building can still
       // tell what triage originally answered. Re-corrections keep the first one.
-      if (!current.llmCategory) {
-        update.llmCategory = current.category;
-      }
+      // Resolved server-side so concurrent PATCHes cannot each read an unset
+      // llmCategory and overwrite the earlier snapshot with their own category.
+      update.llmCategory = { $ifNull: ["$llmCategory", "$category"] };
       // A category override is a human verdict whether or not the caller said so.
       update.userStatus = update.userStatus ?? "reviewed";
       update.reviewRequired = false;
@@ -162,10 +154,10 @@ export async function PATCH(
 
   const triage = await EmailTriageModel.findByIdAndUpdate(
     id,
-    {
-      $set: update,
-      ...(clearsReviewReason ? { $unset: { reviewReason: 1 } } : {}),
-    },
+    [
+      { $set: update },
+      ...(clearsReviewReason ? [{ $unset: "reviewReason" }] : []),
+    ],
     {
       returnDocument: "after",
     },

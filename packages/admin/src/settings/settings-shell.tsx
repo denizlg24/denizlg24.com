@@ -187,6 +187,13 @@ export function SettingsRow({
 }
 
 export function SettingsSkeleton({ active }: { active: string }) {
+  // Match the real shell's rail exactly, extra slots included, so the
+  // placeholder is not one row short and does not shift on mount.
+  const { slots } = useAdmin();
+  const railSlugs = [
+    ...SETTINGS_SECTIONS.map((section) => section.slug),
+    ...(slots?.settingsExtraSections ?? []).map((section) => section.slug),
+  ];
   return (
     <div className="flex h-full min-h-0 flex-col">
       <HeaderBarSkeleton
@@ -194,12 +201,12 @@ export function SettingsSkeleton({ active }: { active: string }) {
       />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <nav className="flex shrink-0 gap-1 overflow-hidden border-b px-3 py-2 md:w-52 md:flex-col md:gap-0.5 md:border-b-0 md:border-r md:px-2 md:py-3">
-          {SETTINGS_SECTIONS.map((section) => (
+          {railSlugs.map((slug) => (
             <div
-              key={section.slug}
+              key={slug}
               className={cn(
                 "flex items-center gap-2 rounded-sm px-2.5 py-1.5",
-                section.slug === active && "bg-accent",
+                slug === active && "bg-accent",
               )}
             >
               <Skeleton className="size-3.5 shrink-0 rounded-xs" />

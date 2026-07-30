@@ -111,6 +111,7 @@ export default function TriagePage() {
   const [archivingAll, setArchivingAll] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const loadedBlocksRef = useRef<Set<string>>(new Set());
+  const inFlightBlocksRef = useRef<Set<string>>(new Set());
   const cacheGenerationRef = useRef(0);
 
   const items = itemsByPage[pageIndex] ?? [];
@@ -127,6 +128,7 @@ export default function TriagePage() {
 
   const resetItemsCache = useCallback(() => {
     loadedBlocksRef.current = new Set();
+    inFlightBlocksRef.current = new Set();
     cacheGenerationRef.current += 1;
     setItemsByPage({});
     setTotalRows(0);
@@ -148,22 +150,35 @@ export default function TriagePage() {
 
       const blockStart = getPrefetchBlockStart(targetPage);
       const generation = cacheGenerationRef.current;
+
+      // A forced fetch has not registered its block key by the time the effect
+      // re-runs on the new pageIndex, so without an in-flight guard the same
+      // request goes out twice. Scoped by generation so a cache reset can
+      // immediately refetch a key that the previous generation still has open.
+      const inFlightKey = `${generation}:${blockKey}`;
+      if (inFlightBlocksRef.current.has(inFlightKey)) return;
+      inFlightBlocksRef.current.add(inFlightKey);
+
       const offset = blockStart * TRIAGE_PAGE_SIZE;
       const limit = TRIAGE_PAGE_SIZE * PREFETCH_PAGE_COUNT;
 
       setLoading(true);
-      const res = await api.GET<TriageListResponse>({
-        endpoint: getTriageEndpoint(filter, offset, limit),
-      });
-      if (generation !== cacheGenerationRef.current) return;
+      try {
+        const res = await api.GET<TriageListResponse>({
+          endpoint: getTriageEndpoint(filter, offset, limit),
+        });
+        if (generation !== cacheGenerationRef.current) return;
 
-      if ("code" in res) {
-        toast.error("Failed to load triage");
-      } else {
-        loadedBlocksRef.current.add(blockKey);
-        cacheItems(res);
+        if ("code" in res) {
+          toast.error("Failed to load triage");
+        } else {
+          loadedBlocksRef.current.add(blockKey);
+          cacheItems(res);
+        }
+        setLoading(false);
+      } finally {
+        inFlightBlocksRef.current.delete(inFlightKey);
       }
-      setLoading(false);
     },
     [api, cacheItems, filter, pageIndex],
   );

@@ -60,8 +60,8 @@ export function TriageLoadingSkeleton({
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-4 pb-4 pt-2">
         <div className="flex shrink-0 gap-4 border-b pb-2">
-          {FILTER_WIDTHS.map((width) => (
-            <Skeleton key={width} className={`h-3 ${width}`} />
+          {FILTER_WIDTHS.map((width, index) => (
+            <Skeleton key={index} className={`h-3 ${width}`} />
           ))}
         </div>
         <TriageContentSkeleton />

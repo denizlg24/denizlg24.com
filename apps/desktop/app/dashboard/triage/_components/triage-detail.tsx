@@ -23,26 +23,18 @@ import {
   Check,
   Loader2,
   Paperclip,
+  RotateCw,
   Undo2,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
-import type { IEmailTriage, TriageCategory } from "@/lib/data-types";
+import {
+  type TriageCategory,
+  type TriageDetailResponse,
+  triageDetailResponseSchema,
+} from "@/lib/data-types";
 import { TriageSuggestions } from "./triage-suggestions";
-
-interface DetailResponse {
-  triage: IEmailTriage;
-  email: {
-    _id: string;
-    accountId: string;
-    subject: string;
-    from: { name?: string; address: string }[];
-    date: string;
-    threadId?: string;
-    body: { text: string; html: string } | null;
-  };
-}
 
 function isTriageCategory(value: string): value is TriageCategory {
   return TRIAGE_CATEGORIES.some((category) => category === value);
@@ -59,8 +51,10 @@ export function TriageDetail({
   onBack: () => void;
   onChanged: () => void | Promise<void>;
 }) {
-  const [detail, setDetail] = useState<DetailResponse | null>(null);
+  const [detail, setDetail] = useState<TriageDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [savingCategory, setSavingCategory] = useState(false);
@@ -69,13 +63,16 @@ export function TriageDetail({
     let cancelled = false;
     setLoading(true);
     setDetail(null);
+    setLoadFailed(false);
     (async () => {
-      const res = await api.GET<DetailResponse>({
+      const res = await api.GET<TriageDetailResponse>({
         endpoint: `triage/${triageId}`,
+        schema: triageDetailResponseSchema,
       });
       if (cancelled) return;
       if ("code" in res) {
         toast.error("Failed to load triage");
+        setLoadFailed(true);
       } else {
         setDetail(res);
       }
@@ -84,7 +81,7 @@ export function TriageDetail({
     return () => {
       cancelled = true;
     };
-  }, [api, triageId]);
+  }, [api, triageId, reloadToken]);
 
   const decide = useCallback(
     async (
@@ -118,7 +115,7 @@ export function TriageDetail({
 
       toast.success(action === "accept" ? "Accepted" : "Dismissed");
       await onChanged();
-      const refreshed = await api.GET<DetailResponse>({
+      const refreshed = await api.GET<TriageDetailResponse>({
         endpoint: `triage/${triageId}`,
       });
       if (!("code" in refreshed)) setDetail(refreshed);
@@ -126,7 +123,9 @@ export function TriageDetail({
     [api, triageId, onChanged],
   );
 
-  const changeStatus = async (nextStatus: IEmailTriage["userStatus"]) => {
+  const changeStatus = async (
+    nextStatus: TriageDetailResponse["triage"]["userStatus"],
+  ) => {
     setUpdatingStatus(true);
     const res = await api.PATCH<{ ok: boolean; error?: string }>({
       endpoint: `triage/${triageId}`,
@@ -183,7 +182,7 @@ export function TriageDetail({
 
     toast.success(`Moved to ${CATEGORY_LABELS[next]}`);
     await onChanged();
-    const refreshed = await api.GET<DetailResponse>({
+    const refreshed = await api.GET<TriageDetailResponse>({
       endpoint: `triage/${triageId}`,
     });
     if (!("code" in refreshed)) setDetail(refreshed);
@@ -304,7 +303,22 @@ export function TriageDetail({
         )}
       </div>
 
-      {loading || !detail ? (
+      {loadFailed ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4">
+          <span className="text-sm text-muted-foreground">
+            Couldn't load this triage.
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => setReloadToken((token) => token + 1)}
+          >
+            <RotateCw className="size-3.5" />
+            Retry
+          </Button>
+        </div>
+      ) : loading || !detail ? (
         <div className="min-h-0 flex-1 space-y-4 overflow-hidden px-4 py-5 sm:px-8">
           <Skeleton className="h-5 w-2/3" />
           <Skeleton className="h-3 w-40" />
@@ -317,10 +331,8 @@ export function TriageDetail({
         <div className="min-h-0 flex-1 overflow-y-auto">
           {detail.triage.reviewRequired && (
             <section className="flex flex-wrap items-center gap-2 border-b border-l-2 border-l-status-warning bg-status-warning/5 px-4 py-2.5 sm:px-8">
-              <span className="text-xs font-medium">Confirm the category</span>
-              <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">
-                Scored below threshold — extraction was skipped. Change it above
-                if it's wrong.
+              <span className="min-w-0 flex-1 text-xs font-medium">
+                Confirm the category
               </span>
               <Button
                 size="sm"

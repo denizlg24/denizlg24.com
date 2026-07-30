@@ -56,11 +56,10 @@ export async function DELETE(request: NextRequest) {
   if (authError) return authError;
 
   try {
-    const token = await getInstagramToken();
-    if (!token) {
+    const deleted = await deleteInstagramToken();
+    if (deleted === 0) {
       return NextResponse.json({ error: "No token" }, { status: 404 });
     }
-    await deleteInstagramToken(token._id.toString());
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting Instagram token:", error);
