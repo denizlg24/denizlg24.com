@@ -11,12 +11,13 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
+PUBLIC_ROOT = Path(__file__).resolve().parent / "public"
 SOURCE_ROOT = str(Path(__file__).resolve().parent / "src")
 if SOURCE_ROOT not in sys.path:
     sys.path.insert(0, SOURCE_ROOT)
@@ -155,9 +156,10 @@ async def secure_and_limit_requests(
     else:
         response = await call_next(request)
 
-    response.headers["Cache-Control"] = "no-store"
+    response.headers.setdefault("Cache-Control", "no-store")
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
 
@@ -219,21 +221,20 @@ def classify_email(email: EmailClassificationRequest) -> ClassificationResponse:
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-def root() -> str:
-    """Render a minimal landing page matching Vercel's FastAPI example."""
-    return """<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Email Classifier API</title>
-  <link rel="icon" href="/favicon.ico">
-</head>
-<body>
-  <main>
-    <h1>Email Classifier API</h1>
-    <p>FastAPI running on Vercel.</p>
-    <p><a href="/docs">Open API documentation</a></p>
-  </main>
-</body>
-</html>"""
+def root() -> FileResponse:
+    """Serve the classification playground."""
+    return FileResponse(
+        PUBLIC_ROOT / "index.html",
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=0, must-revalidate"},
+    )
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    """Serve the icon directly; the runtime does not publish `public/`."""
+    return FileResponse(
+        PUBLIC_ROOT / "favicon.ico",
+        media_type="image/x-icon",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )

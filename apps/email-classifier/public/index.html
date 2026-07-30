@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email Classifier — denizlg24</title>
+<meta name="description" content="Playground for the personalized inbox triage classifier: score an email and inspect the full label distribution.">
+<link rel="canonical" href="https://classifier.denizlg24.com/">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f9f8f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#303630" media="(prefers-color-scheme: dark)">
+<meta name="robots" content="noindex">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="denizlg24">
+<meta property="og:title" content="Email Classifier">
+<meta property="og:description" content="Playground for the personalized inbox triage classifier.">
+<meta property="og:url" content="https://classifier.denizlg24.com/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Email Classifier">
+<meta name="twitter:description" content="Playground for the personalized inbox triage classifier.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Calistoga&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --background: #f9f8f6;
+    --surface: #f1f3e0;
+    --muted: #d2dcb6;
+    --accent: #a1bc98;
+    --accent-strong: #303630;
+    --foreground: #647560;
+    --strong: #303630;
+    --muted-foreground: #4f5a4a;
+    --border: #d2dcb6;
+    --destructive: #c0352b;
+    --input: #f1f3e0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: #303630;
+      --surface: #3d463c;
+      --muted: #536150;
+      --accent: #a1bc98;
+      --accent-strong: #a1bc98;
+      --foreground: #f9f8f6;
+      --strong: #f9f8f6;
+      --muted-foreground: #d2dcb6;
+      --border: #536150;
+      --destructive: #e0796d;
+      --input: #536150;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2.5rem 1.25rem 4rem;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 62rem; margin: 0 auto; }
+
+  header { margin-bottom: 2rem; }
+  h1 {
+    font-family: "Calistoga", ui-serif, Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(1.9rem, 5vw, 2.6rem);
+    line-height: 1.1;
+    margin: 0 0 .4rem;
+    color: var(--strong);
+  }
+  .sub { margin: 0; color: var(--muted-foreground); font-size: .9rem; }
+  .sub code { font-size: .85em; }
+  a { color: var(--strong); text-underline-offset: .2em; }
+
+  .grid { display: grid; gap: 1.75rem; grid-template-columns: 1fr; }
+  @media (min-width: 62rem) { .grid { grid-template-columns: 1.15fr .85fr; } }
+
+  fieldset {
+    border: 1px solid var(--border);
+    border-radius: .75rem;
+    background: var(--surface);
+    padding: 1.25rem;
+    margin: 0;
+  }
+  legend {
+    font-size: .72rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    padding: 0 .45rem;
+  }
+  .row { display: grid; gap: .9rem; grid-template-columns: 1fr; }
+  @media (min-width: 34rem) { .row.two { grid-template-columns: 1fr 1fr; } }
+
+  label { display: block; font-size: .78rem; font-weight: 500; margin-bottom: .3rem; color: var(--muted-foreground); }
+  input[type="text"], input[type="password"], input[type="number"], textarea {
+    width: 100%;
+    font: inherit;
+    font-size: .9rem;
+    color: var(--strong);
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: .5rem;
+    padding: .55rem .7rem;
+  }
+  textarea { min-height: 11rem; resize: vertical; line-height: 1.5; }
+  input:focus-visible, textarea:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent-strong);
+    outline-offset: 2px;
+  }
+  .check { display: flex; align-items: center; gap: .5rem; margin-top: 1.6rem; }
+  .check label { margin: 0; }
+  input[type="checkbox"] { width: 1rem; height: 1rem; accent-color: var(--accent-strong); }
+
+  .actions { display: flex; align-items: center; gap: .9rem; margin-top: 1.1rem; flex-wrap: wrap; }
+  button {
+    font: inherit;
+    font-weight: 500;
+    font-size: .88rem;
+    color: var(--background);
+    background: var(--accent-strong);
+    border: 1px solid var(--accent-strong);
+    border-radius: .5rem;
+    padding: .55rem 1.15rem;
+    cursor: pointer;
+  }
+  @media (prefers-color-scheme: dark) { button { color: #303630; } }
+  button:hover:not(:disabled) { opacity: .9; }
+  button:disabled { opacity: .5; cursor: progress; }
+  button.ghost { background: transparent; color: var(--muted-foreground); border-color: var(--border); }
+
+  .status { font-size: .82rem; color: var(--muted-foreground); }
+  .status.error { color: var(--destructive); }
+
+  .verdict { display: flex; align-items: baseline; gap: .7rem; flex-wrap: wrap; margin-bottom: 1.4rem; }
+  .verdict strong {
+    font-family: "Calistoga", ui-serif, Georgia, serif;
+    font-weight: 400;
+    font-size: 1.9rem;
+    color: var(--strong);
+  }
+  .verdict span { font-variant-numeric: tabular-nums; font-size: .85rem; color: var(--muted-foreground); }
+
+  .bars { display: grid; gap: .55rem; }
+  .bar-row { display: grid; grid-template-columns: 7.5rem 1fr 3.2rem; align-items: center; gap: .6rem; font-size: .8rem; }
+  .bar-name { color: var(--muted-foreground); }
+  .bar-row.top .bar-name { color: var(--strong); font-weight: 500; }
+  .track { height: .5rem; border-radius: 999px; background: var(--muted); overflow: hidden; }
+  .fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .25s ease; }
+  .bar-row.top .fill { background: var(--accent-strong); }
+  .bar-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+
+  .empty { color: var(--muted-foreground); font-size: .85rem; }
+  footer { margin-top: 2.5rem; font-size: .78rem; color: var(--muted-foreground); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Email Classifier</h1>
+    <p class="sub"><span id="version">—</span> · <a href="/docs">API docs</a></p>
+  </header>
+
+  <form id="form" class="grid">
+    <div>
+      <fieldset>
+        <legend>Email</legend>
+        <div class="row two">
+          <div>
+            <label for="sender_name">Sender name</label>
+            <input type="text" id="sender_name" value="Shop Support" maxlength="10000">
+          </div>
+          <div>
+            <label for="sender_address">Sender address</label>
+            <input type="text" id="sender_address" value="orders@shop.example.com" maxlength="10000">
+          </div>
+        </div>
+        <div class="row" style="margin-top:.9rem">
+          <div>
+            <label for="subject">Subject</label>
+            <input type="text" id="subject" value="Your order #40912 has shipped" maxlength="10000">
+          </div>
+        </div>
+        <div class="row" style="margin-top:.9rem">
+          <div>
+            <label for="body">Body</label>
+            <textarea id="body">Thanks for your purchase. Your parcel is on its way. Total charged: 49.90 EUR. Track your delivery using the link below.</textarea>
+          </div>
+        </div>
+        <div class="row two" style="margin-top:.9rem">
+          <div>
+            <label for="attachment_count">Attachments</label>
+            <input type="number" id="attachment_count" value="1" min="0" max="10000" step="1">
+          </div>
+          <div class="check">
+            <input type="checkbox" id="has_html" checked>
+            <label for="has_html">HTML body</label>
+          </div>
+        </div>
+        <div class="actions">
+          <button type="submit" id="submit">Classify</button>
+          <button type="button" class="ghost" id="clear">Clear</button>
+          <span class="status" id="status"></span>
+        </div>
+      </fieldset>
+    </div>
+
+    <div>
+      <fieldset>
+        <legend>Token</legend>
+        <label for="token">Bearer</label>
+        <input type="password" id="token" autocomplete="current-password" spellcheck="false">
+      </fieldset>
+
+      <fieldset style="margin-top:1.25rem">
+        <legend>Result</legend>
+        <div id="result"><p class="empty">No prediction yet.</p></div>
+      </fieldset>
+    </div>
+  </form>
+
+  <footer>Model artifact is fetched from private storage and cached per warm instance.</footer>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const KEY = "email-classifier-token";
+  const token = $("token");
+  const status = $("status");
+  const result = $("result");
+
+  token.value = localStorage.getItem(KEY) || "";
+  token.addEventListener("change", () => localStorage.setItem(KEY, token.value.trim()));
+
+  const setStatus = (text, isError) => {
+    status.textContent = text;
+    status.classList.toggle("error", Boolean(isError));
+  };
+
+  const auth = () => {
+    const value = token.value.trim();
+    if (!value) throw new Error("Bearer token is required");
+    return { Authorization: `Bearer ${value}`, "Content-Type": "application/json" };
+  };
+
+  const describe = async (response) => {
+    let detail = "";
+    try { detail = (await response.json()).error || ""; } catch { /* non-JSON body */ }
+    return `${response.status}${detail ? ` — ${detail}` : ""}`;
+  };
+
+  const render = (data) => {
+    const entries = Object.entries(data.probabilities).sort((a, b) => b[1] - a[1]);
+    const rows = entries.map(([name, value], index) => `
+      <div class="bar-row${index === 0 ? " top" : ""}">
+        <span class="bar-name">${name}</span>
+        <span class="track"><span class="fill" style="width:${(value * 100).toFixed(1)}%"></span></span>
+        <span class="bar-val">${(value * 100).toFixed(1)}%</span>
+      </div>`).join("");
+    result.innerHTML = `
+      <div class="verdict">
+        <strong>${data.category}</strong>
+        <span>${(data.confidence * 100).toFixed(1)}% confidence</span>
+      </div>
+      <div class="bars">${rows}</div>`;
+  };
+
+  const refreshVersion = async () => {
+    if (!token.value.trim()) return;
+    try {
+      const response = await fetch("/api/classify", { headers: auth() });
+      if (!response.ok) return;
+      const data = await response.json();
+      $("version").textContent = data.model_version;
+    } catch { /* readiness is best effort */ }
+  };
+
+  $("clear").addEventListener("click", () => {
+    for (const id of ["sender_name", "sender_address", "subject", "body"]) $(id).value = "";
+    $("attachment_count").value = "0";
+    $("has_html").checked = false;
+    result.innerHTML = '<p class="empty">No prediction yet.</p>';
+    setStatus("");
+  });
+
+  $("form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = $("submit");
+    button.disabled = true;
+    setStatus("Classifying…");
+    try {
+      const response = await fetch("/api/classify", {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({
+          subject: $("subject").value,
+          body: $("body").value,
+          sender_name: $("sender_name").value,
+          sender_address: $("sender_address").value,
+          attachment_count: Number($("attachment_count").value) || 0,
+          has_html: $("has_html").checked,
+        }),
+      });
+      if (!response.ok) {
+        setStatus(await describe(response), true);
+        return;
+      }
+      const data = await response.json();
+      render(data);
+      $("version").textContent = data.model_version;
+      setStatus("");
+    } catch (error) {
+      setStatus(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  refreshVersion();
+})();
+</script>
+</body>
+</html>
