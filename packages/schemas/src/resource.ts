@@ -115,6 +115,27 @@ export const piCronJobSchema = z.object({
 });
 export type PiCronJob = z.infer<typeof piCronJobSchema>;
 
+export const PICRON_HTTP_METHODS = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+] as const;
+export type PiCronHttpMethod = (typeof PICRON_HTTP_METHODS)[number];
+
+export const piCronJobInputSchema = z.object({
+  name: z.string().min(1),
+  expression: z.string().min(1),
+  url: z.url(),
+  method: z.enum(PICRON_HTTP_METHODS),
+  headers: z.record(z.string(), z.string()).optional(),
+  body: z.string().optional(),
+  timeout: z.number().int().positive().optional(),
+  enabled: z.boolean().optional(),
+});
+export type PiCronJobInput = z.infer<typeof piCronJobInputSchema>;
+
 export const piCronStatsSchema = z.object({
   total_jobs: z.number(),
   active_jobs: z.number(),

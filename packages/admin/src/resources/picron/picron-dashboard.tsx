@@ -1,6 +1,11 @@
 "use client";
 
-import type { ICapability, PiCronJob, PiCronStats } from "@repo/schemas";
+import {
+  type ICapability,
+  PICRON_HTTP_METHODS,
+  type PiCronJob,
+  type PiCronStats,
+} from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import {
   Dialog,
@@ -28,11 +33,12 @@ function jobHost(url: string): string {
 }
 
 function jobToFormData(job: PiCronJob): JobFormData {
+  const method = job.method.toUpperCase();
   return {
     name: job.name,
     expression: job.expression,
     url: job.url,
-    method: job.method,
+    method: PICRON_HTTP_METHODS.find((m) => m === method) ?? "GET",
     headers: job.headers,
     body: job.body || undefined,
     timeout: job.timeout,
