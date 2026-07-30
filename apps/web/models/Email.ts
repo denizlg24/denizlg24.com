@@ -11,6 +11,8 @@ export interface IEmail extends Document {
   inReplyTo?: string;
   references?: string[];
   threadId?: string;
+  triageSkippedAt?: Date;
+  triageSkipReason?: "imap-message-missing";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -27,6 +29,11 @@ const EmailSchema = new Schema<IEmail>(
     inReplyTo: { type: String },
     references: { type: [String], default: undefined },
     threadId: { type: String, index: true },
+    triageSkippedAt: { type: Date, index: true },
+    triageSkipReason: {
+      type: String,
+      enum: ["imap-message-missing"],
+    },
   },
   { timestamps: true },
 );

@@ -103,6 +103,10 @@ export async function saveEmail(emailData: {
       $setOnInsert: {
         createdAt: new Date(),
       },
+      $unset: {
+        triageSkippedAt: 1,
+        triageSkipReason: 1,
+      },
     },
     {
       upsert: true,
@@ -137,7 +141,12 @@ export interface FetchedEmailAttachmentText {
   truncated: boolean;
 }
 
-interface FetchEmailBodyOptions {
+export interface FetchedEmailBodiesResult {
+  bodies: Map<number, FetchedEmailBody>;
+  missingUids: Set<number>;
+}
+
+export interface FetchEmailBodyOptions {
   includeAttachmentText?: boolean;
 }
 
@@ -426,8 +435,22 @@ export async function fetchEmailBody(
   uid: number,
   options?: FetchEmailBodyOptions,
 ): Promise<FetchedEmailBody | null> {
+  const { bodies } = await fetchEmailBodies(accountId, [uid], options);
+  return bodies.get(uid) ?? null;
+}
+
+export async function fetchEmailBodies(
+  accountId: string,
+  uids: number[],
+  options?: FetchEmailBodyOptions,
+): Promise<FetchedEmailBodiesResult> {
+  const bodies = new Map<number, FetchedEmailBody>();
+  const uniqueUids = [...new Set(uids)];
+  const missingUids = new Set(uniqueUids);
+  if (uniqueUids.length === 0) return { bodies, missingUids };
+
   const account = await EmailAccountModel.findById(accountId).lean();
-  if (!account) return null;
+  if (!account) return { bodies, missingUids: new Set() };
 
   const password = decryptPassword(
     account.imapPassword.ciphertext,
@@ -445,28 +468,35 @@ export async function fetchEmailBody(
 
   const lock = await client.getMailboxLock(account.inboxName || "INBOX");
   try {
-    const msg = await client.fetchOne(
-      uid.toString(),
+    for await (const msg of client.fetch(
+      uniqueUids.join(","),
       { source: true, uid: true, envelope: true },
       { uid: true },
-    );
-    if (msg === false || !msg.source) return null;
+    )) {
+      missingUids.delete(msg.uid);
+      if (!msg.source) continue;
 
-    const parsed = await simpleParser(msg.source);
-    return {
-      subject: parsed.subject ?? msg.envelope?.subject ?? "",
-      from: (parsed.from?.value ?? []).map((a) => ({
-        name: a.name || undefined,
-        address: a.address ?? "",
-      })),
-      date: parsed.date ?? msg.envelope?.date ?? new Date(),
-      text: parsed.text ?? "",
-      html: typeof parsed.html === "string" ? parsed.html : "",
-      attachmentCount: parsed.attachments?.length ?? 0,
-      attachmentText: options?.includeAttachmentText
-        ? extractAttachmentText(parsed.attachments ?? [])
-        : [],
-    };
+      try {
+        const parsed = await simpleParser(msg.source);
+        bodies.set(msg.uid, {
+          subject: parsed.subject ?? msg.envelope?.subject ?? "",
+          from: (parsed.from?.value ?? []).map((a) => ({
+            name: a.name || undefined,
+            address: a.address ?? "",
+          })),
+          date: parsed.date ?? msg.envelope?.date ?? new Date(),
+          text: parsed.text ?? "",
+          html: typeof parsed.html === "string" ? parsed.html : "",
+          attachmentCount: parsed.attachments?.length ?? 0,
+          attachmentText: options?.includeAttachmentText
+            ? extractAttachmentText(parsed.attachments ?? [])
+            : [],
+        });
+      } catch (error) {
+        console.error(`Failed to parse email UID ${msg.uid}:`, error);
+      }
+    }
+    return { bodies, missingUids };
   } finally {
     lock.release();
     await client.logout();

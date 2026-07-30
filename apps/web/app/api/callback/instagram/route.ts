@@ -60,7 +60,7 @@ export async function GET(request: Request) {
     await token.save();
 
     return NextResponse.redirect(
-      `${process.env.BETTER_AUTH_URL}/admin/dashboard/instagram-tokens`,
+      `${process.env.BETTER_AUTH_URL}/admin/dashboard/settings/tokens`,
     );
   } catch (error) {
     return NextResponse.json(

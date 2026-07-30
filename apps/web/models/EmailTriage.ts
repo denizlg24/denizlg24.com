@@ -58,6 +58,13 @@ export interface IEmailTriage extends Document {
   stage: "prefilter" | "full";
   category: TriageCategory;
   modelCategory?: TriageCategory;
+  /**
+   * The label as triage produced it, snapshotted the first time a human
+   * overrides `category`. Absent means nobody has corrected this row, so
+   * `category` is still the model's own answer. Dataset building reads this to
+   * tell a weak LLM label apart from a verified human one.
+   */
+  llmCategory?: TriageCategory;
   confidence: number;
   classificationThreshold?: number;
   classificationProbabilities?: Record<TriageCategory, number>;
@@ -160,6 +167,18 @@ const EmailTriageSchema = new Schema<IEmailTriage>(
       index: true,
     },
     modelCategory: {
+      type: String,
+      enum: [
+        "spam",
+        "newsletter",
+        "promo",
+        "purchases",
+        "fyi",
+        "action-needed",
+        "scheduled",
+      ],
+    },
+    llmCategory: {
       type: String,
       enum: [
         "spam",

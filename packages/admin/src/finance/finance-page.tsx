@@ -102,7 +102,6 @@ import {
   todayKey,
   visibleLedger,
 } from "./finance-series";
-import { SettingsTab } from "./finance-settings";
 
 function RangeToggle({
   value,
@@ -329,7 +328,6 @@ export function FinancePage({
                 )}
               </TabsTrigger>
               <TabsTrigger value="forecast">Forecast</TabsTrigger>
-              <TabsTrigger value="settings">Settings</TabsTrigger>
             </TabsList>
             <TabsContent value="ledger">
               <LedgerTab
@@ -364,9 +362,6 @@ export function FinancePage({
             </TabsContent>
             <TabsContent value="forecast">
               <ForecastTab data={data} />
-            </TabsContent>
-            <TabsContent value="settings">
-              <SettingsTab data={data} onReload={load} />
             </TabsContent>
           </Tabs>
         </div>

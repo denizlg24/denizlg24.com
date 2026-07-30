@@ -128,23 +128,43 @@ export async function PATCH(
   if (isTriageUserStatus(payload.userStatus)) {
     update.userStatus = payload.userStatus;
   }
-  if (isTriageCategory(payload.category)) {
-    update.category = payload.category;
-  }
   if (payload.userStatus === "reviewed") {
     update.reviewRequired = false;
   }
+
+  if (isTriageCategory(payload.category)) {
+    const current = await EmailTriageModel.findById(id)
+      .select("category llmCategory")
+      .lean();
+    if (!current) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    if (payload.category !== current.category) {
+      update.category = payload.category;
+      // Snapshot the pre-correction label once, so dataset building can still
+      // tell what triage originally answered. Re-corrections keep the first one.
+      if (!current.llmCategory) {
+        update.llmCategory = current.category;
+      }
+      // A category override is a human verdict whether or not the caller said so.
+      update.userStatus = update.userStatus ?? "reviewed";
+      update.reviewRequired = false;
+    }
+  }
+
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
+
+  const clearsReviewReason =
+    payload.userStatus === "reviewed" || update.reviewRequired === false;
 
   const triage = await EmailTriageModel.findByIdAndUpdate(
     id,
     {
       $set: update,
-      ...(payload.userStatus === "reviewed"
-        ? { $unset: { reviewReason: 1 } }
-        : {}),
+      ...(clearsReviewReason ? { $unset: { reviewReason: 1 } } : {}),
     },
     {
       returnDocument: "after",

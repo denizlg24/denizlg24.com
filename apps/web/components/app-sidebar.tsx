@@ -22,11 +22,9 @@ import {
   MessageSquare,
   NotebookPen,
   Server,
-  Settings,
   Settings2,
 } from "lucide-react";
 import Link from "next/link";
-import { FaInstagram } from "react-icons/fa6";
 
 import {
   Sidebar,
@@ -116,16 +114,6 @@ const items = [
     title: "CV",
     url: "/admin/dashboard/cv",
     icon: FileUser,
-  },
-  {
-    title: "Instagram Tokens",
-    url: "/admin/dashboard/instagram-tokens",
-    icon: FaInstagram,
-  },
-  {
-    title: "API Tokens",
-    url: "/admin/dashboard/api-tokens",
-    icon: Settings,
   },
   {
     title: "Authenticator",

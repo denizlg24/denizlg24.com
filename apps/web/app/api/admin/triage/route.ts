@@ -89,14 +89,40 @@ export async function GET(request: NextRequest) {
     if (!Number.isNaN(d.getTime())) query.triagedAt = { $lt: d };
   }
 
-  const [triages, totalRows] = await Promise.all([
+  const [triages, totalRows, facets] = await Promise.all([
     EmailTriageModel.find(query)
       .sort({ triagedAt: -1, _id: -1 })
       .skip(offset)
       .limit(limit)
       .lean(),
     EmailTriageModel.countDocuments(query),
+    // One pass for every filter tab's badge, so switching tabs never costs a
+    // round trip just to learn a count.
+    EmailTriageModel.aggregate<{ _id: string; count: number }>([
+      {
+        $group: {
+          _id: {
+            $cond: [
+              { $eq: ["$userStatus", "archived"] },
+              "archived",
+              {
+                $cond: [
+                  { $eq: ["$reviewRequired", true] },
+                  "review",
+                  "$category",
+                ],
+              },
+            ],
+          },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
   ]);
+
+  const stats = Object.fromEntries(
+    facets.map((facet) => [facet._id, facet.count]),
+  );
 
   const emailIds = triages.map((t) => t.emailId);
   const emails = await EmailModel.find({ _id: { $in: emailIds } })
@@ -113,6 +139,7 @@ export async function GET(request: NextRequest) {
       stage: t.stage,
       category: t.category,
       modelCategory: t.modelCategory,
+      llmCategory: t.llmCategory,
       confidence: t.confidence,
       classificationThreshold: t.classificationThreshold,
       classificationProbabilities: t.classificationProbabilities,
@@ -162,6 +189,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     items,
     totalRows,
+    stats,
     offset,
     limit,
     nextCursor: items.at(-1)?.triagedAt.toISOString() ?? null,

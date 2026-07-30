@@ -1,10 +1,5 @@
-import { SettingsPage } from "@repo/admin/settings/settings-page";
-import { AdminFeatureShell } from "../_components/admin-feature-shell";
+import { redirect } from "next/navigation";
 
 export default function SettingsAdminPage() {
-  return (
-    <AdminFeatureShell>
-      <SettingsPage />
-    </AdminFeatureShell>
-  );
+  redirect("/admin/dashboard/settings/general");
 }

@@ -85,6 +85,8 @@ export const emailTriageSchema = z.object({
   stage: z.enum(["prefilter", "full"]),
   category: triageCategorySchema,
   modelCategory: triageCategorySchema.optional(),
+  /** Pre-correction label; present only once a human has overridden `category`. */
+  llmCategory: triageCategorySchema.optional(),
   confidence: z.number(),
   classificationThreshold: z.number().min(0).max(1).optional(),
   classificationProbabilities: z
@@ -150,6 +152,8 @@ export type TriageFilter = z.infer<typeof triageFilterSchema>;
 export const triageListResponseSchema = z.object({
   items: z.array(emailTriageSchema),
   totalRows: z.number(),
+  /** Count per filter tab, keyed by category plus "review" and "archived". */
+  stats: z.record(z.string(), z.number()).optional(),
   offset: z.number(),
   limit: z.number(),
 });
