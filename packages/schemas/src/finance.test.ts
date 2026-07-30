@@ -2,8 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   financeAccountBudgetSchema,
   financeBankLedgerEntrySchema,
+  financeExpectedEntryInputSchema,
+  financeLedgerEntryUpdateSchema,
   financeManualEntryInputSchema,
+  financeProjectedLedgerEntrySchema,
   financeProviderTransactionSchema,
+  financeRecurrenceSchema,
 } from "./finance";
 
 describe("finance schemas", () => {
@@ -79,5 +83,84 @@ describe("finance schemas", () => {
     });
 
     expect(budget.dailyFetchLimit - budget.reservedManualFetches).toBe(3);
+  });
+
+  test("accepts every cadence the rule builder can produce", () => {
+    const recurrences = [
+      { cadence: "daily", interval: 10 },
+      { cadence: "weekly", interval: 2, weekday: 3 },
+      { cadence: "semiMonthly", firstDay: 1, secondDay: 15 },
+      { cadence: "monthly", interval: 3, dayOfMonth: 28 },
+      { cadence: "yearly", interval: 1, month: 6, dayOfMonth: 30 },
+    ] as const;
+
+    for (const recurrence of recurrences) {
+      expect(financeRecurrenceSchema.parse(recurrence).cadence).toBe(
+        recurrence.cadence,
+      );
+    }
+  });
+
+  test("defaults a missing recurrence interval to 1", () => {
+    const recurrence = financeRecurrenceSchema.parse({
+      cadence: "weekly",
+      weekday: 0,
+    });
+
+    expect(recurrence).toEqual({ cadence: "weekly", interval: 1, weekday: 0 });
+  });
+
+  test("rejects a semi-monthly day outside the month", () => {
+    expect(() =>
+      financeRecurrenceSchema.parse({
+        cadence: "semiMonthly",
+        firstDay: 0,
+        secondDay: 15,
+      }),
+    ).toThrow();
+  });
+
+  // A one-off expected expense — a flight you know you'll book — is a projected
+  // entry with no rule behind it.
+  test("allows a projected entry without a recurring rule", () => {
+    const entry = financeProjectedLedgerEntrySchema.parse({
+      id: "ledger-1",
+      accountId: "account-1",
+      origin: "projected",
+      state: "expected",
+      amountMinor: -18_000,
+      currency: "EUR",
+      effectiveDate: "2026-08-06",
+      descriptor: "Flight to Porto",
+      normalizedDescriptor: "flight to porto",
+      expectedWindowStart: "2026-08-01",
+      expectedWindowEnd: "2026-08-11",
+      createdAt: "2026-07-30T00:00:00.000Z",
+      updatedAt: "2026-07-30T00:00:00.000Z",
+    });
+
+    expect(entry.recurringRuleId).toBeUndefined();
+  });
+
+  test("defaults an expected entry to an expense with a match window", () => {
+    const input = financeExpectedEntryInputSchema.parse({
+      accountId: "account-1",
+      amountMinor: 18_000,
+      currency: "EUR",
+      effectiveDate: "2026-08-06",
+      descriptor: "Flight to Porto",
+    });
+
+    expect(input.direction).toBe("expense");
+    expect(input.matchWindowDays).toBe(5);
+  });
+
+  // `null` clears a value where `undefined` means "leave it alone", so the
+  // distinction has to survive parsing.
+  test("distinguishes clearing a category from leaving it untouched", () => {
+    expect(financeLedgerEntryUpdateSchema.parse({ category: null })).toEqual({
+      category: null,
+    });
+    expect(financeLedgerEntryUpdateSchema.parse({})).toEqual({});
   });
 });

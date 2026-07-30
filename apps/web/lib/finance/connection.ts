@@ -20,17 +20,29 @@ export async function listFinanceInstitutions(country: string) {
   return provider.listInstitutions(country);
 }
 
+/**
+ * The OAuth callback Enable Banking sends the browser back to.
+ *
+ * Derived from the public site origin rather than the caller's, because the
+ * desktop app's origin is not a valid callback host and the URL has to match
+ * what is whitelisted with the provider.
+ */
+export function financeLinkRedirectUrl() {
+  const origin = (
+    process.env.NEXT_PUBLIC_SITE_URL || "https://denizlg24.com"
+  ).replace(/\/+$/, "");
+  return `${origin}/api/admin/finance/callback`;
+}
+
 export async function beginFinanceLink(input: FinanceBeginLinkRequest) {
   await connectDB();
+  const redirectUrl = financeLinkRedirectUrl();
   const provider = new EnableBankingProvider();
-  const result = await provider.beginLink(
-    input.institutionId,
-    input.redirectUrl,
-  );
+  const result = await provider.beginLink(input.institutionId, redirectUrl);
   await FinanceLinkState.create({
     stateHash: stateHash(result.ref),
     institutionId: input.institutionId,
-    redirectUrl: input.redirectUrl,
+    redirectUrl,
     expiresAt: new Date(Date.now() + LINK_STATE_TTL_MS),
   });
   return { linkUrl: result.linkUrl };

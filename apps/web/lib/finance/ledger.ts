@@ -1,7 +1,9 @@
 import type {
+  FinanceExpectedEntryInput,
+  FinanceLedgerEntryUpdate,
   FinanceManualEntryInput,
   FinanceProviderTransaction,
-  FinanceRecurringRule as FinanceRecurringRuleWire,
+  FinanceRecurrence,
 } from "@repo/schemas";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -14,6 +16,7 @@ import {
   FinanceTransfer,
   type IFinanceLedgerEntry,
 } from "@/models/Finance";
+import { ensureFinanceCategories, listFinanceCategories } from "./categories";
 import {
   amountWithinPercent,
   dateDistanceDays,
@@ -25,10 +28,16 @@ import {
   resolveProviderTransactionId,
   transactionSyntheticKey,
 } from "./core";
+import { loadFinanceFxConverter } from "./fx";
 
 const PROMOTION_DATE_TOLERANCE_DAYS = 4;
 const PROMOTION_AMOUNT_TOLERANCE_PERCENT = 15;
 const EXACT_MATCH_DATE_TOLERANCE_DAYS = 3;
+const BROAD_MATCH_TOLERANCE_PERCENT = 25;
+// Snapshots are ECB mid-market rates. A card settles at its own rate and often
+// adds a foreign-transaction fee, so a correct cross-currency match still
+// misses the converted figure by a few percent.
+const CROSS_CURRENCY_TOLERANCE_PERCENT = 4;
 
 function bankFields(
   accountId: mongoose.Types.ObjectId,
@@ -258,7 +267,7 @@ export async function runFinanceEnrichment(
 async function linkLedgerRows(
   source: IFinanceLedgerEntry,
   bank: IFinanceLedgerEntry,
-  method: "exact" | "rule" | "llm",
+  method: "exact" | "rule" | "llm" | "manual",
   confidence: number,
   session?: mongoose.ClientSession,
 ) {
@@ -419,7 +428,7 @@ export async function reconcileFinanceLedger(
   } = {},
 ) {
   const session = options.session;
-  const [sources, bankRows, rules] = await Promise.all([
+  const [sources, bankRows, rules, fx] = await Promise.all([
     FinanceLedgerEntry.find({
       accountId,
       origin: { $in: ["manual", "projected"] },
@@ -433,20 +442,88 @@ export async function reconcileFinanceLedger(
       linkedLedgerId: { $exists: false },
     }).session(session ?? null),
     FinanceRecurringRule.find({ accountId }).session(session ?? null),
+    loadFinanceFxConverter(session),
   ]);
   const rulesById = new Map(rules.map((rule) => [rule._id.toString(), rule]));
   const ambiguousSources: IFinanceLedgerEntry[] = [];
   const ambiguousCandidates = new Map<string, IFinanceLedgerEntry>();
 
-  for (const source of sources) {
-    const exact = bankRows.filter(
-      (bank) =>
-        !bank.linkedLedgerId &&
-        source.amountMinor === bank.amountMinor &&
-        source.currency === bank.currency &&
-        dateDistanceDays(source.effectiveDate, bank.effectiveDate) <=
-          EXACT_MATCH_DATE_TOLERANCE_DAYS,
+  /**
+   * The source amount expressed in the bank row's currency.
+   *
+   * A subscription billed in USD posts to a euro account as euros, so a
+   * same-currency comparison would never match it — and because the broad pass
+   * gated on currency too, such a row never even reached the review queue.
+   * `undefined` means no rate applies, which must not be read as "equal".
+   */
+  function comparableAmount(
+    source: IFinanceLedgerEntry,
+    bank: IFinanceLedgerEntry,
+  ) {
+    return fx.convert(
+      source.amountMinor,
+      source.currency,
+      bank.currency,
+      bank.effectiveDate,
     );
+  }
+
+  /** Rates are mid-market; a card adds its own spread and FX fee on top. */
+  function tolerance(
+    source: IFinanceLedgerEntry,
+    bank: IFinanceLedgerEntry,
+    base: number,
+  ) {
+    return source.currency === bank.currency
+      ? base
+      : base + CROSS_CURRENCY_TOLERANCE_PERCENT;
+  }
+
+  function sameDirection(
+    source: IFinanceLedgerEntry,
+    bank: IFinanceLedgerEntry,
+  ) {
+    // amountWithinPercent compares magnitudes, so without this an expected
+    // expense could match an equal-sized refund.
+    return Math.sign(source.amountMinor) === Math.sign(bank.amountMinor);
+  }
+
+  /**
+   * A pair the owner pulled apart by hand. Without this the next sync would
+   * simply relink it, and the unlink would look like it never happened.
+   */
+  function available(source: IFinanceLedgerEntry, bank: IFinanceLedgerEntry) {
+    if (bank.linkedLedgerId) return false;
+    return !source.rejectedMatchIds?.some(
+      (id) => id.toString() === bank._id.toString(),
+    );
+  }
+
+  for (const source of sources) {
+    const exact = bankRows.filter((bank) => {
+      if (!available(source, bank) || !sameDirection(source, bank))
+        return false;
+      if (
+        dateDistanceDays(source.effectiveDate, bank.effectiveDate) >
+        EXACT_MATCH_DATE_TOLERANCE_DAYS
+      ) {
+        return false;
+      }
+      if (source.currency === bank.currency) {
+        return source.amountMinor === bank.amountMinor;
+      }
+      // Converted amounts never land on the cent, so "exact" across currencies
+      // means within the FX spread — still requiring a single candidate.
+      const converted = comparableAmount(source, bank);
+      return (
+        converted !== undefined &&
+        amountWithinPercent(
+          converted,
+          bank.amountMinor,
+          CROSS_CURRENCY_TOLERANCE_PERCENT,
+        )
+      );
+    });
     if (
       exact.length === 1 &&
       (await linkLedgerRows(source, exact[0]!, "exact", 1, session))
@@ -458,20 +535,31 @@ export async function reconcileFinanceLedger(
       ? rulesById.get(source.recurringRuleId.toString())
       : undefined;
     if (rule) {
-      const ruleMatches = bankRows.filter(
-        (bank) =>
-          !bank.linkedLedgerId &&
-          source.currency === bank.currency &&
+      const ruleMatches = bankRows.filter((bank) => {
+        if (!available(source, bank) || !sameDirection(source, bank))
+          return false;
+        if (
+          bank.effectiveDate < (source.expectedWindowStart ?? "") ||
+          bank.effectiveDate > (source.expectedWindowEnd ?? "")
+        ) {
+          return false;
+        }
+        if (
+          rule.merchantFingerprint &&
+          rule.merchantFingerprint !== bank.merchantFingerprint
+        ) {
+          return false;
+        }
+        const converted = comparableAmount(source, bank);
+        return (
+          converted !== undefined &&
           amountWithinPercent(
-            source.amountMinor,
+            converted,
             bank.amountMinor,
-            rule.matchTolerancePercent,
-          ) &&
-          bank.effectiveDate >= (source.expectedWindowStart ?? "") &&
-          bank.effectiveDate <= (source.expectedWindowEnd ?? "") &&
-          (!rule.merchantFingerprint ||
-            rule.merchantFingerprint === bank.merchantFingerprint),
-      );
+            tolerance(source, bank, rule.matchTolerancePercent),
+          )
+        );
+      });
       if (
         ruleMatches.length === 1 &&
         (await linkLedgerRows(source, ruleMatches[0]!, "rule", 1, session))
@@ -480,13 +568,22 @@ export async function reconcileFinanceLedger(
       }
     }
 
-    const broad = bankRows.filter(
-      (bank) =>
-        !bank.linkedLedgerId &&
-        source.currency === bank.currency &&
-        amountWithinPercent(source.amountMinor, bank.amountMinor, 25) &&
-        dateDistanceDays(source.effectiveDate, bank.effectiveDate) <= 7,
-    );
+    const broad = bankRows.filter((bank) => {
+      if (!available(source, bank) || !sameDirection(source, bank))
+        return false;
+      if (dateDistanceDays(source.effectiveDate, bank.effectiveDate) > 7) {
+        return false;
+      }
+      const converted = comparableAmount(source, bank);
+      return (
+        converted !== undefined &&
+        amountWithinPercent(
+          converted,
+          bank.amountMinor,
+          tolerance(source, bank, BROAD_MATCH_TOLERANCE_PERCENT),
+        )
+      );
+    });
     if (broad.length > 0) {
       ambiguousSources.push(source);
       for (const candidate of broad) {
@@ -578,14 +675,305 @@ export async function createManualFinanceEntry(input: FinanceManualEntryInput) {
   return FinanceLedgerEntry.findById(entryId);
 }
 
+/**
+ * A one-off expense you already know is coming — a flight you'll book next week.
+ *
+ * Stored as a projected entry with no `recurringRuleId`, which means it needs no
+ * engine changes: `reconcileFinanceLedger` already treats a missing rule as
+ * "fall through to exact/broad matching", `computeFinanceForecast` already
+ * counts projected+expected rows, and the missed sweep in
+ * `materializeRecurringFinanceEntries` doesn't filter on rule id either.
+ */
+export async function createExpectedFinanceEntry(
+  input: FinanceExpectedEntryInput,
+) {
+  const normalizedDescriptor = normalizeFinanceDescriptor(input.descriptor);
+  const window = input.matchWindowDays;
+  const windowStart = shiftDate(input.effectiveDate, -window);
+  const windowEnd = shiftDate(input.effectiveDate, window);
+  const session = await mongoose.startSession();
+  let entryId: mongoose.Types.ObjectId | undefined;
+  try {
+    await session.withTransaction(async () => {
+      const [entry] = await FinanceLedgerEntry.create(
+        [
+          {
+            accountId: input.accountId,
+            origin: "projected",
+            state: "expected",
+            amountMinor:
+              input.direction === "expense"
+                ? -Math.abs(input.amountMinor)
+                : Math.abs(input.amountMinor),
+            currency: input.currency,
+            effectiveDate: input.effectiveDate,
+            descriptor: input.descriptor,
+            normalizedDescriptor,
+            merchantFingerprint: merchantFingerprint(normalizedDescriptor),
+            category: input.category,
+            expectedWindowStart: windowStart,
+            expectedWindowEnd: windowEnd,
+          },
+        ],
+        { session },
+      );
+      entryId = entry?._id;
+      await reconcileFinanceLedger(input.accountId, {
+        session,
+        skipSuggestions: true,
+      });
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  await reconcileFinanceLedger(input.accountId).catch((error) => {
+    console.warn("[finance] Ambiguous match review deferred", error);
+  });
+  return FinanceLedgerEntry.findById(entryId);
+}
+
+export class FinanceLedgerEntryImmutableError extends Error {
+  constructor() {
+    super("Bank entries cannot be edited or deleted");
+    this.name = "FinanceLedgerEntryImmutableError";
+  }
+}
+
+/**
+ * Edits a ledger entry. Bank rows accept a category change only — their amount,
+ * date and descriptor are the provider's record and would be overwritten by the
+ * next sync anyway.
+ */
+export async function updateFinanceLedgerEntry(
+  id: string,
+  patch: FinanceLedgerEntryUpdate,
+) {
+  const entry = await FinanceLedgerEntry.findById(id);
+  if (!entry) return null;
+
+  const editsBeyondCategory =
+    patch.descriptor !== undefined ||
+    patch.amountMinor !== undefined ||
+    patch.direction !== undefined ||
+    patch.effectiveDate !== undefined ||
+    patch.note !== undefined;
+  if (entry.origin === "bank" && editsBeyondCategory) {
+    throw new FinanceLedgerEntryImmutableError();
+  }
+
+  if (patch.category !== undefined) {
+    if (patch.category === null) {
+      entry.set("category", undefined);
+    } else {
+      entry.category = patch.category;
+      await ensureFinanceCategories([patch.category]);
+    }
+  }
+  if (patch.descriptor !== undefined) {
+    entry.descriptor = patch.descriptor;
+    entry.normalizedDescriptor = normalizeFinanceDescriptor(patch.descriptor);
+    entry.merchantFingerprint = merchantFingerprint(entry.normalizedDescriptor);
+  }
+  if (patch.note !== undefined) {
+    entry.set("note", patch.note ?? undefined);
+  }
+  if (patch.amountMinor !== undefined || patch.direction !== undefined) {
+    const magnitude = Math.abs(patch.amountMinor ?? entry.amountMinor);
+    const direction =
+      patch.direction ?? (entry.amountMinor < 0 ? "expense" : "income");
+    entry.amountMinor = direction === "expense" ? -magnitude : magnitude;
+  }
+  if (patch.effectiveDate !== undefined) {
+    entry.effectiveDate = patch.effectiveDate;
+    if (entry.origin === "projected") {
+      const span =
+        entry.expectedWindowStart && entry.expectedWindowEnd
+          ? Math.round(
+              dateDistanceDays(
+                entry.expectedWindowStart,
+                entry.expectedWindowEnd,
+              ) / 2,
+            )
+          : 5;
+      entry.expectedWindowStart = shiftDate(patch.effectiveDate, -span);
+      entry.expectedWindowEnd = shiftDate(patch.effectiveDate, span);
+    }
+  }
+  await entry.save();
+
+  // Categorizing the merchant is what makes the assignment stick: future syncs
+  // and sibling rows inherit it instead of waiting on the classifier.
+  if (patch.applyToMerchant && entry.merchantFingerprint) {
+    const fingerprint = entry.merchantFingerprint;
+    const category = patch.category ?? entry.category;
+    if (category) {
+      await FinanceMerchant.updateOne(
+        { fingerprint },
+        {
+          $set: { category },
+          $setOnInsert: {
+            fingerprint,
+            normalizedName: entry.normalizedDescriptor,
+          },
+        },
+        { upsert: true },
+      );
+      await FinanceLedgerEntry.updateMany(
+        { merchantFingerprint: fingerprint, _id: { $ne: entry._id } },
+        { $set: { category } },
+      );
+    } else {
+      await FinanceMerchant.updateOne(
+        { fingerprint },
+        { $unset: { category: "" } },
+      );
+      await FinanceLedgerEntry.updateMany(
+        { merchantFingerprint: fingerprint, _id: { $ne: entry._id } },
+        { $unset: { category: "" } },
+      );
+    }
+  }
+
+  if (entry.origin !== "bank") {
+    await reconcileFinanceLedger(entry.accountId, {
+      skipSuggestions: true,
+    }).catch((error) => {
+      console.warn("[finance] Reconcile after entry edit deferred", error);
+    });
+  }
+  return entry;
+}
+
+/**
+ * Deletes a manual entry or a one-off expected entry. Bank rows are the
+ * provider's record and a delete would simply be re-ingested on the next sync;
+ * rule-driven projections belong to their rule and are removed with it.
+ */
+export async function deleteFinanceLedgerEntry(id: string) {
+  const entry = await FinanceLedgerEntry.findById(id);
+  if (!entry) return null;
+  if (entry.origin === "bank" || entry.recurringRuleId) {
+    throw new FinanceLedgerEntryImmutableError();
+  }
+  if (entry.linkedLedgerId) {
+    await FinanceLedgerEntry.updateOne(
+      { _id: entry.linkedLedgerId },
+      {
+        $unset: {
+          linkedLedgerId: "",
+          matchMethod: "",
+          matchConfidence: "",
+        },
+      },
+    );
+  }
+  await FinanceMatchReview.deleteMany({
+    $or: [{ sourceLedgerId: entry._id }, { candidateBankLedgerId: entry._id }],
+  });
+  await entry.deleteOne();
+  return entry;
+}
+
+export class FinanceLinkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FinanceLinkError";
+  }
+}
+
+/**
+ * Attaches a projection or manual entry to a bank row by hand.
+ *
+ * Automatic reconciliation will always miss cases — an unusual FX spread, a
+ * merchant that bills under a different name, two identical charges in one
+ * window. This is the escape hatch, and it overrides the matcher rather than
+ * competing with it: once linked, reconciliation skips both rows.
+ */
+export async function linkFinanceLedgerEntries(
+  sourceId: string,
+  bankLedgerId: string,
+) {
+  const [source, bank] = await Promise.all([
+    FinanceLedgerEntry.findById(sourceId),
+    FinanceLedgerEntry.findById(bankLedgerId),
+  ]);
+  if (!source || !bank) return null;
+  if (source.origin === "bank") {
+    throw new FinanceLinkError("Pick the expected or manual entry to link");
+  }
+  if (bank.origin !== "bank") {
+    throw new FinanceLinkError("Entries can only be linked to a bank row");
+  }
+  if (source.accountId.toString() !== bank.accountId.toString()) {
+    throw new FinanceLinkError("Both entries must be on the same account");
+  }
+  if (source.linkedLedgerId || bank.linkedLedgerId) {
+    throw new FinanceLinkError("One of these entries is already linked");
+  }
+  const linked = await linkLedgerRows(source, bank, "manual", 1);
+  if (!linked) throw new FinanceLinkError("Could not link these entries");
+  // A pending suggestion for this source is now moot either way.
+  await FinanceMatchReview.updateMany(
+    { sourceLedgerId: source._id, status: "pending" },
+    { $set: { status: "accepted", resolvedAt: new Date() } },
+  );
+  return source;
+}
+
+/** Detaches a linked pair, whichever side is named. */
+export async function unlinkFinanceLedgerEntry(entryId: string) {
+  const entry = await FinanceLedgerEntry.findById(entryId);
+  if (!entry?.linkedLedgerId) return null;
+  const counterpart = await FinanceLedgerEntry.findById(entry.linkedLedgerId);
+  const clear = {
+    $unset: { linkedLedgerId: "", matchMethod: "", matchConfidence: "" },
+  };
+
+  for (const row of [entry, counterpart]) {
+    if (!row) continue;
+    const other = row === entry ? counterpart : entry;
+    await FinanceLedgerEntry.updateOne(
+      { _id: row._id },
+      row.origin === "bank"
+        ? clear
+        : {
+            ...clear,
+            $set: { state: row.origin === "projected" ? "expected" : "active" },
+            // Remember the rejection on the non-bank side, which is the side
+            // the matcher iterates.
+            ...(other ? { $addToSet: { rejectedMatchIds: other._id } } : {}),
+          },
+    );
+  }
+  // Without this the matcher would immediately relink the pair it just lost.
+  await FinanceMatchReview.updateMany(
+    {
+      $or: [
+        { sourceLedgerId: entry._id },
+        { candidateBankLedgerId: entry._id },
+        ...(counterpart
+          ? [
+              { sourceLedgerId: counterpart._id },
+              { candidateBankLedgerId: counterpart._id },
+            ]
+          : []),
+      ],
+      status: "pending",
+    },
+    { $set: { status: "rejected", resolvedAt: new Date() } },
+  );
+  return entry;
+}
+
 export async function materializeRecurringFinanceEntries(
   now = new Date(),
   options: { session?: mongoose.ClientSession; skipSuggestions?: boolean } = {},
 ) {
   const session = options.session;
-  const rules = await FinanceRecurringRule.find({ status: "active" }).session(
-    session ?? null,
-  );
+  // Every rule, not just the active ones: a rule that was just paused still has
+  // projections in the ledger, and they have to be withdrawn.
+  const rules = await FinanceRecurringRule.find().session(session ?? null);
   const fromDate = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
   )
@@ -597,65 +985,73 @@ export async function materializeRecurringFinanceEntries(
     .toISOString()
     .slice(0, 10);
   const operations: Parameters<typeof FinanceLedgerEntry.bulkWrite>[0] = [];
+  const scheduled = new Map<string, string[]>();
 
   for (const rule of rules) {
-    const wireRule = {
-      id: rule._id.toString(),
-      accountId: rule.accountId.toString(),
-      name: rule.name,
-      direction: rule.direction,
-      amountKind: rule.amountKind,
-      amountMinor: rule.amountMinor,
-      currency: rule.currency,
-      recurrence: rule.recurrence,
-      anchorDate: rule.anchorDate,
-      matchTolerancePercent: rule.matchTolerancePercent,
-      matchWindowDays: rule.matchWindowDays,
-      merchantFingerprint: rule.merchantFingerprint,
-      status: rule.status,
-      endDate: rule.endDate,
-      createdAt: rule.createdAt.toISOString(),
-      updatedAt: rule.updatedAt.toISOString(),
-    } as FinanceRecurringRuleWire;
-    for (const occurrence of recurringOccurrences(
-      wireRule,
-      fromDate,
-      through,
-    )) {
-      const date = new Date(`${occurrence}T00:00:00.000Z`);
-      const windowStart = new Date(date);
-      const windowEnd = new Date(date);
-      windowStart.setUTCDate(windowStart.getUTCDate() - rule.matchWindowDays);
-      windowEnd.setUTCDate(windowEnd.getUTCDate() + rule.matchWindowDays);
+    const occurrences =
+      rule.status === "active"
+        ? recurringOccurrences(
+            {
+              anchorDate: rule.anchorDate,
+              recurrence: rule.recurrence as FinanceRecurrence,
+              endDate: rule.endDate,
+            },
+            fromDate,
+            through,
+          )
+        : [];
+    scheduled.set(rule._id.toString(), occurrences);
+
+    for (const occurrence of occurrences) {
       const normalizedDescriptor = normalizeFinanceDescriptor(rule.name);
+      const fields = {
+        accountId: rule.accountId,
+        amountMinor:
+          rule.direction === "expense"
+            ? -Math.abs(rule.amountMinor)
+            : Math.abs(rule.amountMinor),
+        currency: rule.currency,
+        descriptor: rule.name,
+        normalizedDescriptor,
+        merchantFingerprint:
+          rule.merchantFingerprint ?? merchantFingerprint(normalizedDescriptor),
+        expectedWindowStart: shiftDate(occurrence, -rule.matchWindowDays),
+        expectedWindowEnd: shiftDate(occurrence, rule.matchWindowDays),
+      };
+
+      // Create the occurrence if it doesn't exist yet. This cannot also carry
+      // the `$set` below: narrowing the filter to unmatched rows would make an
+      // already-matched occurrence miss and insert a duplicate, which the
+      // unique {recurringRuleId, effectiveDate} index would then reject.
+      operations.push({
+        updateOne: {
+          filter: { recurringRuleId: rule._id, effectiveDate: occurrence },
+          update: {
+            $setOnInsert: {
+              ...fields,
+              origin: "projected",
+              state: "expected",
+              effectiveDate: occurrence,
+              recurringRuleId: rule._id,
+            },
+          },
+          upsert: true,
+        },
+      });
+
+      // Push edits onto occurrences that haven't been matched yet. Without
+      // this, changing a rule's amount or name left every already-materialized
+      // projection showing the old values. Matched rows are deliberately
+      // excluded — they record money that actually moved.
       operations.push({
         updateOne: {
           filter: {
             recurringRuleId: rule._id,
             effectiveDate: occurrence,
+            state: "expected",
+            linkedLedgerId: { $exists: false },
           },
-          update: {
-            $setOnInsert: {
-              accountId: rule.accountId,
-              origin: "projected",
-              state: "expected",
-              amountMinor:
-                rule.direction === "expense"
-                  ? -Math.abs(rule.amountMinor)
-                  : Math.abs(rule.amountMinor),
-              currency: rule.currency,
-              effectiveDate: occurrence,
-              descriptor: rule.name,
-              normalizedDescriptor,
-              merchantFingerprint:
-                rule.merchantFingerprint ??
-                merchantFingerprint(normalizedDescriptor),
-              recurringRuleId: rule._id,
-              expectedWindowStart: windowStart.toISOString().slice(0, 10),
-              expectedWindowEnd: windowEnd.toISOString().slice(0, 10),
-            },
-          },
-          upsert: true,
+          update: { $set: fields },
         },
       });
     }
@@ -664,6 +1060,33 @@ export async function materializeRecurringFinanceEntries(
   if (operations.length > 0) {
     await FinanceLedgerEntry.bulkWrite(operations, { session });
   }
+
+  // Withdraw projections the rule no longer schedules — a changed cadence or
+  // day-of-month, a shortened end date, or a pause. Left alone these linger
+  // alongside the new dates and are counted twice in the forecast.
+  for (const rule of rules) {
+    const occurrences = scheduled.get(rule._id.toString()) ?? [];
+    const stale = await FinanceLedgerEntry.find({
+      recurringRuleId: rule._id,
+      origin: "projected",
+      state: "expected",
+      linkedLedgerId: { $exists: false },
+      effectiveDate: { $gte: fromDate, $lte: through, $nin: occurrences },
+    })
+      .session(session ?? null)
+      .select("_id");
+    if (stale.length === 0) continue;
+    const staleIds = stale.map((row) => row._id);
+    await FinanceMatchReview.deleteMany(
+      { sourceLedgerId: { $in: staleIds } },
+      { session },
+    );
+    await FinanceLedgerEntry.deleteMany(
+      { _id: { $in: staleIds } },
+      { session },
+    );
+  }
+
   const today = now.toISOString().slice(0, 10);
   await FinanceLedgerEntry.updateMany(
     {
@@ -781,19 +1204,29 @@ export async function categorizeUnknownMerchants(
   }
   const batch = [...unknown.entries()].slice(0, 50);
   if (batch.length === 0) return;
+  // Hand the classifier the existing vocabulary. Left to itself it invents
+  // near-duplicates ("Groceries" / "Grocery" / "Supermarket") that then have to
+  // be merged by hand in category management.
+  const catalog = (await listFinanceCategories()).map(
+    (category) => category.name,
+  );
   const result = await generateJson<unknown>({
     purpose: "llm-api",
     source: "finance-merchant-categorization",
     temperature: 0,
     system:
-      "Normalize merchant names and assign terse personal-finance categories. Return JSON {merchants:[{fingerprint,normalizedName,category}]}.",
-    user: JSON.stringify(
-      batch.map(([fingerprint, normalizedDescriptor]) => ({
+      "Normalize merchant names and assign terse personal-finance categories. Reuse a category from knownCategories whenever one fits; only invent a new name when none does. Return JSON {merchants:[{fingerprint,normalizedName,category}]}.",
+    user: JSON.stringify({
+      knownCategories: catalog,
+      merchants: batch.map(([fingerprint, normalizedDescriptor]) => ({
         fingerprint,
         normalizedDescriptor,
       })),
-    ),
-    logUserPrompt: JSON.stringify({ merchantCount: batch.length }),
+    }),
+    logUserPrompt: JSON.stringify({
+      merchantCount: batch.length,
+      knownCategoryCount: catalog.length,
+    }),
   });
   const parsed = merchantClassificationSchema.safeParse(result.json);
   if (!parsed.success) return;
@@ -826,6 +1259,9 @@ export async function categorizeUnknownMerchants(
         update: { $set: { category: merchant.category } },
       },
     })),
+  );
+  await ensureFinanceCategories(
+    classifications.map((merchant) => merchant.category),
   );
 }
 

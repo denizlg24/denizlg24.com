@@ -124,7 +124,12 @@ export const financeBalanceSchema = financeProviderBalanceSchema
   });
 export type FinanceBalance = z.infer<typeof financeBalanceSchema>;
 
-export const financeMatchMethodSchema = z.enum(["exact", "rule", "llm"]);
+export const financeMatchMethodSchema = z.enum([
+  "exact",
+  "rule",
+  "llm",
+  "manual",
+]);
 export type FinanceMatchMethod = z.infer<typeof financeMatchMethodSchema>;
 
 const financeLedgerBaseSchema = financeMoneySchema.extend({
@@ -172,7 +177,9 @@ export const financeProjectedLedgerEntrySchema = financeLedgerBaseSchema.extend(
   {
     origin: z.literal("projected"),
     state: z.enum(["expected", "linked", "missed", "void"]),
-    recurringRuleId: z.string().min(1),
+    // Absent on a one-off expected expense entered by hand — a flight booked
+    // next week — which has no recurring rule behind it.
+    recurringRuleId: z.string().min(1).optional(),
     expectedWindowStart: isoDateSchema,
     expectedWindowEnd: isoDateSchema,
   },
@@ -199,9 +206,21 @@ export type FinanceTransfer = z.infer<typeof financeTransferSchema>;
 
 export const financeRecurrenceSchema = z.discriminatedUnion("cadence", [
   z.object({
+    cadence: z.literal("daily"),
+    interval: z.number().int().positive().default(1),
+  }),
+  z.object({
     cadence: z.literal("weekly"),
     interval: z.number().int().positive().default(1),
     weekday: z.number().int().min(0).max(6),
+  }),
+  // Two fixed days per month (salary on the 1st and 15th, say). Unlike a
+  // monthly rule at interval 1 this fires twice, so it cannot be expressed as
+  // an interval over the monthly variant.
+  z.object({
+    cadence: z.literal("semiMonthly"),
+    firstDay: z.number().int().min(1).max(31),
+    secondDay: z.number().int().min(1).max(31),
   }),
   z.object({
     cadence: z.literal("monthly"),
@@ -216,6 +235,7 @@ export const financeRecurrenceSchema = z.discriminatedUnion("cadence", [
   }),
 ]);
 export type FinanceRecurrence = z.infer<typeof financeRecurrenceSchema>;
+export type FinanceCadence = FinanceRecurrence["cadence"];
 
 export const financeRecurringRuleSchema = z.object({
   id: z.string().min(1),
@@ -273,6 +293,53 @@ export const financeFxSnapshotSchema = z.object({
 });
 export type FinanceFxSnapshot = z.infer<typeof financeFxSnapshotSchema>;
 
+// The ledger stores a category *name*, not a reference. This catalog manages
+// the vocabulary — renaming cascades over ledger rows and merchants — which
+// keeps the LLM classifier contract (it emits names) unchanged.
+export const financeCategorySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
+  sortOrder: z.number().int(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type FinanceCategory = z.infer<typeof financeCategorySchema>;
+
+export const financeCategoryInputSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
+  sortOrder: z.number().int().optional(),
+});
+export type FinanceCategoryInput = z.infer<typeof financeCategoryInputSchema>;
+
+export const financeCategoryDeleteSchema = z.object({
+  /** Move affected rows here instead of clearing their category. */
+  reassignTo: z.string().trim().min(1).max(60).optional(),
+});
+export type FinanceCategoryDelete = z.infer<typeof financeCategoryDeleteSchema>;
+
+export const financeFxSourceSchema = z.enum(["frankfurter"]);
+export type FinanceFxSource = z.infer<typeof financeFxSourceSchema>;
+
+export const financeSettingsSchema = z.object({
+  baseCurrency: financeCurrencySchema,
+  fxSource: financeFxSourceSchema,
+  fxUpdatedAt: isoDateTimeSchema.optional(),
+});
+export type FinanceSettings = z.infer<typeof financeSettingsSchema>;
+
+export const financeSettingsInputSchema = financeSettingsSchema
+  .pick({ baseCurrency: true, fxSource: true })
+  .partial();
+export type FinanceSettingsInput = z.infer<typeof financeSettingsInputSchema>;
+
 export const financeForecastSchema = z.object({
   currency: financeCurrencySchema,
   asOfDate: isoDateSchema,
@@ -300,15 +367,19 @@ export const financeDashboardResponseSchema = z.object({
   recurringRules: z.array(financeRecurringRuleSchema),
   recurringCandidates: z.array(financeRecurringCandidateSchema),
   matchReviews: z.array(financeMatchReviewSchema),
+  categories: z.array(financeCategorySchema),
+  settings: financeSettingsSchema,
   forecast: financeForecastSchema.optional(),
 });
 export type FinanceDashboardResponse = z.infer<
   typeof financeDashboardResponseSchema
 >;
 
+// The redirect URL is derived server-side from the public site origin rather
+// than sent by the client: Enable Banking whitelists it, and the desktop app's
+// own origin is not a valid callback host.
 export const financeBeginLinkRequestSchema = z.object({
   institutionId: z.string().min(1),
-  redirectUrl: z.url(),
 });
 export type FinanceBeginLinkRequest = z.infer<
   typeof financeBeginLinkRequestSchema
@@ -342,6 +413,40 @@ export type FinanceManualEntryInput = z.infer<
   typeof financeManualEntryInputSchema
 >;
 
+// A one-off expense you already know is coming. Materializes as a projected
+// ledger entry with no recurring rule, so it feeds the forecast and links to
+// the real bank transaction once it lands.
+export const financeExpectedEntryInputSchema = z.object({
+  accountId: z.string().min(1),
+  amountMinor: z.number().int().positive(),
+  currency: financeCurrencySchema,
+  direction: z.enum(["expense", "income"]).default("expense"),
+  effectiveDate: isoDateSchema,
+  descriptor: z.string().trim().min(1).max(500),
+  category: z.string().trim().min(1).max(60).optional(),
+  /** Days either side of the date a real transaction may land and still match. */
+  matchWindowDays: z.number().int().min(0).max(60).default(5),
+});
+export type FinanceExpectedEntryInput = z.infer<
+  typeof financeExpectedEntryInputSchema
+>;
+
+export const financeLedgerEntryUpdateSchema = z
+  .object({
+    category: z.string().trim().min(1).max(60).nullable(),
+    descriptor: z.string().trim().min(1).max(500),
+    note: z.string().trim().max(2_000).nullable(),
+    amountMinor: z.number().int().positive(),
+    direction: z.enum(["expense", "income"]),
+    effectiveDate: isoDateSchema,
+    /** Also categorize the merchant so sibling and future rows follow. */
+    applyToMerchant: z.boolean(),
+  })
+  .partial();
+export type FinanceLedgerEntryUpdate = z.infer<
+  typeof financeLedgerEntryUpdateSchema
+>;
+
 export const financeRecurringRuleInputSchema = financeRecurringRuleSchema.omit({
   id: true,
   createdAt: true,
@@ -359,7 +464,10 @@ export const financeAccountSettingsInputSchema = financeAccountBudgetSchema
     countsFailedAttempts: true,
     attendedCallsExempt: true,
   })
-  .partial();
+  .partial()
+  .extend({
+    displayName: z.string().trim().min(1).max(120).optional(),
+  });
 export type FinanceAccountSettingsInput = z.infer<
   typeof financeAccountSettingsInputSchema
 >;
@@ -368,6 +476,14 @@ export const financeMatchDecisionSchema = z.object({
   action: z.enum(["accept", "reject", "unlink"]),
 });
 export type FinanceMatchDecision = z.infer<typeof financeMatchDecisionSchema>;
+
+/** Attaching a projection or manual entry to a bank row by hand. */
+export const financeManualLinkInputSchema = z.object({
+  bankLedgerId: z.string().min(1),
+});
+export type FinanceManualLinkInput = z.infer<
+  typeof financeManualLinkInputSchema
+>;
 
 export const financeSyncResponseSchema = z.object({
   status: z.enum(["synced", "budget_exhausted", "reconnect_required"]),

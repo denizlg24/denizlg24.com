@@ -6,6 +6,7 @@ import {
   reserveFinanceBudget,
   updateFinanceNextSync,
 } from "./budget";
+import { refreshFinanceFxRates } from "./fx";
 import {
   ingestBankTransactions,
   materializeRecurringFinanceEntries,
@@ -223,6 +224,14 @@ export async function syncFinanceAccount(
 export async function runFinanceCron(now = new Date()) {
   await connectDB();
   await materializeRecurringFinanceEntries(now);
+  // Rates first, so a sync landing a foreign-currency transaction this run has
+  // something to convert against. A failure here must not stop account syncs.
+  let fxUpdated = 0;
+  try {
+    fxUpdated = (await refreshFinanceFxRates({ now })).updated;
+  } catch (error) {
+    console.warn("[finance] FX refresh failed", error);
+  }
   const accounts = await FinanceAccount.find({
     provider: "enable-banking",
     connectionStatus: "active",
@@ -252,7 +261,12 @@ export async function runFinanceCron(now = new Date()) {
     }
   }
   await observeFinanceMemorySafely(now);
-  return { planned: accounts.length, attempted: results.length, results };
+  return {
+    planned: accounts.length,
+    attempted: results.length,
+    fxUpdated,
+    results,
+  };
 }
 
 export function attendedFinanceHeaders(request: Request) {

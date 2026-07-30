@@ -17,7 +17,12 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
-export const LoginForm = () => {
+export const LoginForm = ({
+  destination = "/admin/dashboard",
+}: {
+  /** Where to land after login — already reduced to a safe path by the page. */
+  destination?: string;
+}) => {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
@@ -83,7 +88,7 @@ export const LoginForm = () => {
           }
 
           setIsLoading(false);
-          router.push("/admin/dashboard");
+          router.push(destination);
         },
         onError: (ctx) => {
           console.log(ctx);

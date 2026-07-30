@@ -10,7 +10,13 @@ function redirect(request: NextRequest, status: string) {
 
 export async function GET(request: NextRequest) {
   if (!(await getAdminSession(request))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // The bank redirects the *browser* here, which carries a cookie session and
+    // never the desktop app's Bearer token. Returning JSON would strand a
+    // desktop-initiated link on a dead page while its FinanceLinkState expires,
+    // so send the browser through login and back to finish the handshake.
+    const login = new URL("/auth/login", request.url);
+    login.searchParams.set("callbackUrl", request.nextUrl.toString());
+    return NextResponse.redirect(login);
   }
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");

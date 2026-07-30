@@ -137,7 +137,9 @@ export interface IFinanceLedgerEntry extends Document {
   merchantFingerprint?: string;
   category?: string;
   linkedLedgerId?: mongoose.Types.ObjectId;
-  matchMethod?: "exact" | "rule" | "llm";
+  /** Bank rows explicitly unlinked from this one; the matcher must not retry them. */
+  rejectedMatchIds?: mongoose.Types.ObjectId[];
+  matchMethod?: "exact" | "rule" | "llm" | "manual";
   matchConfidence?: number;
   transferId?: mongoose.Types.ObjectId;
   identityKind?: "provider" | "synthetic";
@@ -166,6 +168,9 @@ function requiredForBankOrigin(this: IFinanceLedgerEntry) {
 function requiredForProjectedOrigin(this: IFinanceLedgerEntry) {
   return this.origin === "projected";
 }
+// `recurringRuleId` is deliberately NOT required for projected rows: a one-off
+// expected expense (a flight you know you'll book next week) is a projected
+// entry with no rule behind it.
 
 const financeLedgerEntrySchema = new Schema<IFinanceLedgerEntry>(
   {
@@ -204,9 +209,12 @@ const financeLedgerEntrySchema = new Schema<IFinanceLedgerEntry>(
     merchantFingerprint: { type: String },
     category: { type: String },
     linkedLedgerId: { type: Schema.Types.ObjectId, ref: "FinanceLedgerEntry" },
+    rejectedMatchIds: [
+      { type: Schema.Types.ObjectId, ref: "FinanceLedgerEntry" },
+    ],
     matchMethod: {
       type: String,
-      enum: ["exact", "rule", "llm"],
+      enum: ["exact", "rule", "llm", "manual"],
     },
     matchConfidence: { type: Number, min: 0, max: 1 },
     transferId: { type: Schema.Types.ObjectId, ref: "FinanceTransfer" },
@@ -230,7 +238,6 @@ const financeLedgerEntrySchema = new Schema<IFinanceLedgerEntry>(
     recurringRuleId: {
       type: Schema.Types.ObjectId,
       ref: "FinanceRecurringRule",
-      required: requiredForProjectedOrigin,
     },
     expectedWindowStart: {
       type: String,
@@ -454,6 +461,47 @@ const financeMerchantSchema = new Schema<IFinanceMerchant>(
   { collection: "finance_merchants", timestamps: true },
 );
 
+// The managed category vocabulary. Ledger rows and merchants store the category
+// *name*, so a rename here cascades via updateMany rather than being resolved
+// through a join — which also keeps the LLM classifier emitting plain names.
+export interface IFinanceCategory extends Document {
+  name: string;
+  color?: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const financeCategorySchema = new Schema<IFinanceCategory>(
+  {
+    name: { type: String, required: true },
+    color: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
+    sortOrder: { type: Number, default: 0 },
+  },
+  { collection: "finance_categories", timestamps: true },
+);
+
+financeCategorySchema.index({ name: 1 }, { unique: true });
+
+export interface IFinanceSettings extends Document<string> {
+  _id: "singleton";
+  baseCurrency: string;
+  fxSource: "frankfurter";
+  fxUpdatedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const financeSettingsSchema = new Schema<IFinanceSettings>(
+  {
+    _id: { type: String, default: "singleton" },
+    baseCurrency: { type: String, required: true, match: /^[A-Z]{3}$/ },
+    fxSource: { type: String, enum: ["frankfurter"], default: "frankfurter" },
+    fxUpdatedAt: { type: Date },
+  },
+  { collection: "finance_settings", timestamps: true },
+);
+
 export interface IFinanceLinkState extends Document {
   stateHash: string;
   institutionId: string;
@@ -518,3 +566,9 @@ export const FinanceMerchant =
 export const FinanceLinkState =
   existingModel<IFinanceLinkState>("FinanceLinkState") ||
   mongoose.model<IFinanceLinkState>("FinanceLinkState", financeLinkStateSchema);
+export const FinanceCategory =
+  existingModel<IFinanceCategory>("FinanceCategory") ||
+  mongoose.model<IFinanceCategory>("FinanceCategory", financeCategorySchema);
+export const FinanceSettings =
+  existingModel<IFinanceSettings>("FinanceSettings") ||
+  mongoose.model<IFinanceSettings>("FinanceSettings", financeSettingsSchema);

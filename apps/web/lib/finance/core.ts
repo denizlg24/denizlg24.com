@@ -4,10 +4,18 @@ import type {
   FinanceLedgerEntry,
   FinanceProviderAccount,
   FinanceProviderTransaction,
-  FinanceRecurrence,
   FinanceRecurringCandidate,
-  FinanceRecurringRule,
 } from "@repo/schemas";
+
+// The recurrence engine is shared with the admin UI so the rule editor previews
+// upcoming dates against the same code that materializes projected entries.
+export {
+  describeRecurrence,
+  financeOccurrences,
+  monthlyOccurrenceRate,
+  nextRecurringOccurrences,
+  recurringOccurrences,
+} from "@repo/utils";
 
 const DAY_MS = 86_400_000;
 const TRANSFER_DATE_PENALTY_WEIGHT = 0.25;
@@ -395,67 +403,6 @@ export function computeFinanceForecast(input: {
     p50Minor: project(p50Rate),
     p75Minor: project(p25Rate),
   };
-}
-
-function addMonths(date: Date, months: number, dayOfMonth: number) {
-  const result = new Date(date);
-  result.setUTCDate(1);
-  result.setUTCMonth(result.getUTCMonth() + months);
-  const lastDay = new Date(
-    Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0),
-  ).getUTCDate();
-  result.setUTCDate(Math.min(dayOfMonth, lastDay));
-  return result;
-}
-
-function nextOccurrence(current: Date, recurrence: FinanceRecurrence): Date {
-  if (recurrence.cadence === "weekly") {
-    const result = new Date(current);
-    result.setUTCDate(result.getUTCDate() + 7 * recurrence.interval);
-    return result;
-  }
-  if (recurrence.cadence === "monthly") {
-    return addMonths(current, recurrence.interval, recurrence.dayOfMonth);
-  }
-  const result = new Date(current);
-  result.setUTCDate(1);
-  result.setUTCFullYear(result.getUTCFullYear() + recurrence.interval);
-  result.setUTCMonth(recurrence.month - 1);
-  const lastDay = new Date(
-    Date.UTC(result.getUTCFullYear(), recurrence.month, 0),
-  ).getUTCDate();
-  result.setUTCDate(Math.min(recurrence.dayOfMonth, lastDay));
-  return result;
-}
-
-export function recurringOccurrences(
-  rule: FinanceRecurringRule,
-  fromDate: string,
-  throughDate: string,
-) {
-  let cursor = new Date(`${rule.anchorDate}T00:00:00.000Z`);
-  const from = Date.parse(`${fromDate}T00:00:00.000Z`);
-  const through = Date.parse(`${throughDate}T00:00:00.000Z`);
-  const end = rule.endDate
-    ? Date.parse(`${rule.endDate}T00:00:00.000Z`)
-    : Number.POSITIVE_INFINITY;
-  const occurrences: string[] = [];
-  let guard = 0;
-
-  while (cursor.getTime() < from && guard < 10_000) {
-    cursor = nextOccurrence(cursor, rule.recurrence);
-    guard += 1;
-  }
-  while (
-    cursor.getTime() <= through &&
-    cursor.getTime() <= end &&
-    guard < 10_000
-  ) {
-    occurrences.push(cursor.toISOString().slice(0, 10));
-    cursor = nextOccurrence(cursor, rule.recurrence);
-    guard += 1;
-  }
-  return occurrences;
 }
 
 export function financeBudgetDayKey(now: Date, timezone: string) {

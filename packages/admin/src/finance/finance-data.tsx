@@ -1,17 +1,24 @@
 import {
   type FinanceAccountSettingsInput,
+  type FinanceCategoryInput,
   type FinanceCsvImportInput,
   type FinanceDashboardResponse,
+  type FinanceExpectedEntryInput,
+  type FinanceLedgerEntryUpdate,
   type FinanceManualEntryInput,
   type FinanceMatchDecision,
   type FinanceNaturalEntryInput,
   type FinanceRecurringRuleInput,
+  type FinanceSettingsInput,
   financeBeginLinkResponseSchema,
+  financeCategorySchema,
   financeDashboardResponseSchema,
   financeInstitutionSchema,
+  financeLedgerEntrySchema,
   financeManualLedgerEntrySchema,
   financeNarrativeResponseSchema,
   financeRecurringRuleSchema,
+  financeSettingsSchema,
   financeSyncResponseSchema,
 } from "@repo/schemas";
 import { z } from "zod";
@@ -27,8 +34,22 @@ const accountMutationResponseSchema = z.object({
 const entryMutationResponseSchema = z.object({
   entry: financeManualLedgerEntrySchema,
 });
+const anyEntryMutationResponseSchema = z.object({
+  entry: financeLedgerEntrySchema,
+});
 const ruleMutationResponseSchema = z.object({
   rule: financeRecurringRuleSchema,
+});
+const categoryMutationResponseSchema = z.object({
+  category: financeCategorySchema,
+});
+const settingsResponseSchema = z.object({ settings: financeSettingsSchema });
+const fxRefreshResponseSchema = z.object({
+  base: z.string(),
+  source: z.string(),
+  date: z.string(),
+  updated: z.number().int().nonnegative(),
+  unsupported: z.array(z.string()),
 });
 
 export async function fetchFinanceDashboard(
@@ -53,7 +74,7 @@ export async function fetchFinanceInstitutions(
 
 export async function beginFinanceLink(
   client: AdminClient,
-  input: { institutionId: string; redirectUrl: string },
+  input: { institutionId: string },
 ) {
   const response = await client.post<unknown>("finance/link", input);
   return financeBeginLinkResponseSchema.parse(response);
@@ -157,4 +178,98 @@ export async function importFinanceCsv(
 export async function fetchFinanceNarrative(client: AdminClient) {
   const response = await client.post<unknown>("finance/narrative");
   return financeNarrativeResponseSchema.parse(response);
+}
+
+export async function createExpectedFinanceEntry(
+  client: AdminClient,
+  input: FinanceExpectedEntryInput,
+) {
+  const response = await client.post<unknown>(
+    "finance/entries/expected",
+    input,
+  );
+  return anyEntryMutationResponseSchema.parse(response).entry;
+}
+
+export async function updateFinanceEntry(
+  client: AdminClient,
+  entryId: string,
+  input: FinanceLedgerEntryUpdate,
+) {
+  const response = await client.patch<unknown>(
+    `finance/entries/${encodeURIComponent(entryId)}`,
+    input,
+  );
+  return anyEntryMutationResponseSchema.parse(response).entry;
+}
+
+export async function linkFinanceEntry(
+  client: AdminClient,
+  entryId: string,
+  bankLedgerId: string,
+) {
+  const response = await client.post<unknown>(
+    `finance/entries/${encodeURIComponent(entryId)}/link`,
+    { bankLedgerId },
+  );
+  return anyEntryMutationResponseSchema.parse(response).entry;
+}
+
+export async function unlinkFinanceEntry(client: AdminClient, entryId: string) {
+  const response = await client.del<unknown>(
+    `finance/entries/${encodeURIComponent(entryId)}/link`,
+  );
+  return successSchema.parse(response);
+}
+
+export async function deleteFinanceEntry(client: AdminClient, entryId: string) {
+  const response = await client.del<unknown>(
+    `finance/entries/${encodeURIComponent(entryId)}`,
+  );
+  return successSchema.parse(response);
+}
+
+export async function createFinanceCategory(
+  client: AdminClient,
+  input: FinanceCategoryInput,
+) {
+  const response = await client.post<unknown>("finance/categories", input);
+  return categoryMutationResponseSchema.parse(response).category;
+}
+
+export async function updateFinanceCategory(
+  client: AdminClient,
+  categoryId: string,
+  input: Partial<FinanceCategoryInput>,
+) {
+  const response = await client.patch<unknown>(
+    `finance/categories/${encodeURIComponent(categoryId)}`,
+    input,
+  );
+  return categoryMutationResponseSchema.parse(response).category;
+}
+
+export async function deleteFinanceCategory(
+  client: AdminClient,
+  categoryId: string,
+  reassignTo?: string,
+) {
+  const response = await client.raw(
+    `finance/categories/${encodeURIComponent(categoryId)}`,
+    { method: "DELETE", body: { reassignTo } },
+  );
+  return successSchema.parse(await response.json());
+}
+
+export async function updateFinanceSettings(
+  client: AdminClient,
+  input: FinanceSettingsInput,
+) {
+  const response = await client.patch<unknown>("finance/settings", input);
+  return settingsResponseSchema.parse(response).settings;
+}
+
+export async function refreshFinanceFxRates(client: AdminClient) {
+  const response = await client.post<unknown>("finance/fx/refresh");
+  return fxRefreshResponseSchema.parse(response);
 }
