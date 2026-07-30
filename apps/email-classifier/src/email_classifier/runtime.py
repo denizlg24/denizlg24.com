@@ -23,6 +23,7 @@ from email_classifier.data import LABELS, prepare_inference_row
 MAX_MODEL_BYTES = 100 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 EMPTY_PAYLOAD_SHA256 = hashlib.sha256(b"").hexdigest()
+USER_AGENT = "denizlg24-email-classifier/1"
 S3_ENV_NAMES = (
     "EMAIL_CLASSIFIER_MODEL_S3_ENDPOINT",
     "EMAIL_CLASSIFIER_MODEL_S3_REGION",
@@ -200,6 +201,7 @@ def _sign_s3_get(
             ),
             "x-amz-content-sha256": EMPTY_PAYLOAD_SHA256,
             "x-amz-date": amz_date,
+            "User-Agent": USER_AGENT,
         },
     )
 
@@ -300,7 +302,7 @@ def _download_remote_model() -> tuple[Path, str]:
         return cached, expected_digest
 
     destination = _cache_destination(expected_digest)
-    headers = {"User-Agent": "denizlg24-email-classifier/1"}
+    headers = {"User-Agent": USER_AGENT}
     bearer_token = os.getenv("EMAIL_CLASSIFIER_MODEL_BEARER_TOKEN", "").strip()
     if bearer_token:
         headers["Authorization"] = f"Bearer {bearer_token}"
