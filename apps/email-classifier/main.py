@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 import sys
 from pathlib import Path
@@ -100,6 +101,9 @@ def _configured_max_request_bytes() -> int:
     return value
 
 
+logger = logging.getLogger("email-classifier")
+
+
 def _error_response(status_code: int, message: str) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
@@ -160,6 +164,8 @@ async def secure_and_limit_requests(
 @app.exception_handler(APIError)
 async def handle_api_error(_request: Request, exc: APIError) -> JSONResponse:
     """Return the stable public error envelope."""
+    if exc.status_code >= 500:
+        logger.error(exc.message, exc_info=exc.__cause__ or exc)
     return _error_response(exc.status_code, exc.message)
 
 
