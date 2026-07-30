@@ -5,11 +5,23 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from typing import Any
 
-from email_classifier.runtime import (
+
+def _add_source_root() -> None:
+    """Make the src-layout package importable when Vercel loads this file."""
+    source_root = str(Path(__file__).resolve().parents[1])
+    if source_root not in sys.path:
+        sys.path.insert(0, source_root)
+
+
+_add_source_root()
+
+from email_classifier.runtime import (  # noqa: E402
     RuntimeConfigurationError,
     get_runtime_classifier,
 )
