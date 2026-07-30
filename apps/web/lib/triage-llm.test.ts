@@ -1,9 +1,8 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { __resetCatalogForTests } from "./llm-model-catalog";
 
-// Characterization tests for the three forced-tool triage phases. The LLM is
-// mocked at the network layer so these tests survive transport changes: any
-// POST that carries a forced tool_choice gets a canned Messages API response.
+// Characterization tests for the extraction-only LLM phase. Classification is
+// handled by the Python service and is covered separately.
 
 process.env.AI_GATEWAY_API_KEY ??= "test-gateway-key";
 const MODEL = "anthropic/claude-haiku-4.5";
@@ -82,9 +81,7 @@ afterAll(() => {
   globalThis.fetch = realFetch;
 });
 
-const { runPrefilter, runClassification, runExtraction } = await import(
-  "./triage"
-);
+const { runExtraction } = await import("./triage");
 type TriageEmailContext = import("./triage").TriageEmailContext;
 type ClassificationResult = import("./triage").ClassificationResult;
 type CompactKanbanTarget = import("./triage").CompactKanbanTarget;
@@ -108,122 +105,6 @@ beforeEach(() => {
   nextToolInput = undefined;
   omitToolUseBlock = false;
   llmUsageCreateMock.mockClear();
-});
-
-describe("runPrefilter", () => {
-  const emails = [
-    { _id: "a", subject: "WIN BIG", from: email.from },
-    { _id: "b", subject: "Invoice", from: email.from },
-  ];
-
-  test("returns [] without an LLM call when there are no candidates", async () => {
-    const result = await runPrefilter(MODEL, []);
-    expect(result).toEqual([]);
-    expect(recordedRequests).toHaveLength(0);
-  });
-
-  test("sends a forced return_spam_ids tool call with bounded max_tokens", async () => {
-    nextToolInput = { spamIds: ["a"] };
-    await runPrefilter(MODEL, emails);
-
-    const { body } = lastRequest();
-    expect(body.model).toBe(MODEL);
-    expect(body.temperature).toBe(0);
-    expect(body.max_tokens).toBe(80 + emails.length * 40);
-    expect(body.tool_choice).toEqual({
-      type: "tool",
-      name: "return_spam_ids",
-      disable_parallel_tool_use: true,
-    });
-    const tools = body.tools as { name: string }[];
-    expect(tools).toHaveLength(1);
-    expect(tools[0]?.name).toBe("return_spam_ids");
-  });
-
-  test("keeps only known ids, dedupes, and drops non-strings", async () => {
-    nextToolInput = { spamIds: ["a", "a", "zzz", 42, "b"] };
-    const result = await runPrefilter(MODEL, emails);
-    expect(result).toEqual(["a", "b"]);
-  });
-
-  test("returns [] when the model produced no tool_use block", async () => {
-    omitToolUseBlock = true;
-    const result = await runPrefilter(MODEL, emails);
-    expect(result).toEqual([]);
-  });
-
-  test("logs usage with the prefilter source", async () => {
-    nextToolInput = { spamIds: [] };
-    await runPrefilter(MODEL, emails);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(llmUsageCreateMock.mock.calls[0]?.[0]).toMatchObject({
-      llmModel: MODEL,
-      source: "email-triage-prefilter-v2",
-      inputTokens: 42,
-      outputTokens: 17,
-    });
-  });
-});
-
-describe("runClassification", () => {
-  const body = { text: "Please pay invoice #1", html: "" };
-
-  test("returns coerced classification fields", async () => {
-    nextToolInput = {
-      category: "action-needed",
-      confidence: 0.9,
-      summary: "Invoice needs payment",
-      needsTaskExtraction: true,
-      needsEventExtraction: false,
-    };
-    const result = await runClassification(MODEL, email, body);
-    expect(result).toEqual({
-      category: "action-needed",
-      confidence: 0.9,
-      summary: "Invoice needs payment",
-      needsTaskExtraction: true,
-      needsEventExtraction: false,
-    });
-
-    const { body: requestBody } = lastRequest();
-    expect(requestBody.tool_choice).toEqual({
-      type: "tool",
-      name: "classify_email",
-      disable_parallel_tool_use: true,
-    });
-    expect(requestBody.max_tokens).toBe(220);
-  });
-
-  test("coerces invalid values and forces event extraction for scheduled", async () => {
-    nextToolInput = {
-      category: "scheduled",
-      confidence: 7,
-      summary: "   ",
-      needsTaskExtraction: "yes",
-      needsEventExtraction: false,
-    };
-    const result = await runClassification(MODEL, email, body);
-    expect(result).toEqual({
-      category: "scheduled",
-      confidence: 1,
-      summary: email.subject,
-      needsTaskExtraction: false,
-      needsEventExtraction: true,
-    });
-  });
-
-  test("falls back to fyi for unknown categories", async () => {
-    nextToolInput = { category: "not-a-category" };
-    const result = await runClassification(MODEL, email, body);
-    expect(result?.category).toBe("fyi");
-    expect(result?.confidence).toBe(0.5);
-  });
-
-  test("returns null when the model produced no tool_use block", async () => {
-    omitToolUseBlock = true;
-    const result = await runClassification(MODEL, email, body);
-    expect(result).toBeNull();
-  });
 });
 
 describe("runExtraction", () => {

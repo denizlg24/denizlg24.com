@@ -57,7 +57,12 @@ export interface IEmailTriage extends Document {
   accountId: mongoose.Types.ObjectId;
   stage: "prefilter" | "full";
   category: TriageCategory;
+  modelCategory?: TriageCategory;
   confidence: number;
+  classificationThreshold?: number;
+  classificationProbabilities?: Record<TriageCategory, number>;
+  reviewRequired: boolean;
+  reviewReason?: string;
   summary?: string;
   matchedCourseId?: mongoose.Types.ObjectId;
   matchedCourseName?: string;
@@ -67,6 +72,7 @@ export interface IEmailTriage extends Document {
   suggestedEvents: ITriageEventSuggestion[];
   userStatus: "pending" | "reviewed" | "archived";
   modelUsed: string;
+  extractionModelUsed?: string;
   triagedAt: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -153,7 +159,28 @@ const EmailTriageSchema = new Schema<IEmailTriage>(
       required: true,
       index: true,
     },
+    modelCategory: {
+      type: String,
+      enum: [
+        "spam",
+        "newsletter",
+        "promo",
+        "purchases",
+        "fyi",
+        "action-needed",
+        "scheduled",
+      ],
+    },
     confidence: { type: Number, required: true, min: 0, max: 1 },
+    classificationThreshold: { type: Number, min: 0, max: 1 },
+    classificationProbabilities: { type: Schema.Types.Mixed },
+    reviewRequired: {
+      type: Boolean,
+      required: true,
+      default: false,
+      index: true,
+    },
+    reviewReason: { type: String },
     summary: { type: String },
     matchedCourseId: {
       type: Schema.Types.ObjectId,
@@ -172,6 +199,7 @@ const EmailTriageSchema = new Schema<IEmailTriage>(
       index: true,
     },
     modelUsed: { type: String, required: true },
+    extractionModelUsed: { type: String },
     triagedAt: { type: Date, required: true, default: Date.now },
   },
   { timestamps: true },
@@ -179,6 +207,7 @@ const EmailTriageSchema = new Schema<IEmailTriage>(
 
 EmailTriageSchema.index({ userStatus: 1, triagedAt: -1 });
 EmailTriageSchema.index({ category: 1, userStatus: 1 });
+EmailTriageSchema.index({ reviewRequired: 1, userStatus: 1, triagedAt: -1 });
 
 export const EmailTriageModel: mongoose.Model<IEmailTriage> =
   mongoose.models.EmailTriage ||

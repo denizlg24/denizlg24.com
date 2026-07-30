@@ -12,6 +12,7 @@ export interface ITriageSettings {
   runIntervalMinutes: number;
   prefilterModel: string;
   fullModel: string;
+  classificationConfidenceThreshold: number;
   categoryRouting: Record<TriageCategory, ICategoryRouting>;
   lastRunAt?: Date;
   createdAt: Date;
@@ -76,10 +77,17 @@ const TriageSettingsSchema = new Schema<ITriageSettings>(
     _id: { type: String, default: "singleton" },
     enabled: { type: Boolean, default: true },
     runIntervalMinutes: { type: Number, default: 120 },
-    // Fully qualified Gateway ids. Legacy dashed ids in existing documents
-    // still resolve through the LLM service's alias map.
+    // Retained only so existing settings documents and clients remain valid.
+    // Classification no longer reads this model.
     prefilterModel: { type: String, default: "anthropic/claude-haiku-4.5" },
+    // Used only for structured task/event extraction after Python classification.
     fullModel: { type: String, default: "anthropic/claude-sonnet-4.6" },
+    classificationConfidenceThreshold: {
+      type: Number,
+      default: 0.8,
+      min: 0,
+      max: 1,
+    },
     categoryRouting: {
       type: Schema.Types.Mixed,
       default: getDefaultCategoryRouting,

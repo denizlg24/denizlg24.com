@@ -14,10 +14,10 @@ import {
   updateCourseDeadline,
 } from "@/lib/courses";
 import { fetchEmailBody } from "@/lib/email";
+import { classifyEmail } from "@/lib/email-classifier";
 import { createCard } from "@/lib/kanban";
 import { generateToolResult } from "@/lib/llm-service";
 import { connectDB } from "@/lib/mongodb";
-import { findTriageShortcut, type ShortcutRule } from "@/lib/triage-shortcuts";
 import { EmailModel } from "@/models/Email";
 import {
   EmailTriageModel,
@@ -33,16 +33,6 @@ import {
   type ITriageSettings,
   normalizeCategoryRouting,
 } from "@/models/TriageSettings";
-
-const CATEGORIES: TriageCategory[] = [
-  "spam",
-  "newsletter",
-  "promo",
-  "purchases",
-  "fyi",
-  "action-needed",
-  "scheduled",
-];
 
 const PRIORITIES: TriagePriority[] = [
   "none",
@@ -141,6 +131,7 @@ interface TriageRunStats {
   scanned: number;
   prefilteredSpam: number;
   fullTriaged: number;
+  manualReview: number;
   autoAcceptedTasks: number;
   autoAcceptedEvents: number;
   errors: number;
@@ -152,12 +143,6 @@ export interface TriageEmailContext {
   date: Date;
 }
 
-export interface PrefilterEmailCandidate {
-  _id: string;
-  subject: string;
-  from: TriageEmailContext["from"];
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -166,13 +151,6 @@ function isTriagePriority(value: unknown): value is TriagePriority {
   return (
     typeof value === "string" &&
     PRIORITIES.some((priority) => priority === value)
-  );
-}
-
-function isTriageCategory(value: unknown): value is TriageCategory {
-  return (
-    typeof value === "string" &&
-    CATEGORIES.some((category) => category === value)
   );
 }
 
@@ -217,22 +195,6 @@ function parseDate(value: unknown): Date | undefined {
 
 function coercePriority(value: unknown): TriagePriority {
   return isTriagePriority(value) ? value : "medium";
-}
-
-function coerceCategory(value: unknown): TriageCategory {
-  return isTriageCategory(value) ? value : "fyi";
-}
-
-function clampConfidence(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return 0.5;
-  }
-
-  return Math.max(0, Math.min(1, value));
-}
-
-function getBoolean(value: unknown): boolean {
-  return value === true;
 }
 
 function normalizeSummary(summary: unknown, fallback: string): string {
@@ -291,6 +253,21 @@ function htmlToPlainText(html: string): string {
       .replace(/<li[^>]*>/gi, "- ")
       .replace(/<[^>]+>/g, " "),
   );
+}
+
+export function normalizeBodyForClassifier(text: string, html: string): string {
+  return (text.trim().length > 0 ? text : htmlToPlainText(html))
+    .replace(/\r\n?/g, "\n")
+    .replace(/\0/g, "")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+export function requiresClassificationReview(
+  confidence: number,
+  threshold: number,
+): boolean {
+  return confidence < threshold;
 }
 
 function isUrlOnlyLine(line: string): boolean {
@@ -529,64 +506,6 @@ function buildExtractionLogPrompt(
   ].join("\n");
 }
 
-export async function runPrefilter(
-  model: string,
-  emails: PrefilterEmailCandidate[],
-): Promise<string[]> {
-  if (emails.length === 0) {
-    return [];
-  }
-
-  const system = `You are an email spam prefilter. Return only the IDs of definite spam, phishing, bulk promotional junk, or obvious marketing noise. Be conservative: if an email is not clearly spam, omit it. ${UNTRUSTED_CONTENT_NOTICE}`;
-
-  const userContent = JSON.stringify(
-    emails.map((email) => ({
-      id: email._id,
-      subject: sanitizeUntrusted(email.subject),
-      from: sanitizeUntrusted(formatFrom(email.from)),
-    })),
-  );
-
-  const { input } = await generateToolResult({
-    purpose: "triage-prefilter",
-    source: "email-triage-prefilter-v2",
-    model,
-    system,
-    prompt: userContent,
-    maxTokens: Math.min(80 + emails.length * 40, 600),
-    temperature: 0,
-    tool: {
-      name: "return_spam_ids",
-      description:
-        "Return the IDs of only the emails that are definite spam and can be safely prefiltered.",
-      input_schema: {
-        type: "object",
-        properties: {
-          spamIds: {
-            type: "array",
-            items: { type: "string" },
-          },
-        },
-        required: ["spamIds"],
-        additionalProperties: false,
-      },
-    },
-    logUserPrompt: userContent.slice(0, 2000),
-  });
-
-  const validIds = new Set(emails.map((email) => email._id));
-  return Array.isArray(input?.spamIds)
-    ? Array.from(
-        new Set(
-          input.spamIds.filter(
-            (value): value is string =>
-              typeof value === "string" && validIds.has(value),
-          ),
-        ),
-      )
-    : [];
-}
-
 async function getKanbanTargets(): Promise<CompactKanbanTarget[]> {
   const boards = await KanbanBoard.find({ isArchived: false })
     .select("title")
@@ -805,51 +724,6 @@ function findCourseBoardTarget(
   return kanbanTargets.find((target) => boardIds.has(target.boardId));
 }
 
-function buildClassificationTool(): Anthropic.Tool {
-  return {
-    name: "classify_email",
-    description:
-      "Classify the email, write a short summary, and decide whether task extraction and event extraction are needed.",
-    input_schema: {
-      type: "object",
-      properties: {
-        category: {
-          type: "string",
-          enum: CATEGORIES,
-          description:
-            "spam = junk/phishing/bulk-marketing; newsletter = legit subscription digest; promo = transactional marketing from known sender; purchases = receipts, invoices, order confirmations, or payment notices that do not need follow-up; fyi = informational, no action needed; action-needed = requires a reply/follow-up/task; scheduled = contains a specific meeting/appointment/event time.",
-        },
-        confidence: {
-          type: "number",
-          description: "0..1 confidence for the classification.",
-        },
-        summary: {
-          type: "string",
-          description: "One short sentence, maximum 160 characters.",
-        },
-        needsTaskExtraction: {
-          type: "boolean",
-          description:
-            "True only when the email likely contains a concrete follow-up task worth extracting.",
-        },
-        needsEventExtraction: {
-          type: "boolean",
-          description:
-            "True only when the email likely contains a specific date/time event worth extracting.",
-        },
-      },
-      required: [
-        "category",
-        "confidence",
-        "summary",
-        "needsTaskExtraction",
-        "needsEventExtraction",
-      ],
-      additionalProperties: false,
-    },
-  };
-}
-
 function buildExtractionTool(
   kanbanTargets: CompactKanbanTarget[],
   courseTargets: CourseTarget[],
@@ -964,54 +838,6 @@ function buildExtractionTool(
       required: ["tasks", "events"],
       additionalProperties: false,
     },
-  };
-}
-
-export async function runClassification(
-  model: string,
-  email: TriageEmailContext,
-  body: { text: string; html: string },
-): Promise<ClassificationResult | null> {
-  const system = `You are an email triage classifier. Classify one email, write one short summary sentence no longer than 160 characters, and decide whether separate task extraction and event extraction are needed. Be conservative with both extraction flags. Use purchases for receipts, invoices, payment notices, or order confirmations that do not need follow-up. ${UNTRUSTED_CONTENT_NOTICE}`;
-
-  const bodySnippet =
-    normalizeBodyForTriage(body.text, body.html, "classification") ||
-    "(no usable body content)";
-  const prompt = [
-    `<email_subject>${sanitizeUntrusted(email.subject)}</email_subject>`,
-    `<email_from>${sanitizeUntrusted(formatFrom(email.from))}</email_from>`,
-    `Date: ${email.date.toISOString()}`,
-    "<email_body>",
-    sanitizeUntrusted(bodySnippet),
-    "</email_body>",
-  ].join("\n");
-
-  const { input } = await generateToolResult({
-    purpose: "triage-classify",
-    source: "email-triage-classify",
-    model,
-    system,
-    prompt,
-    maxTokens: 220,
-    temperature: 0,
-    tool: buildClassificationTool(),
-    logUserPrompt: prompt.slice(0, 3000),
-  });
-
-  if (!input) {
-    return null;
-  }
-
-  return {
-    category: coerceCategory(input.category),
-    confidence: clampConfidence(input.confidence),
-    summary: normalizeSummary(
-      input.summary,
-      email.subject || "Email triage summary unavailable.",
-    ),
-    needsTaskExtraction: getBoolean(input.needsTaskExtraction),
-    needsEventExtraction:
-      getBoolean(input.needsEventExtraction) || input.category === "scheduled",
   };
 }
 
@@ -1395,6 +1221,7 @@ export async function runTriage(options?: {
       scanned: 0,
       prefilteredSpam: 0,
       fullTriaged: 0,
+      manualReview: 0,
       autoAcceptedTasks: 0,
       autoAcceptedEvents: 0,
       errors: 0,
@@ -1415,6 +1242,7 @@ export async function runTriage(options?: {
         scanned: 0,
         prefilteredSpam: 0,
         fullTriaged: 0,
+        manualReview: 0,
         autoAcceptedTasks: 0,
         autoAcceptedEvents: 0,
         errors: 0,
@@ -1457,6 +1285,7 @@ export async function runTriage(options?: {
     scanned: candidates.length,
     prefilteredSpam: 0,
     fullTriaged: 0,
+    manualReview: 0,
     autoAcceptedTasks: 0,
     autoAcceptedEvents: 0,
     errors: 0,
@@ -1467,95 +1296,12 @@ export async function runTriage(options?: {
     return stats;
   }
 
-  const shortcutMatches = new Map<string, ShortcutRule>();
-  const llmCandidates: typeof candidates = [];
-
-  for (const email of candidates) {
-    const shortcut = findTriageShortcut(
-      email.from.map((entry) => entry.address),
-    );
-    if (shortcut) {
-      shortcutMatches.set(email._id.toString(), shortcut);
-    } else {
-      llmCandidates.push(email);
-    }
-  }
-
-  for (const email of candidates) {
-    const shortcut = shortcutMatches.get(email._id.toString());
-    if (!shortcut) {
-      continue;
-    }
-
-    try {
-      await EmailTriageModel.create({
-        emailId: email._id,
-        accountId: email.accountId,
-        stage: "full",
-        category: shortcut.category,
-        confidence: shortcut.confidence,
-        summary: normalizeSummary(
-          email.subject,
-          "Informational system update.",
-        ),
-        suggestedTasks: [],
-        suggestedEvents: [],
-        modelUsed: `shortcut:${shortcut.pattern}`,
-        triagedAt: new Date(),
-      });
-      stats.fullTriaged++;
-    } catch (err) {
-      console.error("shortcut triage failed:", err);
-      stats.errors++;
-    }
-  }
-
-  if (llmCandidates.length === 0) {
-    await updateLastRunAt(settings);
-    return stats;
-  }
-
-  const spamIds = new Set(
-    await runPrefilter(
-      settings.prefilterModel,
-      llmCandidates.map((email) => ({
-        _id: email._id.toString(),
-        subject: email.subject,
-        from: email.from,
-      })),
-    ),
-  );
-
-  for (const email of llmCandidates) {
-    if (!spamIds.has(email._id.toString())) {
-      continue;
-    }
-
-    try {
-      await EmailTriageModel.create({
-        emailId: email._id,
-        accountId: email.accountId,
-        stage: "prefilter",
-        category: "spam",
-        confidence: 0.9,
-        modelUsed: settings.prefilterModel,
-        triagedAt: new Date(),
-      });
-      stats.prefilteredSpam++;
-    } catch (err) {
-      console.error("prefilter insert failed:", err);
-      stats.errors++;
-    }
-  }
-
   let kanbanTargetsCache: CompactKanbanTarget[] | undefined;
   let courseTargetsCache: CourseTarget[] | undefined;
+  const classificationThreshold =
+    settings.classificationConfidenceThreshold ?? 0.8;
 
-  for (const email of llmCandidates) {
-    if (spamIds.has(email._id.toString())) {
-      continue;
-    }
-
+  for (const email of candidates) {
     try {
       let body = await fetchEmailBody(String(email.accountId), email.uid);
       if (!body) {
@@ -1569,66 +1315,72 @@ export async function runTriage(options?: {
         date: email.date,
       };
 
-      const classification = await runClassification(
-        settings.fullModel,
-        emailContext,
-        {
-          text: body.text,
-          html: body.html,
-        },
+      const sender = email.from[0];
+      const prediction = await classifyEmail({
+        subject: email.subject,
+        body: normalizeBodyForClassifier(body.text, body.html),
+        senderName: sender?.name ?? "",
+        senderAddress: sender?.address ?? "",
+        attachmentCount: body.attachmentCount,
+        hasHtml: body.html.trim().length > 0,
+      });
+      let reviewRequired = requiresClassificationReview(
+        prediction.confidence,
+        classificationThreshold,
       );
-      if (!classification) {
-        stats.errors++;
-        continue;
-      }
-
-      if (!courseTargetsCache) {
-        courseTargetsCache = buildCourseTargets(await getCoursesForMatching());
-      }
-      const courseTargets = courseTargetsCache;
-      const courseMatchBody = normalizeBodyForTriage(
-        body.text,
-        body.html,
-        "classification",
-      );
-      const deterministicCourse = matchCourseDeterministic(
-        emailContext,
-        courseTargets,
-        courseMatchBody,
-      );
-      // Hybrid matching: a deterministic course hit forces a real extraction
-      // pass so course deadline/event updates are not missed when the
-      // classifier was conservative about extraction flags.
-      if (deterministicCourse) {
-        classification.needsTaskExtraction = true;
-        classification.needsEventExtraction = true;
-      }
-
+      let reviewReason = reviewRequired ? "low-confidence" : undefined;
+      let extractionModelUsed: string | undefined;
+      const classification: ClassificationResult = {
+        category: prediction.category,
+        confidence: prediction.confidence,
+        summary: normalizeSummary(
+          email.subject,
+          "Email classified without a subject.",
+        ),
+        needsTaskExtraction:
+          !reviewRequired && prediction.category === "action-needed",
+        needsEventExtraction:
+          !reviewRequired && prediction.category === "scheduled",
+      };
       let bodyForExtraction = body;
-      if (deterministicCourse) {
-        const bodyWithAttachments = await fetchEmailBody(
-          String(email.accountId),
-          email.uid,
-          { includeAttachmentText: true },
-        );
-        if (bodyWithAttachments) {
-          body = bodyWithAttachments;
-          bodyForExtraction = bodyWithAttachments;
-        }
-      }
-
       let fullResult: FullTriageResult = {
         ...classification,
         tasks: [],
         events: [],
-        matchedCourseId: deterministicCourse?.courseId,
-        matchedCourseName: deterministicCourse?.name,
       };
 
       if (
         classification.needsTaskExtraction ||
         classification.needsEventExtraction
       ) {
+        if (!courseTargetsCache) {
+          courseTargetsCache = buildCourseTargets(
+            await getCoursesForMatching(),
+          );
+        }
+        const courseTargets = courseTargetsCache;
+        const deterministicCourse = matchCourseDeterministic(
+          emailContext,
+          courseTargets,
+          normalizeBodyForTriage(body.text, body.html, "classification"),
+        );
+        if (deterministicCourse) {
+          classification.needsTaskExtraction = true;
+          classification.needsEventExtraction = true;
+          fullResult.matchedCourseId = deterministicCourse.courseId;
+          fullResult.matchedCourseName = deterministicCourse.name;
+
+          const bodyWithAttachments = await fetchEmailBody(
+            String(email.accountId),
+            email.uid,
+            { includeAttachmentText: true },
+          );
+          if (bodyWithAttachments) {
+            body = bodyWithAttachments;
+            bodyForExtraction = bodyWithAttachments;
+          }
+        }
+
         let kanbanTargets: CompactKanbanTarget[] = [];
         if (classification.needsTaskExtraction) {
           if (!kanbanTargetsCache) {
@@ -1637,6 +1389,7 @@ export async function runTriage(options?: {
           kanbanTargets = kanbanTargetsCache;
         }
 
+        extractionModelUsed = settings.fullModel;
         let extraction = await runExtraction(
           settings.fullModel,
           emailContext,
@@ -1648,67 +1401,67 @@ export async function runTriage(options?: {
         );
         if (!extraction) {
           stats.errors++;
-          continue;
-        }
-
-        if (
-          !deterministicCourse &&
-          extraction.matchedCourseId &&
-          bodyForExtraction.attachmentText.length === 0
-        ) {
-          const matchedCourseForAttachments = courseTargets.find(
-            (course) => course.courseId === extraction?.matchedCourseId,
-          );
-          if (matchedCourseForAttachments) {
-            const bodyWithAttachments = await fetchEmailBody(
-              String(email.accountId),
-              email.uid,
-              { includeAttachmentText: true },
+          reviewRequired = true;
+          reviewReason = "extraction-failed";
+        } else {
+          if (
+            !deterministicCourse &&
+            extraction.matchedCourseId &&
+            bodyForExtraction.attachmentText.length === 0
+          ) {
+            const matchedCourseForAttachments = courseTargets.find(
+              (course) => course.courseId === extraction?.matchedCourseId,
             );
-            if (bodyWithAttachments?.attachmentText.length) {
-              const attachmentExtraction = await runExtraction(
-                settings.fullModel,
-                emailContext,
-                bodyWithAttachments,
-                classification,
-                kanbanTargets,
-                courseTargets,
-                matchedCourseForAttachments,
+            if (matchedCourseForAttachments) {
+              const bodyWithAttachments = await fetchEmailBody(
+                String(email.accountId),
+                email.uid,
+                { includeAttachmentText: true },
               );
-              if (attachmentExtraction) {
-                extraction = attachmentExtraction;
-                bodyForExtraction = bodyWithAttachments;
+              if (bodyWithAttachments?.attachmentText.length) {
+                const attachmentExtraction = await runExtraction(
+                  settings.fullModel,
+                  emailContext,
+                  bodyWithAttachments,
+                  classification,
+                  kanbanTargets,
+                  courseTargets,
+                  matchedCourseForAttachments,
+                );
+                if (attachmentExtraction) {
+                  extraction = attachmentExtraction;
+                  bodyForExtraction = bodyWithAttachments;
+                }
               }
             }
           }
-        }
 
-        fullResult = {
-          ...classification,
-          ...extraction,
-        };
+          fullResult = {
+            ...classification,
+            ...extraction,
+          };
 
-        // Route course-matched tasks onto the course's own board so they show
-        // up under that class, and flag them so we don't also mirror them as a
-        // separate course deadline.
-        const matchedCourse = fullResult.matchedCourseId
-          ? courseTargets.find(
-              (course) => course.courseId === fullResult.matchedCourseId,
-            )
-          : undefined;
-        if (matchedCourse && kanbanTargets.length > 0) {
-          const boardTarget = findCourseBoardTarget(
-            matchedCourse,
-            kanbanTargets,
-          );
-          if (boardTarget) {
-            for (const task of fullResult.tasks) {
-              if (task.updatesCourseDeadlineId) continue;
-              task.kanbanBoardId = boardTarget.boardId;
-              task.kanbanBoardTitle = boardTarget.boardTitle;
-              task.kanbanColumnId = boardTarget.columnId;
-              task.kanbanColumnTitle = boardTarget.columnTitle;
-              task.routedToCourseBoard = true;
+          // Route course-matched tasks onto the course's own board so they
+          // show up under that class without duplicating course deadlines.
+          const matchedCourse = fullResult.matchedCourseId
+            ? courseTargets.find(
+                (course) => course.courseId === fullResult.matchedCourseId,
+              )
+            : undefined;
+          if (matchedCourse && kanbanTargets.length > 0) {
+            const boardTarget = findCourseBoardTarget(
+              matchedCourse,
+              kanbanTargets,
+            );
+            if (boardTarget) {
+              for (const task of fullResult.tasks) {
+                if (task.updatesCourseDeadlineId) continue;
+                task.kanbanBoardId = boardTarget.boardId;
+                task.kanbanBoardTitle = boardTarget.boardTitle;
+                task.kanbanColumnId = boardTarget.columnId;
+                task.kanbanColumnTitle = boardTarget.columnTitle;
+                task.routedToCourseBoard = true;
+              }
             }
           }
         }
@@ -1725,7 +1478,12 @@ export async function runTriage(options?: {
         accountId: email.accountId,
         stage: "full",
         category: fullResult.category,
+        modelCategory: prediction.category,
         confidence: fullResult.confidence,
+        classificationThreshold,
+        classificationProbabilities: prediction.probabilities,
+        reviewRequired,
+        reviewReason,
         summary: fullResult.summary,
         matchedCourseId: fullResult.matchedCourseId,
         matchedCourseName: fullResult.matchedCourseName,
@@ -1756,18 +1514,27 @@ export async function runTriage(options?: {
           updatesCalendarEventId: event.updatesCalendarEventId,
           status: "pending",
         })),
-        modelUsed: settings.fullModel,
+        modelUsed: `email-classifier:${prediction.modelVersion}`,
+        extractionModelUsed,
         triagedAt: new Date(),
       });
       stats.fullTriaged++;
+      if (reviewRequired) {
+        stats.manualReview++;
+      }
+      if (!reviewRequired && fullResult.category === "spam") {
+        stats.prefilteredSpam++;
+      }
 
-      const accepted = await autoAccept(
-        doc._id,
-        fullResult,
-        categoryRouting[fullResult.category],
-      );
-      stats.autoAcceptedTasks += accepted.tasks;
-      stats.autoAcceptedEvents += accepted.events;
+      if (!reviewRequired) {
+        const accepted = await autoAccept(
+          doc._id,
+          fullResult,
+          categoryRouting[fullResult.category],
+        );
+        stats.autoAcceptedTasks += accepted.tasks;
+        stats.autoAcceptedEvents += accepted.events;
+      }
     } catch (err) {
       console.error("full triage failed for", email._id, err);
       stats.errors++;

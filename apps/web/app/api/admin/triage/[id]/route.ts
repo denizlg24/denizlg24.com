@@ -7,6 +7,15 @@ import { EmailModel } from "@/models/Email";
 import { EmailTriageModel } from "@/models/EmailTriage";
 
 const TRIAGE_USER_STATUSES = ["pending", "reviewed", "archived"] as const;
+const TRIAGE_CATEGORIES = [
+  "spam",
+  "newsletter",
+  "promo",
+  "purchases",
+  "fyi",
+  "action-needed",
+  "scheduled",
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -18,6 +27,15 @@ function isTriageUserStatus(
   return (
     typeof value === "string" &&
     TRIAGE_USER_STATUSES.some((status) => status === value)
+  );
+}
+
+function isTriageCategory(
+  value: unknown,
+): value is (typeof TRIAGE_CATEGORIES)[number] {
+  return (
+    typeof value === "string" &&
+    TRIAGE_CATEGORIES.some((category) => category === value)
   );
 }
 
@@ -55,6 +73,7 @@ export async function GET(
       _id: triage._id.toString(),
       emailId: triage.emailId.toString(),
       accountId: triage.accountId.toString(),
+      reviewRequired: triage.reviewRequired === true,
       attachmentTextUsed: triage.attachmentTextUsed === true,
       attachmentTextSources: Array.isArray(triage.attachmentTextSources)
         ? triage.attachmentTextSources
@@ -109,13 +128,28 @@ export async function PATCH(
   if (isTriageUserStatus(payload.userStatus)) {
     update.userStatus = payload.userStatus;
   }
+  if (isTriageCategory(payload.category)) {
+    update.category = payload.category;
+  }
+  if (payload.userStatus === "reviewed") {
+    update.reviewRequired = false;
+  }
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
-  const triage = await EmailTriageModel.findByIdAndUpdate(id, update, {
-    returnDocument: "after",
-  }).lean();
+  const triage = await EmailTriageModel.findByIdAndUpdate(
+    id,
+    {
+      $set: update,
+      ...(payload.userStatus === "reviewed"
+        ? { $unset: { reviewReason: 1 } }
+        : {}),
+    },
+    {
+      returnDocument: "after",
+    },
+  ).lean();
   if (!triage) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

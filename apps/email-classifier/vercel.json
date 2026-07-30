@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/classify.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{.data/**,.venv/**,tests/**,**/__pycache__/**,**/*.pyc}"
+    }
+  }
+}
