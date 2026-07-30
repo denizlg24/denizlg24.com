@@ -3,25 +3,25 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import tempfile
 import threading
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
-import boto3
 import joblib
-from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
 
 from email_classifier.data import LABELS, prepare_inference_row
 
 MAX_MODEL_BYTES = 100 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+EMPTY_PAYLOAD_SHA256 = hashlib.sha256(b"").hexdigest()
 S3_ENV_NAMES = (
     "EMAIL_CLASSIFIER_MODEL_S3_ENDPOINT",
     "EMAIL_CLASSIFIER_MODEL_S3_REGION",
@@ -137,6 +137,72 @@ def _resolve_local_model() -> tuple[Path, str] | None:
     return path, digest
 
 
+def _hmac(key: bytes, message: str) -> bytes:
+    return hmac.new(key, message.encode("utf-8"), hashlib.sha256).digest()
+
+
+def _sign_s3_get(
+    endpoint: str,
+    region: str,
+    access_key: str,
+    secret_key: str,
+    bucket: str,
+    key: str,
+) -> Request:
+    """Build a SigV4 path-style GET for one S3 object."""
+    parsed = urlparse(endpoint.rstrip("/"))
+    canonical_uri = f"{parsed.path}/{quote(bucket, safe='')}/{quote(key, safe='/')}"
+    now = datetime.now(UTC)
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    scope = f"{date_stamp}/{region}/s3/aws4_request"
+
+    canonical_headers = (
+        f"host:{parsed.netloc}\n"
+        f"x-amz-content-sha256:{EMPTY_PAYLOAD_SHA256}\n"
+        f"x-amz-date:{amz_date}\n"
+    )
+    signed_headers = "host;x-amz-content-sha256;x-amz-date"
+    canonical_request = "\n".join(
+        (
+            "GET",
+            canonical_uri,
+            "",
+            canonical_headers,
+            signed_headers,
+            EMPTY_PAYLOAD_SHA256,
+        )
+    )
+    string_to_sign = "\n".join(
+        (
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            scope,
+            hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+        )
+    )
+
+    signing_key = _hmac(
+        _hmac(_hmac(_hmac(f"AWS4{secret_key}".encode(), date_stamp), region), "s3"),
+        "aws4_request",
+    )
+    signature = hmac.new(
+        signing_key, string_to_sign.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+    return Request(
+        f"{parsed.scheme}://{parsed.netloc}{canonical_uri}",
+        headers={
+            "Authorization": (
+                f"AWS4-HMAC-SHA256 Credential={access_key}/{scope}, "
+                f"SignedHeaders={signed_headers}, Signature={signature}"
+            ),
+            "x-amz-content-sha256": EMPTY_PAYLOAD_SHA256,
+            "x-amz-date": amz_date,
+        },
+    )
+
+
 def _download_s3_model() -> tuple[Path, str] | None:
     configured_values = [os.getenv(name, "").strip() for name in S3_ENV_NAMES]
     if not any(configured_values):
@@ -162,50 +228,36 @@ def _download_s3_model() -> tuple[Path, str] | None:
     temporary = destination.with_suffix(f".{os.getpid()}.tmp")
     downloaded = 0
     digest = hashlib.sha256()
-    stream: Any = None
 
     try:
-        client = boto3.client(
-            "s3",
-            endpoint_url=endpoint.rstrip("/"),
-            region_name=region,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            config=Config(
-                signature_version="s3v4",
-                s3={"addressing_style": "path"},
-            ),
-        )
-        response = client.get_object(Bucket=bucket, Key=key)
-        content_length = int(response.get("ContentLength", 0))
-        if content_length > MAX_MODEL_BYTES:
-            raise RuntimeConfigurationError(
-                "classifier model exceeds the 100 MB runtime limit"
-            )
+        request = _sign_s3_get(endpoint, region, access_key, secret_key, bucket, key)
+        with urlopen(request, timeout=30) as response:
+            declared = response.headers.get("Content-Length")
+            if declared is not None and int(declared) > MAX_MODEL_BYTES:
+                raise RuntimeConfigurationError(
+                    "classifier model exceeds the 100 MB runtime limit"
+                )
 
-        stream = response["Body"]
-        with temporary.open("wb") as output:
-            while chunk := stream.read(DOWNLOAD_CHUNK_BYTES):
-                downloaded += len(chunk)
-                if downloaded > MAX_MODEL_BYTES:
-                    raise RuntimeConfigurationError(
-                        "classifier model exceeds the 100 MB runtime limit"
-                    )
-                digest.update(chunk)
-                output.write(chunk)
+            with temporary.open("wb") as output:
+                while chunk := response.read(DOWNLOAD_CHUNK_BYTES):
+                    downloaded += len(chunk)
+                    if downloaded > MAX_MODEL_BYTES:
+                        raise RuntimeConfigurationError(
+                            "classifier model exceeds the 100 MB runtime limit"
+                        )
+                    digest.update(chunk)
+                    output.write(chunk)
 
         if digest.hexdigest() != expected_digest:
             raise RuntimeConfigurationError(
                 "downloaded classifier model SHA-256 does not match"
             )
         temporary.replace(destination)
-    except (BotoCoreError, ClientError, KeyError, OSError, ValueError) as exc:
+    except (HTTPError, OSError, TimeoutError, URLError, ValueError) as exc:
         raise RuntimeConfigurationError(
             "classifier model could not be downloaded from S3"
         ) from exc
     finally:
-        if stream is not None:
-            stream.close()
         temporary.unlink(missing_ok=True)
 
     return destination, expected_digest

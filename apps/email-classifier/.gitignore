@@ -12,3 +12,5 @@ review-triage-dataset.py
 TRAINING_PLAN.md
 augmentation-schema.json
 triage-adjudication-schema.json
+
+.vercel
