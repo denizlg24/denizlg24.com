@@ -13,9 +13,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/dialog";
+import { JsonEditor, useJsonDraft } from "@repo/ui/json-editor";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { JsonEditor, useJsonDraft } from "@/components/json-editor";
 import { api, errorMessage } from "@/lib/api";
 
 const TEMPLATES = [

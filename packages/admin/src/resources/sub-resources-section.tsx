@@ -269,7 +269,7 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
               key={sub._id}
               className="px-3 py-2.5 rounded-lg border border-border/50"
             >
-              <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                 <span
                   className={`size-1.5 rounded-full shrink-0 ${statusDot(sub)}`}
                 />
@@ -278,8 +278,13 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
                 ) : (
                   <Network className="size-3 text-muted-foreground/60 shrink-0" />
                 )}
-                <span className="text-sm font-medium">{sub.name}</span>
-                <span className="text-[10px] text-muted-foreground/60 font-mono truncate flex-1">
+                {/* A one-word name like "Meilisearch" has no wrap opportunity,
+                    so without min-w-0 it set the row's floor and shoved the
+                    action buttons out of the card. */}
+                <span className="min-w-0 flex-1 truncate text-sm font-medium sm:flex-initial">
+                  {sub.name}
+                </span>
+                <span className="hidden min-w-0 flex-1 truncate text-[10px] text-muted-foreground/60 font-mono sm:block">
                   {checkSummary(sub.check)}
                 </span>
                 {sub.lastResponseTimeMs != null && (
@@ -287,7 +292,8 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
                     {sub.lastResponseTimeMs} ms
                   </span>
                 )}
-                <span className="text-[10px] text-muted-foreground font-mono uppercase shrink-0">
+                {/* The status dot already carries this below sm. */}
+                <span className="hidden text-[10px] text-muted-foreground font-mono uppercase shrink-0 sm:inline">
                   {sub.lastStatus ?? "unchecked"}
                 </span>
                 <Button
@@ -380,8 +386,8 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
                     placeholder="https://search.denizlg24.com/health"
                   />
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="space-y-1.5">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="sub-status">Status</Label>
                     <Input
                       id="sub-status"
@@ -392,7 +398,7 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
                       placeholder="any 2xx"
                     />
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="sub-json-path">JSON path</Label>
                     <Input
                       id="sub-json-path"
@@ -403,7 +409,7 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
                       placeholder="status"
                     />
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="sub-equals">Equals</Label>
                     <Input
                       id="sub-equals"
@@ -417,8 +423,8 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
                 </div>
               </>
             ) : (
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2 space-y-1.5">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="min-w-0 space-y-1.5 sm:col-span-2">
                   <Label htmlFor="sub-host">Host</Label>
                   <Input
                     id="sub-host"
@@ -427,7 +433,7 @@ export function SubResourcesSection({ resourceId }: { resourceId: string }) {
                     placeholder="mongodb.denizlg24.com"
                   />
                 </div>
-                <div className="space-y-1.5">
+                <div className="min-w-0 space-y-1.5">
                   <Label htmlFor="sub-port">Port</Label>
                   <Input
                     id="sub-port"

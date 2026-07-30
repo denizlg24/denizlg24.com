@@ -5,22 +5,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
-import {
-  Activity,
-  ChevronDown,
-  Mic,
-  Square,
-  Trash2,
-  Waves,
-} from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Activity, ChevronDown, Mic, Square, Trash2 } from "lucide-react";
 import { formatDuration, useVoiceRecorder } from "./voice-recorder-provider";
 
 export function BackgroundActionsMenu() {
-  const router = useRouter();
   const recorder = useVoiceRecorder();
   const recording = recorder.status === "recording";
   const busy =
@@ -77,13 +67,6 @@ export function BackgroundActionsMenu() {
               : "Start voice recording"}
           </DropdownMenuItem>
         )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onSelect={() => router.push("/dashboard/voice-notes")}
-        >
-          <Waves className="size-3.5" />
-          Voice notes
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

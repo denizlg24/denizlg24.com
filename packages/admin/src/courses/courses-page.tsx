@@ -206,18 +206,18 @@ function CourseCard({
           )}
         </div>
 
-        <div className="mt-auto grid grid-cols-4 gap-2 text-[11px]">
-          <span className="rounded-md bg-muted/60 px-2 py-1">
+        <div className="mt-auto grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
+          <span className="truncate rounded-md bg-muted/60 px-2 py-1">
             {stats.timetableEntries} time
           </span>
-          <span className="rounded-md bg-muted/60 px-2 py-1">
+          <span className="truncate rounded-md bg-muted/60 px-2 py-1">
             {stats.dueCards + stats.openManualDeadlines + stats.openAssignments}{" "}
             due
           </span>
-          <span className="rounded-md bg-muted/60 px-2 py-1">
+          <span className="truncate rounded-md bg-muted/60 px-2 py-1">
             {stats.assignments} work
           </span>
-          <span className="rounded-md bg-muted/60 px-2 py-1">
+          <span className="truncate rounded-md bg-muted/60 px-2 py-1">
             {formatPercent(stats.gradeAverage)}
           </span>
         </div>
@@ -382,7 +382,7 @@ function CourseHome({
                     {course.customFields.map((field) => (
                       <div
                         key={field._id}
-                        className="rounded-md border px-3 py-2"
+                        className="min-w-0 rounded-md border px-3 py-2"
                       >
                         <div className="text-[10px] uppercase text-muted-foreground">
                           {field.label}
@@ -472,7 +472,7 @@ function CourseHome({
                   {detail.timetableEntries.map((entry) => (
                     <div
                       key={entry._id}
-                      className="rounded-md border px-3 py-2"
+                      className="min-w-0 rounded-md border px-3 py-2"
                     >
                       <div className="flex items-center gap-2">
                         <Badge

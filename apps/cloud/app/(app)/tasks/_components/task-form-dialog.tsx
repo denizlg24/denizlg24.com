@@ -15,11 +15,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/dialog";
+import { JsonEditor, useJsonDraft } from "@repo/ui/json-editor";
 import { Cron } from "croner";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import type { z } from "zod";
-import { JsonEditor, useJsonDraft } from "@/components/json-editor";
 import { api, errorMessage } from "@/lib/api";
 
 const TEMPLATES = [

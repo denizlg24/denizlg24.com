@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@repo/ui/dialog";
+import { JsonEditor, useJsonDraft } from "@repo/ui/json-editor";
 import { Section } from "@repo/ui/section";
 import { StatusDot } from "@repo/ui/status-dot";
 import {
@@ -27,7 +28,6 @@ import {
 import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { JsonEditor, useJsonDraft } from "@/components/json-editor";
 import { api, errorMessage } from "@/lib/api";
 
 const TEMPLATES = [

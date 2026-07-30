@@ -1,10 +1,10 @@
 "use client";
 
-import { Button } from "@repo/ui/button";
-import { Textarea } from "@repo/ui/textarea";
-import { cn } from "@repo/ui/utils";
 import { useCallback, useMemo, useState } from "react";
 import type { z } from "zod";
+import { Button } from "./button";
+import { Textarea } from "./textarea";
+import { cn } from "./utils";
 
 export type JsonDraftResult<T> =
   | { ok: true; data: T }

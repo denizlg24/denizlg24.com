@@ -193,7 +193,7 @@ function PaginatedDataTable<TData>({
                 value={globalFilter}
                 onChange={(event) => setGlobalFilter(event.target.value)}
                 placeholder={searchPlaceholder}
-                className="h-8 w-64 pl-7 text-xs"
+                className="h-8 w-64 max-w-full pl-7 text-xs"
               />
             </div>
           )}
@@ -264,7 +264,9 @@ function PaginatedDataTable<TData>({
           </div>
 
           {pageCount > 1 && (
-            <div className="flex items-center gap-1">
+            // Wraps rather than setting a ~350px min-content floor on the
+            // whole table, which pushed the page into horizontal scroll.
+            <div className="flex flex-wrap items-center justify-end gap-1">
               <Button
                 type="button"
                 variant="outline"
