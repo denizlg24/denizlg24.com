@@ -3,10 +3,9 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 ## LLM environment
 
 All LLM traffic goes through the Vercel AI Gateway via the central service in
-`lib/llm-service.ts`. Direct provider keys (`ANTHROPIC_API_KEY`,
-`SEMANTIC_LLM_API_KEY`/`SEMANTIC_LLM_BASE_URL`) are no longer read; after the
-48-hour rollback window following cutover, rotate/revoke them if unused
-elsewhere.
+`lib/llm-service.ts`. The direct provider keys it replaced
+(`ANTHROPIC_API_KEY`, `SEMANTIC_LLM_API_KEY`/`SEMANTIC_LLM_BASE_URL`) have been
+deleted from the Vercel projects and the turbo passthrough list.
 
 - `AI_GATEWAY_API_KEY` — server-only Gateway key. Validated lazily when a
   generation/token-counting call starts; model discovery works without it.

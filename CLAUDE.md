@@ -229,7 +229,7 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 - Checks run from the backend in the health-check cron (`runAllSubResourceChecks` in `lib/resource-agent.ts`); logs share `HealthCheckLog` keyed by sub-resource id; public `/api/public/resource-status` nests `subResources` per parent
 
 ### Upload
-- `POST /upload` → FormData with "file" field → `{ url, hash }`. Stores to the self-hosted cloud S3 via `uploadFileToStorage(file, "image")`, where `"image"` is the bucket name, not a type filter — the route enforces no type or size limit. (Pinata is still used, but only by the spreadsheets routes.)
+- `POST /upload` → FormData with "file" field → `{ url, hash }`. Stores to the self-hosted cloud S3 via `uploadFileToStorage(file, "image")`, where `"image"` is the bucket name, not a type filter — the route enforces no type or size limit. Pinata is gone — the spreadsheets routes read and write the same self-hosted storage, and only their `pinata*` column names survive.
 
 ### CV
 - `GET /cv` → `{ cv: ICvFile | null, project: LatexProject | null }` (metadata and LaTeX source are stored on the AppSettings singleton)
