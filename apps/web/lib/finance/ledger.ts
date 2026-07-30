@@ -8,6 +8,7 @@ import type {
 import mongoose from "mongoose";
 import { z } from "zod";
 import { generateJson } from "@/lib/llm-service";
+import { connectDB } from "@/lib/mongodb";
 import {
   FinanceLedgerEntry,
   FinanceMatchReview,
@@ -635,6 +636,7 @@ export async function reconcileFinanceLedger(
 
 export async function createManualFinanceEntry(input: FinanceManualEntryInput) {
   const normalizedDescriptor = normalizeFinanceDescriptor(input.descriptor);
+  await connectDB();
   const session = await mongoose.startSession();
   let entryId: mongoose.Types.ObjectId | undefined;
   try {
@@ -691,6 +693,7 @@ export async function createExpectedFinanceEntry(
   const window = input.matchWindowDays;
   const windowStart = shiftDate(input.effectiveDate, -window);
   const windowEnd = shiftDate(input.effectiveDate, window);
+  await connectDB();
   const session = await mongoose.startSession();
   let entryId: mongoose.Types.ObjectId | undefined;
   try {

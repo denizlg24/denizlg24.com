@@ -10,8 +10,16 @@ import { requireAdmin } from "@/lib/require-admin";
 export async function GET(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
-  const settings = await getFinanceSettings();
-  return NextResponse.json({ settings: serializeFinanceSettings(settings) });
+  try {
+    const settings = await getFinanceSettings();
+    return NextResponse.json({ settings: serializeFinanceSettings(settings) });
+  } catch (error) {
+    console.error("[finance] Settings read failed", error);
+    return NextResponse.json(
+      { error: "Failed to load finance settings" },
+      { status: 500 },
+    );
+  }
 }
 
 export async function PATCH(request: NextRequest) {
@@ -26,6 +34,14 @@ export async function PATCH(request: NextRequest) {
       { status: 400 },
     );
   }
-  const settings = await updateFinanceSettings(parsed.data);
-  return NextResponse.json({ settings: serializeFinanceSettings(settings) });
+  try {
+    const settings = await updateFinanceSettings(parsed.data);
+    return NextResponse.json({ settings: serializeFinanceSettings(settings) });
+  } catch (error) {
+    console.error("[finance] Settings update failed", error);
+    return NextResponse.json(
+      { error: "Failed to save finance settings" },
+      { status: 500 },
+    );
+  }
 }

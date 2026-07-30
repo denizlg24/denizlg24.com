@@ -481,7 +481,28 @@ const financeCategorySchema = new Schema<IFinanceCategory>(
   { collection: "finance_categories", timestamps: true },
 );
 
-financeCategorySchema.index({ name: 1 }, { unique: true });
+/**
+ * Names are compared case-insensitively by the app, so the uniqueness guarantee
+ * has to be collated too — a plain unique index would still admit `Food` and
+ * `food`. Queries that expect to hit this index must pass the same collation.
+ *
+ * Named explicitly: a deployment that already carries the old case-sensitive
+ * `name_1` keeps it (a stricter index makes it redundant, not wrong) instead of
+ * failing index creation with an options conflict.
+ */
+export const FINANCE_CATEGORY_COLLATION = {
+  locale: "en",
+  strength: 2,
+} as const;
+
+financeCategorySchema.index(
+  { name: 1 },
+  {
+    name: "finance_category_name_ci",
+    unique: true,
+    collation: FINANCE_CATEGORY_COLLATION,
+  },
+);
 
 export interface IFinanceSettings extends Document<string> {
   _id: "singleton";

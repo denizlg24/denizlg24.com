@@ -270,17 +270,18 @@ function flag(code: string) {
 export function useCountryOptions(codes = COUNTRY_CODES): SearchSelectOption[] {
   return useMemo(() => {
     const names = new Intl.DisplayNames(["en"], { type: "region" });
+    // Ordered by the localized name, which is what the row renders. Sorting the
+    // built options would have to compare `keywords`, and that leads with the
+    // alpha-2 code — Andorra, United Arab Emirates, Afghanistan.
     return codes
-      .map((code) => {
-        const name = names.of(code) ?? code;
-        return {
-          value: code,
-          label: `${flag(code)}  ${name}`,
-          keywords: `${code} ${name}`,
-          meta: code,
-        };
-      })
-      .sort((left, right) => left.keywords.localeCompare(right.keywords));
+      .map((code) => ({ code, name: names.of(code) ?? code }))
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map(({ code, name }) => ({
+        value: code,
+        label: `${flag(code)}  ${name}`,
+        keywords: `${code} ${name}`,
+        meta: code,
+      }));
   }, [codes]);
 }
 

@@ -37,6 +37,8 @@ type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+const FRANKFURTER_TIMEOUT_MS = 10_000;
+
 const frankfurterResponseSchema = z.object({
   base: z.string(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -67,8 +69,11 @@ export class FrankfurterFxProvider implements FinanceFxProvider {
     const url = new URL(`${this.baseUrl}/latest`);
     url.searchParams.set("base", base);
     url.searchParams.set("symbols", wanted.join(","));
+    // Without a deadline a hung Frankfurter blocks both the cron refresh and
+    // the /fx/refresh route for as long as the socket stays open.
     const response = await this.fetchImpl(url, {
       headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(FRANKFURTER_TIMEOUT_MS),
     });
     if (!response.ok) {
       throw new Error(`Frankfurter responded with HTTP ${response.status}`);
@@ -185,6 +190,8 @@ export interface FinanceFxRate {
  * compare", never as zero.
  */
 export function createFinanceFxConverter(snapshots: FinanceFxRate[]) {
+  const pivotCurrencies = new Set(snapshots.map((row) => row.baseCurrency));
+
   // Snapshots arrive date-descending, so the first match on or before the
   // requested date is the most recent applicable rate.
   function directRate(from: string, to: string, date?: string) {
@@ -225,7 +232,7 @@ export function createFinanceFxConverter(snapshots: FinanceFxRate[]) {
       });
     }
 
-    for (const pivot of new Set(snapshots.map((row) => row.baseCurrency))) {
+    for (const pivot of pivotCurrencies) {
       if (pivot === from || pivot === to) continue;
       const first = directRate(from, pivot, date);
       const second = directRate(pivot, to, date);

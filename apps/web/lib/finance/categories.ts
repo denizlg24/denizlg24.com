@@ -1,9 +1,12 @@
 import type { FinanceCategoryInput } from "@repo/schemas";
+import mongoose from "mongoose";
 import { connectDB } from "@/lib/mongodb";
 import {
+  FINANCE_CATEGORY_COLLATION,
   FinanceCategory,
   FinanceLedgerEntry,
   FinanceMerchant,
+  type IFinanceCategory,
 } from "@/models/Finance";
 
 /**
@@ -29,16 +32,23 @@ export async function listFinanceCategories() {
 
 export async function createFinanceCategory(input: FinanceCategoryInput) {
   await connectDB();
-  const existing = await FinanceCategory.findOne({
-    name: caseInsensitive(input.name),
-  });
+  const existing = await findCategoryByName(input.name);
   if (existing) throw new FinanceCategoryConflictError(input.name);
   const highest = await FinanceCategory.findOne().sort({ sortOrder: -1 });
-  return FinanceCategory.create({
-    name: input.name,
-    color: input.color,
-    sortOrder: input.sortOrder ?? (highest?.sortOrder ?? 0) + 1,
-  });
+  try {
+    return await FinanceCategory.create({
+      name: input.name,
+      color: input.color,
+      sortOrder: input.sortOrder ?? (highest?.sortOrder ?? 0) + 1,
+    });
+  } catch (error) {
+    // The check above cannot be atomic with the insert, so a concurrent create
+    // (a manual one racing the classifier's ensure) lands here instead.
+    if (isDuplicateKeyError(error)) {
+      throw new FinanceCategoryConflictError(input.name);
+    }
+    throw error;
+  }
 }
 
 export async function updateFinanceCategory(
@@ -46,35 +56,52 @@ export async function updateFinanceCategory(
   input: Partial<FinanceCategoryInput>,
 ) {
   await connectDB();
-  const category = await FinanceCategory.findById(id);
-  if (!category) return null;
+  const session = await mongoose.startSession();
+  let updated: IFinanceCategory | null = null;
+  try {
+    await session.withTransaction(async () => {
+      const category = await FinanceCategory.findById(id).session(session);
+      if (!category) {
+        updated = null;
+        return;
+      }
 
-  const previousName = category.name;
-  if (input.name !== undefined && input.name !== previousName) {
-    const clash = await FinanceCategory.findOne({
-      _id: { $ne: category._id },
-      name: caseInsensitive(input.name),
+      const previousName = category.name;
+      if (input.name !== undefined && input.name !== previousName) {
+        const clash = await findCategoryByName(input.name, {
+          excludeId: category._id,
+          session,
+        });
+        if (clash) throw new FinanceCategoryConflictError(input.name);
+        category.name = input.name;
+      }
+      if (input.color !== undefined) category.color = input.color;
+      if (input.sortOrder !== undefined) category.sortOrder = input.sortOrder;
+      await category.save({ session });
+
+      // The cascade commits with the rename. Splitting them would let a failure
+      // in between leave rows pointing at a name the catalog no longer holds —
+      // exactly the orphaning this module promises cannot happen.
+      if (category.name !== previousName) {
+        await Promise.all([
+          FinanceLedgerEntry.updateMany(
+            { category: previousName },
+            { $set: { category: category.name } },
+            { session },
+          ),
+          FinanceMerchant.updateMany(
+            { category: previousName },
+            { $set: { category: category.name } },
+            { session },
+          ),
+        ]);
+      }
+      updated = category;
     });
-    if (clash) throw new FinanceCategoryConflictError(input.name);
-    category.name = input.name;
+  } finally {
+    await session.endSession();
   }
-  if (input.color !== undefined) category.color = input.color;
-  if (input.sortOrder !== undefined) category.sortOrder = input.sortOrder;
-  await category.save();
-
-  if (category.name !== previousName) {
-    await Promise.all([
-      FinanceLedgerEntry.updateMany(
-        { category: previousName },
-        { $set: { category: category.name } },
-      ),
-      FinanceMerchant.updateMany(
-        { category: previousName },
-        { $set: { category: category.name } },
-      ),
-    ]);
-  }
-  return category;
+  return updated;
 }
 
 /**
@@ -91,9 +118,8 @@ export async function deleteFinanceCategory(
 
   let target: string | undefined;
   if (options.reassignTo) {
-    const replacement = await FinanceCategory.findOne({
-      _id: { $ne: category._id },
-      name: caseInsensitive(options.reassignTo),
+    const replacement = await findCategoryByName(options.reassignTo, {
+      excludeId: category._id,
     });
     if (!replacement) throw new Error("Replacement category not found");
     target = replacement.name;
@@ -122,19 +148,45 @@ export async function ensureFinanceCategories(names: string[]) {
   const highest = await FinanceCategory.findOne().sort({ sortOrder: -1 });
   let sortOrder = (highest?.sortOrder ?? 0) + 1;
   for (const name of unique) {
-    const existing = await FinanceCategory.findOne({
-      name: caseInsensitive(name),
-    });
+    const existing = await findCategoryByName(name);
     if (existing) continue;
-    await FinanceCategory.create({ name, sortOrder });
+    try {
+      await FinanceCategory.create({ name, sortOrder });
+    } catch (error) {
+      // Another sync run or a manual create got there first; that is the
+      // outcome this wanted anyway.
+      if (!isDuplicateKeyError(error)) throw error;
+      continue;
+    }
     sortOrder += 1;
   }
 }
 
-function caseInsensitive(value: string) {
-  return new RegExp(`^${escapeRegExp(value.trim())}$`, "i");
+/**
+ * Case-insensitive name lookup through the collated unique index. An anchored
+ * `RegExp` would be equivalent but not index-eligible, making every create and
+ * every `ensureFinanceCategories` name a collection scan.
+ */
+function findCategoryByName(
+  name: string,
+  options: {
+    excludeId?: mongoose.Types.ObjectId;
+    session?: mongoose.ClientSession;
+  } = {},
+) {
+  return FinanceCategory.findOne({
+    name: name.trim(),
+    ...(options.excludeId ? { _id: { $ne: options.excludeId } } : {}),
+  })
+    .collation(FINANCE_CATEGORY_COLLATION)
+    .session(options.session ?? null);
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function isDuplicateKeyError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === 11000
+  );
 }

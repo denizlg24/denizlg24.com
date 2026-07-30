@@ -26,12 +26,26 @@ export async function listFinanceInstitutions(country: string) {
  * Derived from the public site origin rather than the caller's, because the
  * desktop app's origin is not a valid callback host and the URL has to match
  * what is whitelisted with the provider.
+ *
+ * Anywhere but production, an unset origin is a misconfiguration rather than a
+ * default worth guessing: falling back to the production host would create the
+ * consent there, send the browser there, and leave the `FinanceLinkState` row
+ * written here to expire unresolved — a flow that dies silently instead of
+ * reporting anything. Production keeps the fallback because every other
+ * consumer of this variable assumes the same one.
  */
 export function financeLinkRedirectUrl() {
-  const origin = (
-    process.env.NEXT_PUBLIC_SITE_URL || "https://denizlg24.com"
-  ).replace(/\/+$/, "");
-  return `${origin}/api/admin/finance/callback`;
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (!configured) {
+    const environment = process.env.VERCEL_ENV ?? process.env.NODE_ENV;
+    if (environment !== "production") {
+      throw new Error(
+        `NEXT_PUBLIC_SITE_URL must be set to link a bank account in ${environment} — it is the callback origin whitelisted with Enable Banking`,
+      );
+    }
+    return "https://denizlg24.com/api/admin/finance/callback";
+  }
+  return `${configured.replace(/\/+$/, "")}/api/admin/finance/callback`;
 }
 
 export async function beginFinanceLink(input: FinanceBeginLinkRequest) {

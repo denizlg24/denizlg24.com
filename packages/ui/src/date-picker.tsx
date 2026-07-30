@@ -63,44 +63,53 @@ export function DatePicker({
 }) {
   const [open, setOpen] = useState(false);
   const selected = fromIso(value);
+  const showClear = Boolean(clearable && selected);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          id={id}
-          type="button"
-          variant="outline"
-          aria-label={ariaLabel}
-          disabled={disabled}
-          className={cn("w-full justify-start font-normal", className)}
-        >
-          <CalendarIcon className="size-3.5 shrink-0 opacity-60" />
-          <span
+      {/*
+        The clear control is a sibling of the trigger, not a child: an
+        interactive descendant of a <button> is invalid, and as a real button it
+        is reachable by keyboard — the only way to clear an optional date
+        without a pointer.
+      */}
+      <div className="relative w-full">
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            type="button"
+            variant="outline"
+            aria-label={ariaLabel}
+            disabled={disabled}
             className={cn(
-              "min-w-0 flex-1 truncate text-left tabular-nums",
-              !selected && "text-muted-foreground",
+              "w-full justify-start font-normal",
+              showClear && "pr-8",
+              className,
             )}
           >
-            {selected ? LABEL_FORMAT.format(selected) : placeholder}
-          </span>
-          {clearable && selected && (
+            <CalendarIcon className="size-3.5 shrink-0 opacity-60" />
             <span
-              role="button"
-              tabIndex={-1}
-              aria-label="Clear date"
-              className="-mr-1 shrink-0 rounded-sm p-0.5 opacity-60 hover:opacity-100"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onValueChange(undefined);
-              }}
+              className={cn(
+                "min-w-0 flex-1 truncate text-left tabular-nums",
+                !selected && "text-muted-foreground",
+              )}
             >
-              <XIcon className="size-3.5" />
+              {selected ? LABEL_FORMAT.format(selected) : placeholder}
             </span>
-          )}
-        </Button>
-      </PopoverTrigger>
+          </Button>
+        </PopoverTrigger>
+        {showClear && (
+          <button
+            type="button"
+            aria-label="Clear date"
+            disabled={disabled}
+            onClick={() => onValueChange(undefined)}
+            className="absolute inset-y-0 right-1.5 my-auto flex size-5 items-center justify-center rounded-sm opacity-60 outline-none hover:opacity-100 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:opacity-100"
+          >
+            <XIcon className="size-3.5" />
+          </button>
+        )}
+      </div>
       <PopoverContent align="start" className="w-auto p-0">
         <Calendar
           mode="single"

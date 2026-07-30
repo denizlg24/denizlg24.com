@@ -215,7 +215,9 @@ export function RuleSheet({
   useEffect(() => {
     if (!open) return;
     setDraft(rule ? draftFromRule(rule) : emptyDraft(accounts, seed));
-  }, [open, rule, seed, accounts]);
+    // `accounts` is intentionally not a dependency: it only seeds the default
+    // account, and a new array identity mid-edit would discard the draft.
+  }, [open, rule, seed]);
 
   function patch(next: Partial<RuleDraft>) {
     setDraft((current) => ({ ...current, ...next }));

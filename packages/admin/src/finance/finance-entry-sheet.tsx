@@ -147,6 +147,14 @@ export function EntrySheet({
 
   const account = accounts.find((item) => item.id === accountId) ?? accounts[0];
 
+  // Keyed on the account identities rather than the array: `onCreated()` hands
+  // back a fresh array on every reload, and on the "Add & next" path that would
+  // re-run mid-session, resetting a deliberately chosen currency and stealing
+  // focus back to the amount field.
+  const accountKey = accounts
+    .map((item) => `${item.id}:${item.currency}`)
+    .join();
+
   useEffect(() => {
     if (!open) return;
     setAccountId((current) => {
@@ -159,7 +167,7 @@ export function EntrySheet({
     });
     const timer = window.setTimeout(() => amountRef.current?.focus(), 60);
     return () => window.clearTimeout(timer);
-  }, [open, accounts]);
+  }, [open, accountKey]);
 
   function reset() {
     setAmount("");
@@ -458,11 +466,6 @@ export function EntrySheet({
 }
 
 /**
- * Editing an existing entry. Bank rows expose only the category — their amount,
- * date and descriptor are the provider's record and the next sync would
- * overwrite any local edit, so the server rejects those fields outright.
- */
-/**
  * Attaching an expected or manual entry to the bank row it turned out to be.
  *
  * Automatic reconciliation misses cases it cannot see past — an unusual FX
@@ -613,6 +616,11 @@ function MatchSection({
   );
 }
 
+/**
+ * Editing an existing entry. Bank rows expose only the category — their amount,
+ * date and descriptor are the provider's record and the next sync would
+ * overwrite any local edit, so the server rejects those fields outright.
+ */
 export function EntryDetailSheet({
   entry,
   accounts,
@@ -652,6 +660,15 @@ export function EntryDetailSheet({
   }, [entry]);
 
   const readOnly = entry?.origin === "bank";
+  // A cleared amount is `Number("") === 0` and a junk one is `NaN`, which
+  // serializes to null and comes back as a generic server error — mirror the
+  // `ready` gate `EntrySheet` uses instead of letting either through.
+  const amountMajor = Number(amount);
+  const ready =
+    readOnly ||
+    (Number.isFinite(amountMajor) &&
+      amountMajor > 0 &&
+      descriptor.trim().length > 0);
   const deletable =
     entry !== null &&
     entry.origin !== "bank" &&
@@ -661,7 +678,7 @@ export function EntryDetailSheet({
     : "";
 
   async function save() {
-    if (!entry) return;
+    if (!entry || !ready) return;
     setSaving(true);
     try {
       await updateFinanceEntry(client, entry.id, {
@@ -794,7 +811,7 @@ export function EntryDetailSheet({
             <Button
               className="w-full"
               onClick={() => void save()}
-              disabled={saving}
+              disabled={saving || !ready}
             >
               {saving && <Loader2 className="size-4 animate-spin" />}
               Save
