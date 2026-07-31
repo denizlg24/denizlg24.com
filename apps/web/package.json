@@ -41,6 +41,7 @@
     "@radix-ui/react-tooltip": "^1.2.9",
     "@repo/admin": "workspace:*",
     "@repo/latex-editor": "workspace:*",
+    "@repo/markets": "workspace:*",
     "@repo/schemas": "workspace:*",
     "@repo/ui": "workspace:*",
     "@repo/utils": "workspace:*",

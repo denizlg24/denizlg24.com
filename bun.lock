@@ -264,6 +264,7 @@
         "@radix-ui/react-tooltip": "^1.2.9",
         "@repo/admin": "workspace:*",
         "@repo/latex-editor": "workspace:*",
+        "@repo/markets": "workspace:*",
         "@repo/schemas": "workspace:*",
         "@repo/ui": "workspace:*",
         "@repo/utils": "workspace:*",
@@ -361,6 +362,7 @@
         "@dnd-kit/utilities": "^3.2.2",
         "@hookform/resolvers": "^5.4.2",
         "@repo/latex-editor": "workspace:*",
+        "@repo/markets": "workspace:*",
         "@repo/schemas": "workspace:*",
         "@repo/ui": "workspace:*",
         "@repo/utils": "workspace:*",
@@ -493,6 +495,7 @@
       "name": "@repo/schemas",
       "version": "0.0.0",
       "dependencies": {
+        "@repo/markets": "workspace:*",
         "zod": "^4.4.3",
       },
       "devDependencies": {

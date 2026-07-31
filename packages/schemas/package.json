@@ -6,13 +6,15 @@
   "exports": {
     ".": "./src/index.ts",
     "./cloud": "./src/cloud/index.ts",
-    "./envoy": "./src/envoy/index.ts"
+    "./envoy": "./src/envoy/index.ts",
+    "./markets": "./src/markets.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
+    "@repo/markets": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {
