@@ -477,6 +477,18 @@
         "react-dom": "^19.0.0",
       },
     },
+    "packages/markets": {
+      "name": "@repo/markets",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/schemas": {
       "name": "@repo/schemas",
       "version": "0.0.0",
@@ -1263,6 +1275,8 @@
     "@repo/cloud-ui": ["@repo/cloud-ui@workspace:packages/cloud-ui"],
 
     "@repo/latex-editor": ["@repo/latex-editor@workspace:packages/latex-editor"],
+
+    "@repo/markets": ["@repo/markets@workspace:packages/markets"],
 
     "@repo/schemas": ["@repo/schemas@workspace:packages/schemas"],
 
