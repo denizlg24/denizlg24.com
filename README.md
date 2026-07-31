@@ -28,6 +28,7 @@ keeping plaintext secrets and encryption keys on the user's machine.
 | `apps/desktop` | Native life-dashboard client built with Tauri | Personal |
 | `apps/api` | API for my self-hosted cloud | Personal |
 | `apps/cloud` | Administration interface for cloud services | Personal |
+| `apps/email-classifier` | Python Logistic Regression Email Classifier API | Personal |
 | `apps/storage` | Browser-based file manager | Personal |
 | `apps/terminal` | Web-terminal daemon for the cloud host | Personal |
 | `apps/envoy` | Envoy website and encrypted-storage API | Public |
@@ -52,6 +53,7 @@ CLI and shares versioned API fixtures across both implementations.
 - Bun, TypeScript, Turborepo
 - Next.js, React, Tailwind CSS
 - Rust and Tauri
+- Python, FastAPI
 - Hono, PostgreSQL, MongoDB, Redis
 - Prisma and Drizzle
 - Docker, GitHub Actions, Vercel
