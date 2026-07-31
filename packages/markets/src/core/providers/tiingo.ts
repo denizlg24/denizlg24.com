@@ -75,7 +75,12 @@ const RESAMPLE_FREQ: Partial<Record<Resolution, string>> = {
 };
 
 export interface TiingoOptions {
-  apiKey: string;
+  /**
+   * Tiingo meters per key, so several keys is several budgets. Requests go
+   * round-robin, which keeps them within one request of each other and makes
+   * the aggregate limit the sum of the individual ones.
+   */
+  apiKeys: string[];
   budget: BudgetPort;
   fetchImpl?: typeof fetch;
 }
@@ -83,9 +88,23 @@ export interface TiingoOptions {
 export class TiingoProvider implements MarketDataProvider {
   readonly name = "tiingo" as const;
   private readonly fetchImpl: typeof fetch;
+  private keyIndex = 0;
 
   constructor(private readonly options: TiingoOptions) {
+    if (options.apiKeys.length === 0) {
+      throw new Error("At least one Tiingo API key is required");
+    }
     this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  get keyCount(): number {
+    return this.options.apiKeys.length;
+  }
+
+  private nextKey(): string {
+    const key = this.options.apiKeys[this.keyIndex] ?? "";
+    this.keyIndex = (this.keyIndex + 1) % this.options.apiKeys.length;
+    return key;
   }
 
   /**
@@ -107,16 +126,25 @@ export class TiingoProvider implements MarketDataProvider {
       if (value !== undefined) url.searchParams.set(key, value);
     }
 
-    let response: Response;
-    try {
-      response = await this.fetchImpl(url, {
+    const send = async (key: string): Promise<Response> =>
+      this.fetchImpl(url, {
         headers: {
           // The token goes in a header, not the query string, so it stays out
           // of proxy and CDN logs.
-          Authorization: `Token ${this.options.apiKey}`,
+          Authorization: `Token ${key}`,
           "Content-Type": "application/json",
         },
       });
+
+    let response: Response;
+    try {
+      response = await send(this.nextKey());
+      // Round-robin keeps the keys level, but a restart or an out-of-band call
+      // can still land one of them at its ceiling. Give the next key a go
+      // before reporting a limit that the account as a whole has not hit.
+      if (response.status === 429 && this.keyCount > 1) {
+        response = await send(this.nextKey());
+      }
     } catch (error) {
       await this.options.budget.release("tiingo", 1);
       throw new ProviderError("tiingo", `Request failed: ${String(error)}`);

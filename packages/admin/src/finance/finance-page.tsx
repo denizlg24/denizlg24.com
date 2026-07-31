@@ -40,6 +40,7 @@ import { describeRecurrence } from "@repo/utils";
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  CandlestickChart,
   Check,
   CircleDollarSign,
   Link2,
@@ -165,7 +166,7 @@ export function FinancePage({
 }: {
   manageAccounts?: boolean;
 }) {
-  const { client, slots, platform } = useAdmin();
+  const { client, slots, platform, routes } = useAdmin();
   const [data, setData] = useState<FinanceDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -272,6 +273,14 @@ export function FinancePage({
           aria-label="Reload"
         >
           <RefreshCw className="size-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => void platform.navigate(routes.markets)}
+        >
+          <CandlestickChart className="size-3.5" />
+          <span className="hidden sm:inline">Markets</span>
         </Button>
         {manageAccounts && (
           <Button variant="outline" size="sm" onClick={() => setLinkOpen(true)}>

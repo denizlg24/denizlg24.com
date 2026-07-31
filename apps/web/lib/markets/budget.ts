@@ -18,11 +18,17 @@ const DEFAULT_LIMITS: Record<ProviderName, ProviderLimits> = {
   finnhub: { hour: 3600, day: 86_400 },
 };
 
-function limitsFor(provider: ProviderName): ProviderLimits {
+/**
+ * Tiingo meters per key, so the configured budget is what *one* key allows and
+ * the ceiling is that times however many are in rotation. The provider sends
+ * requests round-robin, which is what makes the sum the real limit rather than
+ * an optimistic one.
+ */
+function limitsFor(provider: ProviderName, keyCount: number): ProviderLimits {
   if (provider === "tiingo") {
     return {
-      hour: Number(process.env.TIINGO_HOURLY_BUDGET ?? 50),
-      day: Number(process.env.TIINGO_DAILY_BUDGET ?? 1000),
+      hour: Number(process.env.TIINGO_HOURLY_BUDGET ?? 50) * keyCount,
+      day: Number(process.env.TIINGO_DAILY_BUDGET ?? 1000) * keyCount,
     };
   }
   return DEFAULT_LIMITS[provider];
@@ -44,6 +50,7 @@ function dayKey(now: Date): string {
  */
 export function createMongoBudget(
   now: () => Date = () => new Date(),
+  tiingoKeyCount = 1,
 ): BudgetPort {
   return {
     async consume(provider, cost) {
@@ -51,7 +58,7 @@ export function createMongoBudget(
       const stamp = now();
       const hour = hourKey(stamp);
       const day = dayKey(stamp);
-      const limits = limitsFor(provider);
+      const limits = limitsFor(provider, tiingoKeyCount);
 
       await MarketProviderBudget.updateOne(
         { provider },
@@ -78,7 +85,7 @@ export function createMongoBudget(
           dayUsed: { $lte: limits.day - cost },
         },
         { $inc: { hourUsed: cost, dayUsed: cost } },
-        { new: true },
+        { returnDocument: "after" },
       );
       return reserved !== null;
     },
@@ -96,7 +103,7 @@ export function createMongoBudget(
       const stamp = now();
       const hour = hourKey(stamp);
       const day = dayKey(stamp);
-      const limits = limitsFor(provider);
+      const limits = limitsFor(provider, tiingoKeyCount);
       const doc = await MarketProviderBudget.findOne({ provider }).lean();
 
       const hourResets = new Date(stamp);

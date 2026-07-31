@@ -9,13 +9,37 @@ import {
 import type { Server, ServerWebSocket } from "bun";
 import { TiingoSocket, type UpstreamStatus } from "./tiingo-socket";
 
-const apiKey = requireEnv("TIINGO_API_KEY");
+/**
+ * Tiingo meters per key, so more keys is more headroom. Numbered suffixes are
+ * read until one is missing: TIINGO_API_KEY, TIINGO_API_KEY_2, _3, …
+ */
+function readApiKeys(): string[] {
+  const keys = [requireEnv("TIINGO_API_KEY")];
+  for (let index = 2; ; index++) {
+    const key = process.env[`TIINGO_API_KEY_${index}`]?.trim();
+    if (!key) break;
+    keys.push(key);
+  }
+  return keys;
+}
+
+function log(message: string): void {
+  console.log(`[markets-relay] ${message}`);
+}
+
+const apiKeys = readApiKeys();
 const tokenSecret = requireEnv("MARKETS_RELAY_TOKEN_SECRET");
 const port = Number(process.env.PORT ?? 3004);
 const allowedOrigins = (process.env.MARKETS_RELAY_ALLOWED_ORIGINS ?? "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+log(
+  `starting with ${apiKeys.length} Tiingo key(s); origins: ${
+    allowedOrigins.length > 0 ? allowedOrigins.join(", ") : "(any)"
+  }`,
+);
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -37,8 +61,14 @@ const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 const pending = new Map<string, Quote>();
 
 const upstream = new TiingoSocket({
-  apiKey,
+  apiKeys,
   heartbeatMs: RELAY_HEARTBEAT_MS,
+  onControl: (frame) => {
+    // The one place Tiingo explains itself. Without this a rejected key is
+    // indistinguishable from a network blip.
+    const label = frame.code === 200 ? "info" : "rejected";
+    log(`upstream ${label}: ${frame.code} ${frame.message}`);
+  },
   onQuotes: (quotes) => {
     for (const quote of quotes) {
       const previous = pending.get(quote.ticker);
@@ -91,7 +121,19 @@ function broadcastStatus(status: UpstreamStatus): void {
   }
 }
 
-/** The upstream subscription is the union of what every client wants. */
+/**
+ * The upstream subscription is the union of what every client wants, and that
+ * union is also what decides whether an upstream should exist — an empty one
+ * means nobody is listening, so there is nothing to pay Tiingo for.
+ */
+function subscriptionCount(): number {
+  const union = new Set<string>();
+  for (const state of clients.values()) {
+    for (const ticker of state.tickers) union.add(ticker);
+  }
+  return union.size;
+}
+
 function resyncUpstream(): void {
   const union = new Set<string>();
   for (const state of clients.values()) {
@@ -115,6 +157,10 @@ const server = Bun.serve({
         status: "ok",
         upstream: upstream.getStatus(),
         clients: clients.size,
+        keys: apiKeys.length,
+        subscriptions: subscriptionCount(),
+        lastRejection: upstream.getLastRejection(),
+        ...upstream.getDiagnostics(),
         version: process.env.APP_VERSION ?? "dev",
       });
     }
@@ -128,16 +174,24 @@ const server = Bun.serve({
       allowedOrigins.length > 0 &&
       (!origin || !allowedOrigins.includes(origin))
     ) {
+      // Logged because the failure is otherwise invisible: the client sees a
+      // socket that will not open and silently falls back to polling. Tauri in
+      // particular sends an origin that varies by platform.
+      log(`handshake refused: origin ${origin ?? "(none)"} not allowed`);
       return new Response("Forbidden origin", { status: 403 });
     }
 
     // The token rides in the query string because browsers cannot set headers
     // on a WebSocket handshake. It is short-lived and grants nothing else.
     const token = url.searchParams.get("token");
-    if (!token) return new Response("Missing token", { status: 401 });
+    if (!token) {
+      log(`handshake refused: no token (origin ${origin ?? "(none)"})`);
+      return new Response("Missing token", { status: 401 });
+    }
 
     const verdict = await verifyRelayToken(token, tokenSecret);
     if (!verdict.ok) {
+      log(`handshake refused: token ${verdict.reason}`);
       return new Response(`Invalid token: ${verdict.reason}`, { status: 401 });
     }
 
@@ -150,12 +204,14 @@ const server = Bun.serve({
   websocket: {
     open(socket: ServerWebSocket<ClientState>) {
       clients.set(socket, socket.data);
+      log(`client connected (${clients.size} total)`);
       send(socket, {
         type: "ready",
         tickers: [],
         upstream: upstream.getStatus(),
       });
-      upstream.connect();
+      // No upstream yet: this client has not said what it wants, and dialling
+      // Tiingo with an empty subscription asks for the entire IEX feed.
     },
 
     message(socket: ServerWebSocket<ClientState>, raw: string | Buffer) {
@@ -214,9 +270,9 @@ const server = Bun.serve({
 
     close(socket: ServerWebSocket<ClientState>) {
       clients.delete(socket);
+      log(`client disconnected (${clients.size} left)`);
+      // Drops the upstream too when this was the last subscriber.
       resyncUpstream();
-      // Nothing is listening, so stop paying for an upstream connection.
-      if (clients.size === 0) upstream.close();
     },
   },
 });

@@ -76,7 +76,9 @@ export async function updatePortfolio(
   input: Partial<PortfolioInput>,
 ): Promise<Portfolio | null> {
   await connectDB();
-  const doc = await MarketPortfolio.findByIdAndUpdate(id, input, { new: true });
+  const doc = await MarketPortfolio.findByIdAndUpdate(id, input, {
+    returnDocument: "after",
+  });
   return doc ? toPortfolio(doc) : null;
 }
 

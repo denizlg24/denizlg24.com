@@ -39,7 +39,25 @@ function skip(reason) {
   process.exit(0);
 }
 
+/**
+ * The relay reads TIINGO_API_KEY, TIINGO_API_KEY_2, _3, … until one is missing,
+ * and rotates between them when Tiingo rejects one. Compose only substitutes
+ * variables it declares, so every key has to be forwarded explicitly or the
+ * container quietly runs on one key — which reads as `"keys": 1` on /healthz.
+ */
+function readApiKeys(env) {
+  const keys = {};
+  if (env.TIINGO_API_KEY) keys.TIINGO_API_KEY = env.TIINGO_API_KEY;
+  for (let index = 2; ; index++) {
+    const key = env[`TIINGO_API_KEY_${index}`];
+    if (!key) break;
+    keys[`TIINGO_API_KEY_${index}`] = key;
+  }
+  return keys;
+}
+
 const env = readEnv();
+const apiKeys = readApiKeys(env);
 
 if (!down) {
   if (!env.TIINGO_API_KEY) skip("TIINGO_API_KEY is not set in .env");
@@ -72,7 +90,7 @@ const result = spawnSync("docker", args, {
   shell: true,
   env: {
     ...process.env,
-    TIINGO_API_KEY: env.TIINGO_API_KEY ?? "",
+    ...apiKeys,
     MARKETS_RELAY_TOKEN_SECRET: env.MARKETS_RELAY_TOKEN_SECRET ?? "",
     ...(env.MARKETS_RELAY_PORT
       ? { MARKETS_RELAY_PORT: env.MARKETS_RELAY_PORT }
@@ -91,7 +109,9 @@ if (result.status !== 0) {
 if (down) process.exit(0);
 
 const localUrl = `ws://localhost:${env.MARKETS_RELAY_PORT ?? 3004}/ws`;
-console.log(`[markets-relay] container listening on ${localUrl}`);
+console.log(
+  `[markets-relay] container listening on ${localUrl} with ${Object.keys(apiKeys).length} Tiingo key(s)`,
+);
 
 // The browser connects to whatever NEXT_PUBLIC_MARKETS_RELAY_URL says, not to
 // the container this script just started. Pointing at production while a local

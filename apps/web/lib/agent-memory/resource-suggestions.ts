@@ -509,7 +509,7 @@ export async function acceptResourceSuggestion(options: {
   const claimed = await AgentResourceSuggestion.findOneAndUpdate(
     { _id: suggestion._id, status: "pending" },
     { $set: { status: "accepted", draft, decidedAt: new Date() } },
-    { new: true },
+    { returnDocument: "after" },
   );
   if (!claimed) {
     const current = await AgentResourceSuggestion.findById(options.suggestionId)
@@ -611,7 +611,7 @@ export async function attachExistingPersonSuggestion(options: {
         decidedAt: new Date(),
       },
     },
-    { new: true },
+    { returnDocument: "after" },
   );
   if (!claimed) {
     throw new AgentMemoryPolicyError(

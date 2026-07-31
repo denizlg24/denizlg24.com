@@ -11,6 +11,8 @@ import {
 
 export interface MarketsCronResult {
   symbolsRefreshed: number;
+  /** Zero means nothing is watched or held — the run is a no-op by design. */
+  tracked: number;
   candlesSynced: number;
   quotesRefreshed: number;
   snapshotsWritten: number;
@@ -24,6 +26,15 @@ function shouldRefreshUniverse(now: Date): boolean {
 }
 
 /**
+ * On a cold database the weekly gate alone means search stays empty until the
+ * first Saturday, and an empty universe means nothing can be watched, which
+ * means the rest of this run has no tracked symbols to work on.
+ */
+function needsUniverse(count: number, now: Date): boolean {
+  return count === 0 || shouldRefreshUniverse(now);
+}
+
+/**
  * Keeps the cache warm for tracked symbols only — watchlist members, open
  * positions and benchmarks. Nothing here fans out over the whole universe,
  * which would blow the daily budget in one run.
@@ -34,6 +45,7 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
   const now = stores.clock.now();
   const result: MarketsCronResult = {
     symbolsRefreshed: 0,
+    tracked: 0,
     candlesSynced: 0,
     quotesRefreshed: 0,
     snapshotsWritten: 0,
@@ -41,7 +53,7 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
     errors: [],
   };
 
-  if (shouldRefreshUniverse(now)) {
+  if (needsUniverse(await stores.symbols.countSymbols(), now)) {
     try {
       result.symbolsRefreshed = await refreshSymbolUniverse();
     } catch (error) {
@@ -50,6 +62,7 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
   }
 
   const tracked = await stores.symbols.listTrackedTickers();
+  result.tracked = tracked.length;
   const today = toDateKey(now);
 
   for (const ticker of tracked) {

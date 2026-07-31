@@ -26,6 +26,8 @@ export interface AdminSlots {
 export interface AdminRoutes {
   /** Base path of the global settings pages, without a trailing slash. */
   settings: string;
+  /** Full path of the markets dashboard, which finance links across to. */
+  markets: string;
 }
 
 export interface AdminContextValue {

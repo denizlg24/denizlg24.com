@@ -43,7 +43,7 @@ export async function updateWatchlist(
         ? {}
         : { tickers: input.tickers.map((ticker) => ticker.toUpperCase()) }),
     },
-    { new: true },
+    { returnDocument: "after" },
   );
   return doc ? toWatchlist(doc) : null;
 }

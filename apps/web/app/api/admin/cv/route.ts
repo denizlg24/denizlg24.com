@@ -79,7 +79,7 @@ export async function PUT(request: NextRequest) {
     const settings = await AppSettings.findByIdAndUpdate(
       "singleton",
       { $set: { cvProject: project } },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: "after" },
     )
       .lean<ILeanAppSettings>()
       .exec();
@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
             },
           },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: "after" },
       )
         .lean<ILeanAppSettings>()
         .exec();

@@ -32,17 +32,37 @@ export class MarketsNotConfiguredError extends Error {
   }
 }
 
+/**
+ * Numbered suffixes are read until one is missing: TIINGO_API_KEY,
+ * TIINGO_API_KEY_2, _3, … Each key carries its own Tiingo quota, so the
+ * ledger's limits scale with how many are configured.
+ */
+export function tiingoKeys(): string[] {
+  const keys: string[] = [];
+  const first = process.env.TIINGO_API_KEY?.trim();
+  if (first) keys.push(first);
+  if (keys.length === 0) return keys;
+
+  for (let index = 2; ; index++) {
+    const key = process.env[`TIINGO_API_KEY_${index}`]?.trim();
+    if (!key) break;
+    keys.push(key);
+  }
+  return keys;
+}
+
 function stack() {
   if (cached) return cached;
-  const stores = createMarketStores();
-  const tiingoKey = process.env.TIINGO_API_KEY;
+  const keys = tiingoKeys();
+  const stores = createMarketStores(Math.max(keys.length, 1));
   const edgarAgent = process.env.SEC_EDGAR_USER_AGENT;
 
   cached = {
     stores,
-    tiingo: tiingoKey
-      ? new TiingoProvider({ apiKey: tiingoKey, budget: stores.budget })
-      : null,
+    tiingo:
+      keys.length > 0
+        ? new TiingoProvider({ apiKeys: keys, budget: stores.budget })
+        : null,
     edgar: edgarAgent?.trim()
       ? new EdgarProvider({ userAgent: edgarAgent, budget: stores.budget })
       : null,
@@ -73,8 +93,18 @@ export async function getCandles(
   return getCachedCandles(stores, requireTiingo(), request);
 }
 
-/** How long a cached quote counts as live before the batch is refreshed. */
-const QUOTE_TTL_MS = 15_000;
+/**
+ * How long a cached quote counts as live before the batch is refreshed.
+ *
+ * This TTL, not the client's poll interval, is what rations Tiingo: every miss
+ * is one request against a 50/hour cap. At 15 s a single dashboard left open
+ * would have asked for 240/hour and pinned the budget within minutes. Two
+ * minutes caps quote traffic at 30/hour and leaves headroom for candles.
+ *
+ * The relay is the live path; polling is the degraded one and is priced as
+ * such. Cheap Mongo reads in between are free, so the client may poll faster.
+ */
+const QUOTE_TTL_MS = 120_000;
 
 /**
  * Quotes are always fetched for the whole requested set at once. Tiingo's IEX
@@ -191,9 +221,12 @@ export async function refreshSymbolUniverse(): Promise<number> {
 
 export async function getBudgets() {
   const { stores } = stack();
-  const [tiingo, edgar] = await Promise.all([
+  const [tiingo, edgar, symbols] = await Promise.all([
     stores.budget.peek("tiingo"),
     stores.budget.peek("edgar"),
+    stores.symbols.countSymbols(),
   ]);
-  return { tiingo, edgar };
+  // The symbol count rides along so the dashboard can tell an empty universe
+  // apart from a search that genuinely matched nothing.
+  return { tiingo, edgar, symbols };
 }

@@ -23,7 +23,10 @@ export function useDesktopAdmin(): {
     () => ({
       client: createDesktopAdminClient(settings.apiKey),
       platform: desktopPlatform,
-      routes: { settings: "/dashboard/settings" },
+      routes: {
+        settings: "/dashboard/settings",
+        markets: "/dashboard/finance/markets",
+      },
       slots: {
         sidebarTrigger: <SidebarTrigger className="-ml-1 size-7 md:hidden" />,
         // Device settings read the Tauri store and updater, so the route lives

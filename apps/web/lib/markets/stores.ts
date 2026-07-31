@@ -449,13 +449,13 @@ const fundamentals: FundamentalStore = {
   },
 };
 
-export function createMarketStores(): MarketStores {
+export function createMarketStores(tiingoKeyCount = 1): MarketStores {
   return {
     symbols,
     bars,
     quotes,
     fundamentals,
-    budget: createMongoBudget(),
+    budget: createMongoBudget(() => new Date(), tiingoKeyCount),
     clock: { now: () => new Date() },
   };
 }

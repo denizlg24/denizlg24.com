@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
           cvDraft: null,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: "after" },
     )
       .lean<ILeanAppSettings>()
       .exec();
