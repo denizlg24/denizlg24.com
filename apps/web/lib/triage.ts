@@ -1534,10 +1534,13 @@ export async function runTriage(
           bodyForExtraction = body;
         }
 
-        let kanbanTargets: CompactKanbanTarget[] = [];
-        if (classification.needsTaskExtraction) {
-          kanbanTargets = await getKanbanTargetsCached();
-        }
+        // Loaded whenever extraction runs at all, not only when tasks were
+        // asked for. "Task extraction requested: no" is a hint in the prompt,
+        // not a constraint on the response schema — a scheduled email can still
+        // come back with a follow-up task, and if no boards were offered that
+        // task has nowhere to land and can never be accepted.
+        const kanbanTargets: CompactKanbanTarget[] =
+          await getKanbanTargetsCached();
 
         extractionModelUsed = settings.fullModel;
         let extraction = await limitExtraction(() =>
@@ -1781,7 +1784,10 @@ export async function acceptSuggestion(
   suggestionId: string,
   type: "task" | "event",
   overrides?: Record<string, unknown>,
-): Promise<{ ok: true; acceptedId: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; acceptedId: string; placedIn?: string }
+  | { ok: false; error: string }
+> {
   await connectDB();
   const triage = await EmailTriageModel.findById(triageId);
   if (!triage) {
@@ -1843,13 +1849,30 @@ export async function acceptSuggestion(
       return { ok: true, acceptedId: assignment._id };
     }
 
-    const boardId =
+    // A suggestion can reach here with no board: extraction used to be run
+    // without kanban targets whenever tasks were not explicitly requested, and
+    // any task the model volunteered anyway came back unrouted. Landing it
+    // somewhere beats refusing a task the owner just accepted — a card in the
+    // wrong column can be dragged, an error toast leaves nothing behind. The
+    // target is arbitrary (newest board, first open column), so it is reported
+    // back rather than chosen silently.
+    let boardId =
       getStringOverride(overrides, "boardId") ?? task.kanbanBoardId?.toString();
-    const columnId =
+    let columnId =
       getStringOverride(overrides, "columnId") ??
       task.kanbanColumnId?.toString();
+    let placedIn: string | undefined;
     if (!boardId || !columnId) {
-      return { ok: false, error: "No kanban target found on this suggestion" };
+      const fallback = (await getKanbanTargets())[0];
+      if (!fallback) {
+        return {
+          ok: false,
+          error: "No kanban board exists to accept this into",
+        };
+      }
+      boardId = fallback.boardId;
+      columnId = fallback.columnId;
+      placedIn = `${fallback.boardTitle} / ${fallback.columnTitle}`;
     }
 
     const card = await createCard(boardId, columnId, {
@@ -1869,7 +1892,7 @@ export async function acceptSuggestion(
       card._id,
     );
     await triage.save();
-    return { ok: true, acceptedId: card._id.toString() };
+    return { ok: true, acceptedId: card._id.toString(), placedIn };
   }
 
   const index = triage.suggestedEvents.findIndex(

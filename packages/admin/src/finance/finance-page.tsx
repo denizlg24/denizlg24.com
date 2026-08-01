@@ -50,6 +50,7 @@ import {
   Settings2,
   Trash2,
   Unlink,
+  Wallet,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -274,13 +275,20 @@ export function FinancePage({
         >
           <RefreshCw className="size-3.5" />
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => void platform.navigate(routes.markets)}
-        >
-          <CandlestickChart className="size-3.5" />
-          <span className="hidden sm:inline">Markets</span>
+        {/* Anchors, not platform.navigate: that takes a dashboard-relative
+            path and prefixes each app's own base, while routes.* are already
+            absolute — passing one to the other double-prefixes it. */}
+        <Button variant="ghost" size="sm" asChild>
+          <a href={routes.markets}>
+            <CandlestickChart className="size-3.5" />
+            <span className="hidden sm:inline">Markets</span>
+          </a>
+        </Button>
+        <Button variant="ghost" size="sm" asChild>
+          <a href={routes.portfolios}>
+            <Wallet className="size-3.5" />
+            <span className="hidden sm:inline">Portfolios</span>
+          </a>
         </Button>
         {manageAccounts && (
           <Button variant="outline" size="sm" onClick={() => setLinkOpen(true)}>

@@ -91,7 +91,11 @@ export function TriageDetail({
     ) => {
       setPendingIds((prev) => new Set(prev).add(suggestionId));
 
-      const res = await api.PATCH<{ ok: boolean; error?: string }>({
+      const res = await api.PATCH<{
+        ok: boolean;
+        error?: string;
+        placedIn?: string;
+      }>({
         endpoint: `triage/${triageId}/suggestions/${suggestionId}`,
         body: { type, action },
       });
@@ -113,7 +117,15 @@ export function TriageDetail({
         return;
       }
 
-      toast.success(action === "accept" ? "Accepted" : "Dismissed");
+      // `placedIn` is only set when the suggestion carried no board and one was
+      // picked for it, so the owner sees where an unrouted task actually landed.
+      toast.success(
+        action === "dismiss"
+          ? "Dismissed"
+          : res.placedIn
+            ? `Accepted → ${res.placedIn}`
+            : "Accepted",
+      );
       await onChanged();
       const refreshed = await api.GET<TriageDetailResponse>({
         endpoint: `triage/${triageId}`,

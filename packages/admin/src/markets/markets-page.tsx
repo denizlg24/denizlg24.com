@@ -331,7 +331,12 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b px-4 py-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2">
+            <CompanyLogo
+              url={detail?.profile?.logoUrl}
+              name={detail?.profile?.name ?? selected}
+              size={22}
+            />
             <span className="font-semibold text-lg tabular-nums">
               {selected}
             </span>
@@ -460,10 +465,60 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
             )}
           </div>
 
-          <SymbolDetail ticker={selected} />
+          <SymbolDetail
+            ticker={selected}
+            symbol={detail?.symbol ?? null}
+            profile={detail?.profile ?? null}
+          />
         </main>
       </div>
     </div>
+  );
+}
+
+/**
+ * A plain `<img>`, not `next/image`: logos come from whatever CDN Finnhub
+ * points at, and desktop is a static export with no image optimiser to run
+ * them through. A broken or missing URL falls back to the ticker's initial
+ * rather than leaving a gap where the mark should be.
+ */
+function CompanyLogo({
+  url,
+  name,
+  size = 22,
+}: {
+  url?: string;
+  name: string;
+  size?: number;
+}) {
+  const [failed, setFailed] = useState(false);
+  // A new symbol gets a fresh attempt; without this one broken logo would
+  // suppress every logo after it.
+  useEffect(() => setFailed(false), [url]);
+
+  if (!url || failed) {
+    return (
+      <span
+        className="flex shrink-0 items-center justify-center rounded bg-muted font-medium text-[10px] text-muted-foreground"
+        style={{ width: size, height: size }}
+        aria-hidden="true"
+      >
+        {name.slice(0, 1).toUpperCase()}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt=""
+      width={size}
+      height={size}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="shrink-0 rounded bg-white object-contain"
+      style={{ width: size, height: size }}
+    />
   );
 }
 
@@ -581,11 +636,19 @@ function BudgetMeter({ budget }: { budget: ProviderBudget }) {
   );
 }
 
-type DetailTab = "fundamentals" | "filings" | "actions" | "news";
+type DetailTab = "company" | "fundamentals" | "filings" | "actions" | "news";
 
-function SymbolDetail({ ticker }: { ticker: string }) {
+function SymbolDetail({
+  ticker,
+  symbol,
+  profile,
+}: {
+  ticker: string;
+  symbol: MarketSymbol | null;
+  profile: CompanyProfile | null;
+}) {
   const { client } = useAdmin();
-  const [tab, setTab] = useState<DetailTab>("fundamentals");
+  const [tab, setTab] = useState<DetailTab>("company");
   const [ratios, setRatios] = useState<DerivedRatios | null>(null);
   const [periods, setPeriods] = useState<FundamentalPeriod[]>([]);
   const [filings, setFilings] = useState<Filing[]>([]);
@@ -643,6 +706,9 @@ function SymbolDetail({ ticker }: { ticker: string }) {
       <div className="flex shrink-0 items-center px-4 pt-1">
         <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)}>
           <TabsList variant="line" className="h-7">
+            <TabsTrigger value="company" className="px-2 text-xs">
+              Company
+            </TabsTrigger>
             <TabsTrigger value="fundamentals" className="px-2 text-xs">
               Fundamentals
             </TabsTrigger>
@@ -660,7 +726,9 @@ function SymbolDetail({ ticker }: { ticker: string }) {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        {tab === "fundamentals" ? (
+        {tab === "company" ? (
+          <Company ticker={ticker} symbol={symbol} profile={profile} />
+        ) : tab === "fundamentals" ? (
           <div className="grid grid-cols-1 gap-4 px-4 py-2 text-xs md:grid-cols-2">
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
               <Ratio label="P/E" value={ratios?.peRatio} />
@@ -782,6 +850,88 @@ function SymbolDetail({ ticker }: { ticker: string }) {
           </div>
         )}
       </ScrollArea>
+    </div>
+  );
+}
+
+function Company({
+  ticker,
+  symbol,
+  profile,
+}: {
+  ticker: string;
+  symbol: MarketSymbol | null;
+  profile: CompanyProfile | null;
+}) {
+  if (!symbol && !profile) {
+    return <div className="px-4 py-2 text-muted-foreground text-xs">—</div>;
+  }
+
+  return (
+    <div className="flex gap-4 px-4 py-3 text-xs">
+      <CompanyLogo
+        url={profile?.logoUrl}
+        name={profile?.name ?? symbol?.name ?? ticker}
+        size={48}
+      />
+      <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-6 gap-y-1 md:grid-cols-3">
+        <Field label="Name" value={profile?.name ?? symbol?.name} />
+        <Field label="Exchange" value={symbol?.exchange} />
+        <Field label="Type" value={symbol?.assetType} />
+        <Field label="Sector" value={profile?.sector} />
+        <Field label="Country" value={profile?.country} />
+        <Field label="Currency" value={symbol?.currency} />
+        <Field
+          label="Market cap"
+          value={profile?.marketCap ? compact(profile.marketCap) : undefined}
+        />
+        <Field
+          label="Shares"
+          value={
+            profile?.sharesOutstanding
+              ? compact(profile.sharesOutstanding)
+              : undefined
+          }
+        />
+        <Field
+          label="Employees"
+          value={profile?.employees?.toLocaleString("en-GB")}
+        />
+        <Field label="IPO" value={profile?.ipoDate} />
+        <Field label="CIK" value={symbol?.cik} />
+        <Field label="Listed" value={symbol?.startDate} />
+        {profile?.website ? (
+          <div className="col-span-2 min-w-0 md:col-span-3">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+              Site
+            </div>
+            <a
+              href={profile.website}
+              target="_blank"
+              rel="noreferrer"
+              className="truncate hover:underline"
+            >
+              {profile.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+            </a>
+          </div>
+        ) : null}
+        {profile?.description ? (
+          <p className="col-span-2 pt-1 text-muted-foreground md:col-span-3">
+            {profile.description}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+        {label}
+      </div>
+      <div className="truncate">{value || "—"}</div>
     </div>
   );
 }
