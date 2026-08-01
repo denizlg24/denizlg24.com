@@ -4,6 +4,7 @@ import { MarketPortfolio, MarketPortfolioSnapshot } from "@/models/Market";
 import { getPerformance } from "./portfolios";
 import {
   getCandles,
+  getFundamentals,
   getQuotes,
   getStores,
   refreshSymbolUniverse,
@@ -15,9 +16,32 @@ export interface MarketsCronResult {
   tracked: number;
   candlesSynced: number;
   quotesRefreshed: number;
+  fundamentalsSynced: number;
   snapshotsWritten: number;
   budgetExhausted: boolean;
   errors: string[];
+}
+
+/**
+ * How many tracked symbols get their SEC facts refreshed per run. `companyfacts`
+ * is multi-MB per company and every one of them is parsed and distilled in this
+ * process, so the whole tracked set in one run is a memory and CPU spike, not a
+ * rate-limit problem — EDGAR's own 10 req/s ceiling is never the constraint.
+ */
+const FUNDAMENTALS_PER_RUN = 5;
+
+/**
+ * Rotates the slice by day so every tracked symbol comes round in turn rather
+ * than the first five being the only ones ever refreshed.
+ */
+export function fundamentalsSlice(tracked: string[], now: Date): string[] {
+  if (tracked.length <= FUNDAMENTALS_PER_RUN) return tracked;
+  const day = Math.floor(now.getTime() / 86_400_000);
+  const offset = (day * FUNDAMENTALS_PER_RUN) % tracked.length;
+  const slice = tracked.slice(offset, offset + FUNDAMENTALS_PER_RUN);
+  return slice.length === FUNDAMENTALS_PER_RUN
+    ? slice
+    : [...slice, ...tracked.slice(0, FUNDAMENTALS_PER_RUN - slice.length)];
 }
 
 /** The universe changes slowly; one pull a week is plenty. */
@@ -48,6 +72,7 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
     tracked: 0,
     candlesSynced: 0,
     quotesRefreshed: 0,
+    fundamentalsSynced: 0,
     snapshotsWritten: 0,
     budgetExhausted: false,
     errors: [],
@@ -95,6 +120,18 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
       result.budgetExhausted = stale;
     } catch (error) {
       result.errors.push(`quotes: ${String(error)}`);
+    }
+  }
+
+  // EDGAR has its own ledger, so an exhausted Tiingo budget says nothing about
+  // whether facts can be refreshed.
+  for (const ticker of fundamentalsSlice(tracked, now)) {
+    try {
+      await getFundamentals(ticker);
+      result.fundamentalsSynced++;
+    } catch (error) {
+      if (error instanceof BudgetExhaustedError) break;
+      result.errors.push(`facts ${ticker}: ${String(error)}`);
     }
   }
 
