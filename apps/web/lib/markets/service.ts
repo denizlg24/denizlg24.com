@@ -8,8 +8,11 @@ import {
 } from "@repo/markets/core";
 import type {
   CandleSeries,
+  CompanyProfile,
+  CorporateAction,
   Filing,
   FundamentalPeriod,
+  MarketSymbol,
   Quote,
   SymbolSearchResult,
 } from "@repo/markets/schemas";
@@ -150,6 +153,67 @@ export async function searchSymbols(
   limit = 20,
 ): Promise<SymbolSearchResult[]> {
   return stack().stores.symbols.searchSymbols(query, limit);
+}
+
+/**
+ * Metadata and profile for one symbol, served from Mongo. Tiingo is asked only
+ * when the universe has never seen the ticker — the weekly universe refresh
+ * covers everything else, and a metadata call per page load would be the exact
+ * per-symbol traffic the cache exists to prevent.
+ */
+export async function getSymbolDetail(ticker: string): Promise<{
+  symbol: MarketSymbol | null;
+  profile: CompanyProfile | null;
+  stale: boolean;
+}> {
+  const { stores } = stack();
+  const upper = ticker.toUpperCase();
+  const [existing, profile] = await Promise.all([
+    stores.symbols.getSymbol(upper),
+    stores.symbols.getProfile(upper),
+  ]);
+  if (existing) return { symbol: existing, profile, stale: false };
+
+  try {
+    const fetched = (await requireTiingo().getSymbol(upper)) ?? null;
+    if (fetched) await stores.symbols.upsertSymbols([fetched]);
+    return { symbol: fetched, profile, stale: false };
+  } catch (error) {
+    if (!(error instanceof BudgetExhaustedError)) throw error;
+    return { symbol: null, profile, stale: true };
+  }
+}
+
+/**
+ * Dividends and splits for a symbol. They are written as a side effect of the
+ * daily-bar sync, so an empty cache means the bars were never pulled rather
+ * than that the company has never paid a dividend — backfill, then re-read.
+ */
+export async function getActions(ticker: string): Promise<{
+  actions: CorporateAction[];
+  stale: boolean;
+}> {
+  const { stores } = stack();
+  const upper = ticker.toUpperCase();
+  const coverage = await stores.bars.getCoverage(upper, { kind: "daily" });
+  if (coverage.to) {
+    return { actions: await stores.bars.getActions(upper), stale: false };
+  }
+
+  try {
+    const series = await getCandles({
+      ticker: upper,
+      resolution: "1day",
+      adjusted: false,
+    });
+    return {
+      actions: await stores.bars.getActions(upper),
+      stale: series.freshness.stale,
+    };
+  } catch (error) {
+    if (!(error instanceof BudgetExhaustedError)) throw error;
+    return { actions: await stores.bars.getActions(upper), stale: true };
+  }
 }
 
 /** Filings change slowly; a daily refresh is plenty and EDGAR is unmetered. */

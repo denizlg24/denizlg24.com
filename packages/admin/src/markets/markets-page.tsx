@@ -3,6 +3,7 @@
 import { bollinger, ema, rsi, sma } from "@repo/markets/core";
 import type {
   CandleSeries,
+  CorporateAction,
   DerivedRatios,
   Filing,
   FundamentalPeriod,
@@ -426,7 +427,7 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
             )}
           </div>
 
-          <Fundamentals ticker={selected} />
+          <SymbolDetail ticker={selected} />
         </main>
       </div>
     </div>
@@ -547,11 +548,15 @@ function BudgetMeter({ budget }: { budget: ProviderBudget }) {
   );
 }
 
-function Fundamentals({ ticker }: { ticker: string }) {
+type DetailTab = "fundamentals" | "filings" | "actions";
+
+function SymbolDetail({ ticker }: { ticker: string }) {
   const { client } = useAdmin();
+  const [tab, setTab] = useState<DetailTab>("fundamentals");
   const [ratios, setRatios] = useState<DerivedRatios | null>(null);
   const [periods, setPeriods] = useState<FundamentalPeriod[]>([]);
   const [filings, setFilings] = useState<Filing[]>([]);
+  const [actions, setActions] = useState<CorporateAction[]>([]);
 
   useEffect(() => {
     setRatios(null);
@@ -567,69 +572,144 @@ function Fundamentals({ ticker }: { ticker: string }) {
       .catch(() => undefined);
     client
       .get<{ filings: Filing[] }>(
-        `/markets/symbols/${encodeURIComponent(ticker)}/filings?limit=8`,
+        `/markets/symbols/${encodeURIComponent(ticker)}/filings?limit=20`,
       )
       .then((data) => setFilings(data.filings))
       .catch(() => setFilings([]));
   }, [client, ticker]);
 
+  // Actions are only ever read on demand: an untouched symbol has no cached
+  // bars, and the route backfills them, which costs a provider request.
+  useEffect(() => {
+    if (tab !== "actions") return;
+    setActions([]);
+    client
+      .get<{ actions: CorporateAction[] }>(
+        `/markets/symbols/${encodeURIComponent(ticker)}/actions`,
+      )
+      .then((data) => setActions(data.actions))
+      .catch(() => setActions([]));
+  }, [client, ticker, tab]);
+
   const latest = periods[0];
 
   return (
-    <div className="grid shrink-0 grid-cols-1 gap-4 border-t px-4 py-3 text-xs md:grid-cols-3">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-        <Ratio label="P/E" value={ratios?.peRatio} />
-        <Ratio label="P/B" value={ratios?.priceToBook} />
-        <Ratio label="P/S" value={ratios?.priceToSales} />
-        <Ratio label="EPS" value={ratios?.eps} />
-        <Ratio label="Gross margin" value={ratios?.grossMargin} percent />
-        <Ratio label="Net margin" value={ratios?.netMargin} percent />
-        <Ratio label="ROE" value={ratios?.returnOnEquity} percent />
-        <Ratio label="D/E" value={ratios?.debtToEquity} />
+    <div className="flex h-56 shrink-0 flex-col border-t">
+      <div className="flex shrink-0 items-center px-4 pt-1">
+        <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)}>
+          <TabsList variant="line" className="h-7">
+            <TabsTrigger value="fundamentals" className="px-2 text-xs">
+              Fundamentals
+            </TabsTrigger>
+            <TabsTrigger value="filings" className="px-2 text-xs">
+              Filings
+            </TabsTrigger>
+            <TabsTrigger value="actions" className="px-2 text-xs">
+              Actions
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
-      <div className="space-y-1">
-        {latest ? (
-          <>
-            <div className="text-muted-foreground">
-              {latest.form} · {latest.fiscalPeriod} {latest.fiscalYear} ·{" "}
-              {latest.periodEnd}
+      <ScrollArea className="min-h-0 flex-1">
+        {tab === "fundamentals" ? (
+          <div className="grid grid-cols-1 gap-4 px-4 py-2 text-xs md:grid-cols-2">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <Ratio label="P/E" value={ratios?.peRatio} />
+              <Ratio label="P/B" value={ratios?.priceToBook} />
+              <Ratio label="P/S" value={ratios?.priceToSales} />
+              <Ratio label="EPS" value={ratios?.eps} />
+              <Ratio label="Gross margin" value={ratios?.grossMargin} percent />
+              <Ratio label="Net margin" value={ratios?.netMargin} percent />
+              <Ratio label="ROE" value={ratios?.returnOnEquity} percent />
+              <Ratio label="D/E" value={ratios?.debtToEquity} />
             </div>
-            {latest.facts
-              .filter((fact) => fact.statement === "income")
-              .slice(0, 6)
-              .map((fact) => (
-                <div key={fact.key} className="flex justify-between gap-2">
-                  <span className="text-muted-foreground">{fact.label}</span>
-                  <span className="tabular-nums">{compact(fact.value)}</span>
-                </div>
-              ))}
-          </>
+            <div className="space-y-1">
+              {latest ? (
+                <>
+                  <div className="text-muted-foreground">
+                    {latest.form} · {latest.fiscalPeriod} {latest.fiscalYear} ·{" "}
+                    {latest.periodEnd}
+                  </div>
+                  {latest.facts
+                    .filter((fact) => fact.statement === "income")
+                    .slice(0, 8)
+                    .map((fact) => (
+                      <div
+                        key={fact.key}
+                        className="flex justify-between gap-2"
+                      >
+                        <span className="text-muted-foreground">
+                          {fact.label}
+                        </span>
+                        <span className="tabular-nums">
+                          {compact(fact.value)}
+                        </span>
+                      </div>
+                    ))}
+                </>
+              ) : (
+                <div className="text-muted-foreground">—</div>
+              )}
+            </div>
+          </div>
+        ) : tab === "filings" ? (
+          <div className="space-y-1 px-4 py-2 text-xs">
+            {filings.length === 0 ? (
+              <div className="text-muted-foreground">—</div>
+            ) : (
+              filings.map((filing) => (
+                <a
+                  key={filing.accession}
+                  href={filing.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-baseline gap-3 hover:underline"
+                >
+                  <span className="w-16 shrink-0 font-medium">
+                    {filing.form}
+                  </span>
+                  <span className="text-muted-foreground tabular-nums">
+                    {filing.filed}
+                  </span>
+                  <span className="truncate text-muted-foreground">
+                    {filing.accession}
+                  </span>
+                </a>
+              ))
+            )}
+          </div>
         ) : (
-          <div className="text-muted-foreground">—</div>
+          <div className="space-y-1 px-4 py-2 text-xs">
+            {actions.length === 0 ? (
+              <div className="text-muted-foreground">—</div>
+            ) : (
+              [...actions]
+                .sort((a, b) => (a.date < b.date ? 1 : -1))
+                .map((action) => (
+                  <div
+                    key={`${action.date}:${action.divCash}:${action.splitFactor}`}
+                    className="flex items-baseline gap-3"
+                  >
+                    <span className="w-20 shrink-0 text-muted-foreground tabular-nums">
+                      {action.date}
+                    </span>
+                    {action.divCash !== 0 ? (
+                      <span className="tabular-nums">
+                        div {action.divCash.toFixed(4)}
+                      </span>
+                    ) : null}
+                    {action.splitFactor !== 1 ? (
+                      <span className="tabular-nums">
+                        split ×{action.splitFactor}
+                      </span>
+                    ) : null}
+                  </div>
+                ))
+            )}
+          </div>
         )}
-      </div>
-
-      <div className="space-y-1">
-        {filings.length === 0 ? (
-          <div className="text-muted-foreground">—</div>
-        ) : (
-          filings.map((filing) => (
-            <a
-              key={filing.accession}
-              href={filing.url}
-              target="_blank"
-              rel="noreferrer"
-              className="flex justify-between gap-2 hover:underline"
-            >
-              <span>{filing.form}</span>
-              <span className="text-muted-foreground tabular-nums">
-                {filing.filed}
-              </span>
-            </a>
-          ))
-        )}
-      </div>
+      </ScrollArea>
     </div>
   );
 }
