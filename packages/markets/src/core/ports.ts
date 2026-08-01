@@ -25,7 +25,8 @@ export type CoverageDataset =
   | { kind: "intraday"; resolution: Resolution }
   | { kind: "actions" }
   | { kind: "fundamentals" }
-  | { kind: "filings" };
+  | { kind: "filings" }
+  | { kind: "news" };
 
 export interface Coverage {
   /** Oldest and newest dates known to be cached, inclusive. */

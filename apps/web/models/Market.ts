@@ -250,6 +250,66 @@ const marketFilingSchema = new Schema<IMarketFiling>({
   description: String,
 });
 
+export interface IMarketCompanyProfile extends Document {
+  ticker: string;
+  name: string;
+  description?: string;
+  sector?: string;
+  industry?: string;
+  country?: string;
+  website?: string;
+  logoUrl?: string;
+  employees?: number;
+  marketCap?: number;
+  sharesOutstanding?: number;
+  ipoDate?: string;
+  updatedAt: Date;
+}
+
+const marketCompanyProfileSchema = new Schema<IMarketCompanyProfile>(
+  {
+    ticker: { type: String, required: true, unique: true, uppercase: true },
+    name: { type: String, required: true },
+    description: String,
+    sector: String,
+    industry: String,
+    country: String,
+    website: String,
+    logoUrl: String,
+    employees: Number,
+    marketCap: Number,
+    sharesOutstanding: Number,
+    ipoDate: String,
+  },
+  { timestamps: true },
+);
+
+export interface IMarketNews extends Document {
+  newsId: string;
+  ticker?: string;
+  headline: string;
+  summary?: string;
+  source?: string;
+  url: string;
+  imageUrl?: string;
+  publishedAt: Date;
+}
+
+const marketNewsSchema = new Schema<IMarketNews>({
+  newsId: { type: String, required: true, unique: true },
+  ticker: { type: String, uppercase: true },
+  headline: { type: String, required: true },
+  summary: String,
+  source: String,
+  url: { type: String, required: true },
+  imageUrl: String,
+  publishedAt: { type: Date, required: true },
+});
+marketNewsSchema.index({ ticker: 1, publishedAt: -1 });
+// News ages out of usefulness far faster than it is worth storing; 90 days
+// covers the 30-day window the provider serves plus room to look back.
+marketNewsSchema.index({ publishedAt: 1 }, { expireAfterSeconds: 90 * 86_400 });
+
 export interface IMarketProviderBudget extends Document {
   provider: string;
   hourKey: string;
@@ -406,6 +466,15 @@ export const MarketFundamental =
 export const MarketFiling =
   existingModel<IMarketFiling>("MarketFiling") ||
   mongoose.model<IMarketFiling>("MarketFiling", marketFilingSchema);
+export const MarketCompanyProfile =
+  existingModel<IMarketCompanyProfile>("MarketCompanyProfile") ||
+  mongoose.model<IMarketCompanyProfile>(
+    "MarketCompanyProfile",
+    marketCompanyProfileSchema,
+  );
+export const MarketNews =
+  existingModel<IMarketNews>("MarketNews") ||
+  mongoose.model<IMarketNews>("MarketNews", marketNewsSchema);
 export const MarketProviderBudget =
   existingModel<IMarketProviderBudget>("MarketProviderBudget") ||
   mongoose.model<IMarketProviderBudget>(

@@ -10,11 +10,13 @@ import type { Resolution } from "@repo/markets/schemas";
 import { connectDB } from "@/lib/mongodb";
 import {
   MarketAction,
+  MarketCompanyProfile,
   MarketCoverage,
   MarketDailyBar,
   MarketFiling,
   MarketFundamental,
   MarketIntradayBar,
+  MarketNews,
   MarketPortfolio,
   MarketQuote,
   MarketSymbolModel,
@@ -135,12 +137,36 @@ const symbols: SymbolStore = {
     return MarketSymbolModel.estimatedDocumentCount();
   },
 
-  async getProfile() {
-    return null;
+  async getProfile(ticker) {
+    await connectDB();
+    const doc = await MarketCompanyProfile.findOne({
+      ticker: ticker.toUpperCase(),
+    }).lean();
+    if (!doc) return null;
+    return {
+      ticker: doc.ticker,
+      name: doc.name,
+      description: doc.description ?? undefined,
+      sector: doc.sector ?? undefined,
+      industry: doc.industry ?? undefined,
+      country: doc.country ?? undefined,
+      website: doc.website ?? undefined,
+      logoUrl: doc.logoUrl ?? undefined,
+      employees: doc.employees ?? undefined,
+      marketCap: doc.marketCap ?? undefined,
+      sharesOutstanding: doc.sharesOutstanding ?? undefined,
+      ipoDate: doc.ipoDate ?? undefined,
+      updatedAt: doc.updatedAt.toISOString(),
+    };
   },
 
-  async upsertProfile() {
-    // Profiles arrive from Finnhub, which is not wired yet.
+  async upsertProfile(profile) {
+    await connectDB();
+    await MarketCompanyProfile.updateOne(
+      { ticker: profile.ticker.toUpperCase() },
+      { $set: { ...profile, ticker: profile.ticker.toUpperCase() } },
+      { upsert: true },
+    );
   },
 
   async listTrackedTickers() {
@@ -440,12 +466,48 @@ const fundamentals: FundamentalStore = {
     );
   },
 
-  async getNews() {
-    return [];
+  async getNews(ticker, limit) {
+    await connectDB();
+    const docs = await MarketNews.find({ ticker: ticker.toUpperCase() })
+      .sort({ publishedAt: -1 })
+      .limit(limit)
+      .lean();
+    return docs.map((doc) => ({
+      id: doc.newsId,
+      ticker: doc.ticker ?? undefined,
+      headline: doc.headline,
+      summary: doc.summary ?? undefined,
+      source: doc.source ?? undefined,
+      url: doc.url,
+      imageUrl: doc.imageUrl ?? undefined,
+      publishedAt: doc.publishedAt.toISOString(),
+    }));
   },
 
-  async upsertNews() {
-    // News arrives from Finnhub, which is not wired yet.
+  async upsertNews(next) {
+    if (next.length === 0) return;
+    await connectDB();
+    await MarketNews.bulkWrite(
+      next.map((item) => ({
+        updateOne: {
+          filter: { newsId: item.id },
+          update: {
+            $set: {
+              newsId: item.id,
+              ticker: item.ticker,
+              headline: item.headline,
+              summary: item.summary,
+              source: item.source,
+              url: item.url,
+              imageUrl: item.imageUrl,
+              publishedAt: new Date(item.publishedAt),
+            },
+          },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
+    );
   },
 };
 

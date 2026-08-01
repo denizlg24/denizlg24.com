@@ -2,12 +2,14 @@ import {
   BudgetExhaustedError,
   type CandleRequest,
   EdgarProvider,
+  FinnhubProvider,
   getCandles as getCachedCandles,
   type MarketStores,
   TiingoProvider,
 } from "@repo/markets/core";
 import type {
   CandleSeries,
+  CompanyNewsItem,
   CompanyProfile,
   CorporateAction,
   Filing,
@@ -26,6 +28,7 @@ let cached: {
   stores: MarketStores;
   tiingo: TiingoProvider | null;
   edgar: EdgarProvider | null;
+  finnhub: FinnhubProvider | null;
 } | null = null;
 
 export class MarketsNotConfiguredError extends Error {
@@ -59,6 +62,7 @@ function stack() {
   const keys = tiingoKeys();
   const stores = createMarketStores(Math.max(keys.length, 1));
   const edgarAgent = process.env.SEC_EDGAR_USER_AGENT;
+  const finnhubKey = process.env.FINNHUB_API_KEY?.trim();
 
   cached = {
     stores,
@@ -68,6 +72,11 @@ function stack() {
         : null,
     edgar: edgarAgent?.trim()
       ? new EdgarProvider({ userAgent: edgarAgent, budget: stores.budget })
+      : null,
+    // Optional throughout: profiles and news degrade to nothing rather than
+    // erroring when the key is absent.
+    finnhub: finnhubKey
+      ? new FinnhubProvider({ apiKey: finnhubKey, budget: stores.budget })
       : null,
   };
   return cached;
@@ -170,7 +179,7 @@ export async function getSymbolDetail(ticker: string): Promise<{
   const upper = ticker.toUpperCase();
   const [existing, profile] = await Promise.all([
     stores.symbols.getSymbol(upper),
-    stores.symbols.getProfile(upper),
+    getProfile(upper),
   ]);
   if (existing) return { symbol: existing, profile, stale: false };
 
@@ -181,6 +190,87 @@ export async function getSymbolDetail(ticker: string): Promise<{
   } catch (error) {
     if (!(error instanceof BudgetExhaustedError)) throw error;
     return { symbol: null, profile, stale: true };
+  }
+}
+
+/** A company's sector, logo and share count move on a scale of quarters. */
+const PROFILE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Profiles come from Finnhub and are entirely optional: with no key configured
+ * the surface simply shows less, which is why this returns a value rather than
+ * throwing the way the Tiingo and EDGAR paths do.
+ */
+export async function getProfile(
+  ticker: string,
+): Promise<CompanyProfile | null> {
+  const { stores, finnhub } = stack();
+  const upper = ticker.toUpperCase();
+  const cachedProfile = await stores.symbols.getProfile(upper);
+  const fresh =
+    cachedProfile &&
+    stores.clock.now().getTime() - Date.parse(cachedProfile.updatedAt) <
+      PROFILE_TTL_MS;
+  if (fresh || !finnhub) return cachedProfile;
+
+  try {
+    const profile = await finnhub.getProfile(upper);
+    if (!profile) return cachedProfile;
+    await stores.symbols.upsertProfile(profile);
+    return profile;
+  } catch (error) {
+    if (!(error instanceof BudgetExhaustedError)) throw error;
+    return cachedProfile;
+  }
+}
+
+/** Headlines are worth rechecking within a session, not within a render. */
+const NEWS_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * Freshness is keyed on when the cache was last *written*, not on the newest
+ * headline's publish time: a symbol nobody writes about has no recent news, and
+ * measuring against its last story would refetch on every single request.
+ */
+export async function getNews(
+  ticker: string,
+  limit = 20,
+): Promise<{ news: CompanyNewsItem[]; stale: boolean }> {
+  const { stores, finnhub } = stack();
+  const upper = ticker.toUpperCase();
+  const cachedNews = await stores.fundamentals.getNews(upper, limit);
+  if (!finnhub) return { news: cachedNews, stale: cachedNews.length > 0 };
+
+  const coverage = await stores.bars.getCoverage(upper, { kind: "news" });
+  const now = stores.clock.now();
+  if (
+    coverage.fetchedAt &&
+    now.getTime() - Date.parse(coverage.fetchedAt) < NEWS_TTL_MS
+  ) {
+    return { news: cachedNews, stale: false };
+  }
+
+  try {
+    const news = await finnhub.getNews(upper, limit);
+    if (news.length > 0) await stores.fundamentals.upsertNews(news);
+    // Written even on an empty result, so a symbol with no coverage is not
+    // re-asked on every page load.
+    await stores.bars.setCoverage(
+      upper,
+      { kind: "news" },
+      {
+        from: news.at(-1)?.publishedAt.slice(0, 10) ?? coverage.from,
+        to: news[0]?.publishedAt.slice(0, 10) ?? coverage.to,
+        fetchedAt: now.toISOString(),
+      },
+    );
+    return {
+      news: news.length > 0 ? news : cachedNews,
+      stale: false,
+    };
+  } catch (error) {
+    if (!(error instanceof BudgetExhaustedError)) throw error;
+    return { news: cachedNews, stale: true };
   }
 }
 

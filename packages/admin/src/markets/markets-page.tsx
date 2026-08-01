@@ -3,10 +3,13 @@
 import { bollinger, ema, rsi, sma } from "@repo/markets/core";
 import type {
   CandleSeries,
+  CompanyNewsItem,
+  CompanyProfile,
   CorporateAction,
   DerivedRatios,
   Filing,
   FundamentalPeriod,
+  MarketSymbol,
   ProviderBudget,
   Quote,
   Resolution,
@@ -43,6 +46,12 @@ const INDICATORS = [
 
 type IndicatorKey = (typeof INDICATORS)[number]["key"];
 
+interface SymbolDetailResponse {
+  symbol: MarketSymbol | null;
+  profile: CompanyProfile | null;
+  stale: boolean;
+}
+
 export interface MarketsPageProps {
   /** Passed as a prop, not read from a route param: desktop is a static export. */
   ticker?: string;
@@ -63,6 +72,7 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
   const [budget, setBudget] = useState<ProviderBudget | null>(null);
   const [universe, setUniverse] = useState<number | null>(null);
   const [seeding, setSeeding] = useState(false);
+  const [detail, setDetail] = useState<SymbolDetailResponse | null>(null);
 
   useEffect(() => {
     if (ticker) setSelected(ticker.toUpperCase());
@@ -115,6 +125,16 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
       cancelled = true;
     };
   }, [client, selected, range]);
+
+  useEffect(() => {
+    setDetail(null);
+    client
+      .get<SymbolDetailResponse>(
+        `/markets/symbols/${encodeURIComponent(selected)}`,
+      )
+      .then(setDetail)
+      .catch(() => setDetail(null));
+  }, [client, selected]);
 
   const watched = useMemo(() => {
     const tickers = new Set<string>([selected]);
@@ -315,6 +335,11 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
             <span className="font-semibold text-lg tabular-nums">
               {selected}
             </span>
+            {detail?.symbol ? (
+              <span className="max-w-56 truncate text-muted-foreground text-xs">
+                {detail.symbol.name}
+              </span>
+            ) : null}
             <Button
               size="icon-sm"
               variant="ghost"
@@ -342,6 +367,14 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
               </span>
             ) : null}
             <div className="ml-auto flex items-center gap-3 text-muted-foreground text-xs tabular-nums">
+              {detail?.profile?.sector ? (
+                <span className="max-w-40 truncate">
+                  {detail.profile.sector}
+                </span>
+              ) : null}
+              {detail?.profile?.marketCap ? (
+                <span>{compact(detail.profile.marketCap)}</span>
+              ) : null}
               <Stat label="O" value={bars.at(-1)?.open} />
               <Stat label="H" value={bars.at(-1)?.high} />
               <Stat label="L" value={bars.at(-1)?.low} />
@@ -548,7 +581,7 @@ function BudgetMeter({ budget }: { budget: ProviderBudget }) {
   );
 }
 
-type DetailTab = "fundamentals" | "filings" | "actions";
+type DetailTab = "fundamentals" | "filings" | "actions" | "news";
 
 function SymbolDetail({ ticker }: { ticker: string }) {
   const { client } = useAdmin();
@@ -557,6 +590,7 @@ function SymbolDetail({ ticker }: { ticker: string }) {
   const [periods, setPeriods] = useState<FundamentalPeriod[]>([]);
   const [filings, setFilings] = useState<Filing[]>([]);
   const [actions, setActions] = useState<CorporateAction[]>([]);
+  const [news, setNews] = useState<CompanyNewsItem[]>([]);
 
   useEffect(() => {
     setRatios(null);
@@ -578,8 +612,8 @@ function SymbolDetail({ ticker }: { ticker: string }) {
       .catch(() => setFilings([]));
   }, [client, ticker]);
 
-  // Actions are only ever read on demand: an untouched symbol has no cached
-  // bars, and the route backfills them, which costs a provider request.
+  // Actions and news are read on demand: both routes can reach a provider on a
+  // miss, so loading them with the page would charge for tabs never opened.
   useEffect(() => {
     if (tab !== "actions") return;
     setActions([]);
@@ -589,6 +623,17 @@ function SymbolDetail({ ticker }: { ticker: string }) {
       )
       .then((data) => setActions(data.actions))
       .catch(() => setActions([]));
+  }, [client, ticker, tab]);
+
+  useEffect(() => {
+    if (tab !== "news") return;
+    setNews([]);
+    client
+      .get<{ news: CompanyNewsItem[] }>(
+        `/markets/symbols/${encodeURIComponent(ticker)}/news?limit=30`,
+      )
+      .then((data) => setNews(data.news))
+      .catch(() => setNews([]));
   }, [client, ticker, tab]);
 
   const latest = periods[0];
@@ -606,6 +651,9 @@ function SymbolDetail({ ticker }: { ticker: string }) {
             </TabsTrigger>
             <TabsTrigger value="actions" className="px-2 text-xs">
               Actions
+            </TabsTrigger>
+            <TabsTrigger value="news" className="px-2 text-xs">
+              News
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -679,7 +727,7 @@ function SymbolDetail({ ticker }: { ticker: string }) {
               ))
             )}
           </div>
-        ) : (
+        ) : tab === "actions" ? (
           <div className="space-y-1 px-4 py-2 text-xs">
             {actions.length === 0 ? (
               <div className="text-muted-foreground">—</div>
@@ -706,6 +754,30 @@ function SymbolDetail({ ticker }: { ticker: string }) {
                     ) : null}
                   </div>
                 ))
+            )}
+          </div>
+        ) : (
+          <div className="space-y-1.5 px-4 py-2 text-xs">
+            {news.length === 0 ? (
+              <div className="text-muted-foreground">—</div>
+            ) : (
+              news.map((item) => (
+                <a
+                  key={item.id}
+                  href={item.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-baseline gap-3 hover:underline"
+                >
+                  <span className="w-24 shrink-0 text-muted-foreground tabular-nums">
+                    {item.publishedAt.slice(5, 16).replace("T", " ")}
+                  </span>
+                  <span className="min-w-0 truncate">{item.headline}</span>
+                  <span className="ml-auto shrink-0 text-muted-foreground">
+                    {item.source}
+                  </span>
+                </a>
+              ))
             )}
           </div>
         )}
