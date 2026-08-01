@@ -42,6 +42,7 @@ const KNOWN_ROUTES = new Set([
   "/dashboard/contacts",
   "/dashboard/finance",
   "/dashboard/finance/markets",
+  "/dashboard/finance/portfolios",
   "/dashboard/courses",
   "/dashboard/courses/new",
   "/dashboard/courses/edit",

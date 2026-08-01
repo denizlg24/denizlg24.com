@@ -38,6 +38,7 @@ import {
   Table,
   UserSquare,
   UsersRound,
+  Wallet,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -206,6 +207,11 @@ export const GROUPS: NavGroup[] = [
             label: "Markets",
             href: "/finance/markets",
             icon: CandlestickChart,
+          },
+          {
+            label: "Portfolios",
+            href: "/finance/portfolios",
+            icon: Wallet,
           },
         ],
       },

@@ -22,6 +22,9 @@ import {
 } from "@/models/Market";
 import { getStores } from "./service";
 
+/** Trades the owner typed. The rest are derived from cached corporate actions. */
+const OWNER_ENTERED_SOURCES = ["manual", "deposit", "withdrawal"];
+
 function toPortfolio(doc: IMarketPortfolio): Portfolio {
   return {
     id: String(doc._id),
@@ -117,9 +120,10 @@ export async function deleteTrade(
   const result = await MarketTrade.findOneAndDelete({
     _id: tradeId,
     portfolioId,
-    // Generated rows are rebuilt from cached actions, so deleting one by hand
-    // would only have it reappear on the next sync.
-    source: "manual",
+    // Dividends and splits are rebuilt from cached actions, so deleting one by
+    // hand would only have it reappear on the next sync. Everything the owner
+    // entered — trades and cash movements alike — is theirs to remove.
+    source: { $in: ["manual", "deposit", "withdrawal"] },
   });
   return result !== null;
 }
@@ -137,7 +141,12 @@ export async function syncPortfolioActions(
   if (!portfolio) return 0;
 
   const stores = getStores();
-  const manualDocs = await MarketTrade.find({ portfolioId, source: "manual" });
+  // Everything the owner entered survives a sync; only dividend and split rows
+  // are regenerated. Cash movements would otherwise be wiped on every rebuild.
+  const manualDocs = await MarketTrade.find({
+    portfolioId,
+    source: { $in: OWNER_ENTERED_SOURCES },
+  });
   const manual = manualDocs.map(toTrade);
   const tickers = [
     ...new Set(
@@ -166,7 +175,10 @@ export async function syncPortfolioActions(
     );
   }
 
-  await MarketTrade.deleteMany({ portfolioId, source: { $ne: "manual" } });
+  await MarketTrade.deleteMany({
+    portfolioId,
+    source: { $nin: OWNER_ENTERED_SOURCES },
+  });
   if (generated.length > 0) {
     await MarketTrade.insertMany(
       generated.map((trade) => ({

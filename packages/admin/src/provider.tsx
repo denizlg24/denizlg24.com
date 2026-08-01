@@ -28,6 +28,8 @@ export interface AdminRoutes {
   settings: string;
   /** Full path of the markets dashboard, which finance links across to. */
   markets: string;
+  /** Full path of the virtual-portfolios surface, paired with markets. */
+  portfolios: string;
 }
 
 export interface AdminContextValue {

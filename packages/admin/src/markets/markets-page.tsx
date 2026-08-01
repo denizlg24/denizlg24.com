@@ -9,19 +9,18 @@ import type {
   ProviderBudget,
   Quote,
   Resolution,
-  SymbolSearchResult,
   Watchlist,
 } from "@repo/markets/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { Input } from "@repo/ui/input";
 import { ScrollArea } from "@repo/ui/scroll-area";
 import { Skeleton } from "@repo/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import { Plus, RefreshCw, Search, Star, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Plus, RefreshCw, Star, Wallet, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdmin } from "../provider";
 import { CandleChart, type ChartKind, type Overlay } from "./candle-chart";
+import { SymbolSearch } from "./symbol-search";
 import { useQuotes } from "./use-quotes";
 
 const RANGES: { label: string; resolution: Resolution; days: number }[] = [
@@ -50,7 +49,7 @@ export interface MarketsPageProps {
 }
 
 export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
-  const { client } = useAdmin();
+  const { client, routes } = useAdmin();
   const [selected, setSelected] = useState(ticker ?? "AAPL");
   const [range, setRange] = useState(RANGES[4] as (typeof RANGES)[number]);
   const [kind, setKind] = useState<ChartKind>("candles");
@@ -266,6 +265,13 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
           </Button>
         ) : null}
         <div className="ml-auto flex items-center gap-3">
+          <a
+            href={routes.portfolios}
+            className="flex items-center gap-1.5 text-muted-foreground text-xs hover:text-foreground"
+          >
+            <Wallet className="size-3.5" />
+            Portfolios
+          </a>
           <TransportDot transport={transport} upstream={upstream} />
           {series?.freshness.stale ? (
             <Badge variant="outline" className="text-amber-600">
@@ -538,69 +544,6 @@ function BudgetMeter({ budget }: { budget: ProviderBudget }) {
       {budget.hourUsed}/{budget.hourLimit}h · {budget.dayUsed}/{budget.dayLimit}
       d
     </span>
-  );
-}
-
-function SymbolSearch({ onSelect }: { onSelect: (ticker: string) => void }) {
-  const { client } = useAdmin();
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SymbolSearchResult[]>([]);
-  const [open, setOpen] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (timer.current) clearTimeout(timer.current);
-    if (query.trim().length < 1) {
-      setResults([]);
-      return;
-    }
-    // Debounced: search hits Mongo, not a provider, but a keystroke-per-query
-    // still floods the route on a fast typist.
-    timer.current = setTimeout(() => {
-      client
-        .get<{ results: SymbolSearchResult[] }>(
-          `/markets/symbols/search?q=${encodeURIComponent(query.trim())}`,
-        )
-        .then((data) => setResults(data.results))
-        .catch(() => setResults([]));
-    }, 180);
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, [client, query]);
-
-  return (
-    <div className="relative w-72">
-      <Search className="-translate-y-1/2 absolute top-1/2 left-2 h-3.5 w-3.5 text-muted-foreground" />
-      <Input
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 120)}
-        placeholder="Ticker"
-        className="h-8 pl-7 text-xs"
-      />
-      {open && results.length > 0 ? (
-        <div className="absolute top-9 left-0 z-50 w-full overflow-hidden rounded-md border bg-popover shadow-md">
-          {results.slice(0, 12).map((result) => (
-            <button
-              key={result.ticker}
-              type="button"
-              onMouseDown={() => {
-                onSelect(result.ticker);
-                setQuery("");
-              }}
-              className="flex w-full items-baseline justify-between px-2 py-1.5 text-left text-xs hover:bg-muted"
-            >
-              <span className="font-medium">{result.ticker}</span>
-              <span className="ml-2 truncate text-muted-foreground">
-                {result.name}
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
   );
 }
 

@@ -14,6 +14,7 @@ export function AdminFeatureShell({ children }: { children: ReactNode }) {
       routes: {
         settings: "/admin/dashboard/settings",
         markets: "/admin/dashboard/finance/markets",
+        portfolios: "/admin/dashboard/finance/portfolios",
       },
     }),
     [],
