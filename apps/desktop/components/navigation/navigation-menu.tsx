@@ -195,22 +195,22 @@ export const GROUPS: NavGroup[] = [
     items: [
       {
         label: "Finance",
-        href: "",
+        href: "/finance",
         icon: CircleDollarSign,
+      },
+      {
+        label: "Markets",
+        href: "",
+        icon: CandlestickChart,
         children: [
           {
-            label: "Ledger",
-            href: "/finance",
-            icon: CircleDollarSign,
-          },
-          {
             label: "Markets",
-            href: "/finance/markets",
+            href: "/markets",
             icon: CandlestickChart,
           },
           {
             label: "Portfolios",
-            href: "/finance/portfolios",
+            href: "/markets/portfolios",
             icon: Wallet,
           },
         ],

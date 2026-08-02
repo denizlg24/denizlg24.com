@@ -16,7 +16,7 @@ export function MarketsRoute() {
 
   const select = useCallback(
     (next: string) => {
-      router.replace(`/admin/dashboard/finance/markets?ticker=${next}`, {
+      router.replace(`/admin/dashboard/markets?ticker=${next}`, {
         scroll: false,
       });
     },

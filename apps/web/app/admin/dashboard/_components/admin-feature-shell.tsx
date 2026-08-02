@@ -13,8 +13,8 @@ export function AdminFeatureShell({ children }: { children: ReactNode }) {
       platform: webPlatform,
       routes: {
         settings: "/admin/dashboard/settings",
-        markets: "/admin/dashboard/finance/markets",
-        portfolios: "/admin/dashboard/finance/portfolios",
+        markets: "/admin/dashboard/markets",
+        portfolios: "/admin/dashboard/markets/portfolios",
       },
     }),
     [],

@@ -17,7 +17,7 @@ function PortfoliosRoute() {
 
   const select = useCallback(
     (id: string) => {
-      router.replace(`/dashboard/finance/portfolios?portfolio=${id}`, {
+      router.replace(`/dashboard/markets/portfolios?portfolio=${id}`, {
         scroll: false,
       });
     },

@@ -25,8 +25,8 @@ export function useDesktopAdmin(): {
       platform: desktopPlatform,
       routes: {
         settings: "/dashboard/settings",
-        markets: "/dashboard/finance/markets",
-        portfolios: "/dashboard/finance/portfolios",
+        markets: "/dashboard/markets",
+        portfolios: "/dashboard/markets/portfolios",
       },
       slots: {
         sidebarTrigger: <SidebarTrigger className="-ml-1 size-7 md:hidden" />,
