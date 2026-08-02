@@ -33,14 +33,20 @@ import {
 import { Skeleton } from "@repo/ui/skeleton";
 import { Switch } from "@repo/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import { CandlestickChart, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import {
+  CandlestickChart,
+  LayoutGrid,
+  Plus,
+  RefreshCw,
+  Table as TableIcon,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdmin } from "../provider";
-import { type CurveSeries, EquityChart } from "./equity-chart";
+import { PortfolioPerformanceChart } from "./portfolio-performance";
+import { PositionTreemap } from "./position-treemap";
 import { SymbolSearch } from "./symbol-search";
-
-const PORTFOLIO_COLOR = "#2563eb";
-const BENCHMARK_COLOR = "#94a3b8";
 
 export interface PortfoliosPageProps {
   /** Passed as a prop, not a route param: desktop is a static export. */
@@ -60,7 +66,6 @@ export function PortfoliosPage({
   );
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
-  const [normalize, setNormalize] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -197,33 +202,6 @@ export function PortfoliosPage({
     [client, selected, load],
   );
 
-  const series = useMemo<CurveSeries[]>(() => {
-    if (!performance || performance.curve.length === 0) return [];
-    const result: CurveSeries[] = [
-      {
-        key: "portfolio",
-        color: PORTFOLIO_COLOR,
-        points: performance.curve.map((point) => ({
-          date: point.date,
-          value: point.value,
-        })),
-      },
-    ];
-    // The benchmark is only comparable once both are rebased; on an absolute
-    // axis an index level would flatten the portfolio into the baseline.
-    if (normalize && performance.benchmarkCurve.length > 0) {
-      const start = performance.curve[0]?.date ?? "";
-      result.push({
-        key: "benchmark",
-        color: BENCHMARK_COLOR,
-        points: performance.benchmarkCurve.filter(
-          (point) => point.date >= start,
-        ),
-      });
-    }
-    return result;
-  }, [performance, normalize]);
-
   if (portfolios === null) return <PortfoliosSkeleton />;
 
   return (
@@ -297,43 +275,18 @@ export function PortfoliosPage({
             benchmark={portfolio.benchmark}
           />
 
-          <div className="shrink-0 border-b">
-            <div className="flex items-center gap-3 px-4 pt-2 text-xs">
-              <Legend color={PORTFOLIO_COLOR} label={portfolio.name} />
-              {normalize && portfolio.benchmark ? (
-                <Legend color={BENCHMARK_COLOR} label={portfolio.benchmark} />
-              ) : null}
-              <Label
-                htmlFor="curve-normalize"
-                className="ml-auto text-muted-foreground text-xs"
-              >
-                <Switch
-                  id="curve-normalize"
-                  checked={normalize}
-                  onCheckedChange={setNormalize}
-                  className="scale-90"
-                />
-                %
-              </Label>
-            </div>
-            <div className="px-2 pb-2">
-              {series.length === 0 ? (
-                <div className="px-2 py-8 text-muted-foreground text-xs">—</div>
-              ) : (
-                <EquityChart
-                  series={series}
-                  normalize={normalize}
-                  height={240}
-                  fitKey={`${portfolio.id}:${normalize}`}
-                />
-              )}
-            </div>
-          </div>
+          <PortfolioPerformanceChart
+            portfolio={portfolio}
+            performance={performance}
+          />
 
           <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-2">
             <Positions
               positions={performance.positions}
               cash={performance.metrics.cash}
+              onSelectTicker={(next) => {
+                window.location.href = `${routes.markets}?ticker=${encodeURIComponent(next)}`;
+              }}
             />
             <TradeLog
               trades={trades}
@@ -345,18 +298,6 @@ export function PortfoliosPage({
         </div>
       )}
     </div>
-  );
-}
-
-function Legend({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5 text-muted-foreground">
-      <span
-        className="inline-block h-0.5 w-3 rounded"
-        style={{ background: color }}
-      />
-      {label}
-    </span>
   );
 }
 
@@ -457,20 +398,46 @@ function Metric({
 function Positions({
   positions,
   cash,
+  onSelectTicker,
 }: {
   positions: Position[];
   cash: number;
+  onSelectTicker?: (ticker: string) => void;
 }) {
   const open = positions.filter((position) => position.quantity > 0);
+  const [view, setView] = useState<"map" | "table">("map");
 
   return (
     <div className="flex min-h-0 flex-col border-b lg:border-r lg:border-b-0">
-      <div className="flex h-8 shrink-0 items-center justify-between border-b px-4 text-[10px] text-muted-foreground uppercase tracking-wide">
+      <div className="flex h-8 shrink-0 items-center gap-2 border-b px-4 text-[10px] text-muted-foreground uppercase tracking-wide">
         <span>Positions</span>
-        <span className="tabular-nums">Cash {money(cash)}</span>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="tabular-nums">Cash {money(cash)}</span>
+          <button
+            type="button"
+            onClick={() => setView(view === "map" ? "table" : "map")}
+            aria-label={view === "map" ? "Show table" : "Show map"}
+            className="rounded p-0.5 hover:text-foreground"
+          >
+            {view === "map" ? (
+              <TableIcon className="size-3.5" />
+            ) : (
+              <LayoutGrid className="size-3.5" />
+            )}
+          </button>
+        </div>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        {open.length === 0 ? (
+        {view === "map" ? (
+          <div className="p-2">
+            <PositionTreemap
+              positions={positions}
+              cash={cash}
+              height={280}
+              onSelect={onSelectTicker}
+            />
+          </div>
+        ) : open.length === 0 ? (
           <div className="px-4 py-2 text-muted-foreground text-xs">—</div>
         ) : (
           <table className="w-full text-xs">
@@ -490,7 +457,8 @@ function Positions({
               {open.map((position) => (
                 <tr
                   key={position.ticker}
-                  className="border-b last:border-b-0 hover:bg-muted/50"
+                  onClick={() => onSelectTicker?.(position.ticker)}
+                  className="cursor-pointer border-b last:border-b-0 hover:bg-muted/50"
                 >
                   <td className="px-4 py-1 font-medium">{position.ticker}</td>
                   <td className="px-2 py-1 text-right tabular-nums">
