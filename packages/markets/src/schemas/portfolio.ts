@@ -98,6 +98,27 @@ export const valuationPointSchema = z.object({
 });
 export type ValuationPoint = z.infer<typeof valuationPointSchema>;
 
+/**
+ * One symbol's daily footprint on the portfolio. `pnl` sums across symbols to
+ * the portfolio's total PnL, so the series are true attribution; `returnPercent`
+ * measures each symbol against only its own money and deliberately does not.
+ */
+export const contributionPointSchema = z.object({
+  date: isoDateSchema,
+  marketValue: z.number(),
+  /** Cumulative realised plus unrealised PnL for this symbol. */
+  pnl: z.number(),
+  /** `pnl` against the gross cost of every purchase ever made, in percent. */
+  returnPercent: z.number(),
+});
+export type ContributionPoint = z.infer<typeof contributionPointSchema>;
+
+export const contributionSeriesSchema = z.object({
+  ticker: tickerSchema,
+  points: z.array(contributionPointSchema),
+});
+export type ContributionSeries = z.infer<typeof contributionSeriesSchema>;
+
 export const portfolioMetricsSchema = z.object({
   totalValue: z.number(),
   cash: z.number(),
@@ -126,6 +147,7 @@ export const portfolioPerformanceSchema = z.object({
   curve: z.array(valuationPointSchema),
   benchmarkCurve: z.array(z.object({ date: isoDateSchema, value: z.number() })),
   positions: z.array(positionSchema),
+  contributions: z.array(contributionSeriesSchema),
   metrics: portfolioMetricsSchema,
 });
 export type PortfolioPerformance = z.infer<typeof portfolioPerformanceSchema>;

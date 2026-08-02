@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Trade } from "../../schemas";
 import {
+  buildContributionSeries,
   buildPositions,
   buildValuationCurve,
   CASH_TICKER,
@@ -362,5 +363,120 @@ describe("valuation curve", () => {
     expect(curve[1]?.value).toBeCloseTo(1500, 10);
     expect(curve[1]?.invested).toBeCloseTo(1500, 10);
     expect(curve[1]?.totalPnl).toBeCloseTo(0, 10);
+  });
+});
+
+describe("contribution series", () => {
+  const prices: Record<string, Record<string, number>> = {
+    AAPL: { "2026-01-05": 100, "2026-01-06": 110, "2026-01-07": 130 },
+    MSFT: { "2026-01-05": 200, "2026-01-06": 190, "2026-01-07": 150 },
+  };
+  const priceOn = (ticker: string, date: string) =>
+    prices[ticker]?.[date] ?? null;
+  const dates = ["2026-01-05", "2026-01-06", "2026-01-07"];
+
+  test("splits a flat portfolio into the winner and the loser cancelling out", () => {
+    const trades = [
+      trade({ ticker: "AAPL", quantity: 10, price: 100 }),
+      trade({ ticker: "MSFT", quantity: 5, price: 200 }),
+    ];
+    const series = buildContributionSeries(
+      { initialCash: 10_000 },
+      trades,
+      dates,
+      priceOn,
+    );
+
+    const apple = series.find((item) => item.ticker === "AAPL");
+    const microsoft = series.find((item) => item.ticker === "MSFT");
+    // +300 against -250 nets to +50 while both legs moved an order of
+    // magnitude more than the total.
+    expect(apple?.points.at(-1)?.pnl).toBeCloseTo(300, 10);
+    expect(microsoft?.points.at(-1)?.pnl).toBeCloseTo(-250, 10);
+    expect(apple?.points.at(-1)?.returnPercent).toBeCloseTo(30, 10);
+    expect(microsoft?.points.at(-1)?.returnPercent).toBeCloseTo(-25, 10);
+  });
+
+  test("contributions sum to the portfolio's total PnL on every date", () => {
+    const trades = [
+      trade({ ticker: "AAPL", quantity: 10, price: 100, fees: 2 }),
+      trade({ ticker: "MSFT", quantity: 5, price: 200, fees: 3 }),
+      trade({
+        ticker: "AAPL",
+        side: "sell",
+        quantity: 4,
+        price: 110,
+        fees: 1,
+        executedAt: "2026-01-06T15:00:00.000Z",
+      }),
+    ];
+    const curve = buildValuationCurve(
+      { initialCash: 10_000 },
+      trades,
+      dates,
+      priceOn,
+    );
+    const series = buildContributionSeries(
+      { initialCash: 10_000 },
+      trades,
+      dates,
+      priceOn,
+    );
+
+    dates.forEach((date, index) => {
+      const summed = series
+        .map(
+          (item) => item.points.find((point) => point.date === date)?.pnl ?? 0,
+        )
+        .reduce((total, value) => total + value, 0);
+      // A sale's fee is already inside realised PnL, but a purchase's fee only
+      // ever leaves cash, so the curve trails the attribution by the 2 + 3 of
+      // buy fees and by nothing else.
+      expect(summed - 5).toBeCloseTo(curve[index]?.totalPnl ?? 0, 8);
+    });
+  });
+
+  test("a closed position keeps contributing its realised PnL", () => {
+    const trades = [
+      trade({ ticker: "AAPL", quantity: 10, price: 100 }),
+      trade({
+        ticker: "AAPL",
+        side: "sell",
+        quantity: 10,
+        price: 110,
+        executedAt: "2026-01-06T15:00:00.000Z",
+      }),
+    ];
+    const series = buildContributionSeries(
+      { initialCash: 10_000 },
+      trades,
+      dates,
+      priceOn,
+    );
+    const apple = series.find((item) => item.ticker === "AAPL");
+
+    expect(apple?.points.at(-1)?.marketValue).toBe(0);
+    expect(apple?.points.at(-1)?.pnl).toBeCloseTo(100, 10);
+    expect(apple?.points.at(-1)?.returnPercent).toBeCloseTo(10, 10);
+  });
+
+  test("a series starts on its first trade, not at inception", () => {
+    const trades = [
+      trade({
+        ticker: "MSFT",
+        quantity: 5,
+        price: 190,
+        executedAt: "2026-01-06T15:00:00.000Z",
+      }),
+    ];
+    const series = buildContributionSeries(
+      { initialCash: 10_000 },
+      trades,
+      dates,
+      priceOn,
+    );
+
+    expect(series[0]?.points).toHaveLength(2);
+    expect(series[0]?.points[0]?.date).toBe("2026-01-06");
   });
 });

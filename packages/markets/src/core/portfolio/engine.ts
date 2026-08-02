@@ -1,4 +1,11 @@
-import type { Portfolio, Position, Trade, ValuationPoint } from "../../schemas";
+import type {
+  ContributionPoint,
+  ContributionSeries,
+  Portfolio,
+  Position,
+  Trade,
+  ValuationPoint,
+} from "../../schemas";
 
 /**
  * Rebuilds portfolio state by replaying the trade log. Nothing here reads a
@@ -266,4 +273,88 @@ export function buildValuationCurve(
   }
 
   return curve;
+}
+
+/**
+ * Splits the equity curve into one series per symbol, so a flat portfolio that
+ * is actually one winner cancelling one loser reads as exactly that.
+ *
+ * A symbol's series begins on its first trade rather than at inception, and
+ * continues after a full exit — its realised PnL still belongs to the total, so
+ * dropping the line would leak the contribution out of the attribution.
+ */
+export function buildContributionSeries(
+  portfolio: Pick<Portfolio, "initialCash">,
+  trades: Trade[],
+  dates: string[],
+  priceOn: PriceLookup,
+): ContributionSeries[] {
+  const ordered = sortTrades(trades);
+  const state = emptyState(portfolio.initialCash);
+  const lastKnownPrice = new Map<string, number>();
+  // Gross cost of every purchase ever made in a symbol. Unlike `costBasis` this
+  // does not fall back to zero on a full exit, which is what keeps the percent
+  // return of a closed position from dividing by nothing.
+  const grossCost = new Map<string, number>();
+  const points = new Map<string, ContributionPoint[]>();
+  let cursor = 0;
+
+  for (const date of dates) {
+    const dayEnd = `${date}T23:59:59.999Z`;
+    while (cursor < ordered.length) {
+      const trade = ordered[cursor] as Trade;
+      if (trade.executedAt > dayEnd) break;
+      if (
+        trade.side === "buy" &&
+        trade.ticker !== CASH_TICKER &&
+        trade.source !== "split"
+      ) {
+        grossCost.set(
+          trade.ticker,
+          (grossCost.get(trade.ticker) ?? 0) +
+            trade.quantity * trade.price +
+            trade.fees,
+        );
+      }
+      applyTrade(state, trade);
+      cursor++;
+    }
+
+    for (const [ticker, held] of state.positions) {
+      if (ticker === CASH_TICKER) continue;
+
+      const close = priceOn(ticker, date);
+      const price = close ?? lastKnownPrice.get(ticker) ?? null;
+      if (close !== null) lastKnownPrice.set(ticker, close);
+
+      const marketValue = price === null ? 0 : price * held.quantity;
+      // An unpriced symbol contributes nothing unrealised rather than a
+      // fabricated loss against its cost basis.
+      const unrealized = price === null ? 0 : marketValue - held.costBasis;
+      const pnl = held.realizedPnl + unrealized;
+      const basis = grossCost.get(ticker) ?? 0;
+
+      let series = points.get(ticker);
+      if (!series) {
+        series = [];
+        points.set(ticker, series);
+      }
+      series.push({
+        date,
+        marketValue,
+        pnl,
+        returnPercent: basis === 0 ? 0 : (pnl / basis) * 100,
+      });
+    }
+  }
+
+  // Biggest movers first so the legend leads with what actually explains the
+  // curve, regardless of which direction it moved.
+  return [...points]
+    .map(([ticker, series]) => ({ ticker, points: series }))
+    .sort(
+      (a, b) =>
+        Math.abs(b.points.at(-1)?.pnl ?? 0) -
+        Math.abs(a.points.at(-1)?.pnl ?? 0),
+    );
 }

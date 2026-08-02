@@ -1,4 +1,5 @@
 import {
+  buildContributionSeries,
   buildPositions,
   buildValuationCurve,
   CASH_TICKER,
@@ -241,11 +242,14 @@ export async function getPerformance(
   for (const bar of benchmarkBars) tradingDays.add(bar.date);
 
   const dates = [...tradingDays].sort();
-  const curve = buildValuationCurve(
+  const priceOn = (ticker: string, date: string) =>
+    closes.get(ticker)?.get(date) ?? null;
+  const curve = buildValuationCurve(portfolio, trades, dates, priceOn);
+  const contributions = buildContributionSeries(
     portfolio,
     trades,
     dates,
-    (ticker, date) => closes.get(ticker)?.get(date) ?? null,
+    priceOn,
   );
 
   const state = replayTrades(trades, portfolio.initialCash);
@@ -272,6 +276,7 @@ export async function getPerformance(
       value: bar.adjClose,
     })),
     positions,
+    contributions,
     metrics: computeMetrics({
       curve,
       benchmarkCurve: benchmarkBars.map((bar) => ({
