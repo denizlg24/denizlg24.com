@@ -1,12 +1,10 @@
 "use client";
 
-import { CASH_TICKER } from "@repo/markets/core";
 import type {
   Portfolio,
   PortfolioMetrics,
   PortfolioPerformance,
   Position,
-  Quote,
   Trade,
   TradeSource,
 } from "@repo/markets/schemas";
@@ -32,7 +30,6 @@ import {
 } from "@repo/ui/sheet";
 import { Skeleton } from "@repo/ui/skeleton";
 import { Switch } from "@repo/ui/switch";
-import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import {
   CandlestickChart,
   LayoutGrid,
@@ -44,9 +41,18 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdmin } from "../provider";
+import {
+  fracPct,
+  money,
+  num,
+  pct,
+  signedMoney,
+  toneClass,
+  trimQuantity,
+} from "./format";
 import { PortfolioPerformanceChart } from "./portfolio-performance";
 import { PositionTreemap } from "./position-treemap";
-import { SymbolSearch } from "./symbol-search";
+import { TradeTicket } from "./trade-ticket";
 
 export interface PortfoliosPageProps {
   /** Passed as a prop, not a route param: desktop is a static export. */
@@ -293,6 +299,8 @@ export function PortfoliosPage({
               onAdd={addTrade}
               onDelete={deleteTrade}
               baseCurrency={portfolio.baseCurrency}
+              cash={performance.metrics.cash}
+              positions={performance.positions}
             />
           </div>
         </div>
@@ -511,11 +519,15 @@ function TradeLog({
   onAdd,
   onDelete,
   baseCurrency,
+  cash,
+  positions,
 }: {
   trades: Trade[];
   onAdd: (input: Record<string, unknown>) => Promise<void>;
   onDelete: (tradeId: string) => Promise<void>;
   baseCurrency: string;
+  cash: number;
+  positions: Position[];
 }) {
   const ordered = useMemo(
     () => [...trades].sort((a, b) => (a.executedAt < b.executedAt ? 1 : -1)),
@@ -528,7 +540,12 @@ function TradeLog({
         <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
           Trades
         </span>
-        <TradeSheet onSubmit={onAdd} baseCurrency={baseCurrency} />
+        <TradeSheet
+          onSubmit={onAdd}
+          baseCurrency={baseCurrency}
+          cash={cash}
+          positions={positions}
+        />
       </div>
       <ScrollArea className="min-h-0 flex-1">
         {ordered.length === 0 ? (
@@ -609,108 +626,18 @@ function SourceBadge({
   );
 }
 
-type TradeKind = "buy" | "sell" | "deposit" | "withdrawal";
-
 function TradeSheet({
   onSubmit,
   baseCurrency,
+  cash,
+  positions,
 }: {
   onSubmit: (input: Record<string, unknown>) => Promise<void>;
   baseCurrency: string;
+  cash: number;
+  positions: Position[];
 }) {
-  const { client } = useAdmin();
   const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<TradeKind>("buy");
-  const [ticker, setTicker] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [price, setPrice] = useState("");
-  const [fees, setFees] = useState("");
-  const [executedAt, setExecutedAt] = useState(localNow);
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-
-  const cash = kind === "deposit" || kind === "withdrawal";
-
-  // Defaults the fill to the last known price; the field stays editable so a
-  // historical trade can be entered at the price it actually filled at.
-  const pickTicker = useCallback(
-    (next: string) => {
-      const upper = next.toUpperCase();
-      setTicker(upper);
-      client
-        .get<{ quotes: Quote[] }>(
-          `/markets/quotes?tickers=${encodeURIComponent(upper)}`,
-        )
-        .then((data) => {
-          const last = data.quotes[0]?.last;
-          if (last != null) setPrice(last.toFixed(2));
-        })
-        .catch(() => undefined);
-    },
-    [client],
-  );
-
-  const reset = useCallback(() => {
-    setTicker("");
-    setQuantity("");
-    setPrice("");
-    setFees("");
-    setNote("");
-    setExecutedAt(localNow());
-    setProblem(null);
-  }, []);
-
-  const submit = useCallback(async () => {
-    const amount = Number(quantity);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setProblem("Quantity must be positive");
-      return;
-    }
-    const fill = cash ? 1 : Number(price);
-    if (!Number.isFinite(fill) || fill < 0) {
-      setProblem("Price must be a number");
-      return;
-    }
-    if (!cash && !ticker) {
-      setProblem("Pick a symbol");
-      return;
-    }
-
-    setBusy(true);
-    setProblem(null);
-    try {
-      await onSubmit({
-        ticker: cash ? CASH_TICKER : ticker,
-        // A cash movement carries its direction in `source`; `side` still has
-        // to satisfy the schema, so it mirrors the movement.
-        side: kind === "sell" || kind === "withdrawal" ? "sell" : "buy",
-        quantity: amount,
-        price: fill,
-        fees: Number(fees) || 0,
-        executedAt: new Date(executedAt).toISOString(),
-        source: cash ? kind : "manual",
-        ...(note ? { note } : {}),
-      });
-      reset();
-      setOpen(false);
-    } catch (cause) {
-      setProblem(cause instanceof Error ? cause.message : "Failed");
-    } finally {
-      setBusy(false);
-    }
-  }, [
-    cash,
-    kind,
-    ticker,
-    quantity,
-    price,
-    fees,
-    executedAt,
-    note,
-    onSubmit,
-    reset,
-  ]);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -724,108 +651,15 @@ function TradeSheet({
         <SheetHeader>
           <SheetTitle className="text-sm">New trade</SheetTitle>
         </SheetHeader>
-
-        <div className="space-y-3 px-4 text-xs">
-          <Tabs
-            value={kind}
-            onValueChange={(value) => setKind(value as TradeKind)}
-          >
-            <TabsList variant="line" className="h-7">
-              <TabsTrigger value="buy" className="px-2 text-xs">
-                Buy
-              </TabsTrigger>
-              <TabsTrigger value="sell" className="px-2 text-xs">
-                Sell
-              </TabsTrigger>
-              <TabsTrigger value="deposit" className="px-2 text-xs">
-                Deposit
-              </TabsTrigger>
-              <TabsTrigger value="withdrawal" className="px-2 text-xs">
-                Withdraw
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          {cash ? null : (
-            <div className="space-y-1">
-              <Label className="text-xs">Symbol</Label>
-              <SymbolSearch onSelect={pickTicker} className="w-full" />
-              {ticker ? (
-                <div className="font-medium tabular-nums">{ticker}</div>
-              ) : null}
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <Label className="text-xs">
-                {cash ? `Amount (${baseCurrency})` : "Quantity"}
-              </Label>
-              <Input
-                value={quantity}
-                onChange={(event) => setQuantity(event.target.value)}
-                inputMode="decimal"
-                className="h-8 text-xs tabular-nums"
-              />
-            </div>
-            {cash ? null : (
-              <div className="space-y-1">
-                <Label className="text-xs">Price</Label>
-                <Input
-                  value={price}
-                  onChange={(event) => setPrice(event.target.value)}
-                  inputMode="decimal"
-                  className="h-8 text-xs tabular-nums"
-                />
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            {cash ? null : (
-              <div className="space-y-1">
-                <Label className="text-xs">Fees</Label>
-                <Input
-                  value={fees}
-                  onChange={(event) => setFees(event.target.value)}
-                  inputMode="decimal"
-                  className="h-8 text-xs tabular-nums"
-                />
-              </div>
-            )}
-            <div className="space-y-1">
-              <Label className="text-xs">Executed</Label>
-              <Input
-                type="datetime-local"
-                value={executedAt}
-                onChange={(event) => setExecutedAt(event.target.value)}
-                className="h-8 text-xs tabular-nums"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <Label className="text-xs">Note</Label>
-            <Input
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              className="h-8 text-xs"
-            />
-          </div>
-
-          {problem ? <div className="text-red-600">{problem}</div> : null}
+        <div className="px-4">
+          <TradeTicket
+            baseCurrency={baseCurrency}
+            cash={cash}
+            positions={positions}
+            onSubmit={onSubmit}
+            onDone={() => setOpen(false)}
+          />
         </div>
-
-        <SheetFooter>
-          <Button
-            size="sm"
-            className="h-8 text-xs"
-            disabled={busy}
-            onClick={() => void submit()}
-          >
-            Add
-          </Button>
-        </SheetFooter>
       </SheetContent>
     </Sheet>
   );
@@ -951,49 +785,6 @@ function NewPortfolioSheet({
       </SheetContent>
     </Sheet>
   );
-}
-
-function localNow(): string {
-  const now = new Date();
-  const offset = now.getTimezoneOffset() * 60_000;
-  return new Date(now.getTime() - offset).toISOString().slice(0, 16);
-}
-
-function toneClass(value: number | null | undefined): string {
-  if (value === null || value === undefined || value === 0) return "";
-  return value > 0 ? "text-emerald-600" : "text-red-600";
-}
-
-function money(value: number): string {
-  return value.toLocaleString("en-GB", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function signedMoney(value: number | null): string {
-  if (value === null) return "—";
-  return `${value >= 0 ? "+" : ""}${money(value)}`;
-}
-
-/** For metrics the core already scaled to percentage points. */
-function pct(value: number | null): string {
-  return value === null ? "—" : `${value.toFixed(2)}%`;
-}
-
-/** For metrics the core returns as a fraction — CAGR, volatility, alpha. */
-function fracPct(value: number | null): string {
-  if (value === null) return "—";
-  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
-}
-
-function num(value: number | null): string {
-  return value === null ? "—" : value.toFixed(2);
-}
-
-/** Fractional shares exist, whole ones are the norm — don't pad `10` to `10.0000`. */
-function trimQuantity(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(4);
 }
 
 function PortfoliosBodySkeleton() {

@@ -24,6 +24,7 @@ import { Plus, RefreshCw, Star, Wallet, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdmin } from "../provider";
 import { CandleChart, type ChartKind, type Overlay } from "./candle-chart";
+import { QuickTrade } from "./quick-trade";
 import { SymbolSearch } from "./symbol-search";
 import { useQuotes } from "./use-quotes";
 
@@ -371,6 +372,7 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
                 {change.toFixed(2)} ({changePercent.toFixed(2)}%)
               </span>
             ) : null}
+            <QuickTrade ticker={selected} lastPrice={last} />
             <div className="ml-auto flex items-center gap-3 text-muted-foreground text-xs tabular-nums">
               {detail?.profile?.sector ? (
                 <span className="max-w-40 truncate">
