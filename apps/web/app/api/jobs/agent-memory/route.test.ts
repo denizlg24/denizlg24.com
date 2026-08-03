@@ -29,7 +29,7 @@ describe("POST /api/jobs/agent-memory", () => {
     ]);
     expect(preferredOperationsForSlot(1)).toEqual(["formation", "backfill"]);
     expect(preferredOperationsForSlot(2)).toEqual([
-      "training",
+      "agent-task",
       "chat-run",
       "reflection",
       "insight",
@@ -37,7 +37,7 @@ describe("POST /api/jobs/agent-memory", () => {
       "resource-suggestion",
     ]);
     expect(preferredOperationsForSlot(8)).toEqual([
-      "training",
+      "agent-task",
       "chat-run",
       "reflection",
       "insight",

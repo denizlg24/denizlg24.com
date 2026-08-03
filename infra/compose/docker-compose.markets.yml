@@ -1,0 +1,47 @@
+# Deliberately its own compose project rather than a service inside
+# docker-compose.pi.yml: the relay and the cloud API release on independent
+# cadences, and keeping them apart is what lets the relay be lifted out with
+# the rest of the markets feature later.
+name: ${COMPOSE_PROJECT_NAME:-markets-relay}
+
+services:
+  markets-relay:
+    image: ${MARKETS_RELAY_IMAGE:-ghcr.io/denizlg24/markets-relay:latest}
+    ports:
+      # Loopback only. cloudflared reaches it from the host; the LAN cannot.
+      - target: 3004
+        published: "${MARKETS_RELAY_PORT:-3004}"
+        host_ip: "${MARKETS_RELAY_BIND_ADDRESS:-127.0.0.1}"
+        protocol: tcp
+    environment:
+      APP_VERSION: ${MARKETS_RELAY_VERSION:-latest}
+      MARKETS_RELAY_ALLOWED_ORIGINS: ${MARKETS_RELAY_ALLOWED_ORIGINS:-https://denizlg24.com}
+      MARKETS_RELAY_TOKEN_SECRET: ${MARKETS_RELAY_TOKEN_SECRET:?MARKETS_RELAY_TOKEN_SECRET is required}
+      NODE_ENV: production
+      PORT: "3004"
+      # Compose only substitutes variables it declares, so each additional key
+      # needs a line here or the relay silently runs on one.
+      TIINGO_API_KEY: ${TIINGO_API_KEY:?TIINGO_API_KEY is required}
+      TIINGO_API_KEY_2: ${TIINGO_API_KEY_2:-}
+      TIINGO_API_KEY_3: ${TIINGO_API_KEY_3:-}
+    mem_limit: ${MARKETS_RELAY_MEMORY_LIMIT:-256m}
+    # The Pi's databases matter more than a quote feed; bias the OOM killer here.
+    oom_score_adj: 700
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bun -e \"const r=await fetch('http://localhost:3004/healthz');process.exit(r.ok?0:1)\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    logging:
+      driver: journald
+      options:
+        tag: markets-relay

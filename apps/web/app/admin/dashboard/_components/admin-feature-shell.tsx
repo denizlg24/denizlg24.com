@@ -11,7 +11,11 @@ export function AdminFeatureShell({ children }: { children: ReactNode }) {
     () => ({
       client: createWebAdminClient(),
       platform: webPlatform,
-      routes: { settings: "/admin/dashboard/settings" },
+      routes: {
+        settings: "/admin/dashboard/settings",
+        markets: "/admin/dashboard/markets",
+        portfolios: "/admin/dashboard/markets/portfolios",
+      },
     }),
     [],
   );

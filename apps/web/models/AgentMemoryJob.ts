@@ -13,7 +13,7 @@ export interface IAgentMemoryJob extends Document {
     | "insight"
     | "consolidation"
     | "resource-suggestion"
-    | "training"
+    | "agent-task"
     | "chat-run"
     | "voice-transcription";
   evidenceIds: string[];
@@ -51,7 +51,7 @@ const AgentMemoryJobSchema = new Schema<IAgentMemoryJob>(
         "insight",
         "consolidation",
         "resource-suggestion",
-        "training",
+        "agent-task",
         "chat-run",
         "voice-transcription",
       ],

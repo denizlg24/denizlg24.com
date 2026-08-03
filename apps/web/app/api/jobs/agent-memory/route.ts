@@ -30,8 +30,8 @@ import {
   processResourceSuggestionJob,
   scheduleNextResourceSuggestionJob,
 } from "@/lib/agent-memory/resource-suggestions";
-import { processTrainingJob } from "@/lib/agent-training/execution";
-import { scheduleDueTrainingRuns } from "@/lib/agent-training/scheduling";
+import { processAgentTaskJob } from "@/lib/agent-tasks/execution";
+import { scheduleDueAgentTaskRuns } from "@/lib/agent-tasks/scheduling";
 import { processBackgroundAgentJob } from "@/lib/background-agent/execution";
 import { isAuthorizedJobRequest } from "@/lib/job-authorization";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
@@ -48,7 +48,7 @@ const ACTIVE_OPERATIONS: IAgentMemoryJob["operation"][] = [
   "insight",
   "consolidation",
   "resource-suggestion",
-  "training",
+  "agent-task",
   "chat-run",
 ];
 
@@ -58,7 +58,7 @@ export function preferredOperationsForSlot(
   if (index % 3 === 0) return ["embedding", "embedding-cleanup"];
   if (index % 3 === 1) return ["formation", "backfill"];
   return [
-    "training",
+    "agent-task",
     "chat-run",
     "reflection",
     "insight",
@@ -93,7 +93,7 @@ async function processJob(job: IAgentMemoryJob) {
   if (job.operation === "resource-suggestion") {
     return processResourceSuggestionJob(job);
   }
-  if (job.operation === "training") return processTrainingJob(job);
+  if (job.operation === "agent-task") return processAgentTaskJob(job);
   if (job.operation === "chat-run") return processBackgroundAgentJob(job);
   throw new Error(`No agent-memory handler for ${job.operation}`);
 }
@@ -105,7 +105,7 @@ async function drainScheduledJobs(request: Request) {
 
   const workerId = `job-route:${randomUUID()}`;
   await sweepOrphanedLeases();
-  await scheduleDueTrainingRuns();
+  await scheduleDueAgentTaskRuns();
   await scheduleNextReflectionJob();
   await scheduleNextInsightJob();
   await scheduleNextConsolidationJob();

@@ -1,0 +1,37 @@
+# Local development only. Builds from the working tree instead of pulling the
+# arm64 GHCR image, which will not run on an amd64 dev machine.
+name: markets-relay-dev
+
+services:
+  markets-relay:
+    build:
+      context: ../..
+      dockerfile: apps/markets-relay/Dockerfile
+    ports:
+      - "${MARKETS_RELAY_PORT:-3004}:3004"
+    environment:
+      APP_VERSION: dev
+      # Next dev serves on 3000 (web) and 3001 (desktop); both need to connect.
+      # The two tauri entries are the packaged app, and which one it sends is
+      # platform-dependent: WebView2 on Windows uses http://tauri.localhost,
+      # wry on macOS and Linux uses tauri://localhost.
+      MARKETS_RELAY_ALLOWED_ORIGINS: ${MARKETS_RELAY_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001,tauri://localhost,http://tauri.localhost,https://tauri.localhost}
+      MARKETS_RELAY_TOKEN_SECRET: ${MARKETS_RELAY_TOKEN_SECRET:?MARKETS_RELAY_TOKEN_SECRET is required}
+      NODE_ENV: production
+      PORT: "3004"
+      # Compose only substitutes variables it declares, so each additional key
+      # needs a line here or the relay silently runs on one.
+      TIINGO_API_KEY: ${TIINGO_API_KEY:?TIINGO_API_KEY is required}
+      TIINGO_API_KEY_2: ${TIINGO_API_KEY_2:-}
+      TIINGO_API_KEY_3: ${TIINGO_API_KEY_3:-}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bun -e \"const r=await fetch('http://localhost:3004/healthz');process.exit(r.ok?0:1)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s

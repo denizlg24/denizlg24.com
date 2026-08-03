@@ -40,6 +40,7 @@ import { describeRecurrence } from "@repo/utils";
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  ChartCandlestick,
   Check,
   CircleDollarSign,
   Link2,
@@ -49,6 +50,7 @@ import {
   Settings2,
   Trash2,
   Unlink,
+  Wallet,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -165,7 +167,7 @@ export function FinancePage({
 }: {
   manageAccounts?: boolean;
 }) {
-  const { client, slots, platform } = useAdmin();
+  const { client, slots, platform, routes } = useAdmin();
   const [data, setData] = useState<FinanceDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -272,6 +274,21 @@ export function FinancePage({
           aria-label="Reload"
         >
           <RefreshCw className="size-3.5" />
+        </Button>
+        {/* Anchors, not platform.navigate: that takes a dashboard-relative
+            path and prefixes each app's own base, while routes.* are already
+            absolute — passing one to the other double-prefixes it. */}
+        <Button variant="ghost" size="sm" asChild>
+          <a href={routes.markets} aria-label="Markets">
+            <ChartCandlestick className="size-3.5" />
+            <span className="hidden sm:inline">Markets</span>
+          </a>
+        </Button>
+        <Button variant="ghost" size="sm" asChild>
+          <a href={routes.portfolios} aria-label="Portfolios">
+            <Wallet className="size-3.5" />
+            <span className="hidden sm:inline">Portfolios</span>
+          </a>
         </Button>
         {manageAccounts && (
           <Button variant="outline" size="sm" onClick={() => setLinkOpen(true)}>

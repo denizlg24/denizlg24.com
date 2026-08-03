@@ -15,8 +15,8 @@ import { AgentMemoryRun } from "@/models/AgentMemoryRun";
 import { AgentMemorySettings } from "@/models/AgentMemorySettings";
 import { AgentProcedure } from "@/models/AgentProcedure";
 import { AgentRetrievalTrace } from "@/models/AgentRetrievalTrace";
-import { AgentTrainingRun } from "@/models/AgentTrainingRun";
-import { AgentTrainingTask } from "@/models/AgentTrainingTask";
+import { AgentTask } from "@/models/AgentTask";
+import { AgentTaskRun } from "@/models/AgentTaskRun";
 import { AgentUserModel } from "@/models/AgentUserModel";
 import { AgentUserModelRevision } from "@/models/AgentUserModelRevision";
 
@@ -35,8 +35,8 @@ const models: Model<unknown>[] = [
   AgentMemorySettings,
   AgentProcedure,
   AgentRetrievalTrace,
-  AgentTrainingRun,
-  AgentTrainingTask,
+  AgentTask,
+  AgentTaskRun,
   AgentUserModel,
   AgentUserModelRevision,
 ] as Model<unknown>[];

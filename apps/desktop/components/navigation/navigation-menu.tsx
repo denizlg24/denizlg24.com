@@ -14,6 +14,7 @@ import {
   Briefcase,
   Calendar,
   CalendarDays,
+  ChartCandlestick,
   ChevronRight,
   CircleDollarSign,
   Clock,
@@ -37,6 +38,7 @@ import {
   Table,
   UserSquare,
   UsersRound,
+  Wallet,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -197,6 +199,23 @@ export const GROUPS: NavGroup[] = [
         icon: CircleDollarSign,
       },
       {
+        label: "Markets",
+        href: "",
+        icon: ChartCandlestick,
+        children: [
+          {
+            label: "Markets",
+            href: "/markets",
+            icon: ChartCandlestick,
+          },
+          {
+            label: "Portfolios",
+            href: "/markets/portfolios",
+            icon: Wallet,
+          },
+        ],
+      },
+      {
         label: "Journal",
         href: "/journal",
         icon: NotebookPen,
@@ -284,8 +303,8 @@ export const GROUPS: NavGroup[] = [
         icon: BrainCircuit,
       },
       {
-        label: "Agent Training",
-        href: "/agent-training",
+        label: "Agent Tasks",
+        href: "/agent-tasks",
         icon: Brain,
       },
       {

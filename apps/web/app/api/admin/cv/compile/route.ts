@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
             },
           },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: "after" },
       )
         .lean<ILeanAppSettings>()
         .exec();

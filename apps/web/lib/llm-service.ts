@@ -42,8 +42,8 @@ export type LlmPurpose =
   | "agent-memory-embedding"
   | "agent-memory-retrieval"
   | "agent-memory-query-summary"
-  | "agent-training"
-  | "agent-training-learning"
+  | "agent-task"
+  | "agent-task-learning"
   | "transcription";
 
 // Catalog capabilities each purpose requires before a request is sent.
@@ -64,8 +64,8 @@ const PURPOSE_REQUIRED_TAGS: Record<LlmPurpose, string[]> = {
   "agent-memory-embedding": [],
   "agent-memory-retrieval": [],
   "agent-memory-query-summary": [],
-  "agent-training": ["tool-use"],
-  "agent-training-learning": ["tool-use"],
+  "agent-task": ["tool-use"],
+  "agent-task-learning": ["tool-use"],
   // Never resolved against the catalog: speech models are not in it.
   transcription: [],
 };

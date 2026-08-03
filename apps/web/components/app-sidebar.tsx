@@ -7,6 +7,7 @@ import {
   Briefcase,
   Calendar,
   CalendarDays,
+  ChartCandlestick,
   CircleDollarSign,
   Clock,
   Contact,
@@ -23,6 +24,7 @@ import {
   NotebookPen,
   Server,
   Settings2,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -131,8 +133,8 @@ const items = [
     icon: BrainCircuit,
   },
   {
-    title: "Agent Training",
-    url: "/admin/dashboard/agent-training",
+    title: "Agent Tasks",
+    url: "/admin/dashboard/agent-tasks",
     icon: Brain,
   },
   {
@@ -144,6 +146,16 @@ const items = [
     title: "Finance",
     url: "/admin/dashboard/finance",
     icon: CircleDollarSign,
+  },
+  {
+    title: "Markets",
+    url: "/admin/dashboard/markets",
+    icon: ChartCandlestick,
+  },
+  {
+    title: "Portfolios",
+    url: "/admin/dashboard/markets/portfolios",
+    icon: Wallet,
   },
   {
     title: "Settings",

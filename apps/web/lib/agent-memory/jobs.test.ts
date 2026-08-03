@@ -21,7 +21,7 @@ describe("agent memory jobs", () => {
   test("does not lease formation before Gate B", () => {
     expect(operationIsEnabled("formation", gates)).toBe(false);
     expect(operationIsEnabled("backfill", gates)).toBe(true);
-    expect(operationIsEnabled("training", gates)).toBe(true);
+    expect(operationIsEnabled("agent-task", gates)).toBe(true);
     expect(operationIsEnabled("chat-run", gates)).toBe(true);
   });
 });

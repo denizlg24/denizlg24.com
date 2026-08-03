@@ -39,9 +39,12 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid category" }, { status: 400 });
   }
 
+  // Review items live in their own bucket and are excluded from the category
+  // listings, so a category archive must not reach them.
   const result = await EmailTriageModel.updateMany(
     {
       category: payload.category,
+      reviewRequired: { $ne: true },
       userStatus: { $ne: "archived" },
     },
     {
