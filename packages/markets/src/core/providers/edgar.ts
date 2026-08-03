@@ -6,7 +6,11 @@ import {
   type MarketDataProvider,
   ProviderError,
 } from "../ports";
-import { companyFactsPayloadSchema, distillCompanyFacts } from "./edgar-facts";
+import {
+  type CompanyFactsPayload,
+  companyFactsPayloadSchema,
+  distillCompanyFacts,
+} from "./edgar-facts";
 
 const DATA_BASE = "https://data.sec.gov";
 const WWW_BASE = "https://www.sec.gov";
@@ -149,16 +153,27 @@ export class EdgarProvider implements MarketDataProvider {
    * companyfacts is several megabytes of every concept the filer has ever
    * tagged. It is distilled here and only the tracked facts are returned, so
    * the raw payload never reaches the cache or the browser.
+   *
+   * A 404 means the filer tags no XBRL facts at all — every ETF and trust in
+   * `company_tickers.json` is in that position, SPY included. That is a fact
+   * about the filer rather than a failure, so it reads as no periods and joins
+   * the path a company with nothing distillable already takes.
    */
   async getFundamentals(
     cik: string,
     ticker: string,
   ): Promise<FundamentalPeriod[]> {
     const padded = padCik(cik);
-    const payload = await this.request(
-      `${DATA_BASE}/api/xbrl/companyfacts/CIK${padded}.json`,
-      companyFactsPayloadSchema,
-    );
+    let payload: CompanyFactsPayload;
+    try {
+      payload = await this.request(
+        `${DATA_BASE}/api/xbrl/companyfacts/CIK${padded}.json`,
+        companyFactsPayloadSchema,
+      );
+    } catch (error) {
+      if (error instanceof ProviderError && error.status === 404) return [];
+      throw error;
+    }
 
     const updatedAt = new Date().toISOString();
     return distillCompanyFacts(payload).map((period) => ({
