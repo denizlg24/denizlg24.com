@@ -303,8 +303,8 @@ export const GROUPS: NavGroup[] = [
         icon: BrainCircuit,
       },
       {
-        label: "Agent Training",
-        href: "/agent-training",
+        label: "Agent Tasks",
+        href: "/agent-tasks",
         icon: Brain,
       },
       {

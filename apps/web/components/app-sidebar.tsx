@@ -133,8 +133,8 @@ const items = [
     icon: BrainCircuit,
   },
   {
-    title: "Agent Training",
-    url: "/admin/dashboard/agent-training",
+    title: "Agent Tasks",
+    url: "/admin/dashboard/agent-tasks",
     icon: Brain,
   },
   {

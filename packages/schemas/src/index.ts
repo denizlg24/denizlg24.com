@@ -1,5 +1,5 @@
 export * from "./agent-memory";
-export * from "./agent-training";
+export * from "./agent-tasks";
 export * from "./authenticator";
 export * from "./background-agent";
 export * from "./blog";

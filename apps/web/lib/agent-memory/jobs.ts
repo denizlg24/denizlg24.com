@@ -4,7 +4,7 @@ import { AgentMemoryJob, type IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { getAgentMemorySettings } from "./settings";
 
 const MAX_ATTEMPTS = 5;
-// Agent chat/training turns may use the full five-minute route allowance. The
+// Agent chat and task turns may use the full five-minute route allowance. The
 // lease must outlive that window or a cron drain can start the same run while
 // the immediate worker is still executing tools.
 export const AGENT_MEMORY_JOB_LEASE_MS = 6 * 60 * 1_000;
@@ -24,7 +24,7 @@ export function operationIsEnabled(
   if (operation === "insight") return gates.proactivity;
   if (operation === "backfill") return gates.evidenceLedger;
   if (operation === "resource-suggestion") return gates.formation;
-  if (operation === "training") return true;
+  if (operation === "agent-task") return true;
   if (operation === "chat-run") return true;
   if (operation === "voice-transcription") return true;
   return gates.evidenceLedger;
