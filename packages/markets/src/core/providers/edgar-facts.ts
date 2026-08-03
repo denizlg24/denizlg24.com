@@ -295,7 +295,9 @@ export const companyFactsPayloadSchema = z.object({
         .record(
           z.string(),
           z.object({
-            label: z.string().optional(),
+            // Null for deprecated and unlabelled concepts; never read, since
+            // every emitted fact takes its label from FACT_DEFINITIONS.
+            label: z.string().nullish(),
             // A concept whose entries do not match the expected shape is
             // dropped rather than failing the whole several-megabyte payload.
             units: z

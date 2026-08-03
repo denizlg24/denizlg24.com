@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type CompanyFactsPayload,
+  companyFactsPayloadSchema,
   distillCompanyFacts,
   factValue,
   freeCashFlow,
@@ -21,6 +22,26 @@ const annual = {
   filed: "2025-10-30",
   accn: "0000320193-25-000100",
 };
+
+describe("companyFactsPayloadSchema", () => {
+  // GLW's payload carries `"label": null` on several concepts; rejecting it
+  // cost the filer every period, not just the unlabelled concept.
+  test("accepts a null concept label", () => {
+    const parsed = companyFactsPayloadSchema.safeParse({
+      cik: 24741,
+      facts: {
+        "us-gaap": {
+          ProceedsFromSaleOfEquitySecuritiesFvNi: { label: null, units: {} },
+          Revenues: {
+            label: "Revenues",
+            units: { USD: [{ ...annual, val: 333 }] },
+          },
+        },
+      },
+    });
+    expect(parsed.success).toBe(true);
+  });
+});
 
 describe("distillCompanyFacts", () => {
   test("keeps only the preferred concept when a filer tags several", () => {
