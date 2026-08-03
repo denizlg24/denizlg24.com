@@ -114,11 +114,26 @@ export function sortino(
   return excessAnnual / (downsideDeviation * Math.sqrt(periodsPerYear));
 }
 
-export function beta(returns: number[], benchmark: number[]): number | null {
+/**
+ * Trims both series to their shared trailing window. A portfolio that started
+ * after its benchmark has a shorter return series, and pairing index 0 of one
+ * with index 0 of the other would compare different days.
+ */
+function alignTrailing(
+  returns: number[],
+  benchmark: number[],
+): { a: number[]; b: number[] } {
   const length = Math.min(returns.length, benchmark.length);
+  return {
+    a: returns.slice(returns.length - length),
+    b: benchmark.slice(benchmark.length - length),
+  };
+}
+
+export function beta(returns: number[], benchmark: number[]): number | null {
+  const { a, b } = alignTrailing(returns, benchmark);
+  const length = a.length;
   if (length < 2) return null;
-  const a = returns.slice(returns.length - length);
-  const b = benchmark.slice(benchmark.length - length);
   const meanA = mean(a);
   const meanB = mean(b);
   let covariance = 0;
@@ -141,8 +156,11 @@ export function alpha(
 ): number | null {
   const b = beta(returns, benchmark);
   if (b === null) return null;
-  const portfolioAnnual = mean(returns) * periodsPerYear;
-  const benchmarkAnnual = mean(benchmark) * periodsPerYear;
+  // Same trailing window `beta` used, or the two annualised means describe
+  // different periods and the excess return is measured against nothing.
+  const aligned = alignTrailing(returns, benchmark);
+  const portfolioAnnual = mean(aligned.a) * periodsPerYear;
+  const benchmarkAnnual = mean(aligned.b) * periodsPerYear;
   return (
     portfolioAnnual - (riskFreeAnnual + b * (benchmarkAnnual - riskFreeAnnual))
   );

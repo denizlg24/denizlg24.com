@@ -142,7 +142,15 @@ export class TiingoProvider implements MarketDataProvider {
       // Round-robin keeps the keys level, but a restart or an out-of-band call
       // can still land one of them at its ceiling. Give the next key a go
       // before reporting a limit that the account as a whole has not hit.
-      if (response.status === 429 && this.keyCount > 1) {
+      //
+      // The retry is a second upstream request and needs its own reservation,
+      // or the ledger reports headroom the account does not have. If none is
+      // left, the 429 stands.
+      if (
+        response.status === 429 &&
+        this.keyCount > 1 &&
+        (await this.options.budget.consume("tiingo", 1))
+      ) {
         response = await send(this.nextKey());
       }
     } catch (error) {

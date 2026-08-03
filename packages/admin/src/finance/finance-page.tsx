@@ -40,7 +40,7 @@ import { describeRecurrence } from "@repo/utils";
 import {
   ArrowDownLeft,
   ArrowUpRight,
-  CandlestickChart,
+  ChartCandlestick,
   Check,
   CircleDollarSign,
   Link2,
@@ -279,13 +279,13 @@ export function FinancePage({
             path and prefixes each app's own base, while routes.* are already
             absolute — passing one to the other double-prefixes it. */}
         <Button variant="ghost" size="sm" asChild>
-          <a href={routes.markets}>
-            <CandlestickChart className="size-3.5" />
+          <a href={routes.markets} aria-label="Markets">
+            <ChartCandlestick className="size-3.5" />
             <span className="hidden sm:inline">Markets</span>
           </a>
         </Button>
         <Button variant="ghost" size="sm" asChild>
-          <a href={routes.portfolios}>
+          <a href={routes.portfolios} aria-label="Portfolios">
             <Wallet className="size-3.5" />
             <span className="hidden sm:inline">Portfolios</span>
           </a>

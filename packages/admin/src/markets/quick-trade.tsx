@@ -52,11 +52,15 @@ export function QuickTrade({ ticker, lastPrice }: QuickTradeProps) {
   }, [client]);
 
   const loadPerformance = useCallback(
-    (id: string) =>
+    (id: string, cancelled: () => boolean = () => false) =>
       client
         .get<PortfolioPerformance>(`/markets/portfolios/${id}/performance`)
-        .then(setPerformance)
-        .catch(() => setPerformance(null)),
+        .then((data) => {
+          if (!cancelled()) setPerformance(data);
+        })
+        .catch(() => {
+          if (!cancelled()) setPerformance(null);
+        }),
     [client],
   );
 
@@ -65,7 +69,14 @@ export function QuickTrade({ ticker, lastPrice }: QuickTradeProps) {
       setPerformance(null);
       return;
     }
-    void loadPerformance(selected);
+    // Without the guard a slow response for the previous portfolio can resolve
+    // last, so the popover shows the wrong cash balance and held quantity and
+    // the ticket receives the wrong positions.
+    let cancelled = false;
+    void loadPerformance(selected, () => cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [selected, loadPerformance]);
 
   const choose = useCallback((id: string) => {

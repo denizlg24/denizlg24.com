@@ -1,9 +1,13 @@
-import type { PortfolioMetrics, Position, ValuationPoint } from "../../schemas";
+import type {
+  BenchmarkPoint,
+  PortfolioMetrics,
+  Position,
+  ValuationPoint,
+} from "../../schemas";
 import {
   alpha,
   annualizedVolatility,
   beta,
-  cagr,
   maxDrawdown,
   sharpe,
   simpleReturns,
@@ -11,10 +15,12 @@ import {
 } from "../stats";
 import type { ReplayState } from "./engine";
 
-export interface BenchmarkPoint {
-  date: string;
-  value: number;
-}
+/**
+ * A portfolio worth a fraction of a cent is liquidated, not a base to measure
+ * growth against. Dividing by it turns rounding dust into a five-figure return
+ * that then dominates volatility, Sharpe, Sortino and beta.
+ */
+const MIN_BASE_VALUE = 1e-6;
 
 /**
  * Returns are computed on value net of contributions, so a deposit does not
@@ -27,13 +33,29 @@ function contributionAdjustedReturns(curve: ValuationPoint[]): number[] {
     const previous = curve[i - 1] as ValuationPoint;
     const current = curve[i] as ValuationPoint;
     const flow = current.invested - previous.invested;
-    if (previous.value === 0) {
+    if (Math.abs(previous.value) < MIN_BASE_VALUE) {
       out.push(0);
       continue;
     }
     out.push((current.value - flow - previous.value) / previous.value);
   }
   return out;
+}
+
+/**
+ * Annualises the same contribution-adjusted series the risk metrics use, by
+ * geometrically linking the daily returns. `cagr(first.value, totalValue)`
+ * would count deposits as appreciation and report growth next to a flat Sharpe.
+ */
+function annualizedReturn(returns: number[], years: number): number | null {
+  if (returns.length === 0 || years <= 0) return null;
+  let growth = 1;
+  for (const value of returns) {
+    growth *= 1 + value;
+    // A wiped-out portfolio has no real growth rate; -100% is the honest answer.
+    if (growth <= 0) return -1;
+  }
+  return growth ** (1 / years) - 1;
 }
 
 function yearsBetween(from: string, to: string): number {
@@ -102,7 +124,7 @@ export function computeMetrics(options: {
         : (dayPnl / previous.value) * 100,
     realizedPnl: state.realizedPnl,
     unrealizedPnl,
-    cagr: span > 0 && first ? cagr(first.value, totalValue, span) : null,
+    cagr: span > 0 ? annualizedReturn(returns, span) : null,
     volatility: annualizedVolatility(returns),
     maxDrawdown: drawdown?.maxDrawdown ?? null,
     sharpe: sharpe(returns, riskFree),
@@ -112,6 +134,8 @@ export function computeMetrics(options: {
     benchmarkReturn,
     tradeCount: state.tradeCount,
     winRate:
-      state.closedTrades === 0 ? null : (state.wins / state.closedTrades) * 100,
+      state.realizingTrades === 0
+        ? null
+        : (state.wins / state.realizingTrades) * 100,
   };
 }

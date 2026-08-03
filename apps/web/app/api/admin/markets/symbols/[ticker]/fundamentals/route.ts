@@ -1,5 +1,6 @@
 import { computeRatios } from "@repo/markets/core";
 import { type NextRequest, NextResponse } from "next/server";
+import { parseTicker } from "@/lib/markets/route-params";
 import {
   getFundamentals,
   getQuotes,
@@ -15,7 +16,10 @@ export async function GET(
   if (authError) return authError;
 
   const { ticker } = await params;
-  const upper = ticker.toUpperCase();
+  const upper = parseTicker(ticker);
+  if (!upper) {
+    return NextResponse.json({ error: "Invalid ticker" }, { status: 400 });
+  }
 
   try {
     const { periods, stale } = await getFundamentals(upper);

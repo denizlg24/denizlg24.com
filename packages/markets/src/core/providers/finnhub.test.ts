@@ -3,7 +3,11 @@ import { createMemoryStores } from "../memory-stores";
 import { BudgetExhaustedError } from "../ports";
 import { FinnhubProvider } from "./finnhub";
 
-function provider(handler: (url: URL) => unknown, dailyLimit?: number) {
+function provider(
+  handler: (url: URL) => unknown,
+  dailyLimit?: number,
+  status = 200,
+) {
   const stores = createMemoryStores(
     dailyLimit === undefined ? undefined : { dayLimit: dailyLimit },
   );
@@ -15,7 +19,7 @@ function provider(handler: (url: URL) => unknown, dailyLimit?: number) {
       const url = new URL(String(input));
       calls.push(url);
       return new Response(JSON.stringify(handler(url)), {
-        status: 200,
+        status,
         headers: { "Content-Type": "application/json" },
       });
     }) as typeof fetch,
@@ -142,5 +146,33 @@ describe("FinnhubProvider budget", () => {
       BudgetExhaustedError,
     );
     expect(calls).toHaveLength(1);
+  });
+
+  // A request that reached Finnhub counted against the account whatever it
+  // answered, so the local ledger keeps it. Only a send that never left is
+  // handed back.
+  test("a rate-limited request still spends its reservation", async () => {
+    const { instance, stores } = provider(() => ({}), undefined, 429);
+    await expect(instance.getProfile("A")).rejects.toThrow("Rate limited");
+    expect((await stores.budget.peek("finnhub")).hourUsed).toBe(1);
+  });
+
+  test("a server error still spends its reservation", async () => {
+    const { instance, stores } = provider(() => ({}), undefined, 500);
+    await expect(instance.getProfile("A")).rejects.toThrow("500");
+    expect((await stores.budget.peek("finnhub")).hourUsed).toBe(1);
+  });
+
+  test("a send that never left hands its reservation back", async () => {
+    const stores = createMemoryStores();
+    const instance = new FinnhubProvider({
+      apiKey: "test-key",
+      budget: stores.budget,
+      fetchImpl: (async () => {
+        throw new Error("ECONNRESET");
+      }) as unknown as typeof fetch,
+    });
+    await expect(instance.getProfile("A")).rejects.toThrow("Request failed");
+    expect((await stores.budget.peek("finnhub")).hourUsed).toBe(0);
   });
 });

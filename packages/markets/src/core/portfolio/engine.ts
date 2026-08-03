@@ -31,6 +31,9 @@ export interface PositionState {
   realizedPnl: number;
 }
 
+/** Quantities below this are floating-point residue, not a held position. */
+const QUANTITY_EPSILON = 1e-9;
+
 export interface ReplayState {
   cash: number;
   /** Net external contributions: initial cash plus deposits less withdrawals. */
@@ -39,7 +42,11 @@ export interface ReplayState {
   realizedPnl: number;
   tradeCount: number;
   wins: number;
-  closedTrades: number;
+  /**
+   * Sales that realised PnL, including partial ones. `winRate` is therefore a
+   * per-sale figure, not a per-closed-position figure.
+   */
+  realizingTrades: number;
 }
 
 export function emptyState(initialCash: number): ReplayState {
@@ -50,7 +57,7 @@ export function emptyState(initialCash: number): ReplayState {
     realizedPnl: 0,
     tradeCount: 0,
     wins: 0,
-    closedTrades: 0,
+    realizingTrades: 0,
   };
 }
 
@@ -91,7 +98,7 @@ export function applyTrade(state: ReplayState, trade: Trade): void {
   if (trade.source === "split") {
     const delta = trade.side === "buy" ? trade.quantity : -trade.quantity;
     position.quantity += delta;
-    if (position.quantity <= 0) {
+    if (position.quantity <= QUANTITY_EPSILON) {
       position.quantity = 0;
       position.costBasis = 0;
     }
@@ -107,7 +114,12 @@ export function applyTrade(state: ReplayState, trade: Trade): void {
     return;
   }
 
+  // An oversell settles only the shares actually held. Crediting cash for the
+  // requested quantity would fabricate money the portfolio never had, and the
+  // inflated balance would propagate into every curve point and metric.
   const sold = Math.min(trade.quantity, position.quantity);
+  if (sold <= 0) return;
+
   const avgCost =
     position.quantity > 0 ? position.costBasis / position.quantity : 0;
   const realized = (trade.price - avgCost) * sold - trade.fees;
@@ -116,14 +128,14 @@ export function applyTrade(state: ReplayState, trade: Trade): void {
   position.costBasis -= avgCost * sold;
   position.realizedPnl += realized;
   state.realizedPnl += realized;
-  state.cash += trade.quantity * trade.price - trade.fees;
+  state.cash += sold * trade.price - trade.fees;
 
-  if (position.quantity <= 1e-9) {
+  if (position.quantity <= QUANTITY_EPSILON) {
     position.quantity = 0;
     position.costBasis = 0;
   }
 
-  state.closedTrades++;
+  state.realizingTrades++;
   if (realized > 0) state.wins++;
 }
 
@@ -175,20 +187,24 @@ export function buildPositions(
   previousCloseAt: (ticker: string) => number | null,
 ): Position[] {
   const positions: Position[] = [];
+  const priced: {
+    ticker: string;
+    held: PositionState;
+    lastPrice: number | null;
+    marketValue: number;
+  }[] = [];
   let totalValue = state.cash;
 
   for (const [ticker, held] of state.positions) {
     if (held.quantity === 0 && held.realizedPnl === 0) continue;
     const lastPrice = priceAt(ticker);
     const marketValue = lastPrice === null ? 0 : lastPrice * held.quantity;
+    priced.push({ ticker, held, lastPrice, marketValue });
     totalValue += marketValue;
   }
 
-  for (const [ticker, held] of state.positions) {
-    if (held.quantity === 0 && held.realizedPnl === 0) continue;
-    const lastPrice = priceAt(ticker);
+  for (const { ticker, held, lastPrice, marketValue } of priced) {
     const previousClose = previousCloseAt(ticker);
-    const marketValue = lastPrice === null ? 0 : lastPrice * held.quantity;
     const avgCost = held.quantity > 0 ? held.costBasis / held.quantity : 0;
     const unrealizedPnl = lastPrice === null ? 0 : marketValue - held.costBasis;
     const dayChange =

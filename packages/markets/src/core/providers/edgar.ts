@@ -6,7 +6,7 @@ import {
   type MarketDataProvider,
   ProviderError,
 } from "../ports";
-import { type CompanyFactsPayload, distillCompanyFacts } from "./edgar-facts";
+import { companyFactsPayloadSchema, distillCompanyFacts } from "./edgar-facts";
 
 const DATA_BASE = "https://data.sec.gov";
 const WWW_BASE = "https://www.sec.gov";
@@ -71,12 +71,17 @@ export class EdgarProvider implements MarketDataProvider {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
+  /**
+   * The slot is claimed synchronously, before the wait. Advancing
+   * `nextRequestAt` after the sleep would let every concurrent caller read the
+   * same value, sleep the same interval and then fire together — SEC blocks
+   * offenders rather than rate-limiting them.
+   */
   private async throttle(): Promise<void> {
-    const now = Date.now();
-    const wait = this.nextRequestAt - now;
+    const slot = Math.max(Date.now(), this.nextRequestAt);
+    this.nextRequestAt = slot + MIN_REQUEST_INTERVAL_MS;
+    const wait = slot - Date.now();
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-    this.nextRequestAt =
-      Math.max(now, this.nextRequestAt) + MIN_REQUEST_INTERVAL_MS;
   }
 
   private async request<T>(url: string, schema: z.ZodType<T>): Promise<T> {
@@ -150,12 +155,10 @@ export class EdgarProvider implements MarketDataProvider {
     ticker: string,
   ): Promise<FundamentalPeriod[]> {
     const padded = padCik(cik);
-    const payload = (await this.request(
+    const payload = await this.request(
       `${DATA_BASE}/api/xbrl/companyfacts/CIK${padded}.json`,
-      z.custom<CompanyFactsPayload>(
-        (value) => typeof value === "object" && value !== null,
-      ),
-    )) as CompanyFactsPayload;
+      companyFactsPayloadSchema,
+    );
 
     const updatedAt = new Date().toISOString();
     return distillCompanyFacts(payload).map((period) => ({

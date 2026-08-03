@@ -12,13 +12,17 @@ import { useCallback } from "react";
 export function MarketsRoute() {
   const router = useRouter();
   const params = useSearchParams();
-  const ticker = params.get("ticker") ?? undefined;
+  // Uppercased here rather than in an effect inside `MarketsPage`, which would
+  // otherwise load candles once for `msft` and again for `MSFT`.
+  const ticker = params.get("ticker")?.trim().toUpperCase() || undefined;
 
   const select = useCallback(
     (next: string) => {
-      router.replace(`/admin/dashboard/markets?ticker=${next}`, {
-        scroll: false,
-      });
+      // Tickers carry `.`, `^` and `+`; unencoded they corrupt the query string.
+      router.replace(
+        `/admin/dashboard/markets?ticker=${encodeURIComponent(next)}`,
+        { scroll: false },
+      );
     },
     [router],
   );

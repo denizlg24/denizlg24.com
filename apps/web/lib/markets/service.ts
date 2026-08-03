@@ -175,7 +175,7 @@ export async function getSymbolDetail(ticker: string): Promise<{
   profile: CompanyProfile | null;
   stale: boolean;
 }> {
-  const { stores } = stack();
+  const { stores, tiingo } = stack();
   const upper = ticker.toUpperCase();
   const [existing, profile] = await Promise.all([
     stores.symbols.getSymbol(upper),
@@ -183,8 +183,13 @@ export async function getSymbolDetail(ticker: string): Promise<{
   ]);
   if (existing) return { symbol: existing, profile, stale: false };
 
+  // Without a Tiingo key the metadata lookup is simply unavailable; the Finnhub
+  // profile already loaded is still worth returning. Throwing here would make
+  // the route answer 503 and discard it.
+  if (!tiingo) return { symbol: null, profile, stale: profile !== null };
+
   try {
-    const fetched = (await requireTiingo().getSymbol(upper)) ?? null;
+    const fetched = (await tiingo.getSymbol(upper)) ?? null;
     if (fetched) await stores.symbols.upsertSymbols([fetched]);
     return { symbol: fetched, profile, stale: false };
   } catch (error) {
@@ -306,13 +311,20 @@ export async function getActions(ticker: string): Promise<{
   }
 }
 
-/** Filings change slowly; a daily refresh is plenty and EDGAR is unmetered. */
+/** Fundamentals move on filing dates; a daily refresh is plenty. */
 const FUNDAMENTALS_TTL_MS = 24 * 60 * 60 * 1000;
 
-export async function getFundamentals(ticker: string): Promise<{
+export interface FundamentalsResult {
   periods: FundamentalPeriod[];
   stale: boolean;
-}> {
+  /** True only when this call actually reached EDGAR and stored new periods. */
+  refreshed: boolean;
+  budgetExhausted: boolean;
+}
+
+export async function getFundamentals(
+  ticker: string,
+): Promise<FundamentalsResult> {
   const { stores } = stack();
   const upper = ticker.toUpperCase();
   const cachedPeriods = await stores.fundamentals.getFundamentals(upper);
@@ -321,25 +333,61 @@ export async function getFundamentals(ticker: string): Promise<{
     newest &&
     stores.clock.now().getTime() - Date.parse(newest.updatedAt) <
       FUNDAMENTALS_TTL_MS;
-  if (fresh) return { periods: cachedPeriods, stale: false };
+  if (fresh) {
+    return {
+      periods: cachedPeriods,
+      stale: false,
+      refreshed: false,
+      budgetExhausted: false,
+    };
+  }
 
   const symbol = await stores.symbols.getSymbol(upper);
-  if (!symbol?.cik)
-    return { periods: cachedPeriods, stale: cachedPeriods.length > 0 };
+  if (!symbol?.cik) {
+    return {
+      periods: cachedPeriods,
+      stale: cachedPeriods.length > 0,
+      refreshed: false,
+      budgetExhausted: false,
+    };
+  }
 
   try {
     const periods = await requireEdgar().getFundamentals(symbol.cik, upper);
     if (periods.length > 0) {
       await stores.fundamentals.upsertFundamentals(periods);
-      return { periods, stale: false };
+      return {
+        periods,
+        stale: false,
+        refreshed: true,
+        budgetExhausted: false,
+      };
     }
-    return { periods: cachedPeriods, stale: false };
+    return {
+      periods: cachedPeriods,
+      stale: false,
+      refreshed: false,
+      budgetExhausted: false,
+    };
   } catch (error) {
     if (!(error instanceof BudgetExhaustedError)) throw error;
-    return { periods: cachedPeriods, stale: true };
+    return {
+      periods: cachedPeriods,
+      stale: true,
+      refreshed: false,
+      budgetExhausted: true,
+    };
   }
 }
 
+/** New filings appear on the SEC's schedule, not the owner's; daily is enough. */
+const FILINGS_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Freshness is keyed on the coverage write rather than on the newest filing,
+ * for the same reason as news: a company that has not filed recently would
+ * otherwise be re-asked on every request.
+ */
 export async function getFilings(
   ticker: string,
   limit = 40,
@@ -347,15 +395,34 @@ export async function getFilings(
   const { stores } = stack();
   const upper = ticker.toUpperCase();
   const cachedFilings = await stores.fundamentals.getFilings(upper, limit);
-  if (cachedFilings.length > 0) return cachedFilings;
+
+  const coverage = await stores.bars.getCoverage(upper, { kind: "filings" });
+  const now = stores.clock.now();
+  if (
+    coverage.fetchedAt &&
+    now.getTime() - Date.parse(coverage.fetchedAt) < FILINGS_TTL_MS
+  ) {
+    return cachedFilings;
+  }
 
   const symbol = await stores.symbols.getSymbol(upper);
-  if (!symbol?.cik) return [];
+  if (!symbol?.cik) return cachedFilings;
 
   try {
     const filings = await requireEdgar().getFilings(symbol.cik, upper, limit);
     if (filings.length > 0) await stores.fundamentals.upsertFilings(filings);
-    return filings;
+    // Written even on an empty result, so a symbol that has never filed is not
+    // re-asked on every page load.
+    await stores.bars.setCoverage(
+      upper,
+      { kind: "filings" },
+      {
+        from: filings.at(-1)?.filed ?? coverage.from,
+        to: filings[0]?.filed ?? coverage.to,
+        fetchedAt: now.toISOString(),
+      },
+    );
+    return filings.length > 0 ? filings : cachedFilings;
   } catch (error) {
     if (!(error instanceof BudgetExhaustedError)) throw error;
     return cachedFilings;

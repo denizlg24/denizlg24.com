@@ -2,6 +2,7 @@ import type { Line } from "./moving-averages";
 
 export function obv(closes: number[], volumes: number[]): number[] {
   const out: number[] = new Array(closes.length);
+  if (closes.length === 0) return out;
   let running = 0;
   out[0] = 0;
   for (let i = 1; i < closes.length; i++) {

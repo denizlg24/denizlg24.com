@@ -71,7 +71,11 @@ export function synthesizeActionTrades(options: {
     }
 
     if (action.divCash > 0) {
-      const amount = held * action.divCash;
+      // A row that carries both a split and a dividend pays on the post-split
+      // share count, which is what the split trade above has just applied.
+      const heldAtRecord = state.positions.get(ticker)?.quantity ?? 0;
+      const amount = heldAtRecord * action.divCash;
+      if (amount <= 0) continue;
       const credit: Trade = {
         id: `${ticker}:${action.date}:dividend`,
         portfolioId,
@@ -101,7 +105,7 @@ export function synthesizeActionTrades(options: {
             price: close,
             fees: 0,
             executedAt: `${action.date}T00:00:01.000Z`,
-            source: "dividend",
+            source: "drip",
             note: `${ticker} dividend reinvested`,
           };
           generated.push(reinvest);

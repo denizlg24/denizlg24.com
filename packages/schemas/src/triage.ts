@@ -191,3 +191,20 @@ export const triageListResponseSchema = z.object({
   limit: z.number(),
 });
 export type TriageListResponse = z.infer<typeof triageListResponseSchema>;
+
+/**
+ * `PATCH /triage/{id}/suggestions/{suggestionId}`. `placedIn` is set only when
+ * the suggestion carried no kanban target and one was picked for it, so the
+ * owner can see where an unrouted task actually landed.
+ */
+export const triageAcceptanceResponseSchema = z.discriminatedUnion("ok", [
+  z.object({
+    ok: z.literal(true),
+    acceptedId: z.string(),
+    placedIn: z.string().optional(),
+  }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
+export type TriageAcceptanceResponse = z.infer<
+  typeof triageAcceptanceResponseSchema
+>;

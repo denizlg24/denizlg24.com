@@ -147,6 +147,13 @@ export function EquityChart({
       chart.current = null;
       lines.current.clear();
     };
+    // Height is applied to the live chart below. Rebuilding on a height change
+    // would clear every line without re-running the series effect, leaving an
+    // empty chart until the data itself changed.
+  }, []);
+
+  useEffect(() => {
+    chart.current?.applyOptions({ height });
   }, [height]);
 
   useEffect(() => {

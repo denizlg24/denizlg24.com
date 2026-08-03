@@ -90,6 +90,7 @@ function round(value: number | null | undefined, digits = 2): number | null {
  */
 function downsample<T>(items: T[], max: number): T[] {
   if (items.length <= max) return items;
+  if (max <= 1) return items.slice(0, Math.max(max, 0));
   const step = (items.length - 1) / (max - 1);
   const sampled: T[] = [];
   for (let index = 0; index < max; index++) {
@@ -97,6 +98,17 @@ function downsample<T>(items: T[], max: number): T[] {
     if (item !== undefined) sampled.push(item);
   }
   return sampled;
+}
+
+/**
+ * A negative number is truthy, so `Math.min(Number(x) || fallback, cap)` caps
+ * the top but lets a negative through — which disables the news cap entirely
+ * and changes the semantics of a Mongo `limit`.
+ */
+function boundedLimit(raw: unknown, fallback: number, cap: number): number {
+  const parsed = Math.floor(Number(raw));
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, cap);
 }
 
 function percentChange(from: number, to: number): number | null {
@@ -208,7 +220,7 @@ export const marketsTools: ToolDefinition[] = [
     isWrite: false,
     category: "markets",
     execute: async (input) => {
-      const limit = Math.min(Number(input.limit) || 20, 50);
+      const limit = boundedLimit(input.limit, 20, 50);
       const results = await searchSymbols(String(input.query ?? ""), limit);
       return results.map((result) => ({
         ticker: result.ticker,
@@ -239,7 +251,12 @@ export const marketsTools: ToolDefinition[] = [
         const [detail, quotes, fundamentals] = await Promise.all([
           getSymbolDetail(ticker),
           getQuotes([ticker]),
-          getFundamentals(ticker).catch(() => ({ periods: [], stale: true })),
+          getFundamentals(ticker).catch(() => ({
+            periods: [],
+            stale: true,
+            refreshed: false,
+            budgetExhausted: false,
+          })),
         ]);
         const quote = quotes.quotes[0] ?? null;
         const ratios = computeRatios({
@@ -474,7 +491,7 @@ export const marketsTools: ToolDefinition[] = [
     isWrite: false,
     category: "markets",
     execute: async (input) => {
-      const limit = Math.min(Number(input.limit) || 10, MAX_NEWS);
+      const limit = boundedLimit(input.limit, 10, MAX_NEWS);
       const { news, stale } = await getNews(upper(input.ticker), limit);
       return {
         stale,
@@ -891,7 +908,7 @@ export const marketsTools: ToolDefinition[] = [
     isWrite: false,
     category: "markets",
     execute: async (input) => {
-      const limit = Math.min(Number(input.limit) || 50, MAX_TRADES);
+      const limit = boundedLimit(input.limit, 50, MAX_TRADES);
       const ticker = input.ticker ? upper(input.ticker) : null;
       const trades = await listTrades(String(input.portfolioId ?? ""));
       const filtered = ticker
@@ -977,15 +994,50 @@ export const marketsTools: ToolDefinition[] = [
           message: `Cash movements must use ticker ${CASH_TICKER}.`,
         };
       }
+      // A non-numeric model output would otherwise persist a NaN trade, which
+      // turns every later metric for the portfolio into NaN and can only be
+      // undone by deleting the row by hand. An unparsable timestamp would throw
+      // a RangeError and end the turn instead of returning a tool result.
+      const quantity = Number(input.quantity);
+      const price = Number(input.price);
+      const fees = input.fees === undefined ? 0 : Number(input.fees);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        return {
+          success: false,
+          message: "quantity must be a positive number",
+        };
+      }
+      if (!Number.isFinite(price) || price < 0) {
+        return {
+          success: false,
+          message: "price must be a non-negative number",
+        };
+      }
+      if (!Number.isFinite(fees) || fees < 0) {
+        return {
+          success: false,
+          message: "fees must be a non-negative number",
+        };
+      }
+
+      let executedAt = new Date();
+      if (input.executedAt !== undefined) {
+        executedAt = new Date(String(input.executedAt));
+        if (Number.isNaN(executedAt.getTime())) {
+          return {
+            success: false,
+            message: "executedAt must be an ISO 8601 timestamp",
+          };
+        }
+      }
+
       const trade = await addTrade(portfolioId, {
         ticker,
         side: input.side === "sell" ? "sell" : "buy",
-        quantity: Number(input.quantity),
-        price: Number(input.price),
-        fees: Number(input.fees) || 0,
-        executedAt: input.executedAt
-          ? new Date(String(input.executedAt)).toISOString()
-          : new Date().toISOString(),
+        quantity,
+        price,
+        fees,
+        executedAt: executedAt.toISOString(),
         source,
         note: input.note ? String(input.note).slice(0, 500) : undefined,
       });

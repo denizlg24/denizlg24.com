@@ -3,8 +3,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import {
   deletePortfolio,
   getPortfolio,
+  syncPortfolioActions,
   updatePortfolio,
 } from "@/lib/markets/portfolios";
+import { parseObjectId } from "@/lib/markets/route-params";
 import { requireAdmin } from "@/lib/require-admin";
 
 export async function GET(
@@ -15,6 +17,9 @@ export async function GET(
   if (authError) return authError;
 
   const { id } = await params;
+  if (!parseObjectId(id)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   const portfolio = await getPortfolio(id);
   if (!portfolio) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -37,9 +42,18 @@ export async function PATCH(
   }
 
   const { id } = await params;
+  if (!parseObjectId(id)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   const portfolio = await updatePortfolio(id, parsed.data);
   if (!portfolio) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  // `syncPortfolioActions` derives the generated dividend rows from this flag,
+  // so without a resync they and every metric built on them stay stale until
+  // the next trade mutation or cron run.
+  if (parsed.data.reinvestDividends !== undefined) {
+    await syncPortfolioActions(id);
   }
   return NextResponse.json({ portfolio });
 }
@@ -52,6 +66,9 @@ export async function DELETE(
   if (authError) return authError;
 
   const { id } = await params;
+  if (!parseObjectId(id)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   const deleted = await deletePortfolio(id);
   if (!deleted) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

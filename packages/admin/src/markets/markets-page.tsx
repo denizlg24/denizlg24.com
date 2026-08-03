@@ -128,13 +128,23 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
   }, [client, selected, range]);
 
   useEffect(() => {
+    // Without the guard a slow response for the previous ticker can resolve
+    // last and put another company's name, logo and market cap in the header.
+    let cancelled = false;
     setDetail(null);
     client
       .get<SymbolDetailResponse>(
         `/markets/symbols/${encodeURIComponent(selected)}`,
       )
-      .then(setDetail)
-      .catch(() => setDetail(null));
+      .then((data) => {
+        if (!cancelled) setDetail(data);
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [client, selected]);
 
   const watched = useMemo(() => {
@@ -657,14 +667,19 @@ function SymbolDetail({
   const [actions, setActions] = useState<CorporateAction[]>([]);
   const [news, setNews] = useState<CompanyNewsItem[]>([]);
 
+  // Every fetch here is guarded: the previous ticker's response can otherwise
+  // resolve after the new one and leave another company's data on screen.
   useEffect(() => {
+    let cancelled = false;
     setRatios(null);
     setPeriods([]);
+    setFilings([]);
     client
       .get<{ ratios: DerivedRatios; periods: FundamentalPeriod[] }>(
         `/markets/symbols/${encodeURIComponent(ticker)}/fundamentals`,
       )
       .then((data) => {
+        if (cancelled) return;
         setRatios(data.ratios);
         setPeriods(data.periods);
       })
@@ -673,32 +688,55 @@ function SymbolDetail({
       .get<{ filings: Filing[] }>(
         `/markets/symbols/${encodeURIComponent(ticker)}/filings?limit=20`,
       )
-      .then((data) => setFilings(data.filings))
-      .catch(() => setFilings([]));
+      .then((data) => {
+        if (!cancelled) setFilings(data.filings);
+      })
+      .catch(() => {
+        if (!cancelled) setFilings([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [client, ticker]);
 
   // Actions and news are read on demand: both routes can reach a provider on a
   // miss, so loading them with the page would charge for tabs never opened.
   useEffect(() => {
     if (tab !== "actions") return;
+    let cancelled = false;
     setActions([]);
     client
       .get<{ actions: CorporateAction[] }>(
         `/markets/symbols/${encodeURIComponent(ticker)}/actions`,
       )
-      .then((data) => setActions(data.actions))
-      .catch(() => setActions([]));
+      .then((data) => {
+        if (!cancelled) setActions(data.actions);
+      })
+      .catch(() => {
+        if (!cancelled) setActions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [client, ticker, tab]);
 
   useEffect(() => {
     if (tab !== "news") return;
+    let cancelled = false;
     setNews([]);
     client
       .get<{ news: CompanyNewsItem[] }>(
         `/markets/symbols/${encodeURIComponent(ticker)}/news?limit=30`,
       )
-      .then((data) => setNews(data.news))
-      .catch(() => setNews([]));
+      .then((data) => {
+        if (!cancelled) setNews(data.news);
+      })
+      .catch(() => {
+        if (!cancelled) setNews([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [client, ticker, tab]);
 
   const latest = periods[0];

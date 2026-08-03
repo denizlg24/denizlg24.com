@@ -1,5 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { CourseAssignmentType } from "@repo/schemas";
+import type {
+  CourseAssignmentType,
+  TriageAcceptanceResponse,
+} from "@repo/schemas";
 import mongoose from "mongoose";
 import {
   createCalendarEvent,
@@ -1784,10 +1787,7 @@ export async function acceptSuggestion(
   suggestionId: string,
   type: "task" | "event",
   overrides?: Record<string, unknown>,
-): Promise<
-  | { ok: true; acceptedId: string; placedIn?: string }
-  | { ok: false; error: string }
-> {
+): Promise<TriageAcceptanceResponse> {
   await connectDB();
   const triage = await EmailTriageModel.findById(triageId);
   if (!triage) {
@@ -1863,7 +1863,25 @@ export async function acceptSuggestion(
       task.kanbanColumnId?.toString();
     let placedIn: string | undefined;
     if (!boardId || !columnId) {
-      const fallback = (await getKanbanTargets())[0];
+      let targets: Awaited<ReturnType<typeof getKanbanTargets>>;
+      try {
+        targets = await getKanbanTargets();
+      } catch (error) {
+        // A rejected lookup would otherwise propagate and make the PATCH route
+        // answer a generic 500 instead of the `{ ok: false, error }` shape.
+        console.error("[Triage] Kanban target lookup failed", error);
+        return { ok: false, error: "Could not resolve a kanban board" };
+      }
+
+      // A half-supplied target still constrains the choice: a stored board with
+      // no column must keep its board, or the card lands somewhere the owner
+      // never picked.
+      const fallback =
+        targets.find(
+          (target) =>
+            (!boardId || target.boardId === boardId) &&
+            (!columnId || target.columnId === columnId),
+        ) ?? (boardId || columnId ? undefined : targets[0]);
       if (!fallback) {
         return {
           ok: false,

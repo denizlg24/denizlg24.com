@@ -130,6 +130,51 @@ describe("distillCompanyFacts", () => {
     expect(distillCompanyFacts({ cik: 1 })).toEqual([]);
   });
 
+  test("keeps a key only the older filing reported", () => {
+    const result = distillCompanyFacts(
+      payload({
+        NetIncomeLoss: {
+          units: {
+            USD: [{ ...annual, val: 120, filed: "2026-01-15", form: "10-K" }],
+          },
+        },
+        GrossProfit: {
+          units: {
+            USD: [{ ...annual, val: 90, filed: "2025-10-30", form: "10-Q" }],
+          },
+        },
+      }),
+    );
+    expect(result).toHaveLength(1);
+    expect(factValue(result[0]?.facts ?? [], "netIncome")).toBe(120);
+    expect(factValue(result[0]?.facts ?? [], "grossProfit")).toBe(90);
+  });
+
+  test("a year-to-date duration does not overwrite the quarter", () => {
+    const q3 = {
+      ...annual,
+      fy: 2025,
+      fp: "Q3",
+      end: "2025-06-28",
+      form: "10-Q",
+      filed: "2025-08-01",
+    };
+    const result = distillCompanyFacts(
+      payload({
+        Revenues: {
+          units: {
+            USD: [
+              { ...q3, start: "2025-03-30", val: 94_000 },
+              { ...q3, start: "2024-09-29", val: 274_000 },
+            ],
+          },
+        },
+      }),
+    );
+    expect(result).toHaveLength(1);
+    expect(factValue(result[0]?.facts ?? [], "revenue")).toBe(94_000);
+  });
+
   test("carries the unit through so shares are not read as dollars", () => {
     const result = distillCompanyFacts(
       payload({

@@ -100,6 +100,13 @@ export function CandleChart({
       volume.current = null;
       lines.current.clear();
     };
+    // Height is applied to the live chart below. Rebuilding on a height change
+    // would drop every series without re-running the effects that create them,
+    // leaving a permanently blank chart.
+  }, []);
+
+  useEffect(() => {
+    chart.current?.applyOptions({ height });
   }, [height]);
 
   // The series type is structural, so switching between candles and a line has

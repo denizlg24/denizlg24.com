@@ -54,6 +54,11 @@ async function getDailyCandles(
 
   let stale = false;
   let fetched = false;
+  // An open-ended request has no `from` to record, so the covered window is
+  // pinned to the oldest bar the provider actually returned. Leaving it null
+  // makes `planDailyFetches` treat the symbol as uncached and re-backfill the
+  // whole history on every cron run.
+  let earliestFetched: string | null = null;
 
   const gaps = planDailyFetches(coverage.from, coverage.to, request.from, to);
   for (const gap of gaps) {
@@ -61,6 +66,13 @@ async function getDailyCandles(
     try {
       const bars = await provider.getDailyBars(ticker, gap.from, gap.to);
       if (bars.length > 0) {
+        earliestFetched = minDate(
+          earliestFetched,
+          bars.reduce<string | null>(
+            (min, bar) => minDate(min, bar.date),
+            null,
+          ),
+        );
         await stores.bars.upsertDailyBars(ticker, bars);
         await stores.bars.upsertActions(
           ticker,
@@ -87,7 +99,10 @@ async function getDailyCandles(
       ticker,
       { kind: "daily" },
       {
-        from: minDate(coverage.from, request.from ?? gaps[0]?.from ?? null),
+        from: minDate(
+          coverage.from,
+          request.from ?? gaps[0]?.from ?? earliestFetched,
+        ),
         to: maxDate(coverage.to, to),
         fetchedAt: stores.clock.now().toISOString(),
       },
@@ -105,7 +120,7 @@ async function getDailyCandles(
         (fetched ? stores.clock.now().toISOString() : coverage.fetchedAt) ??
         stores.clock.now().toISOString(),
       stale,
-      source: fetched ? "tiingo" : "cache",
+      source: fetched ? provider.name : "cache",
     },
   };
 }
@@ -199,12 +214,17 @@ async function getIntradayCandles(
         to,
         adjusted: request.adjusted,
       });
+      let earliestFetched: string | null = null;
       if (bars.length > 0) {
+        earliestFetched = bars.reduce<string | null>(
+          (min, bar) => minDate(min, bar.ts.slice(0, 10)),
+          null,
+        );
         await stores.bars.upsertIntradayBars(ticker, resolution, bars);
       }
       fetched = true;
       await stores.bars.setCoverage(ticker, dataset, {
-        from: minDate(coverage.from, request.from ?? null),
+        from: minDate(coverage.from, request.from ?? earliestFetched),
         to,
         fetchedAt: stores.clock.now().toISOString(),
       });
@@ -223,6 +243,7 @@ async function getIntradayCandles(
   return {
     ticker,
     resolution,
+    // Intraday bars are always unadjusted, whatever the request asked for.
     adjusted: false,
     bars: cached,
     freshness: {
@@ -230,7 +251,7 @@ async function getIntradayCandles(
         (fetched ? stores.clock.now().toISOString() : coverage.fetchedAt) ??
         stores.clock.now().toISOString(),
       stale,
-      source: fetched ? "tiingo" : "cache",
+      source: fetched ? provider.name : "cache",
     },
   };
 }

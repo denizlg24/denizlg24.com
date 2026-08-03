@@ -45,13 +45,23 @@ export function SymbolSearch({
   }, [client, query]);
 
   return (
-    <div className={`relative ${className}`}>
+    // The list closes on focus leaving the container rather than on the input's
+    // own blur, so Tab can reach the results; selection is bound to `click`,
+    // which Enter and Space fire and `onMouseDown` does not.
+    <div
+      className={`relative ${className}`}
+      onFocus={() => setOpen(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+      }}
+    >
       <Search className="-translate-y-1/2 absolute top-1/2 left-2 h-3.5 w-3.5 text-muted-foreground" />
       <Input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 120)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setOpen(false);
+        }}
         placeholder={placeholder}
         className="h-8 pl-7 text-xs"
       />
@@ -61,9 +71,10 @@ export function SymbolSearch({
             <button
               key={result.ticker}
               type="button"
-              onMouseDown={() => {
+              onClick={() => {
                 onSelect(result.ticker);
                 setQuery("");
+                setOpen(false);
               }}
               className="flex w-full items-baseline justify-between px-2 py-1.5 text-left text-xs hover:bg-muted"
             >

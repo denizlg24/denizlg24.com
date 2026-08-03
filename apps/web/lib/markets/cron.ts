@@ -127,8 +127,12 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
   // whether facts can be refreshed.
   for (const ticker of fundamentalsSlice(tracked, now)) {
     try {
-      await getFundamentals(ticker);
-      result.fundamentalsSynced++;
+      const { refreshed, budgetExhausted } = await getFundamentals(ticker);
+      // `getFundamentals` swallows a budget stop and answers from cache, so the
+      // count would otherwise include cache hits and the pass would carry on
+      // asking EDGAR for symbols it can no longer fetch.
+      if (budgetExhausted) break;
+      if (refreshed) result.fundamentalsSynced++;
     } catch (error) {
       if (error instanceof BudgetExhaustedError) break;
       result.errors.push(`facts ${ticker}: ${String(error)}`);

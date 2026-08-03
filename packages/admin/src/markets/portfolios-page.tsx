@@ -31,7 +31,7 @@ import {
 import { Skeleton } from "@repo/ui/skeleton";
 import { Switch } from "@repo/ui/switch";
 import {
-  CandlestickChart,
+  ChartCandlestick,
   LayoutGrid,
   Plus,
   RefreshCw,
@@ -39,7 +39,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdmin } from "../provider";
 import {
   fracPct,
@@ -54,15 +54,21 @@ import { PortfolioPerformanceChart } from "./portfolio-performance";
 import { PositionTreemap } from "./position-treemap";
 import { TradeTicket } from "./trade-ticket";
 
+/** Mirrors the delete guard in `apps/web/lib/markets/portfolios.ts`. */
+const OWNER_ENTERED = new Set<TradeSource>(["manual", "deposit", "withdrawal"]);
+
 export interface PortfoliosPageProps {
   /** Passed as a prop, not a route param: desktop is a static export. */
   portfolioId?: string;
   onSelectPortfolio?: (id: string) => void;
+  /** Router navigation from the route wrapper; falls back to a full load. */
+  onSelectTicker?: (ticker: string) => void;
 }
 
 export function PortfoliosPage({
   portfolioId,
   onSelectPortfolio,
+  onSelectTicker,
 }: PortfoliosPageProps) {
   const { client, routes } = useAdmin();
   const [portfolios, setPortfolios] = useState<Portfolio[] | null>(null);
@@ -73,6 +79,7 @@ export function PortfoliosPage({
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadPortfolios = useCallback(
@@ -105,8 +112,13 @@ export function PortfoliosPage({
     setSelected(portfolios[0]?.id ?? null);
   }, [portfolios, selected]);
 
+  // The requested id is compared against the current selection on resolve, so
+  // switching portfolios mid-flight cannot leave the previous one's performance
+  // and trades under the new one's header.
+  const requested = useRef<string | null>(null);
   const load = useCallback(
     async (id: string) => {
+      requested.current = id;
       setLoading(true);
       setError(null);
       try {
@@ -116,14 +128,16 @@ export function PortfoliosPage({
           ),
           client.get<{ trades: Trade[] }>(`/markets/portfolios/${id}/trades`),
         ]);
+        if (requested.current !== id) return;
         setPerformance(perf);
         setTrades(log.trades);
       } catch (cause) {
+        if (requested.current !== id) return;
         setPerformance(null);
         setTrades([]);
         setError(cause instanceof Error ? cause.message : "Failed to load");
       } finally {
-        setLoading(false);
+        if (requested.current === id) setLoading(false);
       }
     },
     [client],
@@ -140,6 +154,7 @@ export function PortfoliosPage({
   const choose = useCallback(
     (id: string) => {
       setSelected(id);
+      setConfirmingDelete(false);
       onSelectPortfolio?.(id);
     },
     [onSelectPortfolio],
@@ -164,9 +179,18 @@ export function PortfoliosPage({
     [client, choose],
   );
 
+  // Deletion takes the trade history with it, so it goes through a confirm
+  // step; a rejected request has to say so rather than leave a deleted
+  // portfolio on screen behind an unhandled rejection.
   const remove = useCallback(async () => {
     if (!selected) return;
-    await client.del(`/markets/portfolios/${selected}`);
+    setConfirmingDelete(false);
+    try {
+      await client.del(`/markets/portfolios/${selected}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Delete failed");
+      return;
+    }
     const remaining = await loadPortfolios();
     setSelected(remaining[0]?.id ?? null);
     setPerformance(null);
@@ -235,7 +259,7 @@ export function PortfoliosPage({
             href={routes.markets}
             className="flex items-center gap-1.5 text-muted-foreground text-xs hover:text-foreground"
           >
-            <CandlestickChart className="size-3.5" />
+            <ChartCandlestick className="size-3.5" />
             Markets
           </a>
           {portfolio ? (
@@ -252,15 +276,37 @@ export function PortfoliosPage({
                 />
                 Actions
               </Button>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                className="size-7 text-muted-foreground hover:text-red-600"
-                aria-label="Delete portfolio"
-                onClick={() => void remove()}
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
+              {confirmingDelete ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-red-600 text-xs"
+                    onClick={() => void remove()}
+                  >
+                    Delete {portfolio.name}?
+                  </Button>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    className="size-7 text-muted-foreground"
+                    aria-label="Cancel delete"
+                    onClick={() => setConfirmingDelete(false)}
+                  >
+                    <X className="size-3.5" />
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  className="size-7 text-muted-foreground hover:text-red-600"
+                  aria-label="Delete portfolio"
+                  onClick={() => setConfirmingDelete(true)}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              )}
             </>
           ) : null}
         </div>
@@ -291,6 +337,10 @@ export function PortfoliosPage({
               positions={performance.positions}
               cash={performance.metrics.cash}
               onSelectTicker={(next) => {
+                if (onSelectTicker) {
+                  onSelectTicker(next);
+                  return;
+                }
                 window.location.href = `${routes.markets}?ticker=${encodeURIComponent(next)}`;
               }}
             />
@@ -579,8 +629,8 @@ function TradeLog({
                   </td>
                   <td className="w-8 px-2 py-1 text-right">
                     {/* Generated rows are rebuilt from cached actions, so only
-                        manual ones can be removed. */}
-                    {trade.source === "manual" ? (
+                        what the owner entered can be removed. */}
+                    {OWNER_ENTERED.has(trade.source) ? (
                       <button
                         type="button"
                         aria-label="Delete trade"

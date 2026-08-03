@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getPortfolio, syncPortfolioActions } from "@/lib/markets/portfolios";
+import { parseObjectId } from "@/lib/markets/route-params";
 import { requireAdmin } from "@/lib/require-admin";
 
 /**
@@ -15,6 +16,9 @@ export async function POST(
   if (authError) return authError;
 
   const { id } = await params;
+  if (!parseObjectId(id)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   if (!(await getPortfolio(id))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

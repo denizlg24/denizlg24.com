@@ -115,6 +115,12 @@ describe("benchmark relative", () => {
     expect(beta(longer, benchmark) as number).toBeCloseTo(2, 10);
   });
 
+  test("alpha aligns series from the right when lengths differ", () => {
+    // The leading 0.5 predates the benchmark and must not reach either mean.
+    const longer = [0.5, ...benchmark];
+    expect(alpha(longer, benchmark) as number).toBeCloseTo(0, 10);
+  });
+
   test("a flat benchmark has no variance to regress against", () => {
     expect(beta([0.01, 0.02], [0.01, 0.01])).toBeNull();
   });

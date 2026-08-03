@@ -32,7 +32,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
 
 env:
   RELAY_IMAGE: ghcr.io/denizlg24/markets-relay
@@ -42,11 +41,18 @@ jobs:
     name: Build and push ARM64 relay image
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
+    permissions:
+      contents: read
+      # Publishing the relay image to GHCR. `deploy` only checks out the
+      # compose file and does not need it.
+      packages: write
     outputs:
       image_tag: ${{ steps.release.outputs.image_tag }}
     steps:
       - name: Check out code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Log in to GHCR
         if: github.event_name != 'workflow_dispatch' || inputs.image_tag == ''
@@ -104,6 +110,8 @@ jobs:
     steps:
       - name: Check out deployment assets
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Join the tailnet
         uses: tailscale/github-action@v4

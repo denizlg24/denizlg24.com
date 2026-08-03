@@ -103,6 +103,8 @@ export class TiingoSocket {
   private stableTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
   private keyIndex = 0;
+  /** Key the current rejection pass started on; null when no pass is running. */
+  private passStartKeyIndex: number | null = null;
   private lastRejection: ControlFrame | null = null;
   /** Cleared once acted on; `lastRejection` is kept for `/healthz`. */
   private pendingRejection: ControlFrame | null = null;
@@ -153,11 +155,20 @@ export class TiingoSocket {
    * Moves to the next key. Tiingo meters concurrent connections and requests
    * per key, so a rejection on one is worth retrying on another before backing
    * off — but only once around the ring, or a dead plan becomes a spin.
+   *
+   * The ring boundary is the key the pass started on, not index 0. The index
+   * survives reconnects, so anchoring on 0 would stop the pass early and back
+   * off on a key Tiingo has already refused while never trying the rest.
    */
   private rotateKey(): boolean {
     if (this.options.apiKeys.length < 2) return false;
+    if (this.passStartKeyIndex === null) this.passStartKeyIndex = this.keyIndex;
     this.keyIndex = (this.keyIndex + 1) % this.options.apiKeys.length;
-    return this.keyIndex !== 0;
+    if (this.keyIndex === this.passStartKeyIndex) {
+      this.passStartKeyIndex = null;
+      return false;
+    }
+    return true;
   }
 
   /** Never the key itself — these end up in journald. */
@@ -216,6 +227,8 @@ export class TiingoSocket {
       // connection cap — reconnect at the floor delay forever.
       this.stableTimer = setTimeout(() => {
         this.reconnectAttempts = 0;
+        // A key that has held is a fresh starting point for the next pass.
+        this.passStartKeyIndex = null;
       }, STABLE_AFTER_MS);
     });
 

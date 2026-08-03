@@ -1,4 +1,4 @@
-import type { DerivedRatios, Fact, FundamentalPeriod } from "../../schemas";
+import type { DerivedRatios, FundamentalPeriod } from "../../schemas";
 import { factValue, freeCashFlow } from "./edgar-facts";
 
 function ratio(
@@ -71,10 +71,13 @@ export function computeRatios(options: {
   const totalLiabilities = latestBalance(sorted, "totalLiabilities");
   const currentAssets = latestBalance(sorted, "totalCurrentAssets");
   const currentLiabilities = latestBalance(sorted, "totalCurrentLiabilities");
+  // A diluted share count is point-in-time, not a flow. Summing four quarters
+  // of it would report roughly four times the real count, which then wrecks
+  // eps, marketCap and every multiple derived from them.
   const shares =
     options.sharesOutstanding ??
     latestBalance(sorted, "sharesOutstanding") ??
-    trailingFlow(sorted, "sharesDiluted");
+    latestBalance(sorted, "sharesDiluted");
 
   const eps =
     netIncome !== null && shares !== null && shares !== 0
@@ -82,11 +85,21 @@ export function computeRatios(options: {
       : null;
   const marketCap = price !== null && shares !== null ? price * shares : null;
 
-  const allFacts: Fact[] = sorted.flatMap((period) => period.facts);
+  const trailingOcf = trailingFlow(sorted, "operatingCashFlow");
+  // The fallback stays inside one period, so an operating cash flow is never
+  // paired with a capex from a different quarter.
+  const fallbackPeriod =
+    trailingOcf === null
+      ? sorted.find(
+          (period) => factValue(period.facts, "operatingCashFlow") !== null,
+        )
+      : undefined;
   const trailingFcf =
-    trailingFlow(sorted, "operatingCashFlow") === null
-      ? freeCashFlow(allFacts)
-      : (trailingFlow(sorted, "operatingCashFlow") as number) -
+    trailingOcf === null
+      ? fallbackPeriod
+        ? freeCashFlow(fallbackPeriod.facts)
+        : null
+      : trailingOcf -
         Math.abs(trailingFlow(sorted, "capitalExpenditures") ?? 0);
 
   return {

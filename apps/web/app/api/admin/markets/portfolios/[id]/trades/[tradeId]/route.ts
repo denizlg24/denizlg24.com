@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { deleteTrade, syncPortfolioActions } from "@/lib/markets/portfolios";
+import { parseObjectId } from "@/lib/markets/route-params";
 import { requireAdmin } from "@/lib/require-admin";
 
 export async function DELETE(
@@ -10,6 +11,12 @@ export async function DELETE(
   if (authError) return authError;
 
   const { id, tradeId } = await params;
+  if (!parseObjectId(id) || !parseObjectId(tradeId)) {
+    return NextResponse.json(
+      { error: "No manual trade with that id" },
+      { status: 404 },
+    );
+  }
   const deleted = await deleteTrade(id, tradeId);
   if (!deleted) {
     return NextResponse.json(

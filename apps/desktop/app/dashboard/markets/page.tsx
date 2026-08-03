@@ -14,7 +14,8 @@ function MarketsRoute() {
 
   const select = useCallback(
     (next: string) => {
-      router.replace(`/dashboard/markets?ticker=${next}`, {
+      // Tickers carry `.`, `^` and `+`; unencoded they corrupt the query string.
+      router.replace(`/dashboard/markets?ticker=${encodeURIComponent(next)}`, {
         scroll: false,
       });
     },
@@ -27,7 +28,7 @@ function MarketsRoute() {
         <MarketsSkeleton />
       ) : (
         <MarketsPage
-          ticker={params.get("ticker") ?? undefined}
+          ticker={params.get("ticker")?.trim().toUpperCase() || undefined}
           onSelectTicker={select}
         />
       )}

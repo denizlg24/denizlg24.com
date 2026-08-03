@@ -99,6 +99,26 @@ describe("cost basis", () => {
     );
     expect(state.positions.get("NVDA")?.quantity).toBe(0);
     expect(state.realizedPnl).toBeCloseTo(100, 10);
+    // 1000 - 2 * 100 = 800, then 2 shares sold at 150 credit 300.
+    expect(state.cash).toBeCloseTo(1100, 10);
+  });
+
+  test("selling a symbol never held moves no cash", () => {
+    const state = replayTrades(
+      [
+        trade({
+          ticker: "AMD",
+          side: "sell",
+          quantity: 5,
+          price: 150,
+          fees: 2,
+        }),
+      ],
+      1000,
+    );
+    expect(state.cash).toBe(1000);
+    expect(state.realizedPnl).toBe(0);
+    expect(state.realizingTrades).toBe(0);
   });
 });
 
@@ -191,7 +211,7 @@ describe("corporate actions", () => {
 });
 
 describe("cash movements", () => {
-  test("deposits raise both cash and contributed capital", () => {
+  test("deposits and withdrawals move both cash and contributed capital", () => {
     const state = replayTrades(
       [
         trade({
@@ -218,16 +238,17 @@ describe("cash movements", () => {
 describe("ordering", () => {
   test("a split settles before a sale stamped the same instant", () => {
     const stamp = "2026-02-01T00:00:00.000Z";
+    // The split carries the later id, so only `sourceRank` can order it first.
     const sorted = sortTrades([
       trade({
-        id: "b",
+        id: "a",
         ticker: "T",
         side: "sell",
         quantity: 1,
         executedAt: stamp,
       }),
       trade({
-        id: "a",
+        id: "b",
         ticker: "T",
         quantity: 5,
         source: "split",

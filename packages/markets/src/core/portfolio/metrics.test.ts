@@ -90,9 +90,9 @@ describe("computeMetrics", () => {
     expect(metrics.benchmarkReturn).toBeNull();
   });
 
-  test("win rate counts only closed trades", () => {
+  test("win rate counts only realising trades", () => {
     const state = emptyState(1000);
-    state.closedTrades = 4;
+    state.realizingTrades = 4;
     state.wins = 3;
     state.tradeCount = 9;
     const metrics = computeMetrics({

@@ -9,7 +9,6 @@ import type {
   MarketSymbol,
   ProviderBudget,
   Quote,
-  Resolution,
   SymbolSearchResult,
 } from "../schemas";
 import type {
@@ -258,8 +257,4 @@ export function makeDailyBar(date: string, close: number): DailyBar {
     divCash: 0,
     splitFactor: 1,
   };
-}
-
-export function makeResolution(resolution: Resolution): Resolution {
-  return resolution;
 }

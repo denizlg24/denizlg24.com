@@ -1,5 +1,6 @@
 import { resolutionSchema } from "@repo/markets/schemas";
 import { type NextRequest, NextResponse } from "next/server";
+import { parseTicker } from "@/lib/markets/route-params";
 import { getCandles, MarketsNotConfiguredError } from "@/lib/markets/service";
 import { requireAdmin } from "@/lib/require-admin";
 
@@ -13,6 +14,11 @@ export async function GET(
   if (authError) return authError;
 
   const { ticker } = await params;
+  const symbol = parseTicker(ticker);
+  if (!symbol) {
+    return NextResponse.json({ error: "Invalid ticker" }, { status: 400 });
+  }
+
   const search = request.nextUrl.searchParams;
   const resolution = resolutionSchema.safeParse(
     search.get("resolution") ?? "1day",
@@ -29,7 +35,7 @@ export async function GET(
 
   try {
     const series = await getCandles({
-      ticker: ticker.toUpperCase(),
+      ticker: symbol,
       resolution: resolution.data,
       from,
       to,

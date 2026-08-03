@@ -81,18 +81,29 @@ export const agentTaskSchema = z.object({
 });
 export type AgentTask = z.infer<typeof agentTaskSchema>;
 
-export const createAgentTaskSchema = agentTaskSchema
+const agentTaskFieldsSchema = agentTaskSchema
   .pick({ name: true, prompt: true })
   .extend({
-    attachments: z.array(agentTaskAttachmentSchema).max(10).default([]),
+    attachments: z.array(agentTaskAttachmentSchema).max(10),
     schedule: agentTaskScheduleSchema.nullish(),
     model: z.string().trim().min(1).max(200).optional(),
-    memoryMode: agentMemoryModeSchema.default("enabled"),
+    memoryMode: agentMemoryModeSchema,
     maxRounds: z.number().int().positive().max(200).optional(),
   });
+
+export const createAgentTaskSchema = agentTaskFieldsSchema.extend({
+  attachments: z.array(agentTaskAttachmentSchema).max(10).default([]),
+  memoryMode: agentMemoryModeSchema.default("enabled"),
+});
 export type CreateAgentTask = z.infer<typeof createAgentTaskSchema>;
 
-export const updateAgentTaskSchema = createAgentTaskSchema
+/**
+ * Built from the undefaulted fields, not from `createAgentTaskSchema.partial()`.
+ * `.partial()` keeps the create-time defaults, so a PATCH that omitted
+ * `attachments` or `memoryMode` would parse them as `[]` and `"enabled"` and
+ * `task.set(fields)` would wipe the stored values.
+ */
+export const updateAgentTaskSchema = agentTaskFieldsSchema
   .partial()
   .extend({ status: agentTaskStatusSchema.optional() });
 export type UpdateAgentTask = z.infer<typeof updateAgentTaskSchema>;
@@ -203,3 +214,16 @@ export const agentTaskFeedbackResponseSchema = z.object({
 export type AgentTaskFeedbackResponse = z.infer<
   typeof agentTaskFeedbackResponseSchema
 >;
+
+export const agentTaskRunResponseSchema = z.object({
+  run: agentTaskRunSchema,
+});
+export type AgentTaskRunResponse = z.infer<typeof agentTaskRunResponseSchema>;
+
+/** `GET /agent-tasks/cron-preview` — an unresolvable pattern answers 200 with `error`. */
+export const agentTaskCronPreviewSchema = z.object({
+  timeZone: z.string(),
+  occurrences: z.array(z.string()),
+  error: z.string().optional(),
+});
+export type AgentTaskCronPreview = z.infer<typeof agentTaskCronPreviewSchema>;

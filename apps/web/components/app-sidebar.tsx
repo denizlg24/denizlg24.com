@@ -7,7 +7,7 @@ import {
   Briefcase,
   Calendar,
   CalendarDays,
-  CandlestickChart,
+  ChartCandlestick,
   CircleDollarSign,
   Clock,
   Contact,
@@ -150,7 +150,7 @@ const items = [
   {
     title: "Markets",
     url: "/admin/dashboard/markets",
-    icon: CandlestickChart,
+    icon: ChartCandlestick,
   },
   {
     title: "Portfolios",

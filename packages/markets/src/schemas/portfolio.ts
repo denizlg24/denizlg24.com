@@ -19,6 +19,7 @@ export type TradeSide = z.infer<typeof tradeSideSchema>;
 export const tradeSourceSchema = z.enum([
   "manual",
   "dividend",
+  "drip",
   "split",
   "deposit",
   "withdrawal",
@@ -131,6 +132,7 @@ export const portfolioMetricsSchema = z.object({
   unrealizedPnl: z.number(),
   cagr: z.number().nullable(),
   volatility: z.number().nullable(),
+  /** Peak-to-trough fall as a positive fraction, e.g. 0.32 for 32%. */
   maxDrawdown: z.number().nullable(),
   sharpe: z.number().nullable(),
   sortino: z.number().nullable(),
@@ -142,10 +144,16 @@ export const portfolioMetricsSchema = z.object({
 });
 export type PortfolioMetrics = z.infer<typeof portfolioMetricsSchema>;
 
+export const benchmarkPointSchema = z.object({
+  date: isoDateSchema,
+  value: z.number(),
+});
+export type BenchmarkPoint = z.infer<typeof benchmarkPointSchema>;
+
 export const portfolioPerformanceSchema = z.object({
   portfolioId: z.string(),
   curve: z.array(valuationPointSchema),
-  benchmarkCurve: z.array(z.object({ date: isoDateSchema, value: z.number() })),
+  benchmarkCurve: z.array(benchmarkPointSchema),
   positions: z.array(positionSchema),
   contributions: z.array(contributionSeriesSchema),
   metrics: portfolioMetricsSchema,
@@ -160,3 +168,8 @@ export const watchlistSchema = z.object({
   updatedAt: isoDateTimeSchema,
 });
 export type Watchlist = z.infer<typeof watchlistSchema>;
+
+export const watchlistInputSchema = watchlistSchema
+  .pick({ name: true })
+  .extend({ tickers: z.array(tickerSchema).max(200).optional() });
+export type WatchlistInput = z.infer<typeof watchlistInputSchema>;

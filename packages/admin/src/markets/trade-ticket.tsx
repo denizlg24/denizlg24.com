@@ -6,7 +6,7 @@ import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdmin } from "../provider";
 import { localNow, money, toneClass, trimQuantity } from "./format";
 import { SymbolSearch } from "./symbol-search";
@@ -67,8 +67,14 @@ export function TradeTicket({
     [positions, ticker],
   );
 
+  // `initialPrice` is the streaming quote, so it changes on every tick. Once
+  // the owner has typed a price — a historical fill, say — the live value must
+  // stop overwriting it.
+  const priceEdited = useRef(false);
   useEffect(() => {
-    if (initialPrice != null) setPrice(initialPrice.toFixed(2));
+    if (initialPrice != null && !priceEdited.current) {
+      setPrice(initialPrice.toFixed(2));
+    }
   }, [initialPrice]);
 
   // Defaults the fill to the last known price; the field stays editable so a
@@ -83,7 +89,10 @@ export function TradeTicket({
         )
         .then((data) => {
           const last = data.quotes[0]?.last;
-          if (last != null) setPrice(last.toFixed(2));
+          if (last != null) {
+            priceEdited.current = false;
+            setPrice(last.toFixed(2));
+          }
         })
         .catch(() => undefined);
     },
@@ -103,7 +112,9 @@ export function TradeTicket({
   }, [isCashMove, sizing, quantity, value, hasFill, fill]);
 
   const gross = isCashMove ? Number(quantity) || 0 : shares * fill;
-  const charge = Number(fees) || 0;
+  // The fees input is hidden for a cash movement, so a fee typed on a trade
+  // would otherwise still be subtracted from the deposit and posted with it.
+  const charge = isCashMove ? 0 : Number(fees) || 0;
   const net = kind === "buy" ? gross + charge : gross - charge;
 
   const cashAfter =
@@ -304,7 +315,10 @@ export function TradeTicket({
               <Label className="text-xs">Price</Label>
               <Input
                 value={price}
-                onChange={(event) => setPrice(event.target.value)}
+                onChange={(event) => {
+                  priceEdited.current = true;
+                  setPrice(event.target.value);
+                }}
                 inputMode="decimal"
                 className="h-8 text-xs tabular-nums"
               />

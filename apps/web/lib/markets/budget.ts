@@ -19,6 +19,24 @@ const DEFAULT_LIMITS: Record<ProviderName, ProviderLimits> = {
 };
 
 /**
+ * A non-numeric override would make every `$lte: NaN - cost` guard match
+ * nothing, so every request would be refused for good and the dashboard would
+ * serve only stale data. Fall back to the default instead.
+ */
+function envLimit(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    console.warn(
+      `[markets] ${name}="${raw}" is not a budget; using ${fallback}`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
+/**
  * Tiingo meters per key, so the configured budget is what *one* key allows and
  * the ceiling is that times however many are in rotation. The provider sends
  * requests round-robin, which is what makes the sum the real limit rather than
@@ -27,8 +45,8 @@ const DEFAULT_LIMITS: Record<ProviderName, ProviderLimits> = {
 function limitsFor(provider: ProviderName, keyCount: number): ProviderLimits {
   if (provider === "tiingo") {
     return {
-      hour: Number(process.env.TIINGO_HOURLY_BUDGET ?? 50) * keyCount,
-      day: Number(process.env.TIINGO_DAILY_BUDGET ?? 1000) * keyCount,
+      hour: envLimit("TIINGO_HOURLY_BUDGET", 50) * keyCount,
+      day: envLimit("TIINGO_DAILY_BUDGET", 1000) * keyCount,
     };
   }
   return DEFAULT_LIMITS[provider];
@@ -90,11 +108,25 @@ export function createMongoBudget(
       return reserved !== null;
     },
 
+    /**
+     * Scoped to the window the reservation was made in. A rollover between
+     * `consume` and `release` would otherwise decrement the fresh window's
+     * counters, drive them negative, and hand out more capacity than the
+     * provider quota allows.
+     */
     async release(provider, cost) {
       await connectDB();
+      const stamp = now();
+      const hour = hourKey(stamp);
+      const day = dayKey(stamp);
+
       await MarketProviderBudget.updateOne(
-        { provider },
-        { $inc: { hourUsed: -cost, dayUsed: -cost } },
+        { provider, hourKey: hour, hourUsed: { $gte: cost } },
+        { $inc: { hourUsed: -cost } },
+      );
+      await MarketProviderBudget.updateOne(
+        { provider, dayKey: day, dayUsed: { $gte: cost } },
+        { $inc: { dayUsed: -cost } },
       );
     },
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** `z.iso.date()` rather than a shape regex, so 2024-02-30 is rejected. */
+export const isoDateSchema = z.iso.date();
 export const isoDateTimeSchema = z.iso.datetime({ offset: true });
 
 export const tickerSchema = z

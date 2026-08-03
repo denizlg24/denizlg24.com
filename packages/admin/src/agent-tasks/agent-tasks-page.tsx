@@ -6,6 +6,7 @@ import type {
   AgentTaskFeedbackResponse,
   AgentTaskOverview,
   AgentTaskRun,
+  AgentTaskRunResponse,
 } from "@repo/schemas";
 import { agentTaskOverviewSchema } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
@@ -71,8 +72,20 @@ interface TaskForm {
   timeZone: string;
   model: string;
   memoryMode: AgentTask["memoryMode"];
-  maxRounds: number;
+  maxRounds: string;
   attachments: AgentTaskAttachment[];
+}
+
+/**
+ * The field holds a raw string so it can be cleared and retyped — mapping an
+ * empty field to 1 makes typing "40" produce "140". The bound is enforced here
+ * too: `max` only drives native form validation, and this dialog saves through
+ * an onClick handler.
+ */
+function clampRounds(value: string): number {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed)) return 40;
+  return Math.min(200, Math.max(1, parsed));
 }
 
 function emptyForm(timeZone: string): TaskForm {
@@ -83,7 +96,7 @@ function emptyForm(timeZone: string): TaskForm {
     timeZone,
     model: "",
     memoryMode: "enabled",
-    maxRounds: 40,
+    maxRounds: "40",
     attachments: [],
   };
 }
@@ -96,7 +109,7 @@ function taskToForm(task: AgentTask, fallbackTimeZone: string): TaskForm {
     timeZone: task.schedule?.timeZone ?? fallbackTimeZone,
     model: task.model,
     memoryMode: task.memoryMode,
-    maxRounds: task.maxRounds,
+    maxRounds: String(task.maxRounds),
     attachments: task.attachments,
   };
 }
@@ -308,7 +321,7 @@ export function AgentTasksPage() {
         prompt: form.prompt.trim(),
         attachments: form.attachments,
         memoryMode: form.memoryMode,
-        maxRounds: form.maxRounds,
+        maxRounds: clampRounds(form.maxRounds),
         schedule: form.cron?.trim()
           ? { cron: form.cron.trim(), timeZone: form.timeZone.trim() }
           : null,
@@ -347,7 +360,7 @@ export function AgentTasksPage() {
   const runNow = async (task: AgentTask) => {
     setBusyTaskId(task.id);
     try {
-      const result = await client.post<{ run: AgentTaskRun }>(
+      const result = await client.post<AgentTaskRunResponse>(
         `agent-tasks/${task.id}/run`,
       );
       setSelectedRunId(result.run.id);
@@ -508,9 +521,6 @@ export function AgentTasksPage() {
                     ) : (
                       <span>Manual</span>
                     )}
-                    <Badge className="ml-auto h-4 bg-amber-500/15 px-1 text-[9px] text-amber-700 hover:bg-amber-500/15 dark:text-amber-300">
-                      YOLO
-                    </Badge>
                   </div>
                   <div className="mt-1 truncate text-[11px] text-muted-foreground">
                     {task.nextRunAt
@@ -859,7 +869,13 @@ export function AgentTasksPage() {
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
-                      maxRounds: Number(event.target.value) || 1,
+                      maxRounds: event.target.value,
+                    }))
+                  }
+                  onBlur={() =>
+                    setForm((current) => ({
+                      ...current,
+                      maxRounds: String(clampRounds(current.maxRounds)),
                     }))
                   }
                 />

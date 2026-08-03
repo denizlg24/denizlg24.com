@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { parseTicker } from "@/lib/markets/route-params";
 import {
   getSymbolDetail,
   MarketsNotConfiguredError,
@@ -13,8 +14,13 @@ export async function GET(
   if (authError) return authError;
 
   const { ticker } = await params;
+  const symbol = parseTicker(ticker);
+  if (!symbol) {
+    return NextResponse.json({ error: "Invalid ticker" }, { status: 400 });
+  }
+
   try {
-    const detail = await getSymbolDetail(ticker);
+    const detail = await getSymbolDetail(symbol);
     if (!detail.symbol && !detail.stale) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }

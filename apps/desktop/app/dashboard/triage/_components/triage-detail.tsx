@@ -30,6 +30,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
 import {
+  type TriageAcceptanceResponse,
   type TriageCategory,
   type TriageDetailResponse,
   triageDetailResponseSchema,
@@ -91,11 +92,7 @@ export function TriageDetail({
     ) => {
       setPendingIds((prev) => new Set(prev).add(suggestionId));
 
-      const res = await api.PATCH<{
-        ok: boolean;
-        error?: string;
-        placedIn?: string;
-      }>({
+      const res = await api.PATCH<TriageAcceptanceResponse>({
         endpoint: `triage/${triageId}/suggestions/${suggestionId}`,
         body: { type, action },
       });
@@ -122,7 +119,7 @@ export function TriageDetail({
       toast.success(
         action === "dismiss"
           ? "Dismissed"
-          : res.placedIn
+          : res.ok && res.placedIn
             ? `Accepted → ${res.placedIn}`
             : "Accepted",
       );

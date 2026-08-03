@@ -3,8 +3,14 @@ import { connectDB } from "@/lib/mongodb";
 import { AgentMemoryJob } from "@/models/AgentMemoryJob";
 import { AgentTask, type IAgentTask } from "@/models/AgentTask";
 import { AgentTaskRun } from "@/models/AgentTaskRun";
-import { nextCronOccurrence } from "./cron";
+import { InvalidCronExpressionError, nextCronOccurrence } from "./cron";
 
+/**
+ * The run row and the memory job that drives it have to arrive together. If the
+ * job insert fails after the run exists, nothing re-creates it: the run sits at
+ * `queued` for good, never starting and never failing. So a failed job insert
+ * marks the run failed rather than leaving it orphaned.
+ */
 async function enqueueRun(options: {
   task: IAgentTask;
   trigger: "scheduled" | "manual";
@@ -24,25 +30,43 @@ async function enqueueRun(options: {
     },
     { upsert: true, returnDocument: "after" },
   );
-  await AgentMemoryJob.findOneAndUpdate(
-    { idempotencyKey: `agent-task:${run._id.toString()}` },
-    {
-      $setOnInsert: {
-        idempotencyKey: `agent-task:${run._id.toString()}`,
-        operation: "agent-task",
-        evidenceIds: [],
-        memoryIds: [],
-        status: "pending",
-        attempts: 0,
-        availableAt: new Date(),
-        checkpoint: {
-          agentTaskId: options.task._id.toString(),
-          agentTaskRunId: run._id.toString(),
+  // `findOneAndUpdate` is typed nullable even under `upsert`, and a concurrent
+  // call racing the `{ taskId, scheduledFor }` unique index can lose.
+  if (!run) throw new Error("Failed to enqueue agent task run");
+
+  try {
+    await AgentMemoryJob.findOneAndUpdate(
+      { idempotencyKey: `agent-task:${run._id.toString()}` },
+      {
+        $setOnInsert: {
+          idempotencyKey: `agent-task:${run._id.toString()}`,
+          operation: "agent-task",
+          evidenceIds: [],
+          memoryIds: [],
+          status: "pending",
+          attempts: 0,
+          availableAt: new Date(),
+          checkpoint: {
+            agentTaskId: options.task._id.toString(),
+            agentTaskRunId: run._id.toString(),
+          },
         },
       },
-    },
-    { upsert: true },
-  );
+      { upsert: true },
+    );
+  } catch (error) {
+    await AgentTaskRun.updateOne(
+      { _id: run._id, status: "queued" },
+      {
+        $set: {
+          status: "failed",
+          error: `Failed to enqueue worker job: ${String(error)}`,
+          finishedAt: new Date(),
+        },
+      },
+    ).catch(() => undefined);
+    throw error;
+  }
   return run;
 }
 
@@ -86,11 +110,15 @@ export async function scheduleDueAgentTaskRuns(now = new Date()) {
         taskId: task._id.toString(),
         error,
       });
-      // A pattern that no longer resolves would otherwise be retried on every
-      // scheduler tick forever. Park the task instead and surface it as paused.
-      task.status = "paused";
-      task.nextRunAt = undefined;
-      await task.save().catch(() => undefined);
+      // Only an unresolvable pattern parks the task: it would otherwise be
+      // retried on every tick forever. A transient Mongo error or a duplicate
+      // key race leaves the task active so the next tick can pick it up, rather
+      // than requiring the owner to re-activate it by hand.
+      if (error instanceof InvalidCronExpressionError) {
+        task.status = "paused";
+        task.nextRunAt = undefined;
+        await task.save().catch(() => undefined);
+      }
     }
   }
   return { scheduled };

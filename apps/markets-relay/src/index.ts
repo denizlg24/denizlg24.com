@@ -40,6 +40,13 @@ log(
     allowedOrigins.length > 0 ? allowedOrigins.join(", ") : "(any)"
   }`,
 );
+if (allowedOrigins.length === 0) {
+  // A deployment that loses the variable degrades to any-origin silently; the
+  // relay token is then the only gate left.
+  log(
+    "WARNING: MARKETS_RELAY_ALLOWED_ORIGINS is unset — every origin is accepted",
+  );
+}
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -127,19 +134,21 @@ function broadcastStatus(status: UpstreamStatus): void {
  * means nobody is listening, so there is nothing to pay Tiingo for.
  */
 function subscriptionCount(): number {
+  return subscriptionUnion().size;
+}
+
+/** One definition, so `/healthz` can never report a count the upstream is not
+ * actually subscribed to. */
+function subscriptionUnion(): Set<string> {
   const union = new Set<string>();
   for (const state of clients.values()) {
     for (const ticker of state.tickers) union.add(ticker);
   }
-  return union.size;
+  return union;
 }
 
 function resyncUpstream(): void {
-  const union = new Set<string>();
-  for (const state of clients.values()) {
-    for (const ticker of state.tickers) union.add(ticker);
-  }
-  upstream.setSubscriptions([...union]);
+  upstream.setSubscriptions([...subscriptionUnion()]);
 }
 
 const server = Bun.serve({
@@ -202,6 +211,11 @@ const server = Bun.serve({
   },
 
   websocket: {
+    // The top-level `idleTimeout` governs HTTP requests, not open sockets. The
+    // relay only broadcasts on a new quote, so a client watching a quiet symbol
+    // would be closed by Bun's default WebSocket idle timeout.
+    idleTimeout: 0,
+
     open(socket: ServerWebSocket<ClientState>) {
       clients.set(socket, socket.data);
       log(`client connected (${clients.size} total)`);
@@ -243,10 +257,14 @@ const server = Bun.serve({
       }
 
       if (message.data.type === "subscribe") {
+        // Checked against a copy first. Committing the additions and only then
+        // rejecting would leave the client over the cap for the life of the
+        // connection, and any later resync would send that union upstream.
+        const next = new Set(socket.data.tickers);
         for (const ticker of message.data.tickers) {
-          socket.data.tickers.add(ticker.toUpperCase());
+          next.add(ticker.toUpperCase());
         }
-        if (socket.data.tickers.size > RELAY_MAX_SYMBOLS) {
+        if (next.size > RELAY_MAX_SYMBOLS) {
           send(socket, {
             type: "error",
             code: "too_many_symbols",
@@ -254,6 +272,7 @@ const server = Bun.serve({
           });
           return;
         }
+        socket.data.tickers = next;
       } else {
         for (const ticker of message.data.tickers) {
           socket.data.tickers.delete(ticker.toUpperCase());

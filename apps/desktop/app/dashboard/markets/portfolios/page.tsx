@@ -24,6 +24,13 @@ function PortfoliosRoute() {
     [router],
   );
 
+  const openSymbol = useCallback(
+    (ticker: string) => {
+      router.push(`/dashboard/markets?ticker=${encodeURIComponent(ticker)}`);
+    },
+    [router],
+  );
+
   return (
     <AdminProvider value={value}>
       {loading ? (
@@ -32,6 +39,7 @@ function PortfoliosRoute() {
         <PortfoliosPage
           portfolioId={params.get("portfolio") ?? undefined}
           onSelectPortfolio={select}
+          onSelectTicker={openSymbol}
         />
       )}
     </AdminProvider>

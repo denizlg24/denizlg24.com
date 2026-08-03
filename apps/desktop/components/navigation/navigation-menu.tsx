@@ -14,7 +14,7 @@ import {
   Briefcase,
   Calendar,
   CalendarDays,
-  CandlestickChart,
+  ChartCandlestick,
   ChevronRight,
   CircleDollarSign,
   Clock,
@@ -201,12 +201,12 @@ export const GROUPS: NavGroup[] = [
       {
         label: "Markets",
         href: "",
-        icon: CandlestickChart,
+        icon: ChartCandlestick,
         children: [
           {
             label: "Markets",
             href: "/markets",
-            icon: CandlestickChart,
+            icon: ChartCandlestick,
           },
           {
             label: "Portfolios",

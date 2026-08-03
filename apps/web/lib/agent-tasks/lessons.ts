@@ -135,10 +135,18 @@ const verdictResultSchema = z.object({
   ),
 });
 
+/**
+ * Unicode-aware: an ASCII-only class would reduce feedback written in any
+ * non-Latin script to the empty string, so `quoteAppearsIn` would reject every
+ * quote from it. Accents are stripped via NFD so a model that re-types "café"
+ * as "cafe" still matches.
+ */
 function normalizeForMatch(value: string): string {
   return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
 

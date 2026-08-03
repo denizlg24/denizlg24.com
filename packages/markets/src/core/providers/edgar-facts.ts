@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { Fact, FiscalPeriod, Statement } from "../../schemas";
 
 /**
@@ -263,28 +264,50 @@ export const FACT_DEFINITIONS: FactDefinition[] = [
   },
 ];
 
-export interface CompanyFactUnit {
-  start?: string;
-  end: string;
-  val: number;
-  accn: string;
-  fy?: number;
-  fp?: string;
-  form: string;
-  filed: string;
-  frame?: string;
-}
+/**
+ * The shape `companyfacts` is actually read for. Validated structurally rather
+ * than cast, because `distillCompanyFacts` iterates `units` entries and an
+ * unexpected SEC payload would otherwise throw somewhere in the middle of the
+ * walk instead of surfacing as a `ProviderError`.
+ *
+ * Unknown concepts and unknown keys are tolerated by design: this is a foreign
+ * payload that grows, and only the tracked facts are ever read.
+ */
+export const companyFactUnitSchema = z.object({
+  start: z.string().optional(),
+  end: z.string(),
+  val: z.number(),
+  accn: z.string(),
+  fy: z.number().optional(),
+  fp: z.string().optional(),
+  form: z.string(),
+  filed: z.string(),
+  frame: z.string().optional(),
+});
+export type CompanyFactUnit = z.infer<typeof companyFactUnitSchema>;
 
-export interface CompanyFactsPayload {
-  cik: number;
-  entityName?: string;
-  facts?: {
-    "us-gaap"?: Record<
-      string,
-      { label?: string; units?: Record<string, CompanyFactUnit[]> }
-    >;
-  };
-}
+export const companyFactsPayloadSchema = z.object({
+  cik: z.number(),
+  entityName: z.string().optional(),
+  facts: z
+    .object({
+      "us-gaap": z
+        .record(
+          z.string(),
+          z.object({
+            label: z.string().optional(),
+            // A concept whose entries do not match the expected shape is
+            // dropped rather than failing the whole several-megabyte payload.
+            units: z
+              .record(z.string(), z.array(companyFactUnitSchema).catch([]))
+              .optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+});
+export type CompanyFactsPayload = z.infer<typeof companyFactsPayloadSchema>;
 
 export interface DistilledPeriod {
   fiscalYear: number;
@@ -308,6 +331,31 @@ function isFiscalPeriod(value: string | undefined): value is FiscalPeriod {
 }
 
 /**
+ * A Q3 10-Q tags income and cash-flow concepts twice: once for the three-month
+ * quarter and once for the nine-month year to date. Both carry `fy: 2025`,
+ * `fp: "Q3"` and the same `end`, so keying on those three alone collapses them
+ * and the year-to-date figure can end up labelled as a single quarter. That
+ * value then flows into `trailingFlow`, which sums four quarters, and overstates
+ * trailing revenue, net income and cash flow.
+ *
+ * Balance-sheet facts are instantaneous and carry no `start`, so they pass.
+ */
+function durationMatchesPeriod(
+  entry: CompanyFactUnit,
+  period: FiscalPeriod,
+): boolean {
+  if (!entry.start) return true;
+  const days =
+    (Date.parse(`${entry.end}T00:00:00Z`) -
+      Date.parse(`${entry.start}T00:00:00Z`)) /
+    86_400_000;
+  if (!Number.isFinite(days)) return false;
+  return period === "FY"
+    ? days >= 330 && days <= 400
+    : days >= 80 && days <= 100;
+}
+
+/**
  * Collapses a companyfacts payload into one row per reported period.
  *
  * Two rules keep this honest. Only the first concept present for a key is
@@ -315,6 +363,10 @@ function isFiscalPeriod(value: string | undefined): value is FiscalPeriod {
  * produce two conflicting revenue lines. And where the same period appears in
  * several filings — an original 10-Q and a later 10-K restating it — the most
  * recently filed value wins.
+ *
+ * That second rule is enforced per fact key, not per period. A period-level
+ * guard would drop every key an older filing was the only one to tag once a
+ * newer filing had contributed anything at all to the same period.
  */
 export function distillCompanyFacts(
   payload: CompanyFactsPayload,
@@ -337,10 +389,10 @@ export function distillCompanyFacts(
       for (const entry of entries) {
         if (!allowedForms.includes(entry.form)) continue;
         if (!isFiscalPeriod(entry.fp) || entry.fy === undefined) continue;
+        if (!durationMatchesPeriod(entry, entry.fp)) continue;
 
         const periodKey = `${entry.fy}:${entry.fp}:${entry.end}`;
         const existing = periods.get(periodKey);
-        if (existing && existing.filed > entry.filed) continue;
 
         const period =
           existing ??

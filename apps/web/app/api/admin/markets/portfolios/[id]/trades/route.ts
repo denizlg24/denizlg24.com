@@ -3,9 +3,12 @@ import { tradeInputSchema } from "@repo/markets/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import {
   addTrade,
+  getPortfolio,
   listTrades,
+  OWNER_ENTERED_SOURCES,
   syncPortfolioActions,
 } from "@/lib/markets/portfolios";
+import { parseObjectId } from "@/lib/markets/route-params";
 import { requireAdmin } from "@/lib/require-admin";
 
 export async function GET(
@@ -16,6 +19,9 @@ export async function GET(
   if (authError) return authError;
 
   const { id } = await params;
+  if (!parseObjectId(id)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   return NextResponse.json({ trades: await listTrades(id) });
 }
 
@@ -35,7 +41,7 @@ export async function POST(
   // Dividends and splits are regenerated from cached actions, so accepting one
   // by hand would only have it deleted on the next sync. Cash movements have no
   // such generator and can only ever be entered here.
-  if (parsed.data.source === "dividend" || parsed.data.source === "split") {
+  if (!OWNER_ENTERED_SOURCES.includes(parsed.data.source)) {
     return NextResponse.json(
       { error: "Generated trades are rebuilt from corporate actions" },
       { status: 400 },
@@ -52,6 +58,12 @@ export async function POST(
   }
 
   const { id } = await params;
+  // Confirmed before the write, so a bad id cannot leave an orphan trade row
+  // pointing at a portfolio that does not exist.
+  if (!parseObjectId(id) || !(await getPortfolio(id))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const trade = await addTrade(id, parsed.data);
   // A new holding may sit across dividends or splits already in the cache.
   await syncPortfolioActions(id);

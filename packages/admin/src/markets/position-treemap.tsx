@@ -106,12 +106,33 @@ export function PositionTreemap({
             const canLabel = rect.width > 44 && rect.height > 26;
             const canDetail = rect.width > 64 && rect.height > 44;
             return (
+              // An SVG group is not focusable and carries no role, so an
+              // interactive tile has to declare both or it is reachable only
+              // by pointer.
               <g
                 key={tile.ticker}
                 onMouseEnter={() => setHovered(tile.ticker)}
                 onMouseLeave={() => setHovered(null)}
                 onClick={
                   tile.isCash ? undefined : () => onSelect?.(tile.ticker)
+                }
+                onKeyDown={
+                  tile.isCash
+                    ? undefined
+                    : (event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        onSelect?.(tile.ticker);
+                      }
+                }
+                onFocus={() => setHovered(tile.ticker)}
+                onBlur={() => setHovered(null)}
+                role={tile.isCash ? undefined : "button"}
+                tabIndex={tile.isCash ? undefined : 0}
+                aria-label={
+                  tile.isCash
+                    ? undefined
+                    : `${tile.ticker}, ${(share * 100).toFixed(1)}% of portfolio`
                 }
                 className={tile.isCash ? undefined : "cursor-pointer"}
               >

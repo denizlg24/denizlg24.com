@@ -1,4 +1,4 @@
-import type { AgentMemoryMode } from "@repo/schemas";
+import { type AgentMemoryMode, agentMemoryModeSchema } from "@repo/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
 import { existingModel } from "./AgentMemoryCommon";
 
@@ -70,7 +70,7 @@ const AgentTaskSchema = new Schema<IAgentTask>(
     llmModel: { type: String, required: true, maxlength: 200 },
     memoryMode: {
       type: String,
-      enum: ["enabled", "retrieval-off", "incognito"],
+      enum: agentMemoryModeSchema.options,
       default: "enabled",
     },
     status: {

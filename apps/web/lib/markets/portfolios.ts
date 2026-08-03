@@ -13,18 +13,25 @@ import type {
   PortfolioPerformance,
   Trade,
   TradeInput,
+  TradeSource,
 } from "@repo/markets/schemas";
+import { Types } from "mongoose";
 import { connectDB } from "@/lib/mongodb";
 import {
   type IMarketPortfolio,
   type IMarketTrade,
   MarketPortfolio,
+  MarketPortfolioSnapshot,
   MarketTrade,
 } from "@/models/Market";
 import { getStores } from "./service";
 
 /** Trades the owner typed. The rest are derived from cached corporate actions. */
-const OWNER_ENTERED_SOURCES = ["manual", "deposit", "withdrawal"];
+export const OWNER_ENTERED_SOURCES: TradeSource[] = [
+  "manual",
+  "deposit",
+  "withdrawal",
+];
 
 function toPortfolio(doc: IMarketPortfolio): Portfolio {
   return {
@@ -90,7 +97,12 @@ export async function deletePortfolio(id: string): Promise<boolean> {
   await connectDB();
   const result = await MarketPortfolio.findByIdAndDelete(id);
   if (!result) return false;
-  await MarketTrade.deleteMany({ portfolioId: id });
+  await Promise.all([
+    MarketTrade.deleteMany({ portfolioId: id }),
+    // Nothing else ever removes these, so leaving them behind grows the
+    // collection without bound and keeps rows pointing at a dead portfolio.
+    MarketPortfolioSnapshot.deleteMany({ portfolioId: id }),
+  ]);
   return true;
 }
 
@@ -157,45 +169,59 @@ export async function syncPortfolioActions(
     ),
   ];
 
-  const generated: Trade[] = [];
-  for (const ticker of tickers) {
-    const [actions, bars] = await Promise.all([
-      stores.bars.getActions(ticker),
-      stores.bars.getDailyBars(ticker),
-    ]);
-    const closes = new Map(bars.map((bar) => [bar.date, bar.close]));
-    generated.push(
-      ...synthesizeActionTrades({
+  const perTicker = await Promise.all(
+    tickers.map(async (ticker) => {
+      const [actions, bars] = await Promise.all([
+        stores.bars.getActions(ticker),
+        stores.bars.getDailyBars(ticker),
+      ]);
+      const closes = new Map(bars.map((bar) => [bar.date, bar.close]));
+      return synthesizeActionTrades({
         portfolioId,
         ticker,
         actions,
         manualTrades: manual,
         reinvestDividends: portfolio.reinvestDividends,
         priceOn: (_ticker, date) => closes.get(date) ?? null,
-      }),
-    );
-  }
+      });
+    }),
+  );
+  const generated: Trade[] = perTicker.flat();
 
-  await MarketTrade.deleteMany({
-    portfolioId,
-    source: { $nin: OWNER_ENTERED_SOURCES },
-  });
+  // Upsert on `actionKey` rather than delete-then-insert. A failed insert used
+  // to leave the portfolio without any generated rows, and `getPerformance`
+  // running concurrently with a sync could observe that empty intermediate
+  // state.
   if (generated.length > 0) {
-    await MarketTrade.insertMany(
+    const owner = new Types.ObjectId(portfolioId);
+    await MarketTrade.bulkWrite(
       generated.map((trade) => ({
-        portfolioId,
-        ticker: trade.ticker,
-        side: trade.side,
-        quantity: trade.quantity,
-        price: trade.price,
-        fees: trade.fees,
-        executedAt: new Date(trade.executedAt),
-        source: trade.source,
-        note: trade.note,
-        actionKey: trade.id,
+        updateOne: {
+          filter: { portfolioId: owner, actionKey: trade.id },
+          update: {
+            $set: {
+              portfolioId: owner,
+              ticker: trade.ticker,
+              side: trade.side,
+              quantity: trade.quantity,
+              price: trade.price,
+              fees: trade.fees,
+              executedAt: new Date(trade.executedAt),
+              source: trade.source,
+              note: trade.note ?? "",
+              actionKey: trade.id,
+            },
+          },
+          upsert: true,
+        },
       })),
     );
   }
+  await MarketTrade.deleteMany({
+    portfolioId,
+    source: { $nin: OWNER_ENTERED_SOURCES },
+    actionKey: { $nin: generated.map((trade) => trade.id) },
+  });
   return generated.length;
 }
 
@@ -220,25 +246,25 @@ export async function getPerformance(
   // adjusted prices here would count every split a second time.
   const closes = new Map<string, Map<string, number>>();
   const tradingDays = new Set<string>();
-  for (const ticker of tickers) {
-    const bars = await stores.bars.getDailyBars(
-      ticker,
-      portfolio.inceptionDate,
-    );
+  const [barsByTicker, benchmarkBars] = await Promise.all([
+    Promise.all(
+      tickers.map((ticker) =>
+        stores.bars.getDailyBars(ticker, portfolio.inceptionDate),
+      ),
+    ),
+    portfolio.benchmark
+      ? stores.bars.getDailyBars(portfolio.benchmark, portfolio.inceptionDate)
+      : Promise.resolve([]),
+  ]);
+
+  tickers.forEach((ticker, index) => {
     const byDate = new Map<string, number>();
-    for (const bar of bars) {
+    for (const bar of barsByTicker[index] ?? []) {
       byDate.set(bar.date, bar.close);
       tradingDays.add(bar.date);
     }
     closes.set(ticker, byDate);
-  }
-
-  const benchmarkBars = portfolio.benchmark
-    ? await stores.bars.getDailyBars(
-        portfolio.benchmark,
-        portfolio.inceptionDate,
-      )
-    : [];
+  });
   for (const bar of benchmarkBars) tradingDays.add(bar.date);
 
   const dates = [...tradingDays].sort();
@@ -268,21 +294,20 @@ export async function getPerformance(
       (previousDate ? (closes.get(ticker)?.get(previousDate) ?? null) : null),
   );
 
+  const benchmarkCurve = benchmarkBars.map((bar) => ({
+    date: bar.date,
+    value: bar.adjClose,
+  }));
+
   return {
     portfolioId,
     curve,
-    benchmarkCurve: benchmarkBars.map((bar) => ({
-      date: bar.date,
-      value: bar.adjClose,
-    })),
+    benchmarkCurve,
     positions,
     contributions,
     metrics: computeMetrics({
       curve,
-      benchmarkCurve: benchmarkBars.map((bar) => ({
-        date: bar.date,
-        value: bar.adjClose,
-      })),
+      benchmarkCurve,
       state,
       positions,
     }),

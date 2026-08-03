@@ -232,6 +232,13 @@ export function useQuotes(tickers: string[]): QuotesState {
           apply(message.data.quotes);
         } else if (message.data.type === "ready") {
           setUpstream(message.data.upstream);
+        } else if (message.data.type === "error") {
+          // `subscribedRef` already recorded the delta as sent, so the affected
+          // symbols stay empty and are never retried. Say so rather than
+          // leaving a silent gap.
+          log(
+            `relay rejected a frame: ${message.data.code} — ${message.data.message}`,
+          );
         }
       };
 

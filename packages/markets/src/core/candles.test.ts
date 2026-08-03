@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { DailyBar } from "../schemas";
 import { getCandles, planDailyFetches, shiftDate } from "./candles";
 import { createMemoryStores, fixedClock, makeDailyBar } from "./memory-stores";
-import type { MarketDataProvider, MarketStores } from "./ports";
+import {
+  BudgetExhaustedError,
+  type MarketDataProvider,
+  type MarketStores,
+} from "./ports";
 
 const TODAY = "2026-07-31";
 const clock = fixedClock(`${TODAY}T12:00:00.000Z`);
@@ -151,12 +155,25 @@ describe("getCandles daily", () => {
     expect(actions[0]?.divCash).toBeCloseTo(0.24, 10);
   });
 
+  test("an open-ended repeat request does not re-backfill", async () => {
+    const store = stores();
+    const { provider, calls } = recordingProvider(history);
+    const request = {
+      ticker: "AAPL",
+      resolution: "1day" as const,
+      to: TODAY,
+      adjusted: false,
+    };
+    await getCandles(store, provider, request);
+    await getCandles(store, provider, request);
+    expect(calls).toHaveLength(1);
+  });
+
   test("an exhausted budget serves cache marked stale instead of throwing", async () => {
     const store = createMemoryStores({ clock, hourLimit: 0 });
     const provider: MarketDataProvider = {
       name: "tiingo",
       async getDailyBars() {
-        const { BudgetExhaustedError } = await import("./ports");
         throw new BudgetExhaustedError("tiingo");
       },
     };

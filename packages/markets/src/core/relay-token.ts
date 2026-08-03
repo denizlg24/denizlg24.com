@@ -10,6 +10,9 @@ import { relayTokenClaimsSchema } from "../schemas";
  * algorithm, so the parts a JWT library exists to negotiate are all fixed.
  */
 
+/** Tolerance for drift between the minting host's clock and the relay's. */
+const CLOCK_SKEW_MS = 5_000;
+
 function base64UrlEncode(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64url");
 }
@@ -72,7 +75,10 @@ export async function verifyRelayToken(
 
   const parsed = relayTokenClaimsSchema.safeParse(claims);
   if (!parsed.success) return { ok: false, reason: "malformed" };
-  if (parsed.data.exp * 1000 < Date.now())
+  // The minting web app and the verifying relay are separate deployments, so a
+  // few seconds of clock drift would otherwise reject a token the client never
+  // got a chance to use.
+  if (parsed.data.exp * 1000 + CLOCK_SKEW_MS < Date.now())
     return { ok: false, reason: "expired" };
   return { ok: true };
 }

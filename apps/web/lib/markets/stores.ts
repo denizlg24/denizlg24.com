@@ -31,6 +31,24 @@ function datasetKey(dataset: CoverageDataset): string {
     : dataset.kind;
 }
 
+/**
+ * Mongoose strips `undefined` from `$set`, so a field a provider stopped
+ * returning would keep its previous value forever. Splitting the payload sends
+ * the absent keys through `$unset` instead, which is what a refresh means.
+ */
+function setAndUnset(fields: Record<string, unknown>): {
+  $set: Record<string, unknown>;
+  $unset?: Record<string, "">;
+} {
+  const $set: Record<string, unknown> = {};
+  const $unset: Record<string, ""> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined || value === null) $unset[key] = "";
+    else $set[key] = value;
+  }
+  return Object.keys($unset).length > 0 ? { $set, $unset } : { $set };
+}
+
 /** Intraday bars are disposable; a fine resolution is worth less for longer. */
 const INTRADAY_TTL_DAYS: Partial<Record<Resolution, number>> = {
   "1min": 7,
@@ -94,8 +112,12 @@ const symbols: SymbolStore = {
 
     // Prefix matches first — typing "AAP" should surface AAPL before any
     // company whose name merely contains the letters.
+    // The sanitizer keeps `.`, which is a regex wildcard — without escaping it
+    // a search for BRK.B would also match BRKXB.
     const prefix = await MarketSymbolModel.find({
-      ticker: new RegExp(`^${needle.replace(/[^A-Z0-9.\-:]/g, "")}`),
+      ticker: new RegExp(
+        `^${needle.replace(/[^A-Z0-9.\-:]/g, "").replace(/\./g, "\\.")}`,
+      ),
       active: true,
     })
       .limit(limit)
@@ -164,7 +186,7 @@ const symbols: SymbolStore = {
     await connectDB();
     await MarketCompanyProfile.updateOne(
       { ticker: profile.ticker.toUpperCase() },
-      { $set: { ...profile, ticker: profile.ticker.toUpperCase() } },
+      setAndUnset({ ...profile, ticker: profile.ticker.toUpperCase() }),
       { upsert: true },
     );
   },
@@ -295,15 +317,11 @@ const bars: BarStore = {
     await connectDB();
     await MarketCoverage.updateOne(
       { ticker: ticker.toUpperCase(), dataset: datasetKey(dataset) },
-      {
-        $set: {
-          from: coverage.from ?? undefined,
-          to: coverage.to ?? undefined,
-          fetchedAt: coverage.fetchedAt
-            ? new Date(coverage.fetchedAt)
-            : undefined,
-        },
-      },
+      setAndUnset({
+        from: coverage.from,
+        to: coverage.to,
+        fetchedAt: coverage.fetchedAt ? new Date(coverage.fetchedAt) : null,
+      }),
       { upsert: true },
     );
   },
@@ -491,18 +509,16 @@ const fundamentals: FundamentalStore = {
       next.map((item) => ({
         updateOne: {
           filter: { newsId: item.id },
-          update: {
-            $set: {
-              newsId: item.id,
-              ticker: item.ticker,
-              headline: item.headline,
-              summary: item.summary,
-              source: item.source,
-              url: item.url,
-              imageUrl: item.imageUrl,
-              publishedAt: new Date(item.publishedAt),
-            },
-          },
+          update: setAndUnset({
+            newsId: item.id,
+            ticker: item.ticker,
+            headline: item.headline,
+            summary: item.summary,
+            source: item.source,
+            url: item.url,
+            imageUrl: item.imageUrl,
+            publishedAt: new Date(item.publishedAt),
+          }),
           upsert: true,
         },
       })),

@@ -18,10 +18,20 @@ export function PortfoliosRoute() {
     [router],
   );
 
+  const openSymbol = useCallback(
+    (ticker: string) => {
+      router.push(
+        `/admin/dashboard/markets?ticker=${encodeURIComponent(ticker)}`,
+      );
+    },
+    [router],
+  );
+
   return (
     <PortfoliosPage
       portfolioId={params.get("portfolio") ?? undefined}
       onSelectPortfolio={select}
+      onSelectTicker={openSymbol}
     />
   );
 }

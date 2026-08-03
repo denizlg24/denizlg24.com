@@ -1,5 +1,6 @@
 "use client";
 
+import type { AgentTaskCronPreview } from "@repo/schemas";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
@@ -24,12 +25,6 @@ const PRESETS = [
   { label: "1st of month", cron: "0 8 1 * *" },
 ];
 
-interface CronPreview {
-  timeZone: string;
-  occurrences: string[];
-  error?: string;
-}
-
 export function CronField({
   cron,
   timeZone,
@@ -42,7 +37,7 @@ export function CronField({
   onTimeZoneChange: (timeZone: string) => void;
 }) {
   const { client } = useAdmin();
-  const [preview, setPreview] = useState<CronPreview | null>(null);
+  const [preview, setPreview] = useState<AgentTaskCronPreview | null>(null);
 
   useEffect(() => {
     if (!cron?.trim()) {
@@ -54,12 +49,20 @@ export function CronField({
     // keystroke would otherwise be a request that resolves out of order.
     const timer = window.setTimeout(async () => {
       try {
-        const result = await client.get<CronPreview>(
+        const result = await client.get<AgentTaskCronPreview>(
           `agent-tasks/cron-preview?cron=${encodeURIComponent(cron)}&timeZone=${encodeURIComponent(timeZone)}`,
         );
         if (!cancelled) setPreview(result);
-      } catch {
-        if (!cancelled) setPreview({ timeZone, occurrences: [] });
+      } catch (error) {
+        // Without an `error` the block below renders nothing, so a failed
+        // request looks identical to a schedule that produced no occurrences.
+        if (!cancelled) {
+          setPreview({
+            timeZone,
+            occurrences: [],
+            error: error instanceof Error ? error.message : "Preview failed",
+          });
+        }
       }
     }, 350);
     return () => {
@@ -116,7 +119,11 @@ export function CronField({
           </div>
 
           <div className="flex items-center gap-2">
+            <Label htmlFor="task-time-zone" className="sr-only">
+              Time zone
+            </Label>
             <Input
+              id="task-time-zone"
               value={timeZone}
               spellCheck={false}
               className="h-8 flex-1 text-xs"

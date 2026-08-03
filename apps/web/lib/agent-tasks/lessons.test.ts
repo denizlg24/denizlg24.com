@@ -59,6 +59,18 @@ describe("quoteAppearsIn", () => {
   test("rejects an empty quote", () => {
     expect(quoteAppearsIn("   ", feedback)).toBe(false);
   });
+
+  test("matches a quote in a non-Latin script", () => {
+    const japanese = "まず表を先に、それから散文で説明してください。";
+    expect(quoteAppearsIn("まず表を先に", japanese)).toBe(true);
+    expect(quoteAppearsIn("箇条書きを使って", japanese)).toBe(false);
+  });
+
+  test("tolerates dropped accents", () => {
+    expect(quoteAppearsIn("resume the deploy", "Résumé the deploy now.")).toBe(
+      true,
+    );
+  });
 });
 
 describe("findNearDuplicate", () => {

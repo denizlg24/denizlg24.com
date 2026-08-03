@@ -128,6 +128,9 @@ export class FinnhubProvider implements MarketDataProvider {
       if (value !== undefined) url.searchParams.set(key, value);
     }
 
+    // Only a request that never left the process hands its reservation back. A
+    // 429 or a 500 was still counted by Finnhub against the account, so
+    // releasing it here would let the local ledger drift under real usage.
     let response: Response;
     try {
       response = await this.fetchImpl(url, {
@@ -215,6 +218,10 @@ export class FinnhubProvider implements MarketDataProvider {
       if (news.length === limit) break;
       const url = toUrl(item.url);
       if (!item.headline || !url) continue;
+      // An out-of-range epoch would make `toISOString` throw and lose every
+      // valid story in the batch, so the bad item is dropped instead.
+      const publishedAt = new Date(item.datetime * 1000);
+      if (Number.isNaN(publishedAt.getTime())) continue;
       news.push({
         // The numeric id repeats across symbols on syndicated wire stories, so
         // the ticker is part of the key the cache upserts on.
@@ -225,7 +232,7 @@ export class FinnhubProvider implements MarketDataProvider {
         source: item.source ?? undefined,
         url,
         imageUrl: toUrl(item.image),
-        publishedAt: new Date(item.datetime * 1000).toISOString(),
+        publishedAt: publishedAt.toISOString(),
       });
     }
     return news;

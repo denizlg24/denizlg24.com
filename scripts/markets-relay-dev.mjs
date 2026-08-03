@@ -26,9 +26,14 @@ function readEnv() {
   if (!existsSync(envFile)) return {};
   const values = {};
   for (const line of readFileSync(envFile, "utf8").split("\n")) {
-    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
     if (!match) continue;
-    values[match[1]] = match[2].replace(/^["']|["']$/g, "");
+    const raw = match[2];
+    const quoted = raw.match(/^(["'])([\s\S]*)\1/);
+    // An unquoted value ends at a ` #` comment. Without this a line like
+    // `TIINGO_API_KEY=abc # personal key` reaches the relay container as a
+    // malformed key and fails quietly instead of with a clear error.
+    values[match[1]] = quoted ? quoted[2] : raw.replace(/\s+#.*$/, "").trim();
   }
   return values;
 }

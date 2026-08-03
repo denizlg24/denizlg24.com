@@ -68,6 +68,7 @@ export interface FeedbackDependencies {
     input: Record<string, unknown>,
   ): Promise<IAgentFeedbackEvent>;
   findRelevant(prompt: string, feedback: string): Promise<IAgentProcedure[]>;
+  findProcedures(ids: Types.ObjectId[]): Promise<IAgentProcedure[]>;
   distill: typeof distillLessons;
   verify: typeof verifyLessons;
   createProcedure(
@@ -103,6 +104,7 @@ const defaultFeedbackDependencies: FeedbackDependencies = {
   observe: observeEvidence,
   createFeedbackEvent: async (input) => AgentFeedbackEvent.create(input),
   findRelevant: relevantProcedures,
+  findProcedures: async (ids) => AgentProcedure.find({ _id: { $in: ids } }),
   distill: distillLessons,
   verify: verifyLessons,
   createProcedure,
@@ -175,9 +177,21 @@ export async function recordAgentTaskFeedback(
   await dependencies.connect();
   const duplicate = await dependencies.findDuplicate(input.feedbackId);
   if (duplicate) {
+    // A client retrying after a timeout gets the original answer, not an empty
+    // one — the run already records which procedures the first call produced.
+    const learnedIds = duplicate.feedback?.learnedProcedureIds ?? [];
+    const learned =
+      learnedIds.length > 0
+        ? await dependencies.findProcedures(learnedIds)
+        : [];
     return {
       run: serializeAgentTaskRun(duplicate),
-      learnedProcedures: [],
+      learnedProcedures: learned.map((procedure) => ({
+        id: procedure._id.toString(),
+        action: "created" as const,
+        scope: procedure.scope,
+        behavior: procedure.behavior,
+      })),
       rejected: [],
     };
   }

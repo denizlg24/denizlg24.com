@@ -8,9 +8,16 @@ import { quoteSchema } from "./market-data";
  * of feeding the chart nonsense.
  */
 
+export const RELAY_MAX_SYMBOLS = 200;
+
+/** No client can ever want more than the relay will hold, so an oversized frame
+ * is rejected at the schema boundary rather than after the server has iterated
+ * and inserted every ticker in it. */
+const relayTickersSchema = z.array(tickerSchema).max(RELAY_MAX_SYMBOLS);
+
 export const relayClientMessageSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("subscribe"), tickers: z.array(tickerSchema) }),
-  z.object({ type: z.literal("unsubscribe"), tickers: z.array(tickerSchema) }),
+  z.object({ type: z.literal("subscribe"), tickers: relayTickersSchema }),
+  z.object({ type: z.literal("unsubscribe"), tickers: relayTickersSchema }),
   z.object({ type: z.literal("ping") }),
 ]);
 export type RelayClientMessage = z.infer<typeof relayClientMessageSchema>;
@@ -60,4 +67,3 @@ export type RelayTokenResponse = z.infer<typeof relayTokenResponseSchema>;
  */
 export const RELAY_HEARTBEAT_MS = 30_000;
 export const RELAY_IDLE_TIMEOUT_MS = 90_000;
-export const RELAY_MAX_SYMBOLS = 200;
