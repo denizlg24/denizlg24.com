@@ -52,6 +52,7 @@ Available data domains:
 - Email triage (list triaged mail, accept or dismiss suggested tasks and events, set review status, re-run triage)
 - Email (list/read emails, list email accounts, draft emails, and request approved sends)
 - Now Page (view current 'Now Page' content, update content)
+- Markets and portfolios (resolve tickers, read quotes, price history, technicals, news, SEC fundamentals and filings; full CRUD on portfolios, their trade log and watchlists; portfolio metrics, positions, per-symbol attribution and benchmark comparison). Market data is cached behind a metered provider budget: batch tickers into one get_quotes call, check get_markets_budget before a wide sweep, and treat a \`stale: true\` result as a cached price rather than a live one.
 - Resources (view, create, update, delete resources, check resource health, reboot resources, manage services) and their sub-resources (the individual services tracked under a resource, with their own health checks and uptime)
 - Code sandbox (a Node 24 microVM scoped to this conversation — write files, run commands, read output, expose a port). It has network access and the system's database, Redis, and S3 credentials in its environment.
 - Whiteboards (list/get boards, create boards, add/update/delete drawing and component elements, set backgrounds, and render a board to an image with view_whiteboard)

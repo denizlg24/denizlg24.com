@@ -9,6 +9,7 @@ import { emailTools } from "./email";
 import { journalTools } from "./journal";
 import { kanbanTools } from "./kanban";
 import { latexTools } from "./latex";
+import { marketsTools } from "./markets";
 import { notesTools } from "./notes";
 import { nowTools } from "./now";
 import { papersTools } from "./papers";
@@ -46,6 +47,9 @@ const allTools: ToolDefinition[] = [
   ...papersTools,
   ...latexTools,
   ...spreadsheetTools,
+
+  // Markets
+  ...marketsTools,
 
   // People
   ...peopleTools,
