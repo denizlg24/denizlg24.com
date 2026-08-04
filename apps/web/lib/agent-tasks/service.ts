@@ -20,7 +20,7 @@ export async function loadAgentTaskOverview() {
       AgentTask.countDocuments({ status: "active" }),
       AgentTask.countDocuments({
         status: "active",
-        schedule: { $exists: true },
+        $or: [{ schedule: { $exists: true } }, { runAt: { $exists: true } }],
       }),
       AgentTaskRun.distinct("feedback.learnedProcedureIds", {
         "feedback.learnedProcedureIds.0": { $exists: true },
@@ -53,7 +53,15 @@ function assertSafePrompt(prompt: string) {
  * resuming it picks up from now rather than firing every slot it slept through.
  */
 function applySchedule(task: IAgentTask) {
-  if (task.status !== "active" || !task.schedule) {
+  if (task.status !== "active") {
+    task.nextRunAt = undefined;
+    return;
+  }
+  if (task.runAt) {
+    task.nextRunAt = task.runAt;
+    return;
+  }
+  if (!task.schedule) {
     task.nextRunAt = undefined;
     return;
   }
@@ -66,12 +74,13 @@ function applySchedule(task: IAgentTask) {
 export async function createAgentTask(input: CreateAgentTask) {
   assertSafePrompt(input.prompt);
   await connectDB();
-  const { model, schedule, ...fields } = input;
+  const { model, schedule, runAt, ...fields } = input;
   const task = new AgentTask({
     ...fields,
     schedule: schedule
       ? { cron: schedule.cron, timeZone: schedule.timeZone }
       : undefined,
+    runAt: runAt ? new Date(runAt) : undefined,
     llmModel: model ?? (await getUnattendedModel()),
     status: "active",
   });
@@ -87,7 +96,7 @@ export async function updateAgentTask(taskId: string, input: UpdateAgentTask) {
   const task = await AgentTask.findById(taskId);
   if (!task) throw new Error("Task not found");
 
-  const { model, schedule, ...fields } = input;
+  const { model, schedule, runAt, ...fields } = input;
   task.set(fields);
   if (model) task.llmModel = model;
   // `null` clears the schedule and makes the task manual-only; `undefined`
@@ -96,6 +105,11 @@ export async function updateAgentTask(taskId: string, input: UpdateAgentTask) {
     task.schedule = schedule
       ? { cron: schedule.cron, timeZone: schedule.timeZone }
       : undefined;
+    if (schedule) task.runAt = undefined;
+  }
+  if (runAt !== undefined) {
+    task.runAt = runAt ? new Date(runAt) : undefined;
+    if (runAt) task.schedule = undefined;
   }
   applySchedule(task);
   await task.save();

@@ -33,6 +33,8 @@ export function serializeAgentTask(task: IAgentTask): SerializedTask {
     schedule: task.schedule
       ? { cron: task.schedule.cron, timeZone: task.schedule.timeZone }
       : null,
+    runAt: task.runAt ? task.runAt.toISOString() : null,
+    origin: task.origin ?? "owner",
     model: task.llmModel,
     memoryMode: task.memoryMode,
     status: task.status,
