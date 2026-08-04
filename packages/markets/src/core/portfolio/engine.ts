@@ -239,6 +239,37 @@ export interface PriceLookup {
   (ticker: string, date: string): number | null;
 }
 
+/**
+ * The dates an equity curve is evaluated on: every session the cache knows
+ * about, plus the two endpoints that make the curve mean anything.
+ *
+ * Driving this from cached bars alone is wrong in both directions. A daily bar
+ * for today does not exist until after the close, so the curve stopped at the
+ * previous session while positions were already priced live — and a portfolio
+ * opened today had no bars at all, so it had no curve whatsoever and reported
+ * only its uninvested cash. Inception supplies a first point; today supplies a
+ * last one, priced by the caller from live quotes.
+ *
+ * Both endpoints are clamped to the portfolio's own lifetime: a bar from before
+ * inception would value a book that did not exist, and one dated after today
+ * would put the curve in the future.
+ */
+export function performanceDates(options: {
+  barDates: Iterable<string>;
+  inceptionDate: string;
+  today: string;
+}): string[] {
+  const { barDates, inceptionDate, today } = options;
+  const dates = new Set<string>(barDates);
+  dates.add(inceptionDate);
+  // A portfolio dated in the future has not started; giving it a point at today
+  // would open its curve before its own inception.
+  if (today >= inceptionDate) dates.add(today);
+  return [...dates]
+    .filter((date) => date >= inceptionDate && date <= today)
+    .sort();
+}
+
 const DEFAULT_MARGIN: MarginConfig = {
   enabled: false,
   initialLong: 0.5,

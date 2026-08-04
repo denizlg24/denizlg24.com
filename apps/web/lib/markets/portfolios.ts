@@ -5,8 +5,10 @@ import {
   CASH_TICKER,
   computeMargin,
   computeMetrics,
+  performanceDates,
   replayTrades,
   synthesizeActionTrades,
+  toDateKey,
 } from "@repo/markets/core";
 import type {
   MarginConfig,
@@ -342,6 +344,12 @@ export async function getPerformance(
   // adjusted prices here would count every split a second time.
   const closes = new Map<string, Map<string, number>>();
   const tradingDays = new Set<string>();
+  // Latest and second-latest close per ticker, so a holding with no live quote
+  // still prices off its last print rather than off whatever date happens to sit
+  // at the end of `dates` — which, now that today is always there, is a day the
+  // bar cache does not reach until after the close.
+  const latestClose = new Map<string, number>();
+  const priorClose = new Map<string, number>();
   const [barsByTicker, benchmarkBars] = await Promise.all([
     Promise.all(
       tickers.map((ticker) =>
@@ -354,21 +362,63 @@ export async function getPerformance(
   ]);
 
   tickers.forEach((ticker, index) => {
+    const bars = barsByTicker[index] ?? [];
     const byDate = new Map<string, number>();
-    for (const bar of barsByTicker[index] ?? []) {
+    for (const bar of bars) {
       byDate.set(bar.date, bar.close);
       tradingDays.add(bar.date);
     }
     closes.set(ticker, byDate);
+    const latest = bars.at(-1);
+    if (latest) latestClose.set(ticker, latest.close);
+    const prior = bars.at(-2);
+    if (prior) priorClose.set(ticker, prior.close);
   });
   for (const bar of benchmarkBars) tradingDays.add(bar.date);
 
-  const dates = [...tradingDays].sort();
-  const priceOn = (ticker: string, date: string) =>
-    closes.get(ticker)?.get(date) ?? null;
   const allowShorts = portfolio.allowShorts ?? false;
   const margin = marginConfigOf(portfolio);
-  const replayOptions = { allowShorts };
+
+  // Quotes are read before the curve is built, not after, because the curve's
+  // final point is priced from them.
+  //
+  // Everything below exists because the curve used to be driven entirely by
+  // cached daily bars, and a daily bar for today does not exist until after the
+  // close. So the curve stopped at the previous session while `positions` were
+  // already live — the header disagreed with the table beneath it, and "day"
+  // P&L was yesterday's move. On a portfolio opened today there were no bars at
+  // all: no curve, no contributions, and metrics falling back to bare cash, so a
+  // book that had just bought stock reported only the cash it had left.
+  const quoteTickers = portfolio.benchmark
+    ? [...new Set([...tickers, portfolio.benchmark])]
+    : tickers;
+  // Refreshed rather than read straight from Mongo. A holding that is not on a
+  // watchlist and not open in the markets view has nothing else driving its
+  // quote, so cached-only reads left the portfolio valued at whatever the last
+  // cron run wrote. This is the batched, TTL'd path — one provider request
+  // covers every holding, and at most one every two minutes.
+  const { quotes } = await getQuotes(quoteTickers).catch(async () => ({
+    quotes: await stores.quotes.getQuotes(quoteTickers),
+  }));
+  const quoteByTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));
+
+  const today = toDateKey(stores.clock.now());
+  const dates = performanceDates({
+    barDates: tradingDays,
+    inceptionDate: portfolio.inceptionDate,
+    today,
+  });
+
+  const priceOn = (ticker: string, date: string) => {
+    // The live quote is the close-in-progress. Preferring the cached bar here
+    // would pin today's point to yesterday even once a quote exists.
+    if (date === today) {
+      return (
+        quoteByTicker.get(ticker)?.last ?? closes.get(ticker)?.get(date) ?? null
+      );
+    }
+    return closes.get(ticker)?.get(date) ?? null;
+  };
   const curveInput = { initialCash: portfolio.initialCash, allowShorts };
   const curve = buildValuationCurve(curveInput, trades, dates, priceOn);
   const contributions = buildContributionSeries(
@@ -378,32 +428,16 @@ export async function getPerformance(
     priceOn,
   );
 
-  const state = replayTrades(
-    trades,
-    portfolio.initialCash,
-    undefined,
-    replayOptions,
-  );
-  // Refreshed rather than read straight from Mongo. A holding that is not on a
-  // watchlist and not open in the markets view has nothing else driving its
-  // quote, so cached-only reads left the portfolio valued at whatever the last
-  // cron run wrote. This is the batched, TTL'd path — one provider request
-  // covers every holding, and at most one every two minutes.
-  const { quotes } = await getQuotes(tickers).catch(async () => ({
-    quotes: await stores.quotes.getQuotes(tickers),
-  }));
-  const quoteByTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));
-  const lastDate = dates.at(-1);
-  const previousDate = dates.at(-2);
+  const state = replayTrades(trades, portfolio.initialCash, undefined, {
+    allowShorts,
+  });
 
   const positions = buildPositions(
     state,
     (ticker) =>
-      quoteByTicker.get(ticker)?.last ??
-      (lastDate ? (closes.get(ticker)?.get(lastDate) ?? null) : null),
+      quoteByTicker.get(ticker)?.last ?? latestClose.get(ticker) ?? null,
     (ticker) =>
-      quoteByTicker.get(ticker)?.prevClose ??
-      (previousDate ? (closes.get(ticker)?.get(previousDate) ?? null) : null),
+      quoteByTicker.get(ticker)?.prevClose ?? priorClose.get(ticker) ?? null,
     margin,
   );
 
@@ -411,6 +445,19 @@ export async function getPerformance(
     date: bar.date,
     value: bar.adjClose,
   }));
+  // The benchmark gets the same live final point, or it would be measured to
+  // yesterday while the portfolio is measured to now — which shows up as a
+  // spurious day of out- or under-performance every session.
+  //
+  // Mixing a raw last into an adjusted series is safe only at the tip: back
+  // adjustment is applied to older bars, so the newest `adjClose` is already the
+  // raw close. Appending anywhere else would not be.
+  const benchmarkLast = portfolio.benchmark
+    ? (quoteByTicker.get(portfolio.benchmark)?.last ?? null)
+    : null;
+  if (benchmarkLast !== null && benchmarkCurve.at(-1)?.date !== today) {
+    benchmarkCurve.push({ date: today, value: benchmarkLast });
+  }
 
   return {
     portfolioId,
