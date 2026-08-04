@@ -236,10 +236,10 @@ export function PortfoliosPage({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+      <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 sm:flex-nowrap sm:py-0">
         {portfolios.length > 0 ? (
           <Select value={selected ?? undefined} onValueChange={choose}>
-            <SelectTrigger size="sm" className="h-8 w-56 text-xs">
+            <SelectTrigger size="sm" className="h-8 w-40 text-xs sm:w-56">
               <SelectValue placeholder="Portfolio" />
             </SelectTrigger>
             <SelectContent>
@@ -254,7 +254,7 @@ export function PortfoliosPage({
 
         <NewPortfolioSheet onCreate={create} />
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <a
             href={routes.markets}
             className="flex items-center gap-1.5 text-muted-foreground text-xs hover:text-foreground"
@@ -281,10 +281,10 @@ export function PortfoliosPage({
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-7 px-2 text-red-600 text-xs"
+                    className="h-7 max-w-40 px-2 text-red-600 text-xs"
                     onClick={() => void remove()}
                   >
-                    Delete {portfolio.name}?
+                    <span className="truncate">Delete {portfolio.name}?</span>
                   </Button>
                   <Button
                     size="icon-sm"
@@ -321,7 +321,11 @@ export function PortfoliosPage({
       ) : !performance ? (
         <div className="px-4 py-3 text-muted-foreground text-xs">—</div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
+        // The dashboard shell clips at the viewport, so a page that outgrows it
+        // is cut off rather than scrolled. Below lg the metrics, chart and both
+        // panes cannot share one screen, so this column takes the scroll and the
+        // panes get a fixed height instead of a share of nothing.
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
           <MetricsRow
             metrics={performance.metrics}
             benchmark={portfolio.benchmark}
@@ -332,7 +336,7 @@ export function PortfoliosPage({
             performance={performance}
           />
 
-          <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-2">
+          <div className="grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-2">
             <Positions
               positions={performance.positions}
               cash={performance.metrics.cash}
@@ -367,7 +371,7 @@ function MetricsRow({
   benchmark: string | null;
 }) {
   return (
-    <div className="grid shrink-0 grid-cols-3 gap-x-6 gap-y-1 border-b px-4 py-2 text-xs sm:grid-cols-5 xl:grid-cols-8">
+    <div className="grid shrink-0 grid-cols-3 gap-x-3 gap-y-1 border-b px-4 py-2 text-xs sm:grid-cols-5 sm:gap-x-6 xl:grid-cols-8">
       <Metric label="Value" value={money(metrics.totalValue)} />
       <Metric
         label="Day"
@@ -465,8 +469,9 @@ function Positions({
   const open = positions.filter((position) => position.quantity > 0);
   const [view, setView] = useState<"map" | "table">("map");
 
+  // Tall enough below lg to hold the 280px treemap plus its header.
   return (
-    <div className="flex min-h-0 flex-col border-b lg:border-r lg:border-b-0">
+    <div className="flex h-[22rem] min-h-0 flex-col border-b lg:h-auto lg:border-r lg:border-b-0">
       <div className="flex h-8 shrink-0 items-center gap-2 border-b px-4 text-[10px] text-muted-foreground uppercase tracking-wide">
         <span>Positions</span>
         <div className="ml-auto flex items-center gap-2">
@@ -485,7 +490,7 @@ function Positions({
           </button>
         </div>
       </div>
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className="min-h-0 flex-1" scrollbars="both">
         {view === "map" ? (
           <div className="p-2">
             <PositionTreemap
@@ -498,7 +503,7 @@ function Positions({
         ) : open.length === 0 ? (
           <div className="px-4 py-2 text-muted-foreground text-xs">—</div>
         ) : (
-          <table className="w-full text-xs">
+          <table className="w-full min-w-[34rem] text-xs">
             <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
               <tr className="border-b">
                 <th className="px-4 py-1 text-left font-normal">Symbol</th>
@@ -585,7 +590,7 @@ function TradeLog({
   );
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex h-80 min-h-0 flex-col lg:h-auto">
       <div className="flex h-8 shrink-0 items-center justify-between border-b px-4">
         <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
           Trades
@@ -597,11 +602,11 @@ function TradeLog({
           positions={positions}
         />
       </div>
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className="min-h-0 flex-1" scrollbars="both">
         {ordered.length === 0 ? (
           <div className="px-4 py-2 text-muted-foreground text-xs">—</div>
         ) : (
-          <table className="w-full text-xs">
+          <table className="w-full min-w-[30rem] text-xs">
             <tbody>
               {ordered.map((trade) => (
                 <tr
