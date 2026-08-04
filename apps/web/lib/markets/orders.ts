@@ -305,9 +305,18 @@ async function barSincePlacement(
 }
 
 /**
- * Books a fill and closes out the order in one guarded write. The guard on
- * `status: "working"` is what makes concurrent cron runs safe: the second one
- * matches nothing and books nothing.
+ * Books a fill and closes out the order.
+ *
+ * The order is claimed first, by a `findOneAndUpdate` guarded on
+ * `status: "working"`. That guard is what makes concurrent cron runs safe — the
+ * second one matches nothing and books nothing — and it has to come first, since
+ * writing the trade first would let two runs both book a fill before either
+ * claimed the order.
+ *
+ * There is no transaction to lean on, so the claim is undone by hand if the
+ * trade write then fails. A filled order with no trade behind it is the worse
+ * failure of the two: it reads as a closed position that the replay never saw,
+ * and nothing would ever retry it.
  */
 async function bookFill(
   order: Order,
@@ -329,22 +338,37 @@ async function bookFill(
   );
   if (!claimed) return false;
 
-  const trade = await MarketTrade.create({
-    portfolioId: new Types.ObjectId(order.portfolioId),
-    ticker: order.ticker,
-    side: order.side,
-    quantity,
-    price,
-    fees: order.fees,
-    executedAt: now,
-    source: "order",
-    note: order.note,
-    orderId: claimed._id,
-  });
-  await MarketOrder.updateOne(
-    { _id: claimed._id },
-    { $set: { tradeId: trade._id } },
-  );
+  let tradeId: Types.ObjectId;
+  try {
+    const trade = await MarketTrade.create({
+      portfolioId: new Types.ObjectId(order.portfolioId),
+      ticker: order.ticker,
+      side: order.side,
+      quantity,
+      price,
+      fees: order.fees,
+      executedAt: now,
+      source: "order",
+      note: order.note,
+      orderId: claimed._id,
+    });
+    tradeId = trade._id;
+  } catch (error) {
+    await MarketOrder.updateOne(
+      { _id: claimed._id },
+      {
+        $set: {
+          status: "working",
+          filledPrice: null,
+          filledQuantity: 0,
+          filledAt: null,
+        },
+      },
+    );
+    throw error;
+  }
+
+  await MarketOrder.updateOne({ _id: claimed._id }, { $set: { tradeId } });
 
   // A bracket's entry filling is what arms its exits.
   await MarketOrder.updateMany(

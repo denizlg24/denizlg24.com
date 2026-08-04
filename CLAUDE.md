@@ -234,6 +234,22 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 - `DELETE /resources/{id}/sub-resources/{subId}` → `{ status: "deleted" }` (also deletes health logs)
 - Checks run from the backend in the health-check cron (`runAllSubResourceChecks` in `lib/resource-agent.ts`); logs share `HealthCheckLog` keyed by sub-resource id; public `/api/public/resource-status` nests `subResources` per parent
 
+### Markets orders and margin
+- `GET /markets/portfolios/{id}/orders` → `{ orders: Order[] }`; repeatable `?status=` narrows to the live book
+- `POST /markets/portfolios/{id}/orders` → `OrderInput` → `{ orders }` (the entry plus any bracket legs). **422, not 400**, when the order is well-formed but refused — no buying power, no position to reduce, shorting off
+- `PATCH /markets/portfolios/{id}/orders/{orderId}` → price, size and TIF only; side, type and symbol are not amendable
+- `DELETE /markets/portfolios/{id}/orders/{orderId}` → cancels, and cancels any pending bracket legs beneath it
+
+Things worth knowing before touching this:
+
+- **Positions are signed and the invariant is `costBasis === avgCost * quantity`.** A short is a negative quantity with a negative basis, which is what makes `marketValue - costBasis` the unrealised PnL of either side with no branch. Break it and every metric silently changes meaning.
+- **Shorting is opt-in per portfolio.** With `allowShorts` off, `applyTrade` clamps a sell to what is held exactly as it did before orders existed, so old portfolios replay unchanged.
+- **Fills are simulated, never brokered.** `runOrderEngine` books them on the markets cron, so fill latency is the cron interval. Nothing hits `/api/jobs/markets` from inside this repo — the scheduler is external, and if it is not running, no order ever fills.
+- **The trigger check reads the bar range, not just the quote.** A price that dives through a stop and recovers between two cron runs is invisible to a quote-only check, which is precisely the case a stop exists for. The placement day is excluded from that range: a daily bar has no time of day, so including it would fill a 3pm stop against the same morning's low.
+- **`syncPortfolioActions` owns only `dividend`, `drip` and `split`.** `LEDGER_SOURCES` — manual, deposits, withdrawals, order fills, borrow, liquidation — is what it must never delete. Keying the cleanup on "not owner-entered" wipes the entire automated book.
+- **Borrow ids are deterministic** (`borrow:<ticker>:<date>`) and upserted on `actionKey`. Charging a day twice is the failure that matters, not missing one.
+- **A margin call is reported, never acted on.** `computeMargin` returns the shortfall and the UI shows it; nothing auto-liquidates, so one stale quote cannot sell the book.
+
 ### Authenticator
 - `GET /authenticator` → `{ accounts: IAuthenticatorAccount[] }` (no secrets)
 - `GET /authenticator/codes` → `{ codes: IAuthenticatorCode[] }` — server-computed, used by the admin and desktop UIs
