@@ -1,6 +1,7 @@
 import { BudgetExhaustedError, toDateKey } from "@repo/markets/core";
 import { connectDB } from "@/lib/mongodb";
 import { MarketPortfolio, MarketPortfolioSnapshot } from "@/models/Market";
+import { runOrderEngine } from "./orders";
 import { getPerformance } from "./portfolios";
 import {
   getCandles,
@@ -17,6 +18,12 @@ export interface MarketsCronResult {
   candlesSynced: number;
   quotesRefreshed: number;
   fundamentalsSynced: number;
+  ordersEvaluated: number;
+  ordersFilled: number;
+  ordersClosed: number;
+  borrowCharged: number;
+  /** One line per portfolio under a call, for the run log to surface. */
+  marginCalls: string[];
   snapshotsWritten: number;
   budgetExhausted: boolean;
   errors: string[];
@@ -73,6 +80,11 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
     candlesSynced: 0,
     quotesRefreshed: 0,
     fundamentalsSynced: 0,
+    ordersEvaluated: 0,
+    ordersFilled: 0,
+    ordersClosed: 0,
+    borrowCharged: 0,
+    marginCalls: [],
     snapshotsWritten: 0,
     budgetExhausted: false,
     errors: [],
@@ -139,8 +151,25 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
     }
   }
 
-  // Snapshots read only cached bars, so they still run when the budget is gone.
+  // Orders and snapshots read only cached bars and quotes, so both still run
+  // when the provider budget is gone. Orders go first: a fill changes the book
+  // the snapshot is then taken of, and a snapshot written before the fill would
+  // record a position the portfolio no longer holds until tomorrow's run.
   const portfolios = await MarketPortfolio.find();
+  for (const portfolio of portfolios) {
+    try {
+      const orders = await runOrderEngine(String(portfolio._id), now);
+      result.ordersEvaluated += orders.evaluated;
+      result.ordersFilled += orders.filled;
+      result.ordersClosed += orders.cancelled + orders.expired;
+      result.borrowCharged += orders.borrowCharged;
+      result.marginCalls.push(...orders.marginCalls);
+      result.errors.push(...orders.errors);
+    } catch (error) {
+      result.errors.push(`orders ${portfolio._id}: ${String(error)}`);
+    }
+  }
+
   for (const portfolio of portfolios) {
     try {
       const performance = await getPerformance(String(portfolio._id));

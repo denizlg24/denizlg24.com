@@ -21,6 +21,7 @@ export function synthesizeActionTrades(options: {
   actions: CorporateAction[];
   manualTrades: Trade[];
   reinvestDividends: boolean;
+  allowShorts?: boolean;
   priceOn: PriceLookup;
 }): Trade[] {
   const { portfolioId, ticker, actions, manualTrades, reinvestDividends } =
@@ -35,7 +36,10 @@ export function synthesizeActionTrades(options: {
     manualTrades.filter((trade) => trade.ticker === ticker),
   );
   const generated: Trade[] = [];
-  const state = emptyState(0);
+  // Replayed with the portfolio's own short policy, or the shares held on an
+  // action date would be clamped at zero and a short would collect dividends
+  // it in fact owes.
+  const state = emptyState(0, { allowShorts: options.allowShorts });
   let cursor = 0;
 
   for (const action of relevant) {
@@ -49,7 +53,7 @@ export function synthesizeActionTrades(options: {
     }
 
     const held = state.positions.get(ticker)?.quantity ?? 0;
-    if (held <= 0) continue;
+    if (held === 0) continue;
 
     if (action.splitFactor !== 1) {
       const delta = held * (action.splitFactor - 1);
@@ -75,23 +79,29 @@ export function synthesizeActionTrades(options: {
       // share count, which is what the split trade above has just applied.
       const heldAtRecord = state.positions.get(ticker)?.quantity ?? 0;
       const amount = heldAtRecord * action.divCash;
-      if (amount <= 0) continue;
+      if (amount === 0) continue;
+      // A short owes the dividend to whoever lent the shares, so the same
+      // action that credits a long debits a short. Booking it as a credit
+      // regardless would pay the portfolio for a liability it carries.
+      const owed = amount < 0;
       const credit: Trade = {
         id: `${ticker}:${action.date}:dividend`,
         portfolioId,
         ticker: CASH_TICKER,
-        side: "buy",
-        quantity: amount,
+        side: owed ? "sell" : "buy",
+        quantity: Math.abs(amount),
         price: 1,
         fees: 0,
         executedAt: cutoff,
         source: "dividend",
-        note: `${ticker} dividend`,
+        note: owed ? `${ticker} dividend owed on short` : `${ticker} dividend`,
       };
       generated.push(credit);
       applyTrade(state, credit);
 
-      if (reinvestDividends) {
+      // There is nothing to reinvest a debit into; a short pays the dividend
+      // out and the position is unchanged by it.
+      if (reinvestDividends && !owed) {
         const close = options.priceOn(ticker, action.date);
         // Without a print there is nothing to reinvest at; the cash simply
         // stays in the account rather than buying shares at a guessed price.

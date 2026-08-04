@@ -18,6 +18,7 @@ import type {
 import {
   addTrade,
   createPortfolio,
+  DEFAULT_MARGIN,
   deletePortfolio,
   deleteTrade,
   getPerformance,
@@ -792,6 +793,16 @@ export const marketsTools: ToolDefinition[] = [
             description:
               "Dividends buy more of the paying symbol instead of settling to cash (default false).",
           },
+          allowShorts: {
+            type: "boolean",
+            description:
+              "Allow selling into a flat book to open a short (default false).",
+          },
+          margin: {
+            type: "boolean",
+            description:
+              "Enable Reg-T margin: buying power against equity, maintenance requirements, margin calls and daily borrow on shorts (default false).",
+          },
         },
         required: ["name", "initialCash", "inceptionDate"],
       },
@@ -808,6 +819,11 @@ export const marketsTools: ToolDefinition[] = [
           : "USD",
         benchmark: input.benchmark ? upper(input.benchmark) : null,
         reinvestDividends: input.reinvestDividends === true,
+        allowShorts: input.allowShorts === true,
+        // The rates are deliberately not exposed as tool arguments: an agent
+        // has no basis for choosing a maintenance requirement, and the retail
+        // baseline is the only sensible default.
+        margin: { ...DEFAULT_MARGIN, enabled: input.margin === true },
       }),
   },
   {

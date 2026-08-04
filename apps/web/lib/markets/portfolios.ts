@@ -3,11 +3,13 @@ import {
   buildPositions,
   buildValuationCurve,
   CASH_TICKER,
+  computeMargin,
   computeMetrics,
   replayTrades,
   synthesizeActionTrades,
 } from "@repo/markets/core";
 import type {
+  MarginConfig,
   Portfolio,
   PortfolioInput,
   PortfolioPerformance,
@@ -26,12 +28,65 @@ import {
 } from "@/models/Market";
 import { getCandles, getQuotes, getStores } from "./service";
 
-/** Trades the owner typed. The rest are derived from cached corporate actions. */
+/**
+ * Trades the owner typed. The rest are derived from cached corporate actions,
+ * booked by the order engine, or accrued as borrow — all of them regenerable,
+ * and none of them the owner's to edit by hand.
+ */
 export const OWNER_ENTERED_SOURCES: TradeSource[] = [
   "manual",
   "deposit",
   "withdrawal",
 ];
+
+/**
+ * Everything a corporate-action sync must leave alone. Order fills and borrow
+ * charges are as real as a typed trade — they just were not typed — and
+ * rebuilding the action rows must never take them with it. Treating "not
+ * owner-entered" as "regenerable" would delete the entire automated book on the
+ * next sync.
+ */
+export const LEDGER_SOURCES: TradeSource[] = [
+  ...OWNER_ENTERED_SOURCES,
+  "order",
+  "borrow",
+  "liquidation",
+];
+
+/** The rows `syncPortfolioActions` owns outright and rebuilds every run. */
+export const GENERATED_ACTION_SOURCES: TradeSource[] = [
+  "dividend",
+  "drip",
+  "split",
+];
+
+export const DEFAULT_MARGIN: MarginConfig = {
+  enabled: false,
+  initialLong: 0.5,
+  initialShort: 1.5,
+  maintenanceLong: 0.25,
+  maintenanceShort: 0.3,
+  borrowRate: 0.03,
+};
+
+/**
+ * Portfolios created before margin existed carry no subdocument, and a missing
+ * requirement would read as a zero requirement — infinite buying power and a
+ * margin call that can never fire.
+ */
+export function marginConfigOf(doc: IMarketPortfolio): MarginConfig {
+  const stored = doc.margin;
+  if (!stored) return DEFAULT_MARGIN;
+  return {
+    enabled: stored.enabled ?? DEFAULT_MARGIN.enabled,
+    initialLong: stored.initialLong ?? DEFAULT_MARGIN.initialLong,
+    initialShort: stored.initialShort ?? DEFAULT_MARGIN.initialShort,
+    maintenanceLong: stored.maintenanceLong ?? DEFAULT_MARGIN.maintenanceLong,
+    maintenanceShort:
+      stored.maintenanceShort ?? DEFAULT_MARGIN.maintenanceShort,
+    borrowRate: stored.borrowRate ?? DEFAULT_MARGIN.borrowRate,
+  };
+}
 
 function toPortfolio(doc: IMarketPortfolio): Portfolio {
   return {
@@ -41,6 +96,8 @@ function toPortfolio(doc: IMarketPortfolio): Portfolio {
     initialCash: doc.initialCash,
     benchmark: doc.benchmark,
     reinvestDividends: doc.reinvestDividends,
+    allowShorts: doc.allowShorts ?? false,
+    margin: marginConfigOf(doc),
     inceptionDate: doc.inceptionDate,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
@@ -59,6 +116,7 @@ function toTrade(doc: IMarketTrade): Trade {
     executedAt: doc.executedAt.toISOString(),
     source: doc.source as Trade["source"],
     note: doc.note ?? undefined,
+    orderId: doc.orderId ? String(doc.orderId) : undefined,
   };
 }
 
@@ -154,11 +212,13 @@ export async function syncPortfolioActions(
   if (!portfolio) return 0;
 
   const stores = getStores();
-  // Everything the owner entered survives a sync; only dividend and split rows
-  // are regenerated. Cash movements would otherwise be wiped on every rebuild.
+  // The whole real ledger, not just what was typed: an action falls on the
+  // shares an order filled exactly as it does on the shares the owner bought,
+  // and replaying without the fills would compute a dividend against a position
+  // the portfolio does not have.
   const manualDocs = await MarketTrade.find({
     portfolioId,
-    source: { $in: OWNER_ENTERED_SOURCES },
+    source: { $in: LEDGER_SOURCES },
   });
   const manual = manualDocs.map(toTrade);
   const tickers = [
@@ -182,6 +242,7 @@ export async function syncPortfolioActions(
         actions,
         manualTrades: manual,
         reinvestDividends: portfolio.reinvestDividends,
+        allowShorts: portfolio.allowShorts ?? false,
         priceOn: (_ticker, date) => closes.get(date) ?? null,
       });
     }),
@@ -217,9 +278,12 @@ export async function syncPortfolioActions(
       })),
     );
   }
+  // Scoped to the sources this function generates. Keyed on "not owner-entered"
+  // it would also sweep away order fills and borrow charges, which nothing
+  // regenerates.
   await MarketTrade.deleteMany({
     portfolioId,
-    source: { $nin: OWNER_ENTERED_SOURCES },
+    source: { $in: GENERATED_ACTION_SOURCES },
     actionKey: { $nin: generated.map((trade) => trade.id) },
   });
   return generated.length;
@@ -302,15 +366,24 @@ export async function getPerformance(
   const dates = [...tradingDays].sort();
   const priceOn = (ticker: string, date: string) =>
     closes.get(ticker)?.get(date) ?? null;
-  const curve = buildValuationCurve(portfolio, trades, dates, priceOn);
+  const allowShorts = portfolio.allowShorts ?? false;
+  const margin = marginConfigOf(portfolio);
+  const replayOptions = { allowShorts };
+  const curveInput = { initialCash: portfolio.initialCash, allowShorts };
+  const curve = buildValuationCurve(curveInput, trades, dates, priceOn);
   const contributions = buildContributionSeries(
-    portfolio,
+    curveInput,
     trades,
     dates,
     priceOn,
   );
 
-  const state = replayTrades(trades, portfolio.initialCash);
+  const state = replayTrades(
+    trades,
+    portfolio.initialCash,
+    undefined,
+    replayOptions,
+  );
   // Refreshed rather than read straight from Mongo. A holding that is not on a
   // watchlist and not open in the markets view has nothing else driving its
   // quote, so cached-only reads left the portfolio valued at whatever the last
@@ -331,6 +404,7 @@ export async function getPerformance(
     (ticker) =>
       quoteByTicker.get(ticker)?.prevClose ??
       (previousDate ? (closes.get(ticker)?.get(previousDate) ?? null) : null),
+    margin,
   );
 
   const benchmarkCurve = benchmarkBars.map((bar) => ({
@@ -350,5 +424,6 @@ export async function getPerformance(
       state,
       positions,
     }),
+    margin: computeMargin({ cash: state.cash, positions, config: margin }),
   };
 }

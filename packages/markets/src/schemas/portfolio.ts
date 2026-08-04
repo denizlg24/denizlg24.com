@@ -14,7 +14,8 @@ export type TradeSide = z.infer<typeof tradeSideSchema>;
 /**
  * Corporate actions and cash movements are recorded as trades so the log stays
  * the single source of truth for a portfolio's state. Only `manual` trades are
- * user-editable; the rest are regenerated from cached actions.
+ * user-editable; the rest are regenerated from cached actions, booked by the
+ * order engine, or accrued by the margin engine.
  */
 export const tradeSourceSchema = z.enum([
   "manual",
@@ -23,6 +24,12 @@ export const tradeSourceSchema = z.enum([
   "split",
   "deposit",
   "withdrawal",
+  /** Booked by the order engine when a working order filled. */
+  "order",
+  /** Daily cost of carrying a short, charged against cash. */
+  "borrow",
+  /** Booked by a margin call the owner did not act on. */
+  "liquidation",
 ]);
 export type TradeSource = z.infer<typeof tradeSourceSchema>;
 
@@ -37,6 +44,8 @@ export const tradeSchema = z.object({
   executedAt: isoDateTimeSchema,
   source: tradeSourceSchema.default("manual"),
   note: z.string().max(500).optional(),
+  /** Set on fills, so the blotter can walk from a trade back to its order. */
+  orderId: z.string().optional(),
 });
 export type Trade = z.infer<typeof tradeSchema>;
 
@@ -44,6 +53,23 @@ export const tradeInputSchema = tradeSchema
   .omit({ id: true, portfolioId: true })
   .extend({ source: tradeSourceSchema.default("manual") });
 export type TradeInput = z.infer<typeof tradeInputSchema>;
+
+/**
+ * Reg-T style requirements as fractions of market value. Defaults match the US
+ * retail baseline: 50% to open either side, 25% to keep a long, 30% to keep a
+ * short. A cash account is expressed as 100% initial on both sides rather than
+ * as a separate mode.
+ */
+export const marginConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  initialLong: z.number().min(0).max(1).default(0.5),
+  initialShort: z.number().min(0).max(2).default(1.5),
+  maintenanceLong: z.number().min(0).max(1).default(0.25),
+  maintenanceShort: z.number().min(0).max(2).default(0.3),
+  /** Annual borrow rate on short market value, as a fraction (0.03 = 3%/yr). */
+  borrowRate: z.number().min(0).max(2).default(0.03),
+});
+export type MarginConfig = z.infer<typeof marginConfigSchema>;
 
 export const portfolioSchema = z.object({
   id: z.string(),
@@ -54,6 +80,11 @@ export const portfolioSchema = z.object({
   benchmark: tickerSchema.nullable().default(null),
   /** Dividends buy more of the paying symbol instead of settling to cash. */
   reinvestDividends: z.boolean().default(false),
+  /** Off by default: a sell can then never take a position below zero. */
+  allowShorts: z.boolean().default(false),
+  // `prefault` rather than `default`: the fallback is fed through the schema so
+  // each field picks up its own default, instead of having to restate all six.
+  margin: marginConfigSchema.prefault({}),
   inceptionDate: isoDateSchema,
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -66,24 +97,37 @@ export const portfolioInputSchema = portfolioSchema.pick({
   initialCash: true,
   benchmark: true,
   reinvestDividends: true,
+  allowShorts: true,
+  margin: true,
   inceptionDate: true,
 });
 export type PortfolioInput = z.infer<typeof portfolioInputSchema>;
 
+export const positionSideSchema = z.enum(["long", "short"]);
+export type PositionSide = z.infer<typeof positionSideSchema>;
+
 export const positionSchema = z.object({
   ticker: tickerSchema,
+  /** Negative for a short. `side` is the same fact, pre-computed for the UI. */
   quantity: quantitySchema,
+  side: positionSideSchema,
   avgCost: priceSchema,
   costBasis: z.number(),
   lastPrice: priceSchema.nullable(),
   marketValue: z.number(),
+  /** `|marketValue|` — what the position costs in margin and in risk. */
+  exposure: z.number(),
   unrealizedPnl: z.number(),
   unrealizedPnlPercent: z.number(),
   realizedPnl: z.number(),
   dayChange: z.number().nullable(),
   dayChangePercent: z.number().nullable(),
-  /** Share of total portfolio value, 0–1. */
+  /** Share of gross exposure, 0–1. Shorts count positively. */
   weight: z.number(),
+  /** Maintenance margin this position alone requires. */
+  maintenanceMargin: z.number(),
+  /** Price at which the position's own PnL crosses zero. */
+  breakEven: priceSchema.nullable(),
 });
 export type Position = z.infer<typeof positionSchema>;
 
@@ -119,6 +163,34 @@ export const contributionSeriesSchema = z.object({
   points: z.array(contributionPointSchema),
 });
 export type ContributionSeries = z.infer<typeof contributionSeriesSchema>;
+
+/**
+ * The margin picture at one instant. Every field is derived from cash, open
+ * positions and the portfolio's `MarginConfig` — nothing here is stored.
+ */
+export const marginStateSchema = z.object({
+  /** Cash plus the signed value of every position. The true account worth. */
+  equity: z.number(),
+  cash: z.number(),
+  longExposure: z.number(),
+  shortExposure: z.number(),
+  grossExposure: z.number(),
+  netExposure: z.number(),
+  /** Equity that would be needed to open today's book from flat. */
+  initialMargin: z.number(),
+  /** Equity that must stay in the account to keep it. */
+  maintenanceMargin: z.number(),
+  /** `equity - maintenanceMargin`. Negative means a call. */
+  excessLiquidity: z.number(),
+  /** What can still be committed, at the initial requirement. */
+  buyingPower: z.number(),
+  /** `grossExposure / equity`, null when equity is zero or negative. */
+  leverage: z.number().nullable(),
+  marginCall: z.boolean(),
+  /** Shortfall to cure a call; zero when there is none. */
+  marginCallAmount: z.number(),
+});
+export type MarginState = z.infer<typeof marginStateSchema>;
 
 export const portfolioMetricsSchema = z.object({
   totalValue: z.number(),
@@ -157,6 +229,7 @@ export const portfolioPerformanceSchema = z.object({
   positions: z.array(positionSchema),
   contributions: z.array(contributionSeriesSchema),
   metrics: portfolioMetricsSchema,
+  margin: marginStateSchema,
 });
 export type PortfolioPerformance = z.infer<typeof portfolioPerformanceSchema>;
 

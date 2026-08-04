@@ -41,7 +41,7 @@
     },
     "apps/authenticator-extension": {
       "name": "authenticator-extension",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "dependencies": {
         "@repo/schemas": "workspace:*",
         "@repo/ui": "workspace:*",

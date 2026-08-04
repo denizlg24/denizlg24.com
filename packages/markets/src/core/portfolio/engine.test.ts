@@ -282,21 +282,27 @@ describe("ordering", () => {
 });
 
 describe("positions view", () => {
-  test("weights are shares of total value including cash", () => {
+  test("weights are shares of gross exposure, not of total value", () => {
     const state = replayTrades(
-      [trade({ ticker: "AAPL", quantity: 10, price: 50 })],
-      1000,
+      [
+        trade({ ticker: "AAPL", quantity: 10, price: 50 }),
+        trade({ ticker: "MSFT", quantity: 10, price: 50 }),
+      ],
+      2000,
     );
     const positions = buildPositions(
       state,
-      () => 100,
-      () => 90,
+      (ticker) => (ticker === "AAPL" ? 100 : 50),
+      (ticker) => (ticker === "AAPL" ? 90 : 50),
     );
-    const aapl = positions[0];
+    const aapl = positions.find((position) => position.ticker === "AAPL");
     expect(aapl?.marketValue).toBe(1000);
     expect(aapl?.unrealizedPnl).toBe(500);
     expect(aapl?.avgCost).toBe(50);
     expect(aapl?.dayChange).toBe(100);
+    // Cash is deliberately not in the denominator: a short has negative market
+    // value, so weighting against total value would hand it a negative share of
+    // a book it is very much exposed to.
     expect(aapl?.weight).toBeCloseTo(1000 / 1500, 10);
   });
 
