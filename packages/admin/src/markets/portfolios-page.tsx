@@ -1,6 +1,9 @@
 "use client";
 
 import type {
+  MarginState,
+  Order,
+  OrderInput,
   Portfolio,
   PortfolioMetrics,
   PortfolioPerformance,
@@ -50,6 +53,9 @@ import {
   toneClass,
   trimQuantity,
 } from "./format";
+import { MarginStrip } from "./margin-strip";
+import { OrderBlotter } from "./order-blotter";
+import { OrderTicket } from "./order-ticket";
 import { PortfolioPerformanceChart } from "./portfolio-performance";
 import { PositionTreemap } from "./position-treemap";
 import { TradeTicket } from "./trade-ticket";
@@ -81,6 +87,7 @@ export function PortfoliosPage({
     null,
   );
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -126,19 +133,22 @@ export function PortfoliosPage({
       setLoading(true);
       setError(null);
       try {
-        const [perf, log] = await Promise.all([
+        const [perf, log, book] = await Promise.all([
           client.get<PortfolioPerformance>(
             `/markets/portfolios/${id}/performance`,
           ),
           client.get<{ trades: Trade[] }>(`/markets/portfolios/${id}/trades`),
+          client.get<{ orders: Order[] }>(`/markets/portfolios/${id}/orders`),
         ]);
         if (requested.current !== id) return;
         setPerformance(perf);
         setTrades(log.trades);
+        setOrders(book.orders);
       } catch (cause) {
         if (requested.current !== id) return;
         setPerformance(null);
         setTrades([]);
+        setOrders([]);
         setError(cause instanceof Error ? cause.message : "Failed to load");
       } finally {
         if (requested.current === id) setLoading(false);
@@ -161,15 +171,25 @@ export function PortfoliosPage({
   // request across every holding behind a two-minute TTL, so a tighter poll
   // here costs Mongo reads rather than budget. No loading flag: a quiet
   // re-price must not blank the surface it is updating.
+  // Orders ride the same poll. The engine fills on the cron, not in this tab, so
+  // without re-reading the book a stop that triggered five minutes ago still
+  // shows as working while the position it closed has already gone from the
+  // positions table beside it.
   useLiveRefresh(
     () => {
       if (!selected) return;
-      client
-        .get<PortfolioPerformance>(
+      Promise.all([
+        client.get<PortfolioPerformance>(
           `/markets/portfolios/${selected}/performance`,
-        )
-        .then((perf) => {
-          if (requested.current === selected) setPerformance(perf);
+        ),
+        client.get<{ orders: Order[] }>(
+          `/markets/portfolios/${selected}/orders`,
+        ),
+      ])
+        .then(([perf, book]) => {
+          if (requested.current !== selected) return;
+          setPerformance(perf);
+          setOrders(book.orders);
         })
         .catch(() => undefined);
     },
@@ -187,6 +207,17 @@ export function PortfoliosPage({
 
   const portfolio = portfolios?.find((item) => item.id === selected) ?? null;
 
+  const selectTicker = useCallback(
+    (next: string) => {
+      if (onSelectTicker) {
+        onSelectTicker(next);
+        return;
+      }
+      window.location.href = `${routes.markets}?ticker=${encodeURIComponent(next)}`;
+    },
+    [onSelectTicker, routes.markets],
+  );
+
   const create = useCallback(
     async (input: {
       name: string;
@@ -194,6 +225,8 @@ export function PortfoliosPage({
       benchmark: string | null;
       inceptionDate: string;
       reinvestDividends: boolean;
+      allowShorts: boolean;
+      margin: Portfolio["margin"];
     }) => {
       const { portfolio: created } = await client.post<{
         portfolio: Portfolio;
@@ -251,6 +284,35 @@ export function PortfoliosPage({
       setTrades((current) => current.filter((trade) => trade.id !== tradeId));
       await client
         .del(`/markets/portfolios/${selected}/trades/${tradeId}`)
+        .catch(() => undefined);
+      await load(selected);
+    },
+    [client, selected, load],
+  );
+
+  // A rejection is thrown so the ticket can show it against the field the owner
+  // is looking at, rather than being swallowed into the page-level error.
+  const placeOrder = useCallback(
+    async (input: OrderInput) => {
+      if (!selected) return;
+      await client.post(`/markets/portfolios/${selected}/orders`, input);
+      await load(selected);
+    },
+    [client, selected, load],
+  );
+
+  const cancelOrder = useCallback(
+    async (orderId: string) => {
+      if (!selected) return;
+      setOrders((current) =>
+        current.map((order) =>
+          order.id === orderId
+            ? { ...order, status: "cancelled" as const }
+            : order,
+        ),
+      );
+      await client
+        .del(`/markets/portfolios/${selected}/orders/${orderId}`)
         .catch(() => undefined);
       await load(selected);
     },
@@ -356,23 +418,49 @@ export function PortfoliosPage({
             benchmark={portfolio.benchmark}
           />
 
+          {/* Only shown once the book has a reason for it. A long-only cash
+              account has no margin story, and a strip of zeroes above the chart
+              is one more row between the owner and the numbers. */}
+          {portfolio.margin.enabled ||
+          portfolio.allowShorts ||
+          performance.margin.shortExposure > 0 ? (
+            <MarginStrip
+              margin={performance.margin}
+              baseCurrency={portfolio.baseCurrency}
+            />
+          ) : null}
+
           <PortfolioPerformanceChart
             portfolio={portfolio}
             performance={performance}
           />
 
-          <div className="grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-2">
+          <div className="grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-3">
             <Positions
               positions={performance.positions}
               cash={performance.metrics.cash}
-              onSelectTicker={(next) => {
-                if (onSelectTicker) {
-                  onSelectTicker(next);
-                  return;
-                }
-                window.location.href = `${routes.markets}?ticker=${encodeURIComponent(next)}`;
-              }}
+              onSelectTicker={selectTicker}
             />
+            <div className="flex min-h-0 flex-col border-b lg:border-r lg:border-b-0">
+              <div className="flex h-8 shrink-0 items-center justify-between border-b px-4">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                  Book
+                </span>
+                <OrderSheet
+                  onSubmit={placeOrder}
+                  baseCurrency={portfolio.baseCurrency}
+                  positions={performance.positions}
+                  margin={performance.margin}
+                  marginConfig={portfolio.margin}
+                  allowShorts={portfolio.allowShorts}
+                />
+              </div>
+              <OrderBlotter
+                orders={orders}
+                onCancel={cancelOrder}
+                onSelectTicker={selectTicker}
+              />
+            </div>
             <TradeLog
               trades={trades}
               onAdd={addTrade}
@@ -491,7 +579,9 @@ function Positions({
   cash: number;
   onSelectTicker?: (ticker: string) => void;
 }) {
-  const open = positions.filter((position) => position.quantity > 0);
+  // Everything held, either way round. Filtering to `> 0` would hide every
+  // short from the only table that lists what the portfolio actually owns.
+  const open = positions.filter((position) => position.quantity !== 0);
   const [view, setView] = useState<"map" | "table">("map");
 
   // Tall enough below lg to hold the 280px treemap plus its header.
@@ -548,7 +638,14 @@ function Positions({
                   onClick={() => onSelectTicker?.(position.ticker)}
                   className="cursor-pointer border-b last:border-b-0 hover:bg-muted/50"
                 >
-                  <td className="px-4 py-1 font-medium">{position.ticker}</td>
+                  <td className="px-4 py-1 font-medium">
+                    {position.ticker}
+                    {position.side === "short" ? (
+                      <span className="ml-1 text-[9px] text-red-600 uppercase">
+                        short
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-2 py-1 text-right tabular-nums">
                     {trimQuantity(position.quantity)}
                   </td>
@@ -745,6 +842,51 @@ function TradeSheet({
   );
 }
 
+function OrderSheet({
+  onSubmit,
+  baseCurrency,
+  positions,
+  margin,
+  marginConfig,
+  allowShorts,
+}: {
+  onSubmit: (input: OrderInput) => Promise<void>;
+  baseCurrency: string;
+  positions: Position[];
+  margin: MarginState;
+  marginConfig: Portfolio["margin"];
+  allowShorts: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs">
+          <Plus className="size-3" />
+          Order
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="w-full overflow-y-auto sm:max-w-sm">
+        <SheetHeader>
+          <SheetTitle className="text-sm">New order</SheetTitle>
+        </SheetHeader>
+        <div className="px-4 pb-6">
+          <OrderTicket
+            baseCurrency={baseCurrency}
+            positions={positions}
+            margin={margin}
+            marginConfig={marginConfig}
+            allowShorts={allowShorts}
+            onSubmit={onSubmit}
+            onDone={() => setOpen(false)}
+          />
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 function NewPortfolioSheet({
   onCreate,
 }: {
@@ -754,6 +896,8 @@ function NewPortfolioSheet({
     benchmark: string | null;
     inceptionDate: string;
     reinvestDividends: boolean;
+    allowShorts: boolean;
+    margin: Portfolio["margin"];
   }) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -764,6 +908,9 @@ function NewPortfolioSheet({
     new Date().toISOString().slice(0, 10),
   );
   const [reinvest, setReinvest] = useState(false);
+  const [allowShorts, setAllowShorts] = useState(false);
+  const [useMargin, setUseMargin] = useState(false);
+  const [borrowRate, setBorrowRate] = useState("3");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -781,6 +928,15 @@ function NewPortfolioSheet({
         benchmark: benchmark.trim().toUpperCase() || null,
         inceptionDate,
         reinvestDividends: reinvest,
+        allowShorts,
+        margin: {
+          enabled: useMargin,
+          initialLong: 0.5,
+          initialShort: 1.5,
+          maintenanceLong: 0.25,
+          maintenanceShort: 0.3,
+          borrowRate: (Number(borrowRate) || 0) / 100,
+        },
       });
       setName("");
       setOpen(false);
@@ -789,7 +945,17 @@ function NewPortfolioSheet({
     } finally {
       setBusy(false);
     }
-  }, [name, initialCash, benchmark, inceptionDate, reinvest, onCreate]);
+  }, [
+    name,
+    initialCash,
+    benchmark,
+    inceptionDate,
+    reinvest,
+    allowShorts,
+    useMargin,
+    borrowRate,
+    onCreate,
+  ]);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -841,14 +1007,43 @@ function NewPortfolioSheet({
               className="h-8 text-xs tabular-nums"
             />
           </div>
-          <Label htmlFor="portfolio-drip" className="text-xs">
-            <Switch
-              id="portfolio-drip"
-              checked={reinvest}
-              onCheckedChange={setReinvest}
-            />
-            DRIP
-          </Label>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            <Label htmlFor="portfolio-drip" className="text-xs">
+              <Switch
+                id="portfolio-drip"
+                checked={reinvest}
+                onCheckedChange={setReinvest}
+              />
+              DRIP
+            </Label>
+            <Label htmlFor="portfolio-shorts" className="text-xs">
+              <Switch
+                id="portfolio-shorts"
+                checked={allowShorts}
+                onCheckedChange={setAllowShorts}
+              />
+              Shorts
+            </Label>
+            <Label htmlFor="portfolio-margin" className="text-xs">
+              <Switch
+                id="portfolio-margin"
+                checked={useMargin}
+                onCheckedChange={setUseMargin}
+              />
+              Margin
+            </Label>
+          </div>
+          {useMargin ? (
+            <div className="space-y-1">
+              <Label className="text-xs">Borrow rate %/yr</Label>
+              <Input
+                value={borrowRate}
+                onChange={(event) => setBorrowRate(event.target.value)}
+                inputMode="decimal"
+                className="h-8 text-xs tabular-nums"
+              />
+            </div>
+          ) : null}
           {problem ? <div className="text-red-600">{problem}</div> : null}
         </div>
 
