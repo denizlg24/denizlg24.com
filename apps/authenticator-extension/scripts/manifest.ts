@@ -11,6 +11,17 @@ export type ExtensionTarget = "chrome" | "firefox";
 /** Stable id Firefox needs to sign and update the add-on. Never change it. */
 export const FIREFOX_EXTENSION_ID = "authenticator@denizlg24.com";
 
+/**
+ * Set by the newest manifest key in use, not the oldest: `storage.session`
+ * landed in 115 and `optional_host_permissions` in 128, but
+ * `data_collection_permissions` needs 140 on desktop and 142 on Android. Older
+ * releases would ignore that key rather than fail, so this is really a choice
+ * to keep the validator quiet — cheap for an add-on that only ever runs on a
+ * current browser.
+ */
+const FIREFOX_MIN_VERSION = "140.0";
+const FIREFOX_ANDROID_MIN_VERSION = "142.0";
+
 export interface ManifestOptions {
   target: ExtensionTarget;
   version: string;
@@ -103,8 +114,17 @@ export function buildManifest({
     manifest.browser_specific_settings = {
       gecko: {
         id: FIREFOX_EXTENSION_ID,
-        // storage.session, which holds the unlocked vault key, landed in 115.
-        strict_min_version: "115.0",
+        strict_min_version: FIREFOX_MIN_VERSION,
+        // Required for new add-ons: it drives Firefox's built-in consent screen.
+        // TOTP secrets and the API key leave the device for the configured
+        // server, which is authentication information however self-hosted that
+        // server is, so it is declared rather than claiming "none".
+        data_collection_permissions: {
+          required: ["authenticationInfo"],
+        },
+      },
+      gecko_android: {
+        strict_min_version: FIREFOX_ANDROID_MIN_VERSION,
       },
     };
   } else {

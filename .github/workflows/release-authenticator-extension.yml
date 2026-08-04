@@ -1,18 +1,18 @@
-name: Release Extension
+name: Release Authenticator Extension
 
 on:
   push:
     branches: ["main"]
     paths:
-      - "apps/extension/package.json"
-      - ".github/workflows/release-extension.yml"
+      - "apps/authenticator-extension/package.json"
+      - ".github/workflows/release-authenticator-extension.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-extension
+  group: release-authenticator-extension
   cancel-in-progress: false
 
 jobs:
@@ -33,7 +33,7 @@ jobs:
         id: version
         shell: bash
         run: |
-          current_version="$(jq -r '.version' apps/extension/package.json)"
+          current_version="$(jq -r '.version' apps/authenticator-extension/package.json)"
 
           if [[ "${{ github.event_name }}" != "push" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -43,7 +43,7 @@ jobs:
           fi
 
           previous_version="$(
-            git show "${{ github.event.before }}:apps/extension/package.json" 2>/dev/null |
+            git show "${{ github.event.before }}:apps/authenticator-extension/package.json" 2>/dev/null |
               jq -r '.version' ||
               true
           )"
@@ -79,32 +79,38 @@ jobs:
 
       - name: Typecheck
         run: bun run typecheck
-        working-directory: apps/extension
+        working-directory: apps/authenticator-extension
 
       - name: Test
         run: bun test
-        working-directory: apps/extension
+        working-directory: apps/authenticator-extension
 
       - name: Package
         run: bun run package
-        working-directory: apps/extension
+        working-directory: apps/authenticator-extension
 
       - name: Check the manifests carry the released version
         shell: bash
         run: |
           for target in chrome firefox; do
-            manifest_version="$(jq -r '.version' "apps/extension/dist/$target/manifest.json")"
+            manifest_version="$(jq -r '.version' "apps/authenticator-extension/dist/$target/manifest.json")"
             if [[ "$manifest_version" != "${{ needs.prepare.outputs.version }}" ]]; then
               echo "$target manifest is $manifest_version, expected ${{ needs.prepare.outputs.version }}"
               exit 1
             fi
           done
 
+      # AMO runs this same linter at submission. Failing here costs a minute;
+      # failing there costs a rejected review round.
+      - name: Validate the Firefox package
+        run: bunx --bun web-ext lint --source-dir dist/firefox --output text
+        working-directory: apps/authenticator-extension
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: extension-packages
-          path: apps/extension/release/*.zip
+          path: apps/authenticator-extension/release/*.zip
           if-no-files-found: error
 
   release:
@@ -138,9 +144,9 @@ jobs:
           )"
 
           if [[ -n "$previous_tag" ]]; then
-            changes="$(git log --format='- %s (`%h`)' "$previous_tag..HEAD" -- apps/extension)"
+            changes="$(git log --format='- %s (`%h`)' "$previous_tag..HEAD" -- apps/authenticator-extension)"
           else
-            changes="$(git log --format='- %s (`%h`)' HEAD -- apps/extension)"
+            changes="$(git log --format='- %s (`%h`)' HEAD -- apps/authenticator-extension)"
           fi
 
           if [[ -z "$changes" ]]; then
@@ -155,7 +161,7 @@ jobs:
             echo "Upload \`*-chrome-*.zip\` to the Chrome Web Store and"
             echo "\`*-firefox-*.zip\` to AMO, with \`*-source-*.zip\` as the"
             echo "required source submission. Submission notes:"
-            echo "https://github.com/${{ github.repository }}/blob/$TAG/apps/extension/store/listing.md"
+            echo "https://github.com/${{ github.repository }}/blob/$TAG/apps/authenticator-extension/store/listing.md"
           } > extension-release-notes.md
 
       - name: Create GitHub release

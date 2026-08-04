@@ -28,7 +28,7 @@ keeping plaintext secrets and encryption keys on the user's machine.
 | --- | --- | --- |
 | `apps/web` | Public website, writing, projects, and private administration | Personal |
 | `apps/desktop` | Native life-dashboard client built with Tauri | Personal |
-| `apps/extension` | Chrome and Firefox extension holding an offline authenticator vault | Personal |
+| `apps/authenticator-extension` | Chrome and Firefox extension holding an offline authenticator vault | Personal |
 | `apps/api` | API for my self-hosted cloud | Personal |
 | `apps/cloud` | Administration interface for cloud services | Personal |
 | `apps/email-classifier` | Python Logistic Regression Email Classifier API | Personal |

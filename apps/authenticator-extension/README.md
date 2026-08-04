@@ -43,6 +43,19 @@ the manifest's `host_permissions` entry.
 
 ## Releasing
 
-Bump `version` in `package.json` and merge to `main`. `release-extension.yml`
-detects the change, builds both targets plus the source archive, and publishes a
-GitHub release tagged `ext-v<version>`. Uploading to the two stores is manual.
+Bump `version` in `package.json` and merge to `main`.
+`release-authenticator-extension.yml` detects the change, builds both targets
+plus the source archive, runs `web-ext lint` over the Firefox package, and
+publishes a GitHub release tagged `ext-v<version>`. Uploading to the two stores
+is manual; the paperwork lives in `store/listing.md`.
+
+Run the AMO validator locally before a submission:
+
+```bash
+bun run build:firefox
+bunx --bun web-ext lint --source-dir dist/firefox
+```
+
+It reports two `UNSAFE_VAR_ASSIGNMENT` warnings for `innerHTML`. Both sit inside
+React DOM's `dangerouslySetInnerHTML` machinery, which this extension never
+uses; `store/listing.md` carries the note for reviewers.

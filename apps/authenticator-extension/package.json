@@ -1,6 +1,6 @@
 {
   "name": "authenticator-extension",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Offline-first TOTP authenticator that mirrors the denizlg24.com authenticator",
