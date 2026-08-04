@@ -71,14 +71,14 @@ export function OrderBlotter({
         {shown.length === 0 ? (
           <div className="px-4 py-2 text-muted-foreground text-xs">—</div>
         ) : (
-          <table className="w-full min-w-[34rem] text-xs">
+          <table className="w-full text-xs [&_td]:whitespace-nowrap">
             <tbody>
               {shown.map((order) => (
                 <tr
                   key={order.id}
                   className="group border-b last:border-b-0 hover:bg-muted/50"
                 >
-                  <td className="py-1 pl-4">
+                  <td className="py-1 pl-3">
                     <span
                       className={`text-[10px] uppercase ${
                         order.side === "buy"
@@ -89,7 +89,7 @@ export function OrderBlotter({
                       {order.side}
                     </span>
                   </td>
-                  <td className="px-2 py-1">
+                  <td className="max-w-24 truncate px-1.5 py-1">
                     <button
                       type="button"
                       onClick={() => onSelectTicker?.(order.ticker)}
@@ -98,22 +98,24 @@ export function OrderBlotter({
                       {order.ticker}
                     </button>
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums">
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {trimQuantity(order.quantity)}
                   </td>
-                  <td className="px-2 py-1 text-muted-foreground">
+                  {/* The only cell here whose width is not bounded by its own
+                      format — a stop-limit prints two prices and a badge. */}
+                  <td className="max-w-40 truncate px-1.5 py-1 text-muted-foreground">
                     <TriggerCell order={order} />
                   </td>
-                  <td className="px-2 py-1 text-[10px] text-muted-foreground uppercase">
+                  <td className="hidden px-1.5 py-1 text-[10px] text-muted-foreground uppercase xl:table-cell">
                     {order.timeInForce}
                     {order.reduceOnly ? " · RO" : ""}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums">
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {order.filledPrice === null
                       ? ""
                       : money(order.filledPrice * order.filledQuantity)}
                   </td>
-                  <td className="px-2 py-1">
+                  <td className="px-1.5 py-1">
                     <span
                       className={`text-[10px] uppercase ${STATUS_TONE[order.status]}`}
                       title={order.statusReason ?? undefined}
@@ -121,7 +123,7 @@ export function OrderBlotter({
                       {order.status}
                     </span>
                   </td>
-                  <td className="w-8 px-2 py-1 text-right">
+                  <td className="w-8 px-1.5 py-1 text-right">
                     {LIVE.includes(order.status) ? (
                       <button
                         type="button"

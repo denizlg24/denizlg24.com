@@ -618,17 +618,24 @@ function Positions({
         ) : open.length === 0 ? (
           <div className="px-4 py-2 text-muted-foreground text-xs">—</div>
         ) : (
-          <table className="w-full min-w-[34rem] text-xs">
+          <table className="w-full text-xs [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
             <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
               <tr className="border-b">
-                <th className="px-4 py-1 text-left font-normal">Symbol</th>
-                <th className="px-2 py-1 text-right font-normal">Qty</th>
-                <th className="px-2 py-1 text-right font-normal">Avg</th>
-                <th className="px-2 py-1 text-right font-normal">Last</th>
-                <th className="px-2 py-1 text-right font-normal">Value</th>
-                <th className="px-2 py-1 text-right font-normal">Day</th>
-                <th className="px-2 py-1 text-right font-normal">PnL</th>
-                <th className="px-4 py-1 text-right font-normal">Wt</th>
+                <th className="px-3 py-1 text-left font-normal">Symbol</th>
+                <th className="px-1.5 py-1 text-right font-normal">Qty</th>
+                {/* Average cost and weight are the two the owner can recover
+                    from the rows either side of them, so they go first when the
+                    pane is narrow. */}
+                <th className="hidden px-1.5 py-1 text-right font-normal xl:table-cell">
+                  Avg
+                </th>
+                <th className="px-1.5 py-1 text-right font-normal">Last</th>
+                <th className="px-1.5 py-1 text-right font-normal">Value</th>
+                <th className="px-1.5 py-1 text-right font-normal">Day</th>
+                <th className="px-1.5 py-1 text-right font-normal">PnL</th>
+                <th className="hidden px-3 py-1 text-right font-normal xl:table-cell">
+                  Wt
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -638,7 +645,7 @@ function Positions({
                   onClick={() => onSelectTicker?.(position.ticker)}
                   className="cursor-pointer border-b last:border-b-0 hover:bg-muted/50"
                 >
-                  <td className="px-4 py-1 font-medium">
+                  <td className="max-w-28 truncate px-3 py-1 font-medium">
                     {position.ticker}
                     {position.side === "short" ? (
                       <span className="ml-1 text-[9px] text-red-600 uppercase">
@@ -646,20 +653,20 @@ function Positions({
                       </span>
                     ) : null}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums">
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {trimQuantity(position.quantity)}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums">
+                  <td className="hidden px-1.5 py-1 text-right tabular-nums xl:table-cell">
                     {position.avgCost.toFixed(2)}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums">
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {position.lastPrice?.toFixed(2) ?? "—"}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums">
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {money(position.marketValue)}
                   </td>
                   <td
-                    className={`px-2 py-1 text-right tabular-nums ${toneClass(
+                    className={`px-1.5 py-1 text-right tabular-nums ${toneClass(
                       position.dayChangePercent,
                     )}`}
                   >
@@ -668,7 +675,7 @@ function Positions({
                       : `${position.dayChangePercent >= 0 ? "+" : ""}${position.dayChangePercent.toFixed(2)}%`}
                   </td>
                   <td
-                    className={`px-2 py-1 text-right tabular-nums ${toneClass(
+                    className={`px-1.5 py-1 text-right tabular-nums ${toneClass(
                       position.unrealizedPnl,
                     )}`}
                   >
@@ -678,7 +685,7 @@ function Positions({
                       {position.unrealizedPnlPercent.toFixed(1)}%
                     </span>
                   </td>
-                  <td className="px-4 py-1 text-right text-muted-foreground tabular-nums">
+                  <td className="hidden px-3 py-1 text-right text-muted-foreground tabular-nums xl:table-cell">
                     {(position.weight * 100).toFixed(1)}%
                   </td>
                 </tr>
@@ -728,33 +735,41 @@ function TradeLog({
         {ordered.length === 0 ? (
           <div className="px-4 py-2 text-muted-foreground text-xs">—</div>
         ) : (
-          <table className="w-full min-w-[30rem] text-xs">
+          // No `min-w`: an arbitrary floor is what forced this to scroll
+          // sideways in a pane narrower than the guess. `whitespace-nowrap` lets
+          // the browser compute the table's real minimum from its content, so it
+          // scrolls only when it genuinely cannot fit.
+          <table className="w-full text-xs [&_td]:whitespace-nowrap">
             <tbody>
               {ordered.map((trade) => (
                 <tr
                   key={trade.id}
                   className="group border-b last:border-b-0 hover:bg-muted/50"
                 >
-                  <td className="px-4 py-1 text-muted-foreground tabular-nums">
+                  <td className="px-3 py-1 text-muted-foreground tabular-nums">
                     {trade.executedAt.slice(0, 10)}
                   </td>
                   <td className="py-1">
                     <SourceBadge source={trade.source} side={trade.side} />
                   </td>
-                  <td className="px-2 py-1 font-medium">{trade.ticker}</td>
-                  <td className="px-2 py-1 text-right tabular-nums">
+                  <td className="max-w-24 truncate px-1.5 py-1 font-medium">
+                    {trade.ticker}
+                  </td>
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {trimQuantity(trade.quantity)}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums">
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {trade.price.toFixed(2)}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums">
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {money(trade.quantity * trade.price)}
                   </td>
-                  <td className="px-2 py-1 text-right text-muted-foreground tabular-nums">
+                  {/* Fees are almost always zero here and are the first thing
+                      worth losing when the pane is narrow. */}
+                  <td className="hidden px-1.5 py-1 text-right text-muted-foreground tabular-nums xl:table-cell">
                     {trade.fees > 0 ? trade.fees.toFixed(2) : ""}
                   </td>
-                  <td className="w-8 px-2 py-1 text-right">
+                  <td className="w-8 px-1.5 py-1 text-right">
                     {/* Generated rows are rebuilt from cached actions, so only
                         what the owner entered can be removed. */}
                     {OWNER_ENTERED.has(trade.source) ? (
