@@ -23,3 +23,20 @@ export const authenticatorCodeSchema = z.object({
   remaining: z.number(),
 });
 export type IAuthenticatorCode = z.infer<typeof authenticatorCodeSchema>;
+
+/** An account plus its plaintext base32 secret. Only ever crosses the wire on
+ *  `GET /api/admin/authenticator/export`, which the browser extension calls to
+ *  seed its offline vault. Nothing else should request or persist this shape. */
+export const authenticatorExportAccountSchema =
+  authenticatorAccountSchema.extend({
+    secret: z.string(),
+  });
+export type IAuthenticatorExportAccount = z.infer<
+  typeof authenticatorExportAccountSchema
+>;
+
+export const authenticatorExportSchema = z.object({
+  accounts: z.array(authenticatorExportAccountSchema),
+  exportedAt: z.string(),
+});
+export type IAuthenticatorExport = z.infer<typeof authenticatorExportSchema>;

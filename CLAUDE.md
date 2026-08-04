@@ -38,6 +38,10 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `apps/envoy-cli/` — Rust `envy` CLI. This monorepo is the canonical source
   and release owner; `.github/workflows/release-envoy-cli.yml` publishes
   `envoy-v*` releases when its Cargo package version changes on `main`.
+- `apps/extension/` — Vite + React MV3 browser extension (Chrome and Firefox)
+  holding an offline TOTP vault synced with `/api/admin/authenticator`. Uses
+  `@repo/ui` for the design system. `.github/workflows/release-extension.yml`
+  publishes `ext-v*` releases when its package version changes on `main`.
 - `apps/terminal/` — compiled Bun web-terminal daemon. Runs on the Pi host under systemd, not in Docker.
 - `packages/cloud-core/` — Pi-side cloud logic: drizzle schema, storage/S3, projects, ops, sync, middleware.
 - `packages/cloud-ui/`, `packages/cloud-auth-client/` — shared client pieces for the two Vercel cloud apps.
@@ -227,6 +231,14 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 - `PATCH /resources/{id}/sub-resources/{subId}` → partial update → `{ subResource }`
 - `DELETE /resources/{id}/sub-resources/{subId}` → `{ status: "deleted" }` (also deletes health logs)
 - Checks run from the backend in the health-check cron (`runAllSubResourceChecks` in `lib/resource-agent.ts`); logs share `HealthCheckLog` keyed by sub-resource id; public `/api/public/resource-status` nests `subResources` per parent
+
+### Authenticator
+- `GET /authenticator` → `{ accounts: IAuthenticatorAccount[] }` (no secrets)
+- `GET /authenticator/codes` → `{ codes: IAuthenticatorCode[] }` — server-computed, used by the admin and desktop UIs
+- `GET /authenticator/export` → `{ accounts: IAuthenticatorExportAccount[], exportedAt }` — **the only route that returns decrypted base32 secrets.** It exists so `apps/extension` can hold an offline vault; a leaked API key here costs every secret, not one code. Do not call it from the web or desktop UIs, and do not persist its response anywhere unencrypted.
+- `POST /authenticator` → `{ label, issuer, accountName, secret, algorithm?, digits?, period? }` → `{ account }`
+- `PATCH /authenticator/{id}` → label/issuer/accountName only; a secret is never updated in place
+- `DELETE /authenticator/{id}` → `{ success: true }`
 
 ### Upload
 - `POST /upload` → FormData with "file" field → `{ url, hash }`. Stores to the self-hosted cloud S3 via `uploadFileToStorage(file, "image")`, where `"image"` is the bucket name, not a type filter — the route enforces no type or size limit. Pinata is gone — the spreadsheets routes read and write the same self-hosted storage, and only their `pinata*` column names survive.

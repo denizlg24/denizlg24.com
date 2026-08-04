@@ -1,0 +1,26 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@repo/ui/theme.css";
+@source "../";
+@source "../../../../packages/ui/src";
+
+/* Chrome sizes the popup to its content and refuses to grow past 800px tall.
+   Fixing the width here stops the list from reflowing as rows load. */
+.popup-root {
+  width: 380px;
+  min-height: 220px;
+  max-height: 580px;
+}
+
+body {
+  margin: 0;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* The popup is a fixed viewport; only the account list should ever scroll. */
+body:has(.popup-root) {
+  overflow: hidden;
+}
