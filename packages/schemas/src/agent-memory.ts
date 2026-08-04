@@ -206,6 +206,12 @@ export const agentMemoryCandidateSchema = z.object({
   evidenceIds: z.array(z.uuid()).min(1).max(100),
   contradictionEvidenceIds: z.array(z.uuid()).max(100).default([]),
   conflictingMemoryIds: z.array(z.string()).max(100).default([]),
+  /**
+   * Memories this candidate replaces rather than disputes. The formation model
+   * never fills this in: it only ever reports a disagreement, and the temporal
+   * classifier decides which disagreements are a value moving on in time.
+   */
+  supersedesMemoryIds: z.array(z.string()).max(100).default([]),
   extraction: z.object({
     model: z.string().min(1),
     promptVersion: z.string().min(1),
@@ -220,6 +226,8 @@ export const agentMemoryCandidateSchema = z.object({
       z.enum([
         "conflict",
         "consolidation",
+        /** The statement moved a value forward in time; nothing to review. */
+        "succession",
         "weak-inference",
         "identity-merge",
         "permission-like",
@@ -248,6 +256,7 @@ export const agentFormationCandidateSchema = z.object({
   evidenceIds: z.array(z.uuid()).min(1).max(100),
   contradictionEvidenceIds: z.array(z.uuid()).max(100).default([]),
   conflictingMemoryIds: z.array(z.string()).max(100).default([]),
+  supersedesMemoryIds: z.array(z.string()).max(100).default([]),
   reason: z.string().trim().min(1).max(4_096),
   reviewFlags: agentMemoryCandidateSchema.shape.reviewFlags,
 });

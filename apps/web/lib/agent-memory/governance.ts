@@ -488,30 +488,39 @@ export async function acceptMemoryCandidate(options: {
         }
       }
 
-      // Consolidation candidates replace their whole conflicting set: the new
-      // memory supersedes every listed source instead of contradicting it.
+      // Two ways a candidate replaces rather than disputes its predecessors:
+      // consolidation folds a whole conflicting set into one statement, and
+      // succession carries a value forward to a later point in time. Both
+      // supersede their sources; neither leaves a contradiction behind.
       const consolidates = candidate.reviewFlags.includes("consolidation");
-      const consolidatedSources: IAgentMemory[] = [];
-      if (consolidates) {
-        for (const conflictingId of candidate.conflictingMemoryIds) {
-          const source = await AgentMemory.findOne({
-            _id: conflictingId,
-            status: "active",
-          }).session(session);
-          if (source) consolidatedSources.push(source);
-        }
+      const replacedIds = [
+        ...(consolidates ? candidate.conflictingMemoryIds : []),
+        ...candidate.supersedesMemoryIds,
+      ];
+      const replacedSources: IAgentMemory[] = [];
+      const seenReplaced = new Set<string>();
+      for (const replacedId of replacedIds) {
+        if (seenReplaced.has(replacedId.toString())) continue;
+        seenReplaced.add(replacedId.toString());
+        const source = await AgentMemory.findOne({
+          _id: replacedId,
+          status: "active",
+        }).session(session);
+        if (source) replacedSources.push(source);
       }
 
       const memory = new AgentMemory({ _id: new Types.ObjectId() });
       const baseState = candidateToRevisionState(candidate, superseded?._id);
       const revision = await writeRevision(
         memory,
-        consolidates
+        replacedSources.length > 0
           ? {
               ...baseState,
-              contradictionIds: [],
-              supersedesMemoryId:
-                superseded?._id ?? consolidatedSources[0]?._id,
+              // Consolidation subsumes its whole conflicting set; succession
+              // already had its successions filtered out of that set upstream,
+              // so any contradiction left on it is a real one worth keeping.
+              contradictionIds: consolidates ? [] : baseState.contradictionIds,
+              supersedesMemoryId: superseded?._id ?? replacedSources[0]?._id,
             }
           : baseState,
         options.actor,
@@ -528,13 +537,13 @@ export async function acceptMemoryCandidate(options: {
           session,
         );
       }
-      for (const source of consolidatedSources) {
+      for (const source of replacedSources) {
         if (superseded && source._id.equals(superseded._id)) continue;
         await writeRevision(
           source,
           { ...memoryToRevisionState(source), status: "superseded" },
           options.actor,
-          `Consolidated into memory ${memory._id.toString()}: ${options.reason}`,
+          `${consolidates ? "Consolidated into" : "Superseded by"} memory ${memory._id.toString()}: ${options.reason}`,
           session,
         );
       }

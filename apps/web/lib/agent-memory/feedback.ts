@@ -115,10 +115,14 @@ async function createCorrection(options: {
         entityRefs: memory.entityRefs,
         evidenceIds: [observed.eventId],
         contradictionEvidenceIds: memory.evidenceIds,
-        conflictingMemoryIds: [memory._id.toString()],
+        // The correction replaces the memory rather than disputing it: the
+        // owner has already settled which one is right, so leaving a
+        // contradiction link behind would flag a resolved question forever.
+        conflictingMemoryIds: [],
+        supersedesMemoryIds: [memory._id.toString()],
         reason:
           "Explicit correction supplied from an injected memory disclosure",
-        reviewFlags: ["conflict"],
+        reviewFlags: ["succession"],
       },
       extraction: {
         model: "manual/user-correction",
