@@ -383,7 +383,7 @@ export const POST = async (req: NextRequest) => {
       clientToolResults,
       executionMode,
       maxIterations,
-      toolContext: { conversationId },
+      toolContext: { conversationId, memoryMode },
       onPersist,
       requireTools: toolsEnabled,
       requireWebSearch: webSearchEnabled,

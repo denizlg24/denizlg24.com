@@ -264,6 +264,19 @@ export type AgentFormationCandidate = z.infer<
   typeof agentFormationCandidateSchema
 >;
 
+/** Input to the agent's own `save_memory` tool. */
+export const saveMemoryToolInputSchema = z.object({
+  statement: z.string().trim().min(1).max(8_192),
+  memoryType: z.enum(["core", "semantic", "episodic"]),
+  explicitness: z.enum(["explicit", "inferred"]),
+  importance: z.number().min(0).max(1),
+  confidence: z.number().min(0).max(1),
+  validFrom: optionalIsoDateSchema,
+  validUntil: optionalIsoDateSchema,
+  reason: z.string().trim().min(1).max(4_096),
+});
+export type SaveMemoryToolInput = z.infer<typeof saveMemoryToolInputSchema>;
+
 export const agentFormationResultSchema = z.object({
   candidates: z.array(agentFormationCandidateSchema).max(20),
 });

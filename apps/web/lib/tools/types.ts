@@ -1,3 +1,5 @@
+import type { AgentMemoryMode } from "@repo/schemas";
+
 export interface ToolParameter {
   type: string;
   description: string;
@@ -18,6 +20,11 @@ export interface ToolSchema {
 /** Per-turn state a tool may need that is not part of the model's input. */
 export interface ToolExecutionContext {
   conversationId?: string;
+  /**
+   * Memory mode of the surrounding turn. Tools that write to agent memory must
+   * honour it: an incognito turn records nothing, whatever the model asks for.
+   */
+  memoryMode?: AgentMemoryMode;
 }
 
 export interface ToolDefinition {

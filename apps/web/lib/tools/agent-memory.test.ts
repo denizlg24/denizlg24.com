@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { agentMemoryTools } from "./agent-memory";
 
 describe("Gate E agent tools", () => {
-  test("keeps all goal and procedure mutations behind write approval", () => {
+  test("keeps every memory mutation behind write approval", () => {
     const writes = new Set(
       agentMemoryTools
         .filter((tool) => tool.isWrite)
@@ -10,6 +10,7 @@ describe("Gate E agent tools", () => {
     );
     expect(writes).toEqual(
       new Set([
+        "save_memory",
         "create_agent_goal",
         "update_agent_goal",
         "create_agent_procedure",

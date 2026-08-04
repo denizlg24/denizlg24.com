@@ -706,6 +706,31 @@ export async function editMemory(options: {
   });
 }
 
+/**
+ * Records that an existing memory was observed again: the new evidence joins
+ * its citation list and confidence moves a quarter of the way to certainty.
+ * Asymptotic on purpose — repeated observation should never turn a hedge into
+ * a certainty on its own, and the statement itself is left untouched.
+ */
+export async function reinforceMemory(options: {
+  memoryId: string;
+  evidenceId: string;
+  reason: string;
+  actor?: GovernanceActor;
+}): Promise<IAgentMemory> {
+  return reviseExistingMemory({
+    memoryId: options.memoryId,
+    action: "edit",
+    reason: options.reason,
+    actor: options.actor,
+    buildState: (memory) => ({
+      ...memoryToRevisionState(memory),
+      evidenceIds: [...new Set([...memory.evidenceIds, options.evidenceId])],
+      confidence: memory.confidence + (1 - memory.confidence) * 0.25,
+    }),
+  });
+}
+
 export async function replaceMemoryEntityRefs(options: {
   memoryId: string;
   entityRefs: AgentEntityRef[];
