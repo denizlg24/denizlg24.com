@@ -24,7 +24,7 @@ import {
   MarketPortfolioSnapshot,
   MarketTrade,
 } from "@/models/Market";
-import { getStores } from "./service";
+import { getCandles, getQuotes, getStores } from "./service";
 
 /** Trades the owner typed. The rest are derived from cached corporate actions. */
 export const OWNER_ENTERED_SOURCES: TradeSource[] = [
@@ -225,6 +225,34 @@ export async function syncPortfolioActions(
   return generated.length;
 }
 
+/**
+ * Pulls daily history for a holding the cache has never seen.
+ *
+ * A position is priced entirely off cached bars, so a ticker bought before its
+ * first cron pass has no curve and no market value at all until one runs. Only
+ * symbols with no coverage whatsoever are fetched: keeping the daily delta warm
+ * is cron's job, and doing it per page load would spend one request per holding
+ * against a fifty-an-hour cap.
+ */
+async function backfillNewHoldings(tickers: string[]): Promise<void> {
+  const stores = getStores();
+  const cold: string[] = [];
+  for (const ticker of tickers) {
+    const coverage = await stores.bars.getCoverage(ticker, { kind: "daily" });
+    if (!coverage.to) cold.push(ticker);
+  }
+
+  for (const ticker of cold) {
+    try {
+      await getCandles({ ticker, resolution: "1day", adjusted: false });
+    } catch {
+      // A cold holding that cannot be fetched stays unpriced, which the
+      // positions table already renders as a dash. Failing the whole
+      // performance read over one symbol would hide the rest of the portfolio.
+    }
+  }
+}
+
 export async function getPerformance(
   portfolioId: string,
 ): Promise<PortfolioPerformance | null> {
@@ -241,6 +269,10 @@ export async function getPerformance(
         .filter((ticker) => ticker !== CASH_TICKER),
     ),
   ];
+
+  await backfillNewHoldings(
+    portfolio.benchmark ? [...tickers, portfolio.benchmark] : tickers,
+  );
 
   // Raw closes, keyed by ticker then date. Splits already exist as trades, so
   // adjusted prices here would count every split a second time.
@@ -279,7 +311,14 @@ export async function getPerformance(
   );
 
   const state = replayTrades(trades, portfolio.initialCash);
-  const quotes = await stores.quotes.getQuotes(tickers);
+  // Refreshed rather than read straight from Mongo. A holding that is not on a
+  // watchlist and not open in the markets view has nothing else driving its
+  // quote, so cached-only reads left the portfolio valued at whatever the last
+  // cron run wrote. This is the batched, TTL'd path — one provider request
+  // covers every holding, and at most one every two minutes.
+  const { quotes } = await getQuotes(tickers).catch(async () => ({
+    quotes: await stores.quotes.getQuotes(tickers),
+  }));
   const quoteByTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));
   const lastDate = dates.at(-1);
   const previousDate = dates.at(-2);

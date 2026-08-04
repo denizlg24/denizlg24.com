@@ -60,7 +60,13 @@ async function getDailyCandles(
   // whole history on every cron run.
   let earliestFetched: string | null = null;
 
-  const gaps = planDailyFetches(coverage.from, coverage.to, request.from, to);
+  const gaps = planDailyFetches(
+    coverage.from,
+    coverage.to,
+    request.from,
+    to,
+    coverage.backfilled ?? false,
+  );
   for (const gap of gaps) {
     if (!provider.getDailyBars) break;
     try {
@@ -95,6 +101,10 @@ async function getDailyCandles(
   }
 
   if (fetched) {
+    // An open-ended gap that came back without a budget stop has seen the
+    // provider's earliest bar, so the history is now complete and the older
+    // edge never has to be asked for again.
+    const ranOpenEnded = gaps.some((gap) => gap.from === undefined);
     await stores.bars.setCoverage(
       ticker,
       { kind: "daily" },
@@ -105,6 +115,7 @@ async function getDailyCandles(
         ),
         to: maxDate(coverage.to, to),
         fetchedAt: stores.clock.now().toISOString(),
+        backfilled: (coverage.backfilled ?? false) || (ranOpenEnded && !stale),
       },
     );
   }
@@ -134,19 +145,25 @@ export interface FetchGap {
  * Splits the request into the edges that are actually missing. A widened window
  * on an already-cached symbol costs one request for the older stretch and one
  * for the newer, never a refetch of the middle.
+ *
+ * An absent `requestedFrom` means the whole history, not "no older edge". The
+ * chart opens on its one-year range, so treating it as the latter pinned the
+ * cache to that year and left MAX permanently showing it — `backfilled` is what
+ * stops the resulting request repeating once the history really is cached.
  */
 export function planDailyFetches(
   coveredFrom: string | null,
   coveredTo: string | null,
   requestedFrom: string | undefined,
   requestedTo: string,
+  backfilled = false,
 ): FetchGap[] {
   if (!coveredFrom || !coveredTo) {
     return [{ from: requestedFrom, to: requestedTo }];
   }
 
   const gaps: FetchGap[] = [];
-  if (requestedFrom && requestedFrom < coveredFrom) {
+  if (requestedFrom ? requestedFrom < coveredFrom : !backfilled) {
     gaps.push({ from: requestedFrom, to: shiftDate(coveredFrom, -1) });
   }
   if (requestedTo > coveredTo) {

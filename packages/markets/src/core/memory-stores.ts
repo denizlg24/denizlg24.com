@@ -31,7 +31,12 @@ function datasetKey(dataset: CoverageDataset): string {
     : dataset.kind;
 }
 
-const EMPTY_COVERAGE: Coverage = { from: null, to: null, fetchedAt: null };
+const EMPTY_COVERAGE: Coverage = {
+  from: null,
+  to: null,
+  fetchedAt: null,
+  backfilled: false,
+};
 
 export function createMemoryStores(options?: {
   clock?: ClockPort;

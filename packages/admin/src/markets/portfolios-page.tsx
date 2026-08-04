@@ -57,6 +57,9 @@ import { TradeTicket } from "./trade-ticket";
 /** Mirrors the delete guard in `apps/web/lib/markets/portfolios.ts`. */
 const OWNER_ENTERED = new Set<TradeSource>(["manual", "deposit", "withdrawal"]);
 
+/** Half the server's quote TTL, so a refresh never sits on a stale batch. */
+const PERFORMANCE_REFRESH_MS = 60_000;
+
 export interface PortfoliosPageProps {
   /** Passed as a prop, not a route param: desktop is a static export. */
   portfolioId?: string;
@@ -150,6 +153,27 @@ export function PortfoliosPage({
     }
     void load(selected);
   }, [selected, load]);
+
+  // Re-price while the page sits open. Holdings that are not on a watchlist
+  // have nothing else refreshing their quotes, so without this the value on
+  // screen is as old as the last cron run. The route batches one provider
+  // request across every holding behind a two-minute TTL, so a tighter poll
+  // here costs Mongo reads rather than budget. No loading flag: a quiet
+  // re-price must not blank the surface it is updating.
+  useEffect(() => {
+    if (!selected) return;
+    const timer = setInterval(() => {
+      client
+        .get<PortfolioPerformance>(
+          `/markets/portfolios/${selected}/performance`,
+        )
+        .then((perf) => {
+          if (requested.current === selected) setPerformance(perf);
+        })
+        .catch(() => undefined);
+    }, PERFORMANCE_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [client, selected]);
 
   const choose = useCallback(
     (id: string) => {

@@ -79,6 +79,20 @@ describe("planDailyFetches", () => {
     ]);
   });
 
+  test("an open-ended request backfills past what the cache already holds", () => {
+    // The chart opens on its one-year range; switching to MAX must not be
+    // answered out of that year.
+    expect(planDailyFetches("2025-08-01", TODAY, undefined, TODAY)).toEqual([
+      { from: undefined, to: "2025-07-31" },
+    ]);
+  });
+
+  test("an already backfilled symbol asks for nothing older", () => {
+    expect(
+      planDailyFetches("1980-12-12", TODAY, undefined, TODAY, true),
+    ).toEqual([]);
+  });
+
   test("shiftDate crosses month boundaries", () => {
     expect(shiftDate("2026-08-01", -1)).toBe("2026-07-31");
     expect(shiftDate("2026-07-31", 1)).toBe("2026-08-01");
