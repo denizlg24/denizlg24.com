@@ -18,6 +18,7 @@ import type {
   Trade,
   TradeInput,
   TradeSource,
+  ValuePoint,
 } from "@repo/markets/schemas";
 import { Types } from "mongoose";
 import { connectDB } from "@/lib/mongodb";
@@ -26,6 +27,7 @@ import {
   type IMarketTrade,
   MarketPortfolio,
   MarketPortfolioSnapshot,
+  MarketPortfolioValuePoint,
   MarketTrade,
 } from "@/models/Market";
 import { getCandles, getQuotes, getStores } from "./service";
@@ -162,8 +164,54 @@ export async function deletePortfolio(id: string): Promise<boolean> {
     // Nothing else ever removes these, so leaving them behind grows the
     // collection without bound and keeps rows pointing at a dead portfolio.
     MarketPortfolioSnapshot.deleteMany({ portfolioId: id }),
+    // Value points do expire on their own, but a month of orphans pointing at a
+    // portfolio that no longer exists is still a month of them.
+    MarketPortfolioValuePoint.deleteMany({ portfolioId: id }),
   ]);
   return true;
+}
+
+/** How much observed intraday history the performance payload carries. */
+const INTRADAY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Repeated reads inside one minute are the same observation, not many. */
+function toMinute(now: Date): Date {
+  return new Date(Math.floor(now.getTime() / 60_000) * 60_000);
+}
+
+/**
+ * Records what the book was worth at this moment.
+ *
+ * This is the whole intraday story. Reconstructing a curve within the session
+ * would need intraday bars for every holding on every read — a provider request
+ * per holding per minute against a fifty-an-hour cap — whereas `getPerformance`
+ * has already priced the book off live quotes by the time it returns. Writing
+ * that down costs one upsert and no budget at all.
+ *
+ * Called from the surfaces where a valuation means someone is watching or a
+ * schedule fired, not from every internal `getPerformance` — the order engine
+ * calls it several times a pass and those are the same instant.
+ */
+export async function recordValuePoint(
+  portfolioId: string,
+  performance: PortfolioPerformance,
+  now = new Date(),
+): Promise<void> {
+  const latest = performance.curve.at(-1);
+  if (!latest) return;
+  await connectDB();
+  await MarketPortfolioValuePoint.updateOne(
+    { portfolioId: new Types.ObjectId(portfolioId), ts: toMinute(now) },
+    {
+      $set: {
+        value: latest.value,
+        cash: latest.cash,
+        positionsValue: latest.positionsValue,
+        invested: latest.invested,
+      },
+    },
+    { upsert: true },
+  );
 }
 
 export async function listTrades(portfolioId: string): Promise<Trade[]> {
@@ -459,6 +507,27 @@ export async function getPerformance(
     benchmarkCurve.push({ date: today, value: benchmarkLast });
   }
 
+  const observed = await MarketPortfolioValuePoint.find({
+    portfolioId: portfolio._id,
+    ts: { $gte: new Date(stores.clock.now().getTime() - INTRADAY_WINDOW_MS) },
+  }).sort({ ts: 1 });
+  const intradayCurve: ValuePoint[] = observed.map((point) => {
+    const totalPnl = point.value - point.invested;
+    return {
+      ts: point.ts.toISOString(),
+      value: point.value,
+      cash: point.cash,
+      positionsValue: point.positionsValue,
+      invested: point.invested,
+      totalPnl,
+      // Derived on read rather than stored: `invested` is what the row holds,
+      // and a percentage recomputed from it can never drift from the value it
+      // is a percentage of.
+      totalPnlPercent:
+        point.invested === 0 ? 0 : (totalPnl / point.invested) * 100,
+    };
+  });
+
   return {
     portfolioId,
     curve,
@@ -472,5 +541,6 @@ export async function getPerformance(
       positions,
     }),
     margin: computeMargin({ cash: state.cash, positions, config: margin }),
+    intradayCurve,
   };
 }

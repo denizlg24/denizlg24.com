@@ -519,6 +519,43 @@ const marketOrderSchema = new Schema<IMarketOrder>(
 marketOrderSchema.index({ status: 1, portfolioId: 1 });
 marketOrderSchema.index({ portfolioId: 1, createdAt: -1 });
 
+export interface IMarketPortfolioValuePoint extends Document {
+  portfolioId: mongoose.Types.ObjectId;
+  ts: Date;
+  value: number;
+  cash: number;
+  positionsValue: number;
+  invested: number;
+}
+
+/**
+ * Intraday valuations, written whenever something prices the book against live
+ * quotes. Deliberately disposable: the daily snapshots carry the long record, so
+ * these expire rather than accumulating a row a minute for ever.
+ */
+const marketPortfolioValuePointSchema = new Schema<IMarketPortfolioValuePoint>({
+  portfolioId: {
+    type: Schema.Types.ObjectId,
+    ref: "MarketPortfolio",
+    required: true,
+  },
+  ts: { type: Date, required: true },
+  value: { type: Number, required: true },
+  cash: { type: Number, required: true },
+  positionsValue: { type: Number, required: true },
+  invested: { type: Number, required: true },
+});
+// Unique on the minute the writer bucketed to, so a page polling faster than
+// that upserts one row rather than growing the collection per request.
+marketPortfolioValuePointSchema.index(
+  { portfolioId: 1, ts: 1 },
+  { unique: true },
+);
+marketPortfolioValuePointSchema.index(
+  { ts: 1 },
+  { expireAfterSeconds: 30 * 86_400 },
+);
+
 export interface IMarketPortfolioSnapshot extends Document {
   portfolioId: mongoose.Types.ObjectId;
   date: string;
@@ -606,6 +643,12 @@ export const MarketTrade =
 export const MarketOrder =
   existingModel<IMarketOrder>("MarketOrder") ||
   mongoose.model<IMarketOrder>("MarketOrder", marketOrderSchema);
+export const MarketPortfolioValuePoint =
+  existingModel<IMarketPortfolioValuePoint>("MarketPortfolioValuePoint") ||
+  mongoose.model<IMarketPortfolioValuePoint>(
+    "MarketPortfolioValuePoint",
+    marketPortfolioValuePointSchema,
+  );
 export const MarketPortfolioSnapshot =
   existingModel<IMarketPortfolioSnapshot>("MarketPortfolioSnapshot") ||
   mongoose.model<IMarketPortfolioSnapshot>(

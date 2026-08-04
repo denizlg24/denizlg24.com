@@ -222,6 +222,31 @@ export const benchmarkPointSchema = z.object({
 });
 export type BenchmarkPoint = z.infer<typeof benchmarkPointSchema>;
 
+/**
+ * The book's value as it was actually observed, minute by minute, rather than
+ * once a session at the close.
+ *
+ * These are recorded, not derived: each one is written when something priced the
+ * portfolio against live quotes. That is what makes an intraday curve affordable
+ * — reconstructing one would need intraday bars for every holding on every read,
+ * which is a provider request per holding per minute against a fifty-an-hour
+ * cap. Observing what has already been paid for costs nothing.
+ *
+ * The consequence is that the series is dense while something is watching and
+ * sparse when nothing is. It is a record of what was seen, not a continuous
+ * reconstruction, and the chart draws it as such.
+ */
+export const valuePointSchema = z.object({
+  ts: isoDateTimeSchema,
+  value: z.number(),
+  cash: z.number(),
+  positionsValue: z.number(),
+  invested: z.number(),
+  totalPnl: z.number(),
+  totalPnlPercent: z.number(),
+});
+export type ValuePoint = z.infer<typeof valuePointSchema>;
+
 export const portfolioPerformanceSchema = z.object({
   portfolioId: z.string(),
   curve: z.array(valuationPointSchema),
@@ -230,6 +255,8 @@ export const portfolioPerformanceSchema = z.object({
   contributions: z.array(contributionSeriesSchema),
   metrics: portfolioMetricsSchema,
   margin: marginStateSchema,
+  /** Recent observed value, for the intraday view. Oldest first. */
+  intradayCurve: z.array(valuePointSchema),
 });
 export type PortfolioPerformance = z.infer<typeof portfolioPerformanceSchema>;
 

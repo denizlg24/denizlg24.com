@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getPerformance } from "@/lib/markets/portfolios";
+import { getPerformance, recordValuePoint } from "@/lib/markets/portfolios";
 import { parseObjectId } from "@/lib/markets/route-params";
 import { requireAdmin } from "@/lib/require-admin";
 
@@ -18,5 +18,11 @@ export async function GET(
   if (!performance) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  // The page polls this while it is open, so every poll is a live observation of
+  // the book and the cheapest intraday curve available. A failed write must not
+  // cost the caller the performance it asked for.
+  await recordValuePoint(id, performance).catch((error) => {
+    console.error("[markets] Value point write failed", error);
+  });
   return NextResponse.json(performance);
 }

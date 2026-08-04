@@ -31,6 +31,28 @@ const MODES: { value: ChartMode; label: string }[] = [
 const PORTFOLIO_KEY = "__portfolio";
 const BENCHMARK_KEY = "__benchmark";
 
+/**
+ * `live` is the observed intraday series rather than a slice of the daily
+ * curve — the only view that moves within a session, and the only one a
+ * portfolio opened this morning has more than one point on.
+ */
+type Range = "live" | "1M" | "6M" | "1Y" | "ALL";
+
+const RANGES: { value: Range; label: string; days: number | null }[] = [
+  { value: "live", label: "Live", days: null },
+  { value: "1M", label: "1M", days: 30 },
+  { value: "6M", label: "6M", days: 182 },
+  { value: "1Y", label: "1Y", days: 365 },
+  { value: "ALL", label: "All", days: null },
+];
+
+/** Oldest date to keep for a range, or null to keep everything. */
+function cutoffFor(range: Range): string | null {
+  const days = RANGES.find((item) => item.value === range)?.days ?? null;
+  if (days === null) return null;
+  return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+}
+
 export interface PortfolioPerformanceChartProps {
   portfolio: Portfolio;
   performance: PortfolioPerformance;
@@ -41,8 +63,16 @@ export function PortfolioPerformanceChart({
   performance,
 }: PortfolioPerformanceChartProps) {
   const [mode, setMode] = useState<ChartMode>("value");
+  const [range, setRange] = useState<Range>("live");
   const [normalize, setNormalize] = useState(true);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+
+  // The live view is the default, but a portfolio with no observations yet has
+  // nothing to draw there — a book restored from a backup, or one whose page has
+  // never been open. Falling back keeps the chart from opening empty.
+  const live = performance.intradayCurve;
+  const effectiveRange: Range =
+    range === "live" && live.length < 2 ? "ALL" : range;
 
   // The server ranks contributions by absolute PnL, so hues follow that ranking
   // rather than whatever is currently visible.
@@ -89,7 +119,34 @@ export function PortfolioPerformanceChart({
   }, [portfolio.name, named, pooled, colors, mode]);
 
   const series = useMemo<CurveSeries[]>(() => {
-    if (performance.curve.length === 0) return [];
+    // Observed points carry the portfolio's own totals but no per-symbol
+    // breakdown — nothing prices a single holding minute by minute — so the
+    // live view is one line in every mode.
+    if (effectiveRange === "live") {
+      return [
+        {
+          key: PORTFOLIO_KEY,
+          label: portfolio.name,
+          color: PORTFOLIO_COLOR,
+          emphasis: true,
+          points: live.map((point) => ({
+            date: point.ts,
+            value:
+              mode === "value"
+                ? point.value
+                : mode === "pnl"
+                  ? point.totalPnl
+                  : point.totalPnlPercent,
+          })),
+        },
+      ];
+    }
+
+    const cutoff = cutoffFor(effectiveRange);
+    const within = <T extends { date: string }>(points: T[]) =>
+      cutoff === null ? points : points.filter((point) => point.date >= cutoff);
+    const curve = within(performance.curve);
+    if (curve.length === 0) return [];
 
     if (mode === "value") {
       const result: CurveSeries[] = [
@@ -98,7 +155,7 @@ export function PortfolioPerformanceChart({
           label: portfolio.name,
           color: PORTFOLIO_COLOR,
           emphasis: true,
-          points: performance.curve.map((point) => ({
+          points: curve.map((point) => ({
             date: point.date,
             value: point.value,
           })),
@@ -107,7 +164,7 @@ export function PortfolioPerformanceChart({
       // A benchmark index level and a portfolio balance share no axis, so the
       // comparison only exists once both are rebased.
       if (normalize && performance.benchmarkCurve.length > 0) {
-        const start = performance.curve[0]?.date ?? "";
+        const start = curve[0]?.date ?? "";
         result.push({
           key: BENCHMARK_KEY,
           label: portfolio.benchmark ?? "Benchmark",
@@ -129,7 +186,7 @@ export function PortfolioPerformanceChart({
         label: portfolio.name,
         color: PORTFOLIO_COLOR,
         emphasis: true,
-        points: performance.curve.map((point) => ({
+        points: curve.map((point) => ({
           date: point.date,
           value: mode === "pnl" ? point.totalPnl : point.totalPnlPercent,
         })),
@@ -142,7 +199,7 @@ export function PortfolioPerformanceChart({
         key: item.ticker,
         label: item.ticker,
         color: colors.get(item.ticker) ?? OTHER_COLOR,
-        points: item.points.map((point) => ({
+        points: within(item.points).map((point) => ({
           date: point.date,
           value: mode === "pnl" ? point.pnl : point.returnPercent,
         })),
@@ -152,7 +209,7 @@ export function PortfolioPerformanceChart({
     if (mode === "pnl" && pooled.length > 0 && !hidden.has(OTHER_KEY)) {
       const byDate = new Map<string, number>();
       for (const item of pooled) {
-        for (const point of item.points) {
+        for (const point of within(item.points)) {
           byDate.set(point.date, (byDate.get(point.date) ?? 0) + point.pnl);
         }
       }
@@ -169,6 +226,8 @@ export function PortfolioPerformanceChart({
     return result;
   }, [
     mode,
+    effectiveRange,
+    live,
     normalize,
     hidden,
     named,
@@ -187,7 +246,10 @@ export function PortfolioPerformanceChart({
       return next;
     });
 
-  const percentAxis = mode === "return" || (mode === "value" && normalize);
+  // The live view is a single absolute series, so there is nothing to rebase
+  // against and the axis stays in the mode's own units.
+  const rebased = mode === "value" && normalize && effectiveRange !== "live";
+  const percentAxis = mode === "return" || rebased;
 
   return (
     <div className="shrink-0 border-b">
@@ -209,26 +271,51 @@ export function PortfolioPerformanceChart({
           </TabsList>
         </Tabs>
 
-        {mode === "value" ? (
-          <button
-            type="button"
-            onClick={() => setNormalize((current) => !current)}
-            aria-pressed={normalize}
-            className={`ml-auto rounded border px-1.5 py-0.5 text-[10px] tabular-nums ${
-              normalize
-                ? "border-foreground/30 text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            %
-          </button>
-        ) : null}
+        <div className="ml-auto flex items-center gap-1">
+          {RANGES.map((item) => {
+            const on = effectiveRange === item.value;
+            return (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => setRange(item.value)}
+                aria-pressed={on}
+                className={`rounded border px-1.5 py-0.5 text-[10px] tabular-nums ${
+                  on
+                    ? "border-foreground/30 text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+          {mode === "value" && effectiveRange !== "live" ? (
+            <button
+              type="button"
+              onClick={() => setNormalize((current) => !current)}
+              aria-pressed={normalize}
+              className={`ml-1 rounded border px-1.5 py-0.5 text-[10px] tabular-nums ${
+                normalize
+                  ? "border-foreground/30 text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              %
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      {mode === "value" ? (
+      {/* One line, and the chips would toggle series that do not exist here. */}
+      {effectiveRange === "live" ? (
         <div className="flex flex-wrap items-center gap-3 px-4 pt-1.5 text-[10px]">
           <Legend color={PORTFOLIO_COLOR} label={portfolio.name} />
-          {normalize && portfolio.benchmark ? (
+        </div>
+      ) : mode === "value" ? (
+        <div className="flex flex-wrap items-center gap-3 px-4 pt-1.5 text-[10px]">
+          <Legend color={PORTFOLIO_COLOR} label={portfolio.name} />
+          {rebased && portfolio.benchmark ? (
             <Legend
               color={BENCHMARK_COLOR}
               label={portfolio.benchmark}
@@ -272,11 +359,14 @@ export function PortfolioPerformanceChart({
         ) : (
           <EquityChart
             series={series}
-            normalize={mode === "value" && normalize}
+            normalize={rebased}
             format={percentAxis ? "percent" : "price"}
             baseline={mode !== "value"}
+            // Every live point falls inside one day, so a date axis would print
+            // the same label the whole way across.
+            timeVisible={effectiveRange === "live"}
             height={260}
-            fitKey={`${portfolio.id}:${mode}:${normalize}`}
+            fitKey={`${portfolio.id}:${mode}:${effectiveRange}:${rebased}`}
           />
         )}
       </div>

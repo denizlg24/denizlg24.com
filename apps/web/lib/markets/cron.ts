@@ -2,7 +2,7 @@ import { BudgetExhaustedError, toDateKey } from "@repo/markets/core";
 import { connectDB } from "@/lib/mongodb";
 import { MarketPortfolio, MarketPortfolioSnapshot } from "@/models/Market";
 import { runOrderEngine } from "./orders";
-import { getPerformance } from "./portfolios";
+import { getPerformance, recordValuePoint } from "./portfolios";
 import {
   getCandles,
   getFundamentals,
@@ -174,12 +174,15 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
     try {
       const performance = await getPerformance(String(portfolio._id));
       const latest = performance?.curve.at(-1);
-      if (!latest) continue;
+      if (!latest || !performance) continue;
       await MarketPortfolioSnapshot.updateOne(
         { portfolioId: portfolio._id, date: latest.date },
         { $set: { portfolioId: portfolio._id, ...latest } },
         { upsert: true },
       );
+      // Keeps the intraday curve moving when nobody has the page open. The
+      // snapshot is one point a day; this is what fills the session between.
+      await recordValuePoint(String(portfolio._id), performance, now);
       result.snapshotsWritten++;
     } catch (error) {
       result.errors.push(`portfolio ${portfolio._id}: ${String(error)}`);

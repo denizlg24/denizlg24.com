@@ -45,6 +45,11 @@ export interface EquityChartProps {
   format?: CurveFormat;
   /** Marks zero on the price scale — the sign is the story on a PnL axis. */
   baseline?: boolean;
+  /**
+   * Print clock time on the axis. A daily curve wants dates; an intraday one is
+   * entirely within a day, and without this every label reads the same.
+   */
+  timeVisible?: boolean;
   height?: number;
   /** Same contract as CandleChart: a change reframes, equality keeps the viewport. */
   fitKey?: string;
@@ -62,6 +67,7 @@ export function EquityChart({
   normalize = false,
   format = "price",
   baseline = false,
+  timeVisible = false,
   height = 260,
   fitKey = "",
 }: EquityChartProps) {
@@ -95,7 +101,7 @@ export function EquityChart({
       rightPriceScale: { borderColor: "rgba(127,127,127,0.2)" },
       timeScale: {
         borderColor: "rgba(127,127,127,0.2)",
-        timeVisible: false,
+        timeVisible,
         secondsVisible: false,
       },
       crosshair: { mode: 1 },
@@ -155,6 +161,12 @@ export function EquityChart({
   useEffect(() => {
     chart.current?.applyOptions({ height });
   }, [height]);
+
+  // Same reason as height: applied to the live chart rather than rebuilding it,
+  // which would drop every series.
+  useEffect(() => {
+    chart.current?.applyOptions({ timeScale: { timeVisible } });
+  }, [timeVisible]);
 
   useEffect(() => {
     const instance = chart.current;
