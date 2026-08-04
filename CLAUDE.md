@@ -252,6 +252,50 @@ Things worth knowing before touching this:
 - **The equity curve runs to today, not to the last cached bar.** A daily bar for today does not exist until after the close, so a curve built from bars alone stops at the previous session while positions are already live — and a portfolio opened today has no curve at all. `performanceDates()` adds inception and today; today's point is priced from the live quote.
 - **The intraday curve is observed, not reconstructed.** `MarketPortfolioValuePoint` records what the book was worth whenever something priced it against live quotes, bucketed to the minute and expiring after 30 days. Rebuilding it from intraday bars would cost one provider request per holding per minute against a 50/hour cap; `getPerformance` has already paid for the quotes. The series is therefore dense while something is watching and sparse otherwise, and carries no per-symbol breakdown — nothing prices a single holding minute by minute.
 
+### Agent memory and agent tasks
+
+- **A disagreement is not automatically a contradiction.** The formation model
+  can only report that two statements disagree; `classifyTemporalConflict` in
+  `lib/agent-memory/temporal-succession.ts` decides what that means. A statement
+  observed later than an open-ended one supersedes it, two statements dated to
+  the same instant contradict, and one describing an older state than what is
+  stored is dropped as stale. Without this, every value that moves — a balance,
+  a count, a role, a city — grows permanent contradiction links.
+- **Undated statements need an hour of separation to count as succession.** One
+  conversation disagreeing with itself is a contradiction, not a value moving.
+  This is why the formation prompt pushes so hard on setting `temporal.validFrom`
+  for anything that changes: a date makes the ordering explicit.
+- **A less explicit statement never silently supersedes a more explicit one.**
+  An inference that disagrees with something the owner stated stays a
+  contradiction however much later it arrives.
+- **`succession` is informational, not a review request.** It is in
+  `INFORMATIONAL_REVIEW_FLAGS`, so it does not hold auto-promotion the way every
+  other review flag does. Adding a flag there without that intent puts a review
+  queue in front of ordinary memory formation.
+- **`save_memory` writes through the candidate path, so embedding is automatic.**
+  `writeRevision` enqueues the embedding job for any active revision. What the
+  tool does not do is enqueue *formation* on its evidence row — the statement is
+  already a finished memory, and extraction reading it back would re-derive it as
+  a competing candidate.
+- **Dedup happens on save, not later.** Shadow retrieval has usually just shown
+  the agent the memory it is about to duplicate. A word-for-word restatement
+  reinforces (evidence appended, confidence a quarter closer to 1, asymptotic);
+  a restatement with a changed value supersedes; only a same-sitting
+  disagreement is left as a contradiction.
+- **`memoryMode` reaches tools through `ToolExecutionContext`.** An incognito
+  turn must write nothing. A new memory-writing tool that ignores the context
+  will happily write during incognito.
+- **A task takes either `schedule` or `runAt`, never both.** They describe the
+  same field — when it next fires. A spent one-off archives itself; the run stays
+  in the run history.
+- **Agent-scheduled tasks are ungated by decision.** Task runs execute write
+  tools unattended (`lib/agent-tasks/execution.ts` records `isWrite` but does not
+  gate on it), so a task can schedule tasks with nobody in the loop. `origin`
+  records who queued each one and the UI separates them; that visibility is the
+  control, not a cap.
+- **Nothing in this repo drives the task cron.** As with markets, the scheduler
+  is external. If it is not running, no scheduled task ever fires.
+
 ### Authenticator
 - `GET /authenticator` → `{ accounts: IAuthenticatorAccount[] }` (no secrets)
 - `GET /authenticator/codes` → `{ codes: IAuthenticatorCode[] }` — server-computed, used by the admin and desktop UIs
