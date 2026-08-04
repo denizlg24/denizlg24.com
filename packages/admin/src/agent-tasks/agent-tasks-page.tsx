@@ -55,7 +55,7 @@ import { toast } from "sonner";
 import { useModelCatalog } from "../llm/model-select";
 import { useAdmin } from "../provider";
 import { RequiredSettingsModelPicker } from "../settings/settings-model-picker";
-import { CronField } from "./cron-field";
+import { ScheduleField } from "./schedule-field";
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
@@ -69,6 +69,7 @@ interface TaskForm {
   name: string;
   prompt: string;
   cron: string | null;
+  runAt: string | null;
   timeZone: string;
   model: string;
   memoryMode: AgentTask["memoryMode"];
@@ -93,6 +94,7 @@ function emptyForm(timeZone: string): TaskForm {
     name: "",
     prompt: "",
     cron: "0 9 * * *",
+    runAt: null,
     timeZone,
     model: "",
     memoryMode: "enabled",
@@ -106,6 +108,7 @@ function taskToForm(task: AgentTask, fallbackTimeZone: string): TaskForm {
     name: task.name,
     prompt: task.prompt,
     cron: task.schedule?.cron ?? null,
+    runAt: task.runAt ?? null,
     timeZone: task.schedule?.timeZone ?? fallbackTimeZone,
     model: task.model,
     memoryMode: task.memoryMode,
@@ -237,6 +240,26 @@ export function AgentTasksPage() {
   const selectedRun =
     taskRuns.find((run) => run.id === selectedRunId) ?? taskRuns[0];
 
+  /**
+   * Agent-scheduled tasks run unattended and nobody asked for them directly, so
+   * they lead. An empty group is dropped rather than shown as a heading with
+   * nothing under it, which also keeps the single-group case unheaded.
+   */
+  const taskGroups = useMemo(() => {
+    const tasks = overview?.tasks ?? [];
+    return (
+      [
+        { origin: "agent" as const, label: "Agent" },
+        { origin: "owner" as const, label: "Yours" },
+      ] satisfies { origin: AgentTask["origin"]; label: string }[]
+    )
+      .map((group) => ({
+        ...group,
+        tasks: tasks.filter((task) => task.origin === group.origin),
+      }))
+      .filter((group) => group.tasks.length > 0);
+  }, [overview?.tasks]);
+
   const openCreate = () => {
     setEditingTaskId(null);
     setForm(emptyForm(localTimeZone()));
@@ -325,6 +348,7 @@ export function AgentTasksPage() {
         schedule: form.cron?.trim()
           ? { cron: form.cron.trim(), timeZone: form.timeZone.trim() }
           : null,
+        runAt: form.cron?.trim() ? null : form.runAt,
         ...(form.model.trim() ? { model: form.model.trim() } : {}),
       };
       if (editingTaskId) {
@@ -486,51 +510,65 @@ export function AgentTasksPage() {
             Tasks
           </div>
           <ScrollArea className="min-h-0 flex-1">
-            <div className="divide-y">
-              {overview?.tasks.map((task) => (
-                <button
-                  type="button"
-                  key={task.id}
-                  className={`w-full px-3 py-3 text-left transition-colors hover:bg-muted/50 ${
-                    selectedTaskId === task.id ? "bg-muted" : ""
-                  }`}
-                  onClick={() => {
-                    setSelectedTaskId(task.id);
-                    setSelectedRunId(
-                      overview.runs.find((run) => run.taskId === task.id)?.id ??
-                        null,
-                    );
-                  }}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium">
-                      {task.name}
+            {taskGroups.map((group) => (
+              <div key={group.origin}>
+                {taskGroups.length > 1 ? (
+                  <div className="sticky top-0 z-10 flex h-7 items-center gap-2 border-b bg-background px-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {group.label}
+                    <span className="ml-auto tabular-nums">
+                      {group.tasks.length}
                     </span>
-                    <Badge
-                      variant="outline"
-                      className="ml-auto h-5 px-1.5 text-[10px]"
+                  </div>
+                ) : null}
+                <div className="divide-y border-b last:border-b-0">
+                  {group.tasks.map((task) => (
+                    <button
+                      type="button"
+                      key={task.id}
+                      className={`w-full px-3 py-3 text-left transition-colors hover:bg-muted/50 ${
+                        selectedTaskId === task.id ? "bg-muted" : ""
+                      }`}
+                      onClick={() => {
+                        setSelectedTaskId(task.id);
+                        setSelectedRunId(
+                          overview?.runs.find((run) => run.taskId === task.id)
+                            ?.id ?? null,
+                        );
+                      }}
                     >
-                      {task.status}
-                    </Badge>
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
-                    {task.schedule ? (
-                      <span className="truncate font-mono">
-                        {task.schedule.cron}
-                      </span>
-                    ) : (
-                      <span>Manual</span>
-                    )}
-                  </div>
-                  <div className="mt-1 truncate text-[11px] text-muted-foreground">
-                    {task.nextRunAt
-                      ? `Next ${formatDate(task.nextRunAt)}`
-                      : "—"}
-                  </div>
-                </button>
-              ))}
-              {overview?.tasks.length === 0 ? <div className="h-24" /> : null}
-            </div>
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium">
+                          {task.name}
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className="ml-auto h-5 px-1.5 text-[10px]"
+                        >
+                          {task.status}
+                        </Badge>
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                        {task.schedule ? (
+                          <span className="truncate font-mono">
+                            {task.schedule.cron}
+                          </span>
+                        ) : task.runAt ? (
+                          <span>Once</span>
+                        ) : (
+                          <span>Manual</span>
+                        )}
+                      </div>
+                      <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                        {task.nextRunAt
+                          ? `Next ${formatDate(task.nextRunAt)}`
+                          : "—"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {overview?.tasks.length === 0 ? <div className="h-24" /> : null}
           </ScrollArea>
         </div>
 
@@ -542,6 +580,7 @@ export function AgentTasksPage() {
                   {selectedTask.name}
                 </div>
                 <div className="truncate text-[11px] text-muted-foreground">
+                  {selectedTask.origin === "agent" ? "Agent · " : ""}
                   {selectedTask.model} ·{" "}
                   {
                     MEMORY_MODES.find(
@@ -806,11 +845,15 @@ export function AgentTasksPage() {
               />
             </div>
 
-            <CronField
+            <ScheduleField
               cron={form.cron}
+              runAt={form.runAt}
               timeZone={form.timeZone}
               onCronChange={(cron) =>
                 setForm((current) => ({ ...current, cron }))
+              }
+              onRunAtChange={(runAt) =>
+                setForm((current) => ({ ...current, runAt }))
               }
               onTimeZoneChange={(timeZone) =>
                 setForm((current) => ({ ...current, timeZone }))
