@@ -22,7 +22,7 @@ import {
 } from "@repo/ui/select";
 import { Switch } from "@repo/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdmin } from "../provider";
 import { money, toneClass, trimQuantity } from "./format";
 import { SymbolSearch } from "./symbol-search";
@@ -107,7 +107,9 @@ export function OrderTicket({
     [positions, ticker],
   );
 
-  const priceEdited = useRef(false);
+  // Unlike the trade ticket there is no editable price to protect here: `last`
+  // is a read-only reference, and the levels the owner types live in their own
+  // fields, so the streaming quote can always win.
   useEffect(() => {
     if (initialPrice != null) setLast(initialPrice);
   }, [initialPrice]);
@@ -116,7 +118,6 @@ export function OrderTicket({
     (next: string) => {
       const upper = next.toUpperCase();
       setTicker(upper);
-      priceEdited.current = false;
       client
         .get<{ quotes: Quote[] }>(
           `/markets/quotes?tickers=${encodeURIComponent(upper)}`,
