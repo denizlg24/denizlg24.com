@@ -1,10 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { watchColorScheme } from "../../lib/theme";
+import { startThemeSync } from "../../lib/theme";
 import "../../styles/globals.css";
 import { Popup } from "./popup";
 
-watchColorScheme();
+startThemeSync();
 
 const container = document.getElementById("root");
 if (!container) throw new Error("Missing #root");

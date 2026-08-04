@@ -66,6 +66,13 @@
   --foreground: #f9f8f6;
   --surface: #3d463c;
 
+  /* The light-mode value is #303630, which is this theme's --background: left
+     unset, every `text-accent-strong` painted itself invisible against the page
+     (and the active scrollbar thumb vanished with it). Emphasis inverts in dark
+     mode, so this is the bright end of the palette — 11:1 on --background,
+     8.7:1 on --surface. */
+  --accent-strong: #f1f3e0;
+
   --card: #3d463c;
   --card-foreground: var(--foreground);
 

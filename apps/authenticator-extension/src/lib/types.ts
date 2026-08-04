@@ -62,13 +62,19 @@ export interface VaultRecord {
   updatedAt: string;
 }
 
+export type ThemePreference = "system" | "light" | "dark";
+
 /**
  * Readable while the vault is locked, so it holds nothing sensitive. The API
  * key lives in the vault; only the address it points at lives here, because the
  * background needs it to decide whether it even has host permission.
+ *
+ * The theme lives here too rather than in the vault so the popup can paint
+ * correctly before it is unlocked.
  */
 export interface Preferences {
   apiBaseUrl: string;
+  theme: ThemePreference;
   autoLockMinutes: number;
   syncIntervalMinutes: number;
   trashRetentionDays: number;
@@ -78,6 +84,7 @@ export interface Preferences {
 
 export const DEFAULT_PREFERENCES: Preferences = {
   apiBaseUrl: __DEFAULT_API_BASE_URL__,
+  theme: "system",
   autoLockMinutes: 15,
   syncIntervalMinutes: 30,
   trashRetentionDays: 30,

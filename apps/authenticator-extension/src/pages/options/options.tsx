@@ -3,11 +3,15 @@ import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
 import { Separator } from "@repo/ui/separator";
 import { Skeleton } from "@repo/ui/skeleton";
+import { ToggleGroup, ToggleGroupItem } from "@repo/ui/toggle-group";
 import {
   Download,
   KeyRound,
   Loader2,
+  Monitor,
+  Moon,
   RotateCcw,
+  Sun,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -23,7 +27,12 @@ import {
 import { formatRelative } from "../../lib/format";
 import { send } from "../../lib/messages";
 import { readVaultRecord } from "../../lib/storage";
-import type { Preferences, TrashedEntry, VaultRecord } from "../../lib/types";
+import type {
+  Preferences,
+  ThemePreference,
+  TrashedEntry,
+  VaultRecord,
+} from "../../lib/types";
 
 function Section({
   title,
@@ -120,6 +129,44 @@ function ConnectionSection({ preferences }: { preferences: Preferences }) {
           <span className="text-xs text-muted-foreground">{message}</span>
         )}
       </div>
+    </Section>
+  );
+}
+
+const THEMES: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
+  { value: "system", label: "System", icon: Monitor },
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+];
+
+function AppearanceSection({ preferences }: { preferences: Preferences }) {
+  return (
+    <Section title="Appearance">
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        value={preferences.theme}
+        onValueChange={(value) => {
+          // Radix clears the value when the active item is pressed again.
+          if (!value) return;
+          void send({
+            type: "updatePreferences",
+            patch: { theme: value as ThemePreference },
+          });
+        }}
+      >
+        {THEMES.map(({ value, label, icon: Icon }) => (
+          <ToggleGroupItem
+            key={value}
+            value={value}
+            aria-label={label}
+            className="text-xs"
+          >
+            <Icon className="size-3.5" />
+            {label}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
     </Section>
   );
 }
@@ -508,6 +555,8 @@ export function Options() {
         </span>
       </header>
 
+      <AppearanceSection preferences={preferences} />
+      <Separator />
       <ConnectionSection preferences={preferences} />
       <Separator />
       <SecuritySection preferences={preferences} onLock={lock} />
