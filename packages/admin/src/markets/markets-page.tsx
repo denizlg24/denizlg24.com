@@ -1,6 +1,13 @@
 "use client";
 
-import { bollinger, ema, rsi, sma } from "@repo/markets/core";
+import {
+  bollinger,
+  ema,
+  type MarketSession,
+  marketSession,
+  rsi,
+  sma,
+} from "@repo/markets/core";
 import type {
   CandleSeries,
   CompanyNewsItem,
@@ -18,9 +25,16 @@ import type {
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { ScrollArea } from "@repo/ui/scroll-area";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@repo/ui/sheet";
 import { Skeleton } from "@repo/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
-import { Plus, RefreshCw, Star, Wallet, X } from "lucide-react";
+import { ListTree, Plus, RefreshCw, Star, Wallet, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdmin } from "../provider";
 import { CandleChart, type ChartKind, type Overlay } from "./candle-chart";
@@ -279,10 +293,71 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
   const change = last !== null && previous !== null ? last - previous : null;
   const changePercent =
     change !== null && previous ? (change / previous) * 100 : null;
+  const session = useMarketSession();
+
+  // The session's own figures, not the last bar on the chart: on the intraday
+  // ranges that bar is a five-minute candle, so its open and low described the
+  // last five minutes rather than the day, and on a cold cache it was absent
+  // entirely. `daily` is the fallback for a symbol the quote feed has not
+  // reached yet.
+  const daily = series?.resolution === "1day" ? bars.at(-1) : undefined;
+  const sessionStats = {
+    open: quote?.open ?? daily?.open,
+    high: quote?.high ?? daily?.high,
+    low: quote?.low ?? daily?.low,
+    close: previous ?? undefined,
+    volume: quote?.volume ?? daily?.volume,
+  };
+
+  const watchlistPanel = (
+    <ScrollArea className="h-full">
+      {watchlists.length === 0 ? (
+        <div className="px-3 py-2 text-muted-foreground text-xs">—</div>
+      ) : (
+        watchlists.map((list) => (
+          <div key={list.id} className="py-1">
+            <div className="px-3 py-1 text-[10px] text-muted-foreground uppercase tracking-wide">
+              {list.name}
+            </div>
+            {list.tickers.map((item) => (
+              <WatchRow
+                key={item}
+                ticker={item}
+                quote={quotes.get(item)}
+                active={item === selected}
+                onSelect={choose}
+                onRemove={() => void toggleWatch(item)}
+              />
+            ))}
+          </div>
+        ))
+      )}
+    </ScrollArea>
+  );
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
+      <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2 sm:gap-3 sm:px-4 lg:flex-nowrap lg:py-0">
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="size-8 lg:hidden"
+              aria-label="Watchlists"
+            >
+              <ListTree className="size-4" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="w-72 p-0">
+            <SheetHeader className="border-b px-3 py-2">
+              <SheetTitle className="text-sm">Watchlists</SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {watchlistPanel}
+            </div>
+          </SheetContent>
+        </Sheet>
         <SymbolSearch onSelect={choose} />
         {universe === 0 ? (
           <Button
@@ -296,13 +371,14 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
             Seed universe
           </Button>
         ) : null}
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          <SessionBadge session={session} />
           <a
             href={routes.portfolios}
             className="flex items-center gap-1.5 text-muted-foreground text-xs hover:text-foreground"
           >
             <Wallet className="size-3.5" />
-            Portfolios
+            <span className="hidden sm:inline">Portfolios</span>
           </a>
           <TransportDot transport={transport} upstream={upstream} />
           {series?.freshness.stale ? (
@@ -315,34 +391,12 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <aside className="w-56 shrink-0 border-r">
-          <ScrollArea className="h-full">
-            {watchlists.length === 0 ? (
-              <div className="px-3 py-2 text-muted-foreground text-xs">—</div>
-            ) : (
-              watchlists.map((list) => (
-                <div key={list.id} className="py-1">
-                  <div className="px-3 py-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-                    {list.name}
-                  </div>
-                  {list.tickers.map((item) => (
-                    <WatchRow
-                      key={item}
-                      ticker={item}
-                      quote={quotes.get(item)}
-                      active={item === selected}
-                      onSelect={choose}
-                      onRemove={() => void toggleWatch(item)}
-                    />
-                  ))}
-                </div>
-              ))
-            )}
-          </ScrollArea>
+        <aside className="hidden w-56 shrink-0 border-r lg:block">
+          {watchlistPanel}
         </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2">
+        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-2 sm:px-4">
             <CompanyLogo
               url={detail?.profile?.logoUrl}
               name={detail?.profile?.name ?? selected}
@@ -352,7 +406,7 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
               {selected}
             </span>
             {detail?.symbol ? (
-              <span className="max-w-56 truncate text-muted-foreground text-xs">
+              <span className="hidden max-w-56 truncate text-muted-foreground text-xs sm:inline">
                 {detail.symbol.name}
               </span>
             ) : null}
@@ -383,23 +437,32 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
               </span>
             ) : null}
             <QuickTrade ticker={selected} lastPrice={last} />
-            <div className="ml-auto flex items-center gap-3 text-muted-foreground text-xs tabular-nums">
+            <div className="flex w-full flex-wrap items-center gap-x-3 text-muted-foreground text-xs tabular-nums sm:ml-auto sm:w-auto sm:justify-end">
               {detail?.profile?.sector ? (
-                <span className="max-w-40 truncate">
+                <span className="hidden max-w-40 truncate xl:inline">
                   {detail.profile.sector}
                 </span>
               ) : null}
               {detail?.profile?.marketCap ? (
-                <span>{compact(detail.profile.marketCap)}</span>
+                <span className="hidden lg:inline">
+                  {compact(detail.profile.marketCap)}
+                </span>
               ) : null}
-              <Stat label="O" value={bars.at(-1)?.open} />
-              <Stat label="H" value={bars.at(-1)?.high} />
-              <Stat label="L" value={bars.at(-1)?.low} />
+              <Stat label="O" value={sessionStats.open} />
+              <Stat label="H" value={sessionStats.high} />
+              <Stat label="L" value={sessionStats.low} />
+              <Stat label="C" value={sessionStats.close} />
+              <span className="hidden sm:inline">
+                Vol{" "}
+                {sessionStats.volume === undefined
+                  ? "—"
+                  : compact(sessionStats.volume)}
+              </span>
               <Stat label="RSI" value={strength ?? undefined} digits={1} />
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 border-b px-4 py-1.5">
+          <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1.5 sm:px-4">
             <Tabs
               value={range.label}
               onValueChange={(value) => {
@@ -434,7 +497,7 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
               </TabsList>
             </Tabs>
 
-            <div className="ml-auto flex gap-1">
+            <div className="flex flex-wrap gap-1 sm:ml-auto sm:flex-nowrap">
               {INDICATORS.map((indicator) => (
                 <Button
                   key={indicator.key}
@@ -460,9 +523,11 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 px-2 py-2">
+          {/* Below lg the chart keeps a usable height and the column scrolls,
+              rather than every pane splitting one phone screen between them. */}
+          <div className="min-h-64 flex-1 px-2 py-2 lg:min-h-0">
             {loading ? (
-              <Skeleton className="h-[420px] w-full" />
+              <Skeleton className="h-full min-h-64 w-full" />
             ) : error ? (
               <div className="px-2 py-4 text-red-600 text-xs">{error}</div>
             ) : bars.length === 0 ? (
@@ -609,6 +674,67 @@ function WatchRow({
   );
 }
 
+/**
+ * Recomputed on a timer rather than on render, so the badge flips at the bell
+ * without the page being touched. A minute is finer than any boundary needs.
+ */
+function useMarketSession(): MarketSession {
+  const [session, setSession] = useState(() => marketSession(new Date()));
+  useEffect(() => {
+    const tick = () => setSession(marketSession(new Date()));
+    tick();
+    const timer = setInterval(tick, 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  return session;
+}
+
+const SESSION_LABELS: Record<MarketSession["state"], string> = {
+  pre: "pre",
+  open: "open",
+  after: "after",
+  closed: "closed",
+};
+
+function SessionBadge({ session }: { session: MarketSession }) {
+  const colour =
+    session.state === "open"
+      ? "bg-emerald-500"
+      : session.state === "closed"
+        ? "bg-muted-foreground"
+        : "bg-amber-500";
+
+  const change = session.nextChangeAt ? new Date(session.nextChangeAt) : null;
+  const relative = change ? untilLabel(change) : null;
+
+  return (
+    <span
+      className="flex items-center gap-1.5 text-muted-foreground text-xs tabular-nums"
+      title={
+        change
+          ? `${session.state === "open" ? "Closes" : "Next session"} ${change.toLocaleString()}`
+          : undefined
+      }
+    >
+      <span className={`inline-block size-1.5 rounded-full ${colour}`} />
+      {SESSION_LABELS[session.state]}
+      {relative ? <span className="hidden md:inline">{relative}</span> : null}
+      {session.earlyClose ? (
+        <span className="hidden text-amber-600 lg:inline">½</span>
+      ) : null}
+    </span>
+  );
+}
+
+function untilLabel(target: Date): string {
+  const minutes = Math.round((target.getTime() - Date.now()) / 60_000);
+  if (minutes <= 0) return "";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ""}`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
 function TransportDot({
   transport,
   upstream,
@@ -742,8 +868,8 @@ function SymbolDetail({
   const latest = periods[0];
 
   return (
-    <div className="flex h-56 shrink-0 flex-col border-t">
-      <div className="flex shrink-0 items-center px-4 pt-1">
+    <div className="flex h-56 shrink-0 flex-col border-t max-lg:h-64">
+      <div className="flex shrink-0 items-center overflow-x-auto px-3 pt-1 sm:px-4">
         <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)}>
           <TabsList variant="line" className="h-7">
             <TabsTrigger value="company" className="px-2 text-xs">
@@ -1015,7 +1141,7 @@ export function MarketsSkeleton() {
         <Skeleton className="h-8 w-72" />
       </div>
       <div className="flex flex-1">
-        <div className="w-56 space-y-2 border-r p-3">
+        <div className="hidden w-56 space-y-2 border-r p-3 lg:block">
           {Array.from({ length: 8 }, (_, i) => (
             <Skeleton key={`row-${i}`} className="h-4 w-full" />
           ))}

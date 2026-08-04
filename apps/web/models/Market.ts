@@ -117,6 +117,7 @@ export interface IMarketCoverage extends Document {
   from?: string;
   to?: string;
   fetchedAt?: Date;
+  backfilled?: boolean;
 }
 
 const marketCoverageSchema = new Schema<IMarketCoverage>({
@@ -125,6 +126,9 @@ const marketCoverageSchema = new Schema<IMarketCoverage>({
   from: String,
   to: String,
   fetchedAt: Date,
+  // Absent on rows written before this existed, which correctly reads as "the
+  // history has never been backfilled" — those caches hold one range only.
+  backfilled: Boolean,
 });
 marketCoverageSchema.index({ ticker: 1, dataset: 1 }, { unique: true });
 

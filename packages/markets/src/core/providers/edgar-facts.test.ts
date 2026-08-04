@@ -136,7 +136,7 @@ describe("distillCompanyFacts", () => {
     expect(result).toEqual([]);
   });
 
-  test("skips entries with no usable fiscal period", () => {
+  test("labels from the duration when the filer's fiscal period is junk", () => {
     const result = distillCompanyFacts(
       payload({
         Revenues: {
@@ -144,7 +144,122 @@ describe("distillCompanyFacts", () => {
         },
       }),
     );
-    expect(result).toEqual([]);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.fiscalPeriod).toBe("FY");
+    expect(factValue(result[0]?.facts ?? [], "revenue")).toBe(400);
+  });
+
+  test("drops a year-to-date duration rather than reading it as a quarter", () => {
+    const result = distillCompanyFacts(
+      payload({
+        Revenues: {
+          units: {
+            USD: [
+              // Both rows carry fp: "Q3"; only the span tells them apart.
+              {
+                ...annual,
+                start: "2025-03-29",
+                end: "2025-06-28",
+                fp: "Q3",
+                form: "10-Q",
+                val: 94,
+              },
+              {
+                ...annual,
+                start: "2024-09-29",
+                end: "2025-06-28",
+                fp: "Q3",
+                form: "10-Q",
+                val: 274,
+              },
+            ],
+          },
+        },
+      }),
+    );
+    expect(result).toHaveLength(1);
+    expect(factValue(result[0]?.facts ?? [], "revenue")).toBe(94);
+  });
+
+  test("one balance date does not become a period per filing that cites it", () => {
+    const instant = {
+      end: "2025-09-27",
+      fy: 2025,
+      fp: "FY",
+      form: "10-K",
+      filed: "2025-10-30",
+      accn: "a",
+    };
+    const result = distillCompanyFacts(
+      payload({
+        Revenues: { units: { USD: [{ ...annual, val: 400 }] } },
+        Assets: {
+          units: {
+            USD: [
+              { ...instant, val: 365 },
+              // The same balance sheet, quoted as a comparative by the next
+              // three 10-Qs. Their fy/fp describe the filing, not the date.
+              {
+                ...instant,
+                fy: 2026,
+                fp: "Q1",
+                form: "10-Q",
+                filed: "2026-01-30",
+                accn: "b",
+                val: 365,
+              },
+              {
+                ...instant,
+                fy: 2026,
+                fp: "Q2",
+                form: "10-Q",
+                filed: "2026-05-01",
+                accn: "c",
+                val: 365,
+              },
+              {
+                ...instant,
+                fy: 2026,
+                fp: "Q3",
+                form: "10-Q",
+                filed: "2026-07-31",
+                accn: "d",
+                val: 365,
+              },
+            ],
+          },
+        },
+      }),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]?.fiscalPeriod).toBe("FY");
+    expect(result[0]?.fiscalYear).toBe(2025);
+    expect(factValue(result[0]?.facts ?? [], "totalAssets")).toBe(365);
+  });
+
+  test("a null fiscal context costs that entry only, never the concept", () => {
+    const parsed = companyFactsPayloadSchema.parse({
+      cik: 320193,
+      facts: {
+        "us-gaap": {
+          NetIncomeLoss: {
+            units: {
+              USD: [
+                // SEC ships these for values lifted out of a restating 8-K.
+                { ...annual, fy: null, fp: null, form: "8-K", val: 41_733 },
+                { ...annual, val: 112_010 },
+              ],
+            },
+          },
+        },
+      },
+    });
+    const entries = parsed.facts?.["us-gaap"]?.NetIncomeLoss?.units?.USD ?? [];
+    expect(entries).toHaveLength(2);
+
+    const result = distillCompanyFacts(parsed);
+    expect(result).toHaveLength(1);
+    expect(factValue(result[0]?.facts ?? [], "netIncome")).toBe(112_010);
   });
 
   test("a payload with no us-gaap block distils to nothing", () => {

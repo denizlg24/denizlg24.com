@@ -278,13 +278,38 @@ export const companyFactUnitSchema = z.object({
   end: z.string(),
   val: z.number(),
   accn: z.string(),
-  fy: z.number().optional(),
-  fp: z.string().optional(),
+  /**
+   * Explicitly null on entries SEC lifted out of a restatement filing — an 8-K
+   * reissuing prior years carries the value with no fiscal context at all.
+   * Rejecting those used to cost the concept every entry it had; see
+   * `factEntriesSchema`.
+   */
+  fy: z.number().nullish(),
+  fp: z.string().nullish(),
   form: z.string(),
   filed: z.string(),
   frame: z.string().optional(),
 });
 export type CompanyFactUnit = z.infer<typeof companyFactUnitSchema>;
+
+/**
+ * Validates one entry at a time and keeps the ones that fit.
+ *
+ * `z.array(companyFactUnitSchema).catch([])` reads like the same tolerance and
+ * is not: a single malformed entry replaces the entire array, so a concept is
+ * all-or-nothing. SEC ships a handful of context-free restatement rows per
+ * concept, which made that total — AAPL's `NetIncomeLoss` lost all 338 entries
+ * to the 11 that carried `fy: null`, and with them P/E, EPS, margins and ROE.
+ */
+const factEntriesSchema = z
+  .array(z.unknown())
+  .transform((entries) =>
+    entries.flatMap((entry) => {
+      const parsed = companyFactUnitSchema.safeParse(entry);
+      return parsed.success ? [parsed.data] : [];
+    }),
+  )
+  .catch([]);
 
 export const companyFactsPayloadSchema = z.object({
   cik: z.number(),
@@ -298,11 +323,7 @@ export const companyFactsPayloadSchema = z.object({
             // Null for deprecated and unlabelled concepts; never read, since
             // every emitted fact takes its label from FACT_DEFINITIONS.
             label: z.string().nullish(),
-            // A concept whose entries do not match the expected shape is
-            // dropped rather than failing the whole several-megabyte payload.
-            units: z
-              .record(z.string(), z.array(companyFactUnitSchema).catch([]))
-              .optional(),
+            units: z.record(z.string(), factEntriesSchema).optional(),
           }),
         )
         .optional(),
@@ -322,7 +343,9 @@ export interface DistilledPeriod {
   facts: Fact[];
 }
 
-function isFiscalPeriod(value: string | undefined): value is FiscalPeriod {
+function isFiscalPeriod(
+  value: string | null | undefined,
+): value is FiscalPeriod {
   return (
     value === "FY" ||
     value === "Q1" ||
@@ -332,43 +355,137 @@ function isFiscalPeriod(value: string | undefined): value is FiscalPeriod {
   );
 }
 
+/** A duration covering a fiscal year, a single quarter, or neither. */
+type DurationType = "FY" | "Q";
+
 /**
- * A Q3 10-Q tags income and cash-flow concepts twice: once for the three-month
- * quarter and once for the nine-month year to date. Both carry `fy: 2025`,
- * `fp: "Q3"` and the same `end`, so keying on those three alone collapses them
- * and the year-to-date figure can end up labelled as a single quarter. That
- * value then flows into `trailingFlow`, which sums four quarters, and overstates
- * trailing revenue, net income and cash flow.
+ * Which window a duration covers, read from the duration itself rather than
+ * from the filing's `fp`.
  *
- * Balance-sheet facts are instantaneous and carry no `start`, so they pass.
+ * `fp` cannot do this job: a Q3 10-Q tags income and cash-flow concepts twice,
+ * once for the three-month quarter and once for the nine-month year to date,
+ * and both carry `fy: 2026`, `fp: "Q3"` and the same `end`. Year-to-date spans
+ * match neither band and are dropped, so a nine-month figure can never be
+ * summed as though it were one quarter.
  */
-function durationMatchesPeriod(
-  entry: CompanyFactUnit,
-  period: FiscalPeriod,
-): boolean {
-  if (!entry.start) return true;
+function durationType(start: string, end: string): DurationType | null {
   const days =
-    (Date.parse(`${entry.end}T00:00:00Z`) -
-      Date.parse(`${entry.start}T00:00:00Z`)) /
+    (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) /
     86_400_000;
-  if (!Number.isFinite(days)) return false;
-  return period === "FY"
-    ? days >= 330 && days <= 400
-    : days >= 80 && days <= 100;
+  if (!Number.isFinite(days)) return null;
+  if (days >= 80 && days <= 100) return "Q";
+  if (days >= 330 && days <= 400) return "FY";
+  return null;
+}
+
+interface Contribution {
+  definition: FactDefinition;
+  concept: string;
+  /** Index into the definition's concept list; lower is more preferred. */
+  rank: number;
+  unit: string;
+  value: number;
+  start?: string;
+  end: string;
+  type: DurationType | "instant";
+  form: string;
+  filed: string;
+  accession: string;
+  fy?: number | null;
+  fp?: string | null;
+}
+
+interface PeriodAccumulator {
+  type: DurationType | "instant";
+  periodStart?: string;
+  periodEnd: string;
+  facts: Map<string, { fact: Fact; filed: string; rank: number }>;
+  /** Oldest filing wins, so the label comes from the report that owned it. */
+  origin: Contribution | null;
+}
+
+/** Calendar-quarter fallback for a filer whose own `fp` is missing or junk. */
+function derivedFiscalPeriod(type: DurationType | "instant", end: string) {
+  if (type === "FY") return "FY" as const;
+  const month = Number(end.slice(5, 7));
+  return ([
+    "Q1",
+    "Q1",
+    "Q1",
+    "Q2",
+    "Q2",
+    "Q2",
+    "Q3",
+    "Q3",
+    "Q3",
+    "Q4",
+    "Q4",
+    "Q4",
+  ][Math.max(0, Math.min(11, month - 1))] ?? "Q4") as FiscalPeriod;
+}
+
+function upsertPeriod(
+  periods: Map<string, PeriodAccumulator>,
+  key: string,
+  contribution: Contribution,
+): void {
+  let period = periods.get(key);
+  if (!period) {
+    period = {
+      type: contribution.type,
+      periodStart: contribution.start,
+      periodEnd: contribution.end,
+      facts: new Map(),
+      origin: null,
+    };
+    periods.set(key, period);
+  }
+
+  // Preferred concept first, and only then newest filing. A later filing must
+  // not let a fallback concept displace the preferred one for the same period,
+  // or a single line would flip between concepts from quarter to quarter.
+  const existing = period.facts.get(contribution.definition.key);
+  const better =
+    !existing ||
+    contribution.rank < existing.rank ||
+    (contribution.rank === existing.rank &&
+      contribution.filed > existing.filed);
+  if (better) {
+    period.facts.set(contribution.definition.key, {
+      filed: contribution.filed,
+      rank: contribution.rank,
+      fact: {
+        key: contribution.definition.key,
+        label: contribution.definition.label,
+        statement: contribution.definition.statement,
+        value: contribution.value,
+        unit: contribution.unit,
+        concept: contribution.concept,
+      },
+    });
+  }
+
+  // The label tracks the earliest filing rather than the latest value, because
+  // a period appears in later filings only as a comparative and those carry the
+  // *filing's* fiscal context, not the period's. Taking the newest is how one
+  // balance-sheet date ended up labelled Q1, Q2 and Q3 of the following year.
+  if (!period.origin || contribution.filed < period.origin.filed) {
+    period.origin = contribution;
+  }
 }
 
 /**
  * Collapses a companyfacts payload into one row per reported period.
  *
- * Two rules keep this honest. Only the first concept present for a key is
- * taken, so a filer tagging both Revenues and the ASC-606 concept does not
- * produce two conflicting revenue lines. And where the same period appears in
- * several filings — an original 10-Q and a later 10-K restating it — the most
- * recently filed value wins.
+ * Periods are keyed on the window actually measured — a duration by its span,
+ * a balance-sheet instant by its date — never on the filing's `fy`/`fp`. Those
+ * describe the report a value was printed in, so keying on them splits one
+ * period into a row per filing that ever restated or compared against it.
  *
- * That second rule is enforced per fact key, not per period. A period-level
- * guard would drop every key an older filing was the only one to tag once a
- * newer filing had contributed anything at all to the same period.
+ * Instant facts attach to every duration ending on their date, so a quarter
+ * carries both its income statement and the balance sheet drawn on its last
+ * day. Only the first concept present for a key is taken, so a filer tagging
+ * both `Revenues` and the ASC-606 concept does not produce two revenue lines.
  */
 export function distillCompanyFacts(
   payload: CompanyFactsPayload,
@@ -378,68 +495,95 @@ export function distillCompanyFacts(
   if (!gaap) return [];
   const allowedForms = options?.forms ?? ["10-K", "10-Q", "20-F", "40-F"];
 
-  const periods = new Map<string, DistilledPeriod>();
-  const claimed = new Map<string, string>();
+  const durations: Contribution[] = [];
+  const instants: Contribution[] = [];
 
   for (const definition of FACT_DEFINITIONS) {
-    const concept = definition.concepts.find((name) => gaap[name]?.units);
-    if (!concept) continue;
-    const units = gaap[concept]?.units;
-    if (!units) continue;
+    // Every concept is read, not just the first one the filer happens to tag,
+    // and preference is applied per period. NVDA tags 28 entries of the ASC-606
+    // revenue concept and 276 of `Revenues`; picking the preferred concept
+    // company-wide left recent quarters with no revenue at all, which showed up
+    // as a P/S of 402 and a gross margin over 1700%.
+    definition.concepts.forEach((concept, rank) => {
+      const units = gaap[concept]?.units;
+      if (!units) return;
 
-    for (const [unit, entries] of Object.entries(units)) {
-      for (const entry of entries) {
-        if (!allowedForms.includes(entry.form)) continue;
-        if (!isFiscalPeriod(entry.fp) || entry.fy === undefined) continue;
-        if (!durationMatchesPeriod(entry, entry.fp)) continue;
+      for (const [unit, entries] of Object.entries(units)) {
+        for (const entry of entries) {
+          if (!allowedForms.includes(entry.form)) continue;
+          const type = entry.start
+            ? durationType(entry.start, entry.end)
+            : ("instant" as const);
+          if (type === null) continue;
 
-        const periodKey = `${entry.fy}:${entry.fp}:${entry.end}`;
-        const existing = periods.get(periodKey);
-
-        const period =
-          existing ??
-          ({
-            fiscalYear: entry.fy,
-            fiscalPeriod: entry.fp,
-            periodStart: entry.start,
-            periodEnd: entry.end,
+          const contribution: Contribution = {
+            definition,
+            concept,
+            rank,
+            unit,
+            value: entry.val,
+            start: entry.start,
+            end: entry.end,
+            type,
             form: entry.form,
             filed: entry.filed,
             accession: entry.accn,
-            facts: [],
-          } satisfies DistilledPeriod);
-
-        const claimKey = `${periodKey}:${definition.key}`;
-        const claimedFiling = claimed.get(claimKey);
-        if (claimedFiling !== undefined && claimedFiling >= entry.filed) {
-          periods.set(periodKey, period);
-          continue;
+            fy: entry.fy,
+            fp: entry.fp,
+          };
+          if (type === "instant") instants.push(contribution);
+          else durations.push(contribution);
         }
+      }
+    });
+  }
 
-        period.facts = period.facts.filter(
-          (fact) => fact.key !== definition.key,
-        );
-        period.facts.push({
-          key: definition.key,
-          label: definition.label,
-          statement: definition.statement,
-          value: entry.val,
-          unit,
-          concept,
-        });
-        claimed.set(claimKey, entry.filed);
-        if (entry.filed > period.filed) {
-          period.filed = entry.filed;
-          period.accession = entry.accn;
-          period.form = entry.form;
-        }
-        periods.set(periodKey, period);
+  const periods = new Map<string, PeriodAccumulator>();
+  for (const contribution of durations) {
+    upsertPeriod(
+      periods,
+      `${contribution.type}:${contribution.end}`,
+      contribution,
+    );
+  }
+
+  // A balance sheet belongs to whichever reporting windows close on its date.
+  // Where none does it stands alone, so the newest equity and liability figures
+  // stay reachable even before the matching income statement is tagged.
+  const durationEnds = new Set(
+    durations.map((contribution) => contribution.end),
+  );
+  for (const contribution of instants) {
+    if (!durationEnds.has(contribution.end)) {
+      upsertPeriod(periods, `instant:${contribution.end}`, contribution);
+      continue;
+    }
+    for (const type of ["FY", "Q"] as const) {
+      if (periods.has(`${type}:${contribution.end}`)) {
+        upsertPeriod(periods, `${type}:${contribution.end}`, contribution);
       }
     }
   }
 
   return [...periods.values()]
-    .filter((period) => period.facts.length > 0)
+    .filter((period) => period.facts.size > 0)
+    .map((period) => {
+      const origin = period.origin;
+      const fiscalPeriod =
+        origin && isFiscalPeriod(origin.fp)
+          ? origin.fp
+          : derivedFiscalPeriod(period.type, period.periodEnd);
+      return {
+        fiscalYear: origin?.fy ?? Number(period.periodEnd.slice(0, 4)),
+        fiscalPeriod,
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd,
+        form: origin?.form ?? "",
+        filed: origin?.filed ?? period.periodEnd,
+        accession: origin?.accession ?? "",
+        facts: [...period.facts.values()].map((entry) => entry.fact),
+      } satisfies DistilledPeriod;
+    })
     .sort((a, b) => (a.periodEnd < b.periodEnd ? 1 : -1));
 }
 

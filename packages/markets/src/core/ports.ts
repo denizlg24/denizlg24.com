@@ -33,6 +33,13 @@ export interface Coverage {
   from: string | null;
   to: string | null;
   fetchedAt: string | null;
+  /**
+   * Set once an open-ended fetch has run, meaning `from` is the provider's
+   * earliest bar rather than merely the oldest one asked for so far. Without
+   * it a request for the full history cannot tell "we hold everything" from
+   * "we hold one year because that is all anyone has looked at".
+   */
+  backfilled?: boolean;
 }
 
 export interface SymbolStore {

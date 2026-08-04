@@ -310,6 +310,7 @@ const bars: BarStore = {
       from: doc?.from ?? null,
       to: doc?.to ?? null,
       fetchedAt: doc?.fetchedAt?.toISOString() ?? null,
+      backfilled: doc?.backfilled ?? false,
     };
   },
 
@@ -321,6 +322,7 @@ const bars: BarStore = {
         from: coverage.from,
         to: coverage.to,
         fetchedAt: coverage.fetchedAt ? new Date(coverage.fetchedAt) : null,
+        backfilled: coverage.backfilled ?? null,
       }),
       { upsert: true },
     );
