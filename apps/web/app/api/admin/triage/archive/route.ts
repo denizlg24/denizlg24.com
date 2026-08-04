@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { markEmailsSeen } from "@/lib/email";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import { EmailTriageModel } from "@/models/EmailTriage";
@@ -41,18 +42,28 @@ export async function PATCH(request: NextRequest) {
 
   // Review items live in their own bucket and are excluded from the category
   // listings, so a category archive must not reach them.
+  const targets = await EmailTriageModel.find({
+    category: payload.category,
+    reviewRequired: { $ne: true },
+    userStatus: { $ne: "archived" },
+  })
+    .select("emailId")
+    .lean();
+
   const result = await EmailTriageModel.updateMany(
-    {
-      category: payload.category,
-      reviewRequired: { $ne: true },
-      userStatus: { $ne: "archived" },
-    },
+    { _id: { $in: targets.map((t) => t._id) } },
     {
       $set: {
         userStatus: "archived",
       },
     },
   );
+
+  try {
+    await markEmailsSeen(targets.map((t) => t.emailId));
+  } catch (err) {
+    console.error("mark seen failed:", err);
+  }
 
   return NextResponse.json({
     ok: true,
