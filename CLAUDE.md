@@ -249,6 +249,8 @@ Things worth knowing before touching this:
 - **`syncPortfolioActions` owns only `dividend`, `drip` and `split`.** `LEDGER_SOURCES` — manual, deposits, withdrawals, order fills, borrow, liquidation — is what it must never delete. Keying the cleanup on "not owner-entered" wipes the entire automated book.
 - **Borrow ids are deterministic** (`borrow:<ticker>:<date>`) and upserted on `actionKey`. Charging a day twice is the failure that matters, not missing one.
 - **A margin call is reported, never acted on.** `computeMargin` returns the shortfall and the UI shows it; nothing auto-liquidates, so one stale quote cannot sell the book.
+- **The equity curve runs to today, not to the last cached bar.** A daily bar for today does not exist until after the close, so a curve built from bars alone stops at the previous session while positions are already live — and a portfolio opened today has no curve at all. `performanceDates()` adds inception and today; today's point is priced from the live quote.
+- **The intraday curve is observed, not reconstructed.** `MarketPortfolioValuePoint` records what the book was worth whenever something priced it against live quotes, bucketed to the minute and expiring after 30 days. Rebuilding it from intraday bars would cost one provider request per holding per minute against a 50/hour cap; `getPerformance` has already paid for the quotes. The series is therefore dense while something is watching and sparse otherwise, and carries no per-symbol breakdown — nothing prices a single holding minute by minute.
 
 ### Authenticator
 - `GET /authenticator` → `{ accounts: IAuthenticatorAccount[] }` (no secrets)
