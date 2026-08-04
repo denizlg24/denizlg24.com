@@ -8,8 +8,16 @@ import { cn } from "./utils";
 function ScrollArea({
   className,
   children,
+  /**
+   * Which scrollbars to render. Content wider than the viewport always scrolls;
+   * this only decides whether that axis gets a visible bar, so anything that can
+   * overflow sideways (wide tables on a narrow screen) wants "both".
+   */
+  scrollbars = "vertical",
   ...props
-}: React.ComponentProps<typeof ScrollAreaPrimitive.Root>) {
+}: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
+  scrollbars?: "vertical" | "horizontal" | "both";
+}) {
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
@@ -22,7 +30,10 @@ function ScrollArea({
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
-      <ScrollBar />
+      {scrollbars !== "horizontal" ? <ScrollBar /> : null}
+      {scrollbars !== "vertical" ? (
+        <ScrollBar orientation="horizontal" />
+      ) : null}
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>
   );

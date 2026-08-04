@@ -1,7 +1,7 @@
 import { TRIAGE_CATEGORIES } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
-import { fetchEmailBody } from "@/lib/email";
+import { fetchEmailBody, markEmailsSeen } from "@/lib/email";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import { EmailModel } from "@/models/Email";
@@ -57,6 +57,14 @@ export async function GET(
     if (fetched) body = { text: fetched.text, html: fetched.html };
   } catch (err) {
     console.error("body fetch failed:", err);
+  }
+
+  if (!email.seen) {
+    try {
+      await markEmailsSeen([email._id]);
+    } catch (err) {
+      console.error("mark seen failed:", err);
+    }
   }
 
   return NextResponse.json({
@@ -160,6 +168,10 @@ export async function PATCH(
     ],
     {
       returnDocument: "after",
+      // The $set above resolves `llmCategory` from the stored document, so this
+      // has to stay an aggregation pipeline. Mongoose 9 rejects array updates
+      // unless the query opts in.
+      updatePipeline: true,
     },
   ).lean();
   if (!triage) {

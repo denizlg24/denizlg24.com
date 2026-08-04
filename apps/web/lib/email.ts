@@ -430,6 +430,85 @@ export async function queryEmailMailbox(
   }
 }
 
+const SEEN_FLAG_BATCH_SIZE = 500;
+
+/**
+ * Flags emails `\Seen` on IMAP and mirrors that locally.
+ *
+ * The IMAP write comes first on purpose: the next sync overwrites `seen` with
+ * whatever the server reports, so a local-only update would silently revert.
+ * An account that cannot be reached is skipped whole rather than half-applied.
+ */
+export async function markEmailsSeen(
+  emailIds: (Types.ObjectId | string)[],
+): Promise<number> {
+  if (emailIds.length === 0) return 0;
+
+  const emails = await EmailModel.find({
+    _id: { $in: emailIds },
+    seen: { $ne: true },
+  })
+    .select("accountId uid")
+    .lean();
+  if (emails.length === 0) return 0;
+
+  const byAccount = new Map<
+    string,
+    { ids: Types.ObjectId[]; uids: number[] }
+  >();
+  for (const email of emails) {
+    const key = String(email.accountId);
+    const group = byAccount.get(key) ?? { ids: [], uids: [] };
+    group.ids.push(email._id);
+    group.uids.push(email.uid);
+    byAccount.set(key, group);
+  }
+
+  let marked = 0;
+  for (const [accountId, group] of byAccount) {
+    const account = await EmailAccountModel.findById(accountId).lean();
+    if (!account) continue;
+
+    try {
+      const password = decryptPassword(
+        account.imapPassword.ciphertext,
+        account.imapPassword.iv,
+        account.imapPassword.authTag,
+      );
+      const client = await createImapClient({
+        host: account.host,
+        port: account.port,
+        secure: account.secure,
+        user: account.user,
+        pass: password,
+      });
+      const lock = await client.getMailboxLock(account.inboxName || "INBOX");
+      try {
+        for (let i = 0; i < group.uids.length; i += SEEN_FLAG_BATCH_SIZE) {
+          const batch = group.uids.slice(i, i + SEEN_FLAG_BATCH_SIZE);
+          await client.messageFlagsAdd(batch.join(","), ["\\Seen"], {
+            uid: true,
+          });
+        }
+      } finally {
+        lock.release();
+        await client.logout();
+      }
+    } catch (error) {
+      console.error(`Failed to flag emails seen on ${accountId}:`, error);
+      continue;
+    }
+
+    const result = await EmailModel.updateMany(
+      { _id: { $in: group.ids } },
+      { $set: { seen: true } },
+    );
+    marked += result.modifiedCount;
+  }
+
+  return marked;
+}
+
 export async function fetchEmailBody(
   accountId: string,
   uid: number,

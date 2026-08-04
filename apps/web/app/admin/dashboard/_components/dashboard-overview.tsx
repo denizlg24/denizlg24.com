@@ -486,8 +486,8 @@ export function DashboardOverview() {
           delay={0.25}
         />
         <StatNumber
-          value={stats.emails.total}
-          label="Emails"
+          value={stats.emails.unread}
+          label="Unread"
           href="/admin/dashboard/inbox"
           delay={0.3}
         />
