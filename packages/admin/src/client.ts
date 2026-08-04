@@ -143,6 +143,10 @@ export function createAdminClient(config: AdminTransportConfig): AdminClient {
       credentials: config.credentials,
       body: req.formData ?? (isJsonBody ? JSON.stringify(req.body) : undefined),
       signal: req.signal,
+      // Polled endpoints send a byte-identical URL every tick, so anything the
+      // browser is willing to reuse it will, and a surface that refreshes
+      // itself would sit on a cached body forever.
+      cache: "no-store",
     });
 
     if (!res.ok) throw await buildError(res);

@@ -450,6 +450,22 @@ const fundamentals: FundamentalStore = {
       })),
       { ordered: false },
     );
+
+    // Rows the latest distillation no longer produces are deleted rather than
+    // left behind. The upsert key includes the fiscal label, so a change in how
+    // a period is identified writes a new row instead of replacing the old one
+    // — which is how symbols cached before the labelling fix kept serving
+    // phantom quarters alongside the corrected ones.
+    const ticker = periods[0]?.ticker;
+    if (!ticker) return;
+    await MarketFundamental.deleteMany({
+      ticker,
+      $nor: periods.map((period) => ({
+        fiscalYear: period.fiscalYear,
+        fiscalPeriod: period.fiscalPeriod,
+        periodEnd: period.periodEnd,
+      })),
+    });
   },
 
   async getFilings(ticker, limit) {

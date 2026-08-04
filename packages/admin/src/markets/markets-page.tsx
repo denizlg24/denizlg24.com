@@ -41,6 +41,7 @@ import { useAdmin } from "../provider";
 import { CandleChart, type ChartKind, type Overlay } from "./candle-chart";
 import { QuickTrade } from "./quick-trade";
 import { SymbolSearch } from "./symbol-search";
+import { useLiveRefresh } from "./use-live-refresh";
 import { useQuotes } from "./use-quotes";
 
 const RANGES: { label: string; resolution: Resolution; days: number }[] = [
@@ -62,8 +63,19 @@ const INDICATORS = [
 
 type IndicatorKey = (typeof INDICATORS)[number]["key"];
 
-/** Finer than any bar interval on offer, so the chart never lags the cache. */
-const CHART_REFRESH_MS = 60_000;
+/**
+ * Refresh cadences. None of these decide what a provider request costs — the
+ * routes ration that behind their own TTLs — so they are set by how fast the
+ * data can change, not by how much it is worth.
+ */
+const INTRADAY_CHART_MS = 60_000;
+/** A daily bar only settles once, but a returning tab must not show yesterday. */
+const DAILY_CHART_MS = 300_000;
+/** Multiples move with the price, so they go stale as fast as the quote does. */
+const RATIOS_MS = 60_000;
+/** Filings, profile and the ticker universe move on a scale of days. */
+const REFERENCE_MS = 600_000;
+const BUDGET_MS = 60_000;
 
 interface SymbolDetailResponse {
   symbol: MarketSymbol | null;
@@ -154,35 +166,42 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
     loadSeries(false);
   }, [loadSeries]);
 
-  // The intraday ranges are the only ones whose newest bar is still forming, so
-  // they are the only ones worth re-asking for. The route decides whether that
-  // costs a provider request: it refetches at most once per bar interval and
-  // not at all once the session is over, so this mostly reads Mongo.
-  useEffect(() => {
-    if (!isIntraday(range.resolution)) return;
-    const timer = setInterval(() => loadSeries(true), CHART_REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [loadSeries, range.resolution]);
+  // An intraday bar is still forming, so it is worth re-asking for often; a
+  // daily one settles once, but a tab left open overnight must still catch up.
+  // The route decides what either costs — it reaches a provider at most once per
+  // bar interval, and not at all once the session is over.
+  useLiveRefresh(() => loadSeries(true), {
+    intervalMs: isIntraday(range.resolution)
+      ? INTRADAY_CHART_MS
+      : DAILY_CHART_MS,
+  });
+
+  const requestedDetail = useRef("");
+  const loadDetail = useCallback(
+    (quiet: boolean) => {
+      // Without the guard a slow response for the previous ticker can resolve
+      // last and put another company's name, logo and market cap in the header.
+      requestedDetail.current = selected;
+      if (!quiet) setDetail(null);
+      client
+        .get<SymbolDetailResponse>(
+          `/markets/symbols/${encodeURIComponent(selected)}`,
+        )
+        .then((data) => {
+          if (requestedDetail.current === selected) setDetail(data);
+        })
+        .catch(() => {
+          if (requestedDetail.current === selected && !quiet) setDetail(null);
+        });
+    },
+    [client, selected],
+  );
 
   useEffect(() => {
-    // Without the guard a slow response for the previous ticker can resolve
-    // last and put another company's name, logo and market cap in the header.
-    let cancelled = false;
-    setDetail(null);
-    client
-      .get<SymbolDetailResponse>(
-        `/markets/symbols/${encodeURIComponent(selected)}`,
-      )
-      .then((data) => {
-        if (!cancelled) setDetail(data);
-      })
-      .catch(() => {
-        if (!cancelled) setDetail(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [client, selected]);
+    loadDetail(false);
+  }, [loadDetail]);
+
+  useLiveRefresh(() => loadDetail(true), { intervalMs: REFERENCE_MS });
 
   const watched = useMemo(() => {
     const tickers = new Set<string>([selected]);
@@ -205,24 +224,32 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
     void loadWatchlists();
   }, [loadWatchlists]);
 
+  // The desktop app edits the same lists, so this surface is not the only
+  // writer and cannot assume its own copy is current.
+  useLiveRefresh(() => void loadWatchlists(), { intervalMs: REFERENCE_MS });
+
   // Relay socket when it is up, batched polling when it is not. Tiingo bills
   // per request rather than per ticker, so the poll covers every visible
   // symbol in one call.
   const { quotes, transport, upstream } = useQuotes(watched);
 
-  useEffect(() => {
-    const load = () =>
+  const loadBudget = useCallback(
+    () =>
       client
         .get<{ tiingo: ProviderBudget; symbols: number }>("/markets/budget")
         .then((data) => {
           setBudget(data.tiingo);
           setUniverse(data.symbols);
         })
-        .catch(() => undefined);
-    load();
-    const timer = setInterval(load, 60_000);
-    return () => clearInterval(timer);
-  }, [client]);
+        .catch(() => undefined),
+    [client],
+  );
+
+  useEffect(() => {
+    void loadBudget();
+  }, [loadBudget]);
+
+  useLiveRefresh(() => void loadBudget(), { intervalMs: BUDGET_MS });
 
   const seed = useCallback(async () => {
     setSeeding(true);
@@ -816,77 +843,99 @@ function SymbolDetail({
   const [actions, setActions] = useState<CorporateAction[]>([]);
   const [news, setNews] = useState<CompanyNewsItem[]>([]);
 
-  // Every fetch here is guarded: the previous ticker's response can otherwise
-  // resolve after the new one and leave another company's data on screen.
+  // Every fetch here is guarded on the ticker: the previous symbol's response
+  // can otherwise resolve after the new one and leave another company's data on
+  // screen. A quiet refresh additionally never clears what is already drawn.
+  const requested = useRef("");
+  const load = useCallback(
+    (quiet: boolean) => {
+      requested.current = ticker;
+      if (!quiet) {
+        setRatios(null);
+        setPeriods([]);
+        setFilings([]);
+      }
+      client
+        .get<{ ratios: DerivedRatios; periods: FundamentalPeriod[] }>(
+          `/markets/symbols/${encodeURIComponent(ticker)}/fundamentals`,
+        )
+        .then((data) => {
+          if (requested.current !== ticker) return;
+          setRatios(data.ratios);
+          setPeriods(data.periods);
+        })
+        .catch(() => undefined);
+      client
+        .get<{ filings: Filing[] }>(
+          `/markets/symbols/${encodeURIComponent(ticker)}/filings?limit=20`,
+        )
+        .then((data) => {
+          if (requested.current === ticker) setFilings(data.filings);
+        })
+        .catch(() => {
+          if (requested.current === ticker && !quiet) setFilings([]);
+        });
+    },
+    [client, ticker],
+  );
+
   useEffect(() => {
-    let cancelled = false;
-    setRatios(null);
-    setPeriods([]);
-    setFilings([]);
-    client
-      .get<{ ratios: DerivedRatios; periods: FundamentalPeriod[] }>(
-        `/markets/symbols/${encodeURIComponent(ticker)}/fundamentals`,
-      )
-      .then((data) => {
-        if (cancelled) return;
-        setRatios(data.ratios);
-        setPeriods(data.periods);
-      })
-      .catch(() => undefined);
-    client
-      .get<{ filings: Filing[] }>(
-        `/markets/symbols/${encodeURIComponent(ticker)}/filings?limit=20`,
-      )
-      .then((data) => {
-        if (!cancelled) setFilings(data.filings);
-      })
-      .catch(() => {
-        if (!cancelled) setFilings([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [client, ticker]);
+    load(false);
+  }, [load]);
+
+  // The ratios are the reason for the cadence: they are price over a reported
+  // fundamental, recomputed server-side per request, so they drift with the
+  // quote even though the filings behind them have not moved.
+  useLiveRefresh(() => load(true), { intervalMs: RATIOS_MS });
 
   // Actions and news are read on demand: both routes can reach a provider on a
-  // miss, so loading them with the page would charge for tabs never opened.
-  useEffect(() => {
-    if (tab !== "actions") return;
-    let cancelled = false;
-    setActions([]);
+  // miss, so loading them with the page would charge for tabs never opened. For
+  // the same reason their refresh is gated on the tab still being the open one.
+  const loadActions = useCallback(() => {
+    requested.current = ticker;
     client
       .get<{ actions: CorporateAction[] }>(
         `/markets/symbols/${encodeURIComponent(ticker)}/actions`,
       )
       .then((data) => {
-        if (!cancelled) setActions(data.actions);
+        if (requested.current === ticker) setActions(data.actions);
       })
-      .catch(() => {
-        if (!cancelled) setActions([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [client, ticker, tab]);
+      .catch(() => undefined);
+  }, [client, ticker]);
 
   useEffect(() => {
-    if (tab !== "news") return;
-    let cancelled = false;
-    setNews([]);
+    if (tab !== "actions") return;
+    setActions([]);
+    loadActions();
+  }, [tab, loadActions]);
+
+  useLiveRefresh(loadActions, {
+    intervalMs: REFERENCE_MS,
+    enabled: tab === "actions",
+  });
+
+  const loadNews = useCallback(() => {
+    requested.current = ticker;
     client
       .get<{ news: CompanyNewsItem[] }>(
         `/markets/symbols/${encodeURIComponent(ticker)}/news?limit=30`,
       )
       .then((data) => {
-        if (!cancelled) setNews(data.news);
+        if (requested.current === ticker) setNews(data.news);
       })
-      .catch(() => {
-        if (!cancelled) setNews([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [client, ticker, tab]);
+      .catch(() => undefined);
+  }, [client, ticker]);
+
+  useEffect(() => {
+    if (tab !== "news") return;
+    setNews([]);
+    loadNews();
+  }, [tab, loadNews]);
+
+  useLiveRefresh(loadNews, {
+    intervalMs: REFERENCE_MS,
+    enabled: tab === "news",
+  });
 
   const latest = periods[0];
 

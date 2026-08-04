@@ -53,6 +53,7 @@ import {
 import { PortfolioPerformanceChart } from "./portfolio-performance";
 import { PositionTreemap } from "./position-treemap";
 import { TradeTicket } from "./trade-ticket";
+import { useLiveRefresh } from "./use-live-refresh";
 
 /** Mirrors the delete guard in `apps/web/lib/markets/portfolios.ts`. */
 const OWNER_ENTERED = new Set<TradeSource>(["manual", "deposit", "withdrawal"]);
@@ -160,9 +161,9 @@ export function PortfoliosPage({
   // request across every holding behind a two-minute TTL, so a tighter poll
   // here costs Mongo reads rather than budget. No loading flag: a quiet
   // re-price must not blank the surface it is updating.
-  useEffect(() => {
-    if (!selected) return;
-    const timer = setInterval(() => {
+  useLiveRefresh(
+    () => {
+      if (!selected) return;
       client
         .get<PortfolioPerformance>(
           `/markets/portfolios/${selected}/performance`,
@@ -171,9 +172,9 @@ export function PortfoliosPage({
           if (requested.current === selected) setPerformance(perf);
         })
         .catch(() => undefined);
-    }, PERFORMANCE_REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [client, selected]);
+    },
+    { intervalMs: PERFORMANCE_REFRESH_MS, enabled: Boolean(selected) },
+  );
 
   const choose = useCallback(
     (id: string) => {

@@ -312,13 +312,40 @@ export function useQuotes(tickers: string[]): QuotesState {
     };
 
     run();
-    const timer = setInterval(() => {
+
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+
+    // A hidden tab polls for prices nobody is reading, and browsers throttle
+    // its timers anyway; coming back to it is when a stale price is most
+    // visible, so that is where the immediate refetch belongs.
+    const sync = () => {
+      if (document.hidden) {
+        stop();
+        return;
+      }
+      run();
+      if (!timer) {
+        timer = setInterval(() => {
+          if (transportRef.current !== "ws") run();
+        }, POLL_INTERVAL_MS);
+      }
+    };
+
+    timer = setInterval(() => {
       if (transportRef.current !== "ws") run();
     }, POLL_INTERVAL_MS);
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
 
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stop();
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
     };
   }, [client, wanted, apply]);
 
