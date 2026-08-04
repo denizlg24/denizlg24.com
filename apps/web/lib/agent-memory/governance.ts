@@ -628,7 +628,13 @@ export async function dismissMemoryCandidate(options: {
 
 async function reviseExistingMemory(options: {
   memoryId: string;
-  action: "edit" | "archive" | "rollback" | "delete" | "resolve-contradiction";
+  action:
+    | "edit"
+    | "archive"
+    | "rollback"
+    | "delete"
+    | "supersede"
+    | "resolve-contradiction";
   reason: string;
   actor?: GovernanceActor;
   buildState: (
@@ -807,6 +813,48 @@ export async function archiveMemory(options: {
       status: "archived",
     }),
   });
+}
+
+/**
+ * Retires a memory that a later one has overtaken, and points the survivor at
+ * it. Distinct from `archiveMemory`: archiving says the memory should stop
+ * being used, superseding says something newer now says it better.
+ *
+ * The order matters. The superseded side is written first, so a failure part
+ * way leaves the survivor still holding a contradiction link to a non-active
+ * memory — which the consolidation sweep already prunes — rather than a link
+ * silently dropped from a conflict that was never resolved.
+ */
+export async function supersedeMemory(options: {
+  supersededMemoryId: string;
+  survivingMemoryId: string;
+  reason: string;
+  actor?: GovernanceActor;
+}): Promise<{ superseded: IAgentMemory; surviving: IAgentMemory }> {
+  const superseded = await reviseExistingMemory({
+    memoryId: options.supersededMemoryId,
+    action: "supersede",
+    reason: options.reason,
+    actor: options.actor,
+    buildState: (memory) => ({
+      ...memoryToRevisionState(memory),
+      status: "superseded",
+    }),
+  });
+  const surviving = await reviseExistingMemory({
+    memoryId: options.survivingMemoryId,
+    action: "resolve-contradiction",
+    reason: options.reason,
+    actor: options.actor,
+    buildState: (memory) => ({
+      ...memoryToRevisionState(memory),
+      contradictionIds: memory.contradictionIds.filter(
+        (id) => id.toString() !== options.supersededMemoryId,
+      ),
+      supersedesMemoryId: memory.supersedesMemoryId ?? superseded._id,
+    }),
+  });
+  return { superseded, surviving };
 }
 
 export async function removeContradictionLinks(options: {
