@@ -143,6 +143,30 @@ export async function generateCodes() {
   });
 }
 
+/**
+ * Every account with its secret decrypted back to base32.
+ *
+ * This is the only path that lets a secret leave the server, and it exists so
+ * the browser extension can hold an offline vault that keeps working when this
+ * server does not. Callers must be admin-authenticated; treat the response as
+ * equivalent to the whole authenticator database.
+ */
+export async function exportAccounts() {
+  await connectDB();
+  const accounts = await AuthenticatorAccount.find()
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return accounts.map((account) => ({
+    ...toPublicAccount(account),
+    secret: decryptPassword(
+      account.secret.ciphertext,
+      account.secret.iv,
+      account.secret.authTag,
+    ),
+  }));
+}
+
 export async function updateAccount(
   id: string,
   data: Partial<{ label: string; issuer: string; accountName: string }>,
