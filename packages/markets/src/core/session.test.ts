@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isEarlyClose,
   isTradingDay,
+  lastSessionClose,
   marketHolidays,
   marketSession,
 } from "./session";
@@ -109,5 +110,32 @@ describe("marketSession", () => {
     expect(session.state).toBe("open");
     expect(session.opensAt).toBe("2026-01-05T14:30:00.000Z");
     expect(session.closesAt).toBe("2026-01-05T21:00:00.000Z");
+  });
+});
+
+describe("lastSessionClose", () => {
+  test("mid-session it is the previous day's close", () => {
+    expect(lastSessionClose(at("2026-08-03T15:00:00.000Z")).toISOString()).toBe(
+      "2026-07-31T20:00:00.000Z",
+    );
+  });
+
+  test("after the bell it is today's close", () => {
+    expect(lastSessionClose(at("2026-08-03T22:00:00.000Z")).toISOString()).toBe(
+      "2026-08-03T20:00:00.000Z",
+    );
+  });
+
+  test("a weekend reaches back to Friday", () => {
+    expect(lastSessionClose(at("2026-08-09T15:00:00.000Z")).toISOString()).toBe(
+      "2026-08-07T20:00:00.000Z",
+    );
+  });
+
+  test("a half day closed at 13:00", () => {
+    // The Friday after Thanksgiving; the following Monday looks back at 18:00Z.
+    expect(lastSessionClose(at("2026-11-30T12:00:00.000Z")).toISOString()).toBe(
+      "2026-11-27T18:00:00.000Z",
+    );
   });
 });

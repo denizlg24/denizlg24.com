@@ -2,9 +2,11 @@ import type { Bar, CandleSeries, DailyBar, Resolution } from "../schemas";
 import { isIntraday } from "../schemas";
 import {
   BudgetExhaustedError,
+  type Coverage,
   type MarketDataProvider,
   type MarketStores,
 } from "./ports";
+import { lastSessionClose, marketSession } from "./session";
 
 export function toDateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -204,10 +206,57 @@ function toBar(bar: DailyBar, adjusted: boolean): Bar {
       };
 }
 
+const RESOLUTION_MS: Partial<Record<Resolution, number>> = {
+  "1min": 60_000,
+  "5min": 300_000,
+  "15min": 900_000,
+  "30min": 1_800_000,
+  "1hour": 3_600_000,
+};
+
+/** Two requests a minute for one symbol is already more than the cap affords. */
+const INTRADAY_MIN_REFRESH_MS = 60_000;
+
 /**
- * Intraday bars are refetched whenever the cached window does not already reach
- * the request, because the most recent bar is still forming. The TTL lives in
- * the store's index, not here.
+ * Whether the intraday cache can still be improved by asking again.
+ *
+ * Coverage is date-granular, so `coverage.to !== to` alone cannot express "the
+ * newest bar is stale": it goes false on the first fetch of the day and stays
+ * false until midnight, which froze the 1D chart at whatever handful of bars the
+ * first page load of the morning happened to catch.
+ */
+export function intradayNeedsFetch(options: {
+  coverage: Coverage;
+  resolution: Resolution;
+  now: Date;
+  requestedTo: string;
+}): boolean {
+  const { coverage, resolution, now, requestedTo } = options;
+  if (coverage.to !== requestedTo || !coverage.fetchedAt) return true;
+
+  const fetchedAt = Date.parse(coverage.fetchedAt);
+  if (!Number.isFinite(fetchedAt)) return true;
+
+  // Nothing prints once the session is over, so a fetch made after the last
+  // close already holds every bar there is. Pre- and after-hours are excluded
+  // from this: extended-hours bars do keep arriving.
+  if (
+    marketSession(now).state === "closed" &&
+    fetchedAt >= lastSessionClose(now).getTime()
+  ) {
+    return false;
+  }
+
+  const interval = Math.max(
+    RESOLUTION_MS[resolution] ?? INTRADAY_MIN_REFRESH_MS,
+    INTRADAY_MIN_REFRESH_MS,
+  );
+  return now.getTime() - fetchedAt >= interval;
+}
+
+/**
+ * Intraday bars are refetched once the newest one may have been superseded.
+ * The TTL that expires them lives in the store's index, not here.
  */
 async function getIntradayCandles(
   stores: MarketStores,
@@ -215,14 +264,18 @@ async function getIntradayCandles(
   request: CandleRequest,
 ): Promise<CandleSeries> {
   const { ticker, resolution } = request;
-  const to = request.to ?? toDateKey(stores.clock.now());
+  const now = stores.clock.now();
+  const to = request.to ?? toDateKey(now);
   const dataset = { kind: "intraday" as const, resolution };
   const coverage = await stores.bars.getCoverage(ticker, dataset);
 
   let stale = false;
   let fetched = false;
 
-  if (provider.getIntradayBars && coverage.to !== to) {
+  if (
+    provider.getIntradayBars &&
+    intradayNeedsFetch({ coverage, resolution, now, requestedTo: to })
+  ) {
     try {
       const bars = await provider.getIntradayBars({
         ticker,

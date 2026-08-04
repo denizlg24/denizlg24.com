@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { DailyBar } from "../schemas";
-import { getCandles, planDailyFetches, shiftDate } from "./candles";
+import {
+  getCandles,
+  intradayNeedsFetch,
+  planDailyFetches,
+  shiftDate,
+} from "./candles";
 import { createMemoryStores, fixedClock, makeDailyBar } from "./memory-stores";
 import {
   BudgetExhaustedError,
@@ -96,6 +101,96 @@ describe("planDailyFetches", () => {
   test("shiftDate crosses month boundaries", () => {
     expect(shiftDate("2026-08-01", -1)).toBe("2026-07-31");
     expect(shiftDate("2026-07-31", 1)).toBe("2026-08-01");
+  });
+});
+
+describe("intradayNeedsFetch", () => {
+  // 2026-08-03 is a Monday; the session runs 13:30Z to 20:00Z.
+  const DAY = "2026-08-03";
+  const covered = (fetchedAt: string | null) => ({
+    from: DAY,
+    to: DAY,
+    fetchedAt,
+  });
+
+  test("a cache from an earlier day is refetched", () => {
+    expect(
+      intradayNeedsFetch({
+        coverage: { from: "2026-07-31", to: "2026-07-31", fetchedAt: null },
+        resolution: "5min",
+        now: new Date(`${DAY}T15:00:00.000Z`),
+        requestedTo: DAY,
+      }),
+    ).toBe(true);
+  });
+
+  test("a fresh fetch mid-session is left alone", () => {
+    expect(
+      intradayNeedsFetch({
+        coverage: covered(`${DAY}T14:59:30.000Z`),
+        resolution: "5min",
+        now: new Date(`${DAY}T15:00:00.000Z`),
+        requestedTo: DAY,
+      }),
+    ).toBe(false);
+  });
+
+  test("a bar interval later the same day it is refetched", () => {
+    // The regression: coverage.to already equals today, so the old date-only
+    // check went false at the first load of the morning and the 1D chart then
+    // showed the same handful of bars until midnight.
+    expect(
+      intradayNeedsFetch({
+        coverage: covered(`${DAY}T14:54:00.000Z`),
+        resolution: "5min",
+        now: new Date(`${DAY}T15:00:00.000Z`),
+        requestedTo: DAY,
+      }),
+    ).toBe(true);
+  });
+
+  test("a fetch made after the close is not repeated overnight", () => {
+    expect(
+      intradayNeedsFetch({
+        coverage: covered(`${DAY}T20:30:00.000Z`),
+        resolution: "5min",
+        now: new Date("2026-08-04T04:00:00.000Z"), // 00:00 ET, market shut
+        requestedTo: DAY,
+      }),
+    ).toBe(false);
+  });
+
+  test("bars printed after the last fetch are still collected once shut", () => {
+    expect(
+      intradayNeedsFetch({
+        coverage: covered(`${DAY}T18:00:00.000Z`), // fetched mid-session
+        resolution: "5min",
+        now: new Date("2026-08-04T04:00:00.000Z"),
+        requestedTo: DAY,
+      }),
+    ).toBe(true);
+  });
+
+  test("after-hours keeps refetching, since extended bars still print", () => {
+    expect(
+      intradayNeedsFetch({
+        coverage: covered(`${DAY}T20:30:00.000Z`),
+        resolution: "5min",
+        now: new Date(`${DAY}T21:00:00.000Z`), // 17:00 ET
+        requestedTo: DAY,
+      }),
+    ).toBe(true);
+  });
+
+  test("a one-minute chart is still throttled to a request a minute", () => {
+    expect(
+      intradayNeedsFetch({
+        coverage: covered(`${DAY}T14:59:30.000Z`),
+        resolution: "1min",
+        now: new Date(`${DAY}T15:00:00.000Z`),
+        requestedTo: DAY,
+      }),
+    ).toBe(false);
   });
 });
 

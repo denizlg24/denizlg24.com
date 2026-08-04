@@ -205,6 +205,31 @@ function nextTradingDay(date: string): string {
   return candidate;
 }
 
+function previousTradingDay(date: string): string {
+  let candidate = addDays(date, -1);
+  for (let step = 0; step < 10 && !isTradingDay(candidate); step++) {
+    candidate = addDays(candidate, -1);
+  }
+  return candidate;
+}
+
+/**
+ * The most recent regular-hours close at or before `now`.
+ *
+ * Callers use it to decide whether anything can have printed since they last
+ * looked: a fetch made after this instant already holds every bar the session
+ * produced, so refetching until the next open buys nothing.
+ */
+export function lastSessionClose(now: Date): Date {
+  const local = zonedParts(now);
+  const date = dateKey(local.year, local.month, local.day);
+  if (isTradingDay(date) && local.minutes >= closeMinute(date)) {
+    return toInstant(date, closeMinute(date));
+  }
+  const previous = previousTradingDay(date);
+  return toInstant(previous, closeMinute(previous));
+}
+
 export function marketSession(now: Date): MarketSession {
   const local = zonedParts(now);
   const date = dateKey(local.year, local.month, local.day);

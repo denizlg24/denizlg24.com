@@ -22,6 +22,7 @@ import type {
   Resolution,
   Watchlist,
 } from "@repo/markets/schemas";
+import { isIntraday } from "@repo/markets/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { ScrollArea } from "@repo/ui/scroll-area";
@@ -35,7 +36,7 @@ import {
 import { Skeleton } from "@repo/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { ListTree, Plus, RefreshCw, Star, Wallet, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdmin } from "../provider";
 import { CandleChart, type ChartKind, type Overlay } from "./candle-chart";
 import { QuickTrade } from "./quick-trade";
@@ -60,6 +61,9 @@ const INDICATORS = [
 ] as const;
 
 type IndicatorKey = (typeof INDICATORS)[number]["key"];
+
+/** Finer than any bar interval on offer, so the chart never lags the cache. */
+const CHART_REFRESH_MS = 60_000;
 
 interface SymbolDetailResponse {
   symbol: MarketSymbol | null;
@@ -101,45 +105,64 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
     [onSelectTicker],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
+  const requestedSeries = useRef("");
+  const loadSeries = useCallback(
+    (quiet: boolean) => {
+      const key = `${selected}:${range.label}`;
+      requestedSeries.current = key;
+      if (!quiet) {
+        setLoading(true);
+        setError(null);
+      }
 
-    const from =
-      range.days === 0
-        ? undefined
-        : new Date(Date.now() - range.days * 86_400_000)
-            .toISOString()
-            .slice(0, 10);
+      const from =
+        range.days === 0
+          ? undefined
+          : new Date(Date.now() - range.days * 86_400_000)
+              .toISOString()
+              .slice(0, 10);
 
-    const query = new URLSearchParams({
-      resolution: range.resolution,
-      adjusted: "true",
-    });
-    if (from) query.set("from", from);
-
-    client
-      .get<CandleSeries>(
-        `/markets/symbols/${encodeURIComponent(selected)}/candles?${query}`,
-      )
-      .then((data) => {
-        if (cancelled) return;
-        setSeries(data);
-      })
-      .catch((cause: unknown) => {
-        if (cancelled) return;
-        setSeries(null);
-        setError(cause instanceof Error ? cause.message : "Failed to load");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+      const query = new URLSearchParams({
+        resolution: range.resolution,
+        adjusted: "true",
       });
+      if (from) query.set("from", from);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [client, selected, range]);
+      client
+        .get<CandleSeries>(
+          `/markets/symbols/${encodeURIComponent(selected)}/candles?${query}`,
+        )
+        .then((data) => {
+          if (requestedSeries.current !== key) return;
+          setSeries(data);
+        })
+        .catch((cause: unknown) => {
+          // A failed quiet refresh keeps the chart that is already drawn; only
+          // the load the user asked for is allowed to replace it with an error.
+          if (requestedSeries.current !== key || quiet) return;
+          setSeries(null);
+          setError(cause instanceof Error ? cause.message : "Failed to load");
+        })
+        .finally(() => {
+          if (requestedSeries.current === key && !quiet) setLoading(false);
+        });
+    },
+    [client, selected, range],
+  );
+
+  useEffect(() => {
+    loadSeries(false);
+  }, [loadSeries]);
+
+  // The intraday ranges are the only ones whose newest bar is still forming, so
+  // they are the only ones worth re-asking for. The route decides whether that
+  // costs a provider request: it refetches at most once per bar interval and
+  // not at all once the session is over, so this mostly reads Mongo.
+  useEffect(() => {
+    if (!isIntraday(range.resolution)) return;
+    const timer = setInterval(() => loadSeries(true), CHART_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [loadSeries, range.resolution]);
 
   useEffect(() => {
     // Without the guard a slow response for the previous ticker can resolve
