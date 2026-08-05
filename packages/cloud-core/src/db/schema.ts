@@ -816,6 +816,119 @@ export type S3Credential = InferSelectModel<typeof s3Credentials>;
 export type NewS3Credential = InferInsertModel<typeof s3Credentials>;
 export type ProjectCollection = InferSelectModel<typeof projectCollections>;
 export type NewProjectCollection = InferInsertModel<typeof projectCollections>;
+/**
+ * One row per namespace scan. `generation` increments per completed scan and is
+ * what the two-generation reap rule counts against.
+ *
+ * `complete` is the load-bearing field: a scan that aborted, overflowed, or ran
+ * against an unmounted branch must never contribute a generation, because every
+ * safety property of reaping assumes a generation means "the whole namespace
+ * was observed".
+ */
+export const namespaceScans = pgTable(
+  "namespace_scans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    generation: bigint("generation", { mode: "number" }).notNull().unique(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    complete: boolean("complete").notNull().default(false),
+    /** Branch markers observed at scan start, so a remount invalidates it. */
+    branchMarkers: jsonb("branch_markers").$type<Record<string, string>>(),
+    foldersSeen: integer("folders_seen").notNull().default(0),
+    filesSeen: integer("files_seen").notNull().default(0),
+    problemsSeen: integer("problems_seen").notNull().default(0),
+    reapedRows: integer("reaped_rows").notNull().default(0),
+    searchTaskUid: bigint("search_task_uid", { mode: "number" }),
+    abortReason: text("abort_reason"),
+  },
+  (table) => [
+    index("namespace_scans_generation_idx").on(table.generation),
+    index("namespace_scans_started_at_idx").on(table.startedAt),
+  ],
+);
+
+/**
+ * Projector liveness, as a singleton row. Dirty means the incremental stream
+ * cannot be trusted and a full scan is owed; it is set on watcher overflow,
+ * projector restart and branch remount, and only ever cleared by a complete
+ * scan.
+ */
+export const namespaceProjectionState = pgTable("namespace_projection_state", {
+  id: boolean("id").primaryKey().default(true),
+  dirty: boolean("dirty").notNull().default(true),
+  dirtySince: timestamp("dirty_since", { withTimezone: true }),
+  dirtyReason: text("dirty_reason"),
+  lastCompleteGeneration: bigint("last_complete_generation", {
+    mode: "number",
+  }),
+  lastCompleteAt: timestamp("last_complete_at", { withTimezone: true }),
+  lastEventAt: timestamp("last_event_at", { withTimezone: true }),
+  watcherOverflows: integer("watcher_overflows").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * An entry the projector could not project, kept per path so repair can be
+ * tracked rather than rediscovered every scan.
+ *
+ * These are never a reason to delete bytes: an unreadable entry is a repair
+ * item, and treating it as absent is precisely the mistake that turns a
+ * metadata fault into data loss.
+ */
+export const namespaceProjectionErrors = pgTable(
+  "namespace_projection_errors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    relativePath: text("relative_path").notNull().unique(),
+    entryId: uuid("entry_id"),
+    code: varchar("code", { length: 64 }).notNull(),
+    detail: text("detail"),
+    firstSeenGeneration: bigint("first_seen_generation", { mode: "number" }),
+    lastSeenGeneration: bigint("last_seen_generation", { mode: "number" }),
+    repairedAt: timestamp("repaired_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("namespace_projection_errors_code_idx").on(table.code),
+    index("namespace_projection_errors_repaired_at_idx").on(table.repairedAt),
+  ],
+);
+
+/**
+ * Rows a scan did not observe. A row must be missed by two consecutive complete
+ * generations before it is reaped, so a single bad scan cannot delete the
+ * projection.
+ */
+export const namespaceReapCandidates = pgTable(
+  "namespace_reap_candidates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entryId: uuid("entry_id").notNull().unique(),
+    kind: varchar("kind", { length: 16 }).notNull(),
+    relativePath: text("relative_path").notNull(),
+    firstMissedGeneration: bigint("first_missed_generation", {
+      mode: "number",
+    }).notNull(),
+    lastMissedGeneration: bigint("last_missed_generation", {
+      mode: "number",
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("namespace_reap_candidates_entry_idx").on(table.entryId)],
+);
+
 export type ProjectDatabase = InferSelectModel<typeof projectDatabases>;
 export type NewProjectDatabase = InferInsertModel<typeof projectDatabases>;
 export type Folder = InferSelectModel<typeof folders>;
@@ -834,5 +947,17 @@ export type ActivityLogEntry = InferSelectModel<typeof activityLog>;
 export type NewActivityLogEntry = InferInsertModel<typeof activityLog>;
 export type NotificationEvent = InferSelectModel<typeof notificationEvents>;
 export type NewNotificationEvent = InferInsertModel<typeof notificationEvents>;
+
+export type NamespaceScan = InferSelectModel<typeof namespaceScans>;
+export type NewNamespaceScan = InferInsertModel<typeof namespaceScans>;
+export type NamespaceProjectionState = InferSelectModel<
+  typeof namespaceProjectionState
+>;
+export type NamespaceProjectionError = InferSelectModel<
+  typeof namespaceProjectionErrors
+>;
+export type NamespaceReapCandidate = InferSelectModel<
+  typeof namespaceReapCandidates
+>;
 
 export * from "./auth-schema";

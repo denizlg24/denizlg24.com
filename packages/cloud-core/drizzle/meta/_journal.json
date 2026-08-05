@@ -64,6 +64,13 @@
       "when": 1785319023003,
       "tag": "0008_mixed_firelord",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785954671907,
+      "tag": "0009_slim_spectrum",
+      "breakpoints": true
     }
   ]
 }
