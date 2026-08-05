@@ -594,8 +594,54 @@ state_samba_process_is_verified() {
   tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$expected_config"
 }
 
+recover_withdrawn_samba_start() {
+  [[ "$state_phase" == "starting" ]] || return 0
+  local expected_config="$samba_root/smb.conf"
+  local saved_config process_cmdline pid_file auth_file stale_file
+  saved_config="$(jq -er '.samba.config' "$state_file")"
+  [[ "$saved_config" == "$expected_config" ]] || {
+    echo "Refusing recovery with an unexpected Samba configuration path" >&2
+    exit 1
+  }
+  for process_cmdline in /proc/[0-9]*/cmdline; do
+    if [[ -r "$process_cmdline" ]] && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "$expected_config"; then
+      echo "Refusing recovery while the exact Gate 1 Samba process remains" >&2
+      exit 1
+    fi
+  done
+  if ss -H -ltn 'sport = :445' | grep -q .; then
+    echo "Refusing recovery while TCP 445 has a listener" >&2
+    exit 1
+  fi
+  if nft list table inet "$firewall_table" >/dev/null 2>&1; then
+    firewall_is_current_spike || {
+      echo "Refusing recovery with a foreign Gate 1 firewall" >&2
+      exit 1
+    }
+    remove_gate1_firewall || {
+      echo "Could not withdraw the verified stale Gate 1 firewall" >&2
+      exit 1
+    }
+  fi
+  pid_file="$samba_root/pid/gate1-smbd.pid"
+  auth_file="$samba_root/client.auth"
+  for stale_file in "$pid_file" "$auth_file"; do
+    if [[ -L "$stale_file" ]]; then
+      echo "Refusing recovery with a symlinked Samba runtime file: ${stale_file}" >&2
+      exit 1
+    fi
+    find "$stale_file" -maxdepth 0 -type f -delete 2>/dev/null || true
+  done
+  jq '.phase="prepared" | del(.samba) | .safety={status:"stale-samba-start-withdrawn"}' \
+    "$state_file" > "$state_file.partial"
+  mv "$state_file.partial" "$state_file"
+  chmod 600 "$state_file"
+  state_phase=prepared
+}
+
 start_samba() {
   validate_live_spike
+  recover_withdrawn_samba_start
   if [[ "$state_phase" != "prepared" ]]; then
     echo "Samba can start only from the prepared phase" >&2
     exit 1

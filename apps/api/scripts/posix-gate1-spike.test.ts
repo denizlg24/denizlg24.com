@@ -81,6 +81,9 @@ describe("POSIX Gate 1 spike shell safety", () => {
     expect(template).not.toContain("interfaces = @TAILSCALE_IP@/32");
     expect(source).toContain('.phase="starting"');
     expect(source).toContain("state_samba_process_is_verified");
+    expect(source).toContain("recover_withdrawn_samba_start");
+    expect(source).toContain("Refusing recovery while TCP 445 has a listener");
+    expect(source).toContain("stale-samba-start-withdrawn");
     expect(source).toContain("kill -KILL");
     expect(source).toContain("trap cleanup_failed_samba EXIT");
     expect(source).toContain("trap 'exit 129' HUP");
