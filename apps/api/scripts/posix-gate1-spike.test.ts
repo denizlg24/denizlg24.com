@@ -93,6 +93,20 @@ describe("POSIX Gate 1 spike shell safety", () => {
     expect(source).toContain(
       'tail -n 120 "$samba_root/log/smbd.foreground.log" >&2 || true',
     );
+    expect(source).toContain("startup_probe_process_is_verified");
+    expect(source).toContain("stop_startup_encryption_probe");
+    expect(source).toContain(
+      "testparm -s --parameter-name='server smb encrypt'",
+    );
+    expect(source).toContain('smbstatus --json -s "$config"');
+    expect(source).toContain("smbpasswd smbstatus ss stat");
+    expect(source).toContain("--client-protection=off");
+    expect(source).toContain("timeout --signal=TERM --kill-after=2s 12s");
+    expect(source).toContain("startup_probe_command_remains");
+    expect(source).toContain("startup_probe_start_time");
+    expect(source).toContain("$root.sessions[($tcon.session_id | tostring)]");
+    expect(source).toContain("encryptionObserved:true");
+    expect(source).not.toContain("Samba accepted an unencrypted client");
     expect(source).toContain('firewall_table="deniz_cloud_gate1"');
     expect(source).toContain("install_gate1_firewall");
     expect(source).toContain("firewall_is_current_spike");

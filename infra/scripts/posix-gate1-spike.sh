@@ -100,6 +100,8 @@ startup_pid=""
 startup_pid_file=""
 startup_config=""
 startup_auth_file=""
+startup_probe_pid=""
+startup_probe_start_time=""
 
 read_state() {
   if [[ ! -f "$state_file" || -L "$state_file" ]]; then
@@ -189,7 +191,7 @@ if (( EUID != 0 )); then
   echo "Gate 1 lifecycle changes require root" >&2
   exit 1
 fi
-for command in awk basename cat chmod chown cut date dirname docker fallocate find findmnt getfacl getent getfattr grep ip jq kill losetup mergerfs mkdir mkfs.ext4 mount mountpoint mv nft openssl readlink realpath runuser sed setfacl setfattr sha256sum sleep smbclient smbd smbpasswd ss stat sync tar testparm timeout touch tr truncate umount; do
+for command in awk basename cat chmod chown cut date dirname docker fallocate find findmnt getfacl getent getfattr grep ip jq kill losetup mergerfs mkdir mkfs.ext4 mount mountpoint mv nft openssl readlink realpath runuser sed setfacl setfattr sha256sum sleep smbclient smbd smbpasswd smbstatus ss stat sync tar testparm timeout touch tr truncate umount; do
   if ! command -v "$command" >/dev/null; then
     echo "Required Gate 1 command is missing: ${command}" >&2
     exit 1
@@ -440,10 +442,92 @@ startup_process_is_verified() {
     && (( actual_start_time >= launch_floor ))
 }
 
+startup_probe_process_is_verified() {
+  local pid="$1"
+  startup_probe_identity_is_current "$pid" || return 1
+  [[ -n "${startup_auth_file:-}" && -r "/proc/$pid/exe" ]] || return 1
+  [[ "$(basename "$(readlink -f "/proc/$pid/exe")")" == "timeout" ]] || return 1
+  tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "smbclient" || return 1
+  tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "//127.0.0.1/Personal" || return 1
+  tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$startup_auth_file" || return 1
+  tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "SMB3" || return 1
+  tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "--client-protection=off" || return 1
+  tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "notify ." || return 1
+}
+
+startup_probe_command_remains() {
+  local process_cmdline
+  [[ -n "${startup_auth_file:-}" ]] || return 1
+  for process_cmdline in /proc/[0-9]*/cmdline; do
+    if [[ -r "$process_cmdline" ]] \
+      && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "smbclient" \
+      && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "//127.0.0.1/Personal" \
+      && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "$startup_auth_file" \
+      && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "--client-protection=off" \
+      && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "notify ."; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+startup_probe_identity_is_current() {
+  local pid="$1"
+  local actual_parent actual_start_time
+  [[ "$pid" =~ ^[0-9]+$ && "$startup_probe_start_time" =~ ^[0-9]+$ && -r "/proc/$pid/stat" ]] || return 1
+  actual_parent="$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null || true)"
+  actual_start_time="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null || true)"
+  [[ "$actual_parent" == "$$" && "$actual_start_time" == "$startup_probe_start_time" ]]
+}
+
+stop_startup_encryption_probe() {
+  local pid="${startup_probe_pid:-}"
+  local process_state=""
+  if [[ ! "$pid" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+  if startup_probe_identity_is_current "$pid"; then
+    kill -TERM "$pid" 2>/dev/null || true
+  fi
+  for _ in {1..20}; do
+    startup_probe_identity_is_current "$pid" || break
+    process_state="$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null || true)"
+    [[ "$process_state" == "Z" ]] && break
+    sleep 0.1
+  done
+  process_state="$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null || true)"
+  if startup_probe_identity_is_current "$pid" && [[ "$process_state" != "Z" ]]; then
+    kill -KILL "$pid" 2>/dev/null || true
+    for _ in {1..20}; do
+      startup_probe_identity_is_current "$pid" || break
+      process_state="$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null || true)"
+      [[ "$process_state" == "Z" ]] && break
+      sleep 0.1
+    done
+  fi
+  process_state="$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null || true)"
+  if startup_probe_identity_is_current "$pid" && [[ "$process_state" != "Z" ]]; then
+    echo "Encrypted SMB observation client did not terminate" >&2
+    return 1
+  fi
+  wait "$pid" 2>/dev/null || true
+  for _ in {1..30}; do
+    startup_probe_command_remains || break
+    sleep 0.1
+  done
+  if startup_probe_command_remains; then
+    echo "Encrypted SMB observation command remains after wrapper withdrawal" >&2
+    return 1
+  fi
+  startup_probe_pid=""
+  startup_probe_start_time=""
+}
+
 cleanup_failed_samba() {
   set +e
   local failed_pid="${startup_pid:-}"
   local listener_remains=false exact_process_remains=false
+  stop_startup_encryption_probe || true
   if [[ ! "$failed_pid" =~ ^[0-9]+$ && -n "${startup_pid_file:-}" && -s "$startup_pid_file" ]]; then
     failed_pid="$(cat "$startup_pid_file")"
   fi
@@ -522,6 +606,7 @@ start_samba() {
   fi
   tailscale_ip="$(jq -er '.tailscaleIp' "$state_file")"
   local spike_user spike_group config auth_file password pid pid_file start_time launch_floor
+  local effective_encryption encryption_observed=false probe_started=false smbstatus_json="" probe_log probe_parent=""
   spike_user="$(getent passwd 1000 | cut -d: -f1)"
   spike_group="$(getent group 1000 | cut -d: -f1)"
   if [[ ! "$spike_user" =~ ^[a-z_][a-z0-9_-]*$ || ! "$spike_group" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
@@ -599,11 +684,77 @@ start_samba() {
     exit 1
   fi
   firewall_is_current_spike || { echo "Disposable Samba firewall verification failed" >&2; exit 1; }
-  smbclient "//127.0.0.1/Personal" -A "$auth_file" -m SMB3 --client-protection=encrypt -c 'ls' >/dev/null
-  if smbclient "//127.0.0.1/Personal" -A "$auth_file" -m SMB3 --client-protection=off -c 'ls' >/dev/null 2>&1; then
-    echo "Samba accepted an unencrypted client" >&2
+  effective_encryption="$(testparm -s --parameter-name='server smb encrypt' "$config" 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  if [[ "$effective_encryption" != "required" ]]; then
+    echo "Effective Samba encryption policy is not required" >&2
     exit 1
   fi
+  probe_log="$samba_root/log/encryption-probe.log"
+  : > "$probe_log"
+  timeout --signal=TERM --kill-after=2s 12s \
+    smbclient "//127.0.0.1/Personal" -A "$auth_file" -m SMB3 --client-protection=off \
+    -c 'notify .' > "$probe_log" 2>&1 &
+  startup_probe_pid=$!
+  for _ in {1..20}; do
+    if [[ -r "/proc/$startup_probe_pid/stat" ]]; then
+      probe_parent="$(awk '{print $4}' "/proc/$startup_probe_pid/stat" 2>/dev/null || true)"
+      startup_probe_start_time="$(awk '{print $22}' "/proc/$startup_probe_pid/stat" 2>/dev/null || true)"
+      if [[ "$probe_parent" == "$$" && "$startup_probe_start_time" =~ ^[0-9]+$ ]]; then
+        break
+      fi
+    fi
+    sleep 0.1
+  done
+  if [[ "$probe_parent" != "$$" || ! "$startup_probe_start_time" =~ ^[0-9]+$ ]]; then
+    echo "Encrypted SMB observation client identity was not captured" >&2
+    exit 1
+  fi
+  for _ in {1..20}; do
+    if startup_probe_process_is_verified "$startup_probe_pid"; then
+      probe_started=true
+      break
+    fi
+    [[ -e "/proc/$startup_probe_pid" ]] || break
+    sleep 0.1
+  done
+  if [[ "$probe_started" != "true" ]]; then
+    echo "Encrypted SMB observation client did not start predictably" >&2
+    tail -n 80 "$probe_log" >&2 || true
+    exit 1
+  fi
+  for _ in {1..50}; do
+    if ! startup_probe_process_is_verified "$startup_probe_pid"; then
+      break
+    fi
+    smbstatus_json="$(timeout --kill-after=1s 2s smbstatus --json -s "$config" 2>/dev/null || true)"
+    if jq -e --arg username "$spike_user" '
+      def fully_encrypted:
+        ((.encryption.cipher? // "") != "") and
+        (((.encryption.degree? // "") | ascii_downcase) == "full");
+      . as $root |
+      ([$root.tcons[]? as $tcon
+        | select(($tcon.service? // "") == "Personal")
+        | select($tcon | fully_encrypted)
+        | ($root.sessions[($tcon.session_id | tostring)]? // empty) as $session
+        | select(($session.username? // "") == $username)
+        | select(($session.remote_machine? // "") == "127.0.0.1")
+        | select(($session.session_dialect? // "") | startswith("SMB3_"))]
+        | length) >= 1
+    ' <<< "$smbstatus_json" >/dev/null 2>&1; then
+      encryption_observed=true
+      break
+    fi
+    sleep 0.1
+  done
+  if [[ "$encryption_observed" != "true" ]]; then
+    echo "Could not observe a fully encrypted SMB3 Personal session" >&2
+    [[ -n "$smbstatus_json" ]] && printf '%s\n' "$smbstatus_json" >&2
+    tail -n 80 "$probe_log" >&2 || true
+    exit 1
+  fi
+  printf '%s\n' "$smbstatus_json" > "$samba_root/encryption-status.json"
+  chmod 600 "$samba_root/encryption-status.json"
+  stop_startup_encryption_probe || { echo "Could not withdraw the encrypted SMB observation client" >&2; exit 1; }
   jq '.phase="samba"' \
     "$state_file" > "$state_file.partial"
   mv "$state_file.partial" "$state_file"
@@ -611,7 +762,8 @@ start_samba() {
   state_phase=samba
   trap - EXIT HUP INT TERM
   jq -n --arg host "$tailscale_ip" --arg user "$spike_user" \
-    '{sambaStarted:true,host:$host,port:445,share:"Personal",user:$user,encryptionRequired:true,credentialsFile:"private on Pi"}'
+    --arg evidence "$samba_root/encryption-status.json" \
+    '{sambaStarted:true,host:$host,port:445,share:"Personal",user:$user,encryptionRequired:true,encryptionObserved:true,encryptionEvidence:$evidence,credentialsFile:"private on Pi"}'
 }
 
 record_host_event() {
