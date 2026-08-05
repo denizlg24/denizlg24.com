@@ -79,6 +79,11 @@ install_boundary() {
   [[ -e /etc/deniz-cloud/posix-api-broker.credentials || -L /etc/deniz-cloud/posix-api-broker.credentials ]] || install -m 0600 "$infra_dir/posix-storage/api-broker.credentials.example" /etc/deniz-cloud/posix-api-broker.credentials.example
   [[ -e /etc/deniz-cloud/storage-metadata.env || -L /etc/deniz-cloud/storage-metadata.env ]] || install -m 0600 "$infra_dir/posix-storage/storage-metadata.env.example" /etc/deniz-cloud/storage-metadata.env.example
   getent group deniz-cloud-metadata >/dev/null || groupadd --system deniz-cloud-metadata
+  # A stable name for the storage gid. Samba's force group needs a name, and
+  # the group already holding gid 1000 is a system group whose name varies by
+  # host — `gpio` on a Pi. -o permits the duplicate gid, which is the point:
+  # this is an alias, not a second group.
+  getent group deniz-cloud-storage >/dev/null || groupadd -o -g 1000 deniz-cloud-storage
   systemctl daemon-reload
   jq -n '{installed:true,activated:false,next:"configure, validate, then explicitly enable/start deniz-cloud-storage.target"}'
 }
