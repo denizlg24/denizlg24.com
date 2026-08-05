@@ -264,6 +264,47 @@ probe_enumeration() {
   [[ "$(find "$remote_root/enumeration" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')" == "2" ]]
 }
 
+probe_forbidden_name() {
+  local label="$1"
+  local name="$2"
+  local candidate="$remote_root/name-policy/$name"
+  if mkdir "$candidate" 2>/dev/null; then
+    record "name-policy-${label}" "fail" '{"serverRejected":false}'
+    return 1
+  fi
+  record "name-policy-${label}" "pass" '{"serverRejected":true}'
+}
+
+probe_name_policy() {
+  local nfc nfd long_name
+  nfc="$(printf 'caf\303\251')"
+  nfd="$(printf 'cafe\314\201')"
+  long_name="$(printf '%256s' '' | tr ' ' a)"
+  mkdir "$remote_root/name-policy" || return
+  mkdir "$remote_root/name-policy/$nfc" || return
+
+  # Equivalent Unicode and casefold siblings must be rejected at the server,
+  # not merely hidden or rewritten by Finder.
+  if mkdir "$remote_root/name-policy/$nfd" 2>/dev/null; then
+    record "name-policy-nfc-equivalent" "fail" '{"serverRejected":false}'
+    return 1
+  fi
+  record "name-policy-nfc-equivalent" "pass" '{"serverRejected":true,"fold":"NFC plus Unicode casefold"}'
+  mkdir "$remote_root/name-policy/FoldProbe" || return
+  if mkdir "$remote_root/name-policy/foldprobe" 2>/dev/null; then
+    record "name-policy-casefold-equivalent" "fail" '{"serverRejected":false}'
+    return 1
+  fi
+  record "name-policy-casefold-equivalent" "pass" '{"serverRejected":true,"fold":"NFC plus Unicode casefold"}'
+
+  probe_forbidden_name windows-device-con CON || return
+  probe_forbidden_name windows-device-extension con.txt || return
+  probe_forbidden_name trailing-dot 'trailing.' || return
+  probe_forbidden_name trailing-space 'trailing ' || return
+  probe_forbidden_name ascii-control "control$(printf '\001')name" || return
+  probe_forbidden_name over-255-utf8-bytes "$long_name" || return
+}
+
 probe_transfer_hashes() {
   dd if=/dev/urandom of="$local_work/upload.bin" bs=1048576 count=1 2>/dev/null || return
   local expected uploaded downloaded
@@ -352,6 +393,7 @@ run_probe "connect" probe_connect
 run_probe "transport" probe_transport
 run_probe "test-root-create" probe_create_root
 run_probe "enumeration" probe_enumeration
+run_probe "cross-platform-name-policy" probe_name_policy
 run_probe "upload-download-sha256" probe_transfer_hashes
 run_probe "rename" probe_rename
 run_probe "case-only-rename" probe_case_rename
