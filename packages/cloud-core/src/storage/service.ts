@@ -7,7 +7,18 @@ import {
   shareExpiresInSchema,
   updateFileInputSchema,
 } from "@repo/schemas/cloud";
-import { and, count, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  like,
+  lt,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import type { Database } from "../db";
 import {
@@ -1236,7 +1247,7 @@ export class StorageService {
       .where(
         and(
           eq(tusUploads.status, "in_progress"),
-          sql`${tusUploads.expiresAt} < ${now}`,
+          lt(tusUploads.expiresAt, now),
         ),
       );
     for (const upload of expired) {
