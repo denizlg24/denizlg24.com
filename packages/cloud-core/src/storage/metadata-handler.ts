@@ -28,6 +28,7 @@ function isRequest(value: unknown): value is MetadataRequest {
   if (typeof candidate.relativePath !== "string") return false;
   switch (candidate.op) {
     case "stat":
+    case "list":
       return true;
     case "verify":
       return typeof candidate.expectedId === "string";
@@ -63,6 +64,16 @@ export async function handleMetadataRequest(
   }
 
   try {
+    if (body.op === "list") {
+      const listing = await service.list(body.relativePath);
+      return {
+        listing: {
+          entries: listing.entries.map(payload),
+          problems: listing.problems,
+        },
+        ok: true,
+      };
+    }
     let entry: NamespaceEntry;
     switch (body.op) {
       case "stat":

@@ -202,3 +202,64 @@ describe("namespace metadata service", () => {
     ).rejects.toThrow("malformed id");
   });
 });
+
+describe("namespace listing", () => {
+  it("lists children with identity and hides reserved names", async () => {
+    const context = await service();
+    await mkdir(join(context.root, "shared", "sub"), { recursive: true });
+    await writeFile(join(context.root, "shared", "._sidecar"), "apple");
+    await writeFile(
+      join(context.root, "shared", ".denizcloud-mount-witness"),
+      "w",
+    );
+    await context.service.assign("shared/note.txt", {
+      checksum,
+      createdAt,
+      id: fileId,
+      ownerId,
+    });
+    await context.service.assign("shared/sub", {
+      createdAt,
+      id: "40000000-0000-4000-8000-000000000077",
+      ownerId,
+    });
+
+    const listing = await context.service.list("shared");
+    expect(listing.entries.map((entry) => entry.relativePath)).toEqual([
+      "shared/note.txt",
+      "shared/sub",
+    ]);
+    expect(listing.problems).toEqual([]);
+  });
+
+  it("reports an unreadable child instead of dropping it from the folder", async () => {
+    const context = await service();
+    await writeFile(join(context.root, "shared", "orphan.txt"), "no identity");
+    await context.service.assign("shared/note.txt", {
+      checksum,
+      createdAt,
+      id: fileId,
+      ownerId,
+    });
+
+    const listing = await context.service.list("shared");
+    // Silently omitting it would let a projection scan conclude it was deleted.
+    expect(listing.entries).toHaveLength(1);
+    expect(listing.problems).toEqual([
+      { code: "NO_IDENTITY", relativePath: "shared/orphan.txt" },
+    ]);
+  });
+
+  it("refuses to list a file", async () => {
+    const context = await service();
+    await context.service.assign("shared/note.txt", {
+      checksum,
+      createdAt,
+      id: fileId,
+      ownerId,
+    });
+    expect(context.service.list("shared/note.txt")).rejects.toThrow(
+      "not a folder",
+    );
+  });
+});

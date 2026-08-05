@@ -3,6 +3,7 @@ import {
   METADATA_PROTOCOL_VERSION,
   MetadataClientError,
   type MetadataEntryPayload,
+  type MetadataListingPayload,
   type MetadataRequest,
   type MetadataResponse,
 } from "./metadata-protocol";
@@ -29,7 +30,7 @@ export class NamespaceMetadataClient {
     this.timeoutMs = options.timeoutMs ?? 5_000;
   }
 
-  private async send(request: MetadataRequest): Promise<MetadataEntryPayload> {
+  private async raw(request: MetadataRequest): Promise<MetadataResponse> {
     let response: Response;
     try {
       response = await fetch("http://metadata/v1", {
@@ -64,7 +65,29 @@ export class NamespaceMetadataClient {
     if (!payload.ok) {
       throw new MetadataClientError(payload.message, payload.code);
     }
+    return payload;
+  }
+
+  private async send(request: MetadataRequest): Promise<MetadataEntryPayload> {
+    const payload = await this.raw(request);
+    if (!payload.ok || !("entry" in payload)) {
+      throw new MetadataClientError(
+        "Metadata service returned no entry",
+        "UNAVAILABLE",
+      );
+    }
     return payload.entry;
+  }
+
+  async list(relativePath: string): Promise<MetadataListingPayload> {
+    const payload = await this.raw({ op: "list", relativePath });
+    if (!payload.ok || !("listing" in payload)) {
+      throw new MetadataClientError(
+        "Metadata service returned no listing",
+        "UNAVAILABLE",
+      );
+    }
+    return payload.listing;
   }
 
   stat(relativePath: string): Promise<MetadataEntryPayload> {

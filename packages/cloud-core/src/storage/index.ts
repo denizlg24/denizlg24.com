@@ -64,6 +64,7 @@ export {
 export {
   METADATA_PROTOCOL_VERSION,
   type MetadataEntryPayload,
+  type MetadataListingPayload,
   type MetadataRequest,
   type MetadataResponse,
 } from "./metadata-protocol";
@@ -78,6 +79,8 @@ export {
   type MetadataFailure,
   MetadataServiceError,
   type NamespaceEntry,
+  type NamespaceListing,
+  type NamespaceListingProblem,
   NamespaceMetadataService,
 } from "./metadata-service";
 export {

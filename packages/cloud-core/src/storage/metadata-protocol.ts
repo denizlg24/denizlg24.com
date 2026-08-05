@@ -20,12 +20,19 @@ export interface MetadataEntryPayload {
 
 export type MetadataRequest =
   | { op: "stat"; relativePath: string }
+  | { op: "list"; relativePath: string }
   | { op: "verify"; relativePath: string; expectedId: string }
   | { op: "assign"; relativePath: string; metadata: ProtectedMetadata }
   | { op: "checksum"; relativePath: string; checksum: string };
 
+export interface MetadataListingPayload {
+  entries: MetadataEntryPayload[];
+  problems: { code: string; relativePath: string }[];
+}
+
 export type MetadataResponse =
   | { ok: true; entry: MetadataEntryPayload }
+  | { ok: true; listing: MetadataListingPayload }
   | {
       ok: false;
       code: MetadataFailure | "UNAVAILABLE" | "BAD_REQUEST";

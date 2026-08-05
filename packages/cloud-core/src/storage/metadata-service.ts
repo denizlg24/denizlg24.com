@@ -1,3 +1,4 @@
+import { readdir } from "node:fs/promises";
 import {
   type ChecksumState,
   METADATA_SCHEMA_VERSION,
@@ -5,7 +6,9 @@ import {
   type ProtectedMetadata,
   protectedMetadataHash,
 } from "./metadata";
+
 import {
+  isReservedSegment,
   NamespaceResolveError,
   type ResolvedEntry,
   resolveNamespacePath,
@@ -34,6 +37,16 @@ export class MetadataServiceError extends Error {
     super(message);
     this.name = "MetadataServiceError";
   }
+}
+
+export interface NamespaceListingProblem {
+  code: MetadataFailure;
+  relativePath: string;
+}
+
+export interface NamespaceListing {
+  entries: NamespaceEntry[];
+  problems: NamespaceListingProblem[];
 }
 
 export interface NamespaceEntry extends ResolvedEntry {
@@ -147,6 +160,53 @@ export class NamespaceMetadataService {
   async stat(relativePath: string): Promise<NamespaceEntry> {
     const entry = await resolveNamespacePath(this.root, relativePath);
     return this.readMetadata(entry, relativePath);
+  }
+
+  /**
+   * Lists a folder's children with their identity, from the one component that
+   * can see both.
+   *
+   * The API can `readdir` the broker mount but cannot read xattrs there, so a
+   * split listing would have to correlate names to IDs across two views and
+   * would be wrong the moment anything moved between them.
+   *
+   * An unreadable child is reported as a problem rather than thrown, because
+   * one broken entry must not make a whole folder unlistable — but it is also
+   * never silently omitted, since a caller that cannot distinguish "absent"
+   * from "unreadable" will eventually treat one as the other.
+   */
+  async list(relativePath: string): Promise<NamespaceListing> {
+    const folder = await resolveNamespacePath(this.root, relativePath);
+    if (folder.kind !== "folder") {
+      throw new MetadataServiceError(
+        `${relativePath} is not a folder`,
+        "UNSUPPORTED_TYPE",
+      );
+    }
+    const names = await readdir(folder.absolutePath);
+    const entries: NamespaceEntry[] = [];
+    const problems: NamespaceListingProblem[] = [];
+
+    for (const name of names.sort()) {
+      if (isReservedSegment(name)) continue;
+      const childPath =
+        relativePath === "/" || relativePath === ""
+          ? name
+          : `${relativePath.replace(/\/+$/, "")}/${name}`;
+      try {
+        entries.push(await this.stat(childPath));
+      } catch (error) {
+        problems.push({
+          code:
+            error instanceof MetadataServiceError ||
+            error instanceof NamespaceResolveError
+              ? error.code
+              : "NO_IDENTITY",
+          relativePath: childPath,
+        });
+      }
+    }
+    return { entries, problems };
   }
 
   /**
