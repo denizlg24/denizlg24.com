@@ -1,0 +1,653 @@
+#!/bin/bash
+
+set -euo pipefail
+
+umask 077
+
+mode="--dry-run"
+mode_set=false
+action="status"
+action_set=false
+
+usage() {
+  echo "Usage: $0 [--dry-run|--execute] [prepare|start-samba|status|host-test|stop|destroy]" >&2
+}
+
+for argument in "$@"; do
+  case "$argument" in
+    --dry-run|--execute)
+      if [[ "$mode_set" == "true" ]]; then
+        usage
+        exit 2
+      fi
+      mode="$argument"
+      mode_set=true
+      ;;
+    prepare|start-samba|status|host-test|stop|destroy)
+      if [[ "$action_set" == "true" ]]; then
+        usage
+        exit 2
+      fi
+      action="$argument"
+      action_set=true
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+template="${POSIX_GATE1_SMB_TEMPLATE:-${script_dir}/../samba/posix-gate1-smb.conf.in}"
+state_root="${POSIX_GATE1_ROOT:-/var/lib/deniz-cloud/posix-gate1}"
+if [[ "$state_root" != "/" ]]; then
+  state_root="${state_root%/}"
+fi
+if [[ "$state_root" != /* || "$state_root" == *//* || "$state_root" == */./* || "$state_root" == */../* || "$state_root" == */. || "$state_root" == */.. ]]; then
+  echo "Gate 1 root must be a normalized absolute path" >&2
+  exit 1
+fi
+
+if [[ "$state_root" == "/" || ! "$(basename "$state_root")" =~ ^posix-gate1([._-][A-Za-z0-9_-]+)?$ ]]; then
+  echo "Gate 1 root must be a specifically named absolute path ending in posix-gate1" >&2
+  exit 1
+fi
+for protected_root in \
+  /data/ssd \
+  /data/hdd \
+  /mnt/ssd/storage \
+  /mnt/hdd/storage \
+  /mnt/ssd/deniz-cloud \
+  /mnt/hdd/deniz-cloud \
+  /srv/deniz-cloud/storage \
+  /srv/deniz-cloud/namespace \
+  /opt/deniz-cloud; do
+  if [[ "$state_root" == "$protected_root" || "$state_root" == "$protected_root/"* || "$protected_root" == "$state_root/"* ]]; then
+    echo "Gate 1 root overlaps a protected production path: ${protected_root}" >&2
+    exit 1
+  fi
+done
+
+state_file="$state_root/state.json"
+root_marker="$state_root/.posix-gate1-root.json"
+image_dir="$state_root/images"
+ssd_image="$image_dir/ssd.ext4"
+hdd_image="$image_dir/hdd.ext4"
+mount_dir="$state_root/mounts"
+ssd_mount="$mount_dir/ssd"
+hdd_mount="$mount_dir/hdd"
+merged_mount="$mount_dir/merged"
+ssd_branch="$ssd_mount/namespace"
+hdd_branch="$hdd_mount/namespace"
+probe_root="$merged_mount/posix-gate1-disposable"
+samba_root="$state_root/samba"
+evidence_dir="$state_root/evidence"
+
+state_phase="absent"
+spike_id=""
+ssd_loop=""
+hdd_loop=""
+
+read_state() {
+  if [[ ! -f "$state_file" || -L "$state_file" ]]; then
+    echo "Gate 1 state is missing or unsafe: ${state_file}" >&2
+    exit 1
+  fi
+  state_phase="$(jq -er '.phase' "$state_file")"
+  spike_id="$(jq -er '.spikeId' "$state_file")"
+  ssd_loop="$(jq -er '.loops.ssd' "$state_file")"
+  hdd_loop="$(jq -er '.loops.hdd' "$state_file")"
+  if [[ ! "$state_phase" =~ ^(prepared|samba|stopped)$ || ! "$spike_id" =~ ^[0-9a-f-]{36}$ || ! "$ssd_loop" =~ ^/dev/loop[0-9]+$ || ! "$hdd_loop" =~ ^/dev/loop[0-9]+$ ]]; then
+    echo "Gate 1 state contains invalid lifecycle values" >&2
+    exit 1
+  fi
+  if [[ "$(jq -er '.root' "$state_file")" != "$state_root" || "$(jq -er '.images.ssd' "$state_file")" != "$ssd_image" || "$(jq -er '.images.hdd' "$state_file")" != "$hdd_image" ]]; then
+    echo "Gate 1 state paths do not match this invocation" >&2
+    exit 1
+  fi
+  if [[ ! -f "$root_marker" || -L "$root_marker" || "$(jq -er '.spikeId' "$root_marker")" != "$spike_id" ]]; then
+    echo "Gate 1 root marker is missing or mismatched" >&2
+    exit 1
+  fi
+}
+
+update_phase() {
+  local next_phase="$1"
+  jq --arg phase "$next_phase" '.phase=$phase' "$state_file" > "$state_file.partial"
+  mv "$state_file.partial" "$state_file"
+  chmod 600 "$state_file"
+  state_phase="$next_phase"
+}
+
+mount_source_is() {
+  local target="$1"
+  local expected="$2"
+  [[ "$(findmnt -n -o SOURCE --target "$target" 2>/dev/null || true)" == "$expected" ]]
+}
+
+loop_backing_is() {
+  local loop="$1"
+  local image="$2"
+  [[ "$(losetup -n -O BACK-FILE "$loop" 2>/dev/null | sed 's/ (deleted)$//' || true)" == "$image" ]]
+}
+
+branch_marker_is() {
+  local mount="$1"
+  local role="$2"
+  local marker="$mount/.denizcloud-gate1-branch.json"
+  [[ -f "$marker" && ! -L "$marker" ]] \
+    && [[ "$(jq -er '.spikeId' "$marker")" == "$spike_id" ]] \
+    && [[ "$(jq -er '.role' "$marker")" == "$role" ]]
+}
+
+tailscale_ip="$(ip -4 -o address show dev tailscale0 2>/dev/null | awk 'NR == 1 {split($4, address, "/"); print address[1]}' || true)"
+current_phase="absent"
+if [[ -f "$state_file" && ! -L "$state_file" ]]; then
+  current_phase="$(jq -r '.phase // "invalid"' "$state_file" 2>/dev/null || printf invalid)"
+fi
+
+if [[ "$mode" == "--dry-run" ]]; then
+  jq -n \
+    --arg mode "$mode" \
+    --arg action "$action" \
+    --arg root "$state_root" \
+    --arg phase "$current_phase" \
+    --arg tailscaleIp "$tailscale_ip" \
+    --arg template "$template" \
+    '{mode:$mode,action:$action,root:$root,currentPhase:$phase,tailscaleIp:(if $tailscaleIp=="" then null else $tailscaleIp end),sambaTemplate:$template,willMountProductionBranches:false}'
+  exit 0
+fi
+if (( EUID != 0 )); then
+  echo "Gate 1 lifecycle changes require root" >&2
+  exit 1
+fi
+for command in awk basename cat chmod chown cut date dirname docker fallocate find findmnt getfacl getent getfattr grep ip jq kill losetup mergerfs mkdir mkfs.ext4 mount mountpoint mv openssl readlink realpath runuser sed setfacl setfattr sha256sum sleep smbclient smbd smbpasswd ss stat sync tar testparm touch tr truncate umount; do
+  if ! command -v "$command" >/dev/null; then
+    echo "Required Gate 1 command is missing: ${command}" >&2
+    exit 1
+  fi
+done
+
+prepare_spike() {
+  if [[ -e "$state_root" || -L "$state_root" ]]; then
+    echo "Refusing to replace existing Gate 1 root: ${state_root}" >&2
+    exit 1
+  fi
+  if [[ "$tailscale_ip" == "" ]]; then
+    echo "tailscale0 has no IPv4 address" >&2
+    exit 1
+  fi
+  if [[ "$(mergerfs --version | awk 'NR == 1 {print $NF}')" != "2.42.0" ]]; then
+    echo "Gate 1 requires mergerfs 2.42.0" >&2
+    exit 1
+  fi
+  if ss -H -ltn 'sport = :445' | grep -q .; then
+    echo "TCP 445 already has a listener" >&2
+    exit 1
+  fi
+
+  local parent spike_user
+  parent="$(dirname "$state_root")"
+  spike_user="$(getent passwd 1000 | cut -d: -f1)"
+  if [[ ! "$spike_user" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+    echo "UID 1000 does not resolve to a safe disposable namespace owner" >&2
+    exit 1
+  fi
+  mkdir -p "$parent"
+  if [[ -L "$parent" || "$(realpath -e "$parent")/$(basename "$state_root")" != "$state_root" ]]; then
+    echo "Gate 1 root parent is unsafe" >&2
+    exit 1
+  fi
+
+  mkdir -m 700 "$state_root" "$image_dir" "$mount_dir" "$samba_root" "$evidence_dir"
+  mkdir -m 700 "$ssd_mount" "$hdd_mount" "$merged_mount"
+  spike_id="$(cat /proc/sys/kernel/random/uuid)"
+  jq -n --arg spikeId "$spike_id" --arg root "$state_root" \
+    '{schemaVersion:1,spikeId:$spikeId,root:$root}' > "$root_marker"
+  chmod 600 "$root_marker"
+
+  local prepared=false
+  cleanup_failed_prepare() {
+    set +e
+    if [[ "$prepared" != "true" ]]; then
+      mountpoint -q "$merged_mount" && umount "$merged_mount"
+      mountpoint -q "$ssd_mount" && umount "$ssd_mount"
+      mountpoint -q "$hdd_mount" && umount "$hdd_mount"
+      [[ -n "$ssd_loop" ]] && loop_backing_is "$ssd_loop" "$ssd_image" && losetup -d "$ssd_loop"
+      [[ -n "$hdd_loop" ]] && loop_backing_is "$hdd_loop" "$hdd_image" && losetup -d "$hdd_loop"
+      if ! mountpoint -q "$merged_mount" \
+        && ! mountpoint -q "$ssd_mount" \
+        && ! mountpoint -q "$hdd_mount" \
+        && { [[ -z "$ssd_loop" ]] || ! loop_backing_is "$ssd_loop" "$ssd_image"; } \
+        && { [[ -z "$hdd_loop" ]] || ! loop_backing_is "$hdd_loop" "$hdd_image"; } \
+        && [[ -f "$root_marker" ]] \
+        && [[ "$(jq -r '.spikeId // ""' "$root_marker" 2>/dev/null)" == "$spike_id" ]]; then
+        find "$state_root" -xdev -depth -delete
+      else
+        echo "Gate 1 prepare cleanup was incomplete; preserving ${state_root} for recovery" >&2
+      fi
+    fi
+  }
+  trap cleanup_failed_prepare EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  truncate -s 768M "$ssd_image"
+  truncate -s 1536M "$hdd_image"
+  mkfs.ext4 -q -F -m 0 -L dc-g1-ssd "$ssd_image"
+  mkfs.ext4 -q -F -m 0 -L dc-g1-hdd "$hdd_image"
+  ssd_loop="$(losetup --find --show "$ssd_image")"
+  hdd_loop="$(losetup --find --show "$hdd_image")"
+  mount -o noatime,nodev,nosuid "$ssd_loop" "$ssd_mount"
+  mount -o noatime,nodev,nosuid "$hdd_loop" "$hdd_mount"
+  mkdir -m 700 "$ssd_mount/internal" "$hdd_mount/internal"
+  mkdir -m 770 "$ssd_branch" "$hdd_branch"
+  chown 1000:1000 "$ssd_branch" "$hdd_branch"
+  jq -n --arg spikeId "$spike_id" --arg role ssd \
+    '{schemaVersion:1,spikeId:$spikeId,role:$role}' > "$ssd_mount/.denizcloud-gate1-branch.json"
+  jq -n --arg spikeId "$spike_id" --arg role hdd \
+    '{schemaVersion:1,spikeId:$spikeId,role:$role}' > "$hdd_mount/.denizcloud-gate1-branch.json"
+  chmod 600 "$ssd_mount/.denizcloud-gate1-branch.json" "$hdd_mount/.denizcloud-gate1-branch.json"
+
+  mergerfs \
+    -o allow_other,nodev,nosuid,branches-mount-timeout=10,branches-mount-timeout-fail=true,minfreespace=128M,moveonenospc=false,inodecalc=path-hash,xattr=passthrough,posix-acl=true,kernel-permissions-check=true,cache.files=off,cache.attr=0,cache.entry=0,cache.negative-entry=0,cache.readdir=false,cache.statfs=0,cache.writeback=false,follow-symlinks=never,category.create=ff,category.search=ff,category.action=epall,func.getattr=ff,fsname=deniz-cloud-gate1 \
+    "$ssd_branch:$hdd_branch" "$merged_mount"
+  if ! mountpoint -q "$merged_mount"; then
+    echo "mergerfs did not mount the disposable namespace" >&2
+    exit 1
+  fi
+
+  runuser -u "$spike_user" -- mkdir -m 770 "$merged_mount/personal" "$merged_mount/shared" "$probe_root"
+  printf 'deniz-cloud-posix-gate1\n' > "$probe_root/.posix-gate1-disposable"
+  chown 1000:1000 "$probe_root/.posix-gate1-disposable"
+  chmod 600 "$probe_root/.posix-gate1-disposable"
+
+  jq -n \
+    --arg spikeId "$spike_id" \
+    --arg root "$state_root" \
+    --arg ssdImage "$ssd_image" \
+    --arg hddImage "$hdd_image" \
+    --arg ssdLoop "$ssd_loop" \
+    --arg hddLoop "$hdd_loop" \
+    --arg merged "$merged_mount" \
+    --arg tailscaleIp "$tailscale_ip" \
+    '{schemaVersion:1,phase:"prepared",spikeId:$spikeId,root:$root,images:{ssd:$ssdImage,hdd:$hddImage},loops:{ssd:$ssdLoop,hdd:$hddLoop},mounts:{merged:$merged},tailscaleIp:$tailscaleIp}' \
+    > "$state_file"
+  chmod 600 "$state_file"
+  sync -f "$state_root"
+  prepared=true
+  trap - EXIT HUP INT TERM
+  jq -n --arg spikeId "$spike_id" --arg merged "$merged_mount" \
+    '{prepared:true,spikeId:$spikeId,mergedMount:$merged,productionBranchesMounted:false}'
+}
+
+validate_live_spike() {
+  read_state
+  if [[ "$state_phase" == "stopped" ]]; then
+    echo "Gate 1 spike is stopped" >&2
+    exit 1
+  fi
+  loop_backing_is "$ssd_loop" "$ssd_image" || { echo "SSD loop backing mismatch" >&2; exit 1; }
+  loop_backing_is "$hdd_loop" "$hdd_image" || { echo "HDD loop backing mismatch" >&2; exit 1; }
+  mount_source_is "$ssd_mount" "$ssd_loop" || { echo "SSD mount source mismatch" >&2; exit 1; }
+  mount_source_is "$hdd_mount" "$hdd_loop" || { echo "HDD mount source mismatch" >&2; exit 1; }
+  mountpoint -q "$merged_mount" || { echo "Merged namespace is not mounted" >&2; exit 1; }
+  branch_marker_is "$ssd_mount" ssd || { echo "SSD branch marker mismatch" >&2; exit 1; }
+  branch_marker_is "$hdd_mount" hdd || { echo "HDD branch marker mismatch" >&2; exit 1; }
+}
+
+render_samba_config() {
+  local config="$1"
+  local spike_user="$2"
+  local spike_group="$3"
+  if [[ ! -f "$template" || -L "$template" ]]; then
+    echo "Samba template is missing or unsafe: ${template}" >&2
+    exit 1
+  fi
+  for value in "$state_root" "$tailscale_ip" "$spike_user" "$spike_group"; do
+    if [[ "$value" == *['|&\\']* ]]; then
+      echo "Samba template value contains an unsupported character" >&2
+      exit 1
+    fi
+  done
+  sed \
+    -e "s|@PRIVATE_DIR@|$samba_root/private|g" \
+    -e "s|@STATE_DIR@|$samba_root/state|g" \
+    -e "s|@CACHE_DIR@|$samba_root/cache|g" \
+    -e "s|@LOCK_DIR@|$samba_root/lock|g" \
+    -e "s|@PID_DIR@|$samba_root/pid|g" \
+    -e "s|@LOG_DIR@|$samba_root/log|g" \
+    -e "s|@TAILSCALE_IP@|$tailscale_ip|g" \
+    -e "s|@MERGED_ROOT@|$merged_mount|g" \
+    -e "s|@SPIKE_USER@|$spike_user|g" \
+    -e "s|@SPIKE_GROUP@|$spike_group|g" \
+    "$template" > "$config"
+  chmod 600 "$config"
+}
+
+start_samba() {
+  validate_live_spike
+  if [[ "$state_phase" != "prepared" ]]; then
+    echo "Samba can start only from the prepared phase" >&2
+    exit 1
+  fi
+  if ss -H -ltn 'sport = :445' | grep -q .; then
+    echo "TCP 445 already has a listener" >&2
+    exit 1
+  fi
+  tailscale_ip="$(jq -er '.tailscaleIp' "$state_file")"
+  local spike_user spike_group config auth_file password pid pid_file start_time
+  spike_user="$(getent passwd 1000 | cut -d: -f1)"
+  spike_group="$(getent group 1000 | cut -d: -f1)"
+  if [[ ! "$spike_user" =~ ^[a-z_][a-z0-9_-]*$ || ! "$spike_group" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+    echo "UID/GID 1000 do not resolve to safe Samba identities" >&2
+    exit 1
+  fi
+  mkdir -m 700 "$samba_root/private" "$samba_root/state" "$samba_root/cache" "$samba_root/lock" "$samba_root/pid" "$samba_root/log"
+  pid_file="$samba_root/pid/gate1-smbd.pid"
+  local samba_started=false
+  cleanup_failed_samba() {
+    set +e
+    if [[ "$samba_started" != "true" && -s "$pid_file" ]]; then
+      local failed_pid
+      failed_pid="$(cat "$pid_file")"
+      if [[ "$failed_pid" =~ ^[0-9]+$ && -r "/proc/$failed_pid/exe" && "$(basename "$(readlink -f "/proc/$failed_pid/exe")")" == "smbd" ]]; then
+        kill -TERM "$failed_pid"
+        for _ in {1..100}; do
+          [[ ! -e "/proc/$failed_pid" ]] && break
+          sleep 0.1
+        done
+      fi
+      [[ ! -e "/proc/$failed_pid" ]] && find "$pid_file" -maxdepth 0 -type f -delete 2>/dev/null || true
+    fi
+    find "$samba_root/client.auth" -maxdepth 0 -type f -delete 2>/dev/null || true
+  }
+  trap cleanup_failed_samba EXIT HUP INT TERM
+  config="$samba_root/smb.conf"
+  auth_file="$samba_root/client.auth"
+  render_samba_config "$config" "$spike_user" "$spike_group"
+  testparm -s "$config" > "$samba_root/testparm.txt"
+  chmod 600 "$samba_root/testparm.txt"
+
+  password="$(openssl rand -hex 24)"
+  printf '%s\n%s\n' "$password" "$password" | smbpasswd -s -c "$config" -a "$spike_user" >/dev/null
+  printf 'username = %s\npassword = %s\n' "$spike_user" "$password" > "$auth_file"
+  unset password
+  chmod 600 "$auth_file"
+  chown 1000:1000 "$auth_file"
+
+  smbd --foreground --no-process-group --debug-stdout -s "$config" >> "$samba_root/log/smbd.foreground.log" 2>&1 &
+  pid=$!
+  printf '%s\n' "$pid" > "$pid_file"
+  chmod 600 "$pid_file"
+  for _ in {1..50}; do
+    [[ -r "/proc/$pid/exe" ]] && ss -H -ltn 'sport = :445' | grep -q . && break
+    sleep 0.1
+  done
+  if [[ ! "$pid" =~ ^[0-9]+$ || ! -r "/proc/$pid/exe" || "$(basename "$(readlink -f "/proc/$pid/exe")")" != "smbd" ]]; then
+    echo "Disposable smbd did not produce a verifiable master PID" >&2
+    exit 1
+  fi
+  if ! tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$config"; then
+    echo "Disposable smbd does not reference the exact Gate 1 configuration" >&2
+    exit 1
+  fi
+  start_time="$(awk '{print $22}' "/proc/$pid/stat")"
+  [[ "$start_time" =~ ^[0-9]+$ ]] || { echo "Disposable smbd start time is invalid" >&2; exit 1; }
+  if ss -H -ltn 'sport = :445' | awk -v expected="${tailscale_ip}:445" '$4 != expected {bad=1} END {exit bad ? 0 : 1}'; then
+    echo "Disposable smbd bound outside the Tailscale address" >&2
+    exit 1
+  fi
+  smbclient "//${tailscale_ip}/Personal" -A "$auth_file" -m SMB3 --client-protection=encrypt -c 'ls' >/dev/null
+  if smbclient "//${tailscale_ip}/Personal" -A "$auth_file" -m SMB3 --client-protection=off -c 'ls' >/dev/null 2>&1; then
+    echo "Samba accepted an unencrypted client" >&2
+    exit 1
+  fi
+  jq --argjson pid "$pid" --arg startTime "$start_time" --arg config "$config" \
+    '.phase="samba" | .samba={pid:$pid,startTime:$startTime,config:$config}' \
+    "$state_file" > "$state_file.partial"
+  mv "$state_file.partial" "$state_file"
+  chmod 600 "$state_file"
+  state_phase=samba
+  samba_started=true
+  trap - EXIT HUP INT TERM
+  jq -n --arg host "$tailscale_ip" --arg user "$spike_user" \
+    '{sambaStarted:true,host:$host,port:445,share:"Personal",user:$user,encryptionRequired:true,credentialsFile:"private on Pi"}'
+}
+
+record_host_event() {
+  local evidence="$1"
+  local event="$2"
+  local status="$3"
+  jq -nc --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg event "$event" --arg status "$status" \
+    '{schemaVersion:1,at:$at,event:$event,status:$status}' >> "$evidence"
+}
+
+run_host_tests() {
+  validate_live_spike
+  if [[ "$state_phase" != "samba" ]]; then
+    echo "Host tests require the Samba phase" >&2
+    exit 1
+  fi
+  tailscale_ip="$(jq -er '.tailscaleIp' "$state_file")"
+  local auth_file="$samba_root/client.auth"
+  local evidence="$evidence_dir/host-${spike_id}.jsonl"
+  local test_name=".gate1-${spike_id}"
+  local test_dir="$merged_mount/personal/$test_name"
+  local ssd_test="$ssd_branch/personal/$test_name"
+  local hdd_test="$hdd_branch/personal/$test_name"
+  local external="$ssd_mount/internal/host-test"
+  local spike_user acl_uid api_image available block_size fill_bytes expected protected_value
+  if [[ -e "$evidence" || -e "$test_dir" || -L "$test_dir" ]]; then
+    echo "Refusing to overwrite Gate 1 host evidence or test root" >&2
+    exit 1
+  fi
+  spike_user="$(getent passwd 1000 | cut -d: -f1)"
+  acl_uid="$(getent passwd nobody | cut -d: -f3)"
+  if [[ ! "$acl_uid" =~ ^[0-9]+$ || "$acl_uid" == "1000" ]]; then
+    echo "A distinct nobody account is required for the ACL round-trip probe" >&2
+    exit 1
+  fi
+  api_image="$(docker inspect --format '{{.Config.Image}}' deniz-cloud-api-1)"
+  mkdir -m 700 "$external"
+  printf 'smb-exact-bytes\n' > "$external/upload.txt"
+  chmod 600 "$external/upload.txt"
+  touch "$evidence"
+  chmod 600 "$evidence"
+  record_host_event "$evidence" run start
+
+  cleanup_host_test() {
+    set +e
+    if [[ "$test_dir" == "$merged_mount/personal/.gate1-$spike_id" && -d "$test_dir" ]]; then
+      find "$test_dir" -depth -delete
+    fi
+    if [[ "$external" == "$ssd_mount/internal/host-test" && -d "$external" ]]; then
+      find "$external" -depth -delete
+    fi
+  }
+  trap cleanup_host_test EXIT HUP INT TERM
+
+  runuser -u "$spike_user" -- mkdir -m 700 "$test_dir"
+  runuser -u "$spike_user" -- sh -c 'printf "ssd\n" > "$1"' sh "$test_dir/ssd-first.txt"
+  [[ -f "$ssd_test/ssd-first.txt" && ! -e "$hdd_test/ssd-first.txt" ]]
+  record_host_event "$evidence" ssd-preferred-create pass
+
+  runuser -u "$spike_user" -- sh -c 'printf "metadata\n" > "$1"' sh "$test_dir/metadata.txt"
+  protected_value="$(cat /proc/sys/kernel/random/uuid)"
+  setfattr -n user.denizcloud.id -v "$protected_value" "$test_dir/metadata.txt"
+  setfacl -m "u:${acl_uid}:r--" "$test_dir/metadata.txt"
+  runuser -u "$spike_user" -- mv "$test_dir/metadata.txt" "$test_dir/Metadata-Renamed.txt"
+  [[ "$(getfattr --only-values -n user.denizcloud.id "$test_dir/Metadata-Renamed.txt")" == "$protected_value" ]]
+  getfacl -cpn "$test_dir/Metadata-Renamed.txt" | grep -q "^user:${acl_uid}:r--"
+  record_host_event "$evidence" rename-xattr-acl pass
+
+  runuser -u "$spike_user" -- sh -c 'printf "container\n" > "$1"' sh "$test_dir/container-source.txt"
+  docker run --rm --network none --read-only --tmpfs /tmp --user 1000:1000 \
+    --volume "$merged_mount:/gate1" --entrypoint /bin/sh "$api_image" \
+    -c "mv /gate1/personal/$test_name/container-source.txt /gate1/personal/$test_name/container-renamed.txt"
+  [[ -f "$test_dir/container-renamed.txt" ]]
+  record_host_event "$evidence" highest-bind-container-rename pass
+
+  read -r available block_size < <(stat -f -c '%a %S' "$ssd_mount")
+  fill_bytes=$((available * block_size - 64 * 1024 * 1024))
+  if (( fill_bytes <= 0 )); then
+    echo "Disposable SSD image is too small for reserve testing" >&2
+    exit 1
+  fi
+  fallocate -l "$fill_bytes" "$external/reserve.fill"
+  runuser -u "$spike_user" -- sh -c 'printf "hdd\n" > "$1"' sh "$test_dir/hdd-fallback.txt"
+  [[ -f "$hdd_test/hdd-fallback.txt" && ! -e "$ssd_test/hdd-fallback.txt" ]]
+  find "$external/reserve.fill" -delete
+  record_host_event "$evidence" deterministic-hdd-fallback pass
+
+  smbclient "//${tailscale_ip}/Personal" -A "$auth_file" -m SMB3 --client-protection=encrypt \
+    -c "put $external/upload.txt $test_name/smb-upload.txt; rename $test_name/smb-upload.txt $test_name/smb-renamed.txt; get $test_name/smb-renamed.txt $external/download.txt" >/dev/null
+  expected="$(sha256sum "$external/upload.txt" | awk '{print $1}')"
+  [[ "$(sha256sum "$external/download.txt" | awk '{print $1}')" == "$expected" ]]
+  record_host_event "$evidence" smb3-encrypted-roundtrip pass
+
+  setfattr -n user.denizcloud.id -v "$protected_value" "$test_dir/smb-renamed.txt"
+  printf 'named-stream\n' > "$external/stream.txt"
+  smbclient "//${tailscale_ip}/Personal" -A "$auth_file" -m SMB3 --client-protection=encrypt \
+    -c "put $external/stream.txt $test_name/smb-renamed.txt:denizcloud.id; get $test_name/smb-renamed.txt:denizcloud.id $external/stream-out.txt" >/dev/null
+  [[ "$(getfattr --only-values -n user.denizcloud.id "$test_dir/smb-renamed.txt")" == "$protected_value" ]]
+  [[ "$(sha256sum "$external/stream.txt" | awk '{print $1}')" == "$(sha256sum "$external/stream-out.txt" | awk '{print $1}')" ]]
+  record_host_event "$evidence" protected-xattr-stream-isolation pass
+
+  mkdir "$external/restore"
+  tar --acls --xattrs --xattrs-include='*' -cf "$external/metadata.tar" -C "$test_dir" Metadata-Renamed.txt
+  tar --acls --xattrs --xattrs-include='*' -xf "$external/metadata.tar" -C "$external/restore"
+  [[ "$(getfattr --only-values -n user.denizcloud.id "$external/restore/Metadata-Renamed.txt")" == "$protected_value" ]]
+  getfacl -cpn "$external/restore/Metadata-Renamed.txt" | grep -q "^user:${acl_uid}:r--"
+  record_host_event "$evidence" backup-restore-xattr-acl pass
+
+  record_host_event "$evidence" run pass
+  trap - EXIT HUP INT TERM
+  cleanup_host_test
+  jq -n --arg evidence "$evidence" \
+    '{partialHostTestsPassed:true,evidence:$evidence,gate1Passed:false,pending:["API Bun/Range/TUS/slow-client probe","raw hardlink and symlink ingress","name-policy matrix","API-SMB concurrency and open handles","tier-move crash points","live branch loss and reboot","Finder and Explorer native-app checks","LAN and relay performance"]}'
+}
+
+show_status() {
+  if [[ ! -e "$state_root" ]]; then
+    jq -n --arg root "$state_root" '{present:false,root:$root}'
+    return
+  fi
+  read_state
+  local tcp445=false merged=false ssd=false hdd=false
+  ss -H -ltn 'sport = :445' | grep -q . && tcp445=true
+  mountpoint -q "$merged_mount" && merged=true
+  mountpoint -q "$ssd_mount" && ssd=true
+  mountpoint -q "$hdd_mount" && hdd=true
+  jq -n --arg phase "$state_phase" --arg spikeId "$spike_id" \
+    --argjson tcp445 "$tcp445" --argjson merged "$merged" --argjson ssd "$ssd" --argjson hdd "$hdd" \
+    '{present:true,phase:$phase,spikeId:$spikeId,tcp445Listening:$tcp445,mounts:{merged:$merged,ssdLoop:$ssd,hddLoop:$hdd}}'
+}
+
+stop_spike() {
+  read_state
+  if [[ "$state_phase" == "stopped" ]]; then
+    if mountpoint -q "$merged_mount" || mountpoint -q "$ssd_mount" || mountpoint -q "$hdd_mount" \
+      || losetup -j "$ssd_image" | grep -q . || losetup -j "$hdd_image" | grep -q . \
+      || ss -H -ltn 'sport = :445' | grep -q .; then
+      echo "Stopped state disagrees with live Gate 1 resources" >&2
+      exit 1
+    fi
+    jq -n --arg spikeId "$spike_id" '{stopped:true,alreadyStopped:true,spikeId:$spikeId,tcp445Listening:false,mountsRemoved:true}'
+    return
+  fi
+  if [[ "$state_phase" != "stopped" ]]; then
+    loop_backing_is "$ssd_loop" "$ssd_image" || { echo "SSD loop backing mismatch" >&2; exit 1; }
+    loop_backing_is "$hdd_loop" "$hdd_image" || { echo "HDD loop backing mismatch" >&2; exit 1; }
+  fi
+  local pid_file="$samba_root/pid/gate1-smbd.pid"
+  if [[ -s "$pid_file" ]]; then
+    local pid expected_pid expected_start_time expected_config actual_start_time cmdline_matches=false
+    pid="$(cat "$pid_file")"
+    if [[ ! "$pid" =~ ^[0-9]+$ ]]; then
+      echo "Refusing to signal an invalid Samba PID" >&2
+      exit 1
+    fi
+    if [[ ! -e "/proc/$pid" ]]; then
+      find "$pid_file" -maxdepth 0 -type f -delete
+    else
+      expected_pid="$(jq -er '.samba.pid' "$state_file")"
+      expected_start_time="$(jq -er '.samba.startTime' "$state_file")"
+      expected_config="$(jq -er '.samba.config' "$state_file")"
+      actual_start_time="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null || true)"
+      if [[ -r "/proc/$pid/cmdline" ]] && tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$expected_config"; then
+        cmdline_matches=true
+      fi
+      if [[ "$pid" != "$expected_pid" || "$expected_config" != "$samba_root/smb.conf" \
+        || "$actual_start_time" != "$expected_start_time" || ! -r "/proc/$pid/exe" \
+        || "$(basename "$(readlink -f "/proc/$pid/exe")")" != "smbd" \
+        || "$cmdline_matches" != "true" ]]; then
+        echo "Refusing to signal an unverified Samba PID" >&2
+        exit 1
+      fi
+      kill -TERM "$pid"
+      for _ in {1..100}; do
+        [[ ! -e "/proc/$pid" ]] && break
+        sleep 0.1
+      done
+      [[ ! -e "/proc/$pid" ]] || { echo "Disposable smbd did not stop" >&2; exit 1; }
+      find "$pid_file" -maxdepth 0 -type f -delete
+    fi
+  fi
+  if ss -H -ltn 'sport = :445' | grep -q .; then
+    echo "TCP 445 remains active after stopping disposable Samba" >&2
+    exit 1
+  fi
+  if mountpoint -q "$merged_mount"; then umount "$merged_mount"; fi
+  mount_source_is "$ssd_mount" "$ssd_loop" || { echo "SSD mount source mismatch before stop" >&2; exit 1; }
+  mount_source_is "$hdd_mount" "$hdd_loop" || { echo "HDD mount source mismatch before stop" >&2; exit 1; }
+  umount "$ssd_mount"
+  umount "$hdd_mount"
+  loop_backing_is "$ssd_loop" "$ssd_image" || { echo "SSD loop backing mismatch before detach" >&2; exit 1; }
+  loop_backing_is "$hdd_loop" "$hdd_image" || { echo "HDD loop backing mismatch before detach" >&2; exit 1; }
+  losetup -d "$ssd_loop"
+  losetup -d "$hdd_loop"
+  if mountpoint -q "$merged_mount" || mountpoint -q "$ssd_mount" || mountpoint -q "$hdd_mount" \
+    || losetup -j "$ssd_image" | grep -q . || losetup -j "$hdd_image" | grep -q .; then
+    echo "Gate 1 mounts or loops remain after stop" >&2
+    exit 1
+  fi
+  [[ -f "$samba_root/client.auth" && ! -L "$samba_root/client.auth" ]] && find "$samba_root/client.auth" -delete
+  update_phase stopped
+  jq -n --arg spikeId "$spike_id" '{stopped:true,spikeId:$spikeId,tcp445Listening:false,mountsRemoved:true}'
+}
+
+destroy_spike() {
+  read_state
+  if [[ "$state_phase" != "stopped" ]]; then
+    echo "Stop the disposable spike before destroying its files" >&2
+    exit 1
+  fi
+  for target in "$merged_mount" "$ssd_mount" "$hdd_mount"; do
+    if mountpoint -q "$target"; then
+      echo "Refusing destroy while a Gate 1 mount remains: ${target}" >&2
+      exit 1
+    fi
+  done
+  if losetup -j "$ssd_image" | grep -q . || losetup -j "$hdd_image" | grep -q .; then
+    echo "Refusing destroy while a Gate 1 loop remains attached" >&2
+    exit 1
+  fi
+  if [[ "$(realpath -e "$state_root")" != "$state_root" || -L "$state_root" || "$(jq -er '.spikeId' "$root_marker")" != "$spike_id" ]]; then
+    echo "Gate 1 destroy marker validation failed" >&2
+    exit 1
+  fi
+  find "$state_root" -xdev -depth -delete
+  jq -n --arg spikeId "$spike_id" '{destroyed:true,spikeId:$spikeId,recoverable:false}'
+}
+
+case "$action" in
+  prepare) prepare_spike ;;
+  start-samba) start_samba ;;
+  status) show_status ;;
+  host-test) run_host_tests ;;
+  stop) stop_spike ;;
+  destroy) destroy_spike ;;
+esac
