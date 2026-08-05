@@ -29,4 +29,12 @@ describe("POSIX Gate 1 package installer safety", () => {
     expect(source).toContain("make sure noble-updates is enabled");
     expect(source).toContain("Do not downgrade libacl1 or libattr1");
   });
+
+  it("normalizes mergerfs release output and keeps the local deb readable by APT", async () => {
+    const source = await Bun.file(INSTALL_SCRIPT).text();
+
+    expect(source).toContain('chmod 755 "$download_dir"');
+    expect(source).toContain('chmod 644 "$deb_path"');
+    expect(source).toContain('sub(/^v/, "", $NF)');
+  });
 });

@@ -59,6 +59,7 @@ if ss -H -ltn 'sport = :445' | grep -q .; then
 fi
 
 download_dir="$(mktemp -d /tmp/posix-gate1-install.XXXXXX)"
+chmod 755 "$download_dir"
 cleanup() {
   set +e
   if [[ -n "${download_dir:-}" && "$download_dir" == /tmp/posix-gate1-install.* && -d "$download_dir" ]]; then
@@ -71,6 +72,7 @@ deb_path="$download_dir/mergerfs.deb"
 curl --fail --location --proto '=https' --tlsv1.2 \
   --output "$deb_path" "$mergerfs_url"
 printf '%s  %s\n' "$mergerfs_sha256" "$deb_path" | sha256sum -c -
+chmod 644 "$deb_path"
 
 apt-get update
 simulation_output="$(mktemp "$download_dir/apt-simulation.XXXXXX")"
@@ -96,7 +98,7 @@ systemctl mask --now "${samba_units[@]}"
 DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}" "$deb_path"
 systemctl mask --now "${samba_units[@]}"
 
-installed_mergerfs="$(mergerfs --version | awk 'NR == 1 {print $NF}')"
+installed_mergerfs="$(mergerfs --version | awk 'NR == 1 {sub(/^v/, "", $NF); print $NF}')"
 installed_samba="$(smbd --version | awk 'NR == 1 {print $2}')"
 if [[ "$installed_mergerfs" != "$mergerfs_version" ]]; then
   echo "Expected mergerfs ${mergerfs_version}, installed ${installed_mergerfs}" >&2
