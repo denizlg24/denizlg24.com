@@ -72,11 +72,20 @@ describe("POSIX Gate 1 spike shell safety", () => {
       'chmod 755 "$samba_root/state" "$samba_root/cache" "$samba_root/lock" "$samba_root/ncalrpc"',
     );
     expect(template).toContain("ncalrpc dir = @NCALRPC_DIR@");
-    expect(template).toContain("interfaces = tailscale0\n");
+    expect(template).toContain("bind interfaces only = no");
+    expect(template).toContain(
+      "hosts allow = 127.0.0.1 100.64.0.0/10 fd7a:115c:a1e0::/48",
+    );
+    expect(template).toContain("hosts deny = ALL");
+    expect(template).not.toContain("interfaces = tailscale0");
     expect(template).not.toContain("interfaces = @TAILSCALE_IP@/32");
-    expect(source).toContain("${samba_started:-false}");
+    expect(source).toContain('.phase="starting"');
+    expect(source).toContain("state_samba_process_is_verified");
+    expect(source).toContain("kill -KILL");
+    expect(source).toContain("trap cleanup_failed_samba EXIT");
+    expect(source).toContain("trap 'exit 129' HUP");
     expect(source).toContain(
-      "Disposable smbd did not open the exact Tailscale listener",
+      "Disposable smbd did not open a firewall-protected wildcard listener",
     );
     expect(source).toContain(
       'tail -n 80 "$samba_root/log/smbd.foreground.log" >&2 || true',
@@ -84,11 +93,24 @@ describe("POSIX Gate 1 spike shell safety", () => {
     expect(source).toContain(
       'tail -n 120 "$samba_root/log/smbd.foreground.log" >&2 || true',
     );
-    expect(source).toContain("listener_is_on_tailscale");
-    expect(source).toContain("ip -o address show dev tailscale0");
+    expect(source).toContain('firewall_table="deniz_cloud_gate1"');
+    expect(source).toContain("install_gate1_firewall");
+    expect(source).toContain("firewall_is_current_spike");
+    expect(source).toContain("remove_gate1_firewall");
     expect(source).toContain(
-      "Disposable smbd bound outside tailscale0: ${listener}",
+      'iifname "lo" ip daddr 127.0.0.1 tcp dport 445 accept',
     );
+    expect(source).toContain('iifname "tailscale0" tcp dport 445 accept');
+    expect(source).toContain(
+      'tcp dport 445 reject with tcp reset comment "deniz-cloud-gate1-${spike_id}-deny"',
+    );
+    expect(source).toContain("priority -100; policy accept;");
+    expect(source).toContain("(chains | length) == 1");
+    expect(source).toContain('has("accept") and .accept == null');
+    expect(source).toContain(
+      'firewall:{family:"inet",table:"deniz_cloud_gate1",interface:"tailscale0",port:445}',
+    );
+    expect(source).toContain("firewall_state=foreign");
   });
 
   it("permits only traversal to the fixed non-sudo peer mount", async () => {

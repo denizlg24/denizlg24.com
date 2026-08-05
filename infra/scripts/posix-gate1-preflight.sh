@@ -19,7 +19,7 @@ samba_version="$(smbd --version 2>/dev/null | awk 'NR == 1 {print $2}' || true)"
 tcp445_listeners="$(ss -H -ltn 'sport = :445' | wc -l | tr -d ' ')"
 
 requirements_json="$({
-  for command in docker fallocate findmnt fusermount3 getfacl getfattr jq losetup mergerfs mkfs.ext4 mount mountpoint setfacl setfattr smbclient smbd smbstatus testparm truncate; do
+  for command in docker fallocate findmnt fusermount3 getfacl getfattr jq losetup mergerfs mkfs.ext4 mount mountpoint nft setfacl setfattr smbclient smbd smbstatus testparm truncate; do
     if command -v "$command" >/dev/null; then
       jq -nc --arg command "$command" '{command:$command,available:true}'
     else

@@ -85,6 +85,7 @@ hdd_branch="$hdd_mount/namespace"
 probe_root="$merged_mount/posix-gate1-disposable"
 samba_root="$state_root/samba"
 evidence_dir="$state_root/evidence"
+firewall_table="deniz_cloud_gate1"
 watchdog_timeout_seconds="${POSIX_GATE1_WATCHDOG_TIMEOUT_SECONDS:-10}"
 if [[ ! "$watchdog_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || (( watchdog_timeout_seconds > 30 )); then
   echo "Gate 1 watchdog timeout must be an integer from 1 to 30 seconds" >&2
@@ -95,6 +96,10 @@ state_phase="absent"
 spike_id=""
 ssd_loop=""
 hdd_loop=""
+startup_pid=""
+startup_pid_file=""
+startup_config=""
+startup_auth_file=""
 
 read_state() {
   if [[ ! -f "$state_file" || -L "$state_file" ]]; then
@@ -105,7 +110,7 @@ read_state() {
   spike_id="$(jq -er '.spikeId' "$state_file")"
   ssd_loop="$(jq -er '.loops.ssd' "$state_file")"
   hdd_loop="$(jq -er '.loops.hdd' "$state_file")"
-  if [[ ! "$state_phase" =~ ^(prepared|samba|quarantined|stopped)$ || ! "$spike_id" =~ ^[0-9a-f-]{36}$ || ! "$ssd_loop" =~ ^/dev/loop[0-9]+$ || ! "$hdd_loop" =~ ^/dev/loop[0-9]+$ ]]; then
+  if [[ ! "$state_phase" =~ ^(prepared|starting|samba|quarantined|stopped)$ || ! "$spike_id" =~ ^[0-9a-f-]{36}$ || ! "$ssd_loop" =~ ^/dev/loop[0-9]+$ || ! "$hdd_loop" =~ ^/dev/loop[0-9]+$ ]]; then
     echo "Gate 1 state contains invalid lifecycle values" >&2
     exit 1
   fi
@@ -184,7 +189,7 @@ if (( EUID != 0 )); then
   echo "Gate 1 lifecycle changes require root" >&2
   exit 1
 fi
-for command in awk basename cat chmod chown cut date dirname docker fallocate find findmnt getfacl getent getfattr grep ip jq kill losetup mergerfs mkdir mkfs.ext4 mount mountpoint mv openssl readlink realpath runuser sed setfacl setfattr sha256sum sleep smbclient smbd smbpasswd ss stat sync tar testparm timeout touch tr truncate umount; do
+for command in awk basename cat chmod chown cut date dirname docker fallocate find findmnt getfacl getent getfattr grep ip jq kill losetup mergerfs mkdir mkfs.ext4 mount mountpoint mv nft openssl readlink realpath runuser sed setfacl setfattr sha256sum sleep smbclient smbd smbpasswd ss stat sync tar testparm timeout touch tr truncate umount; do
   if ! command -v "$command" >/dev/null; then
     echo "Required Gate 1 command is missing: ${command}" >&2
     exit 1
@@ -206,6 +211,10 @@ prepare_spike() {
   fi
   if ss -H -ltn 'sport = :445' | grep -q .; then
     echo "TCP 445 already has a listener" >&2
+    exit 1
+  fi
+  if nft list table inet "$firewall_table" >/dev/null 2>&1; then
+    echo "A Gate 1 firewall table already exists" >&2
     exit 1
   fi
 
@@ -354,15 +363,151 @@ render_samba_config() {
   chmod 600 "$config"
 }
 
-listener_is_on_tailscale() {
-  local listener="$1"
-  local address
-  while IFS= read -r address; do
-    if [[ "$listener" == "${address}:445" || "$listener" == "[${address}]:445" ]]; then
-      return 0
+firewall_is_current_spike() {
+  local ruleset table_comment health_comment allow_comment deny_comment
+  table_comment="deniz-cloud-gate1-${spike_id}"
+  health_comment="deniz-cloud-gate1-${spike_id}-health"
+  allow_comment="deniz-cloud-gate1-${spike_id}-allow"
+  deny_comment="deniz-cloud-gate1-${spike_id}-deny"
+  ruleset="$(nft -j list table inet "$firewall_table" 2>/dev/null || true)"
+  [[ -n "$ruleset" ]] && jq -e \
+    --arg table "$firewall_table" \
+    --arg tableComment "$table_comment" \
+    --arg health "$health_comment" \
+    --arg allow "$allow_comment" \
+    --arg deny "$deny_comment" '
+      def rules: [.nftables[] | .rule? | select(.family == "inet" and .table == $table and .chain == "input")];
+      def chains: [.nftables[] | .chain? | select(.family == "inet" and .table == $table)];
+      def tcp445: .match.op == "==" and .match.left.payload.protocol == "tcp" and .match.left.payload.field == "dport" and .match.right == 445;
+      def iif($name): .match.op == "==" and .match.left.meta.key == "iifname" and .match.right == $name;
+      def ipv4localhost: .match.op == "==" and .match.left.payload.protocol == "ip" and .match.left.payload.field == "daddr" and .match.right == "127.0.0.1";
+      ([.nftables[] | .table? | select(.family == "inet" and .name == $table and .comment == $tableComment)] | length) == 1 and
+      (chains | length) == 1 and
+      (chains[0].name == "input" and chains[0].type == "filter" and chains[0].hook == "input" and chains[0].prio == -100 and chains[0].policy == "accept") and
+      (rules | length) == 3 and
+      (rules[0].comment == $health and (rules[0].expr | length) == 4 and (rules[0].expr[0] | iif("lo")) and (rules[0].expr[1] | ipv4localhost) and (rules[0].expr[2] | tcp445) and (rules[0].expr[3] | has("accept") and .accept == null)) and
+      (rules[1].comment == $allow and (rules[1].expr | length) == 3 and (rules[1].expr[0] | iif("tailscale0")) and (rules[1].expr[1] | tcp445) and (rules[1].expr[2] | has("accept") and .accept == null)) and
+      (rules[2].comment == $deny and (rules[2].expr | length) == 2 and (rules[2].expr[0] | tcp445) and rules[2].expr[1].reject.type == "tcp reset")
+    ' <<< "$ruleset" >/dev/null
+}
+
+install_gate1_firewall() {
+  if nft list table inet "$firewall_table" >/dev/null 2>&1; then
+    echo "Refusing to replace an existing Gate 1 firewall table" >&2
+    return 1
+  fi
+  if ! ip link show dev tailscale0 | grep -q '<[^>]*UP[^>]*>' \
+    || ! ip -4 -o address show dev tailscale0 | awk -v expected="$tailscale_ip" '{split($4, value, "/"); if (value[1] == expected) found=1} END {exit found ? 0 : 1}'; then
+    echo "tailscale0 is not up with the saved Gate 1 IPv4 address" >&2
+    return 1
+  fi
+  nft -f - <<EOF
+add table inet $firewall_table { comment "deniz-cloud-gate1-${spike_id}"; }
+add chain inet $firewall_table input { type filter hook input priority -100; policy accept; }
+add rule inet $firewall_table input iifname "lo" ip daddr 127.0.0.1 tcp dport 445 accept comment "deniz-cloud-gate1-${spike_id}-health"
+add rule inet $firewall_table input iifname "tailscale0" tcp dport 445 accept comment "deniz-cloud-gate1-${spike_id}-allow"
+add rule inet $firewall_table input tcp dport 445 reject with tcp reset comment "deniz-cloud-gate1-${spike_id}-deny"
+EOF
+  firewall_is_current_spike || {
+    echo "Gate 1 firewall did not match the exact spike-scoped rules" >&2
+    nft -j list table inet "$firewall_table" >&2 2>/dev/null || true
+    nft delete table inet "$firewall_table" >/dev/null 2>&1 || true
+    return 1
+  }
+}
+
+remove_gate1_firewall() {
+  if ! nft list table inet "$firewall_table" >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! firewall_is_current_spike; then
+    echo "Refusing to remove an unverified Gate 1 firewall table" >&2
+    return 1
+  fi
+  nft delete table inet "$firewall_table"
+  ! nft list table inet "$firewall_table" >/dev/null 2>&1
+}
+
+startup_process_is_verified() {
+  local pid="$1"
+  local actual_start_time launch_floor
+  [[ "$pid" =~ ^[0-9]+$ && -n "$startup_config" && -r "/proc/$pid/exe" ]] || return 1
+  [[ "$(basename "$(readlink -f "/proc/$pid/exe")")" == "smbd" ]] || return 1
+  tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$startup_config" || return 1
+  actual_start_time="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null || true)"
+  launch_floor="$(jq -r '.samba.launchFloor // 0' "$state_file" 2>/dev/null || printf 0)"
+  [[ "$actual_start_time" =~ ^[0-9]+$ && "$launch_floor" =~ ^[0-9]+$ ]] \
+    && (( actual_start_time >= launch_floor ))
+}
+
+cleanup_failed_samba() {
+  set +e
+  local failed_pid="${startup_pid:-}"
+  local listener_remains=false exact_process_remains=false
+  if [[ ! "$failed_pid" =~ ^[0-9]+$ && -n "${startup_pid_file:-}" && -s "$startup_pid_file" ]]; then
+    failed_pid="$(cat "$startup_pid_file")"
+  fi
+  if startup_process_is_verified "$failed_pid"; then
+    kill -TERM "$failed_pid"
+    for _ in {1..50}; do
+      [[ ! -e "/proc/$failed_pid" ]] && break
+      sleep 0.1
+    done
+    if startup_process_is_verified "$failed_pid"; then
+      kill -KILL "$failed_pid"
+      for _ in {1..50}; do
+        [[ ! -e "/proc/$failed_pid" ]] && break
+        sleep 0.1
+      done
     fi
-  done < <(ip -o address show dev tailscale0 | awk '{split($4, value, "/"); print value[1]}')
-  return 1
+  fi
+  if [[ -n "${startup_config:-}" ]]; then
+    local process_cmdline
+    for process_cmdline in /proc/[0-9]*/cmdline; do
+      if [[ -r "$process_cmdline" ]] && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "$startup_config"; then
+        exact_process_remains=true
+        break
+      fi
+    done
+  fi
+  ss -H -ltn 'sport = :445' | grep -q . && listener_remains=true
+  find "${startup_auth_file:-$samba_root/client.auth}" -maxdepth 0 -type f -delete 2>/dev/null || true
+  if [[ "$exact_process_remains" == "true" || "$listener_remains" == "true" ]]; then
+    echo "STOP: retaining the Gate 1 firewall because Samba withdrawal is unproven" >&2
+    return
+  fi
+  remove_gate1_firewall || {
+    echo "STOP: failed to remove the verified Gate 1 firewall" >&2
+    return
+  }
+  if [[ -n "${startup_pid_file:-}" ]]; then
+    find "$startup_pid_file" -maxdepth 0 -type f -delete 2>/dev/null || true
+  fi
+  if [[ -f "$state_file" && "$(jq -r '.phase // ""' "$state_file" 2>/dev/null)" == "starting" ]]; then
+    jq '.phase="prepared" | del(.samba) | .safety={status:"failed-samba-start-withdrawn"}' \
+      "$state_file" > "$state_file.partial"
+    mv "$state_file.partial" "$state_file"
+    chmod 600 "$state_file"
+  fi
+}
+
+state_samba_process_is_verified() {
+  local pid="$1"
+  local expected_pid expected_start_time expected_config launch_floor actual_start_time
+  [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/exe" ]] || return 1
+  expected_pid="$(jq -r '.samba.pid // ""' "$state_file")"
+  expected_start_time="$(jq -r '.samba.startTime // ""' "$state_file")"
+  expected_config="$(jq -er '.samba.config' "$state_file")"
+  launch_floor="$(jq -er '.samba.launchFloor' "$state_file")"
+  actual_start_time="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null || true)"
+  [[ "$expected_config" == "$samba_root/smb.conf" \
+    && "$launch_floor" =~ ^[0-9]+$ \
+    && "$actual_start_time" =~ ^[0-9]+$ \
+    && "$(basename "$(readlink -f "/proc/$pid/exe")")" == "smbd" ]] || return 1
+  (( actual_start_time >= launch_floor )) || return 1
+  [[ -z "$expected_pid" || "$pid" == "$expected_pid" ]] || return 1
+  [[ -z "$expected_start_time" || "$actual_start_time" == "$expected_start_time" ]] || return 1
+  tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$expected_config"
 }
 
 start_samba() {
@@ -376,7 +521,7 @@ start_samba() {
     exit 1
   fi
   tailscale_ip="$(jq -er '.tailscaleIp' "$state_file")"
-  local spike_user spike_group config auth_file password pid pid_file start_time
+  local spike_user spike_group config auth_file password pid pid_file start_time launch_floor
   spike_user="$(getent passwd 1000 | cut -d: -f1)"
   spike_group="$(getent group 1000 | cut -d: -f1)"
   if [[ ! "$spike_user" =~ ^[a-z_][a-z0-9_-]*$ || ! "$spike_group" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
@@ -387,26 +532,19 @@ start_samba() {
   chmod 700 "$samba_root/private" "$samba_root/pid" "$samba_root/log"
   chmod 755 "$samba_root/state" "$samba_root/cache" "$samba_root/lock" "$samba_root/ncalrpc"
   pid_file="$samba_root/pid/gate1-smbd.pid"
-  local samba_started=false
-  cleanup_failed_samba() {
-    set +e
-    if [[ "${samba_started:-false}" != "true" && -n "${pid_file:-}" && -s "$pid_file" ]]; then
-      local failed_pid
-      failed_pid="$(cat "$pid_file")"
-      if [[ "$failed_pid" =~ ^[0-9]+$ && -r "/proc/$failed_pid/exe" && "$(basename "$(readlink -f "/proc/$failed_pid/exe")")" == "smbd" ]]; then
-        kill -TERM "$failed_pid"
-        for _ in {1..100}; do
-          [[ ! -e "/proc/$failed_pid" ]] && break
-          sleep 0.1
-        done
-      fi
-      [[ ! -e "/proc/$failed_pid" ]] && find "$pid_file" -maxdepth 0 -type f -delete 2>/dev/null || true
-    fi
-    find "$samba_root/client.auth" -maxdepth 0 -type f -delete 2>/dev/null || true
-  }
-  trap cleanup_failed_samba EXIT HUP INT TERM
+  if [[ -e "$pid_file" || -L "$pid_file" ]]; then
+    echo "Refusing Samba start with a stale disposable PID file" >&2
+    exit 1
+  fi
+  startup_pid_file="$pid_file"
+  trap cleanup_failed_samba EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   config="$samba_root/smb.conf"
   auth_file="$samba_root/client.auth"
+  startup_config="$config"
+  startup_auth_file="$auth_file"
   render_samba_config "$config" "$spike_user" "$spike_group"
   testparm -s "$config" > "$samba_root/testparm.txt"
   chmod 600 "$samba_root/testparm.txt"
@@ -418,12 +556,22 @@ start_samba() {
   chmod 600 "$auth_file"
   chown 1000:1000 "$auth_file"
 
+  launch_floor="$(awk '{print $22}' "/proc/$$/stat")"
+  [[ "$launch_floor" =~ ^[0-9]+$ ]] || { echo "Could not capture the Samba launch floor" >&2; exit 1; }
+  jq --arg config "$config" --argjson launchFloor "$launch_floor" \
+    '.phase="starting" | .samba={pid:null,startTime:null,launchFloor:$launchFloor,config:$config,firewall:{family:"inet",table:"deniz_cloud_gate1",interface:"tailscale0",port:445}}' \
+    "$state_file" > "$state_file.partial"
+  mv "$state_file.partial" "$state_file"
+  chmod 600 "$state_file"
+  state_phase=starting
+  install_gate1_firewall
   smbd --foreground --no-process-group --debug-stdout -s "$config" >> "$samba_root/log/smbd.foreground.log" 2>&1 &
   pid=$!
+  startup_pid="$pid"
   printf '%s\n' "$pid" > "$pid_file"
   chmod 600 "$pid_file"
-  for _ in {1..50}; do
-    [[ -r "/proc/$pid/exe" ]] && ss -H -ltn 'sport = :445' | grep -q . && break
+  for _ in {1..20}; do
+    [[ -r "/proc/$pid/exe" ]] && break
     sleep 0.1
   done
   if [[ ! "$pid" =~ ^[0-9]+$ || ! -r "/proc/$pid/exe" || "$(basename "$(readlink -f "/proc/$pid/exe")")" != "smbd" ]]; then
@@ -437,29 +585,30 @@ start_samba() {
   fi
   start_time="$(awk '{print $22}' "/proc/$pid/stat")"
   [[ "$start_time" =~ ^[0-9]+$ ]] || { echo "Disposable smbd start time is invalid" >&2; exit 1; }
-  if ! ss -H -ltn 'sport = :445' | awk -v expected="${tailscale_ip}:445" '$4 == expected {found=1} END {exit found ? 0 : 1}'; then
-    echo "Disposable smbd did not open the exact Tailscale listener" >&2
+  jq --argjson pid "$pid" --arg startTime "$start_time" \
+    '.samba.pid=$pid | .samba.startTime=$startTime' "$state_file" > "$state_file.partial"
+  mv "$state_file.partial" "$state_file"
+  chmod 600 "$state_file"
+  for _ in {1..50}; do
+    ss -H -ltn 'sport = :445' | grep -q . && break
+    sleep 0.1
+  done
+  if ! ss -H -ltn 'sport = :445' | awk '$4 == "0.0.0.0:445" || $4 == "[::]:445" {found=1} END {exit found ? 0 : 1}'; then
+    echo "Disposable smbd did not open a firewall-protected wildcard listener" >&2
     tail -n 80 "$samba_root/log/smbd.foreground.log" >&2 || true
     exit 1
   fi
-  while IFS= read -r listener; do
-    if ! listener_is_on_tailscale "$listener"; then
-      echo "Disposable smbd bound outside tailscale0: ${listener}" >&2
-      exit 1
-    fi
-  done < <(ss -H -ltn 'sport = :445' | awk '{print $4}')
-  smbclient "//${tailscale_ip}/Personal" -A "$auth_file" -m SMB3 --client-protection=encrypt -c 'ls' >/dev/null
-  if smbclient "//${tailscale_ip}/Personal" -A "$auth_file" -m SMB3 --client-protection=off -c 'ls' >/dev/null 2>&1; then
+  firewall_is_current_spike || { echo "Disposable Samba firewall verification failed" >&2; exit 1; }
+  smbclient "//127.0.0.1/Personal" -A "$auth_file" -m SMB3 --client-protection=encrypt -c 'ls' >/dev/null
+  if smbclient "//127.0.0.1/Personal" -A "$auth_file" -m SMB3 --client-protection=off -c 'ls' >/dev/null 2>&1; then
     echo "Samba accepted an unencrypted client" >&2
     exit 1
   fi
-  jq --argjson pid "$pid" --arg startTime "$start_time" --arg config "$config" \
-    '.phase="samba" | .samba={pid:$pid,startTime:$startTime,config:$config}' \
+  jq '.phase="samba"' \
     "$state_file" > "$state_file.partial"
   mv "$state_file.partial" "$state_file"
   chmod 600 "$state_file"
   state_phase=samba
-  samba_started=true
   trap - EXIT HUP INT TERM
   jq -n --arg host "$tailscale_ip" --arg user "$spike_user" \
     '{sambaStarted:true,host:$host,port:445,share:"Personal",user:$user,encryptionRequired:true,credentialsFile:"private on Pi"}'
@@ -550,7 +699,7 @@ run_host_tests() {
   find "$external/reserve.fill" -delete
   record_host_event "$evidence" deterministic-hdd-fallback pass
 
-  smbclient "//${tailscale_ip}/Personal" -A "$auth_file" -m SMB3 --client-protection=encrypt \
+  smbclient "//127.0.0.1/Personal" -A "$auth_file" -m SMB3 --client-protection=encrypt \
     -c "put $external/upload.txt $test_name/smb-upload.txt; rename $test_name/smb-upload.txt $test_name/smb-renamed.txt; get $test_name/smb-renamed.txt $external/download.txt" >/dev/null
   expected="$(sha256sum "$external/upload.txt" | awk '{print $1}')"
   [[ "$(sha256sum "$external/download.txt" | awk '{print $1}')" == "$expected" ]]
@@ -558,7 +707,7 @@ run_host_tests() {
 
   setfattr -n user.denizcloud.id -v "$protected_value" "$test_dir/smb-renamed.txt"
   printf 'named-stream\n' > "$external/stream.txt"
-  smbclient "//${tailscale_ip}/Personal" -A "$auth_file" -m SMB3 --client-protection=encrypt \
+  smbclient "//127.0.0.1/Personal" -A "$auth_file" -m SMB3 --client-protection=encrypt \
     -c "put $external/stream.txt $test_name/smb-renamed.txt:denizcloud.id; get $test_name/smb-renamed.txt:denizcloud.id $external/stream-out.txt" >/dev/null
   [[ "$(getfattr --only-values -n user.denizcloud.id "$test_dir/smb-renamed.txt")" == "$protected_value" ]]
   [[ "$(sha256sum "$external/stream.txt" | awk '{print $1}')" == "$(sha256sum "$external/stream-out.txt" | awk '{print $1}')" ]]
@@ -660,51 +809,76 @@ append_safety_event() {
 
 stop_verified_samba_for_watchdog() {
   local pid_file="$samba_root/pid/gate1-smbd.pid"
-  if [[ "$state_phase" != "samba" ]]; then
+  if [[ "$state_phase" != "samba" && "$state_phase" != "starting" ]]; then
     if [[ -s "$pid_file" ]] || ss -H -ltn 'sport = :445' | grep -q .; then
       echo "STOP: Samba state is ambiguous; watchdog will not signal an unverified listener" >&2
       return 1
     fi
+    remove_gate1_firewall || return 1
     return 0
   fi
-  if [[ ! -s "$pid_file" ]]; then
+  local pid="" expected_pid process_cmdline candidate_pid candidate_count=0
+  if [[ -s "$pid_file" ]]; then
+    pid="$(cat "$pid_file")"
+  else
+    expected_pid="$(jq -r '.samba.pid // ""' "$state_file")"
+    if [[ "$expected_pid" =~ ^[0-9]+$ ]]; then
+      pid="$expected_pid"
+    else
+      for process_cmdline in /proc/[0-9]*/cmdline; do
+        candidate_pid="${process_cmdline#/proc/}"
+        candidate_pid="${candidate_pid%/cmdline}"
+        if state_samba_process_is_verified "$candidate_pid"; then
+          pid="$candidate_pid"
+          candidate_count=$((candidate_count + 1))
+        fi
+      done
+      if (( candidate_count > 1 )); then
+        echo "STOP: multiple disposable Samba processes match the starting state" >&2
+        return 1
+      fi
+    fi
+  fi
+  if [[ -z "$pid" ]]; then
     if ss -H -ltn 'sport = :445' | grep -q .; then
       echo "STOP: Samba phase has a listener but no verified PID" >&2
       return 1
     fi
+    remove_gate1_firewall || return 1
     return 0
   fi
-
-  local pid expected_pid expected_start_time expected_config actual_start_time cmdline_matches=false
-  pid="$(cat "$pid_file")"
-  expected_pid="$(jq -er '.samba.pid' "$state_file")"
-  expected_start_time="$(jq -er '.samba.startTime' "$state_file")"
-  expected_config="$(jq -er '.samba.config' "$state_file")"
-  actual_start_time="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null || true)"
-  if [[ -r "/proc/$pid/cmdline" ]] \
-    && tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$expected_config"; then
-    cmdline_matches=true
+  if [[ "$pid" =~ ^[0-9]+$ && ! -e "/proc/$pid" ]]; then
+    if ss -H -ltn 'sport = :445' | grep -q .; then
+      echo "STOP: Samba PID is gone but a port-445 listener remains" >&2
+      return 1
+    fi
+    find "$pid_file" -maxdepth 0 -type f -delete 2>/dev/null || true
+    remove_gate1_firewall || return 1
+    return 0
   fi
-  if [[ ! "$pid" =~ ^[0-9]+$ || "$pid" != "$expected_pid" \
-    || "$expected_config" != "$samba_root/smb.conf" \
-    || "$actual_start_time" != "$expected_start_time" \
-    || ! -r "/proc/$pid/exe" \
-    || "$(basename "$(readlink -f "/proc/$pid/exe")")" != "smbd" \
-    || "$cmdline_matches" != "true" ]]; then
+  if ! state_samba_process_is_verified "$pid"; then
     echo "STOP: refusing to signal an unverified Samba PID" >&2
     return 1
   fi
 
   kill -TERM "$pid"
-  for _ in {1..100}; do
+  for _ in {1..50}; do
     [[ ! -e "/proc/$pid" ]] && break
     sleep 0.1
   done
+  if state_samba_process_is_verified "$pid"; then
+    kill -KILL "$pid"
+    for _ in {1..50}; do
+      [[ ! -e "/proc/$pid" ]] && break
+      sleep 0.1
+    done
+  fi
   if [[ -e "/proc/$pid" ]] || ss -H -ltn 'sport = :445' | grep -q .; then
     echo "STOP: disposable Samba did not withdraw within 10 seconds" >&2
     return 1
   fi
-  find "$pid_file" -maxdepth 0 -type f -delete
+  find "$pid_file" -maxdepth 0 -type f -delete 2>/dev/null || true
+  remove_gate1_firewall || return 1
 }
 
 quarantine_spike() {
@@ -733,6 +907,9 @@ watchdog_once() {
   if [[ "$state_phase" == "quarantined" ]]; then
     reason="state-quarantined"
   fi
+  if [[ "$state_phase" == "starting" ]]; then
+    reason="samba-starting"
+  fi
   loop_backing_is "$ssd_loop" "$ssd_image" || reason="ssd-loop-backing"
   loop_backing_is "$hdd_loop" "$hdd_image" || reason="${reason:+$reason,}hdd-loop-backing"
   mount_source_is "$ssd_mount" "$ssd_loop" || reason="${reason:+$reason,}ssd-mount-source"
@@ -740,6 +917,9 @@ watchdog_once() {
   branch_marker_is "$ssd_mount" ssd || reason="${reason:+$reason,}ssd-marker"
   branch_marker_is "$hdd_mount" hdd || reason="${reason:+$reason,}hdd-marker"
   merged_mount_is_disposable || reason="${reason:+$reason,}merged-mount"
+  if [[ "$state_phase" =~ ^(starting|samba)$ ]] && ! firewall_is_current_spike; then
+    reason="${reason:+$reason,}samba-firewall"
+  fi
   if [[ -z "$reason" ]]; then
     append_safety_event "$evidence" watchdog pass "both disposable branches and the merged mount are healthy"
     return 0
@@ -895,7 +1075,8 @@ run_reboot_check() {
     return 10
   fi
   if mountpoint -q "$merged_mount" || mountpoint -q "$ssd_mount" || mountpoint -q "$hdd_mount" \
-    || losetup -j "$ssd_image" | grep -q . || losetup -j "$hdd_image" | grep -q .; then
+    || losetup -j "$ssd_image" | grep -q . || losetup -j "$hdd_image" | grep -q . \
+    || nft list table inet "$firewall_table" >/dev/null 2>&1; then
     resources_absent=false
   fi
   local expected_config="$samba_root/smb.conf" process_cmdline
@@ -926,14 +1107,21 @@ show_status() {
     return
   fi
   read_state
-  local tcp445=false merged=false ssd=false hdd=false
+  local tcp445=false merged=false ssd=false hdd=false firewall_state=absent
   ss -H -ltn 'sport = :445' | grep -q . && tcp445=true
   mountpoint -q "$merged_mount" && merged=true
   mountpoint -q "$ssd_mount" && ssd=true
   mountpoint -q "$hdd_mount" && hdd=true
+  if nft list table inet "$firewall_table" >/dev/null 2>&1; then
+    if firewall_is_current_spike; then
+      firewall_state=current
+    else
+      firewall_state=foreign
+    fi
+  fi
   jq -n --arg phase "$state_phase" --arg spikeId "$spike_id" \
-    --argjson tcp445 "$tcp445" --argjson merged "$merged" --argjson ssd "$ssd" --argjson hdd "$hdd" \
-    '{present:true,phase:$phase,spikeId:$spikeId,tcp445Listening:$tcp445,mounts:{merged:$merged,ssdLoop:$ssd,hddLoop:$hdd}}'
+    --argjson tcp445 "$tcp445" --argjson merged "$merged" --argjson ssd "$ssd" --argjson hdd "$hdd" --arg firewallState "$firewall_state" \
+    '{present:true,phase:$phase,spikeId:$spikeId,tcp445Listening:$tcp445,firewallState:$firewallState,mounts:{merged:$merged,ssdLoop:$ssd,hddLoop:$hdd}}'
 }
 
 stop_spike() {
@@ -945,6 +1133,9 @@ stop_spike() {
       echo "Stopped state disagrees with live Gate 1 resources" >&2
       exit 1
     fi
+    if nft list table inet "$firewall_table" >/dev/null 2>&1; then
+      remove_gate1_firewall || { echo "Stopped state has a foreign Gate 1 firewall" >&2; exit 1; }
+    fi
     jq -n --arg spikeId "$spike_id" '{stopped:true,alreadyStopped:true,spikeId:$spikeId,tcp445Listening:false,mountsRemoved:true}'
     return
   fi
@@ -952,44 +1143,7 @@ stop_spike() {
     loop_backing_is "$ssd_loop" "$ssd_image" || { echo "SSD loop backing mismatch" >&2; exit 1; }
     loop_backing_is "$hdd_loop" "$hdd_image" || { echo "HDD loop backing mismatch" >&2; exit 1; }
   fi
-  local pid_file="$samba_root/pid/gate1-smbd.pid"
-  if [[ -s "$pid_file" ]]; then
-    local pid expected_pid expected_start_time expected_config actual_start_time cmdline_matches=false
-    pid="$(cat "$pid_file")"
-    if [[ ! "$pid" =~ ^[0-9]+$ ]]; then
-      echo "Refusing to signal an invalid Samba PID" >&2
-      exit 1
-    fi
-    if [[ ! -e "/proc/$pid" ]]; then
-      find "$pid_file" -maxdepth 0 -type f -delete
-    else
-      expected_pid="$(jq -er '.samba.pid' "$state_file")"
-      expected_start_time="$(jq -er '.samba.startTime' "$state_file")"
-      expected_config="$(jq -er '.samba.config' "$state_file")"
-      actual_start_time="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null || true)"
-      if [[ -r "/proc/$pid/cmdline" ]] && tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$expected_config"; then
-        cmdline_matches=true
-      fi
-      if [[ "$pid" != "$expected_pid" || "$expected_config" != "$samba_root/smb.conf" \
-        || "$actual_start_time" != "$expected_start_time" || ! -r "/proc/$pid/exe" \
-        || "$(basename "$(readlink -f "/proc/$pid/exe")")" != "smbd" \
-        || "$cmdline_matches" != "true" ]]; then
-        echo "Refusing to signal an unverified Samba PID" >&2
-        exit 1
-      fi
-      kill -TERM "$pid"
-      for _ in {1..100}; do
-        [[ ! -e "/proc/$pid" ]] && break
-        sleep 0.1
-      done
-      [[ ! -e "/proc/$pid" ]] || { echo "Disposable smbd did not stop" >&2; exit 1; }
-      find "$pid_file" -maxdepth 0 -type f -delete
-    fi
-  fi
-  if ss -H -ltn 'sport = :445' | grep -q .; then
-    echo "TCP 445 remains active after stopping disposable Samba" >&2
-    exit 1
-  fi
+  stop_verified_samba_for_watchdog || exit 1
   if mountpoint -q "$merged_mount"; then umount "$merged_mount"; fi
   mount_source_is "$ssd_mount" "$ssd_loop" || { echo "SSD mount source mismatch before stop" >&2; exit 1; }
   mount_source_is "$hdd_mount" "$hdd_loop" || { echo "HDD mount source mismatch before stop" >&2; exit 1; }
@@ -1024,6 +1178,16 @@ destroy_spike() {
   if losetup -j "$ssd_image" | grep -q . || losetup -j "$hdd_image" | grep -q .; then
     echo "Refusing destroy while a Gate 1 loop remains attached" >&2
     exit 1
+  fi
+  if ss -H -ltn 'sport = :445' | grep -q .; then
+    echo "Refusing destroy while TCP 445 has a listener" >&2
+    exit 1
+  fi
+  if nft list table inet "$firewall_table" >/dev/null 2>&1; then
+    remove_gate1_firewall || {
+      echo "Refusing destroy with a foreign Gate 1 firewall" >&2
+      exit 1
+    }
   fi
   if [[ "$(realpath -e "$state_root")" != "$state_root" || -L "$state_root" || "$(jq -er '.spikeId' "$root_marker")" != "$spike_id" ]]; then
     echo "Gate 1 destroy marker validation failed" >&2

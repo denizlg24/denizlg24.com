@@ -95,9 +95,14 @@ and run `sha256sum -c SHA256SUMS` again at the destination before treating Gate
 
 Gate 1 never mounts a production storage branch. It creates sparse loopback
 ext4 images below `/var/lib/deniz-cloud/posix-gate1`, joins only those images
-with mergerfs, and starts an isolated `smbd` bound to the Pi's Tailscale IPv4
-address. The normal Samba units remain masked. The production API stays online
-throughout this spike.
+with mergerfs, and starts an isolated `smbd`. Samba cannot use
+`bind interfaces only` with Tailscale's non-broadcast TUN interface, so a
+spike-owned nftables chain rejects TCP 445 unless it arrived on `tailscale0`.
+A narrowly scoped `lo`/`127.0.0.1` exception supports encrypted host health
+checks; Samba also enforces Tailscale/localhost `hosts allow`. The firewall is
+installed before `smbd`, retained until listener withdrawal is proven, and
+removed on verified failure or teardown. The normal Samba units remain masked.
+The production API stays online throughout this spike.
 
 Install the pinned host dependencies first:
 
@@ -204,7 +209,7 @@ printf 'deniz-cloud-posix-gate1-metadata:%s\n' "$run_id" \
 sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-metadata.sh --execute \
   --action seed --root "$metadata_root" --run-id "$run_id" \
   --evidence "$metadata_evidence"
-sudo env POSIX_GATE1_SMB_HOST=100.89.155.9 POSIX_GATE1_SMB_SHARE=Personal \
+sudo env POSIX_GATE1_SMB_HOST=127.0.0.1 POSIX_GATE1_SMB_SHARE=Personal \
   POSIX_GATE1_SMB_AUTH_FILE=/var/lib/deniz-cloud/posix-gate1/samba/client.auth \
   /tmp/posix-gate1-kit/infra/scripts/posix-gate1-metadata.sh --execute \
   --action smb-adversarial --root "$metadata_root" --run-id "$run_id" \

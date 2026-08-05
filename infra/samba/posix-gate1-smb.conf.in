@@ -15,8 +15,9 @@
     max log size = 4096
     logging = file
 
-    interfaces = tailscale0
-    bind interfaces only = yes
+    bind interfaces only = no
+    hosts allow = 127.0.0.1 100.64.0.0/10 fd7a:115c:a1e0::/48
+    hosts deny = ALL
     smb ports = 445
     disable netbios = yes
     dns proxy = no

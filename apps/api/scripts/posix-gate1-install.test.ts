@@ -47,5 +47,6 @@ describe("POSIX Gate 1 package installer safety", () => {
 
     expect(source).toContain('sub(/^v/, "", $NF)');
     expect(source).toContain('$mergerfsVersion=="2.42.0"');
+    expect(source).toContain("mountpoint nft setfacl");
   });
 });
