@@ -33,8 +33,11 @@ services:
       - /mnt/ssd/deniz-cloud/internal/.archives:/data/internal/archives
       # This source is the encrypted loopback CIFS mount, not mergerfs.
       - /srv/deniz-cloud/api-storage:/data/storage
-      # Only the socket, never the namespace it fronts. The API reaches
-      # protected metadata solely through this and holds no xattr capability.
-      - /run/deniz-cloud/storage-metadata.sock:/run/deniz-cloud/storage-metadata.sock
+      # The runtime directory, not the socket file. Bind-mounting a socket pins
+      # its inode, so restarting the metadata service leaves the container
+      # holding a deleted socket and every download fails closed while the
+      # service looks healthy. Mounting the directory lets a recreated socket
+      # propagate. Still only the socket's home — never the namespace it fronts.
+      - /run/deniz-cloud:/run/deniz-cloud
       - ${BACKUP_DIR:?BACKUP_DIR is required}:/backups
       - ${HOST_CONTROL_DIR:-/var/lib/deniz-cloud}:/host-control

@@ -1,5 +1,6 @@
 export interface MetadataServiceConfig {
   namespaceRoot: string;
+  socketGid: number;
   socketPath: string;
   token: string;
   witnessPath: string;
@@ -31,8 +32,16 @@ export function configFromEnv(): MetadataServiceConfig {
   if (token.length < 16) {
     throw new Error("STORAGE_METADATA_TOKEN must be at least 16 characters");
   }
+  const rawGid = process.env.STORAGE_METADATA_SOCKET_GID ?? "1000";
+  const socketGid = Number(rawGid);
+  if (!Number.isInteger(socketGid) || socketGid < 0) {
+    throw new Error(
+      "STORAGE_METADATA_SOCKET_GID must be a non-negative integer",
+    );
+  }
   return {
     namespaceRoot,
+    socketGid,
     socketPath,
     token,
     witnessPath: required("STORAGE_NAMESPACE_WITNESS_PATH_HOST"),

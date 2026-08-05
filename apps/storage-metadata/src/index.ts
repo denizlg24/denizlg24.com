@@ -1,4 +1,4 @@
-import { chmod, lstat, readFile, unlink } from "node:fs/promises";
+import { chmod, chown, lstat, readFile, unlink } from "node:fs/promises";
 
 import {
   AttrCommandXattrBackend,
@@ -90,8 +90,15 @@ const server = Bun.serve({
   unix: config.socketPath,
 });
 
-// Root-owned and group-readable: the API container joins by group, and nothing
-// else on the host can reach the privileged operations.
+// Root-owned, group-owned by the storage gid, mode 0660.
+//
+// The group must be the *numeric* storage gid rather than a dedicated host
+// group: the API reaches this socket from inside a container whose user is
+// uid/gid 1000, and container group membership is resolved against the
+// container's own /etc/group. A host-only group name means the socket is
+// simply unreadable there, and every download fails closed with 503 while the
+// service looks healthy.
+await chown(config.socketPath, 0, config.socketGid);
 await chmod(config.socketPath, 0o660);
 
 console.info(

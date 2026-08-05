@@ -187,7 +187,7 @@ validate_compose() {
     ([volumes[] | select(.type == "bind") | .target] | unique | length) == 13 and
     ([volumes[] | select(.type == "bind") | select(
       (.source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage") or
-      (.source == "/run/deniz-cloud/storage-metadata.sock" and .target == "/run/deniz-cloud/storage-metadata.sock") or
+      (.source == "/run/deniz-cloud" and .target == "/run/deniz-cloud") or
       (.source == "/mnt/ssd/deniz-cloud/internal/.capacity" and .target == "/data/capacity/ssd" and .read_only == true) or
       (.source == "/mnt/hdd/deniz-cloud/internal/.capacity" and .target == "/data/capacity/hdd" and .read_only == true) or
       (.source == "/srv/deniz-cloud/internal/.capacity" and .target == "/data/capacity/root" and .read_only == true) or
@@ -208,7 +208,7 @@ validate_compose() {
     # here is a dependency cycle: namespace -> compose-validate -> socket ->
     # metadata -> namespace. Its presence is asserted by `validate` instead,
     # which runs after the metadata service is up.
-    [[ "$bind_source" != "$metadata_socket" ]] || continue
+    [[ "$bind_source" != "$(dirname "$metadata_socket")" ]] || continue
     canonical_source=$(realpath -e "$bind_source" 2>/dev/null || true)
     [[ "$canonical_source" == "$bind_source" ]] || { echo "API bind source is absent or aliases another path: $bind_source" >&2; return 1; }
   done < <(jq -r '.services.api.volumes[] | select(.type == "bind") | .source' <<< "$rendered")

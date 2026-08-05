@@ -22,9 +22,6 @@ RuntimeDirectoryMode=0755
 ExecStart=/usr/local/bin/cloud-storage-metadata
 Restart=on-failure
 RestartSec=2
-# The socket is group-readable and the API container joins by group; nothing
-# else on the host reaches the privileged operations.
-Group=deniz-cloud-metadata
 UMask=0007
 NoNewPrivileges=yes
 ProtectHome=yes
