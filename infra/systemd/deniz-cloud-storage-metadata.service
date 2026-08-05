@@ -2,7 +2,11 @@
 Description=Privileged namespace metadata service for the Deniz Cloud API
 Requires=deniz-cloud-storage-namespace.service
 After=deniz-cloud-storage-namespace.service
-Before=deniz-cloud-storage-api-broker.service deniz-cloud-storage-watchdog.service
+# Before smbd too: the SMB unit's ExecStartPre validates the rendered API
+# service, which requires the metadata socket to already exist. It also has to
+# exist before Docker starts the API, or Docker creates a directory at the
+# socket path and the bind mount silently becomes useless.
+Before=deniz-cloud-storage-smb.service deniz-cloud-storage-api-broker.service deniz-cloud-storage-watchdog.service
 PartOf=deniz-cloud-storage.target
 
 [Service]
