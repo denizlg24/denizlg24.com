@@ -936,6 +936,7 @@ run_api_tests() {
   fi
   local api_image probe_evidence_dir result_file log_file slow_result_file slow_log_file
   local main_complete=false slow_complete=false incomplete_suffix archived_dir stale_file
+  local recovered_entries=0
   api_image="$(docker inspect --format '{{.Config.Image}}' deniz-cloud-api-1)"
   if [[ -z "$api_image" ]]; then
     echo "Could not resolve the deployed API image" >&2
@@ -968,6 +969,27 @@ run_api_tests() {
         .logicalBytes == 5800000000 and
         .rssDeltaBytes <= .maxRssDeltaBytes
       ' "$slow_result_file" >/dev/null 2>&1
+  }
+
+  reset_interrupted_api_probe_root() {
+    local marker="$probe_root/.posix-gate1-disposable"
+    local entry
+    if [[ "$probe_root" != "$merged_mount/posix-gate1-disposable" \
+      || ! -d "$probe_root" || -L "$probe_root" \
+      || ! -f "$marker" || -L "$marker" \
+      || "$(cat "$marker")" != "deniz-cloud-posix-gate1" ]]; then
+      echo "Refusing to reset an unverified Gate 1 API probe root" >&2
+      exit 1
+    fi
+    while IFS= read -r -d '' entry; do
+      [[ "$(dirname "$entry")" == "$probe_root" && "$entry" != "$marker" ]] || {
+        echo "Refusing an unexpected Gate 1 API recovery path" >&2
+        exit 1
+      }
+      find "$entry" -xdev -depth -delete
+      recovered_entries=$((recovered_entries + 1))
+    done < <(find "$probe_root" -mindepth 1 -maxdepth 1 ! -name .posix-gate1-disposable -print0)
+    sync -f "$probe_root"
   }
 
   if [[ -e "$probe_evidence_dir" || -L "$probe_evidence_dir" ]]; then
@@ -1007,6 +1029,12 @@ run_api_tests() {
   if [[ "$main_complete" != "true" ]]; then
     mkdir -m 700 "$probe_evidence_dir"
     chown 1000:1000 "$probe_evidence_dir"
+    reset_interrupted_api_probe_root
+    jq -n --argjson removedEntries "$recovered_entries" \
+      '{schemaVersion:1,event:"interrupted-probe-root-reset",scope:"exact-marked-disposable-root",removedEntries:$removedEntries}' \
+      > "$probe_evidence_dir/recovery.json"
+    chmod 600 "$probe_evidence_dir/recovery.json"
+    chown root:root "$probe_evidence_dir/recovery.json"
 
     docker run --rm --network none --read-only --tmpfs /tmp --user 1000:1000 \
       --volume "$probe_bundle:/gate1-probe.js:ro" \

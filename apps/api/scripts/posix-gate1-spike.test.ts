@@ -88,6 +88,11 @@ describe("POSIX Gate 1 spike shell safety", () => {
     expect(source).toContain("api_slow_evidence_is_complete");
     expect(source).toContain(".incomplete-${incomplete_suffix}");
     expect(source).toContain("reusedEvidence:true");
+    expect(source).toContain("reset_interrupted_api_probe_root");
+    expect(source).toContain(
+      "Refusing to reset an unverified Gate 1 API probe root",
+    );
+    expect(source).toContain('event:"interrupted-probe-root-reset"');
     expect(source).toContain("kill -KILL");
     expect(source).toContain("trap cleanup_failed_samba EXIT");
     expect(source).toContain("trap 'exit 129' HUP");
