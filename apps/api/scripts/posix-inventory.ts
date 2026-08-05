@@ -93,6 +93,15 @@ export interface PosixInventoryOptions {
   excludedPaths?: readonly string[];
   hddStoragePath: string;
   migrationManifestPath?: string;
+  /**
+   * Roots to name in the manifest, when they differ from the roots being
+   * validated. The API stores `diskPath` in its own container view, so the
+   * inventory has to run inside the container to validate them — but the
+   * migration runs on the host, where the same blobs live under different
+   * absolute paths. Naming the host roots here keeps one manifest valid for
+   * the process that will actually read it, instead of rewriting paths later.
+   */
+  manifestRoots?: { ssd: string; hdd: string };
   now?: Date;
   requireMountPoints?: boolean;
   ssdStoragePath: string;
@@ -887,6 +896,7 @@ async function writeMigrationManifest(
   fileRows: readonly InventoryFileRow[],
   folderRows: readonly InventoryFolderRow[],
   roots: Record<"hdd" | "ssd", string>,
+  manifestRoots: Record<"hdd" | "ssd", string>,
   forbiddenRoots: readonly string[],
 ): Promise<void> {
   const records: AuditRecord[] = [
@@ -933,7 +943,7 @@ async function writeMigrationManifest(
       parentId: row.parentId,
       path: row.path,
       schemaVersion: 1,
-      sourcePath: stats ? sourcePath : null,
+      sourcePath: stats ? resolve(manifestRoots.ssd, `.${row.path}`) : null,
       targetRelativePath: row.path.slice(1),
       targetTier: "ssd",
       updatedAt: row.updatedAt.toISOString(),
@@ -943,6 +953,10 @@ async function writeMigrationManifest(
     left.path.localeCompare(right.path),
   )) {
     const sourcePath = expectedLegacyBlobPath(roots[row.tier], row);
+    const manifestSourcePath = expectedLegacyBlobPath(
+      manifestRoots[row.tier],
+      row,
+    );
     const stats = await lstat(sourcePath);
     if (!stats.isFile() || stats.isSymbolicLink()) {
       throw new ScriptError(
@@ -962,7 +976,7 @@ async function writeMigrationManifest(
       path: row.path,
       schemaVersion: 1,
       sizeBytes: row.sizeBytes,
-      sourcePath,
+      sourcePath: manifestSourcePath,
       targetRelativePath: row.path.slice(1),
       targetTier: row.tier,
       updatedAt: row.updatedAt.toISOString(),
@@ -1129,6 +1143,7 @@ export async function collectPosixInventory(options: PosixInventoryOptions) {
       fileRows,
       folderRows,
       roots,
+      options.manifestRoots ?? roots,
       [roots.ssd, roots.hdd, ...excludedRoots],
     );
   }
@@ -1169,6 +1184,19 @@ if (import.meta.main) {
       process.argv.slice(2),
       "--migration-manifest",
     );
+    const manifestSsdRoot = flagValue(
+      process.argv.slice(2),
+      "--manifest-ssd-root",
+    );
+    const manifestHddRoot = flagValue(
+      process.argv.slice(2),
+      "--manifest-hdd-root",
+    );
+    if (Boolean(manifestSsdRoot) !== Boolean(manifestHddRoot)) {
+      throw new ScriptError(
+        "--manifest-ssd-root and --manifest-hdd-root must be given together",
+      );
+    }
     const db = createDb(requiredEnv("DATABASE_URL"), { max: 1 });
     try {
       const summary = await collectPosixInventory({
@@ -1182,6 +1210,10 @@ if (import.meta.main) {
           process.env.S3_TEMP_PATH ?? join(ssdStoragePath, ".s3-v2-temp"),
         ],
         hddStoragePath,
+        manifestRoots:
+          manifestSsdRoot && manifestHddRoot
+            ? { hdd: resolve(manifestHddRoot), ssd: resolve(manifestSsdRoot) }
+            : undefined,
         migrationManifestPath,
         requireMountPoints: true,
         ssdStoragePath,
