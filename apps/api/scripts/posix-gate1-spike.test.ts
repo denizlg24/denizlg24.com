@@ -105,7 +105,9 @@ describe("POSIX Gate 1 spike shell safety", () => {
     expect(source).toContain("smbpasswd smbstatus ss stat");
     expect(source).toContain("--client-protection=off");
     expect(source).toContain("timeout --signal=TERM --kill-after=2s 12s");
+    expect(source).toContain("12s sleep 30");
     expect(source).toContain("startup_probe_command_remains");
+    expect(source).not.toContain("notify .");
     expect(source).toContain("startup_probe_start_time");
     expect(source).toContain("$root.sessions[($tcon.session_id | tostring)]");
     expect(source).toContain("encryptionObserved:true");

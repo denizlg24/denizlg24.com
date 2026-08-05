@@ -452,7 +452,6 @@ startup_probe_process_is_verified() {
   tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$startup_auth_file" || return 1
   tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "SMB3" || return 1
   tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "--client-protection=off" || return 1
-  tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "notify ." || return 1
 }
 
 startup_probe_command_remains() {
@@ -463,8 +462,7 @@ startup_probe_command_remains() {
       && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "smbclient" \
       && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "//127.0.0.1/Personal" \
       && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "$startup_auth_file" \
-      && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "--client-protection=off" \
-      && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "notify ."; then
+      && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "--client-protection=off"; then
       return 0
     fi
   done
@@ -737,9 +735,10 @@ start_samba() {
   fi
   probe_log="$samba_root/log/encryption-probe.log"
   : > "$probe_log"
-  timeout --signal=TERM --kill-after=2s 12s \
-    smbclient "//127.0.0.1/Personal" -A "$auth_file" -m SMB3 --client-protection=off \
-    -c 'notify .' > "$probe_log" 2>&1 &
+  timeout --signal=TERM --kill-after=2s 12s sleep 30 \
+    | timeout --signal=TERM --kill-after=2s 12s \
+      smbclient "//127.0.0.1/Personal" -A "$auth_file" -m SMB3 --client-protection=off \
+      > "$probe_log" 2>&1 &
   startup_probe_pid=$!
   for _ in {1..20}; do
     if [[ -r "/proc/$startup_probe_pid/stat" ]]; then
