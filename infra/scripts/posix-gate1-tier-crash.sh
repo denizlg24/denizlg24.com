@@ -52,7 +52,7 @@ if (( EUID != 0 )); then
   echo "Tier crash probing requires root" >&2
   exit 1
 fi
-for command in basename chmod chown cp cut date dd dirname find findmnt getfattr jq losetup mkdir mountpoint mv readlink realpath runuser setfattr sha256sum stat sync; do
+for command in basename cat chmod chown cp cut date dd dirname find findmnt getfattr jq losetup mkdir mountpoint mv readlink realpath runuser setfattr sha256sum stat sync; do
   command -v "$command" >/dev/null || { echo "Required command is missing: ${command}" >&2; exit 1; }
 done
 if [[ ! -f "$state_file" || -L "$state_file" || ! -f "$root_marker" || -L "$root_marker" ]]; then
