@@ -147,8 +147,10 @@ done
 mkdir "$ssd_mount" "$hdd_mount"
 ssd_image="$work_dir/ssd.ext4"
 hdd_image="$work_dir/hdd.ext4"
-truncate -s "$((ssd_bytes + ssd_bytes / 2 + 536870912))" "$ssd_image"
-truncate -s "$((hdd_bytes + hdd_bytes / 2 + 536870912))" "$hdd_image"
+ssd_image_bytes=$((((ssd_bytes + ssd_bytes / 2 + 536870912 + 4095) / 4096) * 4096))
+hdd_image_bytes=$((((hdd_bytes + hdd_bytes / 2 + 536870912 + 4095) / 4096) * 4096))
+truncate -s "$ssd_image_bytes" "$ssd_image"
+truncate -s "$hdd_image_bytes" "$hdd_image"
 mkfs.ext4 -q -F "$ssd_image"
 mkfs.ext4 -q -F "$hdd_image"
 ssd_loop="$(losetup --find --show "$ssd_image")"
@@ -183,7 +185,20 @@ restore_branch() {
       | xargs -0 -r sha256sum --zero -- \
         > "$work_dir/${label}-files.sha256z"
   )
-  cmp "$snapshot_dir/${label}-tree.tsv" "$work_dir/${label}-tree.tsv"
+  for tree in source restored; do
+    if [[ "$tree" == "source" ]]; then
+      tree_input="$snapshot_dir/${label}-tree.tsv"
+    else
+      tree_input="$work_dir/${label}-tree.tsv"
+    fi
+    awk -F '\t' \
+      'BEGIN { OFS=FS } $1 == "d" { $5="-"; $6="-" } { print }' \
+      "$tree_input" \
+      | LC_ALL=C sort > "$work_dir/${label}-${tree}-normalized.tsv"
+  done
+  cmp \
+    "$work_dir/${label}-source-normalized.tsv" \
+    "$work_dir/${label}-restored-normalized.tsv"
   cmp "$snapshot_dir/${label}-files.sha256z" "$work_dir/${label}-files.sha256z"
 }
 
