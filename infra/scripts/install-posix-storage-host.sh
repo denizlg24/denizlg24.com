@@ -88,7 +88,11 @@ uninstall_boundary() {
   (cd / && sha256sum -c "$manifest") || { echo "Installed files changed; refusing partial uninstall" >&2; return 1; }
   systemctl disable --now deniz-cloud-storage.target || true
   systemctl stop deniz-cloud-storage-watchdog.service deniz-cloud-storage-api-broker.service deniz-cloud-storage-smb.service deniz-cloud-storage-namespace.service || true
-  /usr/local/lib/deniz-cloud/posix-storage-host.sh --execute firewall-stop
+  # A failing firewall-stop must not abort the uninstall: stopping halfway
+  # leaves the units removed but the manifest intact, which no later run can
+  # reconcile. The failure is reported and the removal continues.
+  /usr/local/lib/deniz-cloud/posix-storage-host.sh --execute firewall-stop \
+    || echo "firewall-stop failed; continuing uninstall" >&2
   local destination
   for destination in "${destinations[@]}"; do rm -f -- "$destination"; done
   rm -f -- "$manifest"

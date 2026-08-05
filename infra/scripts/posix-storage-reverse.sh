@@ -231,25 +231,58 @@ xattr_value() {
   getfattr --only-values -n "$1" -- "$2" 2>/dev/null || true
 }
 
+# One getfattr per object, not one per key.
+#
+# The scan previously spawned getfattr nine times per object and the canonical
+# form eight more for the same keys. On a 100k-object namespace that is roughly
+# two million processes, and this is the rollback path where recovery time is
+# what matters. The dump is read once and parsed in-process into plain
+# variables — not an associative array, which bash 3.2 does not have and which
+# would make this script unrunnable on a developer machine.
+pv_checksum=""
+pv_checksum_state=""
+pv_created_at=""
+pv_id=""
+pv_mime_type=""
+pv_owner_id=""
+pv_schema_version=""
+pv_scope=""
 
-# The canonical protected-metadata string. posix-manifest-verify.ts rebuilds
-# exactly this from the forward manifest, so the two migration directions are
-# compared by one hash rather than field by field.
+read_protected_values() {
+  local entry_path="$1" line key value
+  pv_checksum=""; pv_checksum_state=""; pv_created_at=""; pv_id=""
+  pv_mime_type=""; pv_owner_id=""; pv_schema_version=""; pv_scope=""
+  while IFS= read -r line; do
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    [[ "$key" == "${xattr_ns}denizcloud."* ]] || continue
+    # getfattr -d quotes values; strip only the surrounding quotes.
+    value="${value#\"}"
+    value="${value%\"}"
+    case "${key#"${xattr_ns}denizcloud."}" in
+      checksum) pv_checksum="$value" ;;
+      checksum_state) pv_checksum_state="$value" ;;
+      created_at) pv_created_at="$value" ;;
+      id) pv_id="$value" ;;
+      mime_type) pv_mime_type="$value" ;;
+      owner_id) pv_owner_id="$value" ;;
+      schema_version) pv_schema_version="$value" ;;
+      scope) pv_scope="$value" ;;
+    esac
+  done < <(getfattr -d -m "^${xattr_ns}denizcloud\\." --absolute-names -- "$entry_path" 2>/dev/null || true)
+}
+
 protected_canonical() {
-  local canonical="" key value
-  for key in \
-    ${xattr_ns}denizcloud.checksum \
-    ${xattr_ns}denizcloud.checksum_state \
-    ${xattr_ns}denizcloud.created_at \
-    ${xattr_ns}denizcloud.id \
-    ${xattr_ns}denizcloud.mime_type \
-    ${xattr_ns}denizcloud.owner_id \
-    ${xattr_ns}denizcloud.schema_version \
-    ${xattr_ns}denizcloud.scope; do
-    value="$(xattr_value "$key" "$1")"
-    [[ -n "$value" ]] || continue
-    canonical+="${key}=${value}"$'\n'
-  done
+  local canonical=""
+  [[ -z "$pv_checksum" ]] || canonical+="${xattr_ns}denizcloud.checksum=${pv_checksum}"$'\n'
+  [[ -z "$pv_checksum_state" ]] || canonical+="${xattr_ns}denizcloud.checksum_state=${pv_checksum_state}"$'\n'
+  [[ -z "$pv_created_at" ]] || canonical+="${xattr_ns}denizcloud.created_at=${pv_created_at}"$'\n'
+  [[ -z "$pv_id" ]] || canonical+="${xattr_ns}denizcloud.id=${pv_id}"$'\n'
+  [[ -z "$pv_mime_type" ]] || canonical+="${xattr_ns}denizcloud.mime_type=${pv_mime_type}"$'\n'
+  [[ -z "$pv_owner_id" ]] || canonical+="${xattr_ns}denizcloud.owner_id=${pv_owner_id}"$'\n'
+  [[ -z "$pv_schema_version" ]] || canonical+="${xattr_ns}denizcloud.schema_version=${pv_schema_version}"$'\n'
+  [[ -z "$pv_scope" ]] || canonical+="${xattr_ns}denizcloud.scope=${pv_scope}"$'\n'
   printf '%s' "$canonical"
 }
 
@@ -294,20 +327,21 @@ scan_branch() {
       echo "Namespace contains an unsupported object: ${absolute}" >&2
       return 1
     fi
+    read_protected_values "$absolute"
     jq -cn \
       --arg kind "$kind" \
       --arg tier "$tier" \
       --arg relative "$relative" \
       --arg absolute "$absolute" \
-      --arg id "$(xattr_value ${xattr_ns}denizcloud.id "$absolute")" \
-      --arg ownerId "$(xattr_value ${xattr_ns}denizcloud.owner_id "$absolute")" \
-      --arg scope "$(xattr_value ${xattr_ns}denizcloud.scope "$absolute")" \
-      --arg createdAt "$(xattr_value ${xattr_ns}denizcloud.created_at "$absolute")" \
-      --arg schemaVersion "$(xattr_value ${xattr_ns}denizcloud.schema_version "$absolute")" \
-      --arg checksum "$(xattr_value ${xattr_ns}denizcloud.checksum "$absolute")" \
-      --arg checksumState "$(xattr_value ${xattr_ns}denizcloud.checksum_state "$absolute")" \
-      --arg mimeType "$(xattr_value ${xattr_ns}denizcloud.mime_type "$absolute")" \
-      --arg protectedXattrHash "$(protected_canonical "$absolute" | sha256sum | cut -d' ' -f1)" \
+      --arg id "$pv_id" \
+      --arg ownerId "$pv_owner_id" \
+      --arg scope "$pv_scope" \
+      --arg createdAt "$pv_created_at" \
+      --arg schemaVersion "$pv_schema_version" \
+      --arg checksum "$pv_checksum" \
+      --arg checksumState "$pv_checksum_state" \
+      --arg mimeType "$pv_mime_type" \
+      --arg protectedXattrHash "$(protected_canonical | sha256sum | cut -d' ' -f1)" \
       --argjson sizeBytes "$size" \
       --argjson allocatedBlocks512 "$blocks" \
       'def blank: if . == "" then null else . end;
@@ -406,7 +440,18 @@ entry_count=$((folder_count + file_count))
 write_manifest() {
   local state="$1" verified="$2" temp
   [[ -n "$manifest_path" ]] || return 0
+  # The reverse manifest is the evidence posix-manifest-verify compares against
+  # the forward one, so a second run must not silently destroy the previous
+  # rehearsal record. Every other artifact in this workflow is no-overwrite.
+  [[ ! -e "$manifest_path" && ! -L "$manifest_path" ]] || {
+    echo "Refusing to overwrite an existing reverse manifest: ${manifest_path}" >&2
+    return 1
+  }
   temp="${manifest_path}.partial"
+  [[ ! -e "$temp" && ! -L "$temp" ]] || {
+    echo "Reverse manifest staging path already exists: ${temp}" >&2
+    return 1
+  }
   jq -cn \
     --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg snapshotId "$snapshot_id" \
@@ -439,9 +484,16 @@ write_manifest() {
     ([.[] | select(.event == "reverse-folder")] | sort_by([(.path | split("/") | length), .path])[]),
     ([.[] | select(.event == "reverse-file")] | sort_by(.path)[])
   ' "$entries_file" >> "$temp"
-  mv "$temp" "$manifest_path"
+  # No -T: this runs in dry-run on any platform and BSD mv lacks it. The
+  # no-overwrite check above already rejects a directory at $manifest_path,
+  # which is the case -T would otherwise guard against.
+  mv -- "$temp" "$manifest_path"
 }
 
+# The contract deliberately omits journal-resume: execute requires empty target
+# roots and the loop refuses an existing destination, so an interrupted run is
+# restarted from clean roots rather than resumed. Advertising resume would
+# misrepresent the recovery story on the rollback path.
 emit_summary() {
   local state="$1" verified="$2"
   jq -n \
@@ -469,7 +521,7 @@ emit_summary() {
       skippedAppleDoubleSidecars:$skippedSidecars,
       namespaceMutated:false,
       sourceDeletionAllowed:false,
-      copyContract:["preserve-bytes","preserve-xattrs","preserve-acls","preserve-sparse","copy-fsync-verify-publish","no-overwrite","journal-resume"]
+      copyContract:["preserve-bytes","preserve-xattrs","preserve-acls","preserve-sparse","copy-fsync-verify-publish","no-overwrite","restart-from-empty-targets"]
     }'
 }
 

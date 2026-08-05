@@ -13,6 +13,8 @@ import { join, resolve } from "node:path";
 
 import { PROTECTED_XATTR_KEYS } from "@repo/cloud-core";
 
+import { protectedHash } from "./posix-manifest-verify";
+
 const script = resolve(
   import.meta.dir,
   "../../../infra/scripts/posix-storage-reverse.sh",
@@ -62,15 +64,24 @@ async function installShims(root: string, xattrDb: string): Promise<string> {
   await writeFile(
     getfattr,
     `#!/usr/bin/env bash
-key=""; path=""
+# Supports both forms the scripts use: a single --only-values -n read, and the
+# -d -m dump that reads every protected key in one call.
+key=""; path=""; dump=false
 while (($#)); do
   case "$1" in
     --only-values) shift ;;
+    --absolute-names) shift ;;
+    -d) dump=true; shift ;;
+    -m) shift 2 ;;
     -n) key="$2"; shift 2 ;;
     --) path="$2"; shift 2 ;;
     *) path="$1"; shift ;;
   esac
 done
+if [[ "$dump" == true ]]; then
+  jq -r --arg p "$path" 'to_entries[] | select(.key == $p) | .value | to_entries[] | "\\(.key)=\\"\\(.value)\\""' "${xattrDb}"
+  exit 0
+fi
 value=$(jq -r --arg p "$path" --arg k "$key" '.[$p][$k] // empty' "${xattrDb}")
 [[ -n "$value" ]] || exit 1
 printf '%s' "$value"
@@ -317,6 +328,26 @@ describe("POSIX namespace reverse exporter", () => {
       mimeType: "text/plain",
     });
 
+    // Pin the exporter's hash to the shared canonical form rather than only
+    // its shape: the whole point of the hash is that both migration directions
+    // compute the same one, and a regex cannot catch them drifting apart.
+    const notes = records.find(
+      (record) => record.path === "/shared/notes.txt",
+    ) as Record<string, unknown> | undefined;
+    expect(notes?.protectedXattrHash).toBe(
+      protectedHash(
+        {
+          checksum,
+          createdAt: "2026-07-02T10:00:00Z",
+          event: "migration-file",
+          id: ssdFileId,
+          mimeType: "text/plain",
+          ownerId,
+          path: "/shared/notes.txt",
+        },
+        "file",
+      ),
+    );
     for (const record of records.slice(1)) {
       expect(record.protectedXattrHash).toMatch(/^[0-9a-f]{64}$/);
     }

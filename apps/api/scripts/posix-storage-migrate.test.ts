@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -37,7 +38,11 @@ interface Fixture {
 }
 
 async function fixture(): Promise<Fixture> {
-  const root = await mkdtemp(join(tmpdir(), "posix-storage-migrate-"));
+  // The script realpaths every root and the contract compares sourcePath
+  // against them, so the fixture must agree; macOS resolves /var to /private/var.
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "posix-storage-migrate-")),
+  );
   roots.push(root);
   const sourceSsd = join(root, "legacy-ssd");
   const sourceHdd = join(root, "legacy-hdd");
@@ -294,5 +299,120 @@ describe("POSIX storage migration planner", () => {
       inventoryEntries: 1,
       sourceDeletionAllowed: false,
     });
+  });
+
+  it("reports executable when the inventory satisfies the whole contract", async () => {
+    // Every other case proves the contract rejects something. Without this one
+    // a contract that rejects *everything* would pass the suite.
+    const data = await fixture();
+    const folderId = "40000000-0000-4000-8000-000000000004";
+    const fileId = "50000000-0000-4000-8000-000000000006";
+    const ownerId = "30000000-0000-4000-8000-000000000003";
+    await writeFile(
+      data.inventory,
+      `${[
+        JSON.stringify({
+          allGreen: true,
+          database: { files: { count: 1 }, folders: { count: 1 } },
+          event: "inventory-summary",
+          manifestSchema: "deniz-cloud-posix-migration-v1",
+          schemaVersion: 1,
+        }),
+        JSON.stringify({
+          createdAt: "2026-07-01T10:00:00Z",
+          event: "migration-folder",
+          id: folderId,
+          name: "shared",
+          ownerId: null,
+          parentId: null,
+          path: "/shared",
+          schemaVersion: 1,
+          sourcePath: `${data.sourceSsd}/shared`,
+          targetRelativePath: "shared",
+          targetTier: "ssd",
+          updatedAt: "2026-07-02T10:00:00Z",
+        }),
+        JSON.stringify({
+          allocatedBlocks512: 8,
+          checksum: "a".repeat(64),
+          createdAt: "2026-07-01T10:00:00Z",
+          event: "migration-file",
+          folderId,
+          id: fileId,
+          mimeType: "text/plain",
+          name: "file.txt",
+          ownerId,
+          path: "/shared/file.txt",
+          schemaVersion: 1,
+          sizeBytes: 10,
+          sourcePath: `${data.sourceSsd}/shared/file.txt`,
+          targetRelativePath: "shared/file.txt",
+          targetTier: "ssd",
+          updatedAt: "2026-07-02T10:00:00Z",
+        }),
+      ].join("\n")}\n`,
+    );
+
+    const result = run(data);
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout.toString())).toMatchObject({
+      blockers: [],
+      executable: true,
+      inventoryEntries: 2,
+      sourceDeletionAllowed: false,
+      state: "planned",
+      stopReason: null,
+    });
+  });
+
+  it("refuses an inventory with duplicate ids or duplicate target paths", async () => {
+    const data = await fixture();
+    const folderId = "40000000-0000-4000-8000-000000000004";
+    const summary = JSON.stringify({
+      allGreen: true,
+      database: { files: { count: 2 }, folders: { count: 0 } },
+      event: "inventory-summary",
+      manifestSchema: "deniz-cloud-posix-migration-v1",
+      schemaVersion: 1,
+    });
+    const file = (id: string, path: string) =>
+      JSON.stringify({
+        allocatedBlocks512: 8,
+        checksum: "a".repeat(64),
+        createdAt: "2026-07-01T10:00:00Z",
+        event: "migration-file",
+        folderId,
+        id,
+        mimeType: null,
+        name: path.slice(path.lastIndexOf("/") + 1),
+        ownerId: "30000000-0000-4000-8000-000000000003",
+        path,
+        schemaVersion: 1,
+        sizeBytes: 10,
+        sourcePath: `${data.sourceSsd}${path}`,
+        targetRelativePath: path.slice(1),
+        targetTier: "ssd",
+        updatedAt: "2026-07-02T10:00:00Z",
+      });
+
+    // A duplicate id makes the second entry take the resume branch off the
+    // first entry's journal record, after earlier entries have published.
+    const duplicateId = "50000000-0000-4000-8000-000000000006";
+    await writeFile(
+      data.inventory,
+      `${[summary, file(duplicateId, "/a.txt"), file(duplicateId, "/b.txt")].join("\n")}\n`,
+    );
+    expect(JSON.parse(run(data).stdout.toString()).executable).toBe(false);
+
+    await writeFile(
+      data.inventory,
+      `${[
+        summary,
+        file(duplicateId, "/same.txt"),
+        file("50000000-0000-4000-8000-000000000007", "/same.txt"),
+      ].join("\n")}\n`,
+    );
+    expect(JSON.parse(run(data).stdout.toString()).executable).toBe(false);
   });
 });

@@ -208,7 +208,7 @@ describe("WebhookNotifier", () => {
       async () => new Response(null, { status: 500 }),
     );
 
-    expect(notifier.send(payload())).rejects.toThrow("HTTP 500");
+    await expect(notifier.send(payload())).rejects.toThrow("HTTP 500");
   });
 });
 
@@ -260,6 +260,8 @@ describe("EmailNotifier", () => {
         new Response('{"message":"domain not verified"}', { status: 403 }),
     });
 
-    expect(notifier.send(payload())).rejects.toThrow("domain not verified");
+    await expect(notifier.send(payload())).rejects.toThrow(
+      "domain not verified",
+    );
   });
 });

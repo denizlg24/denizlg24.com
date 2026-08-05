@@ -254,6 +254,11 @@ jq -n \
   '{schemaVersion:1,snapshotId:$snapshotId,createdAt:$createdAt,apiFrozen:($apiRunning != "true"),liveApiException:($apiRunning == "true" and $allowLiveApi == "true"),operatorAssumption:(if $apiRunning == "true" then "no storage namespace mutations during snapshot" else null end),branches:{ssd:{path:$ssdPath,source:$ssdSource,filesystem:$ssdFilesystem,bytes:$ssdBytes,archive:"ssd.tar.zst",treeManifest:"ssd-tree.tsv",fileChecksums:"ssd-files.sha256z"},hdd:{path:$hddPath,source:$hddSource,filesystem:$hddFilesystem,bytes:$hddBytes,archive:"hdd.tar.zst",treeManifest:"hdd-tree.tsv",fileChecksums:"hdd-files.sha256z"}},artifacts:{postgres:"postgres.sql.gz",mongodb:"mongodb.archive.gz",redisAcl:"redis-users.acl",runtimeImages:"runtime-images.json",checksums:"SHA256SUMS"}}' \
   > "$snapshot_dir/manifest.json"
 
+# SHA256SUMS is written before the manifest exists, so the manifest has to be
+# appended afterwards. Without this the one artifact describing what the
+# snapshot claims to be is the one artifact nothing verifies.
+(cd "$snapshot_dir" && sha256sum manifest.json >> SHA256SUMS)
+
 rm "$snapshot_dir/.incomplete"
 sync -f "$snapshot_dir"
 echo "Verified frozen snapshot: ${snapshot_dir}"

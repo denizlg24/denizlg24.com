@@ -60,15 +60,31 @@ gzip -t "$snapshot_dir/postgres.sql.gz"
 gzip -t "$snapshot_dir/mongodb.archive.gz"
 test -s "$snapshot_dir/redis-users.acl"
 
+# The listing is captured and tar's exit status checked before anything scans
+# it. Running `tar | awk` inside an `if` puts the pipeline in a context where
+# set -e does not apply: a tar failure makes the condition false and the archive
+# is reported clean without ever having been read.
 validate_archive_names() {
-  local archive="$1"
-  if tar -I zstd -tf "$archive" \
-    | awk 'BEGIN { bad=0 } /^\// || /(^|\/)\.\.($|\/)/ { bad=1 } END { exit bad ? 0 : 1 }'; then
+  local archive="$1" listing verbose
+  listing="$(mktemp)"
+  verbose="$(mktemp)"
+  # shellcheck disable=SC2064
+  trap "rm -f -- '$listing' '$verbose'" RETURN
+
+  tar -I zstd -tf "$archive" > "$listing" || {
+    echo "Could not list archive: ${archive}" >&2
+    exit 1
+  }
+  if awk '/^\// || /(^|\/)\.\.($|\/)/ { found=1 } END { exit found ? 0 : 1 }' "$listing"; then
     echo "Archive contains an absolute or parent-traversing path: ${archive}" >&2
     exit 1
   fi
-  if tar -I zstd -tvf "$archive" \
-    | awk 'BEGIN { bad=0 } substr($0,1,1) == "l" || substr($0,1,1) == "h" { bad=1 } END { exit bad ? 0 : 1 }'; then
+
+  tar -I zstd -tvf "$archive" > "$verbose" || {
+    echo "Could not list archive verbosely: ${archive}" >&2
+    exit 1
+  }
+  if awk 'substr($0,1,1) == "l" || substr($0,1,1) == "h" { found=1 } END { exit found ? 0 : 1 }' "$verbose"; then
     echo "Archive contains a symlink or hard link: ${archive}" >&2
     exit 1
   fi
@@ -80,6 +96,15 @@ validate_archive_names "$snapshot_dir/hdd.tar.zst"
 snapshot_id="$(jq -r '.snapshotId' "$snapshot_dir/manifest.json")"
 ssd_bytes="$(jq -r '.branches.ssd.bytes' "$snapshot_dir/manifest.json")"
 hdd_bytes="$(jq -r '.branches.hdd.bytes' "$snapshot_dir/manifest.json")"
+# These reach jq as --argjson, where a null or a non-numeric value is either a
+# parse error or silently becomes part of the summary. A manifest that does not
+# state its branch sizes is not a manifest this can verify against.
+for bytes in "$ssd_bytes" "$hdd_bytes"; do
+  [[ "$bytes" =~ ^[0-9]+$ ]] || {
+    echo "Snapshot manifest does not record valid branch byte counts" >&2
+    exit 1
+  }
+done
 postgres_image="$(jq -r '.[] | select(.name == "/deniz-cloud-postgres-1") | .configuredImage' "$snapshot_dir/runtime-images.json")"
 mongo_image="$(jq -r '.[] | select(.name == "/deniz-cloud-mongodb-1") | .configuredImage' "$snapshot_dir/runtime-images.json")"
 if [[ -z "$postgres_image" || "$postgres_image" == "null" || -z "$mongo_image" || "$mongo_image" == "null" ]]; then

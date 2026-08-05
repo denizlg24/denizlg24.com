@@ -43,6 +43,9 @@ import { runScript, ScriptError } from "./lib/runner";
 const CHECKSUM_BUFFER_BYTES = 1024 * 1024;
 const MAX_AUDIT_RECORDS = 10_000;
 const SHA256 = /^[0-9a-f]{64}$/i;
+/** Records buffered before one append; bounds memory on a large inventory. */
+const AUDIT_BATCH = 500;
+
 const WINDOWS_RESERVED_NAME =
   /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
@@ -856,12 +859,21 @@ async function writeAudit(
     }
     throw error;
   });
+  const batch: string[] = [];
   try {
     await handle.chmod(0o600);
     for (const record of records) {
-      await handle.writeFile(`${JSON.stringify(record)}\n`, {
-        encoding: "utf8",
-      });
+      batch.push(`${JSON.stringify(record)}\n`);
+      // One write per record turns a 100k-entry inventory into 100k syscalls.
+      // Batching keeps the audit a single append-only stream while bounding
+      // how much is buffered before it reaches the file.
+      if (batch.length >= AUDIT_BATCH) {
+        await handle.writeFile(batch.join(""), { encoding: "utf8" });
+        batch.length = 0;
+      }
+    }
+    if (batch.length > 0) {
+      await handle.writeFile(batch.join(""), { encoding: "utf8" });
     }
     await handle.sync();
   } finally {

@@ -333,6 +333,8 @@ if jq -se \
     (.ownerId == null or (.ownerId | uuid)) and
     (.parentId == null or (.parentId | uuid)) and
     (.sourcePath == ($ssd + .path)))) and
+  (([$folders[], $files[]] | map(.id) | length) == ([$folders[], $files[]] | map(.id) | unique | length)) and
+  (([$folders[], $files[]] | map(.targetRelativePath) | length) == ([$folders[], $files[]] | map(.targetRelativePath) | unique | length)) and
   ($files | all(common and (.ownerId | uuid) and (.folderId | uuid) and
     (.folderId as $folderId | ($folderIds | index($folderId)) != null) and
     (.mimeType == null or (.mimeType | type == "string")) and
@@ -350,14 +352,32 @@ else
 fi
 
 api_running=false
+api_state_known=false
 if [[ -n "${POSIX_MIGRATION_API_RUNNING:-}" ]]; then
+  api_state_known=true
   if [[ "$mode" != "--dry-run" || ! "${POSIX_MIGRATION_API_RUNNING}" =~ ^(true|false)$ ]]; then
     echo "POSIX_MIGRATION_API_RUNNING is a dry-run-only true/false override" >&2
     exit 1
   fi
   api_running="${POSIX_MIGRATION_API_RUNNING}"
 elif command -v docker >/dev/null; then
-  api_running="$(docker inspect --format '{{.State.Running}}' "$api_container" 2>/dev/null || printf 'false')"
+  if inspected="$(docker inspect --format '{{.State.Running}}' "$api_container" 2>/dev/null)"; then
+    api_running="$inspected"
+    api_state_known=true
+  elif ! docker inspect "$api_container" >/dev/null 2>&1 \
+    && docker ps >/dev/null 2>&1; then
+    # The daemon answered and has no such container: positively not running.
+    api_running=false
+    api_state_known=true
+  fi
+fi
+# An undetermined API state is not a stopped one. Docker missing from PATH, a
+# dead daemon or a permission error all leave api_running at its initial false,
+# and proceeding would write both branches while the API may still be writing
+# to the sources.
+if [[ "$mode" != "--dry-run" && "$api_state_known" != "true" ]]; then
+  echo "Could not determine whether ${api_container} is running; refusing to ${mode}" >&2
+  exit 1
 fi
 if [[ "$api_running" == "true" && "$allow_live_api_no_writes" != "true" ]]; then
   echo "API is running; pass --allow-live-api-no-writes only with an operator-enforced storage write freeze" >&2
@@ -613,9 +633,19 @@ while IFS= read -r encoded; do
       echo "Journaled destination is missing or unsafe: ${destination}" >&2
       exit 1
     }
+    # A resumed run must prove everything a fresh copy proves, or the summary
+    # reports preserve-acls and preserve-xattrs for entries it never checked.
     verify_protected_metadata "$entry" "$destination" "$kind"
+    verify_preserved_metadata "$source" "$destination"
     if [[ "$kind" == file ]]; then
-      [[ "$(sha256sum "$destination" | cut -d' ' -f1)" == "$checksum" ]]
+      [[ "$(stat -c '%s' "$destination")" == "$(jq -er '.sizeBytes' <<< "$entry")" ]] || {
+        echo "Journaled destination size does not match the manifest: ${destination}" >&2
+        exit 1
+      }
+      [[ "$(sha256sum "$destination" | cut -d' ' -f1)" == "$checksum" ]] || {
+        echo "Journaled destination checksum does not match the manifest: ${destination}" >&2
+        exit 1
+      }
     fi
     verified_count=$((verified_count + 1))
     continue

@@ -98,7 +98,7 @@ describe("namespace metadata service", () => {
     });
     // An SMB copy that inherited metadata looks exactly like this, and it needs
     // deterministic repair rather than a new owner for the old ID.
-    expect(
+    await expect(
       context.service.assign("shared/note.txt", {
         checksum,
         createdAt,
@@ -174,7 +174,7 @@ describe("namespace metadata service", () => {
       PROTECTED_XATTR_KEYS.ownerId,
       "not-a-uuid",
     );
-    expect(context.service.stat("shared/note.txt")).rejects.toThrow(
+    await expect(context.service.stat("shared/note.txt")).rejects.toThrow(
       "malformed",
     );
 
@@ -188,12 +188,14 @@ describe("namespace metadata service", () => {
       PROTECTED_XATTR_KEYS.schemaVersion,
       "2",
     );
-    expect(context.service.stat("shared/note.txt")).rejects.toThrow("schema");
+    await expect(context.service.stat("shared/note.txt")).rejects.toThrow(
+      "schema",
+    );
   });
 
   it("refuses to assign a malformed id", async () => {
     const context = await service();
-    expect(
+    await expect(
       context.service.assign("shared/note.txt", {
         createdAt,
         id: "nope",
@@ -258,7 +260,7 @@ describe("namespace listing", () => {
       id: fileId,
       ownerId,
     });
-    expect(context.service.list("shared/note.txt")).rejects.toThrow(
+    await expect(context.service.list("shared/note.txt")).rejects.toThrow(
       "not a folder",
     );
   });

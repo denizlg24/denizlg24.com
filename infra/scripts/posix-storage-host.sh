@@ -231,7 +231,9 @@ broker_is_current() {
 }
 
 mount_broker() {
-  load_config; merged_is_current; validate_witness
+  load_config
+  merged_is_current || { echo "Merged namespace is not mounted" >&2; return 1; }
+  validate_witness || { echo "Merged namespace witness is invalid" >&2; return 1; }
   [[ -f "$credentials" && ! -L "$credentials" && "$(stat -c '%u:%g:%a' "$credentials")" == 0:0:600 ]] || { echo "Unsafe API broker credentials" >&2; return 1; }
   if mountpoint -q "$broker_mount"; then broker_is_current || { echo "Broker path has a foreign mount" >&2; return 1; }; return; fi
   install -d -m 0755 -o root -g root "$broker_mount"
@@ -297,11 +299,23 @@ fail_closed() {
   systemctl stop "$metadata_unit" || true
   systemctl stop "$broker_unit" || true
   systemctl stop "$smb_unit" || true
+  # A failed unmount and a foreign mount are different problems: the first
+  # needs a retry or a lazy unmount, the second must never be touched. Folding
+  # them into one message hides which one happened.
   if mountpoint -q "$broker_mount"; then
-    broker_is_current && umount "$broker_mount" || echo "Preserving foreign broker mount during fail-close" >&2
+    if broker_is_current; then
+      umount "$broker_mount" || echo "Broker unmount failed during fail-close" >&2
+    else
+      echo "Preserving foreign broker mount during fail-close" >&2
+    fi
   fi
   if mountpoint -q "$merged"; then
-    merged_is_current && { fusermount3 -u "$merged" || umount "$merged" || true; } || echo "Preserving foreign merged mount during fail-close" >&2
+    if merged_is_current; then
+      fusermount3 -u "$merged" || umount "$merged" \
+        || echo "Merged unmount failed during fail-close" >&2
+    else
+      echo "Preserving foreign merged mount during fail-close" >&2
+    fi
   fi
   echo "STOP: POSIX namespace withdrawn: $reason" >&2
   return 20

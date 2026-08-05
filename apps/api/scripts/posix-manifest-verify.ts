@@ -74,6 +74,36 @@ function parseJsonl(
     });
 }
 
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function assertManifestEntry(
+  record: Record<string, unknown>,
+  source: string,
+  isFile: boolean,
+): ManifestEntry {
+  const where = typeof record.path === "string" ? record.path : "<no path>";
+  const require = (condition: boolean, what: string) => {
+    if (!condition) {
+      throw new ScriptError(`${source} entry ${where} has ${what}`);
+    }
+  };
+  require(typeof record.id === "string" && UUID.test(record.id), "no valid id");
+  require(typeof record.path === "string" &&
+    record.path.startsWith("/"), "no absolute path");
+  require(typeof record.createdAt === "string", "no createdAt");
+  require(record.ownerId === null ||
+    (typeof record.ownerId === "string" &&
+      UUID.test(record.ownerId)), "an invalid ownerId");
+  if (isFile) {
+    require(typeof record.checksum === "string" &&
+      /^[0-9a-f]{64}$/i.test(record.checksum), "no valid checksum");
+    require(typeof record.sizeBytes === "number" &&
+      Number.isInteger(record.sizeBytes), "no integer sizeBytes");
+  }
+  return record as unknown as ManifestEntry;
+}
+
 export interface LoadedManifest {
   entries: Map<string, ManifestEntry>;
   files: number;
@@ -104,7 +134,15 @@ function loadManifest(
   let folders = 0;
   for (const record of records) {
     if (record.event !== folderEvent && record.event !== fileEvent) continue;
-    const entry = record as unknown as ManifestEntry;
+    // A manifest is operator-supplied evidence, so its shape is checked before
+    // it is trusted. Casting an arbitrary record to ManifestEntry would let a
+    // missing id or path compare as `undefined` against `undefined` and report
+    // two mismatched manifests as identical.
+    const entry = assertManifestEntry(
+      record,
+      source,
+      record.event === fileEvent,
+    );
     if (entries.has(entry.id)) {
       throw new ScriptError(`${source} repeats ID ${entry.id}`);
     }

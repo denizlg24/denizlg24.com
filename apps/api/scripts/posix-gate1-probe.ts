@@ -228,22 +228,57 @@ async function syncDirectory(path: string): Promise<void> {
   }
 }
 
-function runtimeLibcPath(): string {
-  if (process.platform === "darwin") return "/usr/lib/libSystem.B.dylib";
-  if (process.platform === "linux" && process.arch === "arm64") {
-    return "/lib/libc.musl-aarch64.so.1";
+/**
+ * Candidate libc paths, most specific first.
+ *
+ * The probe's own home is the Alpine API container, so musl comes first. But
+ * the test suite runs it on whatever the CI runner is — glibc on
+ * ubuntu-latest — and hardcoding musl made every run there fail on a missing
+ * shared object rather than on anything about the filesystem being probed.
+ */
+function runtimeLibcCandidates(): string[] {
+  if (process.platform === "darwin") return ["/usr/lib/libSystem.B.dylib"];
+  if (process.platform !== "linux") return [];
+  const musl =
+    process.arch === "arm64"
+      ? "/lib/libc.musl-aarch64.so.1"
+      : "/lib/libc.musl-x86_64.so.1";
+  const gnu =
+    process.arch === "arm64"
+      ? "/lib/aarch64-linux-gnu/libc.so.6"
+      : "/lib/x86_64-linux-gnu/libc.so.6";
+  // "libc.so.6" last: an unqualified name lets the loader search, which works
+  // on distributions that put it somewhere else entirely.
+  return [musl, gnu, "libc.so.6"];
+}
+
+function openRuntimeLibc<const S extends Parameters<typeof dlopen>[1]>(
+  symbols: S,
+): ReturnType<typeof dlopen<S>> {
+  const candidates = runtimeLibcCandidates();
+  if (candidates.length === 0) {
+    throw new Error("Unsupported Gate 1 mmap runtime");
   }
-  if (process.platform === "linux" && process.arch === "x64") {
-    return "/lib/libc.musl-x86_64.so.1";
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return dlopen(candidate, symbols);
+    } catch (error) {
+      lastError = error;
+    }
   }
-  throw new Error("Unsupported Gate 1 mmap runtime");
+  throw new Error(
+    `No usable libc for the Gate 1 mmap probe (tried ${candidates.join(", ")}): ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
 }
 
 async function probeMmap(path: string): Promise<ProbeCheck> {
   const bytes = 4096;
   const expected = Buffer.from("deniz-cloud-mmap-gate1");
   const handle = await open(path, "wx+", 0o600);
-  const libc = dlopen(runtimeLibcPath(), {
+  const libc = openRuntimeLibc({
     mmap: {
       args: ["ptr", "usize", "i32", "i32", "i32", "i64"],
       returns: "ptr",
@@ -257,7 +292,13 @@ async function probeMmap(path: string): Promise<ProbeCheck> {
     // PROT_READ | PROT_WRITE, MAP_SHARED. The mapped write must survive msync,
     // close and a fresh path-based read through mergerfs.
     mapped = libc.symbols.mmap(null, bytes, 1 | 2, 1, handle.fd, 0);
-    if (mapped === null) throw new Error("mmap returned null");
+    // mmap signals failure with MAP_FAILED, which is (void *) -1, not null.
+    // Passing that through segfaults the process on the first read instead of
+    // reporting a probe failure, and munmap in the finally block compounds it.
+    if (mapped === null || Number(mapped) === -1) {
+      mapped = null;
+      throw new Error("mmap failed");
+    }
     new Uint8Array(toArrayBuffer(mapped, 0, bytes)).set(expected);
     if (libc.symbols.msync(mapped, bytes, 4) !== 0) {
       throw new Error("msync failed");

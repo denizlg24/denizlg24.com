@@ -306,7 +306,7 @@ describe("POSIX migration manifest verifier", () => {
       forwardPath,
       `${JSON.stringify({ event: "inventory-summary", manifestSchema: "something-else", schemaVersion: 1 })}\n`,
     );
-    expect(
+    await expect(
       verifyManifests({ forwardPath, requireExact: true, reversePath }),
     ).rejects.toThrow("deniz-cloud-posix-migration-v1");
   });
