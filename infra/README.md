@@ -116,21 +116,28 @@ ssh pi-cloud 'install -d -m 700 /tmp/posix-gate1-kit/infra/scripts \
   /tmp/posix-gate1-kit/infra/samba /tmp/posix-gate1-kit/apps/api/dist'
 scp infra/scripts/posix-gate1-spike.sh \
   infra/scripts/posix-gate1-metadata.sh \
+  infra/scripts/posix-gate1-peer-container.sh \
+  infra/scripts/posix-gate1-tier-crash.sh \
   pi-cloud:/tmp/posix-gate1-kit/infra/scripts/
 scp infra/samba/posix-gate1-smb.conf.in \
   pi-cloud:/tmp/posix-gate1-kit/infra/samba/
 scp apps/api/dist/posix-gate1-probe.js \
   apps/api/dist/posix-gate1-slow-client.js \
   pi-cloud:/tmp/posix-gate1-kit/apps/api/dist/
+scp apps/api/dist/posix-gate1-peer.js pi-cloud:/tmp/posix-gate1-peer.js
 ```
 
 Every mutating lifecycle command requires both `sudo` and `--execute`:
 
 ```sh
 sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute prepare
+# This intentionally requires the prepared phase, before Samba starts.
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute branch-loss-test
 sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute start-samba
 sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute host-test
 sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute api-test
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-tier-crash.sh --execute
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute watchdog
 sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute status
 ```
 
@@ -142,7 +149,6 @@ namespace, restores the branch, and compares the exact marker hashes:
 
 ```sh
 sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute watchdog
-sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute branch-loss-test
 # Run only after an actual host reboot:
 sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute reboot-check
 ```
@@ -166,8 +172,16 @@ The client probes use OS credential prompts and keep evidence private:
 
 ```sh
 infra/scripts/posix-gate1-macos.sh --dry-run --host 100.89.155.9 --share Personal
-# PowerShell: .\posix-gate1-windows.ps1 --dry-run --host 100.89.155.9 --share Personal
+# PowerShell concurrency adds the validated Pi SSH endpoint and never forwards
+# the SMB credential:
+# .\posix-gate1-windows.ps1 --dry-run --host 100.89.155.9 --share Personal --ssh-host denizlg24@pi-cloud
 ```
+
+The tier-crash probe uses only the loopback branches. It verifies exact bytes
+and stable xattrs while simulating interruption during copy, after destination
+fsync, after atomic publish, before source unlink, and during reverse promotion.
+Its result is intentionally partial; the production recovery implementation and
+an actual reboot-during-copy check remain later gates.
 
 The protected-xattr adversary is separate because an accepted reserved stream
 name is a Gate 1 failure even when Samba stores it under `user.DosStream.*`
