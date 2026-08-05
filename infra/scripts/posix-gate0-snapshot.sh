@@ -10,16 +10,33 @@ api_container="${API_CONTAINER:-deniz-cloud-api-1}"
 postgres_container="${POSTGRES_CONTAINER:-deniz-cloud-postgres-1}"
 mongo_container="${MONGODB_CONTAINER:-deniz-cloud-mongodb-1}"
 redis_container="${REDIS_CONTAINER:-deniz-cloud-redis-1}"
-mode="${1:---dry-run}"
+mode="--dry-run"
+mode_set=false
+allow_live_api=false
 
 usage() {
-  echo "Usage: $0 [--dry-run|--execute]" >&2
+  echo "Usage: $0 [--dry-run|--execute] [--allow-live-api]" >&2
 }
 
-if [[ "$mode" != "--dry-run" && "$mode" != "--execute" ]]; then
-  usage
-  exit 2
-fi
+for argument in "$@"; do
+  case "$argument" in
+    --dry-run | --execute)
+      if [[ "$mode_set" == "true" ]]; then
+        usage
+        exit 2
+      fi
+      mode="$argument"
+      mode_set=true
+      ;;
+    --allow-live-api)
+      allow_live_api=true
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
 if [[ ! -f "$compose_env" ]]; then
   echo "Missing Compose environment: ${compose_env}" >&2
   exit 1
@@ -116,13 +133,14 @@ jq -n \
   --argjson hddBytes "$hdd_bytes" \
   --argjson availableBytes "$available_bytes" \
   --arg apiRunning "$api_running" \
-  '{mode:$mode,snapshotDir:$snapshotDir,apiRunning:($apiRunning == "true"),availableBytes:$availableBytes,branches:{ssd:{path:$ssdPath,source:$ssdSource,bytes:$ssdBytes},hdd:{path:$hddPath,source:$hddSource,bytes:$hddBytes}}}'
+  --arg allowLiveApi "$allow_live_api" \
+  '{mode:$mode,snapshotDir:$snapshotDir,apiRunning:($apiRunning == "true"),allowLiveApi:($allowLiveApi == "true"),availableBytes:$availableBytes,branches:{ssd:{path:$ssdPath,source:$ssdSource,bytes:$ssdBytes},hdd:{path:$hddPath,source:$hddSource,bytes:$hddBytes}}}'
 
 if [[ "$mode" == "--dry-run" ]]; then
   exit 0
 fi
-if [[ "$api_running" == "true" ]]; then
-  echo "Refusing snapshot while ${api_container} is running; stop only that container first" >&2
+if [[ "$api_running" == "true" && "$allow_live_api" != "true" ]]; then
+  echo "Refusing snapshot while ${api_container} is running; stop it or pass the operator-approved --allow-live-api exception" >&2
   exit 1
 fi
 if [[ -e "$snapshot_dir" ]]; then
@@ -225,7 +243,9 @@ jq -n \
   --arg hddFilesystem "$hdd_fstype" \
   --argjson ssdBytes "$ssd_bytes" \
   --argjson hddBytes "$hdd_bytes" \
-  '{schemaVersion:1,snapshotId:$snapshotId,createdAt:$createdAt,apiFrozen:true,branches:{ssd:{path:$ssdPath,source:$ssdSource,filesystem:$ssdFilesystem,bytes:$ssdBytes,archive:"ssd.tar.zst",treeManifest:"ssd-tree.tsv",fileChecksums:"ssd-files.sha256z"},hdd:{path:$hddPath,source:$hddSource,filesystem:$hddFilesystem,bytes:$hddBytes,archive:"hdd.tar.zst",treeManifest:"hdd-tree.tsv",fileChecksums:"hdd-files.sha256z"}},artifacts:{postgres:"postgres.sql.gz",mongodb:"mongodb.archive.gz",redisAcl:"redis-users.acl",runtimeImages:"runtime-images.json",checksums:"SHA256SUMS"}}' \
+  --arg apiRunning "$api_running" \
+  --arg allowLiveApi "$allow_live_api" \
+  '{schemaVersion:1,snapshotId:$snapshotId,createdAt:$createdAt,apiFrozen:($apiRunning != "true"),liveApiException:($apiRunning == "true" and $allowLiveApi == "true"),operatorAssumption:(if $apiRunning == "true" then "no storage namespace mutations during snapshot" else null end),branches:{ssd:{path:$ssdPath,source:$ssdSource,filesystem:$ssdFilesystem,bytes:$ssdBytes,archive:"ssd.tar.zst",treeManifest:"ssd-tree.tsv",fileChecksums:"ssd-files.sha256z"},hdd:{path:$hddPath,source:$hddSource,filesystem:$hddFilesystem,bytes:$hddBytes,archive:"hdd.tar.zst",treeManifest:"hdd-tree.tsv",fileChecksums:"hdd-files.sha256z"}},artifacts:{postgres:"postgres.sql.gz",mongodb:"mongodb.archive.gz",redisAcl:"redis-users.acl",runtimeImages:"runtime-images.json",checksums:"SHA256SUMS"}}' \
   > "$snapshot_dir/manifest.json"
 
 rm "$snapshot_dir/.incomplete"

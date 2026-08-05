@@ -61,22 +61,23 @@ ownership, modes, and timestamps. It also records content/tree manifests and
 only the deployed image identifiers; container environments and their secrets
 are never copied into evidence.
 
-Run the preflight first. `--execute` refuses to proceed while the API is still
-running, so the maintenance stop remains an explicit operator action:
+Run the preflight first. By default, `--execute` refuses to proceed while the
+API is running. When the operator can guarantee that no storage mutations will
+occur for the duration, `--allow-live-api` records that explicit exception in
+the manifest while leaving the API available:
 
 ```sh
-infra/scripts/posix-gate0-snapshot.sh --dry-run
-docker stop deniz-cloud-api-1
-trap 'docker start deniz-cloud-api-1' EXIT
-infra/scripts/posix-gate0-snapshot.sh --execute
-docker start deniz-cloud-api-1
-trap - EXIT
+infra/scripts/posix-gate0-snapshot.sh --dry-run --allow-live-api
+infra/scripts/posix-gate0-snapshot.sh --execute --allow-live-api
 ```
 
-The trap restarts the API if the snapshot command fails. The completed snapshot
-is private rollback material: it contains database role hashes and the Redis ACL,
-so keep its directory mode `0700`, transfer it only over the tailnet, and never
-commit it. Verify restoration on the Pi without touching either live branch:
+The live exception is not a database-wide freeze: unrelated session, metric,
+and scheduler rows may continue changing, while each database dump remains
+individually consistent. The archive/manifests still fail verification if
+namespace bytes change during capture. The completed snapshot is private
+rollback material: it contains database role hashes and the Redis ACL, so keep
+its directory mode `0700`, transfer it only over the tailnet, and never commit
+it. Verify restoration on the Pi without touching either live branch:
 
 ```sh
 sudo infra/scripts/posix-gate0-restore-verify.sh --execute \
