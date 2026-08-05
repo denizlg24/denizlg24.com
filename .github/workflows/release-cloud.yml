@@ -140,6 +140,8 @@ jobs:
             infra/compose \
             infra/fail2ban \
             infra/network \
+            infra/posix-storage \
+            infra/samba \
             infra/scripts \
             infra/systemd
           scp \
