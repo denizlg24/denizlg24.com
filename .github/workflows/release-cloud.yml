@@ -152,15 +152,31 @@ jobs:
 
       # Renders the compose file against the real .env.pi on the Pi. Proves the
       # env file is present, complete and readable without starting anything.
+      # The storage boundary adds a second compose file. Deploying with only the
+      # base file recreates the API without the metadata socket and the
+      # internal path overrides, so it starts in broker mode with no way to
+      # verify identity and every download fails closed. The override is used
+      # whenever the host has it, which is exactly when it is required.
+      - name: Resolve the compose file set
+        run: |
+          files=$(ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
+            "cd /opt/deniz-cloud/infra/compose \
+             && mode=\$(grep -E '^STORAGE_NAMESPACE_MODE=' .env.pi | cut -d= -f2- || true) \
+             && if [ \"\$mode\" = broker-mounted ] && [ -f docker-compose.posix.yml ]; then \
+                  echo '-f docker-compose.pi.yml -f docker-compose.posix.yml'; \
+                else echo '-f docker-compose.pi.yml'; fi")
+          echo "COMPOSE_FILES=$files" >> "$GITHUB_ENV"
+          echo "Using: $files"
+
       - name: Validate compose on the Pi
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "cd /opt/deniz-cloud/infra/compose && test -f .env.pi && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml config -q"
+            "cd /opt/deniz-cloud/infra/compose && test -f .env.pi && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi ${COMPOSE_FILES} config -q"
 
       - name: Pull images
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml pull"
+            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi ${COMPOSE_FILES} pull"
 
       # Runs in both modes: a validate run should surface a migration that is
       # about to fail, and a dry run never writes. `compose run` reuses the api
@@ -170,7 +186,7 @@ jobs:
         id: pending
         run: |
           summary="$(ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml run --rm --no-deps -T api bun run dist/apply-migrations.js" \
+            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi ${COMPOSE_FILES} run --rm --no-deps -T api bun run dist/apply-migrations.js" \
             | tail -n 1)"
           echo "$summary"
           pending="$(jq -r '.pending // [] | join(", ")' <<< "$summary")"
@@ -192,7 +208,7 @@ jobs:
         if: env.DEPLOY_MODE == 'deploy'
         run: |
           if ! ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml run --rm --no-deps -T api bun run dist/apply-migrations.js --execute"
+            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi ${COMPOSE_FILES} run --rm --no-deps -T api bun run dist/apply-migrations.js --execute"
           then
             {
               echo
@@ -220,7 +236,7 @@ jobs:
         if: env.DEPLOY_MODE == 'deploy'
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
-            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi -f docker-compose.pi.yml up -d"
+            "cd /opt/deniz-cloud/infra/compose && API_IMAGE='${API_IMAGE}:${IMAGE_TAG}' API_VERSION='${IMAGE_TAG}' docker compose --env-file .env.pi ${COMPOSE_FILES} up -d"
 
       - name: Record validate-only run
         if: env.DEPLOY_MODE != 'deploy'
