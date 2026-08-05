@@ -42,7 +42,10 @@ const PROTECTED_ROOTS = [
   "/data/ssd",
   "/mnt/hdd/storage",
   "/mnt/ssd/storage",
+  "/mnt/hdd/deniz-cloud",
+  "/mnt/ssd/deniz-cloud",
   "/opt/deniz-cloud",
+  "/srv/deniz-cloud/namespace",
   "/srv/deniz-cloud/storage",
 ] as const;
 

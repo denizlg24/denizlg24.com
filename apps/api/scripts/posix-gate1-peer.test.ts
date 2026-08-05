@@ -127,6 +127,14 @@ describe("POSIX Gate 1 concurrency peer safety", () => {
         }),
       ),
     ).rejects.toThrow("protected production");
+    await expect(
+      runPosixGate1Peer(
+        options(
+          `/mnt/hdd/deniz-cloud/namespace/posix-gate1-disposable-${RUN_ID}`,
+          { dryRun: false },
+        ),
+      ),
+    ).rejects.toThrow("protected production");
 
     const { root } = await fixture();
     const linked = join(
