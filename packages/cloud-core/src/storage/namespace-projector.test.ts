@@ -340,3 +340,48 @@ describe("namespace projector", () => {
     expect(result.abortReason).toContain("exceeded 1 entries");
   });
 });
+
+describe("what a complete scan must record", () => {
+  /**
+   * A rehearsal against real Postgres caught this: the repository wrote scan
+   * rows but never populated the projection state's lastCompleteGeneration, so
+   * health reported "no complete scan yet" forever while generations succeeded.
+   * The projector must hand recordScan everything that state needs.
+   */
+  it("passes the generation and finish time of every complete scan", async () => {
+    const context = repository();
+    const projector = new NamespaceProjector(
+      source({ listings: { "/": emptyListing }, markers: MARKERS }),
+      context.repository,
+    );
+
+    const result = await projector.scan();
+
+    const recorded = context.scans.at(-1);
+    expect(recorded).toMatchObject({
+      complete: true,
+      generation: result.generation,
+    });
+    expect(recorded?.finishedAt).toBeInstanceOf(Date);
+    expect(recorded?.branchMarkers).toEqual(MARKERS);
+  });
+
+  it("marks an incomplete scan so nothing downstream counts it", async () => {
+    const context = repository();
+    const projector = new NamespaceProjector(
+      source({
+        listings: { "/": emptyListing },
+        markers: MARKERS,
+        markersAtEnd: { ...MARKERS, ssd: "swapped" },
+      }),
+      context.repository,
+    );
+
+    await projector.scan();
+
+    expect(context.scans.at(-1)).toMatchObject({
+      abortReason: "branch-remounted",
+      complete: false,
+    });
+  });
+});

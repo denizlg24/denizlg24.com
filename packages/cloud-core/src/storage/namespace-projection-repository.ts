@@ -195,6 +195,25 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
         startedAt: scan.startedAt,
       });
       if (scan.complete) {
+        // The state row carries what a complete scan proved. Without this,
+        // health reports "no complete scan yet" forever even as generations
+        // succeed, because nothing else writes these columns.
+        await db
+          .insert(namespaceProjectionState)
+          .values({
+            id: true,
+            lastCompleteAt: scan.finishedAt,
+            lastCompleteGeneration: scan.generation,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            set: {
+              lastCompleteAt: scan.finishedAt,
+              lastCompleteGeneration: scan.generation,
+              updatedAt: new Date(),
+            },
+            target: namespaceProjectionState.id,
+          });
         // Problems recorded in an earlier generation and not seen in this
         // complete one are resolved.
         await db
