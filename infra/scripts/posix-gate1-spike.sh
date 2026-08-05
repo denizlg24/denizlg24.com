@@ -935,6 +935,7 @@ run_api_tests() {
     exit 1
   fi
   local api_image probe_evidence_dir result_file log_file slow_result_file slow_log_file
+  local main_complete=false slow_complete=false incomplete_suffix archived_dir stale_file
   api_image="$(docker inspect --format '{{.Config.Image}}' deniz-cloud-api-1)"
   if [[ -z "$api_image" ]]; then
     echo "Could not resolve the deployed API image" >&2
@@ -945,31 +946,79 @@ run_api_tests() {
   log_file="$probe_evidence_dir/checks.jsonl"
   slow_result_file="$probe_evidence_dir/slow-summary.json"
   slow_log_file="$probe_evidence_dir/slow-check.jsonl"
-  if [[ -e "$probe_evidence_dir" || -L "$probe_evidence_dir" ]]; then
-    echo "Refusing to overwrite Gate 1 API evidence" >&2
-    exit 1
-  fi
-  mkdir -m 700 "$probe_evidence_dir"
-  chown 1000:1000 "$probe_evidence_dir"
 
-  docker run --rm --network none --read-only --tmpfs /tmp --user 1000:1000 \
-    --volume "$probe_bundle:/gate1-probe.js:ro" \
-    --volume "$merged_mount:/gate1" \
-    --volume "$probe_evidence_dir:/evidence" \
-    --entrypoint bun "$api_image" \
-    /gate1-probe.js --execute --root /gate1/posix-gate1-disposable --log /evidence/checks.jsonl \
-    > "$result_file"
-  chmod 600 "$result_file"
-  chown root:root "$result_file"
-  [[ -s "$log_file" && ! -L "$log_file" ]] || { echo "API probe evidence is missing" >&2; exit 1; }
-  jq -e '
-    .probe == "posix-gate1" and
-    .dryRun == false and
-    ([.checks[] | select(.status == "pass") | .name] | index("same-mount-atomic-rename") != null) and
-    ([.checks[] | select(.status == "pass") | .name] | index("tus-interrupt-fsync-resume-publish") != null) and
-    ([.checks[] | select(.status == "pass") | .name] | index("bun-file-full-range-and-sparse-offset") != null) and
-    ([.checks[] | select(.status == "pass") | .name] | index("mmap-shared-write-msync") != null)
-  ' "$result_file" >/dev/null
+  api_main_evidence_is_complete() {
+    [[ -f "$result_file" && ! -L "$result_file" && -s "$log_file" && ! -L "$log_file" ]] \
+      && jq -e '
+        .probe == "posix-gate1" and
+        .dryRun == false and
+        ([.checks[] | select(.status == "pass") | .name] | index("same-mount-atomic-rename") != null) and
+        ([.checks[] | select(.status == "pass") | .name] | index("tus-interrupt-fsync-resume-publish") != null) and
+        ([.checks[] | select(.status == "pass") | .name] | index("bun-file-full-range-and-sparse-offset") != null) and
+        ([.checks[] | select(.status == "pass") | .name] | index("mmap-shared-write-msync") != null)
+      ' "$result_file" >/dev/null 2>&1
+  }
+
+  api_slow_evidence_is_complete() {
+    [[ -f "$slow_result_file" && ! -L "$slow_result_file" && -s "$slow_log_file" && ! -L "$slow_log_file" ]] \
+      && jq -e '
+        .probe == "posix-gate1-slow-client" and
+        .dryRun == false and
+        .allGreen == true and
+        .logicalBytes == 5800000000 and
+        .rssDeltaBytes <= .maxRssDeltaBytes
+      ' "$slow_result_file" >/dev/null 2>&1
+  }
+
+  if [[ -e "$probe_evidence_dir" || -L "$probe_evidence_dir" ]]; then
+    if [[ ! -d "$probe_evidence_dir" || -L "$probe_evidence_dir" \
+      || "$(realpath "$probe_evidence_dir" 2>/dev/null || true)" != "$probe_evidence_dir" ]]; then
+      echo "Existing Gate 1 API evidence directory is unsafe" >&2
+      exit 1
+    fi
+    api_main_evidence_is_complete && main_complete=true
+    api_slow_evidence_is_complete && slow_complete=true
+    if [[ "$main_complete" != "true" ]]; then
+      incomplete_suffix="$(date -u +%Y%m%dT%H%M%SZ)"
+      archived_dir="${probe_evidence_dir}.incomplete-${incomplete_suffix}"
+      [[ ! -e "$archived_dir" && ! -L "$archived_dir" ]] || {
+        echo "Refusing to replace archived Gate 1 API evidence" >&2
+        exit 1
+      }
+      mv "$probe_evidence_dir" "$archived_dir"
+    elif [[ "$slow_complete" != "true" ]]; then
+      incomplete_suffix="$(date -u +%Y%m%dT%H%M%SZ)"
+      for stale_file in "$slow_result_file" "$slow_log_file"; do
+        if [[ -L "$stale_file" ]]; then
+          echo "Existing Gate 1 slow-client evidence is unsafe" >&2
+          exit 1
+        fi
+        if [[ -f "$stale_file" ]]; then
+          mv "$stale_file" "${stale_file}.incomplete-${incomplete_suffix}"
+        fi
+      done
+    fi
+  fi
+  if [[ "$main_complete" == "true" && "$slow_complete" == "true" ]]; then
+    jq -n --arg evidence "$probe_evidence_dir" --arg image "$api_image" \
+      '{partialApiTestsPassed:true,reusedEvidence:true,gate1Passed:false,evidence:$evidence,deployedRuntimeImage:$image,slowClientShapeBytes:5800000000,pending:["SMB concurrency","native clients","branch loss/reboot","throughput"]}'
+    return 0
+  fi
+  if [[ "$main_complete" != "true" ]]; then
+    mkdir -m 700 "$probe_evidence_dir"
+    chown 1000:1000 "$probe_evidence_dir"
+
+    docker run --rm --network none --read-only --tmpfs /tmp --user 1000:1000 \
+      --volume "$probe_bundle:/gate1-probe.js:ro" \
+      --volume "$merged_mount:/gate1" \
+      --volume "$probe_evidence_dir:/evidence" \
+      --entrypoint bun "$api_image" \
+      /gate1-probe.js --execute --root /gate1/posix-gate1-disposable --log /evidence/checks.jsonl \
+      > "$result_file"
+    chmod 600 "$result_file"
+    chown root:root "$result_file"
+    api_main_evidence_is_complete || { echo "API probe evidence is incomplete" >&2; exit 1; }
+  fi
   docker run --rm --network none --read-only --tmpfs /tmp --user 1000:1000 \
     --volume "$slow_client_bundle:/gate1-slow-client.js:ro" \
     --volume "$merged_mount:/gate1" \
@@ -979,14 +1028,7 @@ run_api_tests() {
     > "$slow_result_file"
   chmod 600 "$slow_result_file"
   chown root:root "$slow_result_file"
-  [[ -s "$slow_log_file" && ! -L "$slow_log_file" ]] || { echo "Slow-client evidence is missing" >&2; exit 1; }
-  jq -e '
-    .probe == "posix-gate1-slow-client" and
-    .dryRun == false and
-    .allGreen == true and
-    .logicalBytes == 5800000000 and
-    .rssDeltaBytes <= .maxRssDeltaBytes
-  ' "$slow_result_file" >/dev/null
+  api_slow_evidence_is_complete || { echo "Slow-client evidence is incomplete" >&2; exit 1; }
   jq -n --arg evidence "$probe_evidence_dir" --arg image "$api_image" \
     '{partialApiTestsPassed:true,gate1Passed:false,evidence:$evidence,deployedRuntimeImage:$image,slowClientShapeBytes:5800000000,pending:["SMB concurrency","native clients","branch loss/reboot","throughput"]}'
 }
