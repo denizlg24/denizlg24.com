@@ -380,7 +380,7 @@ services:
       - ${HDD_STORAGE_PATH:?HDD_STORAGE_PATH is required}:/data/hdd
       # In broker mode this is the host's loopback CIFS mount, never the
       # authoritative mergerfs mount or either private namespace branch.
-      - ${STORAGE_BROKER_MOUNT_PATH:?STORAGE_BROKER_MOUNT_PATH is required}:/data/storage
+      - ${STORAGE_BROKER_MOUNT_PATH:-/srv/deniz-cloud/api-storage}:/data/storage
       - ${BACKUP_DIR:?BACKUP_DIR is required}:/backups
       - ${HOST_CONTROL_DIR:-/var/lib/deniz-cloud}:/host-control
     mem_limit: ${API_MEMORY_LIMIT:-0}

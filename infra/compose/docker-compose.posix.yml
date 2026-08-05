@@ -1,0 +1,32 @@
+# Production-only broker boundary. Apply after docker-compose.pi.yml once the
+# host pilot has mounted /srv/deniz-cloud/api-storage. Compose's !override tag
+# is intentional: retaining even one base storage bind would bypass Samba.
+services:
+  api:
+    environment:
+      HDD_STORAGE_PATH: /data/capacity/hdd
+      S3_ROOT_PATH: /data/internal/s3
+      S3_TEMP_PATH: /data/internal/s3-temp
+      SSD_STORAGE_PATH: /data/capacity/ssd
+      STORAGE_ARCHIVE_PATH: /data/internal/archives
+      STORAGE_NAMESPACE_MODE: broker-mounted
+      STORAGE_NAMESPACE_PATH: /data/storage
+      STORAGE_NAMESPACE_WITNESS_PATH: /data/storage/.denizcloud-mount-witness
+      TEMP_UPLOAD_PATH: /data/internal/tus
+    volumes: !override
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      # Empty, read-only directories expose statfs for quota/health without
+      # exposing either private namespace branch.
+      - /mnt/ssd/deniz-cloud/internal/.capacity:/data/capacity/ssd:ro
+      - /mnt/hdd/deniz-cloud/internal/.capacity:/data/capacity/hdd:ro
+      - /srv/deniz-cloud/internal/.capacity:/data/capacity/root:ro
+      # Project S3 and request staging remain independent from Personal/Shared.
+      - /mnt/ssd/deniz-cloud/internal/.s3-v2:/data/internal/s3
+      - /mnt/ssd/deniz-cloud/internal/.s3-v2-temp:/data/internal/s3-temp
+      - /mnt/ssd/deniz-cloud/internal/.tus-partial:/data/internal/tus
+      - /mnt/ssd/deniz-cloud/internal/.archives:/data/internal/archives
+      # This source is the encrypted loopback CIFS mount, not mergerfs.
+      - /srv/deniz-cloud/api-storage:/data/storage
+      - ${BACKUP_DIR:?BACKUP_DIR is required}:/backups
+      - ${HOST_CONTROL_DIR:-/var/lib/deniz-cloud}:/host-control

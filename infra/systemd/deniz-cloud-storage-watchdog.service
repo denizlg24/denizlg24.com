@@ -1,0 +1,12 @@
+[Unit]
+Description=Fail-closed watchdog for the Deniz Cloud storage branches
+Requires=deniz-cloud-storage-api-broker.service
+After=deniz-cloud-storage-api-broker.service
+PartOf=deniz-cloud-storage.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute watch
+Restart=no
+TimeoutStopSec=5
+

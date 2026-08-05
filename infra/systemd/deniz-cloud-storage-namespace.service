@@ -1,0 +1,15 @@
+[Unit]
+Description=Validate and mount the Deniz Cloud authoritative namespace
+RequiresMountsFor=/mnt/ssd /mnt/hdd
+After=mnt-ssd.mount mnt-hdd.mount
+Before=deniz-cloud-storage-firewall.service deniz-cloud-storage-smb.service deniz-cloud-storage-api-broker.service deniz-cloud-storage-watchdog.service
+PartOf=deniz-cloud-storage.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute compose-validate
+ExecStart=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute mount
+ExecStop=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute unmount
+TimeoutStartSec=30
+TimeoutStopSec=30

@@ -1,0 +1,12 @@
+[Unit]
+Description=Restrict the Gate1B storage broker SMB socket to loopback
+Requires=deniz-cloud-storage-namespace.service
+After=deniz-cloud-storage-namespace.service network-online.target tailscaled.service
+Before=deniz-cloud-storage-smb.service
+PartOf=deniz-cloud-storage.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute firewall-start
+ExecStop=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute firewall-stop
