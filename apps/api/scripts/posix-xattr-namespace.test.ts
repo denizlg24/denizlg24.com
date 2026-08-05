@@ -7,6 +7,7 @@ import { PROTECTED_XATTR_NAMESPACE } from "@repo/cloud-core";
 const scripts = [
   "../../../infra/scripts/posix-storage-migrate.sh",
   "../../../infra/scripts/posix-storage-reverse.sh",
+  "../../../infra/scripts/posix-storage-tier.sh",
 ].map((path) => resolve(import.meta.dir, path));
 
 /**

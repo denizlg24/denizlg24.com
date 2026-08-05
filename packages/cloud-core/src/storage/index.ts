@@ -119,6 +119,17 @@ export {
   type SearchRebuildSource,
 } from "./namespace-search-rebuild";
 export {
+  type BranchCopyObservation,
+  type DuplicateResolution,
+  resolveBranchDuplicate,
+  selectDemotions,
+  type TierCandidate,
+  type TieringGateInput,
+  type TierMove,
+  type TierSelectionInput,
+  tieringBlockedReason,
+} from "./namespace-tiering";
+export {
   NamespaceWatcher,
   type WatcherOptions,
   type WatcherSignal,
