@@ -1,0 +1,21 @@
+{
+  "name": "storage-metadata",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --compile --outfile dist/cloud-storage-metadata",
+    "build:pi": "bun build src/index.ts --compile --target=bun-linux-arm64 --outfile dist/cloud-storage-metadata-arm64",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@repo/cloud-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/bun": "^1.3.14",
+    "typescript": "^5.9.3"
+  }
+}

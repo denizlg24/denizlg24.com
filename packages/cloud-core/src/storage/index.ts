@@ -52,6 +52,22 @@ export {
   protectedMetadataHash,
 } from "./metadata";
 export {
+  MetadataClientError,
+  type MetadataClientOptions,
+  NamespaceMetadataClient,
+} from "./metadata-client";
+export {
+  handleMetadataRequest,
+  isSupportedProtocolVersion,
+  tokenMatches,
+} from "./metadata-handler";
+export {
+  METADATA_PROTOCOL_VERSION,
+  type MetadataEntryPayload,
+  type MetadataRequest,
+  type MetadataResponse,
+} from "./metadata-protocol";
+export {
   isReservedSegment,
   NamespaceResolveError,
   namespaceSegments,
