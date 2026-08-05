@@ -8,6 +8,7 @@ import { and, asc, eq } from "drizzle-orm";
 
 import type { Database } from "../db";
 import { files } from "../db/schema";
+import type { StorageConfig } from "./config";
 import {
   computeChecksum,
   copyAndVerify,
@@ -55,6 +56,16 @@ export interface TieringOptions {
   afterCopy?: (file: TieringFile, destination: string) => Promise<void>;
   /** Runs after an orphaned row is reaped, to drop it from the search index. */
   afterReap?: (file: TieringFile) => Promise<void>;
+}
+
+export function assertLegacyTieringAllowed(
+  config: Pick<StorageConfig, "namespace">,
+): void {
+  if (config.namespace.mode === "broker-mounted") {
+    throw new Error(
+      "Legacy branch tiering is disabled for broker-mounted storage",
+    );
+  }
 }
 
 export class TieringCrashSimulationError extends Error {
@@ -413,9 +424,12 @@ export class PromotionQueue {
       TieringOptions,
       "ssdStoragePath" | "hddStoragePath"
     >,
+    /** Broker-mounted request paths are incompatible with this legacy mover. */
+    public readonly isEnabled = true,
   ) {}
 
   enqueue(fileId: string): void {
+    if (!this.isEnabled) return;
     this.#pending.add(fileId);
     if (!this.#running) {
       this.#running = this.#drain().finally(() => {

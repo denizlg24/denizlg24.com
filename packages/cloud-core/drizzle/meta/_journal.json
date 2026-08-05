@@ -64,6 +64,20 @@
       "when": 1785319023003,
       "tag": "0008_mixed_firelord",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785954671907,
+      "tag": "0009_slim_spectrum",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785956510084,
+      "tag": "0010_far_susan_delgado",
+      "breakpoints": true
     }
   ]
 }

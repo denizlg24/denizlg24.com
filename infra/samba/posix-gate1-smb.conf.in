@@ -1,0 +1,93 @@
+[global]
+    server role = standalone server
+    workgroup = WORKGROUP
+    netbios name = DC-GATE1
+    server string = Deniz Cloud disposable Gate 1
+    security = user
+    passdb backend = tdbsam:@PRIVATE_DIR@/passdb.tdb
+    private dir = @PRIVATE_DIR@
+    state directory = @STATE_DIR@
+    cache directory = @CACHE_DIR@
+    lock directory = @LOCK_DIR@
+    pid directory = @PID_DIR@
+    ncalrpc dir = @NCALRPC_DIR@
+    log file = @LOG_DIR@/smbd.%p.log
+    max log size = 4096
+    logging = file
+
+    bind interfaces only = no
+    hosts allow = 127.0.0.1 100.64.0.0/10 fd7a:115c:a1e0::/48
+    hosts deny = ALL
+    smb ports = 445
+    disable netbios = yes
+    dns proxy = no
+    server min protocol = SMB3_00
+    server max protocol = SMB3_11
+    server smb encrypt = required
+    server signing = mandatory
+    map to guest = never
+    restrict anonymous = 2
+    usershare max shares = 0
+    smb1 unix extensions = no
+    smb3 unix extensions = no
+    allow insecure wide links = no
+
+    load printers = no
+    disable spoolss = yes
+    printcap name = /dev/null
+    fruit:aapl = yes
+    fruit:copyfile = no
+    fruit:nfs_aces = no
+    smb2 leases = no
+
+    # The direct POSIX/SMB dual-writer design is accepted only if the Gate 1
+    # concurrency matrix proves this conservative baseline coherent.
+    oplocks = no
+    level2 oplocks = no
+    kernel oplocks = no
+    kernel share modes = no
+    posix locking = yes
+    strict locking = yes
+
+[Personal]
+    path = @MERGED_ROOT@/personal
+    read only = no
+    browseable = yes
+    guest ok = no
+    valid users = @SPIKE_USER@
+    force user = @SPIKE_USER@
+    force group = @SPIKE_GROUP@
+    create mask = 0660
+    directory mask = 0770
+    force create mode = 0660
+    force directory mode = 0770
+    follow symlinks = no
+    wide links = no
+    durable handles = no
+    aio read size = 0
+    aio write size = 0
+    strict sync = yes
+    sync always = yes
+    ea support = yes
+    vfs objects = catia fruit streams_xattr full_audit
+    fruit:resource = file
+    fruit:metadata = netatalk
+    fruit:encoding = native
+    fruit:locking = none
+    fruit:posix_rename = yes
+    fruit:veto_appledouble = yes
+    fruit:zero_file_id = yes
+    streams_xattr:prefix = user.DosStream.
+    streams_xattr:store_stream_type = no
+    full_audit:prefix = %u|%I|%S
+    # Gate 1 is disposable and bounded, so record every VFS operation. An
+    # explicit list is brittle across Samba releases (for example fsync is a
+    # send/recv pair in 4.19) and an unknown operation disables the share.
+    full_audit:success = all
+    full_audit:failure = all
+    full_audit:facility = LOCAL7
+    full_audit:priority = NOTICE
+
+[Shared]
+    copy = Personal
+    path = @MERGED_ROOT@/shared

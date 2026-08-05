@@ -1,0 +1,111 @@
+import { chmod, lstat, readFile, unlink } from "node:fs/promises";
+
+import {
+  AttrCommandXattrBackend,
+  handleMetadataRequest,
+  isSupportedProtocolVersion,
+  NamespaceMetadataService,
+  tokenMatches,
+} from "@repo/cloud-core";
+
+import { configFromEnv } from "./config";
+
+const config = configFromEnv();
+
+/**
+ * Refuses to serve unless the merged namespace is actually mounted.
+ *
+ * An unmounted branch presents as an empty directory, and a metadata service
+ * answering NOT_FOUND for every entry is indistinguishable from mass deletion
+ * to anything downstream. Checked at startup and again on every request, since
+ * the watchdog can withdraw the mount underneath a running process.
+ */
+async function namespaceIsMounted(): Promise<boolean> {
+  try {
+    const stats = await lstat(config.witnessPath);
+    if (!stats.isFile() || stats.isSymbolicLink()) return false;
+    const value = await readFile(config.witnessPath, "utf8");
+    return value.trimEnd() === config.witnessValue;
+  } catch {
+    return false;
+  }
+}
+
+if (!(await namespaceIsMounted())) {
+  console.error(
+    `Namespace witness is absent or wrong at ${config.witnessPath}; refusing to start`,
+  );
+  process.exit(1);
+}
+
+const service = new NamespaceMetadataService(
+  config.namespaceRoot,
+  new AttrCommandXattrBackend(),
+);
+
+// A stale socket from an unclean stop would make bind fail; only remove one
+// that is actually a socket, never a regular file someone put there.
+try {
+  const stats = await lstat(config.socketPath);
+  if (stats.isSocket()) await unlink(config.socketPath);
+} catch {
+  // Nothing to clean up.
+}
+
+function deny(code: string, message: string, status: number): Response {
+  return Response.json({ code, message, ok: false }, { status });
+}
+
+const server = Bun.serve({
+  async fetch(request) {
+    if (new URL(request.url).pathname === "/healthz") {
+      return (await namespaceIsMounted())
+        ? Response.json({ status: "ok" })
+        : deny("UNAVAILABLE", "Namespace is not mounted", 503);
+    }
+    if (request.method !== "POST") {
+      return deny("BAD_REQUEST", "Only POST is supported", 405);
+    }
+    if (!tokenMatches(config.token, request.headers.get("x-metadata-token"))) {
+      return deny("BAD_REQUEST", "Bad token", 403);
+    }
+    if (
+      !isSupportedProtocolVersion(request.headers.get("x-metadata-version"))
+    ) {
+      return deny("BAD_REQUEST", "Unsupported protocol version", 400);
+    }
+    if (!(await namespaceIsMounted())) {
+      return deny("UNAVAILABLE", "Namespace is not mounted", 503);
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return deny("BAD_REQUEST", "Body is not JSON", 400);
+    }
+    const response = await handleMetadataRequest(service, body);
+    return Response.json(response, { status: response.ok ? 200 : 409 });
+  },
+  unix: config.socketPath,
+});
+
+// Root-owned and group-readable: the API container joins by group, and nothing
+// else on the host can reach the privileged operations.
+await chmod(config.socketPath, 0o660);
+
+console.info(
+  JSON.stringify({
+    event: "listening",
+    namespaceRoot: config.namespaceRoot,
+    socket: config.socketPath,
+  }),
+);
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    server.stop();
+    void unlink(config.socketPath).catch(() => {});
+    process.exit(0);
+  });
+}

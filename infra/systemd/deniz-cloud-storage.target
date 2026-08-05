@@ -1,0 +1,11 @@
+[Unit]
+Description=Deniz Cloud POSIX storage boundary
+Requires=deniz-cloud-storage-namespace.service
+Requires=deniz-cloud-storage-firewall.service
+Requires=deniz-cloud-storage-smb.service
+Requires=deniz-cloud-storage-api-broker.service
+Requires=deniz-cloud-storage-watchdog.service
+After=deniz-cloud-storage-api-broker.service deniz-cloud-storage-watchdog.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=Deniz Cloud SMB3 and API storage broker
+Requires=deniz-cloud-storage-namespace.service deniz-cloud-storage-firewall.service
+After=deniz-cloud-storage-namespace.service deniz-cloud-storage-firewall.service
+Before=deniz-cloud-storage-api-broker.service deniz-cloud-storage-watchdog.service
+PartOf=deniz-cloud-storage.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+ExecStartPre=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute validate
+ExecStartPre=/usr/bin/testparm -s /etc/samba/deniz-cloud-storage.conf
+ExecStart=/usr/sbin/smbd --foreground --no-process-group -s /etc/samba/deniz-cloud-storage.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=16384
+

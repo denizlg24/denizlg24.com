@@ -1,0 +1,369 @@
+#!/bin/bash
+
+set -euo pipefail
+umask 077
+
+mode=--dry-run
+action=status
+mode_seen=false
+action_seen=false
+account_id=""
+
+usage() {
+  echo "Usage: $0 [--dry-run|--execute] [validate|compose-validate|mount|unmount|firewall-start|firewall-stop|broker-mount|broker-unmount|provision-account|watch|recover|status] [--account-id=UUID]" >&2
+}
+
+for argument in "$@"; do
+  case "$argument" in
+    --dry-run|--execute)
+      [[ "$mode_seen" == false ]] || { usage; exit 2; }
+      mode="$argument"; mode_seen=true ;;
+    validate|compose-validate|mount|unmount|firewall-start|firewall-stop|broker-mount|broker-unmount|provision-account|watch|recover|status)
+      [[ "$action_seen" == false ]] || { usage; exit 2; }
+      action="$argument"; action_seen=true ;;
+    --account-id=*) account_id=${argument#*=} ;;
+    *) usage; exit 2 ;;
+  esac
+done
+
+config=${DENIZ_POSIX_CONFIG:-/etc/deniz-cloud/posix-storage.env}
+ssd_mount=/mnt/ssd
+hdd_mount=/mnt/hdd
+ssd_branch=/mnt/ssd/deniz-cloud/namespace
+hdd_branch=/mnt/hdd/deniz-cloud/namespace
+merged=/srv/deniz-cloud/storage
+internal=/srv/deniz-cloud/internal
+broker_mount=/srv/deniz-cloud/api-storage
+credentials=/etc/deniz-cloud/posix-api-broker.credentials
+witness_name=.denizcloud-mount-witness
+critical=/run/deniz-cloud/posix-storage-critical.json
+firewall_table=deniz_cloud_storage
+firewall_comment=deniz-cloud-posix-storage-v1
+namespace_unit=deniz-cloud-storage-namespace.service
+metadata_unit=deniz-cloud-storage-metadata.service
+smb_unit=deniz-cloud-storage-smb.service
+broker_unit=deniz-cloud-storage-api-broker.service
+
+assert_config_file() {
+  [[ -f "$config" && ! -L "$config" ]] || { echo "Missing safe config: $config" >&2; return 1; }
+  [[ "$(stat -c '%u:%g' "$config")" == 0:0 ]] || { echo "Config must be root:root" >&2; return 1; }
+  (( (8#$(stat -c '%a' "$config") & 8#022) == 0 )) || { echo "Config must not be group/other writable" >&2; return 1; }
+}
+
+load_config() {
+  assert_config_file
+  # The file is privileged operator configuration and is rejected when it is
+  # a symlink or writable by non-root users.
+  set -a
+  # shellcheck disable=SC1090
+  source "$config"
+  set +a
+  : "${DENIZ_POSIX_SSD_UUID:?required}"
+  : "${DENIZ_POSIX_HDD_UUID:?required}"
+  : "${DENIZ_POSIX_SSD_BRANCH_ID:?required}"
+  : "${DENIZ_POSIX_HDD_BRANCH_ID:?required}"
+  : "${DENIZ_POSIX_TAILSCALE_IP:?required}"
+  : "${DENIZ_POSIX_SSD_RESERVE:?required}"
+  : "${DENIZ_POSIX_BOUNDARY_MODE:?required}"
+  : "${STORAGE_NAMESPACE_WITNESS_PATH:?required}"
+  : "${STORAGE_NAMESPACE_WITNESS_VALUE:?required}"
+  : "${DENIZ_POSIX_COMPOSE_FILE:?required}"
+  : "${DENIZ_POSIX_COMPOSE_OVERRIDE:?required}"
+  : "${DENIZ_POSIX_COMPOSE_ENV:?required}"
+  for uuid in "$DENIZ_POSIX_SSD_UUID" "$DENIZ_POSIX_HDD_UUID" "$DENIZ_POSIX_SSD_BRANCH_ID" "$DENIZ_POSIX_HDD_BRANCH_ID"; do
+    [[ "$uuid" =~ ^[0-9A-Fa-f-]{8,64}$ ]] || { echo "Invalid UUID-shaped config value" >&2; return 1; }
+  done
+  [[ "$DENIZ_POSIX_SSD_BRANCH_ID" != "$DENIZ_POSIX_HDD_BRANCH_ID" ]] || { echo "Branch IDs must be distinct" >&2; return 1; }
+  IFS=. read -r tail_a tail_b tail_c tail_d <<< "$DENIZ_POSIX_TAILSCALE_IP"
+  [[ "$tail_a" == 100 && "$tail_b" =~ ^[0-9]+$ && "$tail_c" =~ ^[0-9]+$ && "$tail_d" =~ ^[0-9]+$ ]] || { echo "Tailscale IPv4 must be in 100.64.0.0/10" >&2; return 1; }
+  (( tail_b >= 64 && tail_b <= 127 && tail_c <= 255 && tail_d <= 255 )) || { echo "Tailscale IPv4 must be in 100.64.0.0/10" >&2; return 1; }
+  [[ "$DENIZ_POSIX_BOUNDARY_MODE" == gate1b-pilot ]] || { echo "Only the non-production Gate1B broker pilot is currently permitted" >&2; return 1; }
+  [[ "$DENIZ_POSIX_SSD_RESERVE" =~ ^[1-9][0-9]*(M|G|T)$ ]] || { echo "Reserve must use M, G, or T units" >&2; return 1; }
+  [[ "$STORAGE_NAMESPACE_WITNESS_PATH" == "/data/storage/$witness_name" ]] || { echo "Broker witness path must match the container contract" >&2; return 1; }
+  [[ "$STORAGE_NAMESPACE_WITNESS_VALUE" =~ ^[A-Za-z0-9._:-]{16,200}$ ]] || { echo "Invalid broker witness value" >&2; return 1; }
+  [[ "$DENIZ_POSIX_COMPOSE_FILE" == /* && "$DENIZ_POSIX_COMPOSE_OVERRIDE" == /* && "$DENIZ_POSIX_COMPOSE_ENV" == /* ]] || { echo "Compose paths must be absolute" >&2; return 1; }
+}
+
+validate_branch() {
+  local mount_path=$1 branch_path=$2 role=$3 expected_uuid=$4 expected_id=$5 marker source actual_uuid
+  mountpoint -q "$mount_path" || { echo "$role filesystem is not mounted" >&2; return 1; }
+  source=$(findmnt -n -o SOURCE --target "$mount_path")
+  actual_uuid=$(blkid -s UUID -o value "$source")
+  [[ "${actual_uuid,,}" == "${expected_uuid,,}" ]] || { echo "$role filesystem UUID mismatch" >&2; return 1; }
+  [[ -d "$branch_path" && ! -L "$branch_path" ]] || { echo "$role namespace branch is missing or unsafe" >&2; return 1; }
+  [[ "$(findmnt -n -o TARGET --target "$branch_path")" == "$mount_path" ]] || { echo "$role branch crossed an unexpected mount" >&2; return 1; }
+  marker="$branch_path/.denizcloud-branch.json"
+  [[ -f "$marker" && ! -L "$marker" ]] || { echo "$role branch marker is missing or unsafe" >&2; return 1; }
+  jq -e --arg role "$role" --arg uuid "$expected_uuid" --arg id "$expected_id" '
+    .schemaVersion == 1 and .role == $role and
+    ((.filesystemUuid | ascii_downcase) == ($uuid | ascii_downcase)) and
+    .branchId == $id and (.createdAt | type == "string")
+  ' "$marker" >/dev/null || { echo "$role branch marker mismatch" >&2; return 1; }
+  [[ ! -e "$branch_path/.s3-v2" && ! -L "$branch_path/.s3-v2" ]] || { echo "S3 storage must remain outside the POSIX namespace" >&2; return 1; }
+}
+
+validate_branches() {
+  load_config
+  validate_branch "$ssd_mount" "$ssd_branch" ssd "$DENIZ_POSIX_SSD_UUID" "$DENIZ_POSIX_SSD_BRANCH_ID"
+  validate_branch "$hdd_mount" "$hdd_branch" hdd "$DENIZ_POSIX_HDD_UUID" "$DENIZ_POSIX_HDD_BRANCH_ID"
+}
+
+validate_samba_principals() {
+  local broker_username
+  [[ "$(getent passwd denizlg24 | cut -d: -f3-4)" == 1000:1000 ]] || { echo "Storage identity must resolve to uid/gid 1000" >&2; return 1; }
+  [[ "$(getent group denizlg24 | cut -d: -f3)" == 1000 ]] || { echo "Storage group must resolve to gid 1000" >&2; return 1; }
+  getent passwd deniz-api-broker >/dev/null || { echo "Missing non-login Unix principal: deniz-api-broker" >&2; return 1; }
+  [[ "$(getent passwd deniz-api-broker | cut -d: -f7)" =~ /(nologin|false)$ ]] || { echo "API broker Unix principal must be non-login" >&2; return 1; }
+  pdbedit -L -u deniz-api-broker >/dev/null 2>&1 || { echo "Missing Samba principal: deniz-api-broker" >&2; return 1; }
+  [[ -f "$credentials" && ! -L "$credentials" && "$(stat -c '%u:%g:%a' "$credentials")" == 0:0:600 ]] || { echo "Unsafe API broker credentials" >&2; return 1; }
+  broker_username=$(awk -F= '$1=="username"{print $2}' "$credentials")
+  [[ "$broker_username" == deniz-api-broker ]] || { echo "API broker credentials name mismatch" >&2; return 1; }
+}
+
+validate_runtime() {
+  validate_branches
+  validate_samba_principals
+}
+
+validate_compose() {
+  local rendered
+  load_config
+  for compose_input in "$DENIZ_POSIX_COMPOSE_FILE" "$DENIZ_POSIX_COMPOSE_OVERRIDE" "$DENIZ_POSIX_COMPOSE_ENV"; do
+    [[ -f "$compose_input" && ! -L "$compose_input" ]] || { echo "Missing safe Compose input: $compose_input" >&2; return 1; }
+    [[ "$(stat -c '%u:%g' "$compose_input")" == 0:0 ]] || { echo "Compose input must be a deployed root-owned file: $compose_input" >&2; return 1; }
+    (( (8#$(stat -c '%a' "$compose_input") & 8#022) == 0 )) || { echo "Compose input is group/other writable: $compose_input" >&2; return 1; }
+  done
+  [[ "$(stat -c '%a' "$DENIZ_POSIX_COMPOSE_ENV")" == 600 ]] || { echo "Compose environment must be mode 0600" >&2; return 1; }
+  rendered=$(docker compose --env-file "$DENIZ_POSIX_COMPOSE_ENV" -f "$DENIZ_POSIX_COMPOSE_FILE" -f "$DENIZ_POSIX_COMPOSE_OVERRIDE" config --format json)
+  jq -e --arg witness "$STORAGE_NAMESPACE_WITNESS_VALUE" '
+    .services.api.environment.STORAGE_NAMESPACE_MODE == "broker-mounted" and
+    .services.api.environment.STORAGE_NAMESPACE_PATH == "/data/storage" and
+    .services.api.environment.STORAGE_NAMESPACE_WITNESS_PATH == "/data/storage/.denizcloud-mount-witness" and
+    .services.api.environment.STORAGE_NAMESPACE_WITNESS_VALUE == $witness and
+    .services.api.environment.STORAGE_METADATA_SOCKET == "/run/deniz-cloud/storage-metadata.sock" and
+    (.services.api.environment.STORAGE_METADATA_TOKEN | type == "string" and length >= 16)
+  ' <<< "$rendered" >/dev/null || { echo "Rendered API broker environment mismatch" >&2; return 1; }
+  jq -e '
+    def volumes: (.services.api.volumes // []);
+    ([volumes[] | select(.type == "bind" and .source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage" and .read_only == false)] | length) == 1 and
+    ([volumes[] | select(.type == "bind")] | length) == 13 and
+    ([volumes[] | select(.type == "bind") | .target] | unique | length) == 13 and
+    ([volumes[] | select(.type == "bind") | select(
+      (.source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage") or
+      (.source == "/run/deniz-cloud/storage-metadata.sock" and .target == "/run/deniz-cloud/storage-metadata.sock") or
+      (.source == "/mnt/ssd/deniz-cloud/internal/.capacity" and .target == "/data/capacity/ssd" and .read_only == true) or
+      (.source == "/mnt/hdd/deniz-cloud/internal/.capacity" and .target == "/data/capacity/hdd" and .read_only == true) or
+      (.source == "/srv/deniz-cloud/internal/.capacity" and .target == "/data/capacity/root" and .read_only == true) or
+      (.source == "/mnt/ssd/deniz-cloud/internal/.s3-v2" and .target == "/data/internal/s3") or
+      (.source == "/mnt/ssd/deniz-cloud/internal/.s3-v2-temp" and .target == "/data/internal/s3-temp") or
+      (.source == "/mnt/ssd/deniz-cloud/internal/.tus-partial" and .target == "/data/internal/tus") or
+      (.source == "/mnt/ssd/deniz-cloud/internal/.archives" and .target == "/data/internal/archives") or
+      (.source == "/proc" and .target == "/host/proc" and .read_only == true) or
+      (.source == "/sys" and .target == "/host/sys" and .read_only == true) or
+      (.source == "/mnt/hdd/backups" and .target == "/backups") or
+      (.source == "/var/lib/deniz-cloud" and .target == "/host-control")
+    )] | length) == ([volumes[] | select(.type == "bind")] | length)
+  ' <<< "$rendered" >/dev/null || { echo "Rendered API volumes bypass the broker or expose a broad/private storage root" >&2; return 1; }
+  local bind_source canonical_source
+  while IFS= read -r bind_source; do
+    canonical_source=$(realpath -e "$bind_source" 2>/dev/null || true)
+    [[ "$canonical_source" == "$bind_source" ]] || { echo "API bind source is absent or aliases another path: $bind_source" >&2; return 1; }
+  done < <(jq -r '.services.api.volumes[] | select(.type == "bind") | .source' <<< "$rendered")
+}
+
+provision_account() {
+  load_config
+  [[ "$account_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || { echo "A canonical lowercase account UUID is required" >&2; return 1; }
+  merged_is_current && validate_witness || { echo "Authoritative namespace is unavailable" >&2; return 1; }
+  # Frozen API paths place each account UUID directly below the namespace
+  # root. Device principals must use this exact path as their Unix home so
+  # Samba Personal and the API broker resolve the same tree.
+  local account_root="$merged/$account_id"
+  if [[ -e "$account_root" || -L "$account_root" ]]; then
+    [[ -d "$account_root" && ! -L "$account_root" && "$(stat -c '%u:%g:%a' "$account_root")" == 1000:1000:770 ]] || { echo "Existing account root is unsafe" >&2; return 1; }
+    return
+  fi
+  install -d -m 0770 -o 1000 -g 1000 "$account_root"
+  sync -f "$merged"
+}
+
+merged_is_current() {
+  [[ "$(findmnt -n -o FSTYPE --target "$merged" 2>/dev/null || true)" == fuse.mergerfs ]] &&
+    [[ "$(findmnt -n -o SOURCE --target "$merged" 2>/dev/null || true)" == deniz-cloud-storage ]]
+}
+
+validate_witness() {
+  local path="$merged/$witness_name"
+  [[ -f "$path" && ! -L "$path" && "$(stat -c '%u:%g:%a:%h' "$path")" == 0:0:444:1 ]] || return 1
+  [[ "$(cat "$path")" == "$STORAGE_NAMESPACE_WITNESS_VALUE" ]] || return 1
+}
+
+publish_witness() {
+  local path="$merged/$witness_name" partial="$merged/.witness.partial.$$"
+  if [[ -e "$path" || -L "$path" ]]; then
+    validate_witness || { echo "Existing broker witness is invalid" >&2; return 1; }
+    return
+  fi
+  [[ "$(stat -c '%u:%g:%a' "$merged")" == 0:0:755 ]] || { echo "Merged root must be root:root 0755" >&2; return 1; }
+  printf '%s\n' "$STORAGE_NAMESPACE_WITNESS_VALUE" > "$partial"
+  chown 0:0 "$partial"; chmod 0444 "$partial"; sync -f "$partial"; mv "$partial" "$path"; sync -f "$merged"
+  validate_witness
+}
+
+mount_namespace() {
+  validate_branches
+  [[ ! -e "$critical" && ! -L "$critical" ]] || { echo "Critical marker exists; run recover after repairing branches" >&2; return 1; }
+  if mountpoint -q "$merged"; then merged_is_current || { echo "Merged path has a foreign mount" >&2; return 1; }; publish_witness; return; fi
+  install -d -m 0755 -o root -g root "$merged" "$internal" "$broker_mount"
+  [[ -z "$(find "$merged" -mindepth 1 -maxdepth 1 -print -quit)" ]] || { echo "Unmounted merged path is not empty" >&2; return 1; }
+  [[ "$(mergerfs --version | awk 'NR==1{sub(/^v/,"",$NF);print $NF}')" == 2.42.0 ]] || { echo "mergerfs 2.42.0 is required" >&2; return 1; }
+  mergerfs -o "allow_other,nodev,nosuid,branches-mount-timeout=5,branches-mount-timeout-fail=true,minfreespace=$DENIZ_POSIX_SSD_RESERVE,moveonenospc=false,inodecalc=path-hash,xattr=passthrough,posix-acl=true,kernel-permissions-check=true,cache.files=off,cache.attr=0,cache.entry=0,cache.negative-entry=0,cache.readdir=false,cache.statfs=0,cache.writeback=false,follow-symlinks=never,category.create=ff,category.search=ff,category.action=epall,func.getattr=ff,fsname=deniz-cloud-storage" "$ssd_branch:$hdd_branch" "$merged"
+  if ! merged_is_current || ! publish_witness; then
+    fusermount3 -u "$merged" || umount "$merged" || true
+    echo "Merged mount verification failed and was rolled back" >&2
+    return 1
+  fi
+}
+
+broker_is_current() {
+  [[ "$(findmnt -n -o FSTYPE --target "$broker_mount" 2>/dev/null || true)" == cifs ]] &&
+    [[ "$(findmnt -n -o SOURCE --target "$broker_mount" 2>/dev/null || true)" == //127.0.0.1/ApiBroker ]]
+}
+
+mount_broker() {
+  load_config
+  merged_is_current || { echo "Merged namespace is not mounted" >&2; return 1; }
+  validate_witness || { echo "Merged namespace witness is invalid" >&2; return 1; }
+  [[ -f "$credentials" && ! -L "$credentials" && "$(stat -c '%u:%g:%a' "$credentials")" == 0:0:600 ]] || { echo "Unsafe API broker credentials" >&2; return 1; }
+  if mountpoint -q "$broker_mount"; then broker_is_current || { echo "Broker path has a foreign mount" >&2; return 1; }; return; fi
+  install -d -m 0755 -o root -g root "$broker_mount"
+  [[ -z "$(find "$broker_mount" -mindepth 1 -maxdepth 1 -print -quit)" ]] || { echo "Unmounted broker path is not empty" >&2; return 1; }
+  mount -t cifs //127.0.0.1/ApiBroker "$broker_mount" -o "credentials=$credentials,vers=3.1.1,seal,sign,uid=1000,gid=1000,forceuid,forcegid,nosuid,nodev,noexec,noperm,nounix,cache=none,actimeo=0,serverino"
+  if ! broker_is_current || [[ "$(cat "$broker_mount/$witness_name" 2>/dev/null || true)" != "$STORAGE_NAMESPACE_WITNESS_VALUE" ]]; then
+    broker_is_current && umount "$broker_mount" || true
+    echo "API broker verification failed and was rolled back" >&2
+    return 1
+  fi
+}
+
+firewall_current() {
+  local ruleset
+  ruleset=$(nft -j list table inet "$firewall_table" 2>/dev/null || true)
+  [[ -n "$ruleset" ]] && jq -e \
+    --arg table "$firewall_table" \
+    --arg tableComment "$firewall_comment" '
+      def rules: [.nftables[] | .rule? | select(.family == "inet" and .table == $table and .chain == "input")];
+      def chains: [.nftables[] | .chain? | select(.family == "inet" and .table == $table)];
+      def tcp445: .match.op == "==" and .match.left.payload.protocol == "tcp" and .match.left.payload.field == "dport" and .match.right == 445;
+      def iif($name): .match.op == "==" and .match.left.meta.key == "iifname" and .match.right == $name;
+      def ipv4($address): .match.op == "==" and .match.left.payload.protocol == "ip" and .match.left.payload.field == "daddr" and .match.right == $address;
+      ([.nftables[] | .table? | select(.family == "inet" and .name == $table and .comment == $tableComment)] | length) == 1 and
+      (chains | length) == 1 and
+      (chains[0].name == "input" and chains[0].type == "filter" and chains[0].hook == "input" and chains[0].prio == -100 and chains[0].policy == "accept") and
+      (rules | length) == 2 and
+      (rules[0].comment == "API broker loopback" and (rules[0].expr | length) == 4 and (rules[0].expr[0] | iif("lo")) and (rules[0].expr[1] | ipv4("127.0.0.1")) and (rules[0].expr[2] | tcp445) and (rules[0].expr[3] | has("accept") and .accept == null)) and
+      (rules[1].comment == "Reject non-loopback SMB pilot" and (rules[1].expr | length) == 2 and (rules[1].expr[0] | tcp445) and rules[1].expr[1].reject.type == "tcp reset")
+    ' <<< "$ruleset" >/dev/null
+}
+
+start_firewall() {
+  load_config
+  [[ "$(ip -4 -o address show dev tailscale0 | awk 'NR==1{split($4,a,"/");print a[1]}')" == "$DENIZ_POSIX_TAILSCALE_IP" ]] || { echo "Configured Tailscale IP is not present on tailscale0" >&2; return 1; }
+  ! ss -H -ltn 'sport = :445' | grep -q . || { echo "Refusing to protect an existing TCP 445 listener" >&2; return 1; }
+  for stock_unit in smbd.service nmbd.service samba-ad-dc.service; do
+    ! systemctl is-active --quiet "$stock_unit" || { echo "Stock Samba unit is active: $stock_unit" >&2; return 1; }
+  done
+  if nft list table inet "$firewall_table" >/dev/null 2>&1; then firewall_current || { echo "Foreign firewall table exists" >&2; return 1; }; return; fi
+  nft -f - <<EOF
+add table inet $firewall_table { comment "$firewall_comment"; }
+add chain inet $firewall_table input { type filter hook input priority -100; policy accept; }
+add rule inet $firewall_table input iifname "lo" ip daddr 127.0.0.1 tcp dport 445 accept comment "API broker loopback"
+add rule inet $firewall_table input tcp dport 445 reject with tcp reset comment "Reject non-loopback SMB pilot"
+EOF
+  firewall_current || { nft delete table inet "$firewall_table" || true; echo "Firewall verification failed" >&2; return 1; }
+}
+
+stop_firewall() {
+  load_config
+  nft list table inet "$firewall_table" >/dev/null 2>&1 || return 0
+  firewall_current || { echo "Refusing to remove foreign firewall table" >&2; return 1; }
+  ! ss -H -ltn 'sport = :445' | grep -q . || { echo "Refusing to remove firewall while TCP 445 listens" >&2; return 1; }
+  nft delete table inet "$firewall_table"
+}
+
+fail_closed() {
+  local reason=$1
+  install -d -m 0755 /run/deniz-cloud
+  jq -n --arg at "$(date --utc +%FT%TZ)" --arg reason "$reason" '{schemaVersion:1,at:$at,reason:$reason,writesWithdrawn:true}' > "$critical.partial"
+  mv "$critical.partial" "$critical"; chmod 0444 "$critical"
+  systemctl stop "$metadata_unit" || true
+  systemctl stop "$broker_unit" || true
+  systemctl stop "$smb_unit" || true
+  # A failed unmount and a foreign mount are different problems: the first
+  # needs a retry or a lazy unmount, the second must never be touched. Folding
+  # them into one message hides which one happened.
+  if mountpoint -q "$broker_mount"; then
+    if broker_is_current; then
+      umount "$broker_mount" || echo "Broker unmount failed during fail-close" >&2
+    else
+      echo "Preserving foreign broker mount during fail-close" >&2
+    fi
+  fi
+  if mountpoint -q "$merged"; then
+    if merged_is_current; then
+      fusermount3 -u "$merged" || umount "$merged" \
+        || echo "Merged unmount failed during fail-close" >&2
+    else
+      echo "Preserving foreign merged mount during fail-close" >&2
+    fi
+  fi
+  echo "STOP: POSIX namespace withdrawn: $reason" >&2
+  return 20
+}
+
+watch_once() {
+  validate_branches || fail_closed branch-validation
+  merged_is_current || fail_closed merged-mount
+  validate_witness || fail_closed broker-witness
+  broker_is_current || fail_closed api-broker-mount
+  [[ "$(cat "$broker_mount/$witness_name" 2>/dev/null || true)" == "$STORAGE_NAMESPACE_WITNESS_VALUE" ]] || fail_closed api-broker-witness
+  systemctl is-active --quiet "$metadata_unit" || fail_closed metadata-service
+  systemctl is-active --quiet "$smb_unit" || fail_closed smbd-service
+  local smbd_pid
+  smbd_pid=$(systemctl show -p MainPID --value "$smb_unit")
+  [[ "$smbd_pid" =~ ^[1-9][0-9]*$ && -r "/proc/$smbd_pid/comm" && "$(cat "/proc/$smbd_pid/comm")" == smbd ]] || fail_closed smbd-process
+  ss -H -ltnp 'sport = :445' | grep -Fq "pid=$smbd_pid," || fail_closed smbd-listener
+  firewall_current || fail_closed smb-firewall
+}
+
+status_json() {
+  load_config
+  jq -n --argjson ssd "$(validate_branch "$ssd_mount" "$ssd_branch" ssd "$DENIZ_POSIX_SSD_UUID" "$DENIZ_POSIX_SSD_BRANCH_ID" >/dev/null 2>&1 && echo true || echo false)" \
+    --argjson hdd "$(validate_branch "$hdd_mount" "$hdd_branch" hdd "$DENIZ_POSIX_HDD_UUID" "$DENIZ_POSIX_HDD_BRANCH_ID" >/dev/null 2>&1 && echo true || echo false)" \
+    --argjson merged "$(merged_is_current && echo true || echo false)" --argjson broker "$(broker_is_current && echo true || echo false)" \
+    --argjson firewall "$(firewall_current && echo true || echo false)" --argjson critical "$([[ -e "$critical" || -L "$critical" ]] && echo true || echo false)" \
+    --arg witnessPath "/data/storage/$witness_name" '{ssdValid:$ssd,hddValid:$hdd,mergedMounted:$merged,apiBrokerMounted:$broker,firewallCurrent:$firewall,critical:$critical,containerWitnessPath:$witnessPath,s3Included:false}'
+}
+
+if [[ "$mode" == --dry-run ]]; then
+  jq -n --arg mode "$mode" --arg action "$action" --arg ssd "$ssd_branch" --arg hdd "$hdd_branch" --arg merged "$merged" --arg broker "$broker_mount" --arg witness "/data/storage/$witness_name" '{mode:$mode,action:$action,writes:false,paths:{ssd:$ssd,hdd:$hdd,merged:$merged,apiBroker:$broker},containerWitnessPath:$witness,s3Included:false}'
+  exit 0
+fi
+
+(( EUID == 0 )) || { echo "Execute mode requires root" >&2; exit 1; }
+for command in blkid docker find findmnt fusermount3 getent ip jq mergerfs mount mountpoint nft pdbedit realpath smbstatus ss stat systemctl umount; do command -v "$command" >/dev/null || { echo "Missing command: $command" >&2; exit 1; }; done
+
+case "$action" in
+  validate) validate_runtime; validate_compose; jq -n '{valid:true,boundaryMode:"gate1b-pilot",humanSharesAvailable:false,externalTcp445Allowed:false,s3Included:false}' ;;
+  compose-validate) validate_compose; jq -n '{composeValid:true,brokerSource:"/srv/deniz-cloud/api-storage",containerTarget:"/data/storage"}' ;;
+  mount) mount_namespace; jq -n --arg witness "$merged/$witness_name" '{mounted:true,witness:$witness}' ;;
+  unmount) mountpoint -q "$broker_mount" && { echo "API broker must be unmounted first" >&2; exit 1; }; if mountpoint -q "$merged"; then merged_is_current || { echo "Refusing to unmount a foreign merged mount" >&2; exit 1; }; fusermount3 -u "$merged"; fi ;;
+  firewall-start) start_firewall ;;
+  firewall-stop) stop_firewall ;;
+  broker-mount) mount_broker ;;
+  broker-unmount) if mountpoint -q "$broker_mount"; then broker_is_current || { echo "Refusing to unmount a foreign broker mount" >&2; exit 1; }; umount "$broker_mount"; fi ;;
+  provision-account) provision_account; jq -n --arg accountId "$account_id" '{provisioned:true,accountId:$accountId}' ;;
+  watch) while true; do watch_once; sleep 2; done ;;
+  recover) validate_branches; [[ ! -L "$critical" ]] || { echo "Unsafe critical marker" >&2; exit 1; }; rm -f "$critical"; echo '{"recovered":true}' ;;
+  status) status_json ;;
+esac

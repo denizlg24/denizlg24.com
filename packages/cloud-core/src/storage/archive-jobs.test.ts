@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm, utimes } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { type ArchiveEntry, archiveByteLength } from "./archive";
-import { type ArchiveJob, ArchiveJobStore } from "./archive-jobs";
+import {
+  ARCHIVE_JOB_SNAPSHOT_FILENAME,
+  type ArchiveJob,
+  ArchiveJobStore,
+  readArchiveJobSnapshot,
+} from "./archive-jobs";
 import { pathExists } from "./fs";
 
 const OWNER = "user:one";
@@ -59,7 +64,12 @@ describe("archive job store", () => {
   it("builds the archive and lands on the predicted size", async () => {
     const { jobs, entries, totalBytes } = await fixture();
     const job = await settle(
-      jobs.start({ ownerKey: OWNER, filename: "f.zip", totalBytes, entries }),
+      await jobs.start({
+        ownerKey: OWNER,
+        filename: "f.zip",
+        totalBytes,
+        entries,
+      }),
     );
     expect(job.state).toBe("ready");
     expect(job.writtenBytes).toBe(totalBytes);
@@ -70,7 +80,7 @@ describe("archive job store", () => {
   // one must not be reachable through another's key.
   it("only hands a job back to the owner that started it", async () => {
     const { jobs, entries, totalBytes } = await fixture();
-    const job = jobs.start({
+    const job = await jobs.start({
       ownerKey: OWNER,
       filename: "f.zip",
       totalBytes,
@@ -84,7 +94,7 @@ describe("archive job store", () => {
   it("records the failure and drops the partial file", async () => {
     const { jobs, entries, totalBytes } = await fixture();
     const job = await settle(
-      jobs.start({
+      await jobs.start({
         ownerKey: OWNER,
         filename: "f.zip",
         totalBytes,
@@ -99,7 +109,12 @@ describe("archive job store", () => {
   it("sweeps expired jobs and files the registry lost track of", async () => {
     const { jobs, directory, entries, totalBytes } = await fixture(0);
     const job = await settle(
-      jobs.start({ ownerKey: OWNER, filename: "f.zip", totalBytes, entries }),
+      await jobs.start({
+        ownerKey: OWNER,
+        filename: "f.zip",
+        totalBytes,
+        entries,
+      }),
     );
     const orphan = join(directory, "orphan.zip");
     await Bun.write(orphan, "left behind by a restart");
@@ -111,5 +126,56 @@ describe("archive job store", () => {
     expect(jobs.find(OWNER, job.id)).toBeUndefined();
     expect(await pathExists(job.diskPath)).toBe(false);
     expect(await pathExists(orphan)).toBe(false);
+  });
+
+  it("publishes a private snapshot without user-visible archive details", async () => {
+    const { jobs, directory, entries, totalBytes } = await fixture();
+    const initial = await readArchiveJobSnapshot(directory);
+    expect(initial).toMatchObject({
+      snapshot: { activeJobs: [], pid: process.pid, version: 1 },
+      status: "current",
+    });
+
+    const job = await jobs.start({
+      ownerKey: OWNER,
+      filename: "private-name.zip",
+      totalBytes,
+      entries,
+    });
+    const duringBuild = JSON.parse(
+      await readFile(join(directory, ARCHIVE_JOB_SNAPSHOT_FILENAME), "utf8"),
+    );
+    expect(duringBuild.activeJobs).toEqual([
+      expect.objectContaining({ id: job.id, state: "building" }),
+    ]);
+    expect(JSON.stringify(duringBuild)).not.toContain(OWNER);
+    expect(JSON.stringify(duringBuild)).not.toContain("private-name.zip");
+    expect(
+      (await stat(join(directory, ARCHIVE_JOB_SNAPSHOT_FILENAME))).mode & 0o777,
+    ).toBe(0o600);
+
+    await settle(job);
+    expect(await readArchiveJobSnapshot(directory)).toMatchObject({
+      snapshot: { activeJobs: [] },
+      status: "current",
+    });
+  });
+
+  it("distinguishes stale and unsafe snapshots from a current zero", async () => {
+    const { directory } = await fixture();
+    const path = join(directory, ARCHIVE_JOB_SNAPSHOT_FILENAME);
+    const snapshot = JSON.parse(await readFile(path, "utf8"));
+    snapshot.pid = 2_147_483_647;
+    await Bun.write(path, `${JSON.stringify(snapshot)}\n`);
+    await chmod(path, 0o600);
+    expect(await readArchiveJobSnapshot(directory)).toMatchObject({
+      status: "stale",
+    });
+
+    await chmod(path, 0o644);
+    expect(await readArchiveJobSnapshot(directory)).toEqual({
+      reason: "archive activity snapshot permissions are not private",
+      status: "invalid",
+    });
   });
 });

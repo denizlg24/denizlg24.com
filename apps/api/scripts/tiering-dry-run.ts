@@ -1,4 +1,5 @@
 import {
+  assertLegacyTieringAllowed,
   createDb,
   createTieringRepository,
   requiredEnv,
@@ -26,6 +27,7 @@ await runScript("tiering-dry-run", async (flags) => {
   }
 
   const storage = storageConfigFromEnv();
+  assertLegacyTieringAllowed(storage);
   const db = createDb(requiredEnv("DATABASE_URL"), { max: 1 });
 
   try {

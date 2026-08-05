@@ -51,6 +51,189 @@ Rollback: re-run the release workflow with `image_tag` set to the last good SHA.
 Bind mounts are untouched, so this is non-destructive. Do not prune images or
 volumes while diagnosing a failed deploy.
 
+## POSIX migration safety tools
+
+Plan 014's pre-migration snapshot is intentionally separate from the scheduled
+database backups. It freezes and archives both physical storage branches,
+including S3 and upload internals, and captures PostgreSQL, MongoDB, and the
+Redis ACL file. The archive keeps xattrs, POSIX ACLs, sparse allocation,
+ownership, modes, and timestamps. It also records content/tree manifests and
+only the deployed image identifiers; container environments and their secrets
+are never copied into evidence.
+
+Run the preflight first. By default, `--execute` refuses to proceed while the
+API is running. When the operator can guarantee that no storage mutations will
+occur for the duration, `--allow-live-api` records that explicit exception in
+the manifest while leaving the API available:
+
+```sh
+infra/scripts/posix-gate0-snapshot.sh --dry-run --allow-live-api
+infra/scripts/posix-gate0-snapshot.sh --execute --allow-live-api
+```
+
+The live exception is not a database-wide freeze: unrelated session, metric,
+and scheduler rows may continue changing, while each database dump remains
+individually consistent. The archive/manifests still fail verification if
+namespace bytes change during capture. The completed snapshot is private
+rollback material: it contains database role hashes and the Redis ACL, so keep
+its directory mode `0700`, transfer it only over the tailnet, and never commit
+it. Verify restoration on the Pi without touching either live branch:
+
+```sh
+sudo infra/scripts/posix-gate0-restore-verify.sh --execute \
+  /mnt/hdd/backups/posix-gate0-YYYYMMDDTHHMMSSZ
+```
+
+The verifier creates disposable loopback ext4 files and isolated database
+containers with networking disabled, compares the restored trees and every
+file checksum, writes `restore-proof.json`, then removes its temporary mounts,
+loop devices, containers, and volumes. Copy the completed snapshot off the Pi
+and run `sha256sum -c SHA256SUMS` again at the destination before treating Gate
+0 as backed up.
+
+### Disposable POSIX/Samba Gate 1
+
+Gate 1 never mounts a production storage branch. It creates sparse loopback
+ext4 images below `/var/lib/deniz-cloud/posix-gate1`, joins only those images
+with mergerfs, and starts an isolated `smbd`. Samba cannot use
+`bind interfaces only` with Tailscale's non-broadcast TUN interface, so a
+spike-owned nftables chain rejects TCP 445 unless it arrived on `tailscale0`.
+A narrowly scoped `lo`/`127.0.0.1` exception supports encrypted host health
+checks; Samba also enforces Tailscale/localhost `hosts allow`. The firewall is
+installed before `smbd`, retained until listener withdrawal is proven, and
+removed on verified failure or teardown. The normal Samba units remain masked.
+The production API stays online throughout this spike.
+
+Install the pinned host dependencies first:
+
+```sh
+infra/scripts/posix-gate1-install.sh --dry-run
+sudo infra/scripts/posix-gate1-install.sh --execute
+infra/scripts/posix-gate1-preflight.sh
+```
+
+The installer simulates the complete APT transaction before it masks Samba or
+installs anything. If Noble libraries are already at an updates-pocket version
+but `noble-updates` is no longer enabled, restore that Ubuntu source and rerun
+the installer; do not downgrade `libacl1` or `libattr1`.
+
+Build the API probes, then copy this exact layout to the Pi so the lifecycle
+script can resolve its template and bundles without environment overrides:
+
+```sh
+bun run --cwd apps/api build
+ssh pi-cloud 'install -d -m 700 /tmp/posix-gate1-kit/infra/scripts \
+  /tmp/posix-gate1-kit/infra/samba /tmp/posix-gate1-kit/apps/api/dist'
+scp infra/scripts/posix-gate1-spike.sh \
+  infra/scripts/posix-gate1-metadata.sh \
+  infra/scripts/posix-gate1-peer-container.sh \
+  infra/scripts/posix-gate1-tier-crash.sh \
+  pi-cloud:/tmp/posix-gate1-kit/infra/scripts/
+scp infra/samba/posix-gate1-smb.conf.in \
+  pi-cloud:/tmp/posix-gate1-kit/infra/samba/
+scp apps/api/dist/posix-gate1-probe.js \
+  apps/api/dist/posix-gate1-slow-client.js \
+  pi-cloud:/tmp/posix-gate1-kit/apps/api/dist/
+scp apps/api/dist/posix-gate1-peer.js pi-cloud:/tmp/posix-gate1-peer.js
+```
+
+Every mutating lifecycle command requires both `sudo` and `--execute`:
+
+```sh
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute prepare
+# This intentionally requires the prepared phase, before Samba starts.
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute branch-loss-test
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute start-samba
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute host-test
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute api-test
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-tier-crash.sh --execute
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute watchdog
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute status
+```
+
+Run the fail-closed checks only against this disposable spike. `watchdog` is a
+bounded, one-shot health check suitable for repeated scheduling. The destructive
+branch-loss probe requires the `prepared` phase with Samba stopped; it unmounts
+only the exact marked HDD loopback branch, withdraws the disposable mergerfs
+namespace, restores the branch, and compares the exact marker hashes:
+
+```sh
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute watchdog
+# Run only after an actual host reboot:
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute reboot-check
+```
+
+Exit 10 means the disposable namespace was safely withdrawn or a required STOP
+remains; exit 20 means fail-closed behavior could not be proven. A reboot check
+never claims marker preservation from resource absence alone: it stays
+quarantined until the loopback branches are remounted and their markers are
+verified. These checks always report `gate1Passed:false` and never touch a
+production mount.
+
+`host-test` and `api-test` are explicitly partial. They prove deterministic
+SSD/HDD placement, xattr/ACL/backup behavior, encrypted SMB round trips,
+highest-level container binding, Bun full/Range/TUS behavior, a 5.8 GB sparse
+slow-client shape, and bounded RSS. They do **not** pass Gate 1. Native
+Finder/Explorer behavior, protected-EA access, link creation, open-handle
+API↔SMB concurrency, live branch loss/reboot, tier-move crash points, and
+LAN/relay performance remain mandatory STOP-or-pass checks.
+
+The client probes use OS credential prompts and keep evidence private:
+
+```sh
+infra/scripts/posix-gate1-macos.sh --dry-run --host 100.89.155.9 --share Personal
+# PowerShell concurrency adds the validated Pi SSH endpoint and never forwards
+# the SMB credential:
+# .\posix-gate1-windows.ps1 --dry-run --host 100.89.155.9 --share Personal --ssh-host denizlg24@pi-cloud
+```
+
+The tier-crash probe uses only the loopback branches. It verifies exact bytes
+and stable xattrs while simulating interruption during copy, after destination
+fsync, after atomic publish, before source unlink, and during reverse promotion.
+Its result is intentionally partial; the production recovery implementation and
+an actual reboot-during-copy check remain later gates.
+
+The protected-xattr adversary is separate because an accepted reserved stream
+name is a Gate 1 failure even when Samba stores it under `user.DosStream.*`
+instead of overwriting the raw xattr. Prepare one exact marked directory under
+the disposable Personal share, seed protected metadata, then run the encrypted
+SMB attack. Its auth file is environment-only and never appears in evidence:
+
+```sh
+run_id="$(cat /proc/sys/kernel/random/uuid)"
+metadata_root="/var/lib/deniz-cloud/posix-gate1/mounts/merged/personal/posix-gate1-metadata-${run_id}"
+metadata_evidence="/var/lib/deniz-cloud/posix-gate1/evidence/metadata-${run_id}.jsonl"
+sudo -u '#1000' mkdir -m 700 "$metadata_root"
+printf 'deniz-cloud-posix-gate1-metadata:%s\n' "$run_id" \
+  | sudo -u '#1000' tee "$metadata_root/.posix-gate1-metadata" >/dev/null
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-metadata.sh --execute \
+  --action seed --root "$metadata_root" --run-id "$run_id" \
+  --evidence "$metadata_evidence"
+sudo env POSIX_GATE1_SMB_HOST=127.0.0.1 POSIX_GATE1_SMB_SHARE=Personal \
+  POSIX_GATE1_SMB_AUTH_FILE=/var/lib/deniz-cloud/posix-gate1/samba/client.auth \
+  /tmp/posix-gate1-kit/infra/scripts/posix-gate1-metadata.sh --execute \
+  --action smb-adversarial --root "$metadata_root" --run-id "$run_id" \
+  --evidence "$metadata_evidence"
+```
+
+The result distinguishes the raw protected attributes from a client-created
+reserved-name stream alias, validates the `fruit:resource=file` AppleDouble
+magic, checks that the `._` sidecar is hidden over SMB, and proves whether a
+normal SMB copy carries protected metadata. A reserved-name stream write,
+protected-value read, copied protected xattr, visible AppleDouble sidecar, or
+unexpected/special namespace entry leaves `allGreen:false` and exits nonzero.
+
+Cleanup is two explicit steps so evidence can be copied before destruction:
+
+```sh
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute stop
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute destroy
+```
+
+`destroy` accepts only the exact marked disposable root after every mount and
+loop device has been removed. It is irreversible for the disposable spike and
+never targets the production namespace.
+
 ## Host services
 
 **Terminal** is a compiled binary, never a container, and CI does not ship it:

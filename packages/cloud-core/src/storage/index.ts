@@ -16,12 +16,20 @@ export {
   writeArchive,
 } from "./archive";
 export {
+  type ActiveArchiveJobSnapshot,
+  ARCHIVE_JOB_SNAPSHOT_FILENAME,
   type ArchiveJob,
+  type ArchiveJobSnapshot,
+  type ArchiveJobSnapshotReadResult,
   type ArchiveJobState,
   ArchiveJobStore,
+  readArchiveJobSnapshot,
 } from "./archive-jobs";
 export {
+  BROKER_NAMESPACE_WITNESS_NAME,
   type StorageConfig,
+  type StorageNamespaceConfig,
+  type StorageNamespaceMode,
   storageConfigFromEnv,
 } from "./config";
 export { contentDisposition } from "./content-disposition";
@@ -34,6 +42,98 @@ export {
   getDiskStats,
   pathExists,
 } from "./fs";
+export {
+  type ChecksumState,
+  METADATA_SCHEMA_VERSION,
+  PROTECTED_XATTR_KEYS,
+  PROTECTED_XATTR_NAMESPACE,
+  type ProtectedMetadata,
+  protectedCanonicalForm,
+  protectedMetadataHash,
+} from "./metadata";
+export {
+  MetadataClientError,
+  type MetadataClientOptions,
+  NamespaceMetadataClient,
+} from "./metadata-client";
+export {
+  handleMetadataRequest,
+  isSupportedProtocolVersion,
+  tokenMatches,
+} from "./metadata-handler";
+export {
+  METADATA_PROTOCOL_VERSION,
+  type MetadataEntryPayload,
+  type MetadataListingPayload,
+  type MetadataRequest,
+  type MetadataResponse,
+} from "./metadata-protocol";
+export {
+  isReservedSegment,
+  NamespaceResolveError,
+  namespaceSegments,
+  type ResolvedEntry,
+  resolveNamespacePath,
+} from "./metadata-resolve";
+export {
+  type MetadataFailure,
+  MetadataServiceError,
+  type NamespaceEntry,
+  type NamespaceListing,
+  type NamespaceListingProblem,
+  NamespaceMetadataService,
+} from "./metadata-service";
+export {
+  createStorageNamespace,
+  type StorageNamespace,
+  type StorageNamespaceCapabilities,
+} from "./namespace";
+export {
+  type NamespaceHealth,
+  type NamespaceHealthInput,
+  type NamespaceHealthStatus,
+  namespaceHealth,
+} from "./namespace-health";
+export { STORAGE_METADATA_HEALTH_KEYS } from "./namespace-health-keys";
+export { createProjectionRepository } from "./namespace-projection-repository";
+export {
+  NamespaceProjector,
+  type NamespaceSource,
+  type ProjectionRepository,
+  type ScanOptions,
+  type ScanRecord,
+  type ScanResult,
+} from "./namespace-projector";
+export {
+  type ProjectedRow,
+  planReconciliation,
+  type ReapCandidateState,
+  type ReconcileInput,
+  type ReconcilePlan,
+  type ScanCompletionInput,
+  scanMayCount,
+} from "./namespace-reconcile";
+export {
+  rebuildStorageSearch,
+  type SearchRebuildResult,
+  type SearchRebuildSource,
+} from "./namespace-search-rebuild";
+export {
+  type BranchCopyObservation,
+  type DuplicateResolution,
+  resolveBranchDuplicate,
+  selectDemotions,
+  type TierCandidate,
+  type TieringGateInput,
+  type TierMove,
+  type TierSelectionInput,
+  tieringBlockedReason,
+} from "./namespace-tiering";
+export {
+  NamespaceWatcher,
+  type WatcherOptions,
+  type WatcherSignal,
+} from "./namespace-watcher";
 export {
   buildProjectRootPath,
   buildUserRootPath,
@@ -65,6 +165,20 @@ export {
   verifyShareToken,
 } from "./share";
 export {
+  type AccountState,
+  deriveSmbPrincipal,
+  evaluateSmbAuth,
+  generateSmbSecret,
+  PROVISION_ORDER,
+  REVOKE_ORDER,
+  type SmbAuthDecision,
+  SmbCredentialError,
+  type SmbCredentialRecord,
+  smbAuthThrottled,
+  type ThrottleInput,
+} from "./smb-credentials";
+export {
+  assertLegacyTieringAllowed,
   createTieringRepository,
   PromotionQueue,
   promoteFile,
@@ -74,3 +188,9 @@ export {
   type TieringOptions,
   type TieringRepository,
 } from "./tiering";
+export {
+  AttrCommandXattrBackend,
+  InMemoryXattrBackend,
+  type XattrBackend,
+  XattrError,
+} from "./xattr";

@@ -1,0 +1,15 @@
+[Unit]
+Description=Mount the loopback SMB broker for the Deniz Cloud API
+Requires=deniz-cloud-storage-smb.service
+After=deniz-cloud-storage-smb.service
+Before=deniz-cloud-storage-watchdog.service docker.service
+PartOf=deniz-cloud-storage.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute broker-mount
+ExecStop=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute broker-unmount
+TimeoutStartSec=30
+TimeoutStopSec=30
+

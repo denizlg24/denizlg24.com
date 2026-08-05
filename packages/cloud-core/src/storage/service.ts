@@ -7,7 +7,18 @@ import {
   shareExpiresInSchema,
   updateFileInputSchema,
 } from "@repo/schemas/cloud";
-import { and, count, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  like,
+  lt,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import type { Database } from "../db";
 import {
@@ -43,6 +54,11 @@ import {
   pathExists,
 } from "./fs";
 import {
+  MetadataClientError,
+  NamespaceMetadataClient,
+} from "./metadata-client";
+import { createStorageNamespace, type StorageNamespace } from "./namespace";
+import {
   buildProjectRootPath,
   buildUserRootPath,
   joinPath,
@@ -50,8 +66,6 @@ import {
   normalizeName,
   PathValidationError,
   parentPath,
-  resolveHddDiskPath,
-  resolveSsdDiskPath,
   SHARED_ROOT_PATH,
   sanitizeSegment,
   validatePath,
@@ -75,7 +89,17 @@ const STAGING_RESERVE_BYTES = 1024 * 1024 * 1024;
 
 export class StorageServiceError extends Error {
   constructor(
-    public readonly status: 400 | 403 | 404 | 409 | 410 | 413 | 415 | 500 | 507,
+    public readonly status:
+      | 400
+      | 403
+      | 404
+      | 409
+      | 410
+      | 413
+      | 415
+      | 500
+      | 503
+      | 507,
     public readonly code: string,
     message: string,
   ) {
@@ -226,7 +250,7 @@ function parseTusMetadata(header: string): Record<string, string> {
 
 async function storageRoot(
   db: Database,
-  config: StorageConfig,
+  namespace: StorageNamespace,
   ownerId: string | null,
   path: string,
   name: string,
@@ -235,7 +259,7 @@ async function storageRoot(
     where: eq(folders.path, path),
   });
   if (existing) return existing;
-  await ensureDir(resolveSsdDiskPath(config.ssdStoragePath, path));
+  await ensureDir(namespace.resolveFolderPath(path));
   const [created] = await db
     .insert(folders)
     .values({ ownerId, path, name })
@@ -263,6 +287,8 @@ function safeJsonBody(value: unknown): Record<string, unknown> {
 export class StorageService {
   readonly #uploadLocks = new Map<string, Promise<void>>();
   readonly #archives: ArchiveJobStore;
+  readonly #namespace: StorageNamespace;
+  readonly #metadata: NamespaceMetadataClient | null;
 
   constructor(
     private readonly db: Database,
@@ -270,6 +296,19 @@ export class StorageService {
     private readonly config: StorageConfig,
     private readonly promotions: PromotionQueue,
   ) {
+    this.#namespace = createStorageNamespace(config);
+    this.#metadata =
+      config.namespace.mode === "broker-mounted" && config.namespace.metadata
+        ? new NamespaceMetadataClient(config.namespace.metadata)
+        : null;
+    if (
+      !this.#namespace.capabilities.directBranchTiering &&
+      promotions.isEnabled
+    ) {
+      throw new Error(
+        "Broker-mounted storage requires legacy promotion tiering to be disabled",
+      );
+    }
     this.#archives = new ArchiveJobStore({
       directory: config.archivePath,
       ttlMs: config.archiveTtlMs,
@@ -278,8 +317,7 @@ export class StorageService {
 
   async initialize(): Promise<void> {
     await Promise.all([
-      ensureDir(this.config.ssdStoragePath),
-      ensureDir(this.config.hddStoragePath),
+      this.#namespace.initialize(),
       ensureDir(this.config.tempUploadPath),
       this.#archives.initialize(),
     ]);
@@ -313,12 +351,12 @@ export class StorageService {
     const [userRoot, sharedRoot] = await Promise.all([
       storageRoot(
         this.db,
-        this.config,
+        this.#namespace,
         principal.user.id,
         buildUserRootPath(principal.user.id),
         principal.user.id,
       ),
-      storageRoot(this.db, this.config, null, SHARED_ROOT_PATH, "shared"),
+      storageRoot(this.db, this.#namespace, null, SHARED_ROOT_PATH, "shared"),
     ]);
     return {
       userRoot: { id: userRoot.id, path: userRoot.path, name: userRoot.name },
@@ -382,7 +420,7 @@ export class StorageService {
         "A folder already exists at this path",
       );
     }
-    const diskPath = resolveSsdDiskPath(this.config.ssdStoragePath, path);
+    const diskPath = this.#namespace.resolveFolderPath(path);
     const createdDir = await ensureDir(diskPath);
     try {
       const [created] = await this.db
@@ -576,11 +614,8 @@ export class StorageService {
         "A folder already exists at the target path",
       );
     }
-    const oldDiskPath = resolveSsdDiskPath(
-      this.config.ssdStoragePath,
-      folder.path,
-    );
-    const newDiskPath = resolveSsdDiskPath(this.config.ssdStoragePath, newPath);
+    const oldDiskPath = this.#namespace.resolveFolderPath(folder.path);
+    const newDiskPath = this.#namespace.resolveFolderPath(newPath);
     await ensureDir(dirname(newDiskPath));
     await rename(oldDiskPath, newDiskPath);
     try {
@@ -605,7 +640,6 @@ export class StorageService {
         // path rejects the row. Moving any folder with descendants failed this
         // way.
         const suffixFrom = folder.path.length + 1;
-        const diskSuffixFrom = oldDiskPath.length + 1;
         await tx
           .update(folders)
           .set({
@@ -613,14 +647,26 @@ export class StorageService {
             updatedAt: new Date(),
           })
           .where(like(folders.path, descendantPattern(folder.path)));
-        await tx
-          .update(files)
-          .set({
-            path: sql`${newPath} || SUBSTRING(${files.path} FROM ${suffixFrom}::int)`,
-            diskPath: sql`CASE WHEN ${files.tier} = 'ssd' THEN ${newDiskPath} || SUBSTRING(${files.diskPath} FROM ${diskSuffixFrom}::int) ELSE ${files.diskPath} END`,
-            updatedAt: new Date(),
-          })
-          .where(like(files.path, descendantPattern(folder.path)));
+        if (this.#namespace.usesSingleRequestTree) {
+          await tx
+            .update(files)
+            .set({
+              path: sql`${newPath} || SUBSTRING(${files.path} FROM ${suffixFrom}::int)`,
+              diskPath: sql`${newDiskPath} || SUBSTRING(${files.path} FROM ${suffixFrom}::int)`,
+              updatedAt: new Date(),
+            })
+            .where(like(files.path, descendantPattern(folder.path)));
+        } else {
+          const diskSuffixFrom = oldDiskPath.length + 1;
+          await tx
+            .update(files)
+            .set({
+              path: sql`${newPath} || SUBSTRING(${files.path} FROM ${suffixFrom}::int)`,
+              diskPath: sql`CASE WHEN ${files.tier} = 'ssd' THEN ${newDiskPath} || SUBSTRING(${files.diskPath} FROM ${diskSuffixFrom}::int) ELSE ${files.diskPath} END`,
+              updatedAt: new Date(),
+            })
+            .where(like(files.path, descendantPattern(folder.path)));
+        }
       });
     } catch (error) {
       await rename(newDiskPath, oldDiskPath).catch(console.error);
@@ -671,10 +717,7 @@ export class StorageService {
           "Folder is not empty. Delete all contents first.",
         );
       }
-      await deletePath(
-        resolveSsdDiskPath(this.config.ssdStoragePath, folder.path),
-        true,
-      );
+      await deletePath(this.#namespace.resolveFolderPath(folder.path), true);
       await this.db.delete(folders).where(eq(folders.id, id));
       void removeStorageDocuments(this.meili, [id]).catch(console.error);
       return { deletedFolders: 1, deletedFiles: 0 };
@@ -739,12 +782,14 @@ export class StorageService {
     // SSD files live inside the directory removed below. HDD files are keyed
     // by id outside the tree, so only those need unlinking one by one — which
     // matters when the subtree is a photo library rather than a few files.
-    for (const file of removedFiles) {
-      if (file.tier === "hdd")
-        await deletePath(file.diskPath).catch(console.error);
+    if (!this.#namespace.usesSingleRequestTree) {
+      for (const file of removedFiles) {
+        if (file.tier === "hdd")
+          await deletePath(file.diskPath).catch(console.error);
+      }
     }
     await deletePath(
-      resolveSsdDiskPath(this.config.ssdStoragePath, folder.path),
+      this.#namespace.resolveFolderPath(folder.path),
       true,
     ).catch(console.error);
 
@@ -824,6 +869,7 @@ export class StorageService {
   ): Promise<Response> {
     const file = await this.getFile(principal, id);
     this.recordAccess(file);
+    await this.assertNamespaceIdentity(file);
     return this.fileResponse(file, request);
   }
 
@@ -872,11 +918,12 @@ export class StorageService {
         "A file already exists at the target path",
       );
     }
+    const oldDiskPath = this.#namespace.resolveFilePath(file);
     let diskPath = file.diskPath;
-    if (file.tier === "ssd") {
-      diskPath = resolveSsdDiskPath(this.config.ssdStoragePath, path);
+    if (file.tier === "ssd" || this.#namespace.usesSingleRequestTree) {
+      diskPath = this.#namespace.resolveNewFilePath(path, file.tier, file.id);
       await ensureDir(dirname(diskPath));
-      await rename(file.diskPath, diskPath);
+      await rename(oldDiskPath, diskPath);
     }
     try {
       await this.db
@@ -885,7 +932,7 @@ export class StorageService {
         .where(eq(files.id, id));
     } catch (error) {
       if (diskPath !== file.diskPath) {
-        await rename(diskPath, file.diskPath).catch(console.error);
+        await rename(diskPath, oldDiskPath).catch(console.error);
       }
       throw error;
     }
@@ -903,7 +950,7 @@ export class StorageService {
 
   async deleteFile(principal: StoragePrincipal, id: string): Promise<void> {
     const file = await this.getFile(principal, id, "storage:delete", "modify");
-    await deletePath(file.diskPath);
+    await deletePath(this.#namespace.resolveFilePath(file));
     await this.db.delete(files).where(eq(files.id, id));
     void removeStorageDocuments(this.meili, [id]).catch(console.error);
   }
@@ -947,6 +994,7 @@ export class StorageService {
   async sharedDownload(token: string, request: Request): Promise<Response> {
     const file = await this.sharedFile(token);
     this.recordAccess(file);
+    await this.assertNamespaceIdentity(file);
     return this.fileResponse(file, request);
   }
 
@@ -1236,7 +1284,7 @@ export class StorageService {
       .where(
         and(
           eq(tusUploads.status, "in_progress"),
-          sql`${tusUploads.expiresAt} < ${now}`,
+          lt(tusUploads.expiresAt, now),
         ),
       );
     for (const upload of expired) {
@@ -1306,7 +1354,7 @@ export class StorageService {
       const segments = file.path.split("/").filter(Boolean);
       entries.push({
         name: segments.slice(1).join("/") || file.filename,
-        diskPath: file.diskPath,
+        diskPath: this.#namespace.resolveFilePath(file),
         size: file.sizeBytes,
         modifiedAt: file.updatedAt,
       });
@@ -1701,7 +1749,7 @@ export class StorageService {
       );
     }
     const copied = await this.#publishFile({
-      source: file.diskPath,
+      source: this.#namespace.resolveFilePath(file),
       sourceIsDisposable: false,
       existing: existing ?? null,
       ownerId: principal.user.id,
@@ -1748,19 +1796,13 @@ export class StorageService {
     checksum: string;
     mimeType: string | null;
   }): Promise<StorageFile> {
-    const stats = await getDiskStats(this.config.ssdStoragePath).catch(
-      () => null,
-    );
-    const tier: StorageTier =
-      input.sizeBytes >= this.config.tiering.minSizeBytes ||
-      (stats && stats.usagePercent >= this.config.tiering.highWatermarkPercent)
-        ? "hdd"
-        : "ssd";
+    const tier = await this.#newFileTier(input.sizeBytes);
     const fileId = input.existing?.id ?? crypto.randomUUID();
-    const finalDiskPath =
-      tier === "ssd"
-        ? resolveSsdDiskPath(this.config.ssdStoragePath, input.targetPath)
-        : resolveHddDiskPath(this.config.hddStoragePath, fileId);
+    const finalDiskPath = this.#namespace.resolveNewFilePath(
+      input.targetPath,
+      tier,
+      fileId,
+    );
     const stagedPath = `${finalDiskPath}.dav-staging-${crypto.randomUUID()}`;
     await ensureDir(dirname(stagedPath));
     if (input.sourceIsDisposable) {
@@ -1822,8 +1864,11 @@ export class StorageService {
       }
       throw error;
     }
-    if (input.existing && input.existing.diskPath !== finalDiskPath) {
-      await deletePath(input.existing.diskPath).catch(console.error);
+    if (input.existing) {
+      const previousPath = this.#namespace.resolveFilePath(input.existing);
+      if (previousPath !== finalDiskPath) {
+        await deletePath(previousPath).catch(console.error);
+      }
     }
 
     const saved = await this.db.query.files.findFirst({
@@ -1847,7 +1892,73 @@ export class StorageService {
       })
       .where(eq(files.id, file.id))
       .catch(console.error);
-    if (file.tier === "hdd") this.promotions.enqueue(file.id);
+    if (
+      file.tier === "hdd" &&
+      this.#namespace.capabilities.directBranchTiering
+    ) {
+      this.promotions.enqueue(file.id);
+    }
+  }
+
+  async #newFileTier(sizeBytes: number): Promise<StorageTier> {
+    if (!this.#namespace.capabilities.authoritativePhysicalTier) {
+      // The broker/union owns placement. Until the same-path branch projector
+      // lands, `ssd` is only the explicit SSD-first transitional projection
+      // hint; the legacy mover is disabled and must not act on it.
+      return "ssd";
+    }
+    const stats = await getDiskStats(this.config.ssdStoragePath).catch(
+      () => null,
+    );
+    return sizeBytes >= this.config.tiering.minSizeBytes ||
+      (stats && stats.usagePercent >= this.config.tiering.highWatermarkPercent)
+      ? "hdd"
+      : "ssd";
+  }
+
+  /**
+   * Confirms the namespace entry at this file's path still carries this file's
+   * ID before any of its bytes are served.
+   *
+   * Resolving a download by projected ID and then opening the path is only
+   * safe if something re-checks that the path still holds that ID: a rename
+   * between the two serves the wrong file's contents under the right file's
+   * name. In legacy mode there is no namespace to ask, and `diskPath` is
+   * itself the identity, so this is a no-op.
+   *
+   * Every failure is fatal to the request. An unreachable metadata service
+   * means identity is unknown, and unknown identity must not stream bytes.
+   */
+  private async assertNamespaceIdentity(file: StorageFile): Promise<void> {
+    if (!this.#metadata) {
+      if (this.#namespace.mode === "broker-mounted") {
+        throw new StorageServiceError(
+          503,
+          "STORAGE_METADATA_UNAVAILABLE",
+          "Namespace identity cannot be verified",
+        );
+      }
+      return;
+    }
+    try {
+      await this.#metadata.verify(file.path, file.id);
+    } catch (error) {
+      if (error instanceof MetadataClientError) {
+        if (error.code === "ID_MISMATCH") {
+          throw new StorageServiceError(
+            409,
+            "STORAGE_IDENTITY_CONFLICT",
+            "The stored entry no longer matches this file",
+          );
+        }
+        throw new StorageServiceError(
+          503,
+          "STORAGE_METADATA_UNAVAILABLE",
+          "Namespace identity cannot be verified",
+        );
+      }
+      throw error;
+    }
   }
 
   private fileResponse(file: StorageFile, request: Request): Response {
@@ -1868,7 +1979,9 @@ export class StorageService {
     const range = request.headers.get("Range");
     if (!range) {
       headers.set("Content-Length", String(file.sizeBytes));
-      return new Response(Bun.file(file.diskPath), { headers });
+      return new Response(Bun.file(this.#namespace.resolveFilePath(file)), {
+        headers,
+      });
     }
     const match = range.match(/^bytes=(\d*)-(\d*)$/);
     if (!match || (!match[1] && !match[2])) {
@@ -1905,10 +2018,13 @@ export class StorageService {
     // Hand the slice to Bun directly so it uses the sendfile path with
     // kernel-level backpressure. A userspace ReadableStream here copies every
     // chunk through JS and drops large transfers; see deniz-cloud d60d38d.
-    return new Response(Bun.file(file.diskPath).slice(start, end + 1), {
-      status: 206,
-      headers,
-    });
+    return new Response(
+      Bun.file(this.#namespace.resolveFilePath(file)).slice(start, end + 1),
+      {
+        status: 206,
+        headers,
+      },
+    );
   }
 
   private async findUpload(principal: StoragePrincipal, id: string) {
@@ -1946,19 +2062,13 @@ export class StorageService {
       return;
     }
     const checksum = await computeChecksum(upload.tempDiskPath);
-    const stats = await getDiskStats(this.config.ssdStoragePath).catch(
-      () => null,
-    );
-    const tier =
-      upload.sizeBytes >= this.config.tiering.minSizeBytes ||
-      (stats && stats.usagePercent >= this.config.tiering.highWatermarkPercent)
-        ? "hdd"
-        : "ssd";
+    const tier = await this.#newFileTier(upload.sizeBytes);
     const fileId = crypto.randomUUID();
-    const finalDiskPath =
-      tier === "ssd"
-        ? resolveSsdDiskPath(this.config.ssdStoragePath, upload.targetPath)
-        : resolveHddDiskPath(this.config.hddStoragePath, fileId);
+    const finalDiskPath = this.#namespace.resolveNewFilePath(
+      upload.targetPath,
+      tier,
+      fileId,
+    );
     if (await pathExists(finalDiskPath)) {
       throw new StorageServiceError(
         409,
@@ -2000,12 +2110,14 @@ export class StorageService {
           );
       });
     } catch (error) {
-      // An SSD upload writes to the deterministic target path, so on a lost
-      // race those bytes belong to the winner and must be left alone. An HDD
-      // upload writes to a path keyed by this call's own fresh file id, which
-      // no other request shares — leaving it behind would orphan the bytes
-      // with no row pointing at them.
-      if (!isUniqueViolation(error) || tier === "hdd") {
+      // A broker-mounted upload and a legacy SSD upload both publish to the
+      // deterministic logical target. On a lost race those bytes belong to
+      // the winner and must be left alone. Only a legacy HDD upload uses a
+      // fresh UUID path that no other request can share.
+      if (
+        !isUniqueViolation(error) ||
+        (!this.#namespace.usesSingleRequestTree && tier === "hdd")
+      ) {
         await deletePath(finalDiskPath).catch(console.error);
       }
       if (isUniqueViolation(error)) {
