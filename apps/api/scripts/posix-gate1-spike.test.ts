@@ -53,6 +53,13 @@ afterEach(async () => {
 });
 
 describe("POSIX Gate 1 spike shell safety", () => {
+  it("normalizes the pinned mergerfs release version", async () => {
+    const source = await Bun.file(SPIKE_SCRIPT).text();
+
+    expect(source).toContain('sub(/^v/, "", $NF)');
+    expect(source).toContain('!= "2.42.0"');
+  });
+
   it("permits only traversal to the fixed non-sudo peer mount", async () => {
     const source = await Bun.file(SPIKE_SCRIPT).text();
 

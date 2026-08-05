@@ -200,7 +200,7 @@ prepare_spike() {
     echo "tailscale0 has no IPv4 address" >&2
     exit 1
   fi
-  if [[ "$(mergerfs --version | awk 'NR == 1 {print $NF}')" != "2.42.0" ]]; then
+  if [[ "$(mergerfs --version | awk 'NR == 1 {sub(/^v/, "", $NF); print $NF}')" != "2.42.0" ]]; then
     echo "Gate 1 requires mergerfs 2.42.0" >&2
     exit 1
   fi
