@@ -388,8 +388,15 @@ export function buildValuationCurve(
       // vanishing from the curve and faking a drawdown.
       const price = close ?? lastKnownPrice.get(ticker) ?? null;
       if (close !== null) lastKnownPrice.set(ticker, close);
-      if (price === null) continue;
-      positionsValue += price * held.quantity;
+      // Before a symbol's first cached bar there is no last close to hold, and
+      // forward fill has nothing to fill from. Dropping the position valued it
+      // at zero, so a book that had spent its cash on a date with no bars —
+      // inception on a weekend, or a holding whose bars start later — produced
+      // a point worth nothing, and the next point's move read as the whole
+      // portfolio appearing out of thin air. That is the bogus day P&L. A
+      // position nothing has priced is carried at cost, which is signed exactly
+      // like `price * quantity` and so works for a short unchanged.
+      positionsValue += price === null ? held.costBasis : price * held.quantity;
     }
 
     const value = state.cash + positionsValue;
@@ -472,7 +479,10 @@ export function buildContributionSeries(
       const price = close ?? lastKnownPrice.get(ticker) ?? null;
       if (close !== null) lastKnownPrice.set(ticker, close);
 
-      const marketValue = price === null ? 0 : price * held.quantity;
+      // Carried at cost while unpriced, matching `buildValuationCurve` so the
+      // attribution lines still sum to the curve's `positionsValue`.
+      const marketValue =
+        price === null ? held.costBasis : price * held.quantity;
       // An unpriced symbol contributes nothing unrealised rather than a
       // fabricated loss against its cost basis.
       const unrealized = price === null ? 0 : marketValue - held.costBasis;
