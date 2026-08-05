@@ -107,6 +107,11 @@ sudo infra/scripts/posix-gate1-install.sh --execute
 infra/scripts/posix-gate1-preflight.sh
 ```
 
+The installer simulates the complete APT transaction before it masks Samba or
+installs anything. If Noble libraries are already at an updates-pocket version
+but `noble-updates` is no longer enabled, restore that Ubuntu source and rerun
+the installer; do not downgrade `libacl1` or `libattr1`.
+
 Build the API probes, then copy this exact layout to the Pi so the lifecycle
 script can resolve its template and bundles without environment overrides:
 

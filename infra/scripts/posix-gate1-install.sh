@@ -58,11 +58,6 @@ if ss -H -ltn 'sport = :445' | grep -q .; then
   exit 1
 fi
 
-# Package post-install hooks must never start a default file server. The masks
-# remain in place after the disposable spike; Checkpoint 5 owns any production
-# unmask and service enablement.
-systemctl mask --now "${samba_units[@]}"
-
 download_dir="$(mktemp -d /tmp/posix-gate1-install.XXXXXX)"
 cleanup() {
   set +e
@@ -78,6 +73,26 @@ curl --fail --location --proto '=https' --tlsv1.2 \
 printf '%s  %s\n' "$mergerfs_sha256" "$deb_path" | sha256sum -c -
 
 apt-get update
+simulation_output="$(mktemp "$download_dir/apt-simulation.XXXXXX")"
+if ! DEBIAN_FRONTEND=noninteractive apt-get --simulate install -y \
+  "${packages[@]}" "$deb_path" >"$simulation_output" 2>&1; then
+  cat "$simulation_output" >&2
+  if grep -Eq 'libacl1|libattr1' "$simulation_output"; then
+    cat >&2 <<'EOF'
+Gate 1 package installation is blocked by inconsistent Ubuntu package sources.
+On Ubuntu Noble, make sure noble-updates is enabled, run apt-get update, and
+rerun this installer. Do not downgrade libacl1 or libattr1 to work around it.
+EOF
+  fi
+  exit 1
+fi
+
+# Package post-install hooks must never start a default file server. Mask only
+# after APT has proved the complete transaction is resolvable. The masks remain
+# in place after the disposable spike; Checkpoint 5 owns any production unmask
+# and service enablement.
+systemctl mask --now "${samba_units[@]}"
+
 DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}" "$deb_path"
 systemctl mask --now "${samba_units[@]}"
 
