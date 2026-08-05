@@ -16,9 +16,14 @@ export {
   writeArchive,
 } from "./archive";
 export {
+  type ActiveArchiveJobSnapshot,
+  ARCHIVE_JOB_SNAPSHOT_FILENAME,
   type ArchiveJob,
+  type ArchiveJobSnapshot,
+  type ArchiveJobSnapshotReadResult,
   type ArchiveJobState,
   ArchiveJobStore,
+  readArchiveJobSnapshot,
 } from "./archive-jobs";
 export {
   type StorageConfig,
