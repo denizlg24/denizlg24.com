@@ -113,6 +113,56 @@ describe("performance window", () => {
     // between the two most recent closes.
     expect(curve[1]?.value).toBe(11_000);
   });
+
+  test("an unpriced holding is carried at cost, not written to zero", () => {
+    // Inception on a day with no bar — a weekend, a holiday, or a symbol whose
+    // cached history starts later. The book has spent its cash, so dropping the
+    // unpriced position left the first point worth nothing and the next day's
+    // move read as the entire portfolio materialising in one session.
+    const dates = performanceDates({
+      barDates: [],
+      inceptionDate: "2026-02-28",
+      today: "2026-03-02",
+    });
+    const curve = buildValuationCurve(
+      { initialCash: 10_000 },
+      [
+        trade({
+          ticker: "AAPL",
+          quantity: 100,
+          price: 100,
+          executedAt: "2026-02-28T15:00:00.000Z",
+        }),
+      ],
+      dates,
+      (_ticker, date) => (date === "2026-03-02" ? 110 : null),
+    );
+
+    expect(curve).toHaveLength(2);
+    expect(curve[0]?.cash).toBe(0);
+    expect(curve[0]?.positionsValue).toBe(10_000);
+    expect(curve[0]?.value).toBe(10_000);
+    expect(curve[0]?.totalPnl).toBe(0);
+
+    const metrics = computeMetrics({
+      curve,
+      benchmarkCurve: [],
+      state: replayTrades(
+        [
+          trade({
+            ticker: "AAPL",
+            quantity: 100,
+            price: 100,
+            executedAt: "2026-02-28T15:00:00.000Z",
+          }),
+        ],
+        10_000,
+      ),
+      positions: [],
+    });
+    expect(metrics.dayPnl).toBeCloseTo(1000, 10);
+    expect(metrics.dayPnlPercent).toBeCloseTo(10, 10);
+  });
 });
 
 describe("annualisation floor", () => {
