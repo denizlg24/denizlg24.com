@@ -107,7 +107,7 @@ jobs:
         working-directory: apps/authenticator-extension
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: extension-packages
           path: apps/authenticator-extension/release/*.zip
