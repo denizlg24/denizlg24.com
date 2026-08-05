@@ -15,7 +15,7 @@
     max log size = 4096
     logging = file
 
-    interfaces = @TAILSCALE_IP@
+    interfaces = tailscale0
     bind interfaces only = yes
     smb ports = 445
     disable netbios = yes

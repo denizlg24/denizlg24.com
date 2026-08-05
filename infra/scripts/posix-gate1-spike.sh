@@ -354,6 +354,17 @@ render_samba_config() {
   chmod 600 "$config"
 }
 
+listener_is_on_tailscale() {
+  local listener="$1"
+  local address
+  while IFS= read -r address; do
+    if [[ "$listener" == "${address}:445" || "$listener" == "[${address}]:445" ]]; then
+      return 0
+    fi
+  done < <(ip -o address show dev tailscale0 | awk '{split($4, value, "/"); print value[1]}')
+  return 1
+}
+
 start_samba() {
   validate_live_spike
   if [[ "$state_phase" != "prepared" ]]; then
@@ -431,10 +442,12 @@ start_samba() {
     tail -n 80 "$samba_root/log/smbd.foreground.log" >&2 || true
     exit 1
   fi
-  if ss -H -ltn 'sport = :445' | awk -v expected="${tailscale_ip}:445" '$4 != expected {bad=1} END {exit bad ? 0 : 1}'; then
-    echo "Disposable smbd bound outside the Tailscale address" >&2
-    exit 1
-  fi
+  while IFS= read -r listener; do
+    if ! listener_is_on_tailscale "$listener"; then
+      echo "Disposable smbd bound outside tailscale0: ${listener}" >&2
+      exit 1
+    fi
+  done < <(ss -H -ltn 'sport = :445' | awk '{print $4}')
   smbclient "//${tailscale_ip}/Personal" -A "$auth_file" -m SMB3 --client-protection=encrypt -c 'ls' >/dev/null
   if smbclient "//${tailscale_ip}/Personal" -A "$auth_file" -m SMB3 --client-protection=off -c 'ls' >/dev/null 2>&1; then
     echo "Samba accepted an unencrypted client" >&2

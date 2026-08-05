@@ -72,7 +72,7 @@ describe("POSIX Gate 1 spike shell safety", () => {
       'chmod 755 "$samba_root/state" "$samba_root/cache" "$samba_root/lock" "$samba_root/ncalrpc"',
     );
     expect(template).toContain("ncalrpc dir = @NCALRPC_DIR@");
-    expect(template).toContain("interfaces = @TAILSCALE_IP@\n");
+    expect(template).toContain("interfaces = tailscale0\n");
     expect(template).not.toContain("interfaces = @TAILSCALE_IP@/32");
     expect(source).toContain("${samba_started:-false}");
     expect(source).toContain(
@@ -83,6 +83,11 @@ describe("POSIX Gate 1 spike shell safety", () => {
     );
     expect(source).toContain(
       'tail -n 120 "$samba_root/log/smbd.foreground.log" >&2 || true',
+    );
+    expect(source).toContain("listener_is_on_tailscale");
+    expect(source).toContain("ip -o address show dev tailscale0");
+    expect(source).toContain(
+      "Disposable smbd bound outside tailscale0: ${listener}",
     );
   });
 
