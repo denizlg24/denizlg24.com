@@ -218,6 +218,51 @@ export const davCredentials = pgTable(
   (table) => [index("dav_credentials_user_id_idx").on(table.userId)],
 );
 
+/**
+ * Per-device SMB access. Samba owns the credential material — NTLM is
+ * challenge-response, so it needs the secret in its own passdb and cannot use
+ * the Argon2 hashes `dav_credentials` stores. This table therefore holds only
+ * safe metadata plus the Unix/Samba principal that ties a device back to one
+ * cloud account, and is the record ops and revocation work from.
+ *
+ * `revokedAt` is set before the Samba account is disabled, so a crash between
+ * the two leaves a credential that reads as revoked but might still
+ * authenticate — recoverable by re-running revocation. The reverse order would
+ * leave one that reads as live but cannot log in, which looks like a broken
+ * device rather than a completed revocation.
+ */
+export const smbCredentials = pgTable(
+  "smb_credentials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The non-login Unix/Samba principal; unique across all devices. */
+    principal: varchar("principal", { length: 64 }).notNull().unique(),
+    deviceName: varchar("device_name", { length: 255 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastAuthenticatedAt: timestamp("last_authenticated_at", {
+      withTimezone: true,
+    }),
+    lastAuthenticatedFrom: varchar("last_authenticated_from", { length: 64 }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedReason: varchar("revoked_reason", { length: 255 }),
+    failedAuthCount: integer("failed_auth_count").notNull().default(0),
+    lastFailedAuthAt: timestamp("last_failed_auth_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("smb_credentials_user_id_idx").on(table.userId),
+    index("smb_credentials_revoked_at_idx").on(table.revokedAt),
+  ],
+);
+
+export type SmbCredential = InferSelectModel<typeof smbCredentials>;
+export type NewSmbCredential = InferInsertModel<typeof smbCredentials>;
+
 export type DavCredential = InferSelectModel<typeof davCredentials>;
 
 export const folders = pgTable(

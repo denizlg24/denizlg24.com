@@ -165,6 +165,19 @@ export {
   verifyShareToken,
 } from "./share";
 export {
+  type AccountState,
+  deriveSmbPrincipal,
+  evaluateSmbAuth,
+  generateSmbSecret,
+  PROVISION_ORDER,
+  REVOKE_ORDER,
+  type SmbAuthDecision,
+  SmbCredentialError,
+  type SmbCredentialRecord,
+  smbAuthThrottled,
+  type ThrottleInput,
+} from "./smb-credentials";
+export {
   assertLegacyTieringAllowed,
   createTieringRepository,
   PromotionQueue,

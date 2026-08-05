@@ -71,6 +71,13 @@
       "when": 1785954671907,
       "tag": "0009_slim_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785956510084,
+      "tag": "0010_far_susan_delgado",
+      "breakpoints": true
     }
   ]
 }
