@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { computeChecksum, pathExists } from "./fs";
 import { resolveHddDiskPath, resolveSsdDiskPath } from "./path";
 import {
+  assertLegacyTieringAllowed,
   PromotionQueue,
   runTieringPass,
   TieringCrashSimulationError,
@@ -70,6 +71,24 @@ describe("storage tiering", () => {
     ]);
     return { ssd, hdd, repository: new MemoryTieringRepository() };
   }
+
+  it("rejects the legacy physical mover in broker-mounted mode", () => {
+    expect(() =>
+      assertLegacyTieringAllowed({
+        namespace: {
+          mode: "broker-mounted",
+          rootPath: "/srv/deniz-cloud/storage",
+          witnessPath: "/srv/deniz-cloud/storage/.denizcloud-mount-witness",
+          witnessValue: "test-witness",
+        },
+      }),
+    ).toThrow("Legacy branch tiering is disabled for broker-mounted storage");
+    expect(() =>
+      assertLegacyTieringAllowed({
+        namespace: { mode: "legacy-dual-path", rootPath: null },
+      }),
+    ).not.toThrow();
+  });
 
   async function addFile(
     repository: MemoryTieringRepository,
@@ -352,5 +371,28 @@ describe("storage tiering", () => {
     );
     expect(await pathExists(promoted?.diskPath ?? "")).toBe(true);
     expect(await pathExists(oldPath ?? "")).toBe(false);
+  });
+
+  it("can be disabled for broker-mounted request paths", async () => {
+    const { ssd, hdd, repository } = await setup();
+    await addFile(repository, hdd, {
+      id: UUIDS[2],
+      size: 16,
+      lastAccessedAt: new Date(),
+      tier: "hdd",
+    });
+    const original = repository.files.get(UUIDS[2]);
+    const queue = new PromotionQueue(
+      repository,
+      { ssdStoragePath: ssd, hddStoragePath: hdd },
+      false,
+    );
+
+    queue.enqueue(UUIDS[2]);
+    await queue.waitForIdle();
+
+    expect(queue.pendingCount).toBe(0);
+    expect(repository.files.get(UUIDS[2])).toEqual(original);
+    expect(await pathExists(original?.diskPath ?? "")).toBe(true);
   });
 });

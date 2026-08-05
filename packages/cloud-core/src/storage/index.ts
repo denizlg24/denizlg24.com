@@ -26,7 +26,10 @@ export {
   readArchiveJobSnapshot,
 } from "./archive-jobs";
 export {
+  BROKER_NAMESPACE_WITNESS_NAME,
   type StorageConfig,
+  type StorageNamespaceConfig,
+  type StorageNamespaceMode,
   storageConfigFromEnv,
 } from "./config";
 export { contentDisposition } from "./content-disposition";
@@ -39,6 +42,11 @@ export {
   getDiskStats,
   pathExists,
 } from "./fs";
+export {
+  createStorageNamespace,
+  type StorageNamespace,
+  type StorageNamespaceCapabilities,
+} from "./namespace";
 export {
   buildProjectRootPath,
   buildUserRootPath,
@@ -70,6 +78,7 @@ export {
   verifyShareToken,
 } from "./share";
 export {
+  assertLegacyTieringAllowed,
   createTieringRepository,
   PromotionQueue,
   promoteFile,

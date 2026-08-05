@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import {
   aggregateSeries,
+  assertLegacyTieringAllowed,
   countActivity,
   createTieringRepository,
   type Database,
@@ -576,6 +577,7 @@ export function getExecutor(
       };
     case "tiering_pass":
       return async (rawConfig) => {
+        assertLegacyTieringAllowed(context.storageConfig);
         const config = tieringPassTaskConfigSchema.parse(rawConfig);
         const startedAt = Date.now();
         const defaults = context.storageConfig.tiering;

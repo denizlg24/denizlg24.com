@@ -158,10 +158,14 @@ export async function createRuntimeApp() {
       meiliMasterKey,
     );
     const tieringRepository = createTieringRepository(db);
-    const promotions = new PromotionQueue(tieringRepository, {
-      ssdStoragePath: storageConfig.ssdStoragePath,
-      hddStoragePath: storageConfig.hddStoragePath,
-    });
+    const promotions = new PromotionQueue(
+      tieringRepository,
+      {
+        ssdStoragePath: storageConfig.ssdStoragePath,
+        hddStoragePath: storageConfig.hddStoragePath,
+      },
+      storageConfig.namespace.mode === "legacy-dual-path",
+    );
     const storageService = new StorageService(
       db,
       meili,
