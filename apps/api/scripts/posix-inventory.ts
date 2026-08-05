@@ -48,18 +48,27 @@ const WINDOWS_RESERVED_NAME =
 
 export interface InventoryFileRow {
   checksum: string;
+  createdAt: Date;
   diskPath: string;
   filename: string;
+  folderId: string;
   id: string;
+  mimeType: string | null;
+  ownerId: string;
   path: string;
   sizeBytes: number;
   tier: "ssd" | "hdd";
+  updatedAt: Date;
 }
 
 export interface InventoryFolderRow {
+  createdAt: Date;
   id: string;
   name: string;
+  ownerId: string | null;
+  parentId: string | null;
   path: string;
+  updatedAt: Date;
 }
 
 export interface InventoryTusRow {
@@ -80,6 +89,7 @@ export interface PosixInventoryOptions {
   db: Database;
   excludedPaths?: readonly string[];
   hddStoragePath: string;
+  migrationManifestPath?: string;
   now?: Date;
   requireMountPoints?: boolean;
   ssdStoragePath: string;
@@ -859,6 +869,82 @@ async function writeAudit(
   }
 }
 
+async function writeMigrationManifest(
+  path: string,
+  summary: Record<string, unknown>,
+  fileRows: readonly InventoryFileRow[],
+  folderRows: readonly InventoryFolderRow[],
+  roots: Record<"hdd" | "ssd", string>,
+  forbiddenRoots: readonly string[],
+): Promise<void> {
+  const records: AuditRecord[] = [
+    {
+      ...summary,
+      event: "inventory-summary",
+      manifestSchema: "deniz-cloud-posix-migration-v1",
+      schemaVersion: 1,
+    },
+  ];
+  const sortedFolders = [...folderRows].sort(
+    (left, right) =>
+      left.path.split("/").length - right.path.split("/").length ||
+      left.path.localeCompare(right.path),
+  );
+  for (const row of sortedFolders) {
+    const sourcePath = resolve(roots.ssd, `.${row.path}`);
+    const stats = await lstat(sourcePath);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      throw new ScriptError(
+        `Migration folder source is not a safe directory: ${row.path}`,
+      );
+    }
+    records.push({
+      createdAt: row.createdAt.toISOString(),
+      event: "migration-folder",
+      id: row.id,
+      name: row.name,
+      ownerId: row.ownerId,
+      parentId: row.parentId,
+      path: row.path,
+      schemaVersion: 1,
+      sourcePath,
+      targetRelativePath: row.path.slice(1),
+      targetTier: "ssd",
+      updatedAt: row.updatedAt.toISOString(),
+    });
+  }
+  for (const row of [...fileRows].sort((left, right) =>
+    left.path.localeCompare(right.path),
+  )) {
+    const sourcePath = expectedLegacyBlobPath(roots[row.tier], row);
+    const stats = await lstat(sourcePath);
+    if (!stats.isFile() || stats.isSymbolicLink()) {
+      throw new ScriptError(
+        `Migration file source is not a safe regular file: ${row.path}`,
+      );
+    }
+    records.push({
+      allocatedBlocks512: stats.blocks,
+      checksum: row.checksum.toLowerCase(),
+      createdAt: row.createdAt.toISOString(),
+      event: "migration-file",
+      folderId: row.folderId,
+      id: row.id,
+      mimeType: row.mimeType,
+      name: row.filename,
+      ownerId: row.ownerId,
+      path: row.path,
+      schemaVersion: 1,
+      sizeBytes: row.sizeBytes,
+      sourcePath,
+      targetRelativePath: row.path.slice(1),
+      targetTier: row.tier,
+      updatedAt: row.updatedAt.toISOString(),
+    });
+  }
+  await writeAudit(path, records, forbiddenRoots);
+}
+
 export async function collectPosixInventory(options: PosixInventoryOptions) {
   const generatedAt = (options.now ?? new Date()).toISOString();
   const records: AuditRecord[] = [];
@@ -866,16 +952,29 @@ export async function collectPosixInventory(options: PosixInventoryOptions) {
     options.db
       .select({
         checksum: files.checksum,
+        createdAt: files.createdAt,
         diskPath: files.diskPath,
         filename: files.filename,
+        folderId: files.folderId,
         id: files.id,
+        mimeType: files.mimeType,
+        ownerId: files.ownerId,
         path: files.path,
         sizeBytes: files.sizeBytes,
         tier: files.tier,
+        updatedAt: files.updatedAt,
       })
       .from(files),
     options.db
-      .select({ id: folders.id, name: folders.name, path: folders.path })
+      .select({
+        createdAt: folders.createdAt,
+        id: folders.id,
+        name: folders.name,
+        ownerId: folders.ownerId,
+        parentId: folders.parentId,
+        path: folders.path,
+        updatedAt: folders.updatedAt,
+      })
       .from(folders),
     options.db
       .select({
@@ -992,6 +1091,21 @@ export async function collectPosixInventory(options: PosixInventoryOptions) {
     roots.hdd,
     ...excludedRoots,
   ]);
+  if (options.migrationManifestPath) {
+    if (!allGreen) {
+      throw new ScriptError(
+        "Migration manifest requires an all-green inventory",
+      );
+    }
+    await writeMigrationManifest(
+      options.migrationManifestPath,
+      summary,
+      fileRows,
+      folderRows,
+      roots,
+      [roots.ssd, roots.hdd, ...excludedRoots],
+    );
+  }
   return summary;
 }
 
@@ -1025,6 +1139,10 @@ if (import.meta.main) {
       flagValue(process.argv.slice(2), "--audit") ??
       process.env.POSIX_INVENTORY_AUDIT_PATH ??
       defaultAuditPath();
+    const migrationManifestPath = flagValue(
+      process.argv.slice(2),
+      "--migration-manifest",
+    );
     const db = createDb(requiredEnv("DATABASE_URL"), { max: 1 });
     try {
       const summary = await collectPosixInventory({
@@ -1038,6 +1156,7 @@ if (import.meta.main) {
           process.env.S3_TEMP_PATH ?? join(ssdStoragePath, ".s3-v2-temp"),
         ],
         hddStoragePath,
+        migrationManifestPath,
         requireMountPoints: true,
         ssdStoragePath,
       });
@@ -1046,6 +1165,9 @@ if (import.meta.main) {
         auditPath: summary.auditPath,
         files: summary.database.files.count,
         folders: summary.database.folders.count,
+        migrationManifestPath: migrationManifestPath
+          ? resolve(migrationManifestPath)
+          : null,
       });
       if (!summary.allGreen) {
         await log.event("gate-blocked", {

@@ -250,6 +250,120 @@ describe("POSIX inventory", () => {
     });
   });
 
+  it("optionally writes a complete exact migration manifest", async () => {
+    const root = await mkdtemp(join(tmpdir(), "posix-inventory-manifest-"));
+    const ssd = join(root, "ssd");
+    const hdd = join(root, "hdd");
+    const archives = join(ssd, ".archives");
+    const auditPath = join(root, "inventory.jsonl");
+    const manifestPath = join(root, "migration.jsonl");
+    const folderPath = join(ssd, "shared");
+    const fileId = "00000000-0000-4000-8000-000000000021";
+    const filePath = join(hdd, fileId);
+    const createdAt = new Date("2026-07-01T10:00:00.000Z");
+    const updatedAt = new Date("2026-07-02T11:00:00.000Z");
+    await Promise.all([
+      mkdir(folderPath, { recursive: true }),
+      mkdir(hdd),
+      mkdir(archives, { recursive: true }),
+    ]);
+    await writeFile(filePath, "good");
+    const archiveJobs = new ArchiveJobStore({
+      directory: archives,
+      ttlMs: 60_000,
+    });
+    await archiveJobs.initialize();
+
+    const summary = await collectPosixInventory({
+      archivePath: archives,
+      auditPath,
+      db: fakeDb({
+        files: [
+          {
+            checksum:
+              "770e607624d689265ca6c44884d0807d9b054d23c473c106c72be9de08b7376c",
+            createdAt,
+            diskPath: filePath,
+            filename: "file.txt",
+            folderId: "00000000-0000-4000-8000-000000000020",
+            id: fileId,
+            mimeType: "text/plain",
+            ownerId: "00000000-0000-4000-8000-000000000030",
+            path: "/shared/file.txt",
+            sizeBytes: 4,
+            tier: "hdd",
+            updatedAt,
+          },
+        ],
+        folders: [
+          {
+            createdAt,
+            id: "00000000-0000-4000-8000-000000000020",
+            name: "shared",
+            ownerId: null,
+            parentId: null,
+            path: "/shared",
+            updatedAt,
+          },
+        ],
+        tus: [],
+      }) as never,
+      excludedPaths: [archives],
+      hddStoragePath: hdd,
+      migrationManifestPath: manifestPath,
+      requireMountPoints: false,
+      ssdStoragePath: ssd,
+    });
+
+    archiveJobs.close();
+    expect(summary.allGreen).toBe(true);
+    const records = (await readFile(manifestPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(records).toHaveLength(3);
+    expect(records[0]).toMatchObject({
+      allGreen: true,
+      event: "inventory-summary",
+      manifestSchema: "deniz-cloud-posix-migration-v1",
+      schemaVersion: 1,
+    });
+    expect(records[1]).toEqual({
+      createdAt: createdAt.toISOString(),
+      event: "migration-folder",
+      id: "00000000-0000-4000-8000-000000000020",
+      name: "shared",
+      ownerId: null,
+      parentId: null,
+      path: "/shared",
+      schemaVersion: 1,
+      sourcePath: folderPath,
+      targetRelativePath: "shared",
+      targetTier: "ssd",
+      updatedAt: updatedAt.toISOString(),
+    });
+    expect(records[2]).toMatchObject({
+      checksum:
+        "770e607624d689265ca6c44884d0807d9b054d23c473c106c72be9de08b7376c",
+      createdAt: createdAt.toISOString(),
+      event: "migration-file",
+      folderId: "00000000-0000-4000-8000-000000000020",
+      id: fileId,
+      mimeType: "text/plain",
+      name: "file.txt",
+      ownerId: "00000000-0000-4000-8000-000000000030",
+      path: "/shared/file.txt",
+      schemaVersion: 1,
+      sizeBytes: 4,
+      sourcePath: filePath,
+      targetRelativePath: "shared/file.txt",
+      targetTier: "hdd",
+      updatedAt: updatedAt.toISOString(),
+    });
+    expect(typeof records[2]?.allocatedBlocks512).toBe("number");
+    expect((await stat(manifestPath)).mode & 0o777).toBe(0o600);
+  });
+
   it("refuses to place or overwrite an audit inside storage", async () => {
     const root = await mkdtemp(join(tmpdir(), "posix-inventory-audit-"));
     const ssd = join(root, "ssd");
