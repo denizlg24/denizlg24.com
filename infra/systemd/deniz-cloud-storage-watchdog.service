@@ -1,12 +1,21 @@
 [Unit]
 Description=Fail-closed watchdog for the Deniz Cloud storage branches
-Requires=deniz-cloud-storage-api-broker.service
+# Deliberately not Requires=. The watchdog exists to notice the boundary
+# breaking, so it must not be taken down by the boundary breaking. With
+# Requires=, a failed broker mount made the watchdog's dependency fail and it
+# never started — the one component whose job is to report the fault was
+# disabled by the fault, silently. After= keeps the ordering without the
+# coupling.
 After=deniz-cloud-storage-api-broker.service
 PartOf=deniz-cloud-storage.target
 
 [Service]
 Type=simple
 ExecStart=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute watch
-Restart=no
+# Exit 20 is a deliberate fail-close, which must stay withdrawn until an
+# operator runs `recover`. Any other exit is a crash and should come back.
+Restart=on-failure
+RestartPreventExitStatus=20
+RestartSec=5
 TimeoutStopSec=5
 

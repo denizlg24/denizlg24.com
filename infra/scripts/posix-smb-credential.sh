@@ -8,6 +8,7 @@ readonly storage_uid=1000
 readonly storage_gid=1000
 readonly smb_group=deniz-cloud-smb
 readonly namespace_root=/srv/deniz-cloud/storage
+readonly personal_fragments=/etc/samba/deniz-cloud-personal
 readonly principal_pattern='^dc-[a-z0-9-]+-[0-9a-f]{8}$'
 readonly uuid_pattern='^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
 
@@ -125,6 +126,16 @@ provision() {
     smbpasswd -d "$principal" >/dev/null
   fi
   pdbedit -u "$principal" --set-nt-hash >/dev/null 2>&1 || true
+
+  # The share path comes from this fragment, not from %H: Samba expands %H to
+  # the forced user's home, so a device would otherwise be served the storage
+  # user's home directory instead of its own account root.
+  install -d -m 0755 -o root -g root "$personal_fragments"
+  umask 022
+  printf 'path = %s/%s\n' "$namespace_root" "$account_id" \
+    > "${personal_fragments}/${principal}.conf"
+  chmod 0644 "${personal_fragments}/${principal}.conf"
+
   smbpasswd -e "$principal" >/dev/null
 
   jq -n --arg principal "$principal" --arg home "$account_home" \
@@ -141,6 +152,10 @@ revoke() {
   # which the client simply reconnects.
   smbpasswd -d "$principal" >/dev/null
   usermod --lock "$principal" || true
+  # Without the fragment the share path resolves to a directory that does not
+  # exist, so a revoked principal cannot reach any account root even if its
+  # Samba account were somehow re-enabled.
+  rm -f "${personal_fragments}/${principal}.conf"
 
   # Disabling does not end an established session, so revocation is not
   # complete until the existing ones are gone.

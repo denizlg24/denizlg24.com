@@ -8,6 +8,11 @@ PartOf=deniz-cloud-storage.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# smbd restarting kills the loopback CIFS session, and remounting immediately
+# races the server coming back. Without retries the broker stays failed after
+# any Samba restart and the API loses its storage view until someone notices.
+Restart=on-failure
+RestartSec=3
 ExecStart=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute broker-mount
 ExecStop=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute broker-unmount
 TimeoutStartSec=30

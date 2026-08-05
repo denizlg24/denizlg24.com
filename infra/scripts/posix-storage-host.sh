@@ -309,9 +309,10 @@ firewall_current() {
       ([.nftables[] | .table? | select(.family == "inet" and .name == $table and .comment == $tableComment)] | length) == 1 and
       (chains | length) == 1 and
       (chains[0].name == "input" and chains[0].type == "filter" and chains[0].hook == "input" and chains[0].prio == -100 and chains[0].policy == "accept") and
-      (rules | length) == 2 and
+      (rules | length) == 3 and
       (rules[0].comment == "API broker loopback" and (rules[0].expr | length) == 4 and (rules[0].expr[0] | iif("lo")) and (rules[0].expr[1] | ipv4("127.0.0.1")) and (rules[0].expr[2] | tcp445) and (rules[0].expr[3] | has("accept") and .accept == null)) and
-      (rules[1].comment == "Reject non-loopback SMB pilot" and (rules[1].expr | length) == 2 and (rules[1].expr[0] | tcp445) and rules[1].expr[1].reject.type == "tcp reset")
+      (rules[1].comment == "Tailnet SMB clients" and (rules[1].expr | length) == 3 and (rules[1].expr[0] | iif("tailscale0")) and (rules[1].expr[1] | tcp445) and (rules[1].expr[2] | has("accept") and .accept == null)) and
+      (rules[2].comment == "Reject all other SMB" and (rules[2].expr | length) == 2 and (rules[2].expr[0] | tcp445) and rules[2].expr[1].reject.type == "tcp reset")
     ' <<< "$ruleset" >/dev/null
 }
 
@@ -322,12 +323,24 @@ start_firewall() {
   for stock_unit in smbd.service nmbd.service samba-ad-dc.service; do
     ! systemctl is-active --quiet "$stock_unit" || { echo "Stock Samba unit is active: $stock_unit" >&2; return 1; }
   done
-  if nft list table inet "$firewall_table" >/dev/null 2>&1; then firewall_current || { echo "Foreign firewall table exists" >&2; return 1; }; return; fi
+  if nft list table inet "$firewall_table" >/dev/null 2>&1; then
+    if firewall_current; then return; fi
+    # The table carries this boundary's comment, so it is ours to replace —
+    # an older rule shape from a previous version, not a foreign table.
+    if nft -j list table inet "$firewall_table" 2>/dev/null \
+      | jq -e --arg c "$firewall_comment" '[.nftables[] | .table? | select(.comment == $c)] | length == 1' >/dev/null; then
+      nft delete table inet "$firewall_table"
+    else
+      echo "Foreign firewall table exists" >&2
+      return 1
+    fi
+  fi
   nft -f - <<EOF
 add table inet $firewall_table { comment "$firewall_comment"; }
 add chain inet $firewall_table input { type filter hook input priority -100; policy accept; }
 add rule inet $firewall_table input iifname "lo" ip daddr 127.0.0.1 tcp dport 445 accept comment "API broker loopback"
-add rule inet $firewall_table input tcp dport 445 reject with tcp reset comment "Reject non-loopback SMB pilot"
+add rule inet $firewall_table input iifname "tailscale0" tcp dport 445 accept comment "Tailnet SMB clients"
+add rule inet $firewall_table input tcp dport 445 reject with tcp reset comment "Reject all other SMB"
 EOF
   firewall_current || { nft delete table inet "$firewall_table" || true; echo "Firewall verification failed" >&2; return 1; }
 }
@@ -366,6 +379,11 @@ fail_closed() {
       echo "Preserving foreign merged mount during fail-close" >&2
     fi
   fi
+  # The namespace unit is oneshot+RemainAfterExit, so unmounting behind
+  # systemd's back leaves it reporting active while nothing is mounted — and a
+  # later `start` is then a no-op that silently does nothing. Stopping it makes
+  # systemd's state match reality so recovery actually remounts.
+  systemctl stop "$namespace_unit" || true
   echo "STOP: POSIX namespace withdrawn: $reason" >&2
   return 20
 }
