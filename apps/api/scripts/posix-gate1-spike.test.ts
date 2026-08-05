@@ -81,6 +81,9 @@ describe("POSIX Gate 1 spike shell safety", () => {
     expect(source).toContain(
       'tail -n 80 "$samba_root/log/smbd.foreground.log" >&2 || true',
     );
+    expect(source).toContain(
+      'tail -n 120 "$samba_root/log/smbd.foreground.log" >&2 || true',
+    );
   });
 
   it("permits only traversal to the fixed non-sudo peer mount", async () => {

@@ -417,6 +417,7 @@ start_samba() {
   done
   if [[ ! "$pid" =~ ^[0-9]+$ || ! -r "/proc/$pid/exe" || "$(basename "$(readlink -f "/proc/$pid/exe")")" != "smbd" ]]; then
     echo "Disposable smbd did not produce a verifiable master PID" >&2
+    tail -n 120 "$samba_root/log/smbd.foreground.log" >&2 || true
     exit 1
   fi
   if ! tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$config"; then
