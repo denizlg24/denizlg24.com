@@ -12,11 +12,12 @@
     "cutover:snapshot": "bun --env-file=../../.env scripts/pre-cutover-snapshot.ts",
     "ops:posix-gate1-peer": "bun scripts/posix-gate1-peer.ts",
     "ops:posix-gate1-probe": "bun scripts/posix-gate1-probe.ts",
+    "ops:posix-gate1-slow-client": "bun scripts/posix-gate1-slow-client.ts",
     "ops:posix-inventory": "bun --env-file=../../.env scripts/posix-inventory.ts",
     "ops:tiering-dry-run": "bun --env-file=../../.env scripts/tiering-dry-run.ts",
     "cutover:verify": "bun --env-file=../../.env scripts/migrate-verify.ts",
     "dev": "PORT=3001 bun --env-file=../../.env --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun && bun build scripts/apply-migrations.ts scripts/posix-gate1-peer.ts scripts/posix-gate1-probe.ts scripts/posix-inventory.ts --outdir dist --target bun",
+    "build": "bun build src/index.ts --outdir dist --target bun && bun build scripts/apply-migrations.ts scripts/posix-gate1-peer.ts scripts/posix-gate1-probe.ts scripts/posix-gate1-slow-client.ts scripts/posix-inventory.ts --outdir dist --target bun",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

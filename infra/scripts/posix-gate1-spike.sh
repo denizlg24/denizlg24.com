@@ -41,6 +41,7 @@ done
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 template="${POSIX_GATE1_SMB_TEMPLATE:-${script_dir}/../samba/posix-gate1-smb.conf.in}"
 probe_bundle="${POSIX_GATE1_PROBE_BUNDLE:-${script_dir}/../../apps/api/dist/posix-gate1-probe.js}"
+slow_client_bundle="${POSIX_GATE1_SLOW_CLIENT_BUNDLE:-${script_dir}/../../apps/api/dist/posix-gate1-slow-client.js}"
 state_root="${POSIX_GATE1_ROOT:-/var/lib/deniz-cloud/posix-gate1}"
 if [[ "$state_root" != "/" ]]; then
   state_root="${state_root%/}"
@@ -157,7 +158,8 @@ if [[ "$mode" == "--dry-run" ]]; then
     --arg tailscaleIp "$tailscale_ip" \
     --arg template "$template" \
     --arg probeBundle "$probe_bundle" \
-    '{mode:$mode,action:$action,root:$root,currentPhase:$phase,tailscaleIp:(if $tailscaleIp=="" then null else $tailscaleIp end),sambaTemplate:$template,probeBundle:$probeBundle,willMountProductionBranches:false}'
+    --arg slowClientBundle "$slow_client_bundle" \
+    '{mode:$mode,action:$action,root:$root,currentPhase:$phase,tailscaleIp:(if $tailscaleIp=="" then null else $tailscaleIp end),sambaTemplate:$template,probeBundle:$probeBundle,slowClientBundle:$slowClientBundle,willMountProductionBranches:false}'
   exit 0
 fi
 if (( EUID != 0 )); then
@@ -538,7 +540,11 @@ run_api_tests() {
     echo "Bundled Gate 1 API probe is missing or unsafe: ${probe_bundle}" >&2
     exit 1
   fi
-  local api_image probe_evidence_dir result_file log_file
+  if [[ ! -f "$slow_client_bundle" || -L "$slow_client_bundle" ]]; then
+    echo "Bundled Gate 1 slow-client probe is missing or unsafe: ${slow_client_bundle}" >&2
+    exit 1
+  fi
+  local api_image probe_evidence_dir result_file log_file slow_result_file slow_log_file
   api_image="$(docker inspect --format '{{.Config.Image}}' deniz-cloud-api-1)"
   if [[ -z "$api_image" ]]; then
     echo "Could not resolve the deployed API image" >&2
@@ -547,6 +553,8 @@ run_api_tests() {
   probe_evidence_dir="$evidence_dir/api-${spike_id}"
   result_file="$probe_evidence_dir/summary.json"
   log_file="$probe_evidence_dir/checks.jsonl"
+  slow_result_file="$probe_evidence_dir/slow-summary.json"
+  slow_log_file="$probe_evidence_dir/slow-check.jsonl"
   if [[ -e "$probe_evidence_dir" || -L "$probe_evidence_dir" ]]; then
     echo "Refusing to overwrite Gate 1 API evidence" >&2
     exit 1
@@ -571,8 +579,25 @@ run_api_tests() {
     ([.checks[] | select(.status == "pass") | .name] | index("tus-interrupt-fsync-resume-publish") != null) and
     ([.checks[] | select(.status == "pass") | .name] | index("bun-file-full-range-and-sparse-offset") != null)
   ' "$result_file" >/dev/null
+  docker run --rm --network none --read-only --tmpfs /tmp --user 1000:1000 \
+    --volume "$slow_client_bundle:/gate1-slow-client.js:ro" \
+    --volume "$merged_mount:/gate1" \
+    --volume "$probe_evidence_dir:/evidence" \
+    --entrypoint bun "$api_image" \
+    /gate1-slow-client.js --execute --root /gate1/posix-gate1-disposable --log /evidence/slow-check.jsonl \
+    > "$slow_result_file"
+  chmod 600 "$slow_result_file"
+  chown root:root "$slow_result_file"
+  [[ -s "$slow_log_file" && ! -L "$slow_log_file" ]] || { echo "Slow-client evidence is missing" >&2; exit 1; }
+  jq -e '
+    .probe == "posix-gate1-slow-client" and
+    .dryRun == false and
+    .allGreen == true and
+    .logicalBytes == 5800000000 and
+    .rssDeltaBytes <= .maxRssDeltaBytes
+  ' "$slow_result_file" >/dev/null
   jq -n --arg evidence "$probe_evidence_dir" --arg image "$api_image" \
-    '{partialApiTestsPassed:true,gate1Passed:false,evidence:$evidence,deployedRuntimeImage:$image,pending:["5.8 GB slow-client backpressure/RSS","mmap","SMB concurrency","native clients","branch loss/reboot","throughput"]}'
+    '{partialApiTestsPassed:true,gate1Passed:false,evidence:$evidence,deployedRuntimeImage:$image,slowClientShapeBytes:5800000000,pending:["mmap","SMB concurrency","native clients","branch loss/reboot","throughput"]}'
 }
 
 show_status() {
