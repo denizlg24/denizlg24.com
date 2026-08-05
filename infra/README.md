@@ -91,6 +91,74 @@ loop devices, containers, and volumes. Copy the completed snapshot off the Pi
 and run `sha256sum -c SHA256SUMS` again at the destination before treating Gate
 0 as backed up.
 
+### Disposable POSIX/Samba Gate 1
+
+Gate 1 never mounts a production storage branch. It creates sparse loopback
+ext4 images below `/var/lib/deniz-cloud/posix-gate1`, joins only those images
+with mergerfs, and starts an isolated `smbd` bound to the Pi's Tailscale IPv4
+address. The normal Samba units remain masked. The production API stays online
+throughout this spike.
+
+Install the pinned host dependencies first:
+
+```sh
+infra/scripts/posix-gate1-install.sh --dry-run
+sudo infra/scripts/posix-gate1-install.sh --execute
+infra/scripts/posix-gate1-preflight.sh
+```
+
+Build the API probes, then copy this exact layout to the Pi so the lifecycle
+script can resolve its template and bundles without environment overrides:
+
+```sh
+bun run --cwd apps/api build
+ssh pi-cloud 'install -d -m 700 /tmp/posix-gate1-kit/infra/scripts \
+  /tmp/posix-gate1-kit/infra/samba /tmp/posix-gate1-kit/apps/api/dist'
+scp infra/scripts/posix-gate1-spike.sh \
+  pi-cloud:/tmp/posix-gate1-kit/infra/scripts/
+scp infra/samba/posix-gate1-smb.conf.in \
+  pi-cloud:/tmp/posix-gate1-kit/infra/samba/
+scp apps/api/dist/posix-gate1-probe.js \
+  apps/api/dist/posix-gate1-slow-client.js \
+  pi-cloud:/tmp/posix-gate1-kit/apps/api/dist/
+```
+
+Every mutating lifecycle command requires both `sudo` and `--execute`:
+
+```sh
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute prepare
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute start-samba
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute host-test
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute api-test
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute status
+```
+
+`host-test` and `api-test` are explicitly partial. They prove deterministic
+SSD/HDD placement, xattr/ACL/backup behavior, encrypted SMB round trips,
+highest-level container binding, Bun full/Range/TUS behavior, a 5.8 GB sparse
+slow-client shape, and bounded RSS. They do **not** pass Gate 1. Native
+Finder/Explorer behavior, protected-EA access, link creation, open-handle
+API↔SMB concurrency, live branch loss/reboot, tier-move crash points, and
+LAN/relay performance remain mandatory STOP-or-pass checks.
+
+The client probes use OS credential prompts and keep evidence private:
+
+```sh
+infra/scripts/posix-gate1-macos.sh --dry-run --host 100.89.155.9 --share Personal
+# PowerShell: .\posix-gate1-windows.ps1 --dry-run --host 100.89.155.9 --share Personal
+```
+
+Cleanup is two explicit steps so evidence can be copied before destruction:
+
+```sh
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute stop
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute destroy
+```
+
+`destroy` accepts only the exact marked disposable root after every mount and
+loop device has been removed. It is irreversible for the disposable spike and
+never targets the production namespace.
+
 ## Host services
 
 **Terminal** is a compiled binary, never a container, and CI does not ship it:
