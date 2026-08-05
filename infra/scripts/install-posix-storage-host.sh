@@ -26,6 +26,7 @@ manifest=$state/installed.sha256
 units=(
   deniz-cloud-storage.target
   deniz-cloud-storage-namespace.service
+  deniz-cloud-storage-metadata.service
   deniz-cloud-storage-firewall.service
   deniz-cloud-storage-smb.service
   deniz-cloud-storage-api-broker.service
@@ -40,6 +41,8 @@ sources=(
   "$script_dir/posix-storage-host.sh"
   "$infra_dir/samba/posix-storage-smb.conf"
 )
+# The metadata service binary is built and copied separately, like the terminal
+# daemon; CI does not deploy either.
 for unit in "${units[@]}"; do
   sources+=("$infra_dir/systemd/$unit")
   destinations+=("/etc/systemd/system/$unit")
@@ -74,6 +77,8 @@ install_boundary() {
   chmod 0600 "$manifest"
   [[ -e /etc/deniz-cloud/posix-storage.env || -L /etc/deniz-cloud/posix-storage.env ]] || install -m 0600 "$infra_dir/posix-storage/posix-storage.env.example" /etc/deniz-cloud/posix-storage.env.example
   [[ -e /etc/deniz-cloud/posix-api-broker.credentials || -L /etc/deniz-cloud/posix-api-broker.credentials ]] || install -m 0600 "$infra_dir/posix-storage/api-broker.credentials.example" /etc/deniz-cloud/posix-api-broker.credentials.example
+  [[ -e /etc/deniz-cloud/storage-metadata.env || -L /etc/deniz-cloud/storage-metadata.env ]] || install -m 0600 "$infra_dir/posix-storage/storage-metadata.env.example" /etc/deniz-cloud/storage-metadata.env.example
+  getent group deniz-cloud-metadata >/dev/null || groupadd --system deniz-cloud-metadata
   systemctl daemon-reload
   jq -n '{installed:true,activated:false,next:"configure, validate, then explicitly enable/start deniz-cloud-storage.target"}'
 }

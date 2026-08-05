@@ -12,6 +12,11 @@ services:
       STORAGE_NAMESPACE_MODE: broker-mounted
       STORAGE_NAMESPACE_PATH: /data/storage
       STORAGE_NAMESPACE_WITNESS_PATH: /data/storage/.denizcloud-mount-witness
+      # The privileged metadata service. Without both of these the byte path
+      # cannot verify identity and fails closed rather than serving unverified
+      # entries.
+      STORAGE_METADATA_SOCKET: /run/deniz-cloud/storage-metadata.sock
+      STORAGE_METADATA_TOKEN: ${STORAGE_METADATA_TOKEN:?STORAGE_METADATA_TOKEN is required in broker mode}
       TEMP_UPLOAD_PATH: /data/internal/tus
     volumes: !override
       - /proc:/host/proc:ro
@@ -28,5 +33,8 @@ services:
       - /mnt/ssd/deniz-cloud/internal/.archives:/data/internal/archives
       # This source is the encrypted loopback CIFS mount, not mergerfs.
       - /srv/deniz-cloud/api-storage:/data/storage
+      # Only the socket, never the namespace it fronts. The API reaches
+      # protected metadata solely through this and holds no xattr capability.
+      - /run/deniz-cloud/storage-metadata.sock:/run/deniz-cloud/storage-metadata.sock
       - ${BACKUP_DIR:?BACKUP_DIR is required}:/backups
       - ${HOST_CONTROL_DIR:-/var/lib/deniz-cloud}:/host-control

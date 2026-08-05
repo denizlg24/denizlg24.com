@@ -40,6 +40,7 @@ critical=/run/deniz-cloud/posix-storage-critical.json
 firewall_table=deniz_cloud_storage
 firewall_comment=deniz-cloud-posix-storage-v1
 namespace_unit=deniz-cloud-storage-namespace.service
+metadata_unit=deniz-cloud-storage-metadata.service
 smb_unit=deniz-cloud-storage-smb.service
 broker_unit=deniz-cloud-storage-api-broker.service
 
@@ -138,15 +139,18 @@ validate_compose() {
     .services.api.environment.STORAGE_NAMESPACE_MODE == "broker-mounted" and
     .services.api.environment.STORAGE_NAMESPACE_PATH == "/data/storage" and
     .services.api.environment.STORAGE_NAMESPACE_WITNESS_PATH == "/data/storage/.denizcloud-mount-witness" and
-    .services.api.environment.STORAGE_NAMESPACE_WITNESS_VALUE == $witness
+    .services.api.environment.STORAGE_NAMESPACE_WITNESS_VALUE == $witness and
+    .services.api.environment.STORAGE_METADATA_SOCKET == "/run/deniz-cloud/storage-metadata.sock" and
+    (.services.api.environment.STORAGE_METADATA_TOKEN | type == "string" and length >= 16)
   ' <<< "$rendered" >/dev/null || { echo "Rendered API broker environment mismatch" >&2; return 1; }
   jq -e '
     def volumes: (.services.api.volumes // []);
     ([volumes[] | select(.type == "bind" and .source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage" and .read_only == false)] | length) == 1 and
-    ([volumes[] | select(.type == "bind")] | length) == 12 and
-    ([volumes[] | select(.type == "bind") | .target] | unique | length) == 12 and
+    ([volumes[] | select(.type == "bind")] | length) == 13 and
+    ([volumes[] | select(.type == "bind") | .target] | unique | length) == 13 and
     ([volumes[] | select(.type == "bind") | select(
       (.source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage") or
+      (.source == "/run/deniz-cloud/storage-metadata.sock" and .target == "/run/deniz-cloud/storage-metadata.sock") or
       (.source == "/mnt/ssd/deniz-cloud/internal/.capacity" and .target == "/data/capacity/ssd" and .read_only == true) or
       (.source == "/mnt/hdd/deniz-cloud/internal/.capacity" and .target == "/data/capacity/hdd" and .read_only == true) or
       (.source == "/srv/deniz-cloud/internal/.capacity" and .target == "/data/capacity/root" and .read_only == true) or
@@ -290,6 +294,7 @@ fail_closed() {
   install -d -m 0755 /run/deniz-cloud
   jq -n --arg at "$(date --utc +%FT%TZ)" --arg reason "$reason" '{schemaVersion:1,at:$at,reason:$reason,writesWithdrawn:true}' > "$critical.partial"
   mv "$critical.partial" "$critical"; chmod 0444 "$critical"
+  systemctl stop "$metadata_unit" || true
   systemctl stop "$broker_unit" || true
   systemctl stop "$smb_unit" || true
   if mountpoint -q "$broker_mount"; then
@@ -308,6 +313,7 @@ watch_once() {
   validate_witness || fail_closed broker-witness
   broker_is_current || fail_closed api-broker-mount
   [[ "$(cat "$broker_mount/$witness_name" 2>/dev/null || true)" == "$STORAGE_NAMESPACE_WITNESS_VALUE" ]] || fail_closed api-broker-witness
+  systemctl is-active --quiet "$metadata_unit" || fail_closed metadata-service
   systemctl is-active --quiet "$smb_unit" || fail_closed smbd-service
   local smbd_pid
   smbd_pid=$(systemctl show -p MainPID --value "$smb_unit")
