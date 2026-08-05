@@ -245,8 +245,8 @@ for _ in {1..60}; do
 done
 docker exec "$mongo_restore" mongosh --quiet --eval \
   'quit(db.adminCommand({ping:1}).ok === 1 ? 0 : 1)' >/dev/null
-zcat "$snapshot_dir/mongodb.archive.gz" \
-  | docker exec -i "$mongo_restore" mongorestore --archive --gzip >/dev/null
+docker exec -i "$mongo_restore" mongorestore --archive --gzip >/dev/null \
+  < "$snapshot_dir/mongodb.archive.gz"
 docker exec "$mongo_restore" mongosh --quiet --eval \
   'const names=db.adminCommand({listDatabases:1}).databases.map(({name})=>name); if(names.length < 1) quit(1); print(names.length)' \
   > "$work_dir/restored-mongodb-database-count"
