@@ -85,7 +85,8 @@ if [[ "$mode" == "--dry-run" ]]; then
 fi
 
 ((EUID == 0)) || { echo "Execute mode requires root" >&2; exit 1; }
-for command in getent jq pdbedit smbcontrol smbstatus useradd usermod; do
+for command in getent groupadd jq pdbedit smbcontrol smbpasswd smbstatus \
+  useradd usermod; do
   command -v "$command" >/dev/null || {
     echo "Missing command: ${command}" >&2
     exit 1
@@ -120,12 +121,19 @@ provision() {
   # The account is created disabled, then enabled only after the secret is
   # accepted, so a failure part-way never leaves an enabled account with an
   # unknown password.
-  if ! pdbedit -L -u "$principal" >/dev/null 2>&1; then
+  #
+  # The secret is set on every run, not only on create. Setting it only when
+  # the account is new makes a re-provision report success while the stored
+  # secret is still the previous one, so the caller hands out a password that
+  # cannot log in and nothing anywhere reports a failure.
+  if pdbedit -L -u "$principal" >/dev/null 2>&1; then
+    printf '%s\n%s\n' "$POSIX_SMB_SECRET" "$POSIX_SMB_SECRET" \
+      | smbpasswd -s "$principal" >/dev/null
+  else
     printf '%s\n%s\n' "$POSIX_SMB_SECRET" "$POSIX_SMB_SECRET" \
       | smbpasswd -s -a "$principal" >/dev/null
     smbpasswd -d "$principal" >/dev/null
   fi
-  pdbedit -u "$principal" --set-nt-hash >/dev/null 2>&1 || true
 
   # The share path comes from this fragment, not from %H: Samba expands %H to
   # the forced user's home, so a device would otherwise be served the storage

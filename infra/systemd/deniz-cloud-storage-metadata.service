@@ -19,6 +19,15 @@ EnvironmentFile=/etc/deniz-cloud/posix-storage.env
 EnvironmentFile=/etc/deniz-cloud/storage-metadata.env
 RuntimeDirectory=deniz-cloud
 RuntimeDirectoryMode=0755
+# The API bind-mounts this directory to reach the socket, and a bind mount
+# follows the inode rather than the path. The default would delete the
+# directory on every stop and recreate it with a new inode, leaving the
+# container holding the old unlinked one: the socket then appears missing
+# inside the container and only inside it, while the service looks healthy and
+# /healthz — which never touches the socket — keeps reporting healthy. The
+# breakage lasts until something recreates the container, so it outlives the
+# restart that caused it.
+RuntimeDirectoryPreserve=yes
 ExecStart=/usr/local/bin/cloud-storage-metadata
 Restart=on-failure
 RestartSec=2
