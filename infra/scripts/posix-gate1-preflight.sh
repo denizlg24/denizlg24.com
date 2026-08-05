@@ -14,7 +14,7 @@ done
 tailscale_ip="$(ip -4 -o address show dev tailscale0 2>/dev/null | awk 'NR == 1 {split($4, address, "/"); print address[1]}' || true)"
 ssd_source="$(findmnt -T /mnt/ssd/storage -n -o SOURCE 2>/dev/null || true)"
 hdd_source="$(findmnt -T /mnt/hdd/storage -n -o SOURCE 2>/dev/null || true)"
-mergerfs_version="$(mergerfs --version 2>/dev/null | awk 'NR == 1 {print $NF}' || true)"
+mergerfs_version="$(mergerfs --version 2>/dev/null | awk 'NR == 1 {sub(/^v/, "", $NF); print $NF}' || true)"
 samba_version="$(smbd --version 2>/dev/null | awk 'NR == 1 {print $2}' || true)"
 tcp445_listeners="$(ss -H -ltn 'sport = :445' | wc -l | tr -d ' ')"
 

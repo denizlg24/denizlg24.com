@@ -5,6 +5,10 @@ const INSTALL_SCRIPT = resolve(
   import.meta.dir,
   "../../../infra/scripts/posix-gate1-install.sh",
 );
+const PREFLIGHT_SCRIPT = resolve(
+  import.meta.dir,
+  "../../../infra/scripts/posix-gate1-preflight.sh",
+);
 
 describe("POSIX Gate 1 package installer safety", () => {
   it("proves the APT transaction before masking Samba", async () => {
@@ -36,5 +40,12 @@ describe("POSIX Gate 1 package installer safety", () => {
     expect(source).toContain('chmod 755 "$download_dir"');
     expect(source).toContain('chmod 644 "$deb_path"');
     expect(source).toContain('sub(/^v/, "", $NF)');
+  });
+
+  it("uses the same normalized mergerfs version in host preflight", async () => {
+    const source = await Bun.file(PREFLIGHT_SCRIPT).text();
+
+    expect(source).toContain('sub(/^v/, "", $NF)');
+    expect(source).toContain('$mergerfsVersion=="2.42.0"');
   });
 });
