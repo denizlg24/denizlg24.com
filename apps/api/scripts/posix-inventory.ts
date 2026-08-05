@@ -904,8 +904,22 @@ async function writeMigrationManifest(
   );
   for (const row of sortedFolders) {
     const sourcePath = resolve(roots.ssd, `.${row.path}`);
-    const stats = await lstat(sourcePath);
-    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+    // A folder row can legitimately have no directory: project storage roots
+    // are created at provisioning time in the database and materialised on
+    // disk only at first write. Their IDs still have to survive migration, so
+    // they are emitted with a null source and created fresh at the target
+    // rather than copied from a directory that was never there.
+    let stats: Awaited<ReturnType<typeof lstat>> | null = null;
+    try {
+      stats = await lstat(sourcePath);
+    } catch (error) {
+      if (
+        !(error instanceof Error && "code" in error && error.code === "ENOENT")
+      ) {
+        throw error;
+      }
+    }
+    if (stats && (!stats.isDirectory() || stats.isSymbolicLink())) {
       throw new ScriptError(
         `Migration folder source is not a safe directory: ${row.path}`,
       );
@@ -919,7 +933,7 @@ async function writeMigrationManifest(
       parentId: row.parentId,
       path: row.path,
       schemaVersion: 1,
-      sourcePath,
+      sourcePath: stats ? sourcePath : null,
       targetRelativePath: row.path.slice(1),
       targetTier: "ssd",
       updatedAt: row.updatedAt.toISOString(),

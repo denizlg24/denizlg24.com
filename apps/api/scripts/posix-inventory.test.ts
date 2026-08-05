@@ -397,4 +397,64 @@ describe("POSIX inventory", () => {
     ).rejects.toThrow("refusing to overwrite");
     expect(await readFile(existing, "utf8")).toBe("keep");
   });
+
+  it("emits a provisioned-but-unmaterialised folder with a null source", async () => {
+    // Project storage roots exist as folder rows from provisioning time and
+    // are created on disk only at first write. Their IDs must survive
+    // migration, so the manifest carries them with no source rather than
+    // refusing to export.
+    const root = await mkdtemp(join(tmpdir(), "posix-inventory-lazy-"));
+    const ssd = join(root, "ssd");
+    const hdd = join(root, "hdd");
+    const archives = join(ssd, ".archives");
+    const manifestPath = join(root, "migration.jsonl");
+    const createdAt = new Date("2026-07-01T10:00:00.000Z");
+    await Promise.all([
+      mkdir(archives, { recursive: true }),
+      mkdir(hdd, { recursive: true }),
+    ]);
+    const archiveJobs = new ArchiveJobStore({
+      directory: archives,
+      ttlMs: 60_000,
+    });
+    await archiveJobs.initialize();
+
+    const summary = await collectPosixInventory({
+      archivePath: archives,
+      auditPath: join(root, "inventory.jsonl"),
+      db: fakeDb({
+        files: [],
+        folders: [
+          {
+            createdAt,
+            id: "00000000-0000-4000-8000-000000000040",
+            name: "envoy",
+            ownerId: "00000000-0000-4000-8000-000000000030",
+            parentId: null,
+            path: "/envoy",
+            updatedAt: createdAt,
+          },
+        ],
+        tus: [],
+      }) as never,
+      excludedPaths: [archives],
+      hddStoragePath: hdd,
+      migrationManifestPath: manifestPath,
+      requireMountPoints: false,
+      ssdStoragePath: ssd,
+    });
+
+    archiveJobs.close();
+    expect(summary.allGreen).toBe(true);
+    const records = (await readFile(manifestPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(records[1]).toMatchObject({
+      event: "migration-folder",
+      path: "/envoy",
+      sourcePath: null,
+      targetRelativePath: "envoy",
+    });
+  });
 });

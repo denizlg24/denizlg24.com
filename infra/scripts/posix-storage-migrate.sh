@@ -332,7 +332,7 @@ if jq -se \
   ($folders | all(common and .targetTier == "ssd" and
     (.ownerId == null or (.ownerId | uuid)) and
     (.parentId == null or (.parentId | uuid)) and
-    (.sourcePath == ($ssd + .path)))) and
+    ((.sourcePath == null) or (.sourcePath == ($ssd + .path))))) and
   (([$folders[], $files[]] | map(.id) | length) == ([$folders[], $files[]] | map(.id) | unique | length)) and
   (([$folders[], $files[]] | map(.targetRelativePath) | length) == ([$folders[], $files[]] | map(.targetRelativePath) | unique | length)) and
   ($files | all(common and (.ownerId | uuid) and (.folderId | uuid) and
@@ -620,7 +620,7 @@ while IFS= read -r encoded; do
   kind="${event#migration-}"
   id="$(jq -er '.id' <<< "$entry")"
   relative_path="$(jq -er '.targetRelativePath' <<< "$entry")"
-  source="$(jq -er '.sourcePath' <<< "$entry")"
+  source="$(jq -r '.sourcePath // "null"' <<< "$entry")"
   tier="$(jq -er '.targetTier' <<< "$entry")"
   target_root="$target_ssd"
   [[ "$tier" == hdd ]] && target_root="$target_hdd"
@@ -669,14 +669,22 @@ while IFS= read -r encoded; do
     exit 1
   }
   journal_append entry-copying "$kind" "$id" "$destination" "$checksum"
-  if [[ "$kind" == folder ]]; then
+  if [[ "$kind" == folder && "$source" == "null" ]]; then
+    # No source directory: a provisioned-but-unmaterialised project root. It is
+    # created fresh with the storage identity rather than copied from a
+    # directory that never existed.
+    install -d -m 0770 -o 1000 -g 1000 "$stage"
+  elif [[ "$kind" == folder ]]; then
     cp --archive --attributes-only -- "$source" "$stage"
   else
     cp --preserve=all --sparse=always --reflink=auto -- "$source" "$stage"
   fi
   set_protected_metadata "$entry" "$stage" "$kind"
   sync -f "$stage"
-  verify_preserved_metadata "$source" "$stage"
+  # A freshly created folder has no source to compare against.
+  if [[ "$source" != "null" ]]; then
+    verify_preserved_metadata "$source" "$stage"
+  fi
   verify_protected_metadata "$entry" "$stage" "$kind"
   if [[ "$kind" == file ]]; then
     [[ "$(stat -c '%s' "$stage")" == "$(jq -er '.sizeBytes' <<< "$entry")" ]]
