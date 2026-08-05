@@ -138,7 +138,10 @@ export function PositionTreemap({
                 aria-label={
                   tile.isCash
                     ? undefined
-                    : `${tile.ticker}, ${(share * 100).toFixed(1)}% of portfolio`
+                    : // The side is carried by a dash pattern and an arrow, so
+                      // without it here a screen reader cannot tell a short from
+                      // a long at all.
+                      `${tile.ticker} ${tile.isShort ? "short" : "long"}, ${(share * 100).toFixed(1)}% of portfolio`
                 }
                 className={tile.isCash ? undefined : "cursor-pointer"}
               >

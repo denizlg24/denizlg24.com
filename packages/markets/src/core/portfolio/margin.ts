@@ -33,7 +33,15 @@ export function computeMargin({
 
   for (const position of positions) {
     if (position.quantity === 0) continue;
-    const exposure = Math.abs(position.marketValue);
+    // `buildPositions` reports a market value of zero when nothing could price
+    // the holding. Carrying that straight through would drop the position out
+    // of the requirement entirely — an unpriced short would lift excess
+    // liquidity and clear a call while the borrowed shares are still out. The
+    // cost basis is the last defensible number for it.
+    const exposure =
+      position.lastPrice === null
+        ? Math.abs(position.costBasis)
+        : Math.abs(position.marketValue);
     if (position.quantity > 0) {
       longExposure += exposure;
       initialMargin += exposure * config.initialLong;
@@ -99,6 +107,12 @@ export function initialRequirementFor(
 function daysBetween(from: string, to: string): number {
   const ms =
     Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`);
+  // A stored `borrowAccruedThrough` that is not a date key parses to NaN, and
+  // NaN passes every `<= 0` guard below it. The charge would then be booked as
+  // a NaN cash debit that the replay adds to `state.cash`, and every curve
+  // point, metric and margin state for the portfolio is NaN from then on with
+  // nothing to recompute it. Treat it as "charge nothing" instead.
+  if (!Number.isFinite(ms)) return 0;
   return ms <= 0 ? 0 : Math.round(ms / 86_400_000);
 }
 

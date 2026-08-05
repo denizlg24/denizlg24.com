@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import {
   deletePortfolio,
   getPortfolio,
+  PortfolioRejected,
   syncPortfolioActions,
   updatePortfolio,
 } from "@/lib/markets/portfolios";
@@ -45,14 +46,25 @@ export async function PATCH(
   if (!parseObjectId(id)) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  const portfolio = await updatePortfolio(id, parsed.data);
+  let portfolio: Awaited<ReturnType<typeof updatePortfolio>>;
+  try {
+    portfolio = await updatePortfolio(id, parsed.data);
+  } catch (error) {
+    if (error instanceof PortfolioRejected) {
+      return NextResponse.json({ error: error.message }, { status: 422 });
+    }
+    throw error;
+  }
   if (!portfolio) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  // `syncPortfolioActions` derives the generated dividend rows from this flag,
-  // so without a resync they and every metric built on them stay stale until
-  // the next trade mutation or cron run.
-  if (parsed.data.reinvestDividends !== undefined) {
+  // `syncPortfolioActions` derives the generated rows from these flags, so
+  // without a resync they and every metric built on them stay stale until the
+  // next trade mutation or cron run.
+  if (
+    parsed.data.reinvestDividends !== undefined ||
+    parsed.data.allowShorts !== undefined
+  ) {
     await syncPortfolioActions(id);
   }
   return NextResponse.json({ portfolio });

@@ -174,9 +174,9 @@ export const orderInputSchema = orderInputBase.superRefine((order, ctx) => {
       message: "A good-till-date order needs an expiry",
     });
   }
-  // A market order carries no price to sit above or below, so an exit pair
-  // attached to one would arm the instant the entry fills and immediately race
-  // itself. Brackets belong on orders that establish a level.
+  // A reduce-only order closes exposure and opens none, so exits attached to
+  // it would arm against a position its own fill has just removed and cancel
+  // themselves on the next pass. Brackets belong on orders that open something.
   if (order.bracket && order.reduceOnly) {
     ctx.addIssue({
       code: "custom",
@@ -187,12 +187,20 @@ export const orderInputSchema = orderInputBase.superRefine((order, ctx) => {
 });
 export type OrderInput = z.infer<typeof orderInputSchema>;
 
-/** Price and size are amendable while working; side, type and symbol are not. */
+/**
+ * Price and size are amendable while working; side, type and symbol are not.
+ *
+ * A price can be moved but never removed. Type is not amendable, so clearing
+ * the level a working order acts on — a limit's `limitPrice`, a stop's
+ * `stopPrice`, a trail's distance — leaves an order the engine can only cancel,
+ * and it would be cancelled silently on the next pass rather than rejected here
+ * where the owner can see it.
+ */
 export const orderAmendSchema = z.object({
   quantity: quantitySchema.positive().optional(),
-  limitPrice: priceSchema.positive().nullable().optional(),
-  stopPrice: priceSchema.positive().nullable().optional(),
-  trailValue: z.number().positive().nullable().optional(),
+  limitPrice: priceSchema.positive().optional(),
+  stopPrice: priceSchema.positive().optional(),
+  trailValue: z.number().positive().optional(),
   timeInForce: timeInForceSchema.optional(),
   expiresAt: isoDateTimeSchema.nullable().optional(),
   note: z.string().max(500).optional(),

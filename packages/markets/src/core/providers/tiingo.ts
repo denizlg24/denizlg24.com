@@ -17,6 +17,14 @@ import {
 
 const BASE_URL = "https://api.tiingo.com";
 
+/**
+ * Every request carries one. A refresh sits in front of the caller — placing an
+ * order waits on a quote before it can be admitted — so an upstream that
+ * accepts the connection and then goes quiet would hold a request thread for as
+ * long as the platform allows rather than falling back to the cached quote.
+ */
+const DEFAULT_TIMEOUT_MS = 10_000;
+
 const dailyRowSchema = z.object({
   date: z.string(),
   open: z.number(),
@@ -83,6 +91,8 @@ export interface TiingoOptions {
   apiKeys: string[];
   budget: BudgetPort;
   fetchImpl?: typeof fetch;
+  /** Per-request deadline. Defaults to ten seconds. */
+  timeoutMs?: number;
 }
 
 export class TiingoProvider implements MarketDataProvider {
@@ -134,6 +144,11 @@ export class TiingoProvider implements MarketDataProvider {
           Authorization: `Token ${key}`,
           "Content-Type": "application/json",
         },
+        // Fresh per attempt: the retry below is a second request and must get
+        // its own deadline rather than the remains of the first one's.
+        signal: AbortSignal.timeout(
+          this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        ),
       });
 
     let response: Response;

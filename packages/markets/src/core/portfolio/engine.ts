@@ -7,6 +7,7 @@ import type {
   Trade,
   ValuationPoint,
 } from "../../schemas";
+import { DEFAULT_MARGIN } from "../../schemas";
 
 /**
  * Rebuilds portfolio state by replaying the trade log. Nothing here reads a
@@ -270,15 +271,6 @@ export function performanceDates(options: {
     .sort();
 }
 
-const DEFAULT_MARGIN: MarginConfig = {
-  enabled: false,
-  initialLong: 0.5,
-  initialShort: 1.5,
-  maintenanceLong: 0.25,
-  maintenanceShort: 0.3,
-  borrowRate: 0.03,
-};
-
 export function buildPositions(
   state: ReplayState,
   priceAt: (ticker: string) => number | null,
@@ -341,8 +333,13 @@ export function buildPositions(
             100 *
             (short ? -1 : 1),
       weight: grossExposure === 0 ? 0 : exposure / grossExposure,
+      // Falls back to the basis when nothing could price the holding, matching
+      // `computeMargin`. A position that carries no requirement because it
+      // could not be priced is the one way a call gets cleared while the risk
+      // is still on.
       maintenanceMargin:
-        exposure * (short ? margin.maintenanceShort : margin.maintenanceLong),
+        (lastPrice === null ? Math.abs(held.costBasis) : exposure) *
+        (short ? margin.maintenanceShort : margin.maintenanceLong),
       // The price at which everything done in this symbol nets to zero, not
       // merely the open lot: partial profit-taking moves it, which is the
       // number that actually tells you where you can walk away flat.
@@ -450,11 +447,16 @@ export function buildContributionSeries(
         const requested =
           trade.side === "buy" ? trade.quantity : -trade.quantity;
         const { opening } = splitAgainstPosition(held, requested);
-        if (opening > 0) {
+        // The same clamp `applyTrade` applies. Without shorts enabled a sale
+        // that runs past the long settles nothing, so counting its notional
+        // here would divide every later `returnPercent` for the symbol by
+        // capital the book never committed.
+        const allowedOpening = requested > 0 || state.allowShorts ? opening : 0;
+        if (allowedOpening > 0) {
           grossCost.set(
             trade.ticker,
             (grossCost.get(trade.ticker) ?? 0) +
-              opening * trade.price +
+              allowedOpening * trade.price +
               trade.fees,
           );
         }

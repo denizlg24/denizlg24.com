@@ -118,15 +118,6 @@ function stopFill(
   return price <= stop ? Math.min(price, stop) : null;
 }
 
-/** Whether a stop level was touched at all, ignoring where it would fill. */
-function stopBreached(
-  side: Order["side"],
-  stop: number,
-  context: OrderMarketContext,
-): boolean {
-  return stopFill(side, stop, context) !== null;
-}
-
 export function evaluateOrder(
   order: Order,
   context: OrderMarketContext,
@@ -214,21 +205,22 @@ function triggerFor(order: Order, context: OrderMarketContext): OrderDecision {
           ? (context.bar?.high ?? price)
           : (context.bar?.low ?? price);
 
-      // The trail starts working from where it was placed. Seeding the anchor
-      // and testing the stop against the same interval would let an order fill
-      // on a move that happened before it existed.
-      if (order.trailAnchor === null) {
-        return extremeThisBar === null
-          ? { kind: "hold" }
-          : { kind: "hold", trailAnchor: extremeThisBar };
-      }
+      // A first evaluation seeds from the open of the span rather than its
+      // extreme, and then runs the trigger like any other. The bar handed in
+      // covers only sessions the order was already live for, so skipping the
+      // trigger while seeding would discard a collapse the order existed to
+      // catch — a trail first evaluated several sessions late would anchor to
+      // the span high and never see the move down through the stop that
+      // followed it inside the same span.
+      const anchor = order.trailAnchor ?? context.bar?.open ?? price;
+      if (anchor === null) return { kind: "hold" };
 
       // Trigger against the anchor as it stood coming into the bar, before
       // ratcheting it on the same bar's extreme. A bar that made a new high and
       // then collapsed through the old stop must fill: moving the anchor first
       // would widen the stop retroactively and let the loss run.
       const stop = trailStop(
-        order.trailAnchor,
+        anchor,
         order.trailBasis,
         order.trailValue,
         order.side,
@@ -238,12 +230,21 @@ function triggerFor(order: Order, context: OrderMarketContext): OrderDecision {
 
       const extreme =
         order.side === "sell"
-          ? Math.max(order.trailAnchor, extremeThisBar ?? order.trailAnchor)
-          : Math.min(order.trailAnchor, extremeThisBar ?? order.trailAnchor);
+          ? Math.max(anchor, extremeThisBar ?? anchor)
+          : Math.min(anchor, extremeThisBar ?? anchor);
       return extreme === order.trailAnchor
         ? { kind: "hold" }
         : { kind: "hold", trailAnchor: extreme };
     }
+
+    default:
+      // Only reachable from a persisted `type` outside the union. Holding would
+      // leave the order working forever against a branch that cannot evaluate
+      // it, so the failure is made terminal and visible instead.
+      return {
+        kind: "cancel",
+        reason: `Unsupported order type ${String(order.type)}`,
+      };
   }
 }
 

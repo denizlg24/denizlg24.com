@@ -127,8 +127,15 @@ export function PortfoliosPage({
   // switching portfolios mid-flight cannot leave the previous one's performance
   // and trades under the new one's header.
   const requested = useRef<string | null>(null);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const load = useCallback(
     async (id: string) => {
+      // An order or trade mutation on A that resolves after the owner has
+      // selected B calls `load(A)`, and `requested` cannot catch that on its
+      // own: the stale load overwrites it on the way in and then passes its own
+      // check, putting A's book under B's header.
+      if (id !== selectedRef.current) return;
       requested.current = id;
       setLoading(true);
       setError(null);

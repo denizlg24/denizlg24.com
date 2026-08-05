@@ -60,7 +60,7 @@ export type TradeInput = z.infer<typeof tradeInputSchema>;
  * short. A cash account is expressed as 100% initial on both sides rather than
  * as a separate mode.
  */
-export const marginConfigSchema = z.object({
+const marginConfigBaseSchema = z.object({
   enabled: z.boolean().default(false),
   initialLong: z.number().min(0).max(1).default(0.5),
   initialShort: z.number().min(0).max(2).default(1.5),
@@ -69,7 +69,38 @@ export const marginConfigSchema = z.object({
   /** Annual borrow rate on short market value, as a fraction (0.03 = 3%/yr). */
   borrowRate: z.number().min(0).max(2).default(0.03),
 });
-export type MarginConfig = z.infer<typeof marginConfigSchema>;
+
+/**
+ * Maintenance above initial is not a stricter account, it is an incoherent one:
+ * `computeMargin` would report a call on a book that was admitted a moment
+ * earlier at the lower opening requirement, with no trade in between.
+ */
+export const marginConfigSchema = marginConfigBaseSchema.superRefine(
+  (config, ctx) => {
+    if (config.maintenanceLong > config.initialLong) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["maintenanceLong"],
+        message: "Maintenance margin cannot exceed the initial requirement",
+      });
+    }
+    if (config.maintenanceShort > config.initialShort) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["maintenanceShort"],
+        message: "Maintenance margin cannot exceed the initial requirement",
+      });
+    }
+  },
+);
+export type MarginConfig = z.infer<typeof marginConfigBaseSchema>;
+
+/**
+ * The one place the requirements are written down. The replay, the Mongoose
+ * schema and the web layer all read this, so a change to one fraction cannot
+ * leave four copies reporting different buying power for the same book.
+ */
+export const DEFAULT_MARGIN: MarginConfig = marginConfigBaseSchema.parse({});
 
 export const portfolioSchema = z.object({
   id: z.string(),

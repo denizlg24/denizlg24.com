@@ -141,6 +141,29 @@ describe("annualisation floor", () => {
     expect(metrics.totalPnl).toBe(200);
   });
 
+  // The floor is thirty days, and a curve of N points spans N-1 of them. These
+  // two pin it: without them any threshold between three days and a year keeps
+  // the suite green, and a change to the constant fails nothing.
+  test("one day short of the floor still reports nothing", () => {
+    const metrics = computeMetrics({
+      curve: flat(Array.from({ length: 30 }, (_, index) => 10_000 + index)),
+      benchmarkCurve: [],
+      state: replayTrades([], 10_000),
+      positions: [],
+    });
+    expect(metrics.cagr).toBeNull();
+  });
+
+  test("exactly at the floor reports a rate", () => {
+    const metrics = computeMetrics({
+      curve: flat(Array.from({ length: 31 }, (_, index) => 10_000 + index)),
+      benchmarkCurve: [],
+      state: replayTrades([], 10_000),
+      positions: [],
+    });
+    expect(metrics.cagr).not.toBeNull();
+  });
+
   test("a portfolio with real history still reports one", () => {
     const values = Array.from(
       { length: 400 },

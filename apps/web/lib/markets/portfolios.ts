@@ -20,6 +20,7 @@ import type {
   TradeSource,
   ValuePoint,
 } from "@repo/markets/schemas";
+import { DEFAULT_MARGIN } from "@repo/markets/schemas";
 import { Types } from "mongoose";
 import { connectDB } from "@/lib/mongodb";
 import {
@@ -63,15 +64,6 @@ export const GENERATED_ACTION_SOURCES: TradeSource[] = [
   "drip",
   "split",
 ];
-
-export const DEFAULT_MARGIN: MarginConfig = {
-  enabled: false,
-  initialLong: 0.5,
-  initialShort: 1.5,
-  maintenanceLong: 0.25,
-  maintenanceShort: 0.3,
-  borrowRate: 0.03,
-};
 
 /**
  * Portfolios created before margin existed carry no subdocument, and a missing
@@ -144,11 +136,34 @@ export async function createPortfolio(
   return toPortfolio(doc);
 }
 
+export class PortfolioRejected extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PortfolioRejected";
+  }
+}
+
 export async function updatePortfolio(
   id: string,
   input: Partial<PortfolioInput>,
 ): Promise<Portfolio | null> {
   await connectDB();
+  // Turning shorting off while a short is open does not change a setting, it
+  // rewrites history. The replay reads the flag as it stands now, so the
+  // original opening sale re-runs with nothing allowed to open, settles
+  // nothing, and the position, its proceeds and its realised PnL disappear from
+  // every curve point and metric that used to include them.
+  if (input.allowShorts === false) {
+    const performance = await getPerformance(id);
+    const short = performance?.positions.find(
+      (position) => position.quantity < 0,
+    );
+    if (short) {
+      throw new PortfolioRejected(
+        `${short.ticker} is short; cover it before turning shorting off`,
+      );
+    }
+  }
   const doc = await MarketPortfolio.findByIdAndUpdate(id, input, {
     returnDocument: "after",
   });
@@ -173,6 +188,13 @@ export async function deletePortfolio(id: string): Promise<boolean> {
 
 /** How much observed intraday history the performance payload carries. */
 const INTRADAY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * A week of minute-resolution points is a little over ten thousand rows, which
+ * is more than any chart can draw and more than the payload should carry. The
+ * cap keeps a dense week bounded; the window is what makes it rare to hit.
+ */
+const INTRADAY_MAX_POINTS = 2_000;
 
 /** Repeated reads inside one minute are the same observation, not many. */
 function toMinute(now: Date): Date {
@@ -367,8 +389,19 @@ async function backfillNewHoldings(tickers: string[]): Promise<void> {
   }
 }
 
+export interface PerformanceOptions {
+  /**
+   * Off by default. The observed series is up to a week of minute-resolution
+   * rows, and only the chart renders it — while `runOrderEngine` calls this
+   * once a pass per portfolio and the cron loops it over all of them. Every one
+   * of those calls would otherwise pay for the full scan and mapping.
+   */
+  intraday?: boolean;
+}
+
 export async function getPerformance(
   portfolioId: string,
+  options: PerformanceOptions = {},
 ): Promise<PortfolioPerformance | null> {
   await connectDB();
   const portfolio = await MarketPortfolio.findById(portfolioId);
@@ -507,10 +540,23 @@ export async function getPerformance(
     benchmarkCurve.push({ date: today, value: benchmarkLast });
   }
 
-  const observed = await MarketPortfolioValuePoint.find({
-    portfolioId: portfolio._id,
-    ts: { $gte: new Date(stores.clock.now().getTime() - INTRADAY_WINDOW_MS) },
-  }).sort({ ts: 1 });
+  // Newest first and then reversed, so the cap drops the far end of the window
+  // rather than the part of it anyone is looking at.
+  const observed = options.intraday
+    ? (
+        await MarketPortfolioValuePoint.find(
+          {
+            portfolioId: portfolio._id,
+            ts: {
+              $gte: new Date(stores.clock.now().getTime() - INTRADAY_WINDOW_MS),
+            },
+          },
+          { ts: 1, value: 1, cash: 1, positionsValue: 1, invested: 1 },
+        )
+          .sort({ ts: -1 })
+          .limit(INTRADAY_MAX_POINTS)
+      ).reverse()
+    : [];
   const intradayCurve: ValuePoint[] = observed.map((point) => {
     const totalPnl = point.value - point.invested;
     return {
