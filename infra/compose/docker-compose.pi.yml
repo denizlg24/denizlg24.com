@@ -357,6 +357,10 @@ services:
       STORAGE_TIER_MIN_SIZE_MIB: ${STORAGE_TIER_MIN_SIZE_MIB:-500}
       SSD_DEVICE: ${SSD_DEVICE:-/dev/nvme0n1p1}
       SSD_STORAGE_PATH: /data/ssd
+      STORAGE_NAMESPACE_MODE: ${STORAGE_NAMESPACE_MODE:-legacy-dual-path}
+      STORAGE_NAMESPACE_PATH: ${STORAGE_NAMESPACE_PATH:-}
+      STORAGE_NAMESPACE_WITNESS_PATH: ${STORAGE_NAMESPACE_WITNESS_PATH:-}
+      STORAGE_NAMESPACE_WITNESS_VALUE: ${STORAGE_NAMESPACE_WITNESS_VALUE:-}
       # host.docker.internal maps to the docker0 gateway (172.17.0.1), which
       # Docker's inter-bridge isolation makes unroutable from this container's
       # custom networks — the proxy times out and every terminal session 500s.
@@ -374,6 +378,9 @@ services:
       - /:/host/rootfs:ro
       - ${SSD_STORAGE_PATH:?SSD_STORAGE_PATH is required}:/data/ssd
       - ${HDD_STORAGE_PATH:?HDD_STORAGE_PATH is required}:/data/hdd
+      # In broker mode this is the host's loopback CIFS mount, never the
+      # authoritative mergerfs mount or either private namespace branch.
+      - ${STORAGE_BROKER_MOUNT_PATH:?STORAGE_BROKER_MOUNT_PATH is required}:/data/storage
       - ${BACKUP_DIR:?BACKUP_DIR is required}:/backups
       - ${HOST_CONTROL_DIR:-/var/lib/deniz-cloud}:/host-control
     mem_limit: ${API_MEMORY_LIMIT:-0}

@@ -25,6 +25,7 @@ install -d -m 700 \
   "${staging_root}/data/meilisearch" \
   "${staging_root}/storage/ssd" \
   "${staging_root}/storage/hdd" \
+  "${staging_root}/storage/api-broker" \
   "${staging_root}/backups"
 
 # Written by the API container as uid 1000; root ownership fails the reboot task.

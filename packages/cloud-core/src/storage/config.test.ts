@@ -44,6 +44,17 @@ describe("storage namespace configuration", () => {
     expect(config.hddStoragePath).toBe("fixtures/hdd");
   });
 
+  it("accepts Compose's empty broker variables in legacy mode", () => {
+    process.env.STORAGE_NAMESPACE_PATH = "";
+    process.env.STORAGE_NAMESPACE_WITNESS_PATH = "";
+    process.env.STORAGE_NAMESPACE_WITNESS_VALUE = "";
+
+    expect(storageConfigFromEnv().namespace).toEqual({
+      mode: "legacy-dual-path",
+      rootPath: null,
+    });
+  });
+
   it("selects one broker-mounted request namespace without moving internals", () => {
     process.env.STORAGE_NAMESPACE_MODE = "broker-mounted";
     process.env.STORAGE_NAMESPACE_PATH = "/srv/deniz-cloud/storage";

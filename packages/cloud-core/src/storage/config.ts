@@ -94,7 +94,7 @@ function namespaceConfigFromEnv(
 ): StorageNamespaceConfig {
   const rawMode = process.env.STORAGE_NAMESPACE_MODE ?? "legacy-dual-path";
   if (rawMode === "legacy-dual-path") {
-    if (process.env.STORAGE_NAMESPACE_PATH !== undefined) {
+    if (process.env.STORAGE_NAMESPACE_PATH?.trim()) {
       throw new Error(
         "STORAGE_NAMESPACE_PATH is valid only when STORAGE_NAMESPACE_MODE=broker-mounted",
       );
