@@ -92,6 +92,7 @@ async function executeAllBackups(
   rawConfig: TaskConfig,
   context: ExecutorContext,
 ): Promise<ExecutorResult> {
+  assertApiFilesBackupAllowed(context.storageConfig);
   const config = allBackupsTaskConfigSchema.parse(rawConfig);
   const startedAt = Date.now();
   const postgres = await executePostgresBackup(config, context);
@@ -101,6 +102,16 @@ async function executeAllBackups(
     output: [postgres.output, mongo.output, files.output].join("\n---\n"),
     metadata: { durationMs: Date.now() - startedAt },
   };
+}
+
+export function assertApiFilesBackupAllowed(
+  storageConfig: Pick<StorageConfig, "namespace">,
+): void {
+  if (storageConfig.namespace.mode === "broker-mounted") {
+    throw new Error(
+      "API files backup is disabled for broker-mounted storage; use the privileged host namespace backup so protected xattrs and both physical branches are preserved",
+    );
+  }
 }
 
 interface PendingAlert {
@@ -532,8 +543,13 @@ export function getExecutor(
       return async (config) =>
         executeMongoBackup(mongoBackupTaskConfigSchema.parse(config), context);
     case "backup_files":
-      return async (config) =>
-        executeFilesBackup(filesBackupTaskConfigSchema.parse(config), context);
+      return async (config) => {
+        assertApiFilesBackupAllowed(context.storageConfig);
+        return executeFilesBackup(
+          filesBackupTaskConfigSchema.parse(config),
+          context,
+        );
+      };
     case "backup_all":
       return async (config) => executeAllBackups(config, context);
     case "restart_container":
