@@ -74,6 +74,13 @@ describe("POSIX Gate 1 spike shell safety", () => {
     expect(template).toContain("ncalrpc dir = @NCALRPC_DIR@");
     expect(template).toContain("interfaces = @TAILSCALE_IP@\n");
     expect(template).not.toContain("interfaces = @TAILSCALE_IP@/32");
+    expect(source).toContain("${samba_started:-false}");
+    expect(source).toContain(
+      "Disposable smbd did not open the exact Tailscale listener",
+    );
+    expect(source).toContain(
+      'tail -n 80 "$samba_root/log/smbd.foreground.log" >&2 || true',
+    );
   });
 
   it("permits only traversal to the fixed non-sudo peer mount", async () => {

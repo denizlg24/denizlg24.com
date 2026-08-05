@@ -379,7 +379,7 @@ start_samba() {
   local samba_started=false
   cleanup_failed_samba() {
     set +e
-    if [[ "$samba_started" != "true" && -s "$pid_file" ]]; then
+    if [[ "${samba_started:-false}" != "true" && -n "${pid_file:-}" && -s "$pid_file" ]]; then
       local failed_pid
       failed_pid="$(cat "$pid_file")"
       if [[ "$failed_pid" =~ ^[0-9]+$ && -r "/proc/$failed_pid/exe" && "$(basename "$(readlink -f "/proc/$failed_pid/exe")")" == "smbd" ]]; then
@@ -425,6 +425,11 @@ start_samba() {
   fi
   start_time="$(awk '{print $22}' "/proc/$pid/stat")"
   [[ "$start_time" =~ ^[0-9]+$ ]] || { echo "Disposable smbd start time is invalid" >&2; exit 1; }
+  if ! ss -H -ltn 'sport = :445' | awk -v expected="${tailscale_ip}:445" '$4 == expected {found=1} END {exit found ? 0 : 1}'; then
+    echo "Disposable smbd did not open the exact Tailscale listener" >&2
+    tail -n 80 "$samba_root/log/smbd.foreground.log" >&2 || true
+    exit 1
+  fi
   if ss -H -ltn 'sport = :445' | awk -v expected="${tailscale_ip}:445" '$4 != expected {bad=1} END {exit bad ? 0 : 1}'; then
     echo "Disposable smbd bound outside the Tailscale address" >&2
     exit 1
