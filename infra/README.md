@@ -51,6 +51,45 @@ Rollback: re-run the release workflow with `image_tag` set to the last good SHA.
 Bind mounts are untouched, so this is non-destructive. Do not prune images or
 volumes while diagnosing a failed deploy.
 
+## POSIX migration safety tools
+
+Plan 014's pre-migration snapshot is intentionally separate from the scheduled
+database backups. It freezes and archives both physical storage branches,
+including S3 and upload internals, and captures PostgreSQL, MongoDB, and the
+Redis ACL file. The archive keeps xattrs, POSIX ACLs, sparse allocation,
+ownership, modes, and timestamps. It also records content/tree manifests and
+only the deployed image identifiers; container environments and their secrets
+are never copied into evidence.
+
+Run the preflight first. `--execute` refuses to proceed while the API is still
+running, so the maintenance stop remains an explicit operator action:
+
+```sh
+infra/scripts/posix-gate0-snapshot.sh --dry-run
+docker stop deniz-cloud-api-1
+trap 'docker start deniz-cloud-api-1' EXIT
+infra/scripts/posix-gate0-snapshot.sh --execute
+docker start deniz-cloud-api-1
+trap - EXIT
+```
+
+The trap restarts the API if the snapshot command fails. The completed snapshot
+is private rollback material: it contains database role hashes and the Redis ACL,
+so keep its directory mode `0700`, transfer it only over the tailnet, and never
+commit it. Verify restoration on the Pi without touching either live branch:
+
+```sh
+sudo infra/scripts/posix-gate0-restore-verify.sh --execute \
+  /mnt/hdd/backups/posix-gate0-YYYYMMDDTHHMMSSZ
+```
+
+The verifier creates disposable loopback ext4 files and isolated database
+containers with networking disabled, compares the restored trees and every
+file checksum, writes `restore-proof.json`, then removes its temporary mounts,
+loop devices, containers, and volumes. Copy the completed snapshot off the Pi
+and run `sha256sum -c SHA256SUMS` again at the destination before treating Gate
+0 as backed up.
+
 ## Host services
 
 **Terminal** is a compiled binary, never a container, and CI does not ship it:
