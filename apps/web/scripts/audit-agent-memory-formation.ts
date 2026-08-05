@@ -17,6 +17,11 @@ import { AgentMemory, type IAgentMemory } from "@/models/AgentMemory";
 
 const samplesArg = process.argv.find((arg) => arg.startsWith("--samples="));
 const samples = samplesArg ? Number(samplesArg.split("=")[1]) : 3;
+// `Number("abc")` is NaN and `slice(0, NaN)` is empty, so a typo would print no
+// samples at all and read as a clean audit.
+if (samplesArg && (!Number.isFinite(samples) || samples < 0)) {
+  throw new Error(`Invalid --samples value: ${samplesArg}`);
+}
 
 function truncate(value: string, max = 110): string {
   const collapsed = value.replace(/\s+/g, " ").trim();
@@ -66,7 +71,9 @@ function sourcesOf(memory: IAgentMemory): string[] {
 const bySource = new Map<string, IAgentMemory[]>();
 for (const memory of memories) {
   for (const source of sourcesOf(memory)) {
-    bySource.set(source, [...(bySource.get(source) ?? []), memory]);
+    const group = bySource.get(source);
+    if (group) group.push(memory);
+    else bySource.set(source, [memory]);
   }
 }
 
@@ -114,7 +121,9 @@ for (const memory of memories) {
     const item = evidenceByEventId.get(eventId);
     if (!item?.sourceRef) continue;
     const key = `${item.sourceType}:${item.sourceRef.entityType}:${item.sourceRef.entityId}`;
-    byRef.set(key, [...(byRef.get(key) ?? []), memory]);
+    const group = byRef.get(key);
+    if (group) group.push(memory);
+    else byRef.set(key, [memory]);
   }
 }
 const repeatRefs = [...byRef.entries()]

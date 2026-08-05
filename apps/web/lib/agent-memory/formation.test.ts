@@ -129,14 +129,13 @@ describe("formation candidate preparation", () => {
     ).toThrow("outside its bounded input");
   });
 
-  test("splits reported conflicts into succession, contradiction and stale", () => {
+  test("splits reported conflicts into succession and contradiction", () => {
     const expiredId = "665f1e2a9b3c4d5e6f708192";
     const sameSittingId = "665f1e2a9b3c4d5e6f708193";
-    const newerId = "665f1e2a9b3c4d5e6f708194";
     const unknownId = "665f1e2a9b3c4d5e6f708195";
     const candidate = prepareFormationCandidate({
       evidence,
-      activeMemoryIds: new Set([expiredId, sameSittingId, newerId, unknownId]),
+      activeMemoryIds: new Set([expiredId, sameSittingId, unknownId]),
       priorMemories: new Map([
         [
           expiredId,
@@ -153,13 +152,6 @@ describe("formation candidate preparation", () => {
             observedAt: new Date("2026-07-13T09:40:00.000Z"),
           },
         ],
-        [
-          newerId,
-          {
-            explicitness: "explicit" as const,
-            observedAt: new Date("2026-07-20T00:00:00.000Z"),
-          },
-        ],
       ]),
       candidate: {
         statement: "The user's courses concluded in June 2026.",
@@ -173,17 +165,54 @@ describe("formation candidate preparation", () => {
         entityRefs: [],
         evidenceIds: [evidence[0]!.eventId],
         contradictionEvidenceIds: [],
-        conflictingMemoryIds: [expiredId, sameSittingId, newerId, unknownId],
+        conflictingMemoryIds: [expiredId, sameSittingId, unknownId],
         reason: "Semester ended",
         reviewFlags: ["conflict"],
       },
     });
     expect(candidate.supersedesMemoryIds).toEqual([expiredId]);
-    // The same-sitting disagreement and the unclassifiable one stay conflicts;
-    // `newerId` describes a later state than the candidate, so its link is dropped.
+    // The same-sitting disagreement and the unclassifiable one stay conflicts.
     expect(candidate.conflictingMemoryIds).toEqual([sameSittingId, unknownId]);
     expect(candidate.reviewFlags).toContain("succession");
     expect(candidate.reviewFlags).toContain("conflict");
+  });
+
+  test("rejects a candidate that describes an older state than what is stored", () => {
+    // Dropping only the link would store a candidate with nothing left to
+    // review on it, and automatic promotion would then put the older state back
+    // over the newer one.
+    const newerId = "665f1e2a9b3c4d5e6f708194";
+    expect(() =>
+      prepareFormationCandidate({
+        evidence,
+        activeMemoryIds: new Set([newerId]),
+        priorMemories: new Map([
+          [
+            newerId,
+            {
+              explicitness: "explicit" as const,
+              observedAt: new Date("2026-07-20T00:00:00.000Z"),
+            },
+          ],
+        ]),
+        candidate: {
+          statement: "The user's courses concluded in June 2026.",
+          memoryType: "semantic",
+          explicitness: "explicit",
+          confidence: 0.9,
+          importance: 0.6,
+          trust: "untrusted",
+          sensitivity: "personal",
+          temporal: { precision: "unknown" },
+          entityRefs: [],
+          evidenceIds: [evidence[0]!.eventId],
+          contradictionEvidenceIds: [],
+          conflictingMemoryIds: [newerId],
+          reason: "Semester ended",
+          reviewFlags: ["conflict"],
+        },
+      }),
+    ).toThrow(/older state/);
   });
 
   test("clears the conflict flag when every disagreement was a value moving on", () => {

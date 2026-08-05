@@ -9,6 +9,29 @@ import { connectDB } from "@/lib/mongodb";
 import { AgentTask } from "@/models/AgentTask";
 import type { ToolDefinition } from "./types";
 
+/**
+ * A task tool failing is otherwise invisible: the error goes back to the model,
+ * which reports it in prose or quietly tries something else, and nothing in the
+ * logs says a schedule was not written. Identifiers and the operation only —
+ * never the prompt, which is owner content.
+ */
+async function logged<T>(
+  operation: string,
+  identifiers: Record<string, unknown>,
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    console.error(
+      `[agent-tasks] ${operation} failed`,
+      identifiers,
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}
+
 export const agentTaskTools: ToolDefinition[] = [
   {
     schema: {
@@ -49,23 +72,27 @@ export const agentTaskTools: ToolDefinition[] = [
     isWrite: true,
     category: "agent-tasks",
     execute: async (input) => {
-      const timeZone =
-        typeof input.timeZone === "string" && input.timeZone
-          ? input.timeZone
-          : await resolveDefaultTimeZone();
       const cron = typeof input.cron === "string" ? input.cron : undefined;
       const runAt = typeof input.runAt === "string" ? input.runAt : undefined;
-      if (!cron && !runAt) {
-        throw new Error("Provide runAt for a single run or cron for a repeat");
-      }
-      const parsed = createAgentTaskSchema.parse({
-        name: input.name,
-        prompt: input.prompt,
-        schedule: cron ? { cron, timeZone } : undefined,
-        runAt,
-        origin: "agent",
+      return logged("schedule_agent_task", { cron, runAt }, async () => {
+        const timeZone =
+          typeof input.timeZone === "string" && input.timeZone
+            ? input.timeZone
+            : await resolveDefaultTimeZone();
+        if (!cron && !runAt) {
+          throw new Error(
+            "Provide runAt for a single run or cron for a repeat",
+          );
+        }
+        const parsed = createAgentTaskSchema.parse({
+          name: input.name,
+          prompt: input.prompt,
+          schedule: cron ? { cron, timeZone } : undefined,
+          runAt,
+          origin: "agent",
+        });
+        return serializeAgentTask(await createAgentTask(parsed));
       });
-      return serializeAgentTask(await createAgentTask(parsed));
     },
   },
   {
@@ -87,18 +114,20 @@ export const agentTaskTools: ToolDefinition[] = [
     isWrite: false,
     category: "agent-tasks",
     execute: async (input) => {
-      await connectDB();
       const origin =
         input.origin === "agent" || input.origin === "owner"
           ? input.origin
           : undefined;
-      const tasks = await AgentTask.find({
-        status: { $ne: "archived" },
-        ...(origin ? { origin } : {}),
-      })
-        .sort({ nextRunAt: 1, updatedAt: -1 })
-        .limit(100);
-      return tasks.map(serializeAgentTask);
+      return logged("list_agent_tasks", { origin }, async () => {
+        await connectDB();
+        const tasks = await AgentTask.find({
+          status: { $ne: "archived" },
+          ...(origin ? { origin } : {}),
+        })
+          .sort({ nextRunAt: 1, updatedAt: -1 })
+          .limit(100);
+        return tasks.map(serializeAgentTask);
+      });
     },
   },
   {
@@ -117,8 +146,9 @@ export const agentTaskTools: ToolDefinition[] = [
     isWrite: true,
     category: "agent-tasks",
     execute: async (input) => {
-      return serializeAgentTask(
-        await updateAgentTask(input.id as string, { status: "archived" }),
+      const id = input.id as string;
+      return logged("cancel_agent_task", { id }, async () =>
+        serializeAgentTask(await updateAgentTask(id, { status: "archived" })),
       );
     },
   },

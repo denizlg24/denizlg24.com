@@ -10,6 +10,8 @@ import { AgentMemory, type IAgentMemory } from "@/models/AgentMemory";
 import { AgentMemoryRun } from "@/models/AgentMemoryRun";
 import {
   buildEvidenceInput,
+  latestObservation,
+  observationTimes,
   observeEvidence,
   stableContentHash,
 } from "./evidence";
@@ -39,7 +41,12 @@ const SAME_FACT_SIMILARITY = 0.92;
 /** Nearest neighbours reported back to the agent so it can see what it hit. */
 const NEIGHBOUR_LIMIT = 5;
 
-export type SaveMemoryOutcome = "created" | "reinforced" | "superseded";
+/** `unchanged`: this exact save was already made, so nothing was written. */
+export type SaveMemoryOutcome =
+  | "created"
+  | "reinforced"
+  | "superseded"
+  | "unchanged";
 
 export interface SaveMemoryNeighbour {
   memoryId: string;
@@ -66,7 +73,11 @@ export interface SaveAgentMemoryInput {
   validUntil?: string;
   entityRefs?: AgentEntityRef[];
   reason: string;
-  memoryMode: AgentMemoryMode;
+  /**
+   * The surrounding turn's mode. Undefined means the caller did not declare
+   * one, which is refused rather than defaulted — see `saveAgentMemory`.
+   */
+  memoryMode: AgentMemoryMode | undefined;
   conversationId?: string;
 }
 
@@ -132,6 +143,17 @@ async function findNeighbours(
 export async function saveAgentMemory(
   input: SaveAgentMemoryInput,
 ): Promise<SaveMemoryResult> {
+  // Fails closed, and the check lives here rather than at the tool boundary so
+  // no future caller can obtain memory writes by simply not mentioning the
+  // mode. An incognito turn writing something down is the one outcome this
+  // system cannot take back.
+  if (input.memoryMode === undefined || input.memoryMode === "incognito") {
+    throw new AgentMemoryPolicyError(
+      `Memory writes are off for this turn (${input.memoryMode ?? "no memory mode declared"})`,
+      "gate-disabled",
+    );
+  }
+
   const statement = input.statement.trim();
   if (!statement) {
     throw new AgentMemoryPolicyError("Statement is empty", "conflict");
@@ -156,9 +178,16 @@ export async function saveAgentMemory(
   await connectDB();
 
   const observedAt = new Date();
+  // Everything that makes this a distinct observation, not just the words. Two
+  // saves of the same sentence with different validity windows are two facts
+  // about the world, and keying on the statement alone would silently fold the
+  // second into the first's evidence row.
   const contentHash = stableContentHash({
     statement,
+    memoryType: input.memoryType,
+    explicitness: input.explicitness,
     validFrom: input.validFrom,
+    validUntil: input.validUntil,
   });
   // Formation is deliberately not enqueued: the statement is already a finished
   // memory, and letting the extraction pass read it back would re-derive the
@@ -183,6 +212,9 @@ export async function saveAgentMemory(
       },
     }),
   });
+  // A duplicate is not a failure: the identical save has been made before, and
+  // it comes back carrying the original event id. Only a skip — an incognito
+  // turn, a closed gate — means nothing was recorded at all.
   if (observed.status === "skipped" || !observed.eventId) {
     throw new AgentMemoryPolicyError(
       `Evidence was not recorded (${observed.reason ?? "skipped"})`,
@@ -209,6 +241,20 @@ export async function saveAgentMemory(
     (item) => normalizeStatement(item.memory.statement) === normalized,
   );
   if (identical) {
+    // Only a new observation reinforces. `reinforceMemory` moves confidence a
+    // quarter of the way to 1 on every call, and an identical restatement
+    // resolves to the same evidence row — so four restatements in one sitting
+    // would carry a memory from 0.5 to 0.84 on a supporting set that never grew
+    // past one item. Repeating yourself is not corroboration.
+    if (identical.memory.evidenceIds.includes(evidenceId)) {
+      return {
+        outcome: "unchanged",
+        memoryId: identical.memory._id.toString(),
+        statement: identical.memory.statement,
+        supersededMemoryIds: [],
+        neighbours: reportedNeighbours,
+      };
+    }
     const reinforced = await reinforceMemory({
       memoryId: identical.memory._id.toString(),
       evidenceId,
@@ -224,6 +270,14 @@ export async function saveAgentMemory(
     };
   }
 
+  // Dated by the evidence each memory cites, not by when its document was last
+  // written. A re-embed or a governance revision moves `updatedAt` without
+  // anything having been observed, and this comparison is what decides whether
+  // the new statement supersedes the old one or merely disagrees with it.
+  const observedEvidence = await observationTimes(
+    sameFact.flatMap((item) => item.memory.evidenceIds),
+  );
+
   const supersedes: string[] = [];
   const contradicts: string[] = [];
   for (const item of sameFact) {
@@ -236,7 +290,9 @@ export async function saveAgentMemory(
       prior: {
         temporal: item.memory.temporal,
         explicitness: item.memory.explicitness,
-        observedAt: item.memory.updatedAt,
+        observedAt:
+          latestObservation(item.memory.evidenceIds, observedEvidence) ??
+          item.memory.updatedAt,
       },
     });
     if (classification === "succession") {
@@ -310,7 +366,13 @@ export async function saveAgentMemory(
     };
   } catch (error) {
     run.status = "failed";
-    run.error = error instanceof Error ? error.message : String(error);
+    // Capped like every other run error. An oversized message makes the save
+    // itself fail, and the swallowed failure below would leave the run reading
+    // `running` forever.
+    run.error = (error instanceof Error ? error.message : String(error)).slice(
+      0,
+      4_096,
+    );
     run.completedAt = new Date();
     await run.save().catch(() => undefined);
     throw error;

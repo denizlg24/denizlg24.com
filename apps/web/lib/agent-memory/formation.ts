@@ -21,7 +21,11 @@ import { AGENT_SOURCE_TYPES } from "@/models/AgentMemoryCommon";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { AgentMemoryRun } from "@/models/AgentMemoryRun";
 import { OWNER_REFERENCE } from "./consolidation";
-import { stableContentHash } from "./evidence";
+import {
+  latestObservation,
+  observationTimes,
+  stableContentHash,
+} from "./evidence";
 import {
   createMemoryCandidate,
   rejectFormationCandidate,
@@ -349,9 +353,16 @@ export function prepareFormationCandidate(options: {
       prior,
     });
     if (classification === "succession") supersedesMemoryIds.push(memoryId);
-    // "stale" drops the link entirely: the candidate describes an older state
-    // than what is stored, so it neither disputes nor replaces it.
-    else if (classification === "contradiction") {
+    // "stale" takes the whole candidate with it. It describes an older state
+    // than what is stored, so it neither disputes nor replaces that memory —
+    // and dropping only the link would leave a candidate that reads as
+    // ordinary, stores, and can promote itself back over the newer fact.
+    else if (classification === "stale") {
+      throw new AgentMemoryPolicyError(
+        "Candidate describes an older state than a memory it disagrees with",
+        "conflict",
+      );
+    } else if (classification === "contradiction") {
       conflictingMemoryIds.push(memoryId);
     }
   }
@@ -409,6 +420,25 @@ interface NoveltyContextMemory {
   temporal?: { validFrom?: Date | string; validUntil?: Date | string };
   evidenceIds: string[];
   updatedAt: Date;
+}
+
+/**
+ * When each memory was last observed, taken from the evidence it cites rather
+ * than from its own `updatedAt`. See `observationTimes` for why that matters:
+ * the succession rule turns entirely on which side was seen last.
+ */
+async function memoryObservationTimes(
+  memories: NoveltyContextMemory[],
+): Promise<Map<string, Date>> {
+  const observed = await observationTimes(
+    memories.flatMap((memory) => memory.evidenceIds),
+  );
+  const latest = new Map<string, Date>();
+  for (const memory of memories) {
+    const newest = latestObservation(memory.evidenceIds, observed);
+    if (newest) latest.set(memory._id.toString(), newest);
+  }
+  return latest;
 }
 
 function recentActiveMemories(limit: number): Promise<NoveltyContextMemory[]> {
@@ -538,6 +568,7 @@ export async function processFormationJob(
   const activeMemoryIds = new Set(
     activeMemories.map((memory) => memory._id.toString()),
   );
+  const observedAtByMemory = await memoryObservationTimes(activeMemories);
   const priorMemories = new Map<string, TemporalConflictSide>(
     activeMemories.map((memory) => [
       memory._id.toString(),
@@ -553,7 +584,8 @@ export async function processFormationJob(
             }
           : null,
         explicitness: memory.explicitness as AgentExplicitness,
-        observedAt: memory.updatedAt,
+        observedAt:
+          observedAtByMemory.get(memory._id.toString()) ?? memory.updatedAt,
       },
     ]),
   );

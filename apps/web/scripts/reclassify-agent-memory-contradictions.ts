@@ -127,8 +127,13 @@ interface Decision {
 
 const decisions: Decision[] = [];
 for (const owner of owners) {
+  // Truncation stops at an owner boundary, never inside one. The succession
+  // components below are built from the link set as a whole, and a component
+  // missing half its links can pick a survivor that a full run would itself
+  // retire — so a truncated execute run would write a supersession the dry run
+  // never showed.
+  if (decisions.length >= limit) break;
   for (const contradictionId of owner.contradictionIds) {
-    if (decisions.length >= limit) break;
     const target = targetsById.get(contradictionId.toString());
     if (!target) continue;
     decisions.push({
@@ -309,8 +314,16 @@ for (const decision of mootLinks) {
       actor: "policy",
     });
     dropped += 1;
-  } catch {
-    // The supersession revision may already have carried the link away.
+  } catch (error) {
+    // The supersession revision has usually carried the link away already, so
+    // this is expected — but swallowing it silently would also hide a write
+    // that genuinely failed, and the summary would report fewer actions than
+    // were attempted with nothing to say why.
+    failed += 1;
+    console.error(
+      `  moot link not dropped ${decision.owner._id.toString()} → ${decision.target._id.toString()}:`,
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
 

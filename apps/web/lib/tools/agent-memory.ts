@@ -60,19 +60,25 @@ export const agentMemoryTools: ToolDefinition[] = [
           importance: {
             type: "number",
             description: "0 to 1; how much it should shape future answers",
+            minimum: 0,
+            maximum: 1,
           },
           confidence: {
             type: "number",
             description: "0 to 1; how sure you are the statement is true",
+            minimum: 0,
+            maximum: 1,
           },
           validFrom: {
             type: "string",
             description:
               "ISO 8601 date the fact starts holding. Set this whenever the statement carries a value that moves over time — a balance, count, weight, price, status or role. It is what separates an updated value from a contradiction.",
+            format: "date-time",
           },
           validUntil: {
             type: "string",
             description: "ISO 8601 date the fact stops holding, if it is known",
+            format: "date-time",
           },
           reason: {
             type: "string",
@@ -92,10 +98,24 @@ export const agentMemoryTools: ToolDefinition[] = [
     isWrite: true,
     category: "agent-memory",
     execute: async (input, context) => {
-      const parsed = saveMemoryToolInputSchema.parse(input);
+      const parsed = saveMemoryToolInputSchema.safeParse(input);
+      if (!parsed.success) {
+        // Field and code only. The values are the memory statement itself,
+        // which is exactly what the surrounding logging redacts.
+        throw new Error(
+          `save_memory input is invalid — ${parsed.error.issues
+            .slice(0, 5)
+            .map(
+              (issue) => `${issue.path.join(".") || "(root)"}: ${issue.code}`,
+            )
+            .join(", ")}`,
+        );
+      }
+      // Passed through, never defaulted: `saveAgentMemory` refuses a turn that
+      // did not declare a mode, so a missing context cannot buy a memory write.
       return saveAgentMemory({
-        ...parsed,
-        memoryMode: context?.memoryMode ?? "enabled",
+        ...parsed.data,
+        memoryMode: context?.memoryMode,
         conversationId: context?.conversationId,
       });
     },

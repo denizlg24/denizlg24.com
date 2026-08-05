@@ -841,6 +841,16 @@ export async function supersedeMemory(options: {
       status: "superseded",
     }),
   });
+  // A deleted memory is returned untouched, with no revision written. Carrying
+  // on from there would drop the survivor's contradiction link and point
+  // `supersedesMemoryId` at a deleted row, and the caller would be handed a
+  // result that reads exactly like a completed supersession.
+  if (superseded.status !== "superseded") {
+    throw new AgentMemoryPolicyError(
+      `Memory ${options.supersededMemoryId} could not be superseded (status ${superseded.status})`,
+      "conflict",
+    );
+  }
   const surviving = await reviseExistingMemory({
     memoryId: options.survivingMemoryId,
     action: "resolve-contradiction",

@@ -126,7 +126,11 @@ export function ScheduleField({
   return (
     <div className="grid gap-2">
       <div className="flex items-center gap-2">
-        <Label htmlFor="task-cron">Schedule</Label>
+        {/* Follows the mode: the two branches render different controls, and a
+            label pointing at the one that is not mounted names nothing. */}
+        <Label htmlFor={mode === "once" ? "task-run-at" : "task-cron"}>
+          Schedule
+        </Label>
         <div className="ml-auto flex items-center gap-0.5">
           {MODES.map((option) => (
             <Button

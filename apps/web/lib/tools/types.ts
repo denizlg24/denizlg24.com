@@ -5,6 +5,10 @@ export interface ToolParameter {
   description: string;
   enum?: string[];
   items?: { type: string };
+  /** Machine-readable bounds, so a range stated in prose is also enforceable. */
+  minimum?: number;
+  maximum?: number;
+  format?: string;
 }
 
 export interface ToolSchema {
