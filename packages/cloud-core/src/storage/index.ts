@@ -89,6 +89,14 @@ export {
   type StorageNamespaceCapabilities,
 } from "./namespace";
 export {
+  NamespaceProjector,
+  type NamespaceSource,
+  type ProjectionRepository,
+  type ScanOptions,
+  type ScanRecord,
+  type ScanResult,
+} from "./namespace-projector";
+export {
   type ProjectedRow,
   planReconciliation,
   type ReapCandidateState,
