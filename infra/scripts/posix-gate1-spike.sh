@@ -224,6 +224,10 @@ prepare_spike() {
 
   mkdir -m 700 "$state_root" "$image_dir" "$mount_dir" "$samba_root" "$evidence_dir"
   mkdir -m 700 "$ssd_mount" "$hdd_mount" "$merged_mount"
+  # The authenticated UID 1000 test client invokes the fixed Docker peer
+  # wrapper without passwordless sudo. Traversal alone exposes no directory
+  # entries; every secret/evidence directory below remains mode 0700.
+  chmod 711 "$state_root" "$mount_dir"
   spike_id="$(cat /proc/sys/kernel/random/uuid)"
   jq -n --arg spikeId "$spike_id" --arg root "$state_root" \
     '{schemaVersion:1,spikeId:$spikeId,root:$root}' > "$root_marker"
@@ -277,6 +281,8 @@ prepare_spike() {
     echo "mergerfs did not mount the disposable namespace" >&2
     exit 1
   fi
+  chmod 770 "$merged_mount"
+  chown 1000:1000 "$merged_mount"
 
   runuser -u "$spike_user" -- mkdir -m 770 "$merged_mount/personal" "$merged_mount/shared" "$probe_root"
   printf 'deniz-cloud-posix-gate1\n' > "$probe_root/.posix-gate1-disposable"

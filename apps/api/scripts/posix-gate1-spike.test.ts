@@ -53,6 +53,17 @@ afterEach(async () => {
 });
 
 describe("POSIX Gate 1 spike shell safety", () => {
+  it("permits only traversal to the fixed non-sudo peer mount", async () => {
+    const source = await Bun.file(SPIKE_SCRIPT).text();
+
+    expect(source).toContain('chmod 711 "$state_root" "$mount_dir"');
+    expect(source).toContain('chmod 770 "$merged_mount"');
+    expect(source).toContain('chown 1000:1000 "$merged_mount"');
+    expect(source).toContain(
+      'mkdir -m 700 "$state_root" "$image_dir" "$mount_dir" "$samba_root" "$evidence_dir"',
+    );
+  });
+
   it("defaults to dry-run and does not create the requested state root", async () => {
     const { root } = await disposableStateRoot();
 
