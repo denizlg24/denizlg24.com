@@ -10,9 +10,9 @@ import {
   databaseActivitySink,
   ensureLegacyS3Credential,
   ensureStorageSearchIndex,
-  getDiskStats,
   initializeS3,
   MongoProvisioner,
+  NamespaceMetadataClient,
   PostgresProvisioner,
   PromotionQueue,
   RedisProvisioner,
@@ -22,7 +22,6 @@ import {
   SyncWorker,
   seedDefaultAlertRules,
   storageConfigFromEnv,
-  storageUsedByOwner,
   syncRedisProjectAclUsers,
 } from "@repo/cloud-core";
 import type { DiskKind } from "@repo/schemas/cloud";
@@ -347,6 +346,14 @@ export async function createRuntimeApp() {
       ticketSecret: requiredEnv("TERMINAL_TICKET_SECRET"),
     });
 
+    // The same privileged socket the namespace uses. Only present in broker
+    // mode; in legacy mode there is no host agent and no SMB boundary.
+    const metadataClient =
+      storageConfig.namespace.mode === "broker-mounted" &&
+      storageConfig.namespace.metadata
+        ? new NamespaceMetadataClient(storageConfig.namespace.metadata)
+        : null;
+
     const app = createCloudApiApp({
       auth,
       db,
@@ -355,28 +362,15 @@ export async function createRuntimeApp() {
       storage: {
         service: storageService,
         s3: s3Config,
-        dav: {
-          // Finder reads these off the mount root to draw the drive's capacity
-          // bar; without them it reports the volume as full and refuses copies.
-          //
-          // Used is the account's own bytes rather than the filesystem's:
-          // `statfs` counts every other service sharing the SSD, overstates by
-          // the root reserve it excludes from `bavail`, and falls when
-          // `tiering_pass` demotes a file — so the drive would appear to gain
-          // space as data moved between disks. Available spans both tiers,
-          // because a new file can land on either.
-          quota: async (userId) => {
-            const [ssd, hdd, usedBytes] = await Promise.all([
-              getDiskStats(storageConfig.ssdStoragePath),
-              getDiskStats(storageConfig.hddStoragePath),
-              storageUsedByOwner(db, userId),
-            ]);
-            return {
-              usedBytes,
-              availableBytes: ssd.availableBytes + hdd.availableBytes,
-            };
-          },
-        },
+        // Provisioning reaches the privileged host agent over the same socket
+        // the namespace metadata uses. Absent in legacy mode, where there is
+        // no Samba boundary to provision into.
+        smbProvisioner: metadataClient
+          ? {
+              provision: (input) => metadataClient.provisionSmb(input),
+              revoke: (principal) => metadataClient.revokeSmb(principal),
+            }
+          : undefined,
       },
       platform: {
         projects: projectRoutes({

@@ -8,6 +8,15 @@ export const API_BASE_URL =
 export const APP_URL =
   process.env.NEXT_PUBLIC_STORAGE_APP_URL ?? "http://localhost:3005";
 
+/**
+ * The SMB host, which is a tailnet address rather than the public API domain:
+ * TCP 445 is never exposed off the tailnet. The fallback is deliberately
+ * unroutable so a deploy missing the variable produces a mount that plainly
+ * fails instead of one that points somewhere real.
+ */
+export const SMB_HOST =
+  process.env.NEXT_PUBLIC_SMB_HOST ?? "smb-host-not-configured";
+
 export function apiUrl(path: string): string {
   return new URL(path, API_BASE_URL).toString();
 }

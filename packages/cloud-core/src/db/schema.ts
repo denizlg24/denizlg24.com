@@ -199,6 +199,12 @@ export const recoveryCodes = pgTable(
  * Basic/Digest, so neither the session cookie nor a Bearer API key can reach
  * `/dav` — these are the only credential that can, and they are scoped to it.
  */
+/**
+ * Retained after WebDAV was retired on 2026-08-05. The code that read it is
+ * gone; the rows are left in place because dropping a table with live
+ * credentials in it is a separate, destructive change that deserves its own
+ * migration and its own decision.
+ */
 export const davCredentials = pgTable(
   "dav_credentials",
   {

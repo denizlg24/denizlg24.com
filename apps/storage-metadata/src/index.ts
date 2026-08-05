@@ -9,6 +9,7 @@ import {
 } from "@repo/cloud-core";
 
 import { configFromEnv } from "./config";
+import { createSmbAgent } from "./smb-agent";
 
 const config = configFromEnv();
 
@@ -37,6 +38,12 @@ if (!(await namespaceIsMounted())) {
   );
   process.exit(1);
 }
+
+// Provisioning is only offered when the script is actually installed, so a
+// host without it answers UNAVAILABLE rather than failing obscurely.
+const smbAgent = config.smbScriptPath
+  ? createSmbAgent(config.smbScriptPath)
+  : undefined;
 
 const service = new NamespaceMetadataService(
   config.namespaceRoot,
@@ -84,7 +91,7 @@ const server = Bun.serve({
     } catch {
       return deny("BAD_REQUEST", "Body is not JSON", 400);
     }
-    const response = await handleMetadataRequest(service, body);
+    const response = await handleMetadataRequest(service, body, smbAgent);
     return Response.json(response, { status: response.ok ? 200 : 409 });
   },
   unix: config.socketPath,

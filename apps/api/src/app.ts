@@ -6,22 +6,20 @@ import {
   CloudCoreError,
   cors,
   type Database,
-  davAuth,
-  davRoutes,
   deleteUser,
   hashPassword,
-  issueDavCredential,
-  listDavCredentials,
+  issueSmbCredential,
   listLegacyS3Credentials,
+  listSmbCredentials,
   listUsers,
   type PeekableRateLimitStore,
   rateLimit,
   requireRole,
   requireSession,
   resetUserMfa,
-  resolveDavCredential,
-  revokeDavCredential,
+  revokeSmbCredential,
   type S3ApiConfig,
+  type SmbProvisioner,
   type StorageService,
   s3Routes,
   toSafeUser,
@@ -34,8 +32,8 @@ import {
   ACTIVITY_ACTIONS,
   adminResetMfaInputSchema,
   completeSignupInputSchema,
-  createDavCredentialInputSchema,
   createPendingUserInputSchema,
+  createSmbCredentialInputSchema,
 } from "@repo/schemas/cloud";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -58,7 +56,6 @@ import { type OpsToolsConfig, toolsProxyRoutes } from "./ops/tools-proxy";
 import type { projectRoutes } from "./projects/routes";
 import { storageRoutes, storageSearchRoutes } from "./storage/routes";
 
-const DAV_MOUNT_PATH = "/dav";
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_REQUESTS = 10;
 const SIGNUP_MAX_REQUESTS = 5;
@@ -71,9 +68,6 @@ const DEV_SIGNUP_MAX_REQUESTS = 100;
 // revoked makes a mounted drive retry on its own, without a person deciding to,
 // so the budget has to absorb one stale client without locking out the machine
 // it is running on. Only rejections count against it.
-const DAV_AUTH_MAX_FAILURES = 20;
-const DEV_DAV_AUTH_MAX_FAILURES = 200;
-const DAV_MAX_CREDENTIALS_PER_USER = 10;
 const MFA_ENROLLMENT_PATHS = new Set([
   "/api/auth/get-session",
   "/api/auth/sign-out",
@@ -107,12 +101,12 @@ export interface CloudApiOptions {
   storage?: {
     service: StorageService;
     s3: S3ApiConfig;
-    dav?: {
-      quota?: (userId: string) => Promise<{
-        usedBytes: number;
-        availableBytes: number;
-      } | null>;
-    };
+    /**
+     * Provisions Samba accounts on the host. Absent when the host has no SMB
+     * boundary, in which case the credential routes answer 503 rather than
+     * pretending to issue something that cannot authenticate.
+     */
+    smbProvisioner?: SmbProvisioner;
   };
   platform?: {
     projects: ReturnType<typeof projectRoutes>;
@@ -261,13 +255,6 @@ export function createCloudApiApp(options: CloudApiOptions) {
     // reassign `res`, so the Bun.file() body and its sendfile() path survive.
     app.use("/v2", capture);
     app.use("/v2/*", capture);
-    // The mounted drive records saves, moves, deletes and every failure, but
-    // not the PROPFIND and GET traffic that makes up the bulk of a mount —
-    // see MUTATING_METHODS in middleware/activity.ts. Same `context.res.status`
-    // caveat as /v2: a DAV GET is a Bun.file() response too.
-    app.use(DAV_MOUNT_PATH, capture);
-    app.use(`${DAV_MOUNT_PATH}/*`, capture);
-
     // better-auth owns the sign-in handler, so a failure is only visible from
     // the outside as a 401. Recording it under its own action is what lets the
     // auth_failure_burst alert count without scanning paths.
@@ -593,19 +580,31 @@ export function createCloudApiApp(options: CloudApiOptions) {
       async (context) =>
         context.json({ data: await listLegacyS3Credentials(options.db) }),
     );
-    // A mount credential grants the whole of a user's storage, so issuing one
-    // takes a human session — a project API key must not be able to mint a
-    // credential broader than itself.
-    app.get("/api/storage/dav-credentials", requireSession(), async (context) =>
+    // A device credential grants the whole of a user's storage over SMB, so
+    // issuing one takes a human session — a project API key must not be able
+    // to mint a credential broader than itself.
+    app.get("/api/storage/smb-credentials", requireSession(), async (context) =>
       context.json({
-        data: await listDavCredentials(options.db, context.get("user").id),
+        data: await listSmbCredentials(options.db, context.get("user").id),
       }),
     );
     app.post(
-      "/api/storage/dav-credentials",
+      "/api/storage/smb-credentials",
       requireSession(),
       async (context) => {
-        const parsed = createDavCredentialInputSchema.safeParse(
+        const provisioner = options.storage?.smbProvisioner;
+        if (!provisioner) {
+          return context.json(
+            {
+              error: {
+                code: "SMB_UNAVAILABLE",
+                message: "SMB drives are not enabled on this host",
+              },
+            },
+            503,
+          );
+        }
+        const parsed = createSmbCredentialInputSchema.safeParse(
           await context.req.json().catch(() => null),
         );
         if (!parsed.success) {
@@ -613,49 +612,54 @@ export function createCloudApiApp(options: CloudApiOptions) {
             {
               error: {
                 code: "INVALID_INPUT",
-                message: "A credential name is required",
+                message: "A device name is required",
               },
             },
             400,
           );
         }
-        // A cold verification argon2-hashes against every live credential the
-        // user holds until one matches, so an unbounded pile of them turns each
-        // cache miss into dozens of hashes on the request thread. The ceiling
-        // bounds that as much as it bounds the reach of a leaked secret.
-        const live = await listDavCredentials(
-          options.db,
-          context.get("user").id,
-        );
-        const now = new Date();
-        const usable = live.filter(
-          (credential) => !credential.expiresAt || credential.expiresAt > now,
-        );
-        if (usable.length >= DAV_MAX_CREDENTIALS_PER_USER) {
+        try {
+          const issued = await issueSmbCredential(options.db, provisioner, {
+            deviceName: parsed.data.deviceName,
+            expiresAt: parsed.data.expiresAt
+              ? new Date(parsed.data.expiresAt)
+              : null,
+            userId: context.get("user").id,
+          });
+          return context.json({ data: issued }, 201);
+        } catch (error) {
+          // Provisioning reaches a root agent over a socket. A failure there
+          // is an operational fault, not a client error, and its message can
+          // name host paths — so it is logged, not returned.
+          console.error("SMB provisioning failed", error);
           return context.json(
             {
               error: {
-                code: "TOO_MANY_CREDENTIALS",
-                message: `At most ${DAV_MAX_CREDENTIALS_PER_USER} credentials may be live at once`,
+                code: "SMB_PROVISION_FAILED",
+                message: "Could not issue the device credential",
               },
             },
-            409,
+            502,
           );
         }
-        const issued = await issueDavCredential(options.db, {
-          userId: context.get("user").id,
-          name: parsed.data.name,
-          expiresAt: parsed.data.expiresAt
-            ? new Date(parsed.data.expiresAt)
-            : null,
-        });
-        return context.json({ data: issued }, 201);
       },
     );
     app.delete(
-      "/api/storage/dav-credentials/:id",
+      "/api/storage/smb-credentials/:id",
       requireSession(),
       async (context) => {
+        const provisioner = options.storage?.smbProvisioner;
+        if (!provisioner) {
+          return context.json(
+            {
+              error: {
+                code: "SMB_UNAVAILABLE",
+                message: "SMB drives are not enabled on this host",
+              },
+            },
+            503,
+          );
+        }
         const id = context.req.param("id");
         // The column is a uuid, so anything else reaches Postgres as a cast
         // error and surfaces as a 500 instead of the intended miss.
@@ -665,8 +669,9 @@ export function createCloudApiApp(options: CloudApiOptions) {
             404,
           );
         }
-        const revoked = await revokeDavCredential(
+        const revoked = await revokeSmbCredential(
           options.db,
+          provisioner,
           context.get("user").id,
           id,
         );
@@ -683,41 +688,6 @@ export function createCloudApiApp(options: CloudApiOptions) {
     app.route("/api/storage", storageRoutes(options.storage.service));
     app.route("/api/search", storageSearchRoutes(options.storage.service));
     app.route("/v2", s3Routes(options.storage.s3));
-
-    // Mounted outside /api/* on purpose. That prefix carries the CORS layer,
-    // the activity capture and the session/MFA chain, none of which apply to a
-    // mounted drive: there is no browser origin, and a PROPFIND storm from
-    // Finder would swamp the activity log. Auth here is Basic only, because
-    // that is the sole scheme Finder and Explorer can speak.
-    const davAuthenticate = davAuth({
-      resolve: (username, secret) =>
-        resolveDavCredential(options.db, username, secret),
-      throttle: {
-        store: options.rateLimitStore,
-        max: options.isProduction
-          ? DAV_AUTH_MAX_FAILURES
-          : DEV_DAV_AUTH_MAX_FAILURES,
-        windowMs: LOGIN_WINDOW_MS,
-        // Keyed on the account as well as the address so one device with a
-        // stale saved password cannot spend the budget for every other mount
-        // behind the same egress. It must be the parsed username and not any
-        // slice of the Authorization header: that header encodes the password
-        // too, so keying on it would hand every wrong guess its own fresh
-        // budget and disable the throttle outright.
-        clientKey: (context, username) =>
-          `dav-auth:${clientIp(context, options.isProduction)}:${username}`,
-      },
-    });
-    app.use(DAV_MOUNT_PATH, davAuthenticate);
-    app.use(`${DAV_MOUNT_PATH}/*`, davAuthenticate);
-    app.route(
-      DAV_MOUNT_PATH,
-      davRoutes({
-        service: options.storage.service,
-        mountPath: DAV_MOUNT_PATH,
-        quota: options.storage.dav?.quota,
-      }),
-    );
   }
 
   if (options.platform) {

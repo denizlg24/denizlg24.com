@@ -6,15 +6,13 @@ import {
   type CompleteSignupResult,
   type CreateFolderInput,
   completeSignupResultSchema,
-  type DavCredential,
   type DeletedFolder,
   type DownloadArchiveInput,
-  davCredentialSchema,
   deletedFolderSchema,
   type FolderContents,
   folderContentsSchema,
-  type IssuedDavCredentialResponse,
-  issuedDavCredentialSchema,
+  type IssuedSmbCredentialResponse,
+  issuedSmbCredentialSchema,
   type Pagination,
   paginationSchema,
   type RenamedFolder,
@@ -25,12 +23,14 @@ import {
   type SearchResults,
   type SharedFileMeta,
   type ShareLinkToken,
+  type SmbCredential,
   type StorageFileDetail,
   type StorageFolderDetail,
   safeUserSchema,
   searchResultsSchema,
   sharedFileMetaSchema,
   shareLinkTokenSchema,
+  smbCredentialSchema,
   storageFileDetailSchema,
   storageFolderDetailSchema,
   type UpdatedFile,
@@ -226,18 +226,18 @@ export const api = {
       body: { expiresIn },
     }),
 
-  davCredentials: {
-    list: (): Promise<DavCredential[]> =>
-      requestData(z.array(davCredentialSchema), "/api/storage/dav-credentials"),
-    issue: (name: string): Promise<IssuedDavCredentialResponse> =>
-      requestData(issuedDavCredentialSchema, "/api/storage/dav-credentials", {
+  smbCredentials: {
+    list: (): Promise<SmbCredential[]> =>
+      requestData(z.array(smbCredentialSchema), "/api/storage/smb-credentials"),
+    issue: (deviceName: string): Promise<IssuedSmbCredentialResponse> =>
+      requestData(issuedSmbCredentialSchema, "/api/storage/smb-credentials", {
         method: "POST",
-        body: { name },
+        body: { deviceName },
       }),
     revoke: (id: string): Promise<{ id: string }> =>
       requestData(
         z.object({ id: z.uuid() }),
-        `/api/storage/dav-credentials/${encodeURIComponent(id)}`,
+        `/api/storage/smb-credentials/${encodeURIComponent(id)}`,
         { method: "DELETE" },
       ),
   },

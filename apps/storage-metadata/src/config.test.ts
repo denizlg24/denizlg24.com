@@ -36,6 +36,7 @@ describe("metadata service configuration", () => {
     apply();
     expect(configFromEnv()).toEqual({
       namespaceRoot: valid.STORAGE_NAMESPACE_ROOT,
+      smbScriptPath: null,
       socketGid: 1000,
       socketPath: valid.STORAGE_METADATA_SOCKET,
       token: valid.STORAGE_METADATA_TOKEN,

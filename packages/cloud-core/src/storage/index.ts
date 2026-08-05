@@ -59,6 +59,7 @@ export {
 export {
   handleMetadataRequest,
   isSupportedProtocolVersion,
+  type SmbProvisioningAgent,
   tokenMatches,
 } from "./metadata-handler";
 export {
@@ -164,6 +165,15 @@ export {
   generateShareToken,
   verifyShareToken,
 } from "./share";
+export {
+  type IssuedSmbCredential,
+  issueSmbCredential,
+  listSmbCredentials,
+  revokeSmbCredential,
+  type SafeSmbCredential,
+  SMB_MAX_CREDENTIALS_PER_USER,
+  type SmbProvisioner,
+} from "./smb-credential-service";
 export {
   type AccountState,
   deriveSmbPrincipal,

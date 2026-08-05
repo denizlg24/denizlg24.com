@@ -1,5 +1,7 @@
 export interface MetadataServiceConfig {
   namespaceRoot: string;
+  /** Absent when this host does not provision SMB accounts. */
+  smbScriptPath: string | null;
   socketGid: number;
   socketPath: string;
   token: string;
@@ -39,8 +41,13 @@ export function configFromEnv(): MetadataServiceConfig {
       "STORAGE_METADATA_SOCKET_GID must be a non-negative integer",
     );
   }
+  const smbScriptPath = process.env.STORAGE_SMB_SCRIPT?.trim() ?? null;
+  if (smbScriptPath && !smbScriptPath.startsWith("/")) {
+    throw new Error("STORAGE_SMB_SCRIPT must be an absolute path");
+  }
   return {
     namespaceRoot,
+    smbScriptPath,
     socketGid,
     socketPath,
     token,

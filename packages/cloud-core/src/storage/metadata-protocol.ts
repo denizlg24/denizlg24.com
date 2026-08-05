@@ -23,7 +23,17 @@ export type MetadataRequest =
   | { op: "list"; relativePath: string }
   | { op: "verify"; relativePath: string; expectedId: string }
   | { op: "assign"; relativePath: string; metadata: ProtectedMetadata }
-  | { op: "checksum"; relativePath: string; checksum: string };
+  | { op: "checksum"; relativePath: string; checksum: string }
+  // SMB account provisioning. Samba's passdb lives on the host, so the
+  // unprivileged API can only ask; the privileged agent performs it. The
+  // secret crosses this socket once and is never stored on the API side.
+  | {
+      op: "smb-provision";
+      accountId: string;
+      principal: string;
+      secret: string;
+    }
+  | { op: "smb-revoke"; principal: string };
 
 export interface MetadataListingPayload {
   entries: MetadataEntryPayload[];
@@ -32,6 +42,7 @@ export interface MetadataListingPayload {
 
 export type MetadataResponse =
   | { ok: true; entry: MetadataEntryPayload }
+  | { ok: true; provisioned: true }
   | { ok: true; listing: MetadataListingPayload }
   | {
       ok: false;

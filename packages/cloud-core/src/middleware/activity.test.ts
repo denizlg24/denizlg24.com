@@ -55,60 +55,6 @@ describe("shouldCapture", () => {
     expect(decision({ status: 500 })).toBe(true);
   });
 
-  it("skips every DAV 404, whatever the client was probing for", () => {
-    for (const path of [
-      "/dav/home/Desktop.ini",
-      "/dav/home/desktop.ini",
-      "/dav/shared/AutoRun.inf",
-      "/dav/home/.DS_Store",
-      "/dav/shared/deniz/._report.pdf",
-      // Not on any metadata list, and just as much a negative lookup.
-      "/dav/home/report.pdf",
-      "/dav/home/.hidden",
-    ]) {
-      expect(decision({ method: "PROPFIND", path, status: 404 })).toBe(false);
-      expect(decision({ method: "GET", path, status: 404 })).toBe(false);
-    }
-  });
-
-  it("keeps recording DAV failures that are not a missing file", () => {
-    const dav = { path: "/dav/home/report.pdf", method: "PROPFIND" };
-    expect(decision({ ...dav, status: 403 })).toBe(true);
-    expect(decision({ ...dav, status: 423 })).toBe(true);
-    expect(decision({ ...dav, status: 500 })).toBe(true);
-  });
-
-  it("does not extend 404 suppression past /dav", () => {
-    expect(
-      decision({ path: "/api/storage/files/.DS_Store", status: 404 }),
-    ).toBe(true);
-    expect(
-      decision({ path: "/api/storage/files/report.pdf", status: 404 }),
-    ).toBe(true);
-  });
-
-  it("skips the unauthenticated half of the mount handshake", () => {
-    expect(
-      decision({
-        method: "PROPFIND",
-        path: "/dav/home",
-        status: 401,
-        authenticated: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("captures a DAV 401 that presented a credential", () => {
-    expect(
-      decision({
-        method: "PROPFIND",
-        path: "/dav/home",
-        status: 401,
-        authenticated: true,
-      }),
-    ).toBe(true);
-  });
-
   it("captures slow reads", () => {
     expect(decision({ durationMs: SLOW_MS })).toBe(true);
     expect(decision({ durationMs: SLOW_MS - 1 })).toBe(false);
@@ -175,14 +121,6 @@ describe("categoryForPath", () => {
     expect(categoryForPath("/api/ops/terminal/sessions")).toBe("terminal");
     expect(categoryForPath("/api/ops/tasks/abc/runs")).toBe("tasks");
     expect(categoryForPath("/api/ops/containers")).toBe("ops");
-  });
-
-  it("gives the mounted drive its own category", () => {
-    expect(categoryForPath("/dav")).toBe("dav");
-    expect(categoryForPath("/dav/home/report.txt")).toBe("dav");
-    // Not "storage": filtering the mount apart from the web client is the
-    // point of a separate category.
-    expect(categoryForPath("/api/storage/files")).toBe("storage");
   });
 
   it("falls back to system for unmatched paths", () => {

@@ -79,6 +79,24 @@ export class NamespaceMetadataClient {
     return payload.entry;
   }
 
+  async provisionSmb(input: {
+    accountId: string;
+    principal: string;
+    secret: string;
+  }): Promise<void> {
+    const payload = await this.raw({ ...input, op: "smb-provision" });
+    if (!payload.ok) {
+      throw new MetadataClientError(payload.message, payload.code);
+    }
+  }
+
+  async revokeSmb(principal: string): Promise<void> {
+    const payload = await this.raw({ op: "smb-revoke", principal });
+    if (!payload.ok) {
+      throw new MetadataClientError(payload.message, payload.code);
+    }
+  }
+
   async list(relativePath: string): Promise<MetadataListingPayload> {
     const payload = await this.raw({ op: "list", relativePath });
     if (!payload.ok || !("listing" in payload)) {

@@ -15,6 +15,9 @@ export const ACTIVITY_CATEGORIES = [
   "system",
   // Appended rather than slotted next to "storage": the Postgres enum is
   // altered in place, and only appending avoids recreating the type.
+  // Retained after WebDAV was retired: tens of thousands of historical rows
+  // carry this category, and dropping it from the enum would make the activity
+  // log fail to parse its own history.
   "dav",
 ] as const;
 export const activityCategorySchema = z.enum(ACTIVITY_CATEGORIES);

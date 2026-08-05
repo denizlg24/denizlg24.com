@@ -153,37 +153,37 @@ export const storageFolderResponseSchema = apiResponseSchema(
   storageFolderDetailSchema,
 );
 
-export const createDavCredentialInputSchema = z.object({
-  name: z.string().trim().min(1).max(255),
+export const createSmbCredentialInputSchema = z.object({
+  deviceName: z.string().trim().min(1).max(255),
   expiresAt: cloudDateTimeSchema.nullish(),
 });
-export type CreateDavCredentialInput = z.infer<
-  typeof createDavCredentialInputSchema
+export type CreateSmbCredentialInput = z.infer<
+  typeof createSmbCredentialInputSchema
 >;
 
-export const davCredentialSchema = z.object({
+export const smbCredentialSchema = z.object({
   id: z.uuid(),
-  name: z.string(),
-  secretPrefix: z.string(),
-  lastUsedAt: cloudDateTimeSchema.nullable(),
+  principal: z.string(),
+  deviceName: z.string(),
+  lastAuthenticatedAt: cloudDateTimeSchema.nullable(),
+  lastAuthenticatedFrom: z.string().nullable(),
   expiresAt: cloudDateTimeSchema.nullable(),
   createdAt: cloudDateTimeSchema,
 });
-export type DavCredential = z.infer<typeof davCredentialSchema>;
+export type SmbCredential = z.infer<typeof smbCredentialSchema>;
 
 /** The secret is present on the create response only; it is never stored. */
-export const issuedDavCredentialSchema = davCredentialSchema.extend({
+export const issuedSmbCredentialSchema = smbCredentialSchema.extend({
   secret: z.string(),
 });
-export type IssuedDavCredentialResponse = z.infer<
-  typeof issuedDavCredentialSchema
+export type IssuedSmbCredentialResponse = z.infer<
+  typeof issuedSmbCredentialSchema
 >;
-
-export const davCredentialListResponseSchema = apiResponseSchema(
-  z.array(davCredentialSchema),
+export const smbCredentialListResponseSchema = apiResponseSchema(
+  z.array(smbCredentialSchema),
 );
-export const issuedDavCredentialResponseSchema = apiResponseSchema(
-  issuedDavCredentialSchema,
+export const issuedSmbCredentialResponseSchema = apiResponseSchema(
+  issuedSmbCredentialSchema,
 );
 
 export const searchHitSchema = z.object({

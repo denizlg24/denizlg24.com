@@ -25,8 +25,19 @@ function payload(entry: NamespaceEntry): MetadataEntryPayload {
 function isRequest(value: unknown): value is MetadataRequest {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
-  if (typeof candidate.relativePath !== "string") return false;
+  // The SMB operations name a principal rather than a namespace path.
+  const isSmb =
+    candidate.op === "smb-provision" || candidate.op === "smb-revoke";
+  if (!isSmb && typeof candidate.relativePath !== "string") return false;
   switch (candidate.op) {
+    case "smb-provision":
+      return (
+        typeof candidate.accountId === "string" &&
+        typeof candidate.principal === "string" &&
+        typeof candidate.secret === "string"
+      );
+    case "smb-revoke":
+      return typeof candidate.principal === "string";
     case "stat":
     case "list":
       return true;
@@ -51,9 +62,19 @@ function isRequest(value: unknown): value is MetadataRequest {
  * message: the caller is the API, but the blast radius of an error string that
  * embeds a host path is the whole namespace layout.
  */
+export interface SmbProvisioningAgent {
+  provision(input: {
+    accountId: string;
+    principal: string;
+    secret: string;
+  }): Promise<void>;
+  revoke(principal: string): Promise<void>;
+}
+
 export async function handleMetadataRequest(
   service: NamespaceMetadataService,
   body: unknown,
+  smb?: SmbProvisioningAgent,
 ): Promise<MetadataResponse> {
   if (!isRequest(body)) {
     return {
@@ -64,6 +85,25 @@ export async function handleMetadataRequest(
   }
 
   try {
+    if (body.op === "smb-provision" || body.op === "smb-revoke") {
+      if (!smb) {
+        return {
+          code: "UNAVAILABLE",
+          message: "SMB provisioning is not enabled on this host",
+          ok: false,
+        };
+      }
+      if (body.op === "smb-provision") {
+        await smb.provision({
+          accountId: body.accountId,
+          principal: body.principal,
+          secret: body.secret,
+        });
+      } else {
+        await smb.revoke(body.principal);
+      }
+      return { ok: true, provisioned: true };
+    }
     if (body.op === "list") {
       const listing = await service.list(body.relativePath);
       return {

@@ -1,6 +1,5 @@
 // Pi-side only. Vercel apps consume wire contracts from @repo/schemas/cloud.
 export * from "./auth";
-export * from "./dav";
 export * from "./db";
 export * from "./docker";
 export * from "./env";

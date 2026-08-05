@@ -50,7 +50,6 @@ const S3_PREFIX = "/v2";
  * a person saving a file, not one part of a multipart upload — so it uses the
  * ordinary rule and only its read verbs are filtered out, in MUTATING_METHODS.
  */
-const DAV_PREFIX = "/dav";
 
 const DEFAULT_SLOW_REQUEST_MS = 3_000;
 
@@ -71,7 +70,6 @@ const CATEGORY_RULES: readonly CategoryRule[] = [
   { prefix: "/api/projects", category: "projects" },
   { prefix: "/api/db", category: "database" },
   { prefix: S3_PREFIX, category: "s3" },
-  { prefix: DAV_PREFIX, category: "dav" },
 ];
 
 export function categoryForPath(path: string): ActivityCategory {
@@ -95,34 +93,12 @@ export interface ActivityCaptureDecision {
   status: number;
   durationMs: number;
   slowRequestMs: number;
-  /** Whether the request carried an Authorization header of any scheme. */
+  /**
+   * Whether the request carried an Authorization header of any scheme. Kept
+   * after WebDAV was retired because callers still pass it and it costs
+   * nothing; nothing reads it now that mount housekeeping is gone.
+   */
   authenticated: boolean;
-}
-
-function isDavPath(path: string): boolean {
-  return path === DAV_PREFIX || path.startsWith(`${DAV_PREFIX}/`);
-}
-
-/**
- * The two things a mount does constantly that are not news.
- *
- * On a mounted drive a 404 is a negative lookup, not a fault — the answer to
- * "is this here?" is allowed to be no. Suppression started with the OS-metadata
- * names both operating systems re-probe on every directory they draw
- * (`.DS_Store`, `._name`, `Desktop.ini`, `AutoRun.inf`), but the list was never
- * the whole of it: Finder and Explorer also probe sidecars, thumbnails and
- * localisation files that no fixed list can enumerate, and every one of those
- * misses landed in the table. A 401 on a request that carried no credentials at
- * all is the first half of the mount handshake — the client asks, is
- * challenged, then retries with the password. A 401 that *did* present an
- * Authorization header still records, because that one is a rejected credential.
- *
- * Everything else on the mount is untouched: a 403, a 423, a 5xx and every
- * mutation still record.
- */
-function isDavHousekeeping(decision: ActivityCaptureDecision): boolean {
-  if (decision.status === 404) return true;
-  return decision.status === 401 && !decision.authenticated;
 }
 
 /**
@@ -140,7 +116,6 @@ export function shouldCapture(decision: ActivityCaptureDecision): boolean {
   if (NEVER_LOG_PATHS.has(decision.path)) {
     return decision.status >= 500;
   }
-  if (isDavPath(decision.path) && isDavHousekeeping(decision)) return false;
   if (decision.status >= 400) return true;
   if (MUTATING_METHODS.has(decision.method)) return true;
   return decision.durationMs >= decision.slowRequestMs;
