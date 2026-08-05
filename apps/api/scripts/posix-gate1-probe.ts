@@ -1,3 +1,4 @@
+import { dlopen, toArrayBuffer } from "bun:ffi";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import {
@@ -225,6 +226,56 @@ async function syncDirectory(path: string): Promise<void> {
   } finally {
     await handle.close();
   }
+}
+
+function runtimeLibcPath(): string {
+  if (process.platform === "darwin") return "/usr/lib/libSystem.B.dylib";
+  if (process.platform === "linux" && process.arch === "arm64") {
+    return "/lib/libc.musl-aarch64.so.1";
+  }
+  if (process.platform === "linux" && process.arch === "x64") {
+    return "/lib/libc.musl-x86_64.so.1";
+  }
+  throw new Error("Unsupported Gate 1 mmap runtime");
+}
+
+async function probeMmap(path: string): Promise<ProbeCheck> {
+  const bytes = 4096;
+  const expected = Buffer.from("deniz-cloud-mmap-gate1");
+  const handle = await open(path, "wx+", 0o600);
+  const libc = dlopen(runtimeLibcPath(), {
+    mmap: {
+      args: ["ptr", "usize", "i32", "i32", "i32", "i64"],
+      returns: "ptr",
+    },
+    msync: { args: ["ptr", "usize", "i32"], returns: "i32" },
+    munmap: { args: ["ptr", "usize"], returns: "i32" },
+  });
+  let mapped: ReturnType<typeof libc.symbols.mmap> = null;
+  try {
+    await handle.truncate(bytes);
+    // PROT_READ | PROT_WRITE, MAP_SHARED. The mapped write must survive msync,
+    // close and a fresh path-based read through mergerfs.
+    mapped = libc.symbols.mmap(null, bytes, 1 | 2, 1, handle.fd, 0);
+    if (mapped === null) throw new Error("mmap returned null");
+    new Uint8Array(toArrayBuffer(mapped, 0, bytes)).set(expected);
+    if (libc.symbols.msync(mapped, bytes, 4) !== 0) {
+      throw new Error("msync failed");
+    }
+    if (libc.symbols.munmap(mapped, bytes) !== 0) {
+      throw new Error("munmap failed");
+    }
+    mapped = null;
+  } finally {
+    if (mapped !== null) libc.symbols.munmap(mapped, bytes);
+    libc.close();
+    await handle.close();
+  }
+  const observed = (await readFile(path)).subarray(0, expected.length);
+  if (!observed.equals(expected)) {
+    throw new Error("mmap write did not persist exact bytes");
+  }
+  return { detail: { bytes }, name: "mmap-shared-write-msync", status: "pass" };
 }
 
 async function appendAudit(
@@ -474,11 +525,7 @@ async function probeNamespace(workspace: string): Promise<ProbeCheck[]> {
   }
   checks.push({ name: "fsync-and-timestamps", status: "pass" });
 
-  checks.push({
-    detail: { reason: "Bun exposes no mmap primitive" },
-    name: "mmap",
-    status: "skipped",
-  });
+  checks.push(await probeMmap(join(workspace, "mmap-shared")));
   return checks;
 }
 

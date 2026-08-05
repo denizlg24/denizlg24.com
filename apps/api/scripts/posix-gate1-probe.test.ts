@@ -108,7 +108,7 @@ describe("POSIX Gate 1 probe", () => {
     const logPath = join(dirname(root), "gate1-evidence.jsonl");
     const summary = await runPosixGate1Probe({ dryRun: false, logPath, root });
 
-    expect(summary.allGreen).toBe(false);
+    expect(summary.allGreen).toBe(true);
     expect(summary.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -123,7 +123,10 @@ describe("POSIX Gate 1 probe", () => {
           name: "bun-file-full-range-and-sparse-offset",
           status: "pass",
         }),
-        expect.objectContaining({ name: "mmap", status: "skipped" }),
+        expect.objectContaining({
+          name: "mmap-shared-write-msync",
+          status: "pass",
+        }),
       ]),
     );
     expect(await readdir(root)).toEqual([".posix-gate1-disposable"]);
