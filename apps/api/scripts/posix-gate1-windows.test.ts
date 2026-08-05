@@ -24,7 +24,7 @@ describe("POSIX Gate 1 Windows client contract", () => {
     expect(source).toContain('"--ssh-host"');
     expect(source).toContain("SSH HOST contains unsupported characters");
     expect(source).toContain('"BatchMode=yes"');
-    expect(source).toContain('"sudo", "-n"');
+    expect(source).not.toContain('"sudo", "-n"');
 
     const sshArguments = source.slice(
       source.indexOf("$SshArguments = @("),

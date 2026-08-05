@@ -105,9 +105,15 @@ if [[ "$mode" == "--dry-run" ]]; then
   exit 0
 fi
 
-for command in chmod docker jq mkdir; do
+for command in chmod docker findmnt jq mkdir; do
   command -v "$command" >/dev/null || { echo "Required command is missing: ${command}" >&2; exit 1; }
 done
+if [[ ! -d "$merged_root" || -L "$merged_root" \
+  || "$(findmnt -n -o FSTYPE --target "$merged_root" 2>/dev/null || true)" != "fuse.mergerfs" \
+  || "$(findmnt -n -o SOURCE --target "$merged_root" 2>/dev/null || true)" != "deniz-cloud-gate1" ]]; then
+  echo "Disposable Gate 1 mergerfs mount is missing or mismatched" >&2
+  exit 1
+fi
 if [[ ! -f "$peer_bundle" || -L "$peer_bundle" ]]; then
   echo "Gate 1 peer bundle is missing or unsafe" >&2
   exit 1

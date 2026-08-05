@@ -201,7 +201,6 @@ function Invoke-ApiPeer {
     if ($null -eq $Ssh) { throw "OpenSSH ssh is required for API peer probes" }
 
     $RemoteArguments = @(
-        "sudo", "-n",
         "/tmp/posix-gate1-kit/infra/scripts/posix-gate1-peer-container.sh",
         "--execute", "--action", $Action, "--run-id", $RunId, "--target", $Target
     )
