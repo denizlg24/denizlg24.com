@@ -134,6 +134,26 @@ sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute api-test
 sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute status
 ```
 
+Run the fail-closed checks only against this disposable spike. `watchdog` is a
+bounded, one-shot health check suitable for repeated scheduling. The destructive
+branch-loss probe requires the `prepared` phase with Samba stopped; it unmounts
+only the exact marked HDD loopback branch, withdraws the disposable mergerfs
+namespace, restores the branch, and compares the exact marker hashes:
+
+```sh
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute watchdog
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute branch-loss-test
+# Run only after an actual host reboot:
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-spike.sh --execute reboot-check
+```
+
+Exit 10 means the disposable namespace was safely withdrawn or a required STOP
+remains; exit 20 means fail-closed behavior could not be proven. A reboot check
+never claims marker preservation from resource absence alone: it stays
+quarantined until the loopback branches are remounted and their markers are
+verified. These checks always report `gate1Passed:false` and never touch a
+production mount.
+
 `host-test` and `api-test` are explicitly partial. They prove deterministic
 SSD/HDD placement, xattr/ACL/backup behavior, encrypted SMB round trips,
 highest-level container binding, Bun full/Range/TUS behavior, a 5.8 GB sparse

@@ -18,11 +18,13 @@ interface ScriptResult {
 async function runSpike(
   args: readonly string[],
   stateRoot?: string,
+  environment: Record<string, string> = {},
 ): Promise<ScriptResult> {
   const child = Bun.spawn(["/bin/bash", SPIKE_SCRIPT, ...args], {
     env: {
       ...process.env,
       ...(stateRoot === undefined ? {} : { POSIX_GATE1_ROOT: stateRoot }),
+      ...environment,
     },
     stderr: "pipe",
     stdout: "pipe",
@@ -151,5 +153,76 @@ describe("POSIX Gate 1 spike shell safety", () => {
     expect(summary).not.toHaveProperty("allGreen", true);
     expect(summary).not.toHaveProperty("gate1Passed", true);
     expect(summary).not.toHaveProperty("hostTestsPassed", true);
+  });
+
+  it("keeps branch-loss, watchdog and reboot probes bounded and non-passing in dry-run", async () => {
+    const { root } = await disposableStateRoot();
+
+    for (const action of ["watchdog", "branch-loss-test", "reboot-check"]) {
+      const result = await runSpike(["--dry-run", action], root, {
+        POSIX_GATE1_WATCHDOG_TIMEOUT_SECONDS: "7",
+      });
+
+      expect(result.exitCode).toBe(0);
+      const summary = JSON.parse(result.stdout) as Record<string, unknown>;
+      expect(summary).toMatchObject({
+        action,
+        gate1Passed: false,
+        mode: "--dry-run",
+        stopRequired: action !== "watchdog",
+        watchdogTimeoutSeconds: 7,
+        willMountProductionBranches: false,
+      });
+      expect(summary).not.toHaveProperty("branchLossWatchdogPassed", true);
+      expect(summary).not.toHaveProperty("rebootSafetyPassed", true);
+      expect(summary).not.toHaveProperty("watchdogHealthy", true);
+    }
+    expect(await Bun.file(root).exists()).toBe(false);
+  });
+
+  it("rejects unbounded or malformed watchdog deadlines before mutation", async () => {
+    const { root } = await disposableStateRoot();
+
+    for (const timeout of ["0", "31", "1.5", "unbounded"]) {
+      const result = await runSpike(["--dry-run", "watchdog"], root, {
+        POSIX_GATE1_WATCHDOG_TIMEOUT_SECONDS: timeout,
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(
+        "watchdog timeout must be an integer from 1 to 30 seconds",
+      );
+    }
+    expect(await Bun.file(root).exists()).toBe(false);
+  });
+
+  it("accepts only the documented watchdog deadline boundaries", async () => {
+    const { root } = await disposableStateRoot();
+
+    for (const timeout of ["1", "30"]) {
+      const result = await runSpike(["--dry-run", "watchdog"], root, {
+        POSIX_GATE1_WATCHDOG_TIMEOUT_SECONDS: timeout,
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        gate1Passed: false,
+        watchdogTimeoutSeconds: Number(timeout),
+      });
+    }
+    expect(await Bun.file(root).exists()).toBe(false);
+  });
+
+  it("keeps reboot verification fail-closed until branch markers are remounted", async () => {
+    const source = await Bun.file(SPIKE_SCRIPT).text();
+
+    expect(source).toContain(
+      '.phase="quarantined" | .safety={status:"reboot-fail-closed-unverified-markers"',
+    );
+    expect(source).toContain("rebootFailClosedObserved:true");
+    expect(source).toContain("rebootSafetyPassed:false");
+    expect(source).toContain("branchMarkersRequireRemountVerification:true");
+    expect(source).not.toContain("rebootSafetyPassed:true");
   });
 });

@@ -10,7 +10,7 @@ action="status"
 action_set=false
 
 usage() {
-  echo "Usage: $0 [--dry-run|--execute] [prepare|start-samba|status|host-test|api-test|stop|destroy]" >&2
+  echo "Usage: $0 [--dry-run|--execute] [prepare|start-samba|status|host-test|api-test|watchdog|branch-loss-test|reboot-check|stop|destroy]" >&2
 }
 
 for argument in "$@"; do
@@ -23,7 +23,7 @@ for argument in "$@"; do
       mode="$argument"
       mode_set=true
       ;;
-    prepare|start-samba|status|host-test|api-test|stop|destroy)
+    prepare|start-samba|status|host-test|api-test|watchdog|branch-loss-test|reboot-check|stop|destroy)
       if [[ "$action_set" == "true" ]]; then
         usage
         exit 2
@@ -85,6 +85,11 @@ hdd_branch="$hdd_mount/namespace"
 probe_root="$merged_mount/posix-gate1-disposable"
 samba_root="$state_root/samba"
 evidence_dir="$state_root/evidence"
+watchdog_timeout_seconds="${POSIX_GATE1_WATCHDOG_TIMEOUT_SECONDS:-10}"
+if [[ ! "$watchdog_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || (( watchdog_timeout_seconds > 30 )); then
+  echo "Gate 1 watchdog timeout must be an integer from 1 to 30 seconds" >&2
+  exit 1
+fi
 
 state_phase="absent"
 spike_id=""
@@ -100,7 +105,7 @@ read_state() {
   spike_id="$(jq -er '.spikeId' "$state_file")"
   ssd_loop="$(jq -er '.loops.ssd' "$state_file")"
   hdd_loop="$(jq -er '.loops.hdd' "$state_file")"
-  if [[ ! "$state_phase" =~ ^(prepared|samba|stopped)$ || ! "$spike_id" =~ ^[0-9a-f-]{36}$ || ! "$ssd_loop" =~ ^/dev/loop[0-9]+$ || ! "$hdd_loop" =~ ^/dev/loop[0-9]+$ ]]; then
+  if [[ ! "$state_phase" =~ ^(prepared|samba|quarantined|stopped)$ || ! "$spike_id" =~ ^[0-9a-f-]{36}$ || ! "$ssd_loop" =~ ^/dev/loop[0-9]+$ || ! "$hdd_loop" =~ ^/dev/loop[0-9]+$ ]]; then
     echo "Gate 1 state contains invalid lifecycle values" >&2
     exit 1
   fi
@@ -143,6 +148,18 @@ branch_marker_is() {
     && [[ "$(jq -er '.role' "$marker")" == "$role" ]]
 }
 
+merged_mount_is_disposable() {
+  [[ "$(findmnt -n -o FSTYPE --target "$merged_mount" 2>/dev/null || true)" == "fuse.mergerfs" ]] \
+    && [[ "$(findmnt -n -o SOURCE --target "$merged_mount" 2>/dev/null || true)" == "deniz-cloud-gate1" ]]
+}
+
+mount_disposable_union() {
+  timeout --kill-after=2s "$watchdog_timeout_seconds" mergerfs \
+    -o allow_other,nodev,nosuid,branches-mount-timeout=5,branches-mount-timeout-fail=true,minfreespace=128M,moveonenospc=false,inodecalc=path-hash,xattr=passthrough,posix-acl=true,kernel-permissions-check=true,cache.files=off,cache.attr=0,cache.entry=0,cache.negative-entry=0,cache.readdir=false,cache.statfs=0,cache.writeback=false,follow-symlinks=never,category.create=ff,category.search=ff,category.action=epall,func.getattr=ff,fsname=deniz-cloud-gate1 \
+    "$ssd_branch:$hdd_branch" "$merged_mount"
+  mountpoint -q "$merged_mount" && merged_mount_is_disposable
+}
+
 tailscale_ip="$(ip -4 -o address show dev tailscale0 2>/dev/null | awk 'NR == 1 {split($4, address, "/"); print address[1]}' || true)"
 current_phase="absent"
 if [[ -f "$state_file" && ! -L "$state_file" ]]; then
@@ -159,14 +176,15 @@ if [[ "$mode" == "--dry-run" ]]; then
     --arg template "$template" \
     --arg probeBundle "$probe_bundle" \
     --arg slowClientBundle "$slow_client_bundle" \
-    '{mode:$mode,action:$action,root:$root,currentPhase:$phase,tailscaleIp:(if $tailscaleIp=="" then null else $tailscaleIp end),sambaTemplate:$template,probeBundle:$probeBundle,slowClientBundle:$slowClientBundle,willMountProductionBranches:false}'
+    --argjson watchdogTimeoutSeconds "$watchdog_timeout_seconds" \
+    '{mode:$mode,action:$action,root:$root,currentPhase:$phase,tailscaleIp:(if $tailscaleIp=="" then null else $tailscaleIp end),sambaTemplate:$template,probeBundle:$probeBundle,slowClientBundle:$slowClientBundle,watchdogTimeoutSeconds:$watchdogTimeoutSeconds,willMountProductionBranches:false,gate1Passed:false,stopRequired:($action == "branch-loss-test" or $action == "reboot-check")}'
   exit 0
 fi
 if (( EUID != 0 )); then
   echo "Gate 1 lifecycle changes require root" >&2
   exit 1
 fi
-for command in awk basename cat chmod chown cut date dirname docker fallocate find findmnt getfacl getent getfattr grep ip jq kill losetup mergerfs mkdir mkfs.ext4 mount mountpoint mv openssl readlink realpath runuser sed setfacl setfattr sha256sum sleep smbclient smbd smbpasswd ss stat sync tar testparm touch tr truncate umount; do
+for command in awk basename cat chmod chown cut date dirname docker fallocate find findmnt getfacl getent getfattr grep ip jq kill losetup mergerfs mkdir mkfs.ext4 mount mountpoint mv openssl readlink realpath runuser sed setfacl setfattr sha256sum sleep smbclient smbd smbpasswd ss stat sync tar testparm timeout touch tr truncate umount; do
   if ! command -v "$command" >/dev/null; then
     echo "Required Gate 1 command is missing: ${command}" >&2
     exit 1
@@ -255,10 +273,7 @@ prepare_spike() {
     '{schemaVersion:1,spikeId:$spikeId,role:$role}' > "$hdd_mount/.denizcloud-gate1-branch.json"
   chmod 600 "$ssd_mount/.denizcloud-gate1-branch.json" "$hdd_mount/.denizcloud-gate1-branch.json"
 
-  mergerfs \
-    -o allow_other,nodev,nosuid,branches-mount-timeout=10,branches-mount-timeout-fail=true,minfreespace=128M,moveonenospc=false,inodecalc=path-hash,xattr=passthrough,posix-acl=true,kernel-permissions-check=true,cache.files=off,cache.attr=0,cache.entry=0,cache.negative-entry=0,cache.readdir=false,cache.statfs=0,cache.writeback=false,follow-symlinks=never,category.create=ff,category.search=ff,category.action=epall,func.getattr=ff,fsname=deniz-cloud-gate1 \
-    "$ssd_branch:$hdd_branch" "$merged_mount"
-  if ! mountpoint -q "$merged_mount"; then
+  if ! mount_disposable_union; then
     echo "mergerfs did not mount the disposable namespace" >&2
     exit 1
   fi
@@ -277,7 +292,8 @@ prepare_spike() {
     --arg hddLoop "$hdd_loop" \
     --arg merged "$merged_mount" \
     --arg tailscaleIp "$tailscale_ip" \
-    '{schemaVersion:1,phase:"prepared",spikeId:$spikeId,root:$root,images:{ssd:$ssdImage,hdd:$hddImage},loops:{ssd:$ssdLoop,hdd:$hddLoop},mounts:{merged:$merged},tailscaleIp:$tailscaleIp}' \
+    --arg bootId "$(cat /proc/sys/kernel/random/boot_id)" \
+    '{schemaVersion:1,phase:"prepared",spikeId:$spikeId,root:$root,images:{ssd:$ssdImage,hdd:$hddImage},loops:{ssd:$ssdLoop,hdd:$hddLoop},mounts:{merged:$merged},tailscaleIp:$tailscaleIp,bootId:$bootId}' \
     > "$state_file"
   chmod 600 "$state_file"
   sync -f "$state_root"
@@ -577,7 +593,8 @@ run_api_tests() {
     .dryRun == false and
     ([.checks[] | select(.status == "pass") | .name] | index("same-mount-atomic-rename") != null) and
     ([.checks[] | select(.status == "pass") | .name] | index("tus-interrupt-fsync-resume-publish") != null) and
-    ([.checks[] | select(.status == "pass") | .name] | index("bun-file-full-range-and-sparse-offset") != null)
+    ([.checks[] | select(.status == "pass") | .name] | index("bun-file-full-range-and-sparse-offset") != null) and
+    ([.checks[] | select(.status == "pass") | .name] | index("mmap-shared-write-msync") != null)
   ' "$result_file" >/dev/null
   docker run --rm --network none --read-only --tmpfs /tmp --user 1000:1000 \
     --volume "$slow_client_bundle:/gate1-slow-client.js:ro" \
@@ -597,7 +614,282 @@ run_api_tests() {
     .rssDeltaBytes <= .maxRssDeltaBytes
   ' "$slow_result_file" >/dev/null
   jq -n --arg evidence "$probe_evidence_dir" --arg image "$api_image" \
-    '{partialApiTestsPassed:true,gate1Passed:false,evidence:$evidence,deployedRuntimeImage:$image,slowClientShapeBytes:5800000000,pending:["mmap","SMB concurrency","native clients","branch loss/reboot","throughput"]}'
+    '{partialApiTestsPassed:true,gate1Passed:false,evidence:$evidence,deployedRuntimeImage:$image,slowClientShapeBytes:5800000000,pending:["SMB concurrency","native clients","branch loss/reboot","throughput"]}'
+}
+
+append_safety_event() {
+  local evidence="$1"
+  local event="$2"
+  local status="$3"
+  local detail="$4"
+  jq -nc \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg event "$event" \
+    --arg status "$status" \
+    --arg detail "$detail" \
+    '{schemaVersion:1,at:$at,event:$event,status:$status,detail:$detail}' >> "$evidence"
+}
+
+stop_verified_samba_for_watchdog() {
+  local pid_file="$samba_root/pid/gate1-smbd.pid"
+  if [[ "$state_phase" != "samba" ]]; then
+    if [[ -s "$pid_file" ]] || ss -H -ltn 'sport = :445' | grep -q .; then
+      echo "STOP: Samba state is ambiguous; watchdog will not signal an unverified listener" >&2
+      return 1
+    fi
+    return 0
+  fi
+  if [[ ! -s "$pid_file" ]]; then
+    if ss -H -ltn 'sport = :445' | grep -q .; then
+      echo "STOP: Samba phase has a listener but no verified PID" >&2
+      return 1
+    fi
+    return 0
+  fi
+
+  local pid expected_pid expected_start_time expected_config actual_start_time cmdline_matches=false
+  pid="$(cat "$pid_file")"
+  expected_pid="$(jq -er '.samba.pid' "$state_file")"
+  expected_start_time="$(jq -er '.samba.startTime' "$state_file")"
+  expected_config="$(jq -er '.samba.config' "$state_file")"
+  actual_start_time="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null || true)"
+  if [[ -r "/proc/$pid/cmdline" ]] \
+    && tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$expected_config"; then
+    cmdline_matches=true
+  fi
+  if [[ ! "$pid" =~ ^[0-9]+$ || "$pid" != "$expected_pid" \
+    || "$expected_config" != "$samba_root/smb.conf" \
+    || "$actual_start_time" != "$expected_start_time" \
+    || ! -r "/proc/$pid/exe" \
+    || "$(basename "$(readlink -f "/proc/$pid/exe")")" != "smbd" \
+    || "$cmdline_matches" != "true" ]]; then
+    echo "STOP: refusing to signal an unverified Samba PID" >&2
+    return 1
+  fi
+
+  kill -TERM "$pid"
+  for _ in {1..100}; do
+    [[ ! -e "/proc/$pid" ]] && break
+    sleep 0.1
+  done
+  if [[ -e "/proc/$pid" ]] || ss -H -ltn 'sport = :445' | grep -q .; then
+    echo "STOP: disposable Samba did not withdraw within 10 seconds" >&2
+    return 1
+  fi
+  find "$pid_file" -maxdepth 0 -type f -delete
+}
+
+quarantine_spike() {
+  local reason="$1"
+  jq --arg reason "$reason" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '.phase="quarantined" | .safety={status:"fail-closed",reason:$reason,at:$at}' \
+    "$state_file" > "$state_file.partial"
+  mv "$state_file.partial" "$state_file"
+  chmod 600 "$state_file"
+  state_phase="quarantined"
+}
+
+# Returns 0 when healthy, 10 when a fault was detected and safely withdrawn,
+# and 20 when safety could not be proven. It never unmounts a branch device.
+watchdog_once() {
+  local evidence="$1"
+  local saved_boot_id current_boot_id reason
+  saved_boot_id="$(jq -r '.bootId // "missing"' "$state_file")"
+  current_boot_id="$(cat /proc/sys/kernel/random/boot_id)"
+  if [[ "$saved_boot_id" != "$current_boot_id" ]]; then
+    append_safety_event "$evidence" watchdog stop "boot identity changed; no live resource will be touched"
+    return 20
+  fi
+
+  reason=""
+  if [[ "$state_phase" == "quarantined" ]]; then
+    reason="state-quarantined"
+  fi
+  loop_backing_is "$ssd_loop" "$ssd_image" || reason="ssd-loop-backing"
+  loop_backing_is "$hdd_loop" "$hdd_image" || reason="${reason:+$reason,}hdd-loop-backing"
+  mount_source_is "$ssd_mount" "$ssd_loop" || reason="${reason:+$reason,}ssd-mount-source"
+  mount_source_is "$hdd_mount" "$hdd_loop" || reason="${reason:+$reason,}hdd-mount-source"
+  branch_marker_is "$ssd_mount" ssd || reason="${reason:+$reason,}ssd-marker"
+  branch_marker_is "$hdd_mount" hdd || reason="${reason:+$reason,}hdd-marker"
+  merged_mount_is_disposable || reason="${reason:+$reason,}merged-mount"
+  if [[ -z "$reason" ]]; then
+    append_safety_event "$evidence" watchdog pass "both disposable branches and the merged mount are healthy"
+    return 0
+  fi
+
+  append_safety_event "$evidence" watchdog detected "$reason"
+  if ! stop_verified_samba_for_watchdog; then
+    append_safety_event "$evidence" watchdog stop "could not prove Samba withdrawal"
+    return 20
+  fi
+  if mountpoint -q "$merged_mount"; then
+    if ! merged_mount_is_disposable; then
+      append_safety_event "$evidence" watchdog stop "refusing to unmount an unexpected filesystem"
+      return 20
+    fi
+    if ! timeout --kill-after=2s "$watchdog_timeout_seconds" umount "$merged_mount"; then
+      append_safety_event "$evidence" watchdog stop "merged mount did not withdraw within the deadline"
+      return 20
+    fi
+  fi
+  if mountpoint -q "$merged_mount" || ss -H -ltn 'sport = :445' | grep -q .; then
+    append_safety_event "$evidence" watchdog stop "merged mount or TCP 445 remained available"
+    return 20
+  fi
+  quarantine_spike "$reason"
+  append_safety_event "$evidence" watchdog fail-closed "Samba and merged namespace withdrawn"
+  return 10
+}
+
+run_watchdog() {
+  read_state
+  if [[ "$state_phase" == "stopped" ]]; then
+    echo "Gate 1 watchdog requires a live or quarantined disposable spike" >&2
+    return 1
+  fi
+  local evidence="$evidence_dir/watchdog-${spike_id}-$(date -u +%Y%m%dT%H%M%SZ).jsonl"
+  if [[ -e "$evidence" || -L "$evidence" ]]; then
+    echo "Refusing to overwrite Gate 1 watchdog evidence" >&2
+    exit 1
+  fi
+  (set -o noclobber; : > "$evidence")
+  chmod 600 "$evidence"
+  local result
+  set +e
+  watchdog_once "$evidence"
+  result=$?
+  set -e
+  if (( result == 0 )); then
+    jq -n --arg evidence "$evidence" \
+      '{watchdogHealthy:true,failClosedTriggered:false,gate1Passed:false,evidence:$evidence}'
+    return
+  fi
+  if (( result == 10 )); then
+    jq -n --arg evidence "$evidence" \
+      '{watchdogHealthy:false,failClosedTriggered:true,stop:true,gate1Passed:false,evidence:$evidence}'
+    return 10
+  fi
+  jq -n --arg evidence "$evidence" \
+    '{watchdogHealthy:false,failClosedTriggered:false,stop:true,gate1Passed:false,evidence:$evidence}'
+  return 20
+}
+
+run_branch_loss_test() {
+  validate_live_spike
+  if [[ "$state_phase" != "prepared" ]]; then
+    echo "Branch-loss test requires prepared phase with Samba stopped" >&2
+    exit 1
+  fi
+  if ss -H -ltn 'sport = :445' | grep -q .; then
+    echo "Branch-loss test refuses to run while TCP 445 is active" >&2
+    exit 1
+  fi
+
+  local evidence="$evidence_dir/branch-loss-${spike_id}.jsonl"
+  local root_hash ssd_hash hdd_hash native_fail_closed=false watchdog_result restored=false
+  if [[ -e "$evidence" || -L "$evidence" ]]; then
+    echo "Refusing to overwrite Gate 1 branch-loss evidence" >&2
+    exit 1
+  fi
+  (set -o noclobber; : > "$evidence")
+  chmod 600 "$evidence"
+  root_hash="$(sha256sum "$root_marker" | awk '{print $1}')"
+  ssd_hash="$(sha256sum "$ssd_mount/.denizcloud-gate1-branch.json" | awk '{print $1}')"
+  hdd_hash="$(sha256sum "$hdd_mount/.denizcloud-gate1-branch.json" | awk '{print $1}')"
+  append_safety_event "$evidence" branch-loss start "exact marker hashes captured"
+
+  recover_branch_loss_test() {
+    set +e
+    if [[ "$restored" != "true" ]] \
+      && ! mountpoint -q "$hdd_mount" \
+      && loop_backing_is "$hdd_loop" "$hdd_image"; then
+      timeout --kill-after=2s "$watchdog_timeout_seconds" mount -o noatime,nodev,nosuid "$hdd_loop" "$hdd_mount"
+    fi
+    # A failed proof stays quarantined with the merged namespace withdrawn.
+    # Restoring the branch prevents a lingering partial source without masking
+    # the STOP result by republishing the union.
+  }
+  trap recover_branch_loss_test EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  mount_source_is "$hdd_mount" "$hdd_loop" || { echo "HDD mount source mismatch before branch-loss simulation" >&2; exit 1; }
+  loop_backing_is "$hdd_loop" "$hdd_image" || { echo "HDD loop backing mismatch before branch-loss simulation" >&2; exit 1; }
+  timeout --kill-after=2s "$watchdog_timeout_seconds" umount "$hdd_mount"
+  if ! mountpoint -q "$merged_mount"; then
+    native_fail_closed=true
+  fi
+  append_safety_event "$evidence" mergerfs-native observed "nativeFailClosed=${native_fail_closed}"
+
+  set +e
+  watchdog_once "$evidence"
+  watchdog_result=$?
+  set -e
+  if (( watchdog_result != 10 )); then
+    append_safety_event "$evidence" branch-loss stop "watchdog did not prove fail-closed withdrawal"
+    jq -n --arg evidence "$evidence" --argjson watchdogResult "$watchdog_result" \
+      '{branchLossWatchdogPassed:false,stop:true,gate1Passed:false,watchdogResult:$watchdogResult,evidence:$evidence}'
+    return 20
+  fi
+
+  timeout --kill-after=2s "$watchdog_timeout_seconds" mount -o noatime,nodev,nosuid "$hdd_loop" "$hdd_mount"
+  mount_source_is "$hdd_mount" "$hdd_loop" || { echo "STOP: restored HDD mount source mismatch" >&2; return 20; }
+  branch_marker_is "$hdd_mount" hdd || { echo "STOP: restored HDD branch marker mismatch" >&2; return 20; }
+  [[ "$(sha256sum "$root_marker" | awk '{print $1}')" == "$root_hash" ]] || { echo "STOP: root marker changed" >&2; return 20; }
+  [[ "$(sha256sum "$ssd_mount/.denizcloud-gate1-branch.json" | awk '{print $1}')" == "$ssd_hash" ]] || { echo "STOP: SSD marker changed" >&2; return 20; }
+  [[ "$(sha256sum "$hdd_mount/.denizcloud-gate1-branch.json" | awk '{print $1}')" == "$hdd_hash" ]] || { echo "STOP: HDD marker changed" >&2; return 20; }
+  mount_disposable_union || { echo "STOP: merged namespace did not recover" >&2; return 20; }
+  [[ -r "$probe_root/.posix-gate1-disposable" ]] || { echo "STOP: disposable namespace marker did not recover" >&2; return 20; }
+  jq --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '.phase="prepared" | .safety={status:"recovered-after-test",at:$at,gate1Passed:false}' \
+    "$state_file" > "$state_file.partial"
+  mv "$state_file.partial" "$state_file"
+  chmod 600 "$state_file"
+  state_phase="prepared"
+  append_safety_event "$evidence" branch-loss pass "watchdog withdrew and exact markers survived recovery"
+  restored=true
+  trap - EXIT HUP INT TERM
+  jq -n \
+    --arg evidence "$evidence" \
+    --argjson nativeFailClosed "$native_fail_closed" \
+    '{branchLossWatchdogPassed:true,nativeMergerfsFailClosed:$nativeFailClosed,externalWatchdogFailClosed:true,markersPreserved:true,recovered:true,gate1Passed:false,evidence:$evidence}'
+}
+
+run_reboot_check() {
+  read_state
+  local saved_boot_id current_boot_id exact_smbd_running=false resources_absent=true
+  saved_boot_id="$(jq -r '.bootId // "missing"' "$state_file")"
+  current_boot_id="$(cat /proc/sys/kernel/random/boot_id)"
+  if [[ "$saved_boot_id" == "$current_boot_id" || "$saved_boot_id" == "missing" ]]; then
+    jq -n --arg savedBootId "$saved_boot_id" --arg currentBootId "$current_boot_id" \
+      '{rebootObserved:false,rebootSafetyPassed:false,stop:true,gate1Passed:false,savedBootId:$savedBootId,currentBootId:$currentBootId}'
+    return 10
+  fi
+  if mountpoint -q "$merged_mount" || mountpoint -q "$ssd_mount" || mountpoint -q "$hdd_mount" \
+    || losetup -j "$ssd_image" | grep -q . || losetup -j "$hdd_image" | grep -q .; then
+    resources_absent=false
+  fi
+  local expected_config="$samba_root/smb.conf" process_cmdline
+  for process_cmdline in /proc/[0-9]*/cmdline; do
+    if [[ -r "$process_cmdline" ]] && tr '\0' '\n' < "$process_cmdline" | grep -Fxq -- "$expected_config"; then
+      exact_smbd_running=true
+      break
+    fi
+  done
+  if [[ "$resources_absent" != "true" || "$exact_smbd_running" == "true" ]]; then
+    jq -n --argjson resourcesAbsent "$resources_absent" --argjson exactSmbdRunning "$exact_smbd_running" \
+      '{rebootObserved:true,rebootSafetyPassed:false,stop:true,gate1Passed:false,resourcesAbsent:$resourcesAbsent,exactDisposableSmbdRunning:$exactSmbdRunning}'
+    return 20
+  fi
+  jq --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '.phase="quarantined" | .safety={status:"reboot-fail-closed-unverified-markers",at:$at,gate1Passed:false}' \
+    "$state_file" > "$state_file.partial"
+  mv "$state_file.partial" "$state_file"
+  chmod 600 "$state_file"
+  find "$samba_root/client.auth" -maxdepth 0 -type f -delete 2>/dev/null || true
+  jq -n '{rebootObserved:true,rebootFailClosedObserved:true,rebootSafetyPassed:false,resourcesAbsent:true,exactDisposableSmbdRunning:false,branchMarkersRequireRemountVerification:true,stop:true,gate1Passed:false}'
+  return 10
 }
 
 show_status() {
@@ -719,6 +1011,9 @@ case "$action" in
   status) show_status ;;
   host-test) run_host_tests ;;
   api-test) run_api_tests ;;
+  watchdog) run_watchdog ;;
+  branch-loss-test) run_branch_loss_test ;;
+  reboot-check) run_reboot_check ;;
   stop) stop_spike ;;
   destroy) destroy_spike ;;
 esac
