@@ -18,6 +18,17 @@ export interface NamespaceSyncOptions {
   /** Reconnect backoff bounds. */
   minBackoffMs?: number;
   maxBackoffMs?: number;
+  /**
+   * Floor between full-scan requests.
+   *
+   * A scan is the response to every way the watch can lose events, so a watch
+   * that flaps asks for one on every cycle. Without a floor that is a scan
+   * storm: the projection is repeatedly rebuilt, each run competing with the
+   * next, and the condition that caused the flapping is never the thing that
+   * gets attention. Skipping a request is safe because the projection stays
+   * marked dirty, so the next scan still knows it is owed.
+   */
+  minScanIntervalMs?: number;
   onEvent?(event: NamespaceSyncEvent): void;
 }
 
@@ -29,6 +40,7 @@ export interface NamespaceSyncEvent {
     | "applied"
     | "index-failed"
     | "scan-requested"
+    | "scan-throttled"
     | "scan-failed";
   detail?: string;
   applied?: { upserted: number; removed: number; withheld: number };
@@ -36,6 +48,7 @@ export interface NamespaceSyncEvent {
 
 const DEFAULT_MIN_BACKOFF_MS = 1_000;
 const DEFAULT_MAX_BACKOFF_MS = 30_000;
+const DEFAULT_MIN_SCAN_INTERVAL_MS = 60_000;
 
 /**
  * Keeps the projection current between full scans.
@@ -57,6 +70,7 @@ export class NamespaceSyncSupervisor {
   #backoffMs: number;
   #lastAppliedAt: number | null = null;
   #dirtySince: number | null = null;
+  #lastScanRequestedAt = 0;
 
   constructor(private readonly options: NamespaceSyncOptions) {
     this.#backoffMs = options.minBackoffMs ?? DEFAULT_MIN_BACKOFF_MS;
@@ -89,9 +103,20 @@ export class NamespaceSyncSupervisor {
     this.#abort = null;
   }
 
-  async #markDirtyAndScan(reason: string): Promise<void> {
+  async #markDirtyAndScan(reason: string, force = false): Promise<void> {
     this.#dirtySince ??= Date.now();
     await this.options.repository.setDirty(true, reason).catch(() => {});
+
+    const interval =
+      this.options.minScanIntervalMs ?? DEFAULT_MIN_SCAN_INTERVAL_MS;
+    const since = Date.now() - this.#lastScanRequestedAt;
+    if (!force && since < interval) {
+      // Dirty is already recorded, so the debt is not lost — only the extra
+      // scan that would have raced the one just requested.
+      this.options.onEvent?.({ detail: reason, type: "scan-throttled" });
+      return;
+    }
+    this.#lastScanRequestedAt = Date.now();
     this.options.onEvent?.({ detail: reason, type: "scan-requested" });
     try {
       await this.options.requestFullScan(reason);
@@ -173,8 +198,14 @@ export class NamespaceSyncSupervisor {
       if (connected) {
         this.options.onEvent?.({ type: "disconnected" });
       }
-      // Any end of stream is an unaccounted gap, including a clean one.
-      await this.#markDirtyAndScan("watch-disconnected");
+      // Any end of stream is an unaccounted gap, including a clean one — but
+      // only the dirty mark is needed here. The reconnect scans on `ready`,
+      // and scanning on both ends of one cycle doubles the work for a window
+      // the reconnect already covers.
+      await this.options.repository
+        .setDirty(true, "watch-disconnected")
+        .catch(() => {});
+      this.#dirtySince ??= Date.now();
       await new Promise((resolve) => setTimeout(resolve, this.#backoffMs));
       this.#backoffMs = Math.min(
         this.#backoffMs * 2,

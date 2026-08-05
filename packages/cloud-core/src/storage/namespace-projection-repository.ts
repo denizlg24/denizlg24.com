@@ -262,8 +262,14 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
             dirtyReason: reason,
             // Keep the original dirty timestamp so dirty *age* is measurable
             // rather than reset by every scan that finds it still dirty.
+            //
+            // The fallback is bound as an explicitly cast ISO string. A `Date`
+            // interpolated into a `sql` template does not go through the
+            // column's timestamp mapper, so it arrives as the JS `toString()`
+            // form against a timestamptz column and the whole statement fails —
+            // taking the scan with it.
             dirtySince: dirty
-              ? sql`coalesce(${namespaceProjectionState.dirtySince}, ${now})`
+              ? sql`coalesce(${namespaceProjectionState.dirtySince}, ${now.toISOString()}::timestamptz)`
               : null,
             updatedAt: now,
           },

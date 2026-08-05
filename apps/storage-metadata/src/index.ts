@@ -61,6 +61,11 @@ try {
   // Nothing to clean up.
 }
 
+/**
+ * Well inside any reasonable idle reaper, including Bun's own server timeout.
+ */
+const WATCH_HEARTBEAT_MS = 15_000;
+
 function deny(code: string, message: string, status: number): Response {
   return Response.json({ code, message, ok: false }, { status });
 }
@@ -70,31 +75,48 @@ function deny(code: string, message: string, status: number): Response {
  *
  * The subscriber treats a closed stream as a gap it cannot account for and
  * falls back to a full scan, so this never has to replay anything: dropping the
- * connection is always a safe way to fail.
+ * connection is always a safe way to fail. It is not a cheap way to fail,
+ * though — every drop costs a full scan — so the stream has to survive being
+ * idle, which is its normal state. A quiet namespace produces no events for
+ * hours.
+ *
+ * The blank-line heartbeat is what makes that survivable across anything that
+ * reaps idle connections, and it doubles as liveness: a subscriber whose peer
+ * has gone finds out at the next beat rather than at the next write.
  */
 function watchStream(request: Request): Response {
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | null = null;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+
+  const stop = () => {
+    unsubscribe?.();
+    unsubscribe = null;
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = null;
+  };
 
   const body = new ReadableStream<Uint8Array>({
-    cancel() {
-      unsubscribe?.();
-      unsubscribe = null;
-    },
+    cancel: stop,
     start(controller) {
-      unsubscribe = watcher.subscribe((message) => {
+      const write = (chunk: string) => {
         try {
-          controller.enqueue(encoder.encode(`${JSON.stringify(message)}\n`));
+          controller.enqueue(encoder.encode(chunk));
+          return true;
         } catch {
-          // The subscriber went away between the check and the write; the
-          // unsubscribe below is what actually stops the flow.
-          unsubscribe?.();
-          unsubscribe = null;
+          stop();
+          return false;
         }
+      };
+      unsubscribe = watcher.subscribe((message) => {
+        write(`${JSON.stringify(message)}\n`);
       });
+      // A bare newline: the subscriber's parser skips empty lines, so this
+      // costs one byte and needs no message type of its own.
+      heartbeat = setInterval(() => write("\n"), WATCH_HEARTBEAT_MS);
+      heartbeat.unref?.();
       request.signal.addEventListener("abort", () => {
-        unsubscribe?.();
-        unsubscribe = null;
+        stop();
         try {
           controller.close();
         } catch {
@@ -120,7 +142,7 @@ const watcher = new WatchBroadcaster({
 });
 
 const server = Bun.serve({
-  async fetch(request) {
+  async fetch(request, server) {
     if (new URL(request.url).pathname === "/healthz") {
       return (await namespaceIsMounted())
         ? Response.json({ status: "ok" })
@@ -141,6 +163,12 @@ const server = Bun.serve({
       if (!(await namespaceIsMounted())) {
         return deny("UNAVAILABLE", "Namespace is not mounted", 503);
       }
+      // Only this request is exempt from the idle timeout. The stream is idle
+      // by design — a quiet namespace emits nothing for hours — and a drop is
+      // not free: the subscriber reads every disconnect as an unaccounted gap
+      // and runs a full scan, so the default turns an idle watch into a scan
+      // storm. Scoped per request so ordinary calls keep their timeout.
+      server.timeout(request, 0);
       return watchStream(request);
     }
     if (
