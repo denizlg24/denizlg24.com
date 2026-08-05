@@ -34,6 +34,9 @@ hdd_branch=/mnt/hdd/deniz-cloud/namespace
 merged=/srv/deniz-cloud/storage
 internal=/srv/deniz-cloud/internal
 broker_mount=/srv/deniz-cloud/api-storage
+# Numeric because the names differ per host; existing storage is 1000:1000.
+storage_uid=1000
+storage_gid=1000
 credentials=/etc/deniz-cloud/posix-api-broker.credentials
 witness_name=.denizcloud-mount-witness
 critical=/run/deniz-cloud/posix-storage-critical.json
@@ -110,8 +113,21 @@ validate_branches() {
 
 validate_samba_principals() {
   local broker_username
-  [[ "$(getent passwd denizlg24 | cut -d: -f3-4)" == 1000:1000 ]] || { echo "Storage identity must resolve to uid/gid 1000" >&2; return 1; }
-  [[ "$(getent group denizlg24 | cut -d: -f3)" == 1000 ]] || { echo "Storage group must resolve to gid 1000" >&2; return 1; }
+  # Validate the numeric identity, not a username's primary group.
+  #
+  # Every production storage file is owned 1000:1000, but on this host gid 1000
+  # is `gpio` (a Pi system group) and the storage user's *primary* group is a
+  # different gid entirely. Checking `getent passwd <user>` for 1000:1000 would
+  # fail on a correctly configured machine, and forcing files to the user's
+  # primary group would write a gid no existing file uses.
+  [[ -n "$(getent passwd "$storage_uid")" ]] || { echo "No user with uid ${storage_uid}" >&2; return 1; }
+  [[ -n "$(getent group "$storage_gid")" ]] || { echo "No group with gid ${storage_gid}" >&2; return 1; }
+  local owner
+  owner="$(stat -c '%u:%g' "$ssd_branch")"
+  [[ "$owner" == "${storage_uid}:${storage_gid}" ]] || {
+    echo "Namespace branch is ${owner}, expected ${storage_uid}:${storage_gid}" >&2
+    return 1
+  }
   getent passwd deniz-api-broker >/dev/null || { echo "Missing non-login Unix principal: deniz-api-broker" >&2; return 1; }
   [[ "$(getent passwd deniz-api-broker | cut -d: -f7)" =~ /(nologin|false)$ ]] || { echo "API broker Unix principal must be non-login" >&2; return 1; }
   pdbedit -L -u deniz-api-broker >/dev/null 2>&1 || { echo "Missing Samba principal: deniz-api-broker" >&2; return 1; }
@@ -180,10 +196,10 @@ provision_account() {
   # Samba Personal and the API broker resolve the same tree.
   local account_root="$merged/$account_id"
   if [[ -e "$account_root" || -L "$account_root" ]]; then
-    [[ -d "$account_root" && ! -L "$account_root" && "$(stat -c '%u:%g:%a' "$account_root")" == 1000:1000:770 ]] || { echo "Existing account root is unsafe" >&2; return 1; }
+    [[ -d "$account_root" && ! -L "$account_root" && "$(stat -c '%u:%g:%a' "$account_root")" == "${storage_uid}:${storage_gid}:770" ]] || { echo "Existing account root is unsafe" >&2; return 1; }
     return
   fi
-  install -d -m 0770 -o 1000 -g 1000 "$account_root"
+  install -d -m 0770 -o "$storage_uid" -g "$storage_gid" "$account_root"
   sync -f "$merged"
 }
 
