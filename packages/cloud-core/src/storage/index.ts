@@ -89,6 +89,15 @@ export {
   type StorageNamespaceCapabilities,
 } from "./namespace";
 export {
+  type ProjectedRow,
+  planReconciliation,
+  type ReapCandidateState,
+  type ReconcileInput,
+  type ReconcilePlan,
+  type ScanCompletionInput,
+  scanMayCount,
+} from "./namespace-reconcile";
+export {
   buildProjectRootPath,
   buildUserRootPath,
   isProjectPath,
