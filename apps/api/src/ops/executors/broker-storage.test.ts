@@ -15,6 +15,7 @@ describe("broker-mounted ops safety", () => {
     expect(() =>
       assertApiFilesBackupAllowed({
         namespace: {
+          metadata: null,
           mode: "broker-mounted",
           rootPath: "/data/storage",
           witnessPath: "/data/storage/.denizcloud-mount-witness",

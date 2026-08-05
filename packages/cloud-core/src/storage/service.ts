@@ -53,6 +53,10 @@ import {
   getDiskStats,
   pathExists,
 } from "./fs";
+import {
+  MetadataClientError,
+  NamespaceMetadataClient,
+} from "./metadata-client";
 import { createStorageNamespace, type StorageNamespace } from "./namespace";
 import {
   buildProjectRootPath,
@@ -85,7 +89,17 @@ const STAGING_RESERVE_BYTES = 1024 * 1024 * 1024;
 
 export class StorageServiceError extends Error {
   constructor(
-    public readonly status: 400 | 403 | 404 | 409 | 410 | 413 | 415 | 500 | 507,
+    public readonly status:
+      | 400
+      | 403
+      | 404
+      | 409
+      | 410
+      | 413
+      | 415
+      | 500
+      | 503
+      | 507,
     public readonly code: string,
     message: string,
   ) {
@@ -274,6 +288,7 @@ export class StorageService {
   readonly #uploadLocks = new Map<string, Promise<void>>();
   readonly #archives: ArchiveJobStore;
   readonly #namespace: StorageNamespace;
+  readonly #metadata: NamespaceMetadataClient | null;
 
   constructor(
     private readonly db: Database,
@@ -282,6 +297,10 @@ export class StorageService {
     private readonly promotions: PromotionQueue,
   ) {
     this.#namespace = createStorageNamespace(config);
+    this.#metadata =
+      config.namespace.mode === "broker-mounted" && config.namespace.metadata
+        ? new NamespaceMetadataClient(config.namespace.metadata)
+        : null;
     if (
       !this.#namespace.capabilities.directBranchTiering &&
       promotions.isEnabled
@@ -850,6 +869,7 @@ export class StorageService {
   ): Promise<Response> {
     const file = await this.getFile(principal, id);
     this.recordAccess(file);
+    await this.assertNamespaceIdentity(file);
     return this.fileResponse(file, request);
   }
 
@@ -974,6 +994,7 @@ export class StorageService {
   async sharedDownload(token: string, request: Request): Promise<Response> {
     const file = await this.sharedFile(token);
     this.recordAccess(file);
+    await this.assertNamespaceIdentity(file);
     return this.fileResponse(file, request);
   }
 
@@ -1893,6 +1914,51 @@ export class StorageService {
       (stats && stats.usagePercent >= this.config.tiering.highWatermarkPercent)
       ? "hdd"
       : "ssd";
+  }
+
+  /**
+   * Confirms the namespace entry at this file's path still carries this file's
+   * ID before any of its bytes are served.
+   *
+   * Resolving a download by projected ID and then opening the path is only
+   * safe if something re-checks that the path still holds that ID: a rename
+   * between the two serves the wrong file's contents under the right file's
+   * name. In legacy mode there is no namespace to ask, and `diskPath` is
+   * itself the identity, so this is a no-op.
+   *
+   * Every failure is fatal to the request. An unreachable metadata service
+   * means identity is unknown, and unknown identity must not stream bytes.
+   */
+  private async assertNamespaceIdentity(file: StorageFile): Promise<void> {
+    if (!this.#metadata) {
+      if (this.#namespace.mode === "broker-mounted") {
+        throw new StorageServiceError(
+          503,
+          "STORAGE_METADATA_UNAVAILABLE",
+          "Namespace identity cannot be verified",
+        );
+      }
+      return;
+    }
+    try {
+      await this.#metadata.verify(file.path, file.id);
+    } catch (error) {
+      if (error instanceof MetadataClientError) {
+        if (error.code === "ID_MISMATCH") {
+          throw new StorageServiceError(
+            409,
+            "STORAGE_IDENTITY_CONFLICT",
+            "The stored entry no longer matches this file",
+          );
+        }
+        throw new StorageServiceError(
+          503,
+          "STORAGE_METADATA_UNAVAILABLE",
+          "Namespace identity cannot be verified",
+        );
+      }
+      throw error;
+    }
   }
 
   private fileResponse(file: StorageFile, request: Request): Response {

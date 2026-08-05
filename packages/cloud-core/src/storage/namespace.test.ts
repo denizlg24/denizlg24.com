@@ -76,6 +76,7 @@ describe("StorageNamespace", () => {
   it("routes personal and shared entries through one broker root", () => {
     const namespace = createStorageNamespace(
       config({
+        metadata: null,
         mode: "broker-mounted",
         rootPath: "/srv/deniz-cloud/storage",
         witnessPath: "/srv/deniz-cloud/storage/.denizcloud-mount-witness",
@@ -108,6 +109,7 @@ describe("StorageNamespace", () => {
   it("rejects traversal before resolving either layout", () => {
     const broker = createStorageNamespace(
       config({
+        metadata: null,
         mode: "broker-mounted",
         rootPath: "/srv/deniz-cloud/storage",
         witnessPath: "/srv/deniz-cloud/storage/.denizcloud-mount-witness",
@@ -134,6 +136,7 @@ describe("StorageNamespace", () => {
     temporaryRoots.push(parent);
     const missing = createStorageNamespace(
       config({
+        metadata: null,
         mode: "broker-mounted",
         rootPath: join(parent, "missing"),
         witnessPath: join(parent, "missing", ".denizcloud-mount-witness"),
@@ -153,6 +156,7 @@ describe("StorageNamespace", () => {
     await symlink(join(target, "ssd"), link);
     const linked = createStorageNamespace(
       config({
+        metadata: null,
         mode: "broker-mounted",
         rootPath: link,
         witnessPath: join(link, ".denizcloud-mount-witness"),
@@ -166,6 +170,7 @@ describe("StorageNamespace", () => {
 
   it("fails closed when legacy promotion tiering is enabled", () => {
     const brokerConfig = config({
+      metadata: null,
       mode: "broker-mounted",
       rootPath: "/srv/deniz-cloud/storage",
       witnessPath: "/srv/deniz-cloud/storage/.denizcloud-mount-witness",
@@ -209,6 +214,7 @@ describe("StorageNamespace", () => {
     temporaryRoots.push(root);
     const witnessPath = join(root, ".denizcloud-mount-witness");
     const namespaceConfig = {
+      metadata: null,
       mode: "broker-mounted" as const,
       rootPath: root,
       witnessPath,

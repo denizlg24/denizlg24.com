@@ -70,6 +70,12 @@ export type StorageNamespaceConfig =
       rootPath: string;
       witnessPath: string;
       witnessValue: string;
+      /**
+       * The privileged metadata service. Absent means identity cannot be
+       * verified, so the byte path fails closed rather than serving an entry
+       * whose ID it could not confirm.
+       */
+      metadata: { socketPath: string; token: string } | null;
     };
 
 function normalizedAbsolutePath(name: string, value: string): string {
@@ -146,7 +152,24 @@ function namespaceConfigFromEnv(
       );
     }
   }
-  return { mode: rawMode, rootPath, witnessPath, witnessValue };
+  const socketPath = process.env.STORAGE_METADATA_SOCKET?.trim();
+  const token = process.env.STORAGE_METADATA_TOKEN?.trim();
+  if (Boolean(socketPath) !== Boolean(token)) {
+    throw new Error(
+      "STORAGE_METADATA_SOCKET and STORAGE_METADATA_TOKEN must be set together",
+    );
+  }
+  if (socketPath && !isAbsolute(socketPath)) {
+    throw new Error("STORAGE_METADATA_SOCKET must be an absolute path");
+  }
+  return {
+    metadata:
+      socketPath && token ? { socketPath: resolve(socketPath), token } : null,
+    mode: rawMode,
+    rootPath,
+    witnessPath,
+    witnessValue,
+  };
 }
 
 export function storageConfigFromEnv(): StorageConfig {

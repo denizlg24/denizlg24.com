@@ -76,6 +76,7 @@ describe("storage tiering", () => {
     expect(() =>
       assertLegacyTieringAllowed({
         namespace: {
+          metadata: null,
           mode: "broker-mounted",
           rootPath: "/srv/deniz-cloud/storage",
           witnessPath: "/srv/deniz-cloud/storage/.denizcloud-mount-witness",

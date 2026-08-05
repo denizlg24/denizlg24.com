@@ -65,6 +65,7 @@ describe("storage namespace configuration", () => {
     const config = storageConfigFromEnv();
 
     expect(config.namespace).toEqual({
+      metadata: null,
       mode: "broker-mounted",
       rootPath: "/srv/deniz-cloud/storage",
       witnessPath: "/srv/deniz-cloud/storage/.denizcloud-mount-witness",
