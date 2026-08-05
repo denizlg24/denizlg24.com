@@ -11,7 +11,7 @@ if [[ "$mode" != "--dry-run" && "$mode" != "--execute" ]] || [[ -z "$snapshot_di
   exit 2
 fi
 
-for command in docker tar zstd gzip sha256sum find realpath jq cmp openssl sync mountpoint; do
+for command in docker tar zstd gzip sha256sum find realpath jq cmp openssl sync mountpoint chown; do
   if ! command -v "$command" >/dev/null; then
     echo "Required command is missing: ${command}" >&2
     exit 1
@@ -243,6 +243,7 @@ jq -n \
   '{schemaVersion:1,snapshotId:$snapshotId,verifiedAt:$verifiedAt,checksumsManifestSha256:$checksumsSha256,filesystem:{ssd:{treeAndBytesMatch:true},hdd:{treeAndBytesMatch:true}},databases:{postgres:{restored:true,fileRows:$postgresFileCount},mongodb:{restored:true,databaseCount:$mongoDatabaseCount}}}' \
   > "${evidence_path}.partial"
 mv "${evidence_path}.partial" "$evidence_path"
+chown --reference="$snapshot_dir" "$evidence_path"
 chmod 600 "$evidence_path"
 sync -f "$(dirname "$evidence_path")"
 cat "$evidence_path"
