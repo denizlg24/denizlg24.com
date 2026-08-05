@@ -136,6 +136,17 @@ describe("POSIX inventory", () => {
     });
 
     expect(summary.allGreen).toBe(false);
+    expect(summary.gate.blockers).toEqual(
+      expect.arrayContaining([
+        { count: 1, name: "checksumMismatches" },
+        { count: 1, name: "activeTusUploads" },
+        { count: 1, name: "archiveActivityUnobservable" },
+      ]),
+    );
+    expect(summary.gate.blockers).not.toContainEqual({
+      count: 1,
+      name: "verifiedBlobs",
+    });
     expect(summary.database.files.byTier).toEqual({
       hdd: { bytes: 10, files: 1 },
       ssd: { bytes: 10, files: 2 },
@@ -224,6 +235,7 @@ describe("POSIX inventory", () => {
 
     archiveJobs.close();
     expect(summary.allGreen).toBe(true);
+    expect(summary.gate.blockers).toEqual([]);
     expect(summary.activeJobs.archives).toMatchObject({
       active: 0,
       observable: true,

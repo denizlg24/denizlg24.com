@@ -944,34 +944,24 @@ export async function collectPosixInventory(options: PosixInventoryOptions) {
     specialFiles: ssdScan.specialFiles + hddScan.specialFiles,
     symlinks: ssdScan.symlinks + hddScan.symlinks,
   };
-  const blockingIssueCount =
-    issueCounts.blobReadErrors +
-    issueCounts.casefoldCollisions +
-    issueCounts.checksumMismatches +
-    issueCounts.duplicateIds +
-    issueCounts.duplicateDiskPaths +
-    issueCounts.duplicatePaths +
-    issueCounts.hardLinks +
-    issueCounts.invalidExcludedPaths +
-    issueCounts.invalidNames +
-    issueCounts.malformedChecksums +
-    issueCounts.missingBlobs +
-    issueCounts.nonRegularBlobs +
-    issueCounts.outOfRootDiskPaths +
-    issueCounts.orphanFiles +
-    issueCounts.scanErrors +
-    issueCounts.specialFiles +
-    issueCounts.symlinks +
-    issueCounts.sizeMismatches +
-    issueCounts.wrongDiskPaths;
-  const allGreen =
-    blockingIssueCount === 0 &&
-    mounts.healthy &&
-    activeTus.count === 0 &&
-    archives.observable &&
-    archives.active === 0 &&
-    space.ssd.canFitSecondCopy &&
-    space.hdd.canFitSecondCopy;
+  const gateBlockers = Object.entries(issueCounts)
+    .filter(([name, count]) => name !== "verifiedBlobs" && count > 0)
+    .map(([name, count]) => ({ count, name }));
+  if (!mounts.healthy) gateBlockers.push({ count: 1, name: "mounts" });
+  if (activeTus.count > 0) {
+    gateBlockers.push({ count: activeTus.count, name: "activeTusUploads" });
+  }
+  if (!archives.observable) {
+    gateBlockers.push({ count: 1, name: "archiveActivityUnobservable" });
+  } else if ((archives.active ?? 0) > 0) {
+    gateBlockers.push({ count: archives.active ?? 0, name: "activeArchives" });
+  }
+  for (const tier of ["ssd", "hdd"] as const) {
+    if (!space[tier].canFitSecondCopy) {
+      gateBlockers.push({ count: 1, name: `${tier}SecondCopyCapacity` });
+    }
+  }
+  const allGreen = gateBlockers.length === 0;
 
   const summary = {
     activeJobs: { archives, tus: activeTus },
@@ -991,6 +981,7 @@ export async function collectPosixInventory(options: PosixInventoryOptions) {
       mounts,
     },
     freeSpaceForSecondCopy: space,
+    gate: { blockers: gateBlockers },
     generatedAt,
     issues: issueCounts,
     output: { auditTruncated: records.length >= MAX_AUDIT_RECORDS },
@@ -1058,9 +1049,7 @@ if (import.meta.main) {
       });
       if (!summary.allGreen) {
         await log.event("gate-blocked", {
-          blockingIssues: Object.entries(summary.issues)
-            .filter(([, count]) => count > 0)
-            .map(([name, count]) => ({ count, name })),
+          blockingIssues: summary.gate.blockers,
         });
         process.exitCode = 1;
       }
