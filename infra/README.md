@@ -115,6 +115,7 @@ bun run --cwd apps/api build
 ssh pi-cloud 'install -d -m 700 /tmp/posix-gate1-kit/infra/scripts \
   /tmp/posix-gate1-kit/infra/samba /tmp/posix-gate1-kit/apps/api/dist'
 scp infra/scripts/posix-gate1-spike.sh \
+  infra/scripts/posix-gate1-metadata.sh \
   pi-cloud:/tmp/posix-gate1-kit/infra/scripts/
 scp infra/samba/posix-gate1-smb.conf.in \
   pi-cloud:/tmp/posix-gate1-kit/infra/samba/
@@ -147,6 +148,36 @@ The client probes use OS credential prompts and keep evidence private:
 infra/scripts/posix-gate1-macos.sh --dry-run --host 100.89.155.9 --share Personal
 # PowerShell: .\posix-gate1-windows.ps1 --dry-run --host 100.89.155.9 --share Personal
 ```
+
+The protected-xattr adversary is separate because an accepted reserved stream
+name is a Gate 1 failure even when Samba stores it under `user.DosStream.*`
+instead of overwriting the raw xattr. Prepare one exact marked directory under
+the disposable Personal share, seed protected metadata, then run the encrypted
+SMB attack. Its auth file is environment-only and never appears in evidence:
+
+```sh
+run_id="$(cat /proc/sys/kernel/random/uuid)"
+metadata_root="/var/lib/deniz-cloud/posix-gate1/mounts/merged/personal/posix-gate1-metadata-${run_id}"
+metadata_evidence="/var/lib/deniz-cloud/posix-gate1/evidence/metadata-${run_id}.jsonl"
+sudo -u '#1000' mkdir -m 700 "$metadata_root"
+printf 'deniz-cloud-posix-gate1-metadata:%s\n' "$run_id" \
+  | sudo -u '#1000' tee "$metadata_root/.posix-gate1-metadata" >/dev/null
+sudo /tmp/posix-gate1-kit/infra/scripts/posix-gate1-metadata.sh --execute \
+  --action seed --root "$metadata_root" --run-id "$run_id" \
+  --evidence "$metadata_evidence"
+sudo env POSIX_GATE1_SMB_HOST=100.89.155.9 POSIX_GATE1_SMB_SHARE=Personal \
+  POSIX_GATE1_SMB_AUTH_FILE=/var/lib/deniz-cloud/posix-gate1/samba/client.auth \
+  /tmp/posix-gate1-kit/infra/scripts/posix-gate1-metadata.sh --execute \
+  --action smb-adversarial --root "$metadata_root" --run-id "$run_id" \
+  --evidence "$metadata_evidence"
+```
+
+The result distinguishes the raw protected attributes from a client-created
+reserved-name stream alias, validates the `fruit:resource=file` AppleDouble
+magic, checks that the `._` sidecar is hidden over SMB, and proves whether a
+normal SMB copy carries protected metadata. A reserved-name stream write,
+protected-value read, copied protected xattr, visible AppleDouble sidecar, or
+unexpected/special namespace entry leaves `allGreen:false` and exits nonzero.
 
 Cleanup is two explicit steps so evidence can be copied before destruction:
 
