@@ -52,6 +52,19 @@ export {
   protectedMetadataHash,
 } from "./metadata";
 export {
+  isReservedSegment,
+  NamespaceResolveError,
+  namespaceSegments,
+  type ResolvedEntry,
+  resolveNamespacePath,
+} from "./metadata-resolve";
+export {
+  type MetadataFailure,
+  MetadataServiceError,
+  type NamespaceEntry,
+  NamespaceMetadataService,
+} from "./metadata-service";
+export {
   createStorageNamespace,
   type StorageNamespace,
   type StorageNamespaceCapabilities,
@@ -97,3 +110,9 @@ export {
   type TieringOptions,
   type TieringRepository,
 } from "./tiering";
+export {
+  AttrCommandXattrBackend,
+  InMemoryXattrBackend,
+  type XattrBackend,
+  XattrError,
+} from "./xattr";
