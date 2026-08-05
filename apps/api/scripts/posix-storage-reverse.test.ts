@@ -11,6 +11,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { PROTECTED_XATTR_KEYS } from "@repo/cloud-core";
+
 const script = resolve(
   import.meta.dir,
   "../../../infra/scripts/posix-storage-reverse.sh",
@@ -156,33 +158,33 @@ async function fixture(mutate?: (xattrs: Xattrs) => void): Promise<Fixture> {
 
   const xattrs: Xattrs = {
     [join(sourceSsd, "shared")]: {
-      "user.denizcloud.id": sharedFolderId,
-      "user.denizcloud.created_at": "2026-07-01T10:00:00Z",
-      "user.denizcloud.schema_version": "1",
-      "user.denizcloud.scope": "shared",
+      [PROTECTED_XATTR_KEYS.id]: sharedFolderId,
+      [PROTECTED_XATTR_KEYS.createdAt]: "2026-07-01T10:00:00Z",
+      [PROTECTED_XATTR_KEYS.schemaVersion]: "1",
+      [PROTECTED_XATTR_KEYS.scope]: "shared",
     },
     [join(sourceSsd, ownerId)]: {
-      "user.denizcloud.id": accountFolderId,
-      "user.denizcloud.created_at": "2026-07-01T10:00:00Z",
-      "user.denizcloud.schema_version": "1",
-      "user.denizcloud.owner_id": ownerId,
+      [PROTECTED_XATTR_KEYS.id]: accountFolderId,
+      [PROTECTED_XATTR_KEYS.createdAt]: "2026-07-01T10:00:00Z",
+      [PROTECTED_XATTR_KEYS.schemaVersion]: "1",
+      [PROTECTED_XATTR_KEYS.ownerId]: ownerId,
     },
     [join(sourceSsd, "shared", "notes.txt")]: {
-      "user.denizcloud.id": ssdFileId,
-      "user.denizcloud.created_at": "2026-07-02T10:00:00Z",
-      "user.denizcloud.schema_version": "1",
-      "user.denizcloud.owner_id": ownerId,
-      "user.denizcloud.mime_type": "text/plain",
-      "user.denizcloud.checksum": checksum,
-      "user.denizcloud.checksum_state": "verified",
+      [PROTECTED_XATTR_KEYS.id]: ssdFileId,
+      [PROTECTED_XATTR_KEYS.createdAt]: "2026-07-02T10:00:00Z",
+      [PROTECTED_XATTR_KEYS.schemaVersion]: "1",
+      [PROTECTED_XATTR_KEYS.ownerId]: ownerId,
+      [PROTECTED_XATTR_KEYS.mimeType]: "text/plain",
+      [PROTECTED_XATTR_KEYS.checksum]: checksum,
+      [PROTECTED_XATTR_KEYS.checksumState]: "verified",
     },
     [join(sourceHdd, "shared", "archive.bin")]: {
-      "user.denizcloud.id": hddFileId,
-      "user.denizcloud.created_at": "2026-07-03T10:00:00Z",
-      "user.denizcloud.schema_version": "1",
-      "user.denizcloud.owner_id": ownerId,
-      "user.denizcloud.checksum": checksum,
-      "user.denizcloud.checksum_state": "verified",
+      [PROTECTED_XATTR_KEYS.id]: hddFileId,
+      [PROTECTED_XATTR_KEYS.createdAt]: "2026-07-03T10:00:00Z",
+      [PROTECTED_XATTR_KEYS.schemaVersion]: "1",
+      [PROTECTED_XATTR_KEYS.ownerId]: ownerId,
+      [PROTECTED_XATTR_KEYS.checksum]: checksum,
+      [PROTECTED_XATTR_KEYS.checksumState]: "verified",
     },
   };
   mutate?.(xattrs);
@@ -338,7 +340,7 @@ describe("POSIX namespace reverse exporter", () => {
     const data = await fixture();
     const parsed = JSON.parse(await readFile(data.xattrDb, "utf8")) as Xattrs;
     entryXattrs(parsed, join(data.sourceHdd, "shared", "archive.bin"))[
-      "user.denizcloud.id"
+      PROTECTED_XATTR_KEYS.id
     ] = ssdFileId;
     await writeFile(data.xattrDb, JSON.stringify(parsed));
 
@@ -351,7 +353,7 @@ describe("POSIX namespace reverse exporter", () => {
     const data = await fixture();
     const parsed = JSON.parse(await readFile(data.xattrDb, "utf8")) as Xattrs;
     entryXattrs(parsed, join(data.sourceSsd, "shared", "notes.txt"))[
-      "user.denizcloud.checksum_state"
+      PROTECTED_XATTR_KEYS.checksumState
     ] = "pending";
     await writeFile(data.xattrDb, JSON.stringify(parsed));
 

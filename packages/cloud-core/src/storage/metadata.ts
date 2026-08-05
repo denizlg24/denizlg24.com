@@ -15,13 +15,19 @@ import { createHash } from "node:crypto";
  * one over SMB at all, and the unprivileged API identity cannot set one either
  * — which is exactly the split the ADR asks for.
  *
+ * Measured on the Pi 2026-08-05 by `infra/scripts/posix-gate1b-xattr-probe.sh`
+ * before this was switched: root reads and writes `security.*` on ext4 and
+ * through mergerfs `xattr=passthrough`; `cp --preserve=all`, `tar --xattrs`
+ * and `rsync -aX` all preserve it; and an unprivileged user cannot write it.
+ * Unprivileged *reads* are permitted, so a request path can verify identity
+ * without being able to forge it.
+ *
  * Switching this constant is the whole migration between the two namespaces;
- * every producer and consumer derives its key names from here. It stays `user.`
- * until Gate 1B measures mergerfs passthrough, backup/restore preservation and
- * CIFS behaviour on the Pi, because a namespace the tooling cannot carry is
- * worse than a spoofable one.
+ * every producer and consumer derives its key names from here. Flipping it now
+ * costs nothing because no production entry carries protected metadata yet —
+ * the namespace branches do not exist until the forward migration runs.
  */
-export const PROTECTED_XATTR_NAMESPACE = "user." as const;
+export const PROTECTED_XATTR_NAMESPACE = "security." as const;
 
 export const PROTECTED_XATTR_KEYS = {
   checksum: `${PROTECTED_XATTR_NAMESPACE}denizcloud.checksum`,

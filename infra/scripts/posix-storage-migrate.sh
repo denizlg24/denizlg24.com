@@ -14,7 +14,7 @@ readonly branch_marker_name=".denizcloud-branch.json"
 # Must equal PROTECTED_XATTR_NAMESPACE in
 # packages/cloud-core/src/storage/metadata.ts; posix-xattr-namespace.test.ts
 # fails if they drift.
-readonly xattr_ns="user."
+readonly xattr_ns="security."
 
 mode="--dry-run"
 mode_set=false

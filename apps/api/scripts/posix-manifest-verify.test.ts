@@ -3,6 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { PROTECTED_XATTR_KEYS } from "@repo/cloud-core";
+
 import {
   type ManifestEntry,
   protectedCanonical,
@@ -126,13 +128,13 @@ describe("POSIX migration manifest verifier", () => {
     );
     expect(canonical).toBe(
       [
-        `user.denizcloud.checksum=${checksum}`,
-        "user.denizcloud.checksum_state=verified",
-        "user.denizcloud.created_at=2026-07-02T10:00:00Z",
-        `user.denizcloud.id=${fileId}`,
-        "user.denizcloud.mime_type=text/plain",
-        `user.denizcloud.owner_id=${ownerId}`,
-        "user.denizcloud.schema_version=1",
+        `${PROTECTED_XATTR_KEYS.checksum}=${checksum}`,
+        `${PROTECTED_XATTR_KEYS.checksumState}=verified`,
+        `${PROTECTED_XATTR_KEYS.createdAt}=2026-07-02T10:00:00Z`,
+        `${PROTECTED_XATTR_KEYS.id}=${fileId}`,
+        `${PROTECTED_XATTR_KEYS.mimeType}=text/plain`,
+        `${PROTECTED_XATTR_KEYS.ownerId}=${ownerId}`,
+        `${PROTECTED_XATTR_KEYS.schemaVersion}=1`,
         "",
       ].join("\n"),
     );
@@ -157,8 +159,8 @@ describe("POSIX migration manifest verifier", () => {
       forwardFolder as unknown as ManifestEntry,
       "folder",
     );
-    expect(canonical).not.toContain("owner_id");
-    expect(canonical).toContain("user.denizcloud.scope=shared");
+    expect(canonical).not.toContain(PROTECTED_XATTR_KEYS.ownerId);
+    expect(canonical).toContain(`${PROTECTED_XATTR_KEYS.scope}=shared`);
   });
 
   it("passes when both directions describe the same namespace", async () => {
