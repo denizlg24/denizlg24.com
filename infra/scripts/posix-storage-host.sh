@@ -37,6 +37,7 @@ broker_mount=/srv/deniz-cloud/api-storage
 # Numeric because the names differ per host; existing storage is 1000:1000.
 storage_uid=1000
 storage_gid=1000
+metadata_socket=/run/deniz-cloud/storage-metadata.sock
 credentials=/etc/deniz-cloud/posix-api-broker.credentials
 witness_name=.denizcloud-mount-witness
 critical=/run/deniz-cloud/posix-storage-critical.json
@@ -139,14 +140,32 @@ validate_samba_principals() {
 validate_runtime() {
   validate_branches
   validate_samba_principals
+  # Asserted here rather than in compose validation: by the time `validate`
+  # runs the metadata service is up, and Docker must find a socket — not a
+  # missing path it would replace with a directory.
+  [[ -S "$metadata_socket" ]] || {
+    echo "Metadata socket is absent or not a socket: ${metadata_socket}" >&2
+    return 1
+  }
 }
 
 validate_compose() {
   local rendered
   load_config
+  # Owned by root or by whoever owns the deploy directory, and not writable by
+  # anyone else. CI extracts these over SSH as the deploy user, so demanding
+  # root:root would fail every deploy until someone remembered to chown — a
+  # step that gets forgotten and then gets "fixed" by disabling the check.
+  local deploy_owner
+  deploy_owner="$(stat -c '%u' "$(dirname "$DENIZ_POSIX_COMPOSE_FILE")")"
   for compose_input in "$DENIZ_POSIX_COMPOSE_FILE" "$DENIZ_POSIX_COMPOSE_OVERRIDE" "$DENIZ_POSIX_COMPOSE_ENV"; do
     [[ -f "$compose_input" && ! -L "$compose_input" ]] || { echo "Missing safe Compose input: $compose_input" >&2; return 1; }
-    [[ "$(stat -c '%u:%g' "$compose_input")" == 0:0 ]] || { echo "Compose input must be a deployed root-owned file: $compose_input" >&2; return 1; }
+    local input_owner
+    input_owner="$(stat -c '%u' "$compose_input")"
+    [[ "$input_owner" == 0 || "$input_owner" == "$deploy_owner" ]] || {
+      echo "Compose input is owned by uid ${input_owner}, not root or the deploy user: $compose_input" >&2
+      return 1
+    }
     (( (8#$(stat -c '%a' "$compose_input") & 8#022) == 0 )) || { echo "Compose input is group/other writable: $compose_input" >&2; return 1; }
   done
   [[ "$(stat -c '%a' "$DENIZ_POSIX_COMPOSE_ENV")" == 600 ]] || { echo "Compose environment must be mode 0600" >&2; return 1; }
@@ -161,7 +180,9 @@ validate_compose() {
   ' <<< "$rendered" >/dev/null || { echo "Rendered API broker environment mismatch" >&2; return 1; }
   jq -e '
     def volumes: (.services.api.volumes // []);
-    ([volumes[] | select(.type == "bind" and .source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage" and .read_only == false)] | length) == 1 and
+    # Compose renders a writable bind as read_only:null, not false, so this
+    # asserts "not read-only" rather than an exact false.
+    ([volumes[] | select(.type == "bind" and .source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage" and (.read_only != true))] | length) == 1 and
     ([volumes[] | select(.type == "bind")] | length) == 13 and
     ([volumes[] | select(.type == "bind") | .target] | unique | length) == 13 and
     ([volumes[] | select(.type == "bind") | select(
@@ -182,6 +203,12 @@ validate_compose() {
   ' <<< "$rendered" >/dev/null || { echo "Rendered API volumes bypass the broker or expose a broad/private storage root" >&2; return 1; }
   local bind_source canonical_source
   while IFS= read -r bind_source; do
+    # The metadata socket is created at runtime by a later unit, so it cannot
+    # exist when compose is validated at namespace-mount time. Requiring it
+    # here is a dependency cycle: namespace -> compose-validate -> socket ->
+    # metadata -> namespace. Its presence is asserted by `validate` instead,
+    # which runs after the metadata service is up.
+    [[ "$bind_source" != "$metadata_socket" ]] || continue
     canonical_source=$(realpath -e "$bind_source" 2>/dev/null || true)
     [[ "$canonical_source" == "$bind_source" ]] || { echo "API bind source is absent or aliases another path: $bind_source" >&2; return 1; }
   done < <(jq -r '.services.api.volumes[] | select(.type == "bind") | .source' <<< "$rendered")
@@ -220,7 +247,13 @@ publish_witness() {
     validate_witness || { echo "Existing broker witness is invalid" >&2; return 1; }
     return
   fi
-  [[ "$(stat -c '%u:%g:%a' "$merged")" == 0:0:755 ]] || { echo "Merged root must be root:root 0755" >&2; return 1; }
+  # Not an ownership assertion on the merged root: once mergerfs is mounted the
+  # root reflects the *branches*, which are owned by the storage identity, not
+  # root. What matters is that it is a directory no one outside the storage
+  # group can write, and that the witness itself is root-owned and read-only.
+  local merged_mode
+  merged_mode="$(stat -c '%a' "$merged")"
+  (( (8#$merged_mode & 8#002) == 0 )) || { echo "Merged root is world-writable" >&2; return 1; }
   printf '%s\n' "$STORAGE_NAMESPACE_WITNESS_VALUE" > "$partial"
   chown 0:0 "$partial"; chmod 0444 "$partial"; sync -f "$partial"; mv "$partial" "$path"; sync -f "$merged"
   validate_witness
