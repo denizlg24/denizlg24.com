@@ -520,14 +520,77 @@ xattr_value() {
   getfattr --only-values -n "$1" -- "$2" 2>/dev/null
 }
 
-verify_preserved_metadata() {
+# Metadata is compared through files rather than process substitution so a
+# failure of the tool producing the evidence is distinguishable from a clean
+# result. Inside `diff <(...) <(...)` a getfattr that fails on both sides gives
+# two empty operands, diff succeeds, and the entry is journaled as verified
+# with its xattrs never actually compared.
+#
+# The protected namespace is excluded from the comparison because the
+# destination has just had it written and the source never had it. Filtering
+# the wrong namespace makes every entry look like a metadata mismatch.
+# Copies one directory's attributes without touching its children.
+#
+# `cp --archive --attributes-only` implies -R, so pointing it at a directory
+# recursively materialises the whole subtree. The migration then reaches those
+# children as destinations it never journaled and refuses to continue — which
+# is the guard working correctly against a bug one line earlier.
+copy_directory_attributes() {
   local source="$1" destination="$2"
-  diff \
-    <(getfacl -cp -- "$source") \
-    <(getfacl -cp -- "$destination") >/dev/null
-  diff \
-    <(getfattr -d -m- -- "$source" 2>/dev/null | sed '/^#/d;/^user\.denizcloud\./d' | LC_ALL=C sort) \
-    <(getfattr -d -m- -- "$destination" 2>/dev/null | sed '/^#/d;/^user\.denizcloud\./d' | LC_ALL=C sort) >/dev/null
+  mkdir -- "$destination"
+  chown --reference="$source" -- "$destination"
+  chmod --reference="$source" -- "$destination"
+  touch -r "$source" -- "$destination"
+  getfacl -cp -- "$source" 2>/dev/null | setfacl --set-file=- -- "$destination" 2>/dev/null || true
+  # Non-protected xattrs, if the source carries any. The protected namespace is
+  # written separately from the manifest, never copied from the legacy tree.
+  local dump
+  dump="$(getfattr -d -m- --absolute-names -- "$source" 2>/dev/null | sed -e "/^#/d" -e "/^\$/d")"
+  if [[ -n "$dump" ]]; then
+    { printf '# file: %s\n' "$destination"; printf '%s\n' "$dump"; } \
+      | setfattr --restore=- 2>/dev/null || true
+  fi
+}
+
+verify_preserved_metadata() {
+  local source="$1" destination="$2" work
+  work="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf -- '$work'" RETURN
+
+  getfacl -cp -- "$source" > "$work/acl.source" || {
+    echo "getfacl failed on source: ${source}" >&2
+    return 1
+  }
+  getfacl -cp -- "$destination" > "$work/acl.destination" || {
+    echo "getfacl failed on destination: ${destination}" >&2
+    return 1
+  }
+  diff "$work/acl.source" "$work/acl.destination" >/dev/null || {
+    echo "ACLs differ: ${destination}" >&2
+    return 1
+  }
+
+  getfattr -d -m- -- "$source" > "$work/xattr.source.raw" 2>/dev/null || {
+    echo "getfattr failed on source: ${source}" >&2
+    return 1
+  }
+  getfattr -d -m- -- "$destination" > "$work/xattr.destination.raw" 2>/dev/null || {
+    echo "getfattr failed on destination: ${destination}" >&2
+    return 1
+  }
+  # Blank lines are dropped as well as comments: getfattr -d emits a trailing
+  # blank line after the attribute list, so an entry with only protected
+  # attributes filters down to one empty line while a source with no
+  # attributes produces nothing at all — a difference of pure formatting that
+  # would fail every entry.
+  local filter="/^#/d;/^\$/d;\\|^${xattr_ns}denizcloud\\.|d"
+  sed -e "$filter" "$work/xattr.source.raw" | LC_ALL=C sort > "$work/xattr.source"
+  sed -e "$filter" "$work/xattr.destination.raw" | LC_ALL=C sort > "$work/xattr.destination"
+  diff "$work/xattr.source" "$work/xattr.destination" >/dev/null || {
+    echo "Non-protected xattrs differ: ${destination}" >&2
+    return 1
+  }
 }
 
 set_protected_metadata() {
@@ -607,7 +670,7 @@ materialize_hdd_parents() {
     if [[ -e "$destination" || -L "$destination" ]]; then
       [[ -d "$destination" && ! -L "$destination" ]] || return 1
     else
-      cp --archive --attributes-only -- "$source" "$destination"
+      copy_directory_attributes "$source" "$destination"
       sync -f "$(dirname "$destination")"
     fi
   done
@@ -675,7 +738,7 @@ while IFS= read -r encoded; do
     # directory that never existed.
     install -d -m 0770 -o 1000 -g 1000 "$stage"
   elif [[ "$kind" == folder ]]; then
-    cp --archive --attributes-only -- "$source" "$stage"
+    copy_directory_attributes "$source" "$stage"
   else
     cp --preserve=all --sparse=always --reflink=auto -- "$source" "$stage"
   fi

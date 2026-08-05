@@ -15,6 +15,7 @@ import { ArchiveJobStore } from "@repo/cloud-core/storage";
 import {
   collectPosixInventory,
   crossPlatformNameKey,
+  invalidNameReasons,
   resolveStoredBlobPath,
 } from "./posix-inventory";
 
@@ -396,6 +397,18 @@ describe("POSIX inventory", () => {
       }),
     ).rejects.toThrow("refusing to overwrite");
     expect(await readFile(existing, "utf8")).toBe("keep");
+  });
+
+  it("flags a name the namespace reserves", () => {
+    // The inventory and the namespace must agree on what is addressable. When
+    // they disagreed, ._.DS_Store passed inventory as a valid name, the
+    // forward migration copied it, the reverse export could not see it, and
+    // the projector would eventually have reaped the row.
+    for (const name of ["._.DS_Store", "._resourcefork"]) {
+      expect(invalidNameReasons(name)).toContain("namespace-reserved");
+    }
+    expect(invalidNameReasons("ordinary.txt")).toEqual([]);
+    expect(invalidNameReasons(".DS_Store")).toEqual([]);
   });
 
   it("emits a provisioned-but-unmaterialised folder with a null source", async () => {

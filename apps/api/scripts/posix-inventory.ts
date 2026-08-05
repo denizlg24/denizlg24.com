@@ -25,6 +25,7 @@ import {
   type Database,
   files,
   folders,
+  isReservedSegment,
   readArchiveJobSnapshot,
   requiredEnv,
   tusUploads,
@@ -133,7 +134,7 @@ function addAudit(
   }
 }
 
-function invalidNameReasons(name: string): string[] {
+export function invalidNameReasons(name: string): string[] {
   const reasons: string[] = [];
   if (!name || name === "." || name === "..") reasons.push("empty-or-dot");
   if (/[. ]$/.test(name)) reasons.push("trailing-dot-or-space");
@@ -147,6 +148,13 @@ function invalidNameReasons(name: string): string[] {
     reasons.push("control-character");
   }
   if (WINDOWS_RESERVED_NAME.test(name)) reasons.push("windows-reserved");
+  // The namespace owns these names, so a database row carrying one has no
+  // entry to project onto. Without this the two policies disagree: the
+  // inventory calls the name valid, the namespace treats it as protocol
+  // metadata and skips it, and the projector then sees a row with no entry and
+  // eventually reaps it. Found in production as ._.DS_Store, which the forward
+  // migration copied and the reverse export could not see.
+  if (isReservedSegment(name)) reasons.push("namespace-reserved");
   if (name !== name.normalize("NFC")) reasons.push("not-nfc");
   if (Buffer.byteLength(name, "utf8") > 255) reasons.push("over-255-bytes");
   return reasons;
