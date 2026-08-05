@@ -40,7 +40,13 @@ describe("POSIX production host boundary", () => {
     expect(source).toContain("vers=3.1.1,seal,sign");
     expect(source).toContain("api-broker-witness");
     expect(source).toContain("smbd-listener");
-    expect(source).toContain("Reject non-loopback SMB pilot");
+    // The boundary, not the wording: loopback for the broker, the tailnet for
+    // clients, and a reject for every other interface.
+    expect(source).toContain(
+      'iifname "lo" ip daddr 127.0.0.1 tcp dport 445 accept',
+    );
+    expect(source).toContain('iifname "tailscale0" tcp dport 445 accept');
+    expect(source).toContain("tcp dport 445 reject with tcp reset");
     expect(source).toContain("Rendered API volumes bypass the broker");
     expect(source).toContain("Refusing to unmount a foreign broker mount");
     expect(source).toContain("Gate1B broker pilot");

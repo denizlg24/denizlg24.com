@@ -126,9 +126,13 @@ async function main() {
 
   // 6. RSS while streaming: the failure this codebase exists to avoid.
   const before = process.memoryUsage().rss;
-  const streamed = Bun.file(target);
+  const reader = Bun.file(target).stream().getReader();
   let seen = 0;
-  for await (const piece of streamed.stream()) seen += piece.length;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    seen += value.length;
+  }
   const growth = process.memoryUsage().rss - before;
   record(
     "streaming stays bounded",
