@@ -34,11 +34,24 @@ afterEach(async () => {
   );
 });
 
+/** True where `stat -c` works, i.e. GNU coreutils rather than BSD. */
+function hasGnuStat(): boolean {
+  const probe = Bun.spawnSync({
+    cmd: ["stat", "-c", "%s", script],
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  return probe.exitCode === 0;
+}
+
 /**
- * macOS has neither `getfattr` nor GNU `stat -c`, so the walk is exercised
- * against shims: xattrs come from a JSON map keyed by absolute path, and the
- * two `stat` formats the walk uses are translated to BSD equivalents. The
- * script under test is unmodified and runs unchanged on the Pi.
+ * The fixture keeps xattrs in a JSON map rather than on the filesystem, so
+ * `getfattr` is always shimmed — including on Linux, where the real one would
+ * correctly report that these files carry no xattrs.
+ *
+ * `stat` is shimmed only on BSD userlands. Translating `-c` to `-f` is right on
+ * macOS and actively wrong on Linux, where GNU `stat -f` means "show filesystem
+ * status", so shimming unconditionally would break CI.
  */
 async function installShims(root: string, xattrDb: string): Promise<string> {
   const bin = join(root, "bin");
@@ -46,7 +59,7 @@ async function installShims(root: string, xattrDb: string): Promise<string> {
   const getfattr = join(bin, "getfattr");
   await writeFile(
     getfattr,
-    `#!/bin/bash
+    `#!/usr/bin/env bash
 key=""; path=""
 while (($#)); do
   case "$1" in
@@ -61,10 +74,13 @@ value=$(jq -r --arg p "$path" --arg k "$key" '.[$p][$k] // empty' "${xattrDb}")
 printf '%s' "$value"
 `,
   );
-  const stat = join(bin, "stat");
-  await writeFile(
-    stat,
-    `#!/bin/bash
+  await chmod(getfattr, 0o755);
+
+  if (!hasGnuStat()) {
+    const stat = join(bin, "stat");
+    await writeFile(
+      stat,
+      `#!/usr/bin/env bash
 if [[ "$1" == "-c" ]]; then
   format="$2"; shift 2
   case "$format" in
@@ -75,8 +91,9 @@ if [[ "$1" == "-c" ]]; then
 fi
 exec /usr/bin/stat "$@"
 `,
-  );
-  await Promise.all([chmod(getfattr, 0o755), chmod(stat, 0o755)]);
+    );
+    await chmod(stat, 0o755);
+  }
   return bin;
 }
 
