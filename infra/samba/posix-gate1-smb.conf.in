@@ -10,11 +10,12 @@
     cache directory = @CACHE_DIR@
     lock directory = @LOCK_DIR@
     pid directory = @PID_DIR@
+    ncalrpc dir = @NCALRPC_DIR@
     log file = @LOG_DIR@/smbd.%p.log
     max log size = 4096
     logging = file
 
-    interfaces = @TAILSCALE_IP@/32
+    interfaces = @TAILSCALE_IP@
     bind interfaces only = yes
     smb ports = 445
     disable netbios = yes

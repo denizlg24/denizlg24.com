@@ -344,6 +344,7 @@ render_samba_config() {
     -e "s|@CACHE_DIR@|$samba_root/cache|g" \
     -e "s|@LOCK_DIR@|$samba_root/lock|g" \
     -e "s|@PID_DIR@|$samba_root/pid|g" \
+    -e "s|@NCALRPC_DIR@|$samba_root/ncalrpc|g" \
     -e "s|@LOG_DIR@|$samba_root/log|g" \
     -e "s|@TAILSCALE_IP@|$tailscale_ip|g" \
     -e "s|@MERGED_ROOT@|$merged_mount|g" \
@@ -371,7 +372,9 @@ start_samba() {
     echo "UID/GID 1000 do not resolve to safe Samba identities" >&2
     exit 1
   fi
-  mkdir -m 700 "$samba_root/private" "$samba_root/state" "$samba_root/cache" "$samba_root/lock" "$samba_root/pid" "$samba_root/log"
+  mkdir -p "$samba_root/private" "$samba_root/state" "$samba_root/cache" "$samba_root/lock" "$samba_root/pid" "$samba_root/ncalrpc" "$samba_root/log"
+  chmod 700 "$samba_root/private" "$samba_root/pid" "$samba_root/log"
+  chmod 755 "$samba_root/state" "$samba_root/cache" "$samba_root/lock" "$samba_root/ncalrpc"
   pid_file="$samba_root/pid/gate1-smbd.pid"
   local samba_started=false
   cleanup_failed_samba() {

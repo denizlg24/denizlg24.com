@@ -60,6 +60,22 @@ describe("POSIX Gate 1 spike shell safety", () => {
     expect(source).toContain('!= "2.42.0"');
   });
 
+  it("keeps Samba runtime sockets private and supports a prepared-phase retry", async () => {
+    const source = await Bun.file(SPIKE_SCRIPT).text();
+    const template = await Bun.file(
+      resolve(import.meta.dir, "../../../infra/samba/posix-gate1-smb.conf.in"),
+    ).text();
+
+    expect(source).toContain('-e "s|@NCALRPC_DIR@|$samba_root/ncalrpc|g"');
+    expect(source).toContain('mkdir -p "$samba_root/private"');
+    expect(source).toContain(
+      'chmod 755 "$samba_root/state" "$samba_root/cache" "$samba_root/lock" "$samba_root/ncalrpc"',
+    );
+    expect(template).toContain("ncalrpc dir = @NCALRPC_DIR@");
+    expect(template).toContain("interfaces = @TAILSCALE_IP@\n");
+    expect(template).not.toContain("interfaces = @TAILSCALE_IP@/32");
+  });
+
   it("permits only traversal to the fixed non-sudo peer mount", async () => {
     const source = await Bun.file(SPIKE_SCRIPT).text();
 
