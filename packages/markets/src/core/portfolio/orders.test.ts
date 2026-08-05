@@ -116,6 +116,36 @@ describe("limit orders", () => {
       ),
     ).toEqual({ kind: "fill", price: 85 });
   });
+
+  // The placement day has no completed session behind it, so a same-day limit
+  // is worked against the quote alone. This is the production path for every
+  // order on the day it is entered, not a fallback.
+  test("with no bar, a sell limit fills off a print above the level", () => {
+    expect(
+      evaluateOrder(
+        order({ type: "limit", side: "sell", limitPrice: 105 }),
+        context({ last: 107 }),
+      ),
+    ).toEqual({ kind: "fill", price: 107 });
+  });
+
+  test("with no bar, a sell limit holds on a print below the level", () => {
+    expect(
+      evaluateOrder(
+        order({ type: "limit", side: "sell", limitPrice: 105 }),
+        context({ last: 103 }),
+      ),
+    ).toEqual({ kind: "hold" });
+  });
+
+  test("with no bar, a buy limit fills at the level on a better print", () => {
+    expect(
+      evaluateOrder(
+        order({ type: "limit", side: "buy", limitPrice: 90 }),
+        context({ last: 88 }),
+      ),
+    ).toEqual({ kind: "fill", price: 88 });
+  });
 });
 
 describe("stop orders", () => {
@@ -154,6 +184,33 @@ describe("stop orders", () => {
         context({ bar: bar(100, 115, 99, 112) }),
       ),
     ).toEqual({ kind: "fill", price: 110 });
+  });
+
+  test("with no bar, a sell stop fills off a print through the level", () => {
+    expect(
+      evaluateOrder(
+        order({ type: "stop", side: "sell", stopPrice: 95 }),
+        context({ last: 92 }),
+      ),
+    ).toEqual({ kind: "fill", price: 92 });
+  });
+
+  test("with no bar, a sell stop holds on a print above the level", () => {
+    expect(
+      evaluateOrder(
+        order({ type: "stop", side: "sell", stopPrice: 95 }),
+        context({ last: 97 }),
+      ),
+    ).toEqual({ kind: "hold" });
+  });
+
+  test("with no bar, a buy stop fills off a print through the level", () => {
+    expect(
+      evaluateOrder(
+        order({ type: "stop", side: "buy", stopPrice: 110 }),
+        context({ last: 113 }),
+      ),
+    ).toEqual({ kind: "fill", price: 113 });
   });
 });
 
@@ -304,6 +361,36 @@ describe("trailing stops", () => {
       context({ bar: bar(100, 110, 108, 109) }),
     );
     expect(decision).toEqual({ kind: "hold", trailAnchor: 110 });
+  });
+
+  test("fills on the span it seeds from when that span breaks the stop", () => {
+    // Seeded from the open rather than the high: the whole span is one the
+    // order was live for, so anchoring to 120 and holding would discard the
+    // collapse to 88 that happened while it was working.
+    const decision = evaluateOrder(
+      order({
+        type: "trailing_stop",
+        side: "sell",
+        trailBasis: "amount",
+        trailValue: 5,
+      }),
+      context({ bar: bar(100, 120, 88, 90) }),
+    );
+    expect(decision).toEqual({ kind: "fill", price: 95 });
+  });
+
+  test("seeds from the last print when no bar covers the interval", () => {
+    expect(
+      evaluateOrder(
+        order({
+          type: "trailing_stop",
+          side: "sell",
+          trailBasis: "percent",
+          trailValue: 0.1,
+        }),
+        context({ last: 200 }),
+      ),
+    ).toEqual({ kind: "hold", trailAnchor: 200 });
   });
 
   test("reports the level it is currently resting at", () => {
@@ -536,5 +623,52 @@ describe("admission", () => {
         referencePrice: 150,
       }),
     ).toBeNull();
+  });
+
+  // A portfolio created without margin is the default case, and the whole
+  // requirement is then the cash: nothing is admitted on half of it.
+  describe("with margin disabled", () => {
+    const cashOnly: MarginConfig = { ...config, enabled: false };
+    const cash = computeMargin({
+      cash: 10_000,
+      positions: [],
+      config: cashOnly,
+    });
+
+    test("rejects a notional the cash does not cover", () => {
+      const reason = checkAdmissible({
+        order: {
+          ticker: "AAPL",
+          side: "buy",
+          quantity: 100,
+          reduceOnly: false,
+        },
+        positions: [],
+        margin: cash,
+        config: cashOnly,
+        allowShorts: false,
+        referencePrice: 150,
+      });
+      expect(reason).toContain("15000.00");
+      expect(reason).toContain("10000.00");
+    });
+
+    test("accepts a notional the cash does cover", () => {
+      expect(
+        checkAdmissible({
+          order: {
+            ticker: "AAPL",
+            side: "buy",
+            quantity: 60,
+            reduceOnly: false,
+          },
+          positions: [],
+          margin: cash,
+          config: cashOnly,
+          allowShorts: false,
+          referencePrice: 150,
+        }),
+      ).toBeNull();
+    });
   });
 });

@@ -328,6 +328,34 @@ describe("borrow fees", () => {
     expect(fee?.quantity).toBeCloseTo((10_000 * 0.03 * 7) / 360, 10);
   });
 
+  test("the first accrual of all charges the day itself", () => {
+    // `chargeBorrow` reaches this through `borrowAccruedThrough ?? null`, so it
+    // is the branch every portfolio's first-ever carry runs down.
+    const [fee] = accrueBorrowFees({
+      portfolioId: "p1",
+      positions: shortPosition(),
+      config: margin,
+      date: "2026-03-02",
+      since: null,
+    });
+    expect(fee?.quantity).toBeCloseTo((10_000 * 0.03) / 360, 10);
+    expect(fee?.id).toBe("borrow:TSLA:2026-03-02");
+  });
+
+  test("a stored marker that is not a date charges nothing", () => {
+    // NaN passes every `<= 0` guard below it, and a NaN cash debit poisons the
+    // curve, the metrics and the margin state permanently.
+    expect(
+      accrueBorrowFees({
+        portfolioId: "p1",
+        positions: shortPosition(),
+        config: margin,
+        date: "2026-03-02",
+        since: "not-a-date",
+      }),
+    ).toHaveLength(0);
+  });
+
   test("a rerun of the same day accrues nothing", () => {
     expect(
       accrueBorrowFees({

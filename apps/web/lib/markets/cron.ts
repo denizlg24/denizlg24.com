@@ -21,6 +21,7 @@ export interface MarketsCronResult {
   ordersEvaluated: number;
   ordersFilled: number;
   ordersClosed: number;
+  /** Borrow booked across every portfolio this run, in cash. */
   borrowCharged: number;
   /** One line per portfolio under a call, for the run log to surface. */
   marginCalls: string[];

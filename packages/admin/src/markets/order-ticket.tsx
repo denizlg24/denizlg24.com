@@ -144,7 +144,10 @@ export function OrderTicket({
   const shares = useMemo(() => {
     if (sizing === "shares") return Number(quantity) || 0;
     const amount = Number(value) || 0;
-    return working > 0 ? amount / working : 0;
+    // Rounded here rather than in the preview. 100 against a working price of 3
+    // is 33.333333333333336 shares, and previewing 33.3333 while submitting the
+    // full float places an order for a size the ticket never showed.
+    return working > 0 ? Number((amount / working).toFixed(4)) : 0;
   }, [sizing, quantity, value, working]);
 
   // How the order lands against the book, mirroring the engine's own split.
@@ -560,7 +563,7 @@ export function OrderTicket({
             sizing === "shares"
               ? money(notional)
               : working > 0
-                ? trimQuantity(Number(shares.toFixed(4)))
+                ? trimQuantity(shares)
                 : "—"
           }
         />

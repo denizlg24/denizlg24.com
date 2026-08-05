@@ -3,11 +3,13 @@ import {
   checkAdmissible,
   evaluateOrder,
   executableQuantity,
+  initialRequirementFor,
   type OrderBar,
   type OrderMarketContext,
   toDateKey,
 } from "@repo/markets/core";
 import type {
+  MarginConfig,
   Order,
   OrderAmend,
   OrderInput,
@@ -115,6 +117,52 @@ export class OrderRejected extends Error {
 }
 
 /**
+ * Buying power the book has already promised to orders that have not filled.
+ *
+ * `performance.margin` describes the portfolio as it stands, which counts a
+ * working order for nothing at all. Admitting against that alone lets N orders
+ * each fit the same buying power, and the engine then fills every one of them —
+ * the account ends up leveraged well past its own initial requirement without a
+ * single check having failed.
+ *
+ * Reduce-only orders are left out: they free exposure rather than commit it.
+ */
+async function committedRequirement(
+  portfolioId: string,
+  config: MarginConfig,
+): Promise<number> {
+  const open = await MarketOrder.find({
+    portfolioId,
+    status: { $in: ["working", "pending"] },
+    reduceOnly: false,
+  });
+  if (open.length === 0) return 0;
+
+  const stores = getStores();
+  const cached = await stores.quotes.getQuotes([
+    ...new Set(open.map((doc) => doc.ticker)),
+  ]);
+  const lastByTicker = new Map(
+    cached.map((quote) => [quote.ticker, quote.last]),
+  );
+
+  let total = 0;
+  for (const doc of open) {
+    // The level the order works at is the best estimate of what it will cost.
+    // A market order has none and prices off the last print instead.
+    const price =
+      doc.limitPrice ?? doc.stopPrice ?? lastByTicker.get(doc.ticker) ?? null;
+    if (price === null) continue;
+    total += initialRequirementFor(
+      doc.side === "buy" ? "long" : "short",
+      doc.quantity * price,
+      config,
+    );
+  }
+  return total;
+}
+
+/**
  * Places an order and, when one is attached, its bracket. The exits are created
  * `pending` and share an OCO group: they arm together when the entry fills and
  * cancel each other when either one does.
@@ -137,11 +185,16 @@ export async function placeOrder(
 
   // Checked at placement rather than only at fill. The same rejection arriving
   // silently three days later is a position that was never protected.
+  const config = marginConfigOf(portfolio);
+  const committed = await committedRequirement(portfolioId, config);
   const problem = checkAdmissible({
     order: input,
     positions: performance.positions,
-    margin: performance.margin,
-    config: marginConfigOf(portfolio),
+    margin: {
+      ...performance.margin,
+      buyingPower: Math.max(0, performance.margin.buyingPower - committed),
+    },
+    config,
     allowShorts: portfolio.allowShorts ?? false,
     referencePrice: reference,
   });
@@ -163,11 +216,14 @@ export async function placeOrder(
     reduceOnly: input.reduceOnly,
     fees: input.fees,
     note: input.note,
-    status: "working",
+    // An entry carrying a bracket is parked until every leg exists. There is no
+    // transaction here, so an entry created live could fill against a bracket
+    // that is still half-written and leave the position protected on one side
+    // only — with nothing downstream that would ever notice.
+    status: input.bracket ? "pending" : "working",
   });
 
-  const created = [toOrder(entry)];
-  if (!input.bracket) return created;
+  if (!input.bracket) return [toOrder(entry)];
 
   const exitSide = input.side === "buy" ? "sell" : "buy";
   const group = String(entry._id);
@@ -195,25 +251,42 @@ export async function placeOrder(
     });
   }
 
-  for (const leg of legs) {
-    const doc = await MarketOrder.create({
-      portfolioId: owner,
-      ticker: input.ticker,
-      side: exitSide,
-      quantity: input.quantity,
-      timeInForce: "gtc",
-      // An exit can only ever close what the entry opened. Without this a
-      // bracket on a filled-and-manually-closed position would flip the book
-      // to the other side rather than doing nothing.
-      reduceOnly: true,
-      status: "pending",
-      parentOrderId: entry._id,
-      ocoGroupId: group,
-      ...leg,
+  const exits: Order[] = [];
+  try {
+    for (const leg of legs) {
+      const doc = await MarketOrder.create({
+        portfolioId: owner,
+        ticker: input.ticker,
+        side: exitSide,
+        quantity: input.quantity,
+        timeInForce: "gtc",
+        // An exit can only ever close what the entry opened. Without this a
+        // bracket on a filled-and-manually-closed position would flip the book
+        // to the other side rather than doing nothing.
+        reduceOnly: true,
+        status: "pending",
+        parentOrderId: entry._id,
+        ocoGroupId: group,
+        ...leg,
+      });
+      exits.push(toOrder(doc));
+    }
+  } catch (error) {
+    // Nothing here was ever exposed to the market — the entry is still parked
+    // and the legs cannot arm without it — so the half-written bracket is
+    // removed rather than left in the book as an order that can never fill.
+    await MarketOrder.deleteMany({
+      $or: [{ _id: entry._id }, { parentOrderId: entry._id }],
     });
-    created.push(toOrder(doc));
+    throw error;
   }
-  return created;
+
+  const armed = await MarketOrder.findOneAndUpdate(
+    { _id: entry._id, status: "pending" },
+    { $set: { status: "working" } },
+    { returnDocument: "after" },
+  );
+  return [toOrder(armed ?? entry), ...exits];
 }
 
 export async function amendOrder(
@@ -263,6 +336,7 @@ export interface OrderEngineResult {
   filled: number;
   cancelled: number;
   expired: number;
+  /** Borrow booked this pass, in cash rather than in rows. */
   borrowCharged: number;
   marginCalls: string[];
   errors: string[];
@@ -317,6 +391,11 @@ async function barSincePlacement(
  * trade write then fails. A filled order with no trade behind it is the worse
  * failure of the two: it reads as a closed position that the replay never saw,
  * and nothing would ever retry it.
+ *
+ * The trade's id is allocated before the claim so the link is part of the claim
+ * rather than a write after it. Setting `tradeId` afterwards leaves a window
+ * where the trade exists and the order points at nothing — a link nothing
+ * retries and nothing detects, since the replay reads trades and still balances.
  */
 async function bookFill(
   order: Order,
@@ -324,6 +403,7 @@ async function bookFill(
   quantity: number,
   now: Date,
 ): Promise<boolean> {
+  const tradeId = new Types.ObjectId();
   const claimed = await MarketOrder.findOneAndUpdate(
     { _id: order.id, status: "working" },
     {
@@ -332,15 +412,16 @@ async function bookFill(
         filledPrice: price,
         filledQuantity: quantity,
         filledAt: now,
+        tradeId,
       },
     },
     { returnDocument: "after" },
   );
   if (!claimed) return false;
 
-  let tradeId: Types.ObjectId;
   try {
-    const trade = await MarketTrade.create({
+    await MarketTrade.create({
+      _id: tradeId,
       portfolioId: new Types.ObjectId(order.portfolioId),
       ticker: order.ticker,
       side: order.side,
@@ -352,7 +433,6 @@ async function bookFill(
       note: order.note,
       orderId: claimed._id,
     });
-    tradeId = trade._id;
   } catch (error) {
     await MarketOrder.updateOne(
       { _id: claimed._id },
@@ -362,15 +442,17 @@ async function bookFill(
           filledPrice: null,
           filledQuantity: 0,
           filledAt: null,
+          tradeId: null,
         },
       },
     );
     throw error;
   }
 
-  await MarketOrder.updateOne({ _id: claimed._id }, { $set: { tradeId } });
-
-  // A bracket's entry filling is what arms its exits.
+  // A bracket's entry filling is what arms its exits. This and the OCO
+  // cancellation below are repeated by `reconcileBrackets` on the next pass, so
+  // a process that stops between the claim and here does not leave a position
+  // permanently unprotected.
   await MarketOrder.updateMany(
     { parentOrderId: claimed._id, status: "pending" },
     { $set: { status: "working" } },
@@ -387,6 +469,67 @@ async function bookFill(
     );
   }
   return true;
+}
+
+/**
+ * Re-applies the two writes that follow a fill: arming a bracket's exits, and
+ * cancelling the sibling of an OCO leg that filled. Both are idempotent, and
+ * both happen after the claim in `bookFill`, so a process that stops in between
+ * would otherwise leave exits parked forever behind an entry that already
+ * filled. Two queries against the live book is a cheap way to close that.
+ */
+async function reconcileBrackets(portfolioId: string): Promise<void> {
+  const parked = await MarketOrder.find({
+    portfolioId,
+    status: "pending",
+    parentOrderId: { $ne: null },
+  });
+  if (parked.length > 0) {
+    const parents = await MarketOrder.find(
+      {
+        _id: { $in: parked.map((doc) => doc.parentOrderId) },
+        status: "filled",
+      },
+      { _id: 1 },
+    );
+    const filled = new Set(parents.map((doc) => String(doc._id)));
+    const arm = parked
+      .filter((doc) => filled.has(String(doc.parentOrderId)))
+      .map((doc) => doc._id);
+    if (arm.length > 0) {
+      await MarketOrder.updateMany(
+        { _id: { $in: arm } },
+        { $set: { status: "working" } },
+      );
+    }
+  }
+
+  const live = await MarketOrder.find(
+    {
+      portfolioId,
+      status: { $in: ["working", "pending"] },
+      ocoGroupId: { $ne: null },
+    },
+    { ocoGroupId: 1 },
+  );
+  if (live.length === 0) return;
+  const settled = await MarketOrder.find(
+    {
+      portfolioId,
+      ocoGroupId: { $in: [...new Set(live.map((doc) => doc.ocoGroupId))] },
+      status: "filled",
+    },
+    { ocoGroupId: 1 },
+  );
+  if (settled.length === 0) return;
+  await MarketOrder.updateMany(
+    {
+      portfolioId,
+      ocoGroupId: { $in: [...new Set(settled.map((doc) => doc.ocoGroupId))] },
+      status: { $in: ["working", "pending"] },
+    },
+    { $set: { status: "cancelled", statusReason: "Other leg filled" } },
+  );
 }
 
 /**
@@ -415,15 +558,26 @@ export async function runOrderEngine(
   const portfolio = await MarketPortfolio.findById(portfolioId);
   if (!portfolio) return result;
 
+  await reconcileBrackets(portfolioId);
+
   const working = await MarketOrder.find({ portfolioId, status: "working" });
   let performance: PortfolioPerformance | null = null;
 
   if (working.length > 0) {
-    performance = await getPerformance(portfolioId);
+    const opening = await getPerformance(portfolioId);
+    // Sizing a reduce-only order against an empty position list reads as "no
+    // position left", and that cancels the order. Absorbing a null here would
+    // turn one transient failure into every stop loss and take profit in the
+    // portfolio being cancelled at once, and a cancel cannot be undone.
+    if (!opening) {
+      result.errors.push("No performance available; no orders evaluated");
+      return result;
+    }
+    let book = opening;
     const stores = getStores();
     const nowIso = now.toISOString();
 
-    for (const doc of working) {
+    for (const [index, doc] of working.entries()) {
       const order = toOrder(doc);
       result.evaluated++;
       try {
@@ -432,7 +586,12 @@ export async function runOrderEngine(
           barSincePlacement(order.ticker, doc.createdAt),
         ]);
         const context: OrderMarketContext = {
-          last: quotes[0]?.last ?? null,
+          // Matched by symbol rather than taken from index 0: the store is free
+          // to answer with a cached superset or a reordered batch, and pricing
+          // a fill off another symbol writes a wrong price into a trade that
+          // the replay then accepts as fact.
+          last:
+            quotes.find((quote) => quote.ticker === order.ticker)?.last ?? null,
           bar,
           now: nowIso,
         };
@@ -467,7 +626,7 @@ export async function runOrderEngine(
           continue;
         }
 
-        const sizing = executableQuantity(order, performance?.positions ?? []);
+        const sizing = executableQuantity(order, book.positions);
         if (sizing.cancelReason) {
           await cancelOrder(portfolioId, order.id, sizing.cancelReason);
           result.cancelled++;
@@ -477,13 +636,30 @@ export async function runOrderEngine(
         if (await bookFill(order, decision.price, sizing.quantity, now)) {
           result.filled++;
           // The book moved, so every later order in this pass must be sized
-          // against the new positions rather than the stale snapshot.
-          performance = await getPerformance(portfolioId);
+          // against the new positions rather than the stale snapshot — but only
+          // a reduce-only order reads positions at all, and `getPerformance`
+          // replays the entire trade log. Refetching after every fill regardless
+          // makes the pass cost O(fills × trades) for a number nothing uses.
+          const resizes = working
+            .slice(index + 1)
+            .some((later) => later.reduceOnly);
+          if (resizes) {
+            const refreshed = await getPerformance(portfolioId);
+            if (!refreshed) {
+              result.errors.push("No performance available; pass stopped");
+              return result;
+            }
+            book = refreshed;
+          }
         }
       } catch (error) {
         result.errors.push(`${order.ticker}: ${String(error)}`);
       }
     }
+    // Borrow is measured against the book the fills left behind, or a short an
+    // order has just covered would still be billed for the day. That costs one
+    // replay for the pass rather than one per fill.
+    performance = result.filled > 0 ? await getPerformance(portfolioId) : book;
   }
 
   const margin = marginConfigOf(portfolio);
@@ -491,14 +667,21 @@ export async function runOrderEngine(
   if (margin.enabled) {
     performance ??= await getPerformance(portfolioId);
     if (performance) {
-      result.borrowCharged = await chargeBorrow(
+      const accrual = await chargeBorrow(
         portfolioId,
         performance,
         portfolio.borrowAccruedThrough ?? null,
         today,
         margin,
       );
-      if (result.borrowCharged > 0) {
+      result.borrowCharged = accrual.charged;
+      // Advanced when there was nothing to bill as well as when something was
+      // billed. Leaving the marker behind on a flat book would hand the next
+      // short the previous one's uncharged days and bill it for carry it never
+      // ran. A short whose daily carry rounds to nothing is the one case the
+      // marker deliberately stays put: those days accumulate until they are
+      // worth a cent, rather than being forgiven one run at a time.
+      if (accrual.charged > 0 || accrual.accruable === 0) {
         await MarketPortfolio.updateOne(
           { _id: portfolio._id },
           { $set: { borrowAccruedThrough: today } },
@@ -517,13 +700,22 @@ export async function runOrderEngine(
   return result;
 }
 
+/**
+ * Books the day's carry and reports it in money, plus how many positions could
+ * have produced a charge at all — which is what tells the caller whether an
+ * empty result means "nothing owed" or "owed, but not yet a cent".
+ */
 async function chargeBorrow(
   portfolioId: string,
   performance: PortfolioPerformance,
   since: string | null,
   date: string,
   config: ReturnType<typeof marginConfigOf>,
-): Promise<number> {
+): Promise<{ charged: number; accruable: number }> {
+  const accruable =
+    config.borrowRate > 0
+      ? performance.positions.filter((position) => position.quantity < 0).length
+      : 0;
   const fees: Trade[] = accrueBorrowFees({
     portfolioId,
     positions: performance.positions,
@@ -531,7 +723,7 @@ async function chargeBorrow(
     date,
     since,
   });
-  if (fees.length === 0) return 0;
+  if (fees.length === 0) return { charged: 0, accruable };
 
   const owner = new Types.ObjectId(portfolioId);
   // Upserted on the deterministic id. Charging borrow twice for a day is the
@@ -559,5 +751,8 @@ async function chargeBorrow(
       },
     })),
   );
-  return fees.length;
+  return {
+    charged: fees.reduce((sum, fee) => sum + fee.price * fee.quantity, 0),
+    accruable,
+  };
 }

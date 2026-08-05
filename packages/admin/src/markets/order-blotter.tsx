@@ -129,7 +129,7 @@ export function OrderBlotter({
                         type="button"
                         aria-label={`Cancel ${order.ticker} order`}
                         onClick={() => void onCancel(order.id)}
-                        className="rounded p-0.5 text-muted-foreground opacity-0 hover:text-red-600 group-hover:opacity-100"
+                        className="rounded p-0.5 text-muted-foreground opacity-0 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100"
                       >
                         <X className="size-3" />
                       </button>

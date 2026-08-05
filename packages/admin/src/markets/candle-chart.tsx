@@ -64,6 +64,10 @@ export function CandleChart({
   const volume = useRef<ISeriesApi<"Histogram"> | null>(null);
   const lines = useRef(new Map<string, ISeriesApi<"Line">>());
   const fitted = useRef<string | null>(null);
+  // What the resize observer reads. It is created once and never re-created, so
+  // it cannot close over a prop.
+  const fixedHeight = useRef(height);
+  fixedHeight.current = height;
 
   useEffect(() => {
     if (!container.current) return;
@@ -105,9 +109,15 @@ export function CandleChart({
       const measured = entry.contentRect;
       instance.applyOptions({
         width: measured.width,
+        // Read through the ref, not the mount closure: the observer outlives
+        // every render, so a caller that ever switched `height` between a number
+        // and undefined would leave it applying the branch from the first frame
+        // and fighting the effect below.
+        //
         // A flex parent measures zero on the first frame before layout settles,
         // and applying that would leave the canvas permanently blank.
-        ...(height === undefined && measured.height >= MIN_CHART_HEIGHT
+        ...(fixedHeight.current === undefined &&
+        measured.height >= MIN_CHART_HEIGHT
           ? { height: measured.height }
           : {}),
       });

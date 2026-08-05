@@ -1,3 +1,10 @@
+import {
+  DEFAULT_MARGIN,
+  orderStatusSchema,
+  orderTypeSchema,
+  timeInForceSchema,
+  trailBasisSchema,
+} from "@repo/markets/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
 
 /**
@@ -377,12 +384,15 @@ export interface IMarketPortfolio extends Document {
 // zero requirement — an account with infinite buying power and no margin call.
 const marketMarginConfigSchema = new Schema<IMarketMarginConfig>(
   {
-    enabled: { type: Boolean, default: false },
-    initialLong: { type: Number, default: 0.5 },
-    initialShort: { type: Number, default: 1.5 },
-    maintenanceLong: { type: Number, default: 0.25 },
-    maintenanceShort: { type: Number, default: 0.3 },
-    borrowRate: { type: Number, default: 0.03 },
+    enabled: { type: Boolean, default: DEFAULT_MARGIN.enabled },
+    initialLong: { type: Number, default: DEFAULT_MARGIN.initialLong },
+    initialShort: { type: Number, default: DEFAULT_MARGIN.initialShort },
+    maintenanceLong: { type: Number, default: DEFAULT_MARGIN.maintenanceLong },
+    maintenanceShort: {
+      type: Number,
+      default: DEFAULT_MARGIN.maintenanceShort,
+    },
+    borrowRate: { type: Number, default: DEFAULT_MARGIN.borrowRate },
   },
   { _id: false },
 );
@@ -485,18 +495,35 @@ const marketOrderSchema = new Schema<IMarketOrder>(
     },
     ticker: { type: String, required: true, uppercase: true },
     side: { type: String, enum: ["buy", "sell"], required: true },
-    type: { type: String, required: true },
+    // Mirrored from the Zod enums rather than left as bare strings. `toOrder`
+    // hands these to the engine as union members without parsing them, so an
+    // unexpected value would reach a dispatch that has no branch for it — and a
+    // `status` typo in an `updateOne` would hide the order from the engine's
+    // `status: "working"` query with no error anywhere.
+    type: { type: String, enum: orderTypeSchema.options, required: true },
     quantity: { type: Number, required: true },
     limitPrice: { type: Number, default: null },
     stopPrice: { type: Number, default: null },
-    trailBasis: { type: String, default: null },
+    trailBasis: {
+      type: String,
+      enum: [...trailBasisSchema.options, null],
+      default: null,
+    },
     trailValue: { type: Number, default: null },
     trailAnchor: { type: Number, default: null },
     stopTriggeredAt: { type: Date, default: null },
-    timeInForce: { type: String, default: "gtc" },
+    timeInForce: {
+      type: String,
+      enum: timeInForceSchema.options,
+      default: "gtc",
+    },
     expiresAt: { type: Date, default: null },
     reduceOnly: { type: Boolean, default: false },
-    status: { type: String, default: "working" },
+    status: {
+      type: String,
+      enum: orderStatusSchema.options,
+      default: "working",
+    },
     parentOrderId: {
       type: Schema.Types.ObjectId,
       ref: "MarketOrder",

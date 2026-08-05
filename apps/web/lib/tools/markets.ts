@@ -15,10 +15,10 @@ import type {
   Resolution,
   ValuationPoint,
 } from "@repo/markets/schemas";
+import { DEFAULT_MARGIN } from "@repo/markets/schemas";
 import {
   addTrade,
   createPortfolio,
-  DEFAULT_MARGIN,
   deletePortfolio,
   deleteTrade,
   getPerformance,
