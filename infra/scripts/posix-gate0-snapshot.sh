@@ -177,7 +177,12 @@ write_branch_manifests() {
     cd "$source"
     LC_ALL=C find . -xdev \
       -printf '%y\t%m\t%U\t%G\t%s\t%b\t%T@\t%p\t%l\n' \
-      | awk -F '\t' 'BEGIN { OFS=FS } $1 == "d" { $5="-"; $6="-" } { print }' \
+      | awk -F '\t' '
+          BEGIN { OFS=FS }
+          $1 == "d" { $5="-"; $6="-" }
+          $1 == "f" { $6=(($6 * 512) < $5 ? "sparse" : "allocated") }
+          { print }
+        ' \
       | LC_ALL=C sort > "$snapshot_dir/${label}-tree.tsv"
     LC_ALL=C find . -xdev -type f -print0 \
       | LC_ALL=C sort -z \

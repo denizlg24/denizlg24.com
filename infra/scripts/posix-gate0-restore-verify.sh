@@ -192,7 +192,14 @@ restore_branch() {
       tree_input="$work_dir/${label}-tree.tsv"
     fi
     awk -F '\t' \
-      'BEGIN { OFS=FS } $1 == "d" { $5="-"; $6="-" } { print }' \
+      '
+        BEGIN { OFS=FS }
+        $1 == "d" { $5="-"; $6="-" }
+        $1 == "f" && $6 != "sparse" && $6 != "allocated" {
+          $6=(($6 * 512) < $5 ? "sparse" : "allocated")
+        }
+        { print }
+      ' \
       "$tree_input" \
       | LC_ALL=C sort > "$work_dir/${label}-${tree}-normalized.tsv"
   done
