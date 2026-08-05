@@ -5,10 +5,15 @@ services:
   api:
     environment:
       HDD_STORAGE_PATH: /data/capacity/hdd
-      S3_ROOT_PATH: /data/internal/s3
-      S3_TEMP_PATH: /data/internal/s3-temp
+      # Subdirectories of one mount, not four mounts. S3 publishes an object by
+      # renaming it from the temp path onto its final path, and rename() across
+      # two bind mounts is EXDEV even when both resolve to the same disk — so
+      # separate mounts failed every upload. The rename has to stay a rename:
+      # it is what makes a partially written object impossible to observe.
+      S3_ROOT_PATH: /data/internal/.s3-v2
+      S3_TEMP_PATH: /data/internal/.s3-v2-temp
       SSD_STORAGE_PATH: /data/capacity/ssd
-      STORAGE_ARCHIVE_PATH: /data/internal/archives
+      STORAGE_ARCHIVE_PATH: /data/internal/.archives
       STORAGE_NAMESPACE_MODE: broker-mounted
       STORAGE_NAMESPACE_PATH: /data/storage
       STORAGE_NAMESPACE_WITNESS_PATH: /data/storage/.denizcloud-mount-witness
@@ -17,7 +22,7 @@ services:
       # entries.
       STORAGE_METADATA_SOCKET: /run/deniz-cloud/storage-metadata.sock
       STORAGE_METADATA_TOKEN: ${STORAGE_METADATA_TOKEN:?STORAGE_METADATA_TOKEN is required in broker mode}
-      TEMP_UPLOAD_PATH: /data/internal/tus
+      TEMP_UPLOAD_PATH: /data/internal/.tus-partial
     volumes: !override
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -27,10 +32,9 @@ services:
       - /mnt/hdd/deniz-cloud/internal/.capacity:/data/capacity/hdd:ro
       - /srv/deniz-cloud/internal/.capacity:/data/capacity/root:ro
       # Project S3 and request staging remain independent from Personal/Shared.
-      - /mnt/ssd/deniz-cloud/internal/.s3-v2:/data/internal/s3
-      - /mnt/ssd/deniz-cloud/internal/.s3-v2-temp:/data/internal/s3-temp
-      - /mnt/ssd/deniz-cloud/internal/.tus-partial:/data/internal/tus
-      - /mnt/ssd/deniz-cloud/internal/.archives:/data/internal/archives
+      # One mount, so the temp and final S3 paths share a filesystem and the
+      # publish rename works; see S3_ROOT_PATH above.
+      - /mnt/ssd/deniz-cloud/internal:/data/internal
       # This source is the encrypted loopback CIFS mount, not mergerfs.
       - /srv/deniz-cloud/api-storage:/data/storage
       # The runtime directory, not the socket file. Bind-mounting a socket pins

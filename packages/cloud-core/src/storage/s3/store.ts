@@ -444,6 +444,22 @@ export async function initS3Store(config: S3StoreConfig): Promise<void> {
     mkdir(config.tempPath, { recursive: true }),
     mkdir(join(config.tempPath, "multipart"), { recursive: true }),
   ]);
+
+  // An object is published by renaming it from the temp path onto its final
+  // path, which is what makes a partially written object impossible to
+  // observe. rename() cannot cross a filesystem — and two bind mounts of the
+  // same disk count as different filesystems — so a split configuration fails
+  // every upload with EXDEV. Checked once at startup because the alternative
+  // is discovering it on the first write, per bucket, in production.
+  const [root, temp] = await Promise.all([
+    stat(config.rootPath),
+    stat(config.tempPath),
+  ]);
+  if (root.dev !== temp.dev) {
+    throw new Error(
+      `S3 temp path must share a filesystem with the object root so publishing stays atomic: ${config.tempPath} and ${config.rootPath} are on different devices`,
+    );
+  }
 }
 
 export async function createBucket(
