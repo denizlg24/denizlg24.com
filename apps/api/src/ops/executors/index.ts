@@ -3,12 +3,17 @@ import {
   aggregateSeries,
   assertLegacyTieringAllowed,
   countActivity,
+  createNamespaceSource,
+  createProjectionRepository,
   createTieringRepository,
   type Database,
   describeCondition,
   formatMetricValue,
+  indexingProjectionRepository,
   listAlertRules,
   type MeiliSearch,
+  type NamespaceMetadataClient,
+  NamespaceProjector,
   nextRuleState,
   persistRuleState,
   pruneActivity,
@@ -29,6 +34,7 @@ import {
   mongoBackupTaskConfigSchema,
   type NotificationPayload,
   type NotificationType,
+  namespaceScanTaskConfigSchema,
   parseTaskConfig,
   postgresBackupTaskConfigSchema,
   restartContainerTaskConfigSchema,
@@ -54,6 +60,8 @@ export type { ExecutorResult } from "./backups";
 export interface ExecutorContext extends BackupExecutorOptions {
   db: Database;
   meili: MeiliSearch;
+  /** Null in legacy mode, where there is no privileged host agent to scan. */
+  metadataClient: NamespaceMetadataClient | null;
   health: OpsHealthService;
   notifications: NotificationDispatcher;
   rebootSentinelPath: string;
@@ -634,6 +642,71 @@ export function getExecutor(
           metadata: {
             durationMs: Date.now() - startedAt,
             tieringReport: report,
+          },
+        };
+      };
+    case "namespace_scan":
+      return async (rawConfig) => {
+        const config = namespaceScanTaskConfigSchema.parse(rawConfig);
+        const startedAt = Date.now();
+        const namespace = context.storageConfig.namespace;
+        // Legacy mode keeps PostgreSQL authoritative, so there is nothing to
+        // project from: the database is the source, not a copy of the tree.
+        if (namespace.mode !== "broker-mounted" || !context.metadataClient) {
+          throw new Error(
+            "Namespace scan requires broker-mounted storage with a metadata socket",
+          );
+        }
+        const repository = indexingProjectionRepository(
+          createProjectionRepository(context.db),
+          context.db,
+          context.meili,
+        );
+        const projector = new NamespaceProjector(
+          createNamespaceSource(context.metadataClient, namespace.rootPath),
+          repository,
+        );
+        const result = await projector.scan({
+          allowReap: config.allowReap,
+          maxEntries: config.maxEntries,
+        });
+        // Indexed after the walk so one batch covers the generation, and only
+        // for rows that actually reached PostgreSQL.
+        const indexed = await repository.flushSearch().catch((error) => {
+          console.error("Namespace scan search indexing failed", error);
+          return 0;
+        });
+        if (result.reapApplied && result.reapPlan.reap.length > 0) {
+          await removeStorageDocuments(
+            context.meili,
+            result.reapPlan.reap.map((row) => row.id),
+          ).catch(console.error);
+        }
+        // An incomplete scan is reported as a failure rather than a quiet
+        // "completed": it withheld every deletion and left the projection
+        // dirty, and a run history showing success would hide that.
+        if (!result.complete) {
+          throw new Error(
+            `Namespace scan incomplete: ${result.abortReason ?? "unknown"}`,
+          );
+        }
+        return {
+          output: `Namespace scan generation ${result.generation}: ${result.filesSeen} files, ${result.foldersSeen} folders, ${result.problemsSeen} problems, ${result.reapPlan.reap.length} reapable${result.reapApplied ? ` (${result.reapedRows} reaped)` : " (not reaped)"}, ${indexed} indexed`,
+          metadata: {
+            durationMs: Date.now() - startedAt,
+            namespaceScan: {
+              abortReason: result.abortReason,
+              complete: result.complete,
+              durationMs: Date.now() - startedAt,
+              filesSeen: result.filesSeen,
+              foldersSeen: result.foldersSeen,
+              generation: result.generation,
+              problemsSeen: result.problemsSeen,
+              reapApplied: result.reapApplied,
+              reapedRows: result.reapedRows,
+              reapPlanned: result.reapPlan.reap.length,
+              reapWithheld: result.reapPlan.withheld.length,
+            },
           },
         };
       };

@@ -3,6 +3,8 @@ import {
   cloudEnv,
   createDb,
   createMeiliClient,
+  createNamespaceSource,
+  createProjectionRepository,
   createProjectPgClientFactory,
   createProvisionerRegistry,
   createTieringRepository,
@@ -10,9 +12,12 @@ import {
   databaseActivitySink,
   ensureLegacyS3Credential,
   ensureStorageSearchIndex,
+  findTaskByType,
+  indexingProjectionRepository,
   initializeS3,
   MongoProvisioner,
   NamespaceMetadataClient,
+  NamespaceSyncSupervisor,
   PostgresProvisioner,
   PromotionQueue,
   RedisProvisioner,
@@ -311,6 +316,14 @@ export async function createRuntimeApp() {
         }),
       ],
     });
+    // The same privileged socket the namespace uses. Only present in broker
+    // mode; in legacy mode there is no host agent and no SMB boundary.
+    const metadataClient =
+      storageConfig.namespace.mode === "broker-mounted" &&
+      storageConfig.namespace.metadata
+        ? new NamespaceMetadataClient(storageConfig.namespace.metadata)
+        : null;
+
     const scheduler = new OpsScheduler({
       db,
       notifications,
@@ -324,6 +337,7 @@ export async function createRuntimeApp() {
         notifications,
         sampler,
         storageConfig,
+        metadataClient,
         backupDirectory: process.env.BACKUP_DIR ?? "/backups",
         postgresContainer: process.env.POSTGRES_CONTAINER ?? "postgres",
         mongoContainer: process.env.MONGODB_CONTAINER ?? "mongodb",
@@ -341,18 +355,48 @@ export async function createRuntimeApp() {
     });
     cleanupActions.push(async () => scheduler.stop());
     await scheduler.start();
+
+    // The low-latency half of the projection. The scan task remains the
+    // authority on completeness; this only shortens the window in which an SMB
+    // write is on disk but not yet in PostgreSQL, and every way it can fail
+    // ends in the same place — request the scan it cannot replace.
+    if (
+      metadataClient &&
+      storageConfig.namespace.mode === "broker-mounted" &&
+      process.env.STORAGE_NAMESPACE_WATCH !== "off"
+    ) {
+      const projectionRepository = indexingProjectionRepository(
+        createProjectionRepository(db),
+        db,
+        meili,
+      );
+      const namespaceSource = createNamespaceSource(
+        metadataClient,
+        storageConfig.namespace.rootPath,
+      );
+      const sync = new NamespaceSyncSupervisor({
+        client: metadataClient,
+        onEvent: (event) => {
+          // Applied batches are the steady state and would dominate the log.
+          if (event.type === "applied") return;
+          console.info(JSON.stringify({ event: "namespace-sync", ...event }));
+        },
+        repository: projectionRepository,
+        requestFullScan: async (reason) => {
+          const task = await findTaskByType(db, "namespace_scan");
+          if (!task)
+            throw new Error(`No namespace_scan task to run (${reason})`);
+          await scheduler.runTask(task.id);
+        },
+        source: namespaceSource,
+      });
+      sync.start();
+      cleanupActions.push(async () => sync.stop());
+    }
     const terminal = new TerminalGateway({
       serverUrl: process.env.TERMINAL_SERVER_URL ?? "ws://127.0.0.1:3003",
       ticketSecret: requiredEnv("TERMINAL_TICKET_SECRET"),
     });
-
-    // The same privileged socket the namespace uses. Only present in broker
-    // mode; in legacy mode there is no host agent and no SMB boundary.
-    const metadataClient =
-      storageConfig.namespace.mode === "broker-mounted" &&
-      storageConfig.namespace.metadata
-        ? new NamespaceMetadataClient(storageConfig.namespace.metadata)
-        : null;
 
     const app = createCloudApiApp({
       auth,

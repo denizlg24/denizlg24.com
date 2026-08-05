@@ -5,11 +5,13 @@ import {
   handleMetadataRequest,
   isSupportedProtocolVersion,
   NamespaceMetadataService,
+  readBranchMarkers,
   tokenMatches,
 } from "@repo/cloud-core";
 
 import { configFromEnv } from "./config";
 import { createSmbAgent } from "./smb-agent";
+import { WatchBroadcaster } from "./watcher";
 
 const config = configFromEnv();
 
@@ -63,6 +65,60 @@ function deny(code: string, message: string, status: number): Response {
   return Response.json({ code, message, ok: false }, { status });
 }
 
+/**
+ * Newline-delimited JSON, held open for as long as the subscriber wants it.
+ *
+ * The subscriber treats a closed stream as a gap it cannot account for and
+ * falls back to a full scan, so this never has to replay anything: dropping the
+ * connection is always a safe way to fail.
+ */
+function watchStream(request: Request): Response {
+  const encoder = new TextEncoder();
+  let unsubscribe: (() => void) | null = null;
+
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      unsubscribe?.();
+      unsubscribe = null;
+    },
+    start(controller) {
+      unsubscribe = watcher.subscribe((message) => {
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(message)}\n`));
+        } catch {
+          // The subscriber went away between the check and the write; the
+          // unsubscribe below is what actually stops the flow.
+          unsubscribe?.();
+          unsubscribe = null;
+        }
+      });
+      request.signal.addEventListener("abort", () => {
+        unsubscribe?.();
+        unsubscribe = null;
+        try {
+          controller.close();
+        } catch {
+          // Already closed by the runtime.
+        }
+      });
+    },
+  });
+
+  return new Response(body, {
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/x-ndjson",
+    },
+  });
+}
+
+const watcher = new WatchBroadcaster({
+  debounceMs: config.watchQuietMs,
+  flushMs: config.watchQuietMs,
+  maxPending: config.watchMaxPending,
+  namespaceRoot: config.namespaceRoot,
+});
+
 const server = Bun.serve({
   async fetch(request) {
     if (new URL(request.url).pathname === "/healthz") {
@@ -75,6 +131,17 @@ const server = Bun.serve({
     }
     if (!tokenMatches(config.token, request.headers.get("x-metadata-token"))) {
       return deny("BAD_REQUEST", "Bad token", 403);
+    }
+    if (new URL(request.url).pathname === "/v1/watch") {
+      if (
+        !isSupportedProtocolVersion(request.headers.get("x-metadata-version"))
+      ) {
+        return deny("BAD_REQUEST", "Unsupported protocol version", 400);
+      }
+      if (!(await namespaceIsMounted())) {
+        return deny("UNAVAILABLE", "Namespace is not mounted", 503);
+      }
+      return watchStream(request);
     }
     if (
       !isSupportedProtocolVersion(request.headers.get("x-metadata-version"))
@@ -91,7 +158,9 @@ const server = Bun.serve({
     } catch {
       return deny("BAD_REQUEST", "Body is not JSON", 400);
     }
-    const response = await handleMetadataRequest(service, body, smbAgent);
+    const response = await handleMetadataRequest(service, body, smbAgent, () =>
+      readBranchMarkers(config.branchPaths),
+    );
     return Response.json(response, { status: response.ok ? 200 : 409 });
   },
   unix: config.socketPath,
@@ -118,6 +187,7 @@ console.info(
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
+    watcher.stop();
     server.stop();
     void unlink(config.socketPath).catch(() => {});
     process.exit(0);

@@ -35,7 +35,10 @@ describe("metadata service configuration", () => {
   it("reads a complete configuration", () => {
     apply();
     expect(configFromEnv()).toEqual({
+      branchPaths: [],
       namespaceRoot: valid.STORAGE_NAMESPACE_ROOT,
+      watchMaxPending: 5_000,
+      watchQuietMs: 400,
       smbScriptPath: null,
       socketGid: 1000,
       socketPath: valid.STORAGE_METADATA_SOCKET,

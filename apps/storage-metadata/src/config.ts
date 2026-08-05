@@ -1,12 +1,36 @@
 export interface MetadataServiceConfig {
+  /**
+   * Physical branch roots, used only to prove they were all mounted for the
+   * whole of a projection scan. Empty means the projector can never reap.
+   */
+  branchPaths: string[];
   namespaceRoot: string;
   /** Absent when this host does not provision SMB accounts. */
   smbScriptPath: string | null;
   socketGid: number;
+  /** Distinct pending paths tolerated before the watcher declares overflow. */
+  watchMaxPending: number;
+  /** How long a path must stop changing before it is reported. */
+  watchQuietMs: number;
   socketPath: string;
   token: string;
   witnessPath: string;
   witnessValue: string;
+}
+
+function boundedInt(
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}`);
+  }
+  return value;
 }
 
 function required(name: string): string {
@@ -45,8 +69,36 @@ export function configFromEnv(): MetadataServiceConfig {
   if (smbScriptPath && !smbScriptPath.startsWith("/")) {
     throw new Error("STORAGE_SMB_SCRIPT must be an absolute path");
   }
+  const branchPaths = (process.env.STORAGE_BRANCH_PATHS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  for (const branchPath of branchPaths) {
+    if (!branchPath.startsWith("/")) {
+      throw new Error("STORAGE_BRANCH_PATHS entries must be absolute paths");
+    }
+    // A branch inside the namespace would be the union mount reading itself:
+    // the same entries would appear under two roots and the marker would not
+    // describe a physical disk.
+    if (
+      branchPath === namespaceRoot ||
+      branchPath.startsWith(`${namespaceRoot}/`)
+    ) {
+      throw new Error(
+        "STORAGE_BRANCH_PATHS entries must be outside the namespace root",
+      );
+    }
+  }
   return {
+    branchPaths,
     namespaceRoot,
+    watchMaxPending: boundedInt(
+      "STORAGE_WATCH_MAX_PENDING",
+      5_000,
+      1,
+      1_000_000,
+    ),
+    watchQuietMs: boundedInt("STORAGE_WATCH_QUIET_MS", 400, 50, 60_000),
     smbScriptPath,
     socketGid,
     socketPath,

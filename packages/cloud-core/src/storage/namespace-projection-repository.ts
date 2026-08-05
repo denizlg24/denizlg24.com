@@ -92,6 +92,23 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
       return row?.generation ?? null;
     },
 
+    async findByPath(relativePath: string): Promise<ProjectedRow | null> {
+      const path = absolutePath(relativePath);
+      const [file] = await db
+        .select({ id: files.id })
+        .from(files)
+        .where(eq(files.path, path))
+        .limit(1);
+      if (file) return { id: file.id, kind: "file", relativePath };
+      const [folder] = await db
+        .select({ id: folders.id })
+        .from(folders)
+        .where(eq(folders.path, path))
+        .limit(1);
+      if (folder) return { id: folder.id, kind: "folder", relativePath };
+      return null;
+    },
+
     async nextGeneration(): Promise<number> {
       const [row] = await db
         .select({ highest: max(namespaceScans.generation) })

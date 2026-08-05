@@ -53,14 +53,27 @@ describe("POSIX production host boundary", () => {
     expect(source).toContain('local account_root="$merged/$account_id"');
   });
 
-  it("does not enable the empirically unsafe human shares", async () => {
+  it("keeps the conditions the human shares were enabled under", async () => {
     const config = await Bun.file(SAMBA).text();
     expect(config).toContain("[Personal]");
     expect(config).toContain("[Shared]");
-    expect(config.match(/available = no/g)?.length).toBe(2);
     expect(config).toContain("[ApiBroker]");
     expect(config).toContain("hosts allow = 127.0.0.1");
     expect(config).toContain("vfs objects = full_audit");
+    // Gate 1 failed because streams_xattr accepted a reserved-looking ADS name
+    // and exposed a directly addressable AppleDouble sidecar. Removing it is
+    // what let the shares be enabled, so its return would silently reopen the
+    // hole the gate was about.
+    // Checked against the directives rather than the file, since the comment
+    // explaining the removal necessarily names the module.
+    const vfsLines = config.match(/^\s*vfs objects = .*$/gm) ?? [];
+    expect(vfsLines.length).toBeGreaterThan(0);
+    for (const line of vfsLines) expect(line).not.toContain("streams_xattr");
+    // Samba expands %H to the *forced* user's home, so a share path of %H
+    // serves the storage user's home directory to every device instead of the
+    // account's own root. The per-principal include is what prevents that.
+    expect(config).not.toMatch(/^\s*path = %H\s*$/m);
+    expect(config).toContain("include = /etc/samba/deniz-cloud-personal/%U.conf");
   });
 
   it("installs without activation and uninstalls only an exact manifest", async () => {

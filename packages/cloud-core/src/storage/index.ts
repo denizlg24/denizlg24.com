@@ -26,6 +26,10 @@ export {
   readArchiveJobSnapshot,
 } from "./archive-jobs";
 export {
+  BRANCH_MARKER_FILENAME,
+  readBranchMarkers,
+} from "./branch-markers";
+export {
   BROKER_NAMESPACE_WITNESS_NAME,
   type StorageConfig,
   type StorageNamespaceConfig,
@@ -90,6 +94,11 @@ export {
   type StorageNamespaceCapabilities,
 } from "./namespace";
 export {
+  type ApplierSource,
+  type ApplyOutcome,
+  applyWatchedPaths,
+} from "./namespace-applier";
+export {
   type NamespaceHealth,
   type NamespaceHealthInput,
   type NamespaceHealthStatus,
@@ -97,6 +106,7 @@ export {
 } from "./namespace-health";
 export { STORAGE_METADATA_HEALTH_KEYS } from "./namespace-health-keys";
 export { createProjectionRepository } from "./namespace-projection-repository";
+export { indexingProjectionRepository } from "./namespace-projection-search";
 export {
   NamespaceProjector,
   type NamespaceSource,
@@ -119,6 +129,12 @@ export {
   type SearchRebuildResult,
   type SearchRebuildSource,
 } from "./namespace-search-rebuild";
+export { createNamespaceSource } from "./namespace-source";
+export {
+  type NamespaceSyncEvent,
+  type NamespaceSyncOptions,
+  NamespaceSyncSupervisor,
+} from "./namespace-sync";
 export {
   type BranchCopyObservation,
   type DuplicateResolution,
@@ -130,6 +146,10 @@ export {
   type TierSelectionInput,
   tieringBlockedReason,
 } from "./namespace-tiering";
+export {
+  type NamespaceWatchMessage,
+  watchPathToRelative,
+} from "./namespace-watch";
 export {
   NamespaceWatcher,
   type WatcherOptions,

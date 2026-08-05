@@ -14,6 +14,7 @@ export const TASK_TYPES = [
   "metrics_rollup",
   "alert_evaluation",
   "run_command",
+  "namespace_scan",
 ] as const;
 
 export const taskTypeSchema = z.enum(TASK_TYPES);
@@ -77,6 +78,36 @@ export const tieringPassTaskConfigSchema = z.object({
   minSizeBytes: z.number().int().nonnegative().optional(),
   batchCap: z.number().int().min(1).max(1_000).optional(),
 });
+/**
+ * What one projection scan observed. `complete` is the field that matters: an
+ * incomplete generation proves nothing about absence, so it may not reap and
+ * does not clear the dirty flag. `reapPlanned` is reported even when reaping
+ * was not allowed, which is what makes a read-only scan reviewable.
+ */
+export const namespaceScanReportSchema = z.object({
+  generation: z.number().int().nonnegative(),
+  complete: z.boolean(),
+  abortReason: z.string().nullable(),
+  foldersSeen: z.number().int().nonnegative(),
+  filesSeen: z.number().int().nonnegative(),
+  problemsSeen: z.number().int().nonnegative(),
+  reapPlanned: z.number().int().nonnegative(),
+  reapWithheld: z.number().int().nonnegative(),
+  reapApplied: z.boolean(),
+  reapedRows: z.number().int().nonnegative(),
+  durationMs: z.number().int().nonnegative(),
+});
+export type NamespaceScanReport = z.infer<typeof namespaceScanReportSchema>;
+
+export const namespaceScanTaskConfigSchema = z.object({
+  /**
+   * Reaping deletes projection rows, so it is opt-in exactly as the tiering
+   * dry run is. A scan that only reports what it would delete is useful on its
+   * own; one that deletes before anyone has read its output is not.
+   */
+  allowReap: z.boolean().default(false),
+  maxEntries: z.number().int().min(1).max(50_000_000).optional(),
+});
 export const metricsRollupTaskConfigSchema = z.object({
   rawRetentionHours: z.number().int().min(24).max(168).default(24),
   rollupRetentionDays: z.number().int().min(1).max(365).default(90),
@@ -131,6 +162,9 @@ export type MetricsRollupTaskConfig = z.infer<
 export type AlertEvaluationTaskConfig = z.infer<
   typeof alertEvaluationTaskConfigSchema
 >;
+export type NamespaceScanTaskConfig = z.infer<
+  typeof namespaceScanTaskConfigSchema
+>;
 export const taskConfigSchema = z.object({
   retentionCount: z.number().int().optional(),
   containerNames: z.array(z.string()).optional(),
@@ -164,6 +198,8 @@ export const taskConfigSchema = z.object({
   cwd: z.string().optional(),
   env: z.record(z.string(), z.string()).optional(),
   timeoutMs: z.number().optional(),
+  allowReap: z.boolean().optional(),
+  maxEntries: z.number().optional(),
 });
 export type TaskConfig = z.infer<typeof taskConfigSchema>;
 
@@ -178,6 +214,7 @@ export const TASK_CONFIG_SCHEMAS = {
   metrics_rollup: metricsRollupTaskConfigSchema,
   alert_evaluation: alertEvaluationTaskConfigSchema,
   run_command: runCommandTaskConfigSchema,
+  namespace_scan: namespaceScanTaskConfigSchema,
 } as const satisfies Record<TaskType, z.ZodType>;
 
 export function parseTaskConfig(type: TaskType, input: unknown): TaskConfig {
@@ -196,6 +233,7 @@ export const taskRunMetadataSchema = z.object({
   activityPruned: z.number().int().nonnegative().optional(),
   alerts: z.array(z.string()).optional(),
   exitCode: z.number().int().optional(),
+  namespaceScan: namespaceScanReportSchema.optional(),
 });
 export type TaskRunMetadata = z.infer<typeof taskRunMetadataSchema>;
 

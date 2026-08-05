@@ -33,17 +33,21 @@ export type MetadataRequest =
       principal: string;
       secret: string;
     }
-  | { op: "smb-revoke"; principal: string };
+  | { op: "smb-revoke"; principal: string }
+  // Branch mount proof for the projector. Names no path: the branch roots are
+  // the host's own configuration, and the API is never told where they are.
+  | { op: "branch-markers" };
 
 export interface MetadataListingPayload {
   entries: MetadataEntryPayload[];
-  problems: { code: string; relativePath: string }[];
+  problems: { code: MetadataFailure; relativePath: string }[];
 }
 
 export type MetadataResponse =
   | { ok: true; entry: MetadataEntryPayload }
   | { ok: true; provisioned: true }
   | { ok: true; listing: MetadataListingPayload }
+  | { ok: true; branchMarkers: Record<string, string> }
   | {
       ok: false;
       code: MetadataFailure | "UNAVAILABLE" | "BAD_REQUEST";

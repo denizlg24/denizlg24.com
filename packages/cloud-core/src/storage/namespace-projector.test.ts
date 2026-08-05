@@ -79,6 +79,13 @@ function repository(
     async applyReapPlan(plan) {
       applied = plan;
     },
+    async findByPath(relativePath) {
+      return (
+        (overrides.rows ?? []).find(
+          (row) => row.relativePath === relativePath,
+        ) ?? null
+      );
+    },
     async lastCompleteGeneration() {
       return overrides.lastComplete ?? null;
     },

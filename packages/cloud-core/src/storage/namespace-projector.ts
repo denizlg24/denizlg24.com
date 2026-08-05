@@ -14,6 +14,8 @@ export interface NamespaceSource {
 }
 
 export interface ProjectionRepository {
+  /** One projected row by namespace-relative path, for watcher-driven updates. */
+  findByPath(relativePath: string): Promise<ProjectedRow | null>;
   nextGeneration(): Promise<number>;
   lastCompleteGeneration(): Promise<number | null>;
   projectedRows(): Promise<ProjectedRow[]>;

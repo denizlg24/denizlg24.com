@@ -7,6 +7,7 @@ import {
   type MetadataRequest,
   type MetadataResponse,
 } from "./metadata-protocol";
+import type { NamespaceWatchMessage } from "./namespace-watch";
 
 export interface MetadataClientOptions {
   socketPath: string;
@@ -88,6 +89,66 @@ export class NamespaceMetadataClient {
     if (!payload.ok) {
       throw new MetadataClientError(payload.message, payload.code);
     }
+  }
+
+  /**
+   * Streams watch messages until the caller aborts or the host closes.
+   *
+   * Ending the stream is always safe: the supervisor treats any end as a gap it
+   * cannot account for and falls back to a full scan, so nothing here needs to
+   * buffer, replay or acknowledge.
+   */
+  async *watch(signal: AbortSignal): AsyncGenerator<NamespaceWatchMessage> {
+    const response = await fetch("http://metadata/v1/watch", {
+      headers: {
+        "x-metadata-token": this.options.token,
+        "x-metadata-version": String(METADATA_PROTOCOL_VERSION),
+      },
+      method: "POST",
+      signal,
+      unix: this.options.socketPath,
+    } as RequestInit & { unix: string });
+
+    if (!response.ok || !response.body) {
+      throw new MetadataClientError(
+        `Metadata watch failed with ${response.status}`,
+        "UNAVAILABLE",
+      );
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+      buffer += decoder.decode(chunk, { stream: true });
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        newline = buffer.indexOf("\n");
+        if (line.length === 0) continue;
+        try {
+          yield JSON.parse(line) as NamespaceWatchMessage;
+        } catch {
+          // A malformed line means the stream is no longer trustworthy; ending
+          // it sends the supervisor down the full-scan path.
+          throw new MetadataClientError(
+            "Metadata watch produced a malformed message",
+            "UNAVAILABLE",
+          );
+        }
+      }
+    }
+  }
+
+  async branchMarkers(): Promise<Record<string, string>> {
+    const payload = await this.raw({ op: "branch-markers" });
+    if (!payload.ok || !("branchMarkers" in payload)) {
+      throw new MetadataClientError(
+        "Metadata service returned no branch markers",
+        "UNAVAILABLE",
+      );
+    }
+    return payload.branchMarkers;
   }
 
   async revokeSmb(principal: string): Promise<void> {

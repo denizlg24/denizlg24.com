@@ -101,6 +101,20 @@ export async function seedDefaultOpsTasks(db: Database): Promise<void> {
       createdBy: creator.id,
     });
   }
+  // Files arriving over SMB reach PostgreSQL only through this scan, so it is
+  // seeded enabled rather than left for someone to notice. Five minutes is the
+  // recovery interval, not the target latency: the plan's low-latency path is
+  // the watcher, and this remains the backstop the watcher is never trusted to
+  // replace. Reaping stays off until a run's plan has been read.
+  if (!existingTypes.has("namespace_scan")) {
+    await createTask(db, {
+      name: "Namespace projection scan",
+      type: "namespace_scan",
+      cronExpression: "*/5 * * * *",
+      config: validatedTaskConfig("namespace_scan", { allowReap: false }),
+      createdBy: creator.id,
+    });
+  }
   if (!existingTypes.has("tiering_pass")) {
     const task = await createTask(db, {
       name: "Nightly storage tiering",

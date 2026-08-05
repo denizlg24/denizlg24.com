@@ -25,11 +25,15 @@ function payload(entry: NamespaceEntry): MetadataEntryPayload {
 function isRequest(value: unknown): value is MetadataRequest {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
-  // The SMB operations name a principal rather than a namespace path.
-  const isSmb =
-    candidate.op === "smb-provision" || candidate.op === "smb-revoke";
-  if (!isSmb && typeof candidate.relativePath !== "string") return false;
+  // The SMB and branch-marker operations name no namespace path.
+  const isPathless =
+    candidate.op === "smb-provision" ||
+    candidate.op === "smb-revoke" ||
+    candidate.op === "branch-markers";
+  if (!isPathless && typeof candidate.relativePath !== "string") return false;
   switch (candidate.op) {
+    case "branch-markers":
+      return true;
     case "smb-provision":
       return (
         typeof candidate.accountId === "string" &&
@@ -75,6 +79,7 @@ export async function handleMetadataRequest(
   service: NamespaceMetadataService,
   body: unknown,
   smb?: SmbProvisioningAgent,
+  branchMarkers?: () => Promise<Record<string, string>>,
 ): Promise<MetadataResponse> {
   if (!isRequest(body)) {
     return {
@@ -85,6 +90,15 @@ export async function handleMetadataRequest(
   }
 
   try {
+    if (body.op === "branch-markers") {
+      // An absent provider answers with no markers rather than an error: the
+      // projector reads an empty map as "cannot prove the branches held" and
+      // withholds every deletion, which is the safe reading of not knowing.
+      return {
+        branchMarkers: branchMarkers ? await branchMarkers() : {},
+        ok: true,
+      };
+    }
     if (body.op === "smb-provision" || body.op === "smb-revoke") {
       if (!smb) {
         return {
