@@ -11,6 +11,10 @@ readonly production_target_hdd="/mnt/hdd/deniz-cloud/namespace"
 readonly production_snapshot_root="/mnt/hdd/backups"
 readonly production_journal_root="/var/lib/deniz-cloud/posix-migration"
 readonly branch_marker_name=".denizcloud-branch.json"
+# Must equal PROTECTED_XATTR_NAMESPACE in
+# packages/cloud-core/src/storage/metadata.ts; posix-xattr-namespace.test.ts
+# fails if they drift.
+readonly xattr_ns="user."
 
 mode="--dry-run"
 mode_set=false
@@ -513,15 +517,15 @@ set_protected_metadata() {
   owner="$(jq -r '.ownerId // empty' <<< "$entry")"
   created="$(jq -er '.createdAt' <<< "$entry")"
   path="$(jq -er '.path' <<< "$entry")"
-  setfattr -n user.denizcloud.id -v "$id" -- "$destination"
-  setfattr -n user.denizcloud.created_at -v "$created" -- "$destination"
-  setfattr -n user.denizcloud.schema_version -v 1 -- "$destination"
-  setfattr -x user.denizcloud.owner_id -- "$destination" 2>/dev/null || true
-  setfattr -x user.denizcloud.scope -- "$destination" 2>/dev/null || true
+  setfattr -n ${xattr_ns}denizcloud.id -v "$id" -- "$destination"
+  setfattr -n ${xattr_ns}denizcloud.created_at -v "$created" -- "$destination"
+  setfattr -n ${xattr_ns}denizcloud.schema_version -v 1 -- "$destination"
+  setfattr -x ${xattr_ns}denizcloud.owner_id -- "$destination" 2>/dev/null || true
+  setfattr -x ${xattr_ns}denizcloud.scope -- "$destination" 2>/dev/null || true
   if [[ -n "$owner" ]]; then
-    setfattr -n user.denizcloud.owner_id -v "$owner" -- "$destination"
+    setfattr -n ${xattr_ns}denizcloud.owner_id -v "$owner" -- "$destination"
   elif [[ "$kind" == "folder" && "$path" == "/shared" ]]; then
-    setfattr -n user.denizcloud.scope -v shared -- "$destination"
+    setfattr -n ${xattr_ns}denizcloud.scope -v shared -- "$destination"
   else
     echo "Only the shared root may omit ownerId" >&2
     return 1
@@ -529,11 +533,11 @@ set_protected_metadata() {
   if [[ "$kind" == "file" ]]; then
     checksum="$(jq -er '.checksum' <<< "$entry")"
     mime="$(jq -r '.mimeType // empty' <<< "$entry")"
-    setfattr -n user.denizcloud.checksum -v "$checksum" -- "$destination"
-    setfattr -n user.denizcloud.checksum_state -v verified -- "$destination"
-    setfattr -x user.denizcloud.mime_type -- "$destination" 2>/dev/null || true
+    setfattr -n ${xattr_ns}denizcloud.checksum -v "$checksum" -- "$destination"
+    setfattr -n ${xattr_ns}denizcloud.checksum_state -v verified -- "$destination"
+    setfattr -x ${xattr_ns}denizcloud.mime_type -- "$destination" 2>/dev/null || true
     if [[ -n "$mime" ]]; then
-      setfattr -n user.denizcloud.mime_type -v "$mime" -- "$destination"
+      setfattr -n ${xattr_ns}denizcloud.mime_type -v "$mime" -- "$destination"
     fi
   fi
 }
@@ -542,26 +546,26 @@ verify_protected_metadata() {
   local entry="$1" destination="$2" kind="$3"
   local expected owner path mime
   for pair in \
-    "user.denizcloud.id:id" \
-    "user.denizcloud.created_at:createdAt"; do
+    "${xattr_ns}denizcloud.id:id" \
+    "${xattr_ns}denizcloud.created_at:createdAt"; do
     expected="$(jq -er ".${pair#*:}" <<< "$entry")"
     [[ "$(xattr_value "${pair%%:*}" "$destination")" == "$expected" ]]
   done
-  [[ "$(xattr_value user.denizcloud.schema_version "$destination")" == 1 ]]
+  [[ "$(xattr_value ${xattr_ns}denizcloud.schema_version "$destination")" == 1 ]]
   owner="$(jq -r '.ownerId // empty' <<< "$entry")"
   path="$(jq -er '.path' <<< "$entry")"
   if [[ -n "$owner" ]]; then
-    [[ "$(xattr_value user.denizcloud.owner_id "$destination")" == "$owner" ]]
+    [[ "$(xattr_value ${xattr_ns}denizcloud.owner_id "$destination")" == "$owner" ]]
   else
     [[ "$kind" == folder && "$path" == /shared ]]
-    [[ "$(xattr_value user.denizcloud.scope "$destination")" == shared ]]
+    [[ "$(xattr_value ${xattr_ns}denizcloud.scope "$destination")" == shared ]]
   fi
   if [[ "$kind" == file ]]; then
-    [[ "$(xattr_value user.denizcloud.checksum "$destination")" == "$(jq -er '.checksum' <<< "$entry")" ]]
-    [[ "$(xattr_value user.denizcloud.checksum_state "$destination")" == verified ]]
+    [[ "$(xattr_value ${xattr_ns}denizcloud.checksum "$destination")" == "$(jq -er '.checksum' <<< "$entry")" ]]
+    [[ "$(xattr_value ${xattr_ns}denizcloud.checksum_state "$destination")" == verified ]]
     mime="$(jq -r '.mimeType // empty' <<< "$entry")"
     if [[ -n "$mime" ]]; then
-      [[ "$(xattr_value user.denizcloud.mime_type "$destination")" == "$mime" ]]
+      [[ "$(xattr_value ${xattr_ns}denizcloud.mime_type "$destination")" == "$mime" ]]
     fi
   fi
 }

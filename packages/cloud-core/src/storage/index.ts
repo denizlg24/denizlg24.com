@@ -43,6 +43,15 @@ export {
   pathExists,
 } from "./fs";
 export {
+  type ChecksumState,
+  METADATA_SCHEMA_VERSION,
+  PROTECTED_XATTR_KEYS,
+  PROTECTED_XATTR_NAMESPACE,
+  type ProtectedMetadata,
+  protectedCanonicalForm,
+  protectedMetadataHash,
+} from "./metadata";
+export {
   createStorageNamespace,
   type StorageNamespace,
   type StorageNamespaceCapabilities,

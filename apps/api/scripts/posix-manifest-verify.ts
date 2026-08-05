@@ -1,27 +1,15 @@
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+
+import {
+  protectedCanonicalForm,
+  protectedMetadataHash,
+} from "@repo/cloud-core";
 
 import { runScript, ScriptError } from "./lib/runner";
 
 const FORWARD_SCHEMA = "deniz-cloud-posix-migration-v1";
 const REVERSE_SCHEMA = "deniz-cloud-posix-reverse-v1";
-
-/**
- * The protected xattrs, in the byte order `posix-storage-reverse.sh` hashes
- * them. Both directions must agree on this list and this order or the whole
- * comparison degrades into two unrelated hashes.
- */
-const PROTECTED_KEYS = [
-  "user.denizcloud.checksum",
-  "user.denizcloud.checksum_state",
-  "user.denizcloud.created_at",
-  "user.denizcloud.id",
-  "user.denizcloud.mime_type",
-  "user.denizcloud.owner_id",
-  "user.denizcloud.schema_version",
-  "user.denizcloud.scope",
-] as const;
 
 export interface ManifestEntry {
   checksum?: string;
@@ -45,46 +33,29 @@ export interface ManifestDifference {
 }
 
 /**
- * Rebuilds the exact string the reverse exporter hashes. The forward manifest
- * carries the values the forward migration is going to write as xattrs, so the
- * same canonical form is derivable from either side and a mismatch names the
- * metadata rather than the direction.
+ * Rebuilds the exact string the reverse exporter hashes, from the values the
+ * forward migration is going to write as xattrs. The canonical form itself
+ * lives in cloud-core so the manifest verifier, the projector and the shell
+ * exporters cannot drift apart.
  */
 export function protectedCanonical(
   entry: ManifestEntry,
   kind: "file" | "folder",
 ): string {
-  const values = new Map<string, string>();
-  values.set("user.denizcloud.id", entry.id);
-  values.set("user.denizcloud.created_at", entry.createdAt);
-  values.set("user.denizcloud.schema_version", "1");
-  if (entry.ownerId) {
-    values.set("user.denizcloud.owner_id", entry.ownerId);
-  } else {
-    values.set("user.denizcloud.scope", "shared");
+  if (kind === "file" && !entry.checksum) {
+    throw new ScriptError(`File entry has no checksum: ${entry.path}`);
   }
-  if (kind === "file") {
-    if (!entry.checksum) {
-      throw new ScriptError(`File entry has no checksum: ${entry.path}`);
-    }
-    values.set("user.denizcloud.checksum", entry.checksum.toLowerCase());
-    values.set("user.denizcloud.checksum_state", "verified");
-    if (entry.mimeType) {
-      values.set("user.denizcloud.mime_type", entry.mimeType);
-    }
-  }
-  return PROTECTED_KEYS.filter((key) => values.has(key))
-    .map((key) => `${key}=${values.get(key)}\n`)
-    .join("");
+  return protectedCanonicalForm(entry, kind);
 }
 
 export function protectedHash(
   entry: ManifestEntry,
   kind: "file" | "folder",
 ): string {
-  return createHash("sha256")
-    .update(protectedCanonical(entry, kind))
-    .digest("hex");
+  if (kind === "file" && !entry.checksum) {
+    throw new ScriptError(`File entry has no checksum: ${entry.path}`);
+  }
+  return protectedMetadataHash(entry, kind);
 }
 
 function parseJsonl(

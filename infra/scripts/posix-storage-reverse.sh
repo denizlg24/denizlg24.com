@@ -11,6 +11,10 @@ readonly production_target_hdd="/mnt/hdd/deniz-cloud/reverse/storage"
 readonly production_journal_root="/var/lib/deniz-cloud/posix-migration"
 readonly branch_marker_name=".denizcloud-branch.json"
 readonly witness_name=".denizcloud-mount-witness"
+# Must equal PROTECTED_XATTR_NAMESPACE in
+# packages/cloud-core/src/storage/metadata.ts; posix-xattr-namespace.test.ts
+# fails if they drift.
+readonly xattr_ns="user."
 
 mode="--dry-run"
 mode_set=false
@@ -234,14 +238,14 @@ xattr_value() {
 protected_canonical() {
   local canonical="" key value
   for key in \
-    user.denizcloud.checksum \
-    user.denizcloud.checksum_state \
-    user.denizcloud.created_at \
-    user.denizcloud.id \
-    user.denizcloud.mime_type \
-    user.denizcloud.owner_id \
-    user.denizcloud.schema_version \
-    user.denizcloud.scope; do
+    ${xattr_ns}denizcloud.checksum \
+    ${xattr_ns}denizcloud.checksum_state \
+    ${xattr_ns}denizcloud.created_at \
+    ${xattr_ns}denizcloud.id \
+    ${xattr_ns}denizcloud.mime_type \
+    ${xattr_ns}denizcloud.owner_id \
+    ${xattr_ns}denizcloud.schema_version \
+    ${xattr_ns}denizcloud.scope; do
     value="$(xattr_value "$key" "$1")"
     [[ -n "$value" ]] || continue
     canonical+="${key}=${value}"$'\n'
@@ -295,14 +299,14 @@ scan_branch() {
       --arg tier "$tier" \
       --arg relative "$relative" \
       --arg absolute "$absolute" \
-      --arg id "$(xattr_value user.denizcloud.id "$absolute")" \
-      --arg ownerId "$(xattr_value user.denizcloud.owner_id "$absolute")" \
-      --arg scope "$(xattr_value user.denizcloud.scope "$absolute")" \
-      --arg createdAt "$(xattr_value user.denizcloud.created_at "$absolute")" \
-      --arg schemaVersion "$(xattr_value user.denizcloud.schema_version "$absolute")" \
-      --arg checksum "$(xattr_value user.denizcloud.checksum "$absolute")" \
-      --arg checksumState "$(xattr_value user.denizcloud.checksum_state "$absolute")" \
-      --arg mimeType "$(xattr_value user.denizcloud.mime_type "$absolute")" \
+      --arg id "$(xattr_value ${xattr_ns}denizcloud.id "$absolute")" \
+      --arg ownerId "$(xattr_value ${xattr_ns}denizcloud.owner_id "$absolute")" \
+      --arg scope "$(xattr_value ${xattr_ns}denizcloud.scope "$absolute")" \
+      --arg createdAt "$(xattr_value ${xattr_ns}denizcloud.created_at "$absolute")" \
+      --arg schemaVersion "$(xattr_value ${xattr_ns}denizcloud.schema_version "$absolute")" \
+      --arg checksum "$(xattr_value ${xattr_ns}denizcloud.checksum "$absolute")" \
+      --arg checksumState "$(xattr_value ${xattr_ns}denizcloud.checksum_state "$absolute")" \
+      --arg mimeType "$(xattr_value ${xattr_ns}denizcloud.mime_type "$absolute")" \
       --arg protectedXattrHash "$(protected_canonical "$absolute" | sha256sum | cut -d' ' -f1)" \
       --argjson sizeBytes "$size" \
       --argjson allocatedBlocks512 "$blocks" \
