@@ -70,6 +70,43 @@ export function stableContentHash(value: unknown): string {
     .digest("hex");
 }
 
+/**
+ * When each of these events was observed.
+ *
+ * Callers use it to date a memory by the evidence behind it rather than by its
+ * own `updatedAt`. A document's timestamp moves for reasons that have nothing
+ * to do with the world — a re-embed, a governance revision, a reinforcement —
+ * so ordering a temporal conflict by it would call a memory from January newer
+ * than evidence from June because something touched it in July. An evidence
+ * event is immutable, so its `occurredAt` cannot drift.
+ */
+export async function observationTimes(
+  eventIds: string[],
+): Promise<Map<string, Date>> {
+  const wanted = [...new Set(eventIds)];
+  if (wanted.length === 0) return new Map();
+  await connectDB();
+  const events = await AgentEvidenceEvent.find(
+    { eventId: { $in: wanted } },
+    { eventId: 1, occurredAt: 1 },
+  ).lean<{ eventId: string; occurredAt: Date }[]>();
+  return new Map(events.map((event) => [event.eventId, event.occurredAt]));
+}
+
+/** The most recent of `eventIds` per `observed`, or null when none are known. */
+export function latestObservation(
+  eventIds: string[],
+  observed: Map<string, Date>,
+): Date | null {
+  let newest: Date | null = null;
+  for (const eventId of eventIds) {
+    const seen = observed.get(eventId);
+    if (!seen) continue;
+    if (!newest || seen.getTime() > newest.getTime()) newest = seen;
+  }
+  return newest;
+}
+
 export function buildEvidenceInput(input: {
   idempotencyKey: string;
   sourceType: AgentSourceType;

@@ -488,30 +488,39 @@ export async function acceptMemoryCandidate(options: {
         }
       }
 
-      // Consolidation candidates replace their whole conflicting set: the new
-      // memory supersedes every listed source instead of contradicting it.
+      // Two ways a candidate replaces rather than disputes its predecessors:
+      // consolidation folds a whole conflicting set into one statement, and
+      // succession carries a value forward to a later point in time. Both
+      // supersede their sources; neither leaves a contradiction behind.
       const consolidates = candidate.reviewFlags.includes("consolidation");
-      const consolidatedSources: IAgentMemory[] = [];
-      if (consolidates) {
-        for (const conflictingId of candidate.conflictingMemoryIds) {
-          const source = await AgentMemory.findOne({
-            _id: conflictingId,
-            status: "active",
-          }).session(session);
-          if (source) consolidatedSources.push(source);
-        }
+      const replacedIds = [
+        ...(consolidates ? candidate.conflictingMemoryIds : []),
+        ...candidate.supersedesMemoryIds,
+      ];
+      const replacedSources: IAgentMemory[] = [];
+      const seenReplaced = new Set<string>();
+      for (const replacedId of replacedIds) {
+        if (seenReplaced.has(replacedId.toString())) continue;
+        seenReplaced.add(replacedId.toString());
+        const source = await AgentMemory.findOne({
+          _id: replacedId,
+          status: "active",
+        }).session(session);
+        if (source) replacedSources.push(source);
       }
 
       const memory = new AgentMemory({ _id: new Types.ObjectId() });
       const baseState = candidateToRevisionState(candidate, superseded?._id);
       const revision = await writeRevision(
         memory,
-        consolidates
+        replacedSources.length > 0
           ? {
               ...baseState,
-              contradictionIds: [],
-              supersedesMemoryId:
-                superseded?._id ?? consolidatedSources[0]?._id,
+              // Consolidation subsumes its whole conflicting set; succession
+              // already had its successions filtered out of that set upstream,
+              // so any contradiction left on it is a real one worth keeping.
+              contradictionIds: consolidates ? [] : baseState.contradictionIds,
+              supersedesMemoryId: superseded?._id ?? replacedSources[0]?._id,
             }
           : baseState,
         options.actor,
@@ -528,13 +537,13 @@ export async function acceptMemoryCandidate(options: {
           session,
         );
       }
-      for (const source of consolidatedSources) {
+      for (const source of replacedSources) {
         if (superseded && source._id.equals(superseded._id)) continue;
         await writeRevision(
           source,
           { ...memoryToRevisionState(source), status: "superseded" },
           options.actor,
-          `Consolidated into memory ${memory._id.toString()}: ${options.reason}`,
+          `${consolidates ? "Consolidated into" : "Superseded by"} memory ${memory._id.toString()}: ${options.reason}`,
           session,
         );
       }
@@ -619,7 +628,13 @@ export async function dismissMemoryCandidate(options: {
 
 async function reviseExistingMemory(options: {
   memoryId: string;
-  action: "edit" | "archive" | "rollback" | "delete" | "resolve-contradiction";
+  action:
+    | "edit"
+    | "archive"
+    | "rollback"
+    | "delete"
+    | "supersede"
+    | "resolve-contradiction";
   reason: string;
   actor?: GovernanceActor;
   buildState: (
@@ -693,6 +708,31 @@ export async function editMemory(options: {
     buildState: (memory) => ({
       ...memoryToRevisionState(memory),
       statement: options.statement,
+    }),
+  });
+}
+
+/**
+ * Records that an existing memory was observed again: the new evidence joins
+ * its citation list and confidence moves a quarter of the way to certainty.
+ * Asymptotic on purpose — repeated observation should never turn a hedge into
+ * a certainty on its own, and the statement itself is left untouched.
+ */
+export async function reinforceMemory(options: {
+  memoryId: string;
+  evidenceId: string;
+  reason: string;
+  actor?: GovernanceActor;
+}): Promise<IAgentMemory> {
+  return reviseExistingMemory({
+    memoryId: options.memoryId,
+    action: "edit",
+    reason: options.reason,
+    actor: options.actor,
+    buildState: (memory) => ({
+      ...memoryToRevisionState(memory),
+      evidenceIds: [...new Set([...memory.evidenceIds, options.evidenceId])],
+      confidence: memory.confidence + (1 - memory.confidence) * 0.25,
     }),
   });
 }
@@ -773,6 +813,58 @@ export async function archiveMemory(options: {
       status: "archived",
     }),
   });
+}
+
+/**
+ * Retires a memory that a later one has overtaken, and points the survivor at
+ * it. Distinct from `archiveMemory`: archiving says the memory should stop
+ * being used, superseding says something newer now says it better.
+ *
+ * The order matters. The superseded side is written first, so a failure part
+ * way leaves the survivor still holding a contradiction link to a non-active
+ * memory — which the consolidation sweep already prunes — rather than a link
+ * silently dropped from a conflict that was never resolved.
+ */
+export async function supersedeMemory(options: {
+  supersededMemoryId: string;
+  survivingMemoryId: string;
+  reason: string;
+  actor?: GovernanceActor;
+}): Promise<{ superseded: IAgentMemory; surviving: IAgentMemory }> {
+  const superseded = await reviseExistingMemory({
+    memoryId: options.supersededMemoryId,
+    action: "supersede",
+    reason: options.reason,
+    actor: options.actor,
+    buildState: (memory) => ({
+      ...memoryToRevisionState(memory),
+      status: "superseded",
+    }),
+  });
+  // A deleted memory is returned untouched, with no revision written. Carrying
+  // on from there would drop the survivor's contradiction link and point
+  // `supersedesMemoryId` at a deleted row, and the caller would be handed a
+  // result that reads exactly like a completed supersession.
+  if (superseded.status !== "superseded") {
+    throw new AgentMemoryPolicyError(
+      `Memory ${options.supersededMemoryId} could not be superseded (status ${superseded.status})`,
+      "conflict",
+    );
+  }
+  const surviving = await reviseExistingMemory({
+    memoryId: options.survivingMemoryId,
+    action: "resolve-contradiction",
+    reason: options.reason,
+    actor: options.actor,
+    buildState: (memory) => ({
+      ...memoryToRevisionState(memory),
+      contradictionIds: memory.contradictionIds.filter(
+        (id) => id.toString() !== options.supersededMemoryId,
+      ),
+      supersedesMemoryId: memory.supersedesMemoryId ?? superseded._id,
+    }),
+  });
+  return { superseded, surviving };
 }
 
 export async function removeContradictionLinks(options: {

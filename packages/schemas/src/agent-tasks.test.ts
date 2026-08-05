@@ -44,6 +44,37 @@ describe("agent task contracts", () => {
     ).toBe(false);
   });
 
+  test("defaults a task to owner-created", () => {
+    expect(
+      createAgentTaskSchema.parse({
+        name: "Portfolio review",
+        prompt: "Review the portfolio.",
+      }).origin,
+    ).toBe("owner");
+  });
+
+  test("accepts a one-off runAt", () => {
+    expect(
+      createAgentTaskSchema.parse({
+        name: "Check the filing",
+        prompt: "Confirm the filing landed.",
+        runAt: "2026-09-01T09:00:00+01:00",
+        origin: "agent",
+      }),
+    ).toMatchObject({ runAt: "2026-09-01T09:00:00+01:00", origin: "agent" });
+  });
+
+  test("refuses a task that is both repeating and one-off", () => {
+    expect(
+      createAgentTaskSchema.safeParse({
+        name: "Ambiguous",
+        prompt: "Nothing.",
+        schedule: { cron: "0 9 * * *", timeZone: "UTC" },
+        runAt: "2026-09-01T09:00:00Z",
+      }).success,
+    ).toBe(false);
+  });
+
   test("requires text on every verdict, not just corrections", () => {
     for (const verdict of ["useful", "correction"] as const) {
       expect(

@@ -225,6 +225,7 @@ export function serializeAgentMemoryCandidate(
     evidenceIds: candidate.evidenceIds,
     contradictionEvidenceIds: candidate.contradictionEvidenceIds,
     conflictingMemoryIds: candidate.conflictingMemoryIds.map(String),
+    supersedesMemoryIds: (candidate.supersedesMemoryIds ?? []).map(String),
     extraction: {
       model: candidate.extraction.model,
       promptVersion: candidate.extraction.promptVersion,

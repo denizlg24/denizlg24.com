@@ -151,7 +151,10 @@ export function buildReplaceCandidate(
       ...new Set(sources.flatMap((source) => source.evidenceIds)),
     ].slice(0, 100),
     contradictionEvidenceIds: [],
+    // Consolidation supersedes its whole conflicting set through the
+    // "consolidation" review flag, not through the succession list.
     conflictingMemoryIds: sources.map((source) => source.id),
+    supersedesMemoryIds: [],
     reason: action.reason,
     reviewFlags: ["consolidation"],
   };

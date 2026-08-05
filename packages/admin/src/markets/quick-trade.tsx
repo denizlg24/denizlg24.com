@@ -1,6 +1,10 @@
 "use client";
 
-import type { Portfolio, PortfolioPerformance } from "@repo/markets/schemas";
+import type {
+  OrderInput,
+  Portfolio,
+  PortfolioPerformance,
+} from "@repo/markets/schemas";
 import { Button } from "@repo/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import {
@@ -13,6 +17,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { useAdmin } from "../provider";
 import { money, trimQuantity } from "./format";
+import { OrderTicket } from "./order-ticket";
 import { type TradeKind, TradeTicket } from "./trade-ticket";
 
 /**
@@ -34,7 +39,8 @@ export function QuickTrade({ ticker, lastPrice }: QuickTradeProps) {
   const [performance, setPerformance] = useState<PortfolioPerformance | null>(
     null,
   );
-  const [open, setOpen] = useState<TradeKind | null>(null);
+  /** `order` is the working-order ticket; the rest book a fill immediately. */
+  const [open, setOpen] = useState<TradeKind | "order" | null>(null);
 
   useEffect(() => {
     client
@@ -95,6 +101,15 @@ export function QuickTrade({ ticker, lastPrice }: QuickTradeProps) {
     [client, selected, loadPerformance],
   );
 
+  const placeOrder = useCallback(
+    async (input: OrderInput) => {
+      if (!selected) throw new Error("No portfolio");
+      await client.post(`/markets/portfolios/${selected}/orders`, input);
+      await loadPerformance(selected);
+    },
+    [client, selected, loadPerformance],
+  );
+
   if (!portfolios || portfolios.length === 0 || !selected) return null;
 
   const portfolio = portfolios.find((item) => item.id === selected);
@@ -106,9 +121,10 @@ export function QuickTrade({ ticker, lastPrice }: QuickTradeProps) {
 
   return (
     <div className="flex items-center gap-1.5">
-      {held ? (
+      {held && held.quantity !== 0 ? (
         <span className="text-[10px] text-muted-foreground tabular-nums">
-          {trimQuantity(held.quantity)} @ {held.avgCost.toFixed(2)}
+          {held.quantity < 0 ? "short " : ""}
+          {trimQuantity(Math.abs(held.quantity))} @ {held.avgCost.toFixed(2)}
         </span>
       ) : null}
 
@@ -123,8 +139,13 @@ export function QuickTrade({ ticker, lastPrice }: QuickTradeProps) {
               size="sm"
               variant="outline"
               // Sell is disabled rather than hidden so the pair does not reflow
-              // every time the chart moves to a symbol that is held.
-              disabled={side === "sell" && !held}
+              // every time the chart moves to a symbol that is held. A portfolio
+              // that allows shorts can always sell — there is nothing to hold.
+              disabled={
+                side === "sell" &&
+                (!held || held.quantity <= 0) &&
+                !portfolio.allowShorts
+              }
               className={`h-7 px-2.5 text-xs ${
                 side === "buy"
                   ? "border-emerald-600/40 text-emerald-700 hover:bg-emerald-600/10 dark:text-emerald-500"
@@ -175,6 +196,55 @@ export function QuickTrade({ ticker, lastPrice }: QuickTradeProps) {
           </PopoverContent>
         </Popover>
       ))}
+
+      {/* Buy and Sell book a fill now; this one leaves an order resting. Both
+          matter from a chart — the price you are looking at is exactly where a
+          stop or a limit gets decided. */}
+      <Popover
+        open={open === "order"}
+        onOpenChange={(next) => setOpen(next ? "order" : null)}
+      >
+        <PopoverTrigger asChild>
+          <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs">
+            Order
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          className="max-h-[70vh] w-80 overflow-y-auto p-3"
+        >
+          <div className="mb-2 flex items-center gap-2">
+            <Select value={selected} onValueChange={choose}>
+              <SelectTrigger size="sm" className="h-7 flex-1 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {portfolios.map((item) => (
+                  <SelectItem key={item.id} value={item.id} className="text-xs">
+                    {item.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {performance ? (
+            <OrderTicket
+              key={`${selected}:${ticker}`}
+              baseCurrency={portfolio.baseCurrency}
+              positions={performance.positions}
+              margin={performance.margin}
+              marginConfig={portfolio.margin}
+              allowShorts={portfolio.allowShorts}
+              fixedTicker={ticker}
+              initialPrice={lastPrice}
+              onSubmit={placeOrder}
+              onDone={() => setOpen(null)}
+            />
+          ) : (
+            <div className="text-muted-foreground text-xs">—</div>
+          )}
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

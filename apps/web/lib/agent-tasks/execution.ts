@@ -228,6 +228,7 @@ export async function processAgentTaskJob(job: IAgentMemoryJob) {
       }),
       messages: [{ role: "user", content: taskContent(task) }],
       tools,
+      toolContext: { memoryMode: task.memoryMode },
       executionMode: "yolo",
       maxIterations: task.maxRounds,
       requireTools: true,

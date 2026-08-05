@@ -43,12 +43,21 @@ function contributionAdjustedReturns(curve: ValuationPoint[]): number[] {
 }
 
 /**
+ * Below this, a growth rate is not a growth rate. Raising a two-day return to
+ * the power of 182 turns a 2% move into five figures of "CAGR" — a number that
+ * is arithmetically correct, worthless, and the largest thing on the screen.
+ * Now that the curve reaches today from a portfolio's first session, every new
+ * portfolio would hit exactly that for its first month.
+ */
+const MIN_ANNUALIZATION_YEARS = 30 / 365.25;
+
+/**
  * Annualises the same contribution-adjusted series the risk metrics use, by
  * geometrically linking the daily returns. `cagr(first.value, totalValue)`
  * would count deposits as appreciation and report growth next to a flat Sharpe.
  */
 function annualizedReturn(returns: number[], years: number): number | null {
-  if (returns.length === 0 || years <= 0) return null;
+  if (returns.length === 0 || years < MIN_ANNUALIZATION_YEARS) return null;
   let growth = 1;
   for (const value of returns) {
     growth *= 1 + value;

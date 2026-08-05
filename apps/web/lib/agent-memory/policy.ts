@@ -187,6 +187,18 @@ export function assertCandidateSafety(input: CandidatePolicyInput): void {
   }
 }
 
+/**
+ * Flags that mark a candidate rather than ask for a decision. "succession" says
+ * a value moved forward in time, which is the ordinary case for anything the
+ * owner tracks — holding it for review would put a queue in front of every
+ * balance, count and status the agent ever learns.
+ */
+const INFORMATIONAL_REVIEW_FLAGS = new Set(["succession"]);
+
+export function reviewFlagsRequiringDecision(flags: string[]): string[] {
+  return flags.filter((flag) => !INFORMATIONAL_REVIEW_FLAGS.has(flag));
+}
+
 export interface PromotionPolicyOptions {
   independentTrustedEvidenceCount: number;
   /** Source types of the candidate's cited evidence (for single-user mode). */
@@ -230,7 +242,7 @@ export function canAutomaticallyPromoteCandidate(
     };
   }
 
-  if (input.reviewFlags.length > 0) {
+  if (reviewFlagsRequiringDecision(input.reviewFlags).length > 0) {
     return { allowed: false, reason: "Candidate requires exception review" };
   }
   if (input.trust === "untrusted" && input.memoryType === "core") {

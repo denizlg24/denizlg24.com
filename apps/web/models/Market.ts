@@ -1,3 +1,10 @@
+import {
+  DEFAULT_MARGIN,
+  orderStatusSchema,
+  orderTypeSchema,
+  timeInForceSchema,
+  trailBasisSchema,
+} from "@repo/markets/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
 
 /**
@@ -348,16 +355,47 @@ const marketWatchlistSchema = new Schema<IMarketWatchlist>(
   { timestamps: true },
 );
 
+export interface IMarketMarginConfig {
+  enabled: boolean;
+  initialLong: number;
+  initialShort: number;
+  maintenanceLong: number;
+  maintenanceShort: number;
+  borrowRate: number;
+}
+
 export interface IMarketPortfolio extends Document {
   name: string;
   baseCurrency: string;
   initialCash: number;
   benchmark: string | null;
   reinvestDividends: boolean;
+  allowShorts: boolean;
+  margin: IMarketMarginConfig;
+  /** Last day borrow was charged for, so a gap is caught up rather than lost. */
+  borrowAccruedThrough?: string;
   inceptionDate: string;
   createdAt: Date;
   updatedAt: Date;
 }
+
+// Defaults matter on this one: portfolios written before shorting existed have
+// no `margin` subdocument at all, and a missing requirement would read as a
+// zero requirement — an account with infinite buying power and no margin call.
+const marketMarginConfigSchema = new Schema<IMarketMarginConfig>(
+  {
+    enabled: { type: Boolean, default: DEFAULT_MARGIN.enabled },
+    initialLong: { type: Number, default: DEFAULT_MARGIN.initialLong },
+    initialShort: { type: Number, default: DEFAULT_MARGIN.initialShort },
+    maintenanceLong: { type: Number, default: DEFAULT_MARGIN.maintenanceLong },
+    maintenanceShort: {
+      type: Number,
+      default: DEFAULT_MARGIN.maintenanceShort,
+    },
+    borrowRate: { type: Number, default: DEFAULT_MARGIN.borrowRate },
+  },
+  { _id: false },
+);
 
 const marketPortfolioSchema = new Schema<IMarketPortfolio>(
   {
@@ -366,6 +404,12 @@ const marketPortfolioSchema = new Schema<IMarketPortfolio>(
     initialCash: { type: Number, required: true },
     benchmark: { type: String, default: null },
     reinvestDividends: { type: Boolean, default: false },
+    allowShorts: { type: Boolean, default: false },
+    margin: {
+      type: marketMarginConfigSchema,
+      default: () => ({}),
+    },
+    borrowAccruedThrough: String,
     inceptionDate: { type: String, required: true },
   },
   { timestamps: true },
@@ -383,6 +427,8 @@ export interface IMarketTrade extends Document {
   note?: string;
   /** Deterministic id for generated rows, so a regenerate overwrites. */
   actionKey?: string;
+  /** Set on a fill, so the blotter can walk from a trade back to its order. */
+  orderId?: mongoose.Types.ObjectId;
 }
 
 const marketTradeSchema = new Schema<IMarketTrade>(
@@ -402,12 +448,139 @@ const marketTradeSchema = new Schema<IMarketTrade>(
     source: { type: String, default: "manual" },
     note: String,
     actionKey: String,
+    orderId: { type: Schema.Types.ObjectId, ref: "MarketOrder" },
   },
   { timestamps: true },
 );
 marketTradeSchema.index(
   { portfolioId: 1, actionKey: 1 },
   { unique: true, partialFilterExpression: { actionKey: { $type: "string" } } },
+);
+
+export interface IMarketOrder extends Document {
+  portfolioId: mongoose.Types.ObjectId;
+  ticker: string;
+  side: "buy" | "sell";
+  type: string;
+  quantity: number;
+  limitPrice: number | null;
+  stopPrice: number | null;
+  trailBasis: string | null;
+  trailValue: number | null;
+  trailAnchor: number | null;
+  stopTriggeredAt: Date | null;
+  timeInForce: string;
+  expiresAt: Date | null;
+  reduceOnly: boolean;
+  status: string;
+  parentOrderId: mongoose.Types.ObjectId | null;
+  ocoGroupId: string | null;
+  filledQuantity: number;
+  filledPrice: number | null;
+  filledAt: Date | null;
+  tradeId: mongoose.Types.ObjectId | null;
+  statusReason: string | null;
+  fees: number;
+  note?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const marketOrderSchema = new Schema<IMarketOrder>(
+  {
+    portfolioId: {
+      type: Schema.Types.ObjectId,
+      ref: "MarketPortfolio",
+      required: true,
+    },
+    ticker: { type: String, required: true, uppercase: true },
+    side: { type: String, enum: ["buy", "sell"], required: true },
+    // Mirrored from the Zod enums rather than left as bare strings. `toOrder`
+    // hands these to the engine as union members without parsing them, so an
+    // unexpected value would reach a dispatch that has no branch for it — and a
+    // `status` typo in an `updateOne` would hide the order from the engine's
+    // `status: "working"` query with no error anywhere.
+    type: { type: String, enum: orderTypeSchema.options, required: true },
+    quantity: { type: Number, required: true },
+    limitPrice: { type: Number, default: null },
+    stopPrice: { type: Number, default: null },
+    trailBasis: {
+      type: String,
+      enum: [...trailBasisSchema.options, null],
+      default: null,
+    },
+    trailValue: { type: Number, default: null },
+    trailAnchor: { type: Number, default: null },
+    stopTriggeredAt: { type: Date, default: null },
+    timeInForce: {
+      type: String,
+      enum: timeInForceSchema.options,
+      default: "gtc",
+    },
+    expiresAt: { type: Date, default: null },
+    reduceOnly: { type: Boolean, default: false },
+    status: {
+      type: String,
+      enum: orderStatusSchema.options,
+      default: "working",
+    },
+    parentOrderId: {
+      type: Schema.Types.ObjectId,
+      ref: "MarketOrder",
+      default: null,
+    },
+    ocoGroupId: { type: String, default: null },
+    filledQuantity: { type: Number, default: 0 },
+    filledPrice: { type: Number, default: null },
+    filledAt: { type: Date, default: null },
+    tradeId: { type: Schema.Types.ObjectId, ref: "MarketTrade", default: null },
+    statusReason: { type: String, default: null },
+    fees: { type: Number, default: 0 },
+    note: String,
+  },
+  { timestamps: true },
+);
+// The engine's hot query is "everything live, across every portfolio", and it
+// runs on every cron pass. Without this it is a collection scan that grows with
+// the fill history rather than with the working book.
+marketOrderSchema.index({ status: 1, portfolioId: 1 });
+marketOrderSchema.index({ portfolioId: 1, createdAt: -1 });
+
+export interface IMarketPortfolioValuePoint extends Document {
+  portfolioId: mongoose.Types.ObjectId;
+  ts: Date;
+  value: number;
+  cash: number;
+  positionsValue: number;
+  invested: number;
+}
+
+/**
+ * Intraday valuations, written whenever something prices the book against live
+ * quotes. Deliberately disposable: the daily snapshots carry the long record, so
+ * these expire rather than accumulating a row a minute for ever.
+ */
+const marketPortfolioValuePointSchema = new Schema<IMarketPortfolioValuePoint>({
+  portfolioId: {
+    type: Schema.Types.ObjectId,
+    ref: "MarketPortfolio",
+    required: true,
+  },
+  ts: { type: Date, required: true },
+  value: { type: Number, required: true },
+  cash: { type: Number, required: true },
+  positionsValue: { type: Number, required: true },
+  invested: { type: Number, required: true },
+});
+// Unique on the minute the writer bucketed to, so a page polling faster than
+// that upserts one row rather than growing the collection per request.
+marketPortfolioValuePointSchema.index(
+  { portfolioId: 1, ts: 1 },
+  { unique: true },
+);
+marketPortfolioValuePointSchema.index(
+  { ts: 1 },
+  { expireAfterSeconds: 30 * 86_400 },
 );
 
 export interface IMarketPortfolioSnapshot extends Document {
@@ -494,6 +667,15 @@ export const MarketPortfolio =
 export const MarketTrade =
   existingModel<IMarketTrade>("MarketTrade") ||
   mongoose.model<IMarketTrade>("MarketTrade", marketTradeSchema);
+export const MarketOrder =
+  existingModel<IMarketOrder>("MarketOrder") ||
+  mongoose.model<IMarketOrder>("MarketOrder", marketOrderSchema);
+export const MarketPortfolioValuePoint =
+  existingModel<IMarketPortfolioValuePoint>("MarketPortfolioValuePoint") ||
+  mongoose.model<IMarketPortfolioValuePoint>(
+    "MarketPortfolioValuePoint",
+    marketPortfolioValuePointSchema,
+  );
 export const MarketPortfolioSnapshot =
   existingModel<IMarketPortfolioSnapshot>("MarketPortfolioSnapshot") ||
   mongoose.model<IMarketPortfolioSnapshot>(

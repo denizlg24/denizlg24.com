@@ -1,4 +1,9 @@
-import { type AgentMemoryMode, agentMemoryModeSchema } from "@repo/schemas";
+import {
+  type AgentMemoryMode,
+  type AgentTaskOrigin,
+  agentMemoryModeSchema,
+  agentTaskOriginSchema,
+} from "@repo/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
 import { existingModel } from "./AgentMemoryCommon";
 
@@ -21,6 +26,9 @@ export interface IAgentTask extends Document {
   attachments: IAgentTaskAttachment[];
   /** Absent means manual-only: the task runs on demand and the scheduler skips it. */
   schedule?: IAgentTaskSchedule;
+  /** A single firing, archived once spent. Never set alongside `schedule`. */
+  runAt?: Date;
+  origin: AgentTaskOrigin;
   llmModel: string;
   memoryMode: AgentMemoryMode;
   status: "active" | "paused" | "archived";
@@ -67,6 +75,14 @@ const AgentTaskSchema = new Schema<IAgentTask>(
       ],
     },
     schedule: { type: AgentTaskScheduleSchema, default: undefined },
+    runAt: { type: Date },
+    // Defaulted rather than required so every task written before the agent
+    // could schedule anything reads back as owner-created.
+    origin: {
+      type: String,
+      enum: agentTaskOriginSchema.options,
+      default: "owner",
+    },
     llmModel: { type: String, required: true, maxlength: 200 },
     memoryMode: {
       type: String,

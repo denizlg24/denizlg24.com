@@ -12,11 +12,12 @@ export interface PositionTreemapProps {
 
 interface Tile {
   ticker: string;
-  /** Area weight: market value. Never negative, so the layout is always valid. */
+  /** Area weight: exposure. Never negative, so the layout is always valid. */
   value: number;
   /** Colour weight: the position's own return, in percent. */
   changePercent: number | null;
   isCash: boolean;
+  isShort: boolean;
 }
 
 interface Rect {
@@ -53,13 +54,17 @@ export function PositionTreemap({
   }, []);
 
   const tiles = useMemo<Tile[]>(() => {
+    // Sized by exposure, so a short takes the area its risk deserves. Its market
+    // value is negative and would otherwise either invert the layout or drop the
+    // position off the map entirely.
     const open: Tile[] = positions
-      .filter((position) => position.quantity > 0 && position.marketValue > 0)
+      .filter((position) => position.quantity !== 0 && position.exposure > 0)
       .map((position) => ({
         ticker: position.ticker,
-        value: position.marketValue,
+        value: position.exposure,
         changePercent: position.unrealizedPnlPercent,
         isCash: false,
+        isShort: position.quantity < 0,
       }));
     // Cash is part of what the portfolio is made of; omitting it would make a
     // mostly-uninvested book look fully deployed.
@@ -69,6 +74,7 @@ export function PositionTreemap({
         value: cash,
         changePercent: null,
         isCash: true,
+        isShort: false,
       });
     }
     return open.sort((a, b) => b.value - a.value);
@@ -98,9 +104,9 @@ export function PositionTreemap({
           width={width}
           height={height}
           role="img"
-          aria-label="Positions by market value"
+          aria-label="Positions by exposure"
         >
-          <title>Positions by market value</title>
+          <title>Positions by exposure</title>
           {laid.map(({ tile, ...rect }) => {
             const share = total === 0 ? 0 : tile.value / total;
             const canLabel = rect.width > 44 && rect.height > 26;
@@ -132,7 +138,10 @@ export function PositionTreemap({
                 aria-label={
                   tile.isCash
                     ? undefined
-                    : `${tile.ticker}, ${(share * 100).toFixed(1)}% of portfolio`
+                    : // The side is carried by a dash pattern and an arrow, so
+                      // without it here a screen reader cannot tell a short from
+                      // a long at all.
+                      `${tile.ticker} ${tile.isShort ? "short" : "long"}, ${(share * 100).toFixed(1)}% of portfolio`
                 }
                 className={tile.isCash ? undefined : "cursor-pointer"}
               >
@@ -148,6 +157,11 @@ export function PositionTreemap({
                       ? "currentColor"
                       : "rgba(127,127,127,0.25)"
                   }
+                  // A short is dashed as well as labelled. Colour already
+                  // carries the return and cannot also carry the side, and a
+                  // short tile shaded green for a gain is exactly the tile that
+                  // must not read as a long.
+                  strokeDasharray={tile.isShort ? "3 2" : undefined}
                   strokeWidth={hovered === tile.ticker ? 1.5 : 0.5}
                 />
                 {canLabel ? (
@@ -156,7 +170,7 @@ export function PositionTreemap({
                     y={rect.y + 16}
                     className="fill-foreground font-medium text-[11px]"
                   >
-                    {tile.ticker}
+                    {tile.isShort ? `${tile.ticker} ↓` : tile.ticker}
                   </text>
                 ) : null}
                 {canLabel ? (
@@ -179,7 +193,7 @@ export function PositionTreemap({
                   </text>
                 ) : null}
                 <title>
-                  {`${tile.ticker} · ${(share * 100).toFixed(1)}% of book · ${tile.value.toLocaleString(
+                  {`${tile.ticker}${tile.isShort ? " (short)" : ""} · ${(share * 100).toFixed(1)}% of book · ${tile.value.toLocaleString(
                     "en-GB",
                     { maximumFractionDigits: 0 },
                   )}${

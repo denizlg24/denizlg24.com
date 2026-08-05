@@ -129,13 +129,30 @@ describe("formation candidate preparation", () => {
     ).toThrow("outside its bounded input");
   });
 
-  test("drops conflict links to memories whose validity window has closed", () => {
+  test("splits reported conflicts into succession and contradiction", () => {
     const expiredId = "665f1e2a9b3c4d5e6f708192";
-    const activeId = "665f1e2a9b3c4d5e6f708193";
+    const sameSittingId = "665f1e2a9b3c4d5e6f708193";
+    const unknownId = "665f1e2a9b3c4d5e6f708195";
     const candidate = prepareFormationCandidate({
       evidence,
-      activeMemoryIds: new Set([expiredId, activeId]),
-      expiredMemoryIds: new Set([expiredId]),
+      activeMemoryIds: new Set([expiredId, sameSittingId, unknownId]),
+      priorMemories: new Map([
+        [
+          expiredId,
+          {
+            explicitness: "explicit" as const,
+            observedAt: new Date("2026-01-01T00:00:00.000Z"),
+            temporal: { validUntil: "2026-06-30T00:00:00.000Z" },
+          },
+        ],
+        [
+          sameSittingId,
+          {
+            explicitness: "explicit" as const,
+            observedAt: new Date("2026-07-13T09:40:00.000Z"),
+          },
+        ],
+      ]),
       candidate: {
         statement: "The user's courses concluded in June 2026.",
         memoryType: "semantic",
@@ -148,11 +165,89 @@ describe("formation candidate preparation", () => {
         entityRefs: [],
         evidenceIds: [evidence[0]!.eventId],
         contradictionEvidenceIds: [],
-        conflictingMemoryIds: [expiredId, activeId],
+        conflictingMemoryIds: [expiredId, sameSittingId, unknownId],
         reason: "Semester ended",
-        reviewFlags: [],
+        reviewFlags: ["conflict"],
       },
     });
-    expect(candidate.conflictingMemoryIds).toEqual([activeId]);
+    expect(candidate.supersedesMemoryIds).toEqual([expiredId]);
+    // The same-sitting disagreement and the unclassifiable one stay conflicts.
+    expect(candidate.conflictingMemoryIds).toEqual([sameSittingId, unknownId]);
+    expect(candidate.reviewFlags).toContain("succession");
+    expect(candidate.reviewFlags).toContain("conflict");
+  });
+
+  test("rejects a candidate that describes an older state than what is stored", () => {
+    // Dropping only the link would store a candidate with nothing left to
+    // review on it, and automatic promotion would then put the older state back
+    // over the newer one.
+    const newerId = "665f1e2a9b3c4d5e6f708194";
+    expect(() =>
+      prepareFormationCandidate({
+        evidence,
+        activeMemoryIds: new Set([newerId]),
+        priorMemories: new Map([
+          [
+            newerId,
+            {
+              explicitness: "explicit" as const,
+              observedAt: new Date("2026-07-20T00:00:00.000Z"),
+            },
+          ],
+        ]),
+        candidate: {
+          statement: "The user's courses concluded in June 2026.",
+          memoryType: "semantic",
+          explicitness: "explicit",
+          confidence: 0.9,
+          importance: 0.6,
+          trust: "untrusted",
+          sensitivity: "personal",
+          temporal: { precision: "unknown" },
+          entityRefs: [],
+          evidenceIds: [evidence[0]!.eventId],
+          contradictionEvidenceIds: [],
+          conflictingMemoryIds: [newerId],
+          reason: "Semester ended",
+          reviewFlags: ["conflict"],
+        },
+      }),
+    ).toThrow(/older state/);
+  });
+
+  test("clears the conflict flag when every disagreement was a value moving on", () => {
+    const priorId = "665f1e2a9b3c4d5e6f708196";
+    const candidate = prepareFormationCandidate({
+      evidence,
+      activeMemoryIds: new Set([priorId]),
+      priorMemories: new Map([
+        [
+          priorId,
+          {
+            explicitness: "explicit" as const,
+            observedAt: new Date("2026-07-01T00:00:00.000Z"),
+          },
+        ],
+      ]),
+      candidate: {
+        statement: "The user's brokerage cash balance is EUR 20.",
+        memoryType: "semantic",
+        explicitness: "explicit",
+        confidence: 0.9,
+        importance: 0.6,
+        trust: "untrusted",
+        sensitivity: "personal",
+        temporal: { precision: "day", validFrom: "2026-07-13T00:00:00.000Z" },
+        entityRefs: [],
+        evidenceIds: [evidence[0]!.eventId],
+        contradictionEvidenceIds: [],
+        conflictingMemoryIds: [priorId],
+        reason: "Balance changed",
+        reviewFlags: ["conflict"],
+      },
+    });
+    expect(candidate.supersedesMemoryIds).toEqual([priorId]);
+    expect(candidate.conflictingMemoryIds).toEqual([]);
+    expect(candidate.reviewFlags).not.toContain("conflict");
   });
 });

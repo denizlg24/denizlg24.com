@@ -7,6 +7,7 @@
     "agent-memory:eval-retrieval": "bun scripts/eval-agent-memory-retrieval.ts",
     "agent-memory:auto-accept": "bun scripts/agent-memory-auto-accept.ts",
     "agent-memory:reembed": "bun --env-file=../../.env scripts/reembed-agent-memory.ts",
+    "agent-memory:reclassify-contradictions": "bun --env-file=../../.env scripts/reclassify-agent-memory-contradictions.ts",
     "triage:backfill": "bun --env-file=../../.env scripts/backfill-triage.ts",
     "triage:dataset": "bun --env-file=../../.env scripts/build-triage-dataset.ts",
     "dev": "bun --env-file=../../.env next dev",

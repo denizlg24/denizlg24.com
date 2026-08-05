@@ -573,11 +573,13 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
             </div>
           </div>
 
-          {/* Below lg the chart keeps a usable height and the column scrolls,
-              rather than every pane splitting one phone screen between them. */}
-          <div className="min-h-64 flex-1 px-2 py-2 lg:min-h-0">
+          {/* Below lg the chart takes a definite height and the column scrolls,
+              rather than every pane splitting one phone screen between them.
+              Definite rather than a minimum: the chart fills its container, and
+              a `flex-1` box inside a scrolling column has no height to fill. */}
+          <div className="h-72 shrink-0 px-2 py-2 lg:h-auto lg:min-h-0 lg:flex-1 lg:shrink">
             {loading ? (
-              <Skeleton className="h-full min-h-64 w-full" />
+              <Skeleton className="h-full w-full" />
             ) : error ? (
               <div className="px-2 py-4 text-red-600 text-xs">{error}</div>
             ) : bars.length === 0 ? (
@@ -941,7 +943,12 @@ function SymbolDetail({
 
   return (
     <div className="flex h-56 shrink-0 flex-col border-t max-lg:h-64">
-      <div className="flex shrink-0 items-center overflow-x-auto px-3 pt-1 sm:px-4">
+      {/* `pb-1.5` is not spacing. The line-variant trigger paints its active
+          underline at `bottom-[-5px]`, five pixels below the list's own box, and
+          `overflow-x-auto` here forces overflow-y to non-visible — so with no
+          bottom padding the underline was clipped and the strip grew a scrollbar
+          for the couple of pixels it could not contain. */}
+      <div className="flex shrink-0 items-center overflow-x-auto px-3 pt-1 pb-1.5 sm:px-4">
         <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)}>
           <TabsList variant="line" className="h-7">
             <TabsTrigger value="company" className="px-2 text-xs">
@@ -1143,11 +1150,14 @@ function Company({
             <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
               Site
             </div>
+            {/* `block` is what makes `truncate` work at all: overflow does not
+                apply to an inline box, so a long URL simply ran past the grid
+                column instead of ellipsing. */}
             <a
               href={profile.website}
               target="_blank"
               rel="noreferrer"
-              className="truncate hover:underline"
+              className="block truncate hover:underline"
             >
               {profile.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
             </a>

@@ -27,6 +27,11 @@ export interface CandleChartProps {
   kind?: ChartKind;
   overlays?: Overlay[];
   showVolume?: boolean;
+  /**
+   * Fixed pixel height. Omit to fill the container, which is what any parent
+   * that sizes the chart itself wants — the canvas is not a flow element and
+   * will not shrink to a box on its own.
+   */
   height?: number;
   /**
    * Identifies the dataset on screen — ticker, range, series type. A change
@@ -36,6 +41,9 @@ export interface CandleChartProps {
    */
   fitKey?: string;
 }
+
+/** Enough to draw a price scale and a time axis against. */
+const MIN_CHART_HEIGHT = 120;
 
 /**
  * lightweight-charts owns its own canvas and mutates imperatively, so React
@@ -47,7 +55,7 @@ export function CandleChart({
   kind = "candles",
   overlays = [],
   showVolume = true,
-  height = 420,
+  height,
   fitKey = "",
 }: CandleChartProps) {
   const container = useRef<HTMLDivElement>(null);
@@ -56,6 +64,10 @@ export function CandleChart({
   const volume = useRef<ISeriesApi<"Histogram"> | null>(null);
   const lines = useRef(new Map<string, ISeriesApi<"Line">>());
   const fitted = useRef<string | null>(null);
+  // What the resize observer reads. It is created once and never re-created, so
+  // it cannot close over a prop.
+  const fixedHeight = useRef(height);
+  fixedHeight.current = height;
 
   useEffect(() => {
     if (!container.current) return;
@@ -64,7 +76,8 @@ export function CandleChart({
     fitted.current = null;
 
     const instance = createChart(container.current, {
-      height,
+      height:
+        height ?? Math.max(MIN_CHART_HEIGHT, container.current.clientHeight),
       layout: {
         background: { color: "transparent" },
         // Inherit the app's foreground so the chart tracks light and dark
@@ -87,8 +100,27 @@ export function CandleChart({
     });
     chart.current = instance;
 
+    // Height is tracked as well as width. The canvas is absolutely sized, not a
+    // flow element, so a chart left on its default height simply drew past the
+    // bottom of its container — on a phone that meant the time axis landing on
+    // top of the company panel below it.
     const resize = new ResizeObserver(([entry]) => {
-      if (entry) instance.applyOptions({ width: entry.contentRect.width });
+      if (!entry) return;
+      const measured = entry.contentRect;
+      instance.applyOptions({
+        width: measured.width,
+        // Read through the ref, not the mount closure: the observer outlives
+        // every render, so a caller that ever switched `height` between a number
+        // and undefined would leave it applying the branch from the first frame
+        // and fighting the effect below.
+        //
+        // A flex parent measures zero on the first frame before layout settles,
+        // and applying that would leave the canvas permanently blank.
+        ...(fixedHeight.current === undefined &&
+        measured.height >= MIN_CHART_HEIGHT
+          ? { height: measured.height }
+          : {}),
+      });
     });
     resize.observe(container.current);
 
@@ -106,6 +138,7 @@ export function CandleChart({
   }, []);
 
   useEffect(() => {
+    if (height === undefined) return;
     chart.current?.applyOptions({ height });
   }, [height]);
 
@@ -245,7 +278,14 @@ export function CandleChart({
     instance.timeScale().fitContent();
   }, [fitKey, bars]);
 
-  return <div ref={container} className="w-full" />;
+  // `overflow-hidden` is the backstop: the canvas is sized by script, so a frame
+  // where the observer has not caught up must clip rather than spill.
+  return (
+    <div
+      ref={container}
+      className={`w-full overflow-hidden ${height === undefined ? "h-full" : ""}`}
+    />
+  );
 }
 
 function toTime(iso: string): number {

@@ -55,6 +55,14 @@ export const agentTaskStatusSchema = z.enum(["active", "paused", "archived"]);
 export type AgentTaskStatus = z.infer<typeof agentTaskStatusSchema>;
 
 /**
+ * Who put the task there. Tasks the agent schedules for itself run unattended
+ * like any other, so the list has to be able to say which ones nobody asked
+ * for directly.
+ */
+export const agentTaskOriginSchema = z.enum(["owner", "agent"]);
+export type AgentTaskOrigin = z.infer<typeof agentTaskOriginSchema>;
+
+/**
  * A task with no schedule is manual-only: it still runs on demand, it just has
  * no `nextRunAt` for the scheduler to pick up.
  */
@@ -70,6 +78,9 @@ export const agentTaskSchema = z.object({
   prompt: z.string().trim().min(1).max(32_000),
   attachments: z.array(agentTaskAttachmentSchema).max(10),
   schedule: agentTaskScheduleSchema.nullable(),
+  /** A single firing. Mutually exclusive with `schedule`; archived once spent. */
+  runAt: isoDateSchema.nullable(),
+  origin: agentTaskOriginSchema,
   model: z.string().trim().min(1).max(200),
   memoryMode: agentMemoryModeSchema,
   status: agentTaskStatusSchema,
@@ -86,15 +97,36 @@ const agentTaskFieldsSchema = agentTaskSchema
   .extend({
     attachments: z.array(agentTaskAttachmentSchema).max(10),
     schedule: agentTaskScheduleSchema.nullish(),
+    runAt: isoDateSchema.nullish(),
     model: z.string().trim().min(1).max(200).optional(),
     memoryMode: agentMemoryModeSchema,
     maxRounds: z.number().int().positive().max(200).optional(),
   });
 
-export const createAgentTaskSchema = agentTaskFieldsSchema.extend({
-  attachments: z.array(agentTaskAttachmentSchema).max(10).default([]),
-  memoryMode: agentMemoryModeSchema.default("enabled"),
-});
+/**
+ * A repeating pattern and a single date describe the same field — when the task
+ * next fires — so accepting both would leave the scheduler to guess.
+ */
+function rejectDoubleSchedule(
+  value: { schedule?: unknown; runAt?: unknown },
+  context: z.RefinementCtx,
+) {
+  if (value.schedule && value.runAt) {
+    context.addIssue({
+      code: "custom",
+      path: ["runAt"],
+      message: "A task takes either a repeating schedule or a single runAt",
+    });
+  }
+}
+
+export const createAgentTaskSchema = agentTaskFieldsSchema
+  .extend({
+    attachments: z.array(agentTaskAttachmentSchema).max(10).default([]),
+    memoryMode: agentMemoryModeSchema.default("enabled"),
+    origin: agentTaskOriginSchema.default("owner"),
+  })
+  .superRefine(rejectDoubleSchedule);
 export type CreateAgentTask = z.infer<typeof createAgentTaskSchema>;
 
 /**
@@ -105,7 +137,8 @@ export type CreateAgentTask = z.infer<typeof createAgentTaskSchema>;
  */
 export const updateAgentTaskSchema = agentTaskFieldsSchema
   .partial()
-  .extend({ status: agentTaskStatusSchema.optional() });
+  .extend({ status: agentTaskStatusSchema.optional() })
+  .superRefine(rejectDoubleSchedule);
 export type UpdateAgentTask = z.infer<typeof updateAgentTaskSchema>;
 
 export const agentTaskToolCallSchema = z.object({

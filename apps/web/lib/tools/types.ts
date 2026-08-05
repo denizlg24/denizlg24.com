@@ -1,8 +1,14 @@
+import type { AgentMemoryMode } from "@repo/schemas";
+
 export interface ToolParameter {
   type: string;
   description: string;
   enum?: string[];
   items?: { type: string };
+  /** Machine-readable bounds, so a range stated in prose is also enforceable. */
+  minimum?: number;
+  maximum?: number;
+  format?: string;
 }
 
 export interface ToolSchema {
@@ -18,6 +24,11 @@ export interface ToolSchema {
 /** Per-turn state a tool may need that is not part of the model's input. */
 export interface ToolExecutionContext {
   conversationId?: string;
+  /**
+   * Memory mode of the surrounding turn. Tools that write to agent memory must
+   * honour it: an incognito turn records nothing, whatever the model asks for.
+   */
+  memoryMode?: AgentMemoryMode;
 }
 
 export interface ToolDefinition {

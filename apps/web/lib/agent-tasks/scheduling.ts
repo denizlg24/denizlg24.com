@@ -84,25 +84,32 @@ export async function scheduleDueAgentTaskRuns(now = new Date()) {
   await connectDB();
   const tasks = await AgentTask.find({
     status: "active",
-    schedule: { $exists: true },
     nextRunAt: { $lte: now },
   }).limit(50);
 
   let scheduled = 0;
   for (const task of tasks) {
-    if (!task.schedule) continue;
+    if (!task.schedule && !task.runAt) continue;
     try {
       const scheduledFor = task.nextRunAt ?? now;
       await enqueueRun({ task, trigger: "scheduled", scheduledFor });
       task.lastRunAt = scheduledFor;
-      // Advanced from `now`, not from the slot just fired: a task that was
-      // paused or a worker that was down for a day should resume on the next
-      // real slot rather than replay every one it missed.
-      task.nextRunAt = nextCronOccurrence({
-        cron: task.schedule.cron,
-        timeZone: task.schedule.timeZone,
-        after: now,
-      });
+      if (task.schedule) {
+        // Advanced from `now`, not from the slot just fired: a task that was
+        // paused or a worker that was down for a day should resume on the next
+        // real slot rather than replay every one it missed.
+        task.nextRunAt = nextCronOccurrence({
+          cron: task.schedule.cron,
+          timeZone: task.schedule.timeZone,
+          after: now,
+        });
+      } else {
+        // A one-off is spent. Archiving rather than pausing is what stops the
+        // list filling with tasks that will never fire again; the run itself
+        // stays in the run history, which is the part worth keeping.
+        task.status = "archived";
+        task.nextRunAt = undefined;
+      }
       await task.save();
       scheduled += 1;
     } catch (error) {

@@ -1,4 +1,5 @@
 import { agentMemoryTools } from "./agent-memory";
+import { agentTaskTools } from "./agent-tasks";
 import { blogTools } from "./blog";
 import { calendarTools } from "./calendar";
 import { clientTools } from "./client";
@@ -31,6 +32,7 @@ import { whiteboardTools } from "./whiteboard";
 const allTools: ToolDefinition[] = [
   ...clientTools,
   ...agentMemoryTools,
+  ...agentTaskTools,
 
   // Productivity
   ...kanbanTools,

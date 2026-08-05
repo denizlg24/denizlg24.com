@@ -31,6 +31,7 @@ export interface IAgentMemoryCandidate extends Document {
   evidenceIds: string[];
   contradictionEvidenceIds: string[];
   conflictingMemoryIds: mongoose.Types.ObjectId[];
+  supersedesMemoryIds: mongoose.Types.ObjectId[];
   extraction: {
     model: string;
     promptVersion: string;
@@ -72,6 +73,10 @@ const AgentMemoryCandidateSchema = new Schema<IAgentMemoryCandidate>(
     },
     contradictionEvidenceIds: { type: [String], default: [] },
     conflictingMemoryIds: {
+      type: [{ type: Schema.Types.ObjectId, ref: "AgentMemory" }],
+      default: [],
+    },
+    supersedesMemoryIds: {
       type: [{ type: Schema.Types.ObjectId, ref: "AgentMemory" }],
       default: [],
     },
