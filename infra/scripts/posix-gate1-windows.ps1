@@ -4,12 +4,14 @@ Set-StrictMode -Version Latest
 $Mode = "--dry-run"
 $Server = ""
 $Share = ""
+$SshHost = ""
 $EvidencePath = ""
 
 function Show-Usage {
-    [Console]::Error.WriteLine("Usage: .\posix-gate1-windows.ps1 [--dry-run|--execute] --host HOST --share SHARE [--evidence PATH]")
+    [Console]::Error.WriteLine("Usage: .\posix-gate1-windows.ps1 [--dry-run|--execute] --host HOST --share SHARE [--ssh-host USER@HOST] [--evidence PATH]")
     [Console]::Error.WriteLine("Execute tests the Windows SMB redirector, not Explorer UI or a real Office application.")
-    [Console]::Error.WriteLine("It prompts for an SMB credential and only writes inside a unique disposable test folder.")
+    [Console]::Error.WriteLine("--ssh-host enables bounded Personal-share API/SMB concurrency probes through the fixed peer wrapper.")
+    [Console]::Error.WriteLine("It prompts only for an SMB credential and only writes inside unique disposable test folders.")
 }
 
 for ($Index = 0; $Index -lt $args.Count; $Index++) {
@@ -25,6 +27,11 @@ for ($Index = 0; $Index -lt $args.Count; $Index++) {
             $Index++
             if ($Index -ge $args.Count) { Show-Usage; exit 2 }
             $Share = $args[$Index]
+        }
+        "--ssh-host" {
+            $Index++
+            if ($Index -ge $args.Count) { Show-Usage; exit 2 }
+            $SshHost = $args[$Index]
         }
         "--evidence" {
             $Index++
@@ -52,6 +59,18 @@ if ($Share -notmatch '^[A-Za-z0-9._$-]+$') {
     [Console]::Error.WriteLine("SHARE contains unsupported characters")
     exit 2
 }
+if (-not [string]::IsNullOrWhiteSpace($SshHost)) {
+    if ($SshHost.StartsWith("-") -or $SshHost -notmatch '^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._-]+$') {
+        [Console]::Error.WriteLine("SSH HOST contains unsupported characters")
+        exit 2
+    }
+    if ($Share -ine "Personal") {
+        [Console]::Error.WriteLine("--ssh-host concurrency probes require the Personal share")
+        exit 2
+    }
+}
+
+$ConcurrencyEnabled = -not [string]::IsNullOrWhiteSpace($SshHost)
 
 if ($Mode -eq "--dry-run") {
     [ordered]@{
@@ -61,8 +80,19 @@ if ($Mode -eq "--dry-run") {
         share = $Share
         writes = $false
         credentials = "interactive PSCredential only"
-        coverage = @("Windows SMB redirector", "filesystem operations", "alternate-data-stream round trip", "disconnect/reconnect")
-        excludedCoverage = @("Explorer UI workflows", "shell thumbnails and properties", "real Office application saves", "sleep and network-loss recovery")
+        concurrencyEnabled = $ConcurrencyEnabled
+        coverage = @(
+            "Windows SMB redirector",
+            "filesystem operations",
+            "alternate-data-stream round trip",
+            "disconnect/reconnect"
+        ) + $(if ($ConcurrencyEnabled) { @("FileShare.None versus direct API replace/rename/unlink", "shared-delete atomic-replace lost-update behavior") } else { @() })
+        excludedCoverage = @(
+            "Explorer UI workflows",
+            "shell thumbnails and properties",
+            "real Office application saves",
+            "sleep and network-loss recovery"
+        ) + $(if ($ConcurrencyEnabled) { @() } else { @("direct API/SMB concurrency (requires --ssh-host on Personal)") })
     } | ConvertTo-Json -Compress
     exit 0
 }
@@ -145,12 +175,99 @@ function Invoke-Probe {
     }
 }
 
+function Get-StreamSha256 {
+    param([Parameter(Mandatory = $true)][IO.Stream]$Stream)
+
+    $OriginalPosition = $Stream.Position
+    $Hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $Stream.Position = 0
+        return ([BitConverter]::ToString($Hasher.ComputeHash($Stream))).Replace("-", "").ToUpperInvariant()
+    } finally {
+        $Stream.Position = $OriginalPosition
+        $Hasher.Dispose()
+    }
+}
+
+function Invoke-ApiPeer {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet("seed", "atomic-replace", "rename", "unlink")][string]$Action,
+        [string]$Generation = "",
+        [ValidateSet("payload", "renamed")][string]$Target = "payload"
+    )
+
+    if (-not $ConcurrencyEnabled) { throw "The API peer requires --ssh-host" }
+    $Ssh = Get-Command ssh -ErrorAction SilentlyContinue
+    if ($null -eq $Ssh) { throw "OpenSSH ssh is required for API peer probes" }
+
+    $RemoteArguments = @(
+        "sudo", "-n",
+        "/tmp/posix-gate1-kit/infra/scripts/posix-gate1-peer-container.sh",
+        "--execute", "--action", $Action, "--run-id", $RunId, "--target", $Target
+    )
+    if (-not [string]::IsNullOrWhiteSpace($Generation)) {
+        $RemoteArguments += @("--generation", $Generation)
+    }
+    $SshArguments = @(
+        "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+        "-o", "ConnectionAttempts=1", $SshHost
+    ) + $RemoteArguments
+    $StderrPath = Join-Path $LocalWork ("ssh-{0}-{1}.stderr" -f $Action, [Guid]::NewGuid().ToString("N"))
+
+    try {
+        $OutputLines = @(& $Ssh.Source @SshArguments 2> $StderrPath)
+        $ExitCode = $LASTEXITCODE
+        $PeerResult = $null
+        foreach ($Line in $OutputLines) {
+            if ([string]::IsNullOrWhiteSpace([string]$Line)) { continue }
+            try {
+                $Candidate = ([string]$Line) | ConvertFrom-Json
+                if ([string]$Candidate.peer -eq "posix-gate1") { $PeerResult = $Candidate }
+            } catch {}
+        }
+        if ($null -eq $PeerResult) { throw "The API peer did not return a valid result" }
+        if ([string]$PeerResult.runId -ne $RunId -or [string]$PeerResult.action -ne $Action) {
+            throw "The API peer result did not match the requested action"
+        }
+        $PeerOk = [bool]$PeerResult.ok
+        if (($ExitCode -eq 0) -ne $PeerOk) { throw "The API peer exit status contradicted its result" }
+        return [pscustomobject]@{
+            Action = $Action
+            Details = $PeerResult.details
+            ErrorCode = if ($null -ne $PeerResult.PSObject.Properties["errorCode"]) { [string]$PeerResult.errorCode } else { "" }
+            ExitCode = $ExitCode
+            Ok = $PeerOk
+        }
+    } finally {
+        Remove-Item -LiteralPath $StderrPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Assert-PeerSuccess {
+    param(
+        [Parameter(Mandatory = $true)]$Result,
+        [Parameter(Mandatory = $true)][string]$Event
+    )
+
+    $Status = if ($Result.Ok -and $Result.ExitCode -eq 0) { "pass" } else { "fail" }
+    Write-Evidence -Event $Event -Status $Status -Details @{
+        action = $Result.Action
+        errorCode = $Result.ErrorCode
+        exitCode = $Result.ExitCode
+        sshEndpointValidated = $true
+        transport = "ssh-direct-api-container"
+    }
+    if ($Status -ne "pass") { throw "The direct API peer action failed unexpectedly" }
+}
+
 $RemotePath = "\\{0}\{1}" -f $Server, $Share
 $DriveName = $null
 $RemoteRoot = $null
+$PeerRoot = $null
 $LocalWork = Join-Path ([IO.Path]::GetTempPath()) ("posix-gate1-windows-{0}" -f $RunId)
 $Credential = $null
 $RemoteCreated = $false
+$PeerRootCreated = $false
 $ConnectionOwned = $false
 
 function Find-FreeDriveName {
@@ -170,6 +287,7 @@ function Connect-ProbeShare {
     New-PSDrive -Name $DriveName -PSProvider FileSystem -Root $RemotePath -Credential $Credential -Scope Script | Out-Null
     $script:ConnectionOwned = $true
     $script:RemoteRoot = "{0}:\.posix-gate1-{1}" -f $DriveName, $RunId
+    $script:PeerRoot = "{0}:\posix-gate1-disposable-{1}" -f $DriveName, $RunId
 }
 
 function Test-Transport {
@@ -225,6 +343,7 @@ function Disconnect-ProbeShare {
         }
         $script:DriveName = $null
         $script:RemoteRoot = $null
+        $script:PeerRoot = $null
     }
     for ($Attempt = 0; $Attempt -lt 40; $Attempt++) {
         if (@(Get-TargetConnections).Count -eq 0) {
@@ -236,12 +355,163 @@ function Disconnect-ProbeShare {
     throw "The disposable SMB connection remains active"
 }
 
+function Reset-PeerPayload {
+    $Payload = Join-Path $PeerRoot "payload.bin"
+    $Renamed = Join-Path $PeerRoot "renamed.bin"
+    if ([IO.File]::Exists($Renamed)) {
+        if ([IO.File]::Exists($Payload)) { throw "Both peer payload names are present" }
+        [IO.File]::Move($Renamed, $Payload)
+    }
+
+    if ([IO.File]::Exists($Payload)) {
+        $Reset = Invoke-ApiPeer -Action "atomic-replace" -Generation "A"
+    } else {
+        $Reset = Invoke-ApiPeer -Action "seed" -Generation "A"
+    }
+    Assert-PeerSuccess -Result $Reset -Event "api-peer-reset"
+}
+
+function Invoke-SharedDeleteLostUpdateProbe {
+    $Payload = Join-Path $PeerRoot "payload.bin"
+    $Handle = $null
+    try {
+        $Handle = [IO.File]::Open(
+            $Payload,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::ReadWrite,
+            ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+        )
+        $HeldHashBefore = Get-StreamSha256 -Stream $Handle
+        $Replace = Invoke-ApiPeer -Action "atomic-replace" -Generation "B"
+        if (-not $Replace.Ok -or $Replace.ExitCode -ne 0) {
+            throw "Atomic replacement was not permitted by an SMB handle sharing delete"
+        }
+
+        $PublishedHash = (Get-FileHash -LiteralPath $Payload -Algorithm SHA256).Hash
+        $HeldHashAfter = Get-StreamSha256 -Stream $Handle
+        $ExpectedPublishedHash = [string]$Replace.Details.hash
+        if ($HeldHashBefore -ne $HeldHashAfter) { throw "The held pre-replacement handle changed generation" }
+        if ($PublishedHash -ne $ExpectedPublishedHash -or $PublishedHash -eq $HeldHashAfter) {
+            throw "The replacement path did not expose only the new generation"
+        }
+
+        $OldHandleWrite = [Text.Encoding]::ASCII.GetBytes("OLD_HANDLE_WRITE")
+        $Handle.Position = 0
+        $Handle.Write($OldHandleWrite, 0, $OldHandleWrite.Length)
+        $Handle.Flush($true)
+        $PublishedHashAfterOldWrite = (Get-FileHash -LiteralPath $Payload -Algorithm SHA256).Hash
+        if ($PublishedHashAfterOldWrite -ne $PublishedHash) {
+            throw "A write through the replaced handle corrupted the published generation"
+        }
+
+        Write-Evidence -Event "shared-delete-lost-update" -Status "pass" -Details @{
+            directAction = "atomic-replace"
+            heldGenerationStable = $true
+            oldHandleWriteChangedPublishedPath = $false
+            peerExitCode = $Replace.ExitCode
+            sshEndpointValidated = $true
+            transport = "ssh-direct-api-container"
+        }
+    } catch {
+        Write-Evidence -Event "shared-delete-lost-update" -Status "fail" -Details @{
+            directAction = "atomic-replace"
+            errorType = $_.Exception.GetType().FullName
+        }
+        throw
+    } finally {
+        if ($null -ne $Handle) { $Handle.Dispose() }
+    }
+}
+
+function Invoke-ExclusivePeerAction {
+    param([Parameter(Mandatory = $true)][ValidateSet("atomic-replace", "rename", "unlink")][string]$Action)
+
+    $Payload = Join-Path $PeerRoot "payload.bin"
+    $Renamed = Join-Path $PeerRoot "renamed.bin"
+    $Handle = $null
+    try {
+        $Handle = [IO.File]::Open($Payload, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $HeldHashBefore = Get-StreamSha256 -Stream $Handle
+
+        $SecondOpen = $null
+        $SecondOpenDenied = $false
+        try {
+            $SecondOpen = [IO.File]::Open($Payload, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        } catch [IO.IOException] {
+            $SecondOpenDenied = $true
+        } finally {
+            if ($null -ne $SecondOpen) { $SecondOpen.Dispose() }
+        }
+        if (-not $SecondOpenDenied) { throw "FileShare.None did not deny a second SMB open" }
+
+        $Peer = if ($Action -eq "atomic-replace") {
+            Invoke-ApiPeer -Action $Action -Generation "B"
+        } else {
+            Invoke-ApiPeer -Action $Action
+        }
+        $HeldHashAfter = $null
+        $HeldHashObservable = $true
+        try {
+            $HeldHashAfter = Get-StreamSha256 -Stream $Handle
+        } catch {
+            $HeldHashObservable = $false
+        }
+        $ExpectedBlockCodes = @("EACCES", "EBUSY", "EPERM", "ETXTBSY")
+        $DirectActionBlocked = (-not $Peer.Ok) -and ($ExpectedBlockCodes -contains $Peer.ErrorCode)
+        $DirectActionSucceeded = $Peer.Ok -and $Peer.ExitCode -eq 0
+        $Status = if ($DirectActionBlocked) { "pass" } else { "fail" }
+
+        Write-Evidence -Event ("fileshare-none-api-{0}" -f $Action) -Status $Status -Details @{
+            directActionBlocked = $DirectActionBlocked
+            directActionSucceeded = $DirectActionSucceeded
+            errorCode = $Peer.ErrorCode
+            heldGenerationStable = if ($HeldHashObservable) { $HeldHashBefore -eq $HeldHashAfter } else { $null }
+            heldHandleObservableAfterAction = $HeldHashObservable
+            peerExitCode = $Peer.ExitCode
+            secondSmbOpenDenied = $SecondOpenDenied
+            sshEndpointValidated = $true
+            transport = "ssh-direct-api-container"
+            payloadPresent = [IO.File]::Exists($Payload)
+            renamedPresent = [IO.File]::Exists($Renamed)
+        }
+
+        if ($DirectActionSucceeded) { return $true }
+        if (-not $DirectActionBlocked) {
+            throw "The API peer failed without proving an expected sharing denial"
+        }
+        return $false
+    } catch {
+        if ($_.Exception.Message -eq "FileShare.None did not deny a second SMB open") {
+            Write-Evidence -Event ("fileshare-none-api-{0}" -f $Action) -Status "fail" -Details @{
+                directAction = $Action
+                errorType = $_.Exception.GetType().FullName
+                secondSmbOpenDenied = $false
+            }
+        }
+        throw
+    } finally {
+        if ($null -ne $Handle) { $Handle.Dispose() }
+    }
+}
+
 try {
     [IO.Directory]::CreateDirectory($LocalWork) | Out-Null
+    $ConcurrencyViolations = @()
     Write-Evidence -Event "run" -Status "start"
     Write-Evidence -Event "coverage" -Status "pass" -Details @{
-        measured = @("Windows SMB redirector", "filesystem operations", "alternate-data-stream round trip", "disconnect/reconnect")
-        excluded = @("Explorer UI workflows", "shell thumbnails and properties", "real Office application saves", "sleep and network-loss recovery")
+        concurrencyEnabled = $ConcurrencyEnabled
+        measured = @(
+            "Windows SMB redirector",
+            "filesystem operations",
+            "alternate-data-stream round trip",
+            "disconnect/reconnect"
+        ) + $(if ($ConcurrencyEnabled) { @("FileShare.None versus direct API replace/rename/unlink", "shared-delete atomic-replace lost-update behavior") } else { @() })
+        excluded = @(
+            "Explorer UI workflows",
+            "shell thumbnails and properties",
+            "real Office application saves",
+            "sleep and network-loss recovery"
+        ) + $(if ($ConcurrencyEnabled) { @() } else { @("direct API/SMB concurrency (requires --ssh-host on Personal)") })
     }
     Invoke-Probe -Name "existing-session-preflight" -Action { Assert-NoExistingServerConnection }
 
@@ -338,6 +608,39 @@ try {
         Test-Transport -ObservationEvent "transport-after-reconnect-observation"
     }
 
+    if ($ConcurrencyEnabled) {
+        Invoke-Probe -Name "peer-root-create" -Action {
+            [IO.Directory]::CreateDirectory($PeerRoot) | Out-Null
+            $script:PeerRootCreated = $true
+            $Marker = Join-Path $PeerRoot ".posix-gate1-disposable"
+            [IO.File]::WriteAllText($Marker, "deniz-cloud-posix-gate1`n", [Text.UTF8Encoding]::new($false))
+            if ([IO.File]::ReadAllText($Marker) -ne "deniz-cloud-posix-gate1`n") {
+                throw "The peer root marker did not round trip exactly"
+            }
+        }
+
+        $Seed = Invoke-ApiPeer -Action "seed" -Generation "A"
+        Assert-PeerSuccess -Result $Seed -Event "api-peer-seed"
+
+        Invoke-SharedDeleteLostUpdateProbe
+        Reset-PeerPayload
+
+        foreach ($Action in @("atomic-replace", "rename", "unlink")) {
+            $Violation = Invoke-ExclusivePeerAction -Action $Action
+            if ($Violation) { $ConcurrencyViolations += $Action }
+            Reset-PeerPayload
+        }
+
+        Invoke-Probe -Name "peer-root-cleanup" -Action {
+            if (-not $PeerRootCreated -or [string]::IsNullOrWhiteSpace($PeerRoot)) {
+                throw "The disposable peer root is not owned by this probe"
+            }
+            Remove-Item -LiteralPath $PeerRoot -Recurse -Force
+            if (Test-Path -LiteralPath $PeerRoot) { throw "The disposable peer root remains present" }
+            $script:PeerRootCreated = $false
+        }
+    }
+
     Invoke-Probe -Name "remote-cleanup" -Action {
         if (-not $RemoteCreated -or [string]::IsNullOrWhiteSpace($RemoteRoot)) { throw "The disposable test root is not owned by this probe" }
         Remove-Item -LiteralPath $RemoteRoot -Recurse -Force
@@ -347,6 +650,14 @@ try {
 
     Invoke-Probe -Name "disconnect" -Action { Disconnect-ProbeShare }
 
+    if ($ConcurrencyViolations.Count -ne 0) {
+        Write-Evidence -Event "fileshare-none-api-summary" -Status "fail" -Details @{
+            stop = $true
+            succeededWhileExclusive = $ConcurrencyViolations
+        }
+        throw "STOP: direct API namespace mutation succeeded while Windows held FileShare.None"
+    }
+
     Write-Evidence -Event "run" -Status "pass"
     [ordered]@{
         mode = "execute"
@@ -354,7 +665,8 @@ try {
         host = $Server
         share = $Share
         status = "pass"
-        coverage = "Windows SMB redirector filesystem semantics only"
+        concurrencyEnabled = $ConcurrencyEnabled
+        coverage = if ($ConcurrencyEnabled) { "Windows SMB redirector and direct API concurrency semantics" } else { "Windows SMB redirector filesystem semantics only" }
         evidence = $EvidencePath
     } | ConvertTo-Json -Compress
 } catch {
@@ -364,6 +676,11 @@ try {
     [Console]::Error.WriteLine("Gate-1 Windows probe failed. Evidence: {0}" -f $EvidencePath)
     exit 1
 } finally {
+    try {
+        if ($PeerRootCreated -and -not [string]::IsNullOrWhiteSpace($PeerRoot) -and (Test-Path -LiteralPath $PeerRoot -ErrorAction SilentlyContinue)) {
+            Remove-Item -LiteralPath $PeerRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
     try {
         if ($RemoteCreated -and -not [string]::IsNullOrWhiteSpace($RemoteRoot) -and (Test-Path -LiteralPath $RemoteRoot -ErrorAction SilentlyContinue)) {
             Remove-Item -LiteralPath $RemoteRoot -Recurse -Force -ErrorAction SilentlyContinue
