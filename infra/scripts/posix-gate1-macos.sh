@@ -15,9 +15,11 @@ usage() {
   cat >&2 <<'EOF'
 Usage: posix-gate1-macos.sh [--dry-run|--execute] --host HOST --share SHARE [--mount PATH] [--evidence PATH]
 
-The execute mode uses Finder's SMB credential prompt or an existing Keychain
-credential. It never accepts a username or password. The target share must not
-contain production data: this probe creates and removes a unique test folder.
+The execute mode uses the macOS SMB redirector and Finder's credential prompt or
+an existing Keychain credential. It does not exercise Finder UI workflows or a
+real Office application. It never accepts a username or password. The target
+share must not contain production data: this probe creates and removes a unique
+test folder.
 EOF
 }
 
@@ -80,7 +82,7 @@ if [[ ! "$mount_path" =~ ^/Volumes/[A-Za-z0-9._\ $-]+$ ]]; then
 fi
 
 if [[ "$mode" == "--dry-run" ]]; then
-  printf '{"mode":"dry-run","platform":"macos","host":"%s","share":"%s","mount":"%s","writes":false,"credentials":"Finder/Keychain prompt only"}\n' \
+  printf '{"mode":"dry-run","platform":"macos","host":"%s","share":"%s","mount":"%s","writes":false,"credentials":"Finder/Keychain prompt only","coverage":["macOS SMB redirector","filesystem operations","resource-fork round trip","disconnect/reconnect"],"excludedCoverage":["Finder UI workflows","Quick Look and thumbnails","real Office application saves","sleep and network-loss recovery"]}\n' \
     "$server" "$share" "$mount_path"
   exit 0
 fi
@@ -148,6 +150,17 @@ wait_for_mount() {
   return 1
 }
 
+wait_for_unmount() {
+  local attempt
+  for attempt in {1..40}; do
+    if ! mounted_source >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
 connect_share() {
   if [[ -d "$mount_path" ]] && verify_target_mount; then
     return 0
@@ -159,12 +172,16 @@ connect_share() {
 local_work="$(mktemp -d "${TMPDIR:-/tmp}/posix-gate1-macos.XXXXXX")"
 remote_root="$mount_path/.posix-gate1-${run_id}"
 remote_created=false
+session_connected=false
 
 cleanup() {
   set +e
   if [[ "$remote_created" == "true" ]] && verify_target_mount \
     && [[ "$remote_root" == "$mount_path/.posix-gate1-${run_id}" ]]; then
     rm -rf -- "$remote_root"
+  fi
+  if [[ "$session_connected" == "true" ]] && verify_target_mount; then
+    diskutil unmount "$mount_path" >/dev/null 2>&1
   fi
   if [[ "$local_work" == "${TMPDIR:-/tmp}/posix-gate1-macos."* ]]; then
     rm -rf -- "$local_work"
@@ -188,16 +205,23 @@ run_probe() {
 }
 
 probe_connect() {
-  connect_share && verify_target_mount
+  connect_share || return
+  verify_target_mount || return
+  session_connected=true
+}
+
+probe_no_existing_session() {
+  ! mounted_source >/dev/null 2>&1 && [[ ! -e "$mount_path" ]]
 }
 
 probe_create_root() {
-  mkdir "$remote_root"
+  mkdir "$remote_root" || return
   remote_created=true
 }
 
-probe_transport() {
-  local stats dialect current_encryption encryption_required encryption_state observable normalized_encryption
+observe_transport() {
+  local event="$1"
+  local stats dialect current_encryption encryption_required encryption_state observable normalized_encryption observation_status
   stats="$(smbutil statshares -m "$mount_path" 2>/dev/null)" || return 1
   dialect="$(printf '%s\n' "$stats" | awk '$1 == "SMB_VERSION" {print $2; exit}')"
   [[ "$dialect" == SMB_3* || "$dialect" == 3.* ]] || return 1
@@ -221,74 +245,109 @@ probe_transport() {
       *) encryption_state=false ;;
     esac
   fi
-  record "transport-observation" "pass" "{\"dialect\":\"${dialect}\",\"encryptionObservable\":${observable},\"encrypted\":\"${encryption_state}\"}"
-  [[ "$observable" == "false" || "$encryption_state" == "true" ]]
+  observation_status=fail
+  if [[ "$observable" == "true" && "$encryption_state" == "true" ]]; then
+    observation_status=pass
+  fi
+  record "$event" "$observation_status" "{\"dialect\":\"${dialect}\",\"encryptionObservable\":${observable},\"encrypted\":\"${encryption_state}\"}"
+  [[ "$observable" == "true" && "$encryption_state" == "true" ]]
+}
+
+probe_transport() {
+  observe_transport "transport-observation"
 }
 
 probe_enumeration() {
-  mkdir "$remote_root/enumeration"
-  printf 'alpha\n' > "$remote_root/enumeration/alpha.txt"
-  printf 'unicode\n' > "$remote_root/enumeration/café-東京.txt"
+  mkdir "$remote_root/enumeration" || return
+  printf 'alpha\n' > "$remote_root/enumeration/alpha.txt" || return
+  printf 'unicode\n' > "$remote_root/enumeration/café-東京.txt" || return
   [[ "$(find "$remote_root/enumeration" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')" == "2" ]]
 }
 
 probe_transfer_hashes() {
-  dd if=/dev/urandom of="$local_work/upload.bin" bs=1048576 count=1 2>/dev/null
+  dd if=/dev/urandom of="$local_work/upload.bin" bs=1048576 count=1 2>/dev/null || return
   local expected uploaded downloaded
-  expected="$(shasum -a 256 "$local_work/upload.bin" | awk '{print $1}')"
-  cp "$local_work/upload.bin" "$remote_root/upload.bin"
-  uploaded="$(shasum -a 256 "$remote_root/upload.bin" | awk '{print $1}')"
-  cp "$remote_root/upload.bin" "$local_work/download.bin"
-  downloaded="$(shasum -a 256 "$local_work/download.bin" | awk '{print $1}')"
+  expected="$(shasum -a 256 "$local_work/upload.bin" | awk '{print $1}')" || return
+  cp "$local_work/upload.bin" "$remote_root/upload.bin" || return
+  uploaded="$(shasum -a 256 "$remote_root/upload.bin" | awk '{print $1}')" || return
+  cp "$remote_root/upload.bin" "$local_work/download.bin" || return
+  downloaded="$(shasum -a 256 "$local_work/download.bin" | awk '{print $1}')" || return
   [[ "$expected" == "$uploaded" && "$expected" == "$downloaded" ]]
 }
 
 probe_rename() {
-  printf 'rename\n' > "$remote_root/rename-source.txt"
-  mv "$remote_root/rename-source.txt" "$remote_root/renamed.txt"
+  printf 'rename\n' > "$remote_root/rename-source.txt" || return
+  mv "$remote_root/rename-source.txt" "$remote_root/renamed.txt" || return
   [[ ! -e "$remote_root/rename-source.txt" && -f "$remote_root/renamed.txt" ]]
 }
 
 probe_case_rename() {
-  printf 'case\n' > "$remote_root/CaseProbe.txt"
-  mv "$remote_root/CaseProbe.txt" "$remote_root/caseprobe.txt"
+  printf 'case\n' > "$remote_root/CaseProbe.txt" || return
+  mv "$remote_root/CaseProbe.txt" "$remote_root/caseprobe.txt" || return
   find "$remote_root" -mindepth 1 -maxdepth 1 -name 'caseprobe.txt' -print \
     | grep -q '/caseprobe\.txt$'
 }
 
 probe_overwrite() {
-  printf 'old-content\n' > "$remote_root/overwrite.txt"
-  printf 'new-content-with-different-length\n' > "$local_work/overwrite.txt"
-  cp -f "$local_work/overwrite.txt" "$remote_root/overwrite.txt"
-  [[ "$(shasum -a 256 "$local_work/overwrite.txt" | awk '{print $1}')" == \
-    "$(shasum -a 256 "$remote_root/overwrite.txt" | awk '{print $1}')" ]]
+  local expected actual
+  printf 'old-content\n' > "$remote_root/overwrite.txt" || return
+  printf 'new-content-with-different-length\n' > "$local_work/overwrite.txt" || return
+  cp -f "$local_work/overwrite.txt" "$remote_root/overwrite.txt" || return
+  expected="$(shasum -a 256 "$local_work/overwrite.txt" | awk '{print $1}')" || return
+  actual="$(shasum -a 256 "$remote_root/overwrite.txt" | awk '{print $1}')" || return
+  [[ "$expected" == "$actual" ]]
 }
 
 probe_resource_fork() {
-  printf 'resource-fork-base\n' > "$remote_root/resource-fork.txt"
-  xattr -wx com.apple.ResourceFork 67617465312d7265736f757263652d666f726b "$remote_root/resource-fork.txt"
-  [[ "$(xattr -px com.apple.ResourceFork "$remote_root/resource-fork.txt" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" == \
-    "67617465312d7265736f757263652d666f726b" ]]
+  local actual
+  printf 'resource-fork-base\n' > "$remote_root/resource-fork.txt" || return
+  xattr -wx com.apple.ResourceFork 67617465312d7265736f757263652d666f726b "$remote_root/resource-fork.txt" || return
+  actual="$(xattr -px com.apple.ResourceFork "$remote_root/resource-fork.txt" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" || return
+  [[ "$actual" == "67617465312d7265736f757263652d666f726b" ]]
 }
 
-probe_office_replace() {
-  printf 'office-old\n' > "$remote_root/office-document.docx"
-  printf 'office-new\n' > "$remote_root/.office-${run_id}.tmp"
-  mv -f "$remote_root/.office-${run_id}.tmp" "$remote_root/office-document.docx"
-  [[ "$(shasum -a 256 "$remote_root/office-document.docx" | awk '{print $1}')" == \
-    "$(printf 'office-new\n' | shasum -a 256 | awk '{print $1}')" ]]
+probe_temp_replace() {
+  local expected actual
+  printf 'replace-old\n' > "$remote_root/replace-target.bin" || return
+  printf 'replace-new\n' > "$remote_root/.replace-${run_id}.tmp" || return
+  mv -f "$remote_root/.replace-${run_id}.tmp" "$remote_root/replace-target.bin" || return
+  actual="$(shasum -a 256 "$remote_root/replace-target.bin" | awk '{print $1}')" || return
+  expected="$(printf 'replace-new\n' | shasum -a 256 | awk '{print $1}')" || return
+  [[ "$actual" == "$expected" ]]
 }
 
 probe_reconnect() {
-  sync
-  diskutil unmount "$mount_path" >/dev/null
-  open "smb://${server}/${share}" >/dev/null
-  wait_for_mount
-  [[ "$(shasum -a 256 "$remote_root/upload.bin" | awk '{print $1}')" == \
-    "$(shasum -a 256 "$local_work/upload.bin" | awk '{print $1}')" ]]
+  local expected actual
+  sync || return
+  diskutil unmount "$mount_path" >/dev/null || return
+  wait_for_unmount || return
+  session_connected=false
+  open "smb://${server}/${share}" >/dev/null || return
+  wait_for_mount || return
+  session_connected=true
+  actual="$(shasum -a 256 "$remote_root/upload.bin" | awk '{print $1}')" || return
+  expected="$(shasum -a 256 "$local_work/upload.bin" | awk '{print $1}')" || return
+  [[ "$actual" == "$expected" ]] || return
+  observe_transport "transport-after-reconnect-observation"
+}
+
+probe_remote_cleanup() {
+  [[ "$remote_created" == "true" && "$remote_root" == "$mount_path/.posix-gate1-${run_id}" ]]
+  rm -rf -- "$remote_root" || return
+  [[ ! -e "$remote_root" ]]
+  remote_created=false
+}
+
+probe_disconnect() {
+  [[ "$session_connected" == "true" ]] || return 1
+  diskutil unmount "$mount_path" >/dev/null || return
+  wait_for_unmount || return
+  session_connected=false
 }
 
 record "run" "start"
+record "coverage" "pass" '{"measured":["macOS SMB redirector","filesystem operations","resource-fork round trip","disconnect/reconnect"],"excluded":["Finder UI workflows","Quick Look and thumbnails","real Office application saves","sleep and network-loss recovery"]}'
+run_probe "existing-session-preflight" probe_no_existing_session
 run_probe "connect" probe_connect
 run_probe "transport" probe_transport
 run_probe "test-root-create" probe_create_root
@@ -298,9 +357,11 @@ run_probe "rename" probe_rename
 run_probe "case-only-rename" probe_case_rename
 run_probe "overwrite" probe_overwrite
 run_probe "resource-fork" probe_resource_fork
-run_probe "office-temp-replace" probe_office_replace
+run_probe "temp-file-replace" probe_temp_replace
 run_probe "reconnect" probe_reconnect
+run_probe "remote-cleanup" probe_remote_cleanup
+run_probe "disconnect" probe_disconnect
 record "run" "pass"
 
-printf '{"mode":"execute","platform":"macos","host":"%s","share":"%s","status":"pass","evidence":"%s"}\n' \
+printf '{"mode":"execute","platform":"macos","host":"%s","share":"%s","status":"pass","coverage":"macOS SMB redirector filesystem semantics only","evidence":"%s"}\n' \
   "$server" "$share" "$evidence_path"

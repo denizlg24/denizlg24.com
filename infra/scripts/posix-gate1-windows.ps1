@@ -8,7 +8,8 @@ $EvidencePath = ""
 
 function Show-Usage {
     [Console]::Error.WriteLine("Usage: .\posix-gate1-windows.ps1 [--dry-run|--execute] --host HOST --share SHARE [--evidence PATH]")
-    [Console]::Error.WriteLine("Execute prompts for an SMB credential and only writes inside a unique disposable test folder.")
+    [Console]::Error.WriteLine("Execute tests the Windows SMB redirector, not Explorer UI or a real Office application.")
+    [Console]::Error.WriteLine("It prompts for an SMB credential and only writes inside a unique disposable test folder.")
 }
 
 for ($Index = 0; $Index -lt $args.Count; $Index++) {
@@ -60,6 +61,8 @@ if ($Mode -eq "--dry-run") {
         share = $Share
         writes = $false
         credentials = "interactive PSCredential only"
+        coverage = @("Windows SMB redirector", "filesystem operations", "alternate-data-stream round trip", "disconnect/reconnect")
+        excludedCoverage = @("Explorer UI workflows", "shell thumbnails and properties", "real Office application saves", "sleep and network-loss recovery")
     } | ConvertTo-Json -Compress
     exit 0
 }
@@ -148,6 +151,7 @@ $RemoteRoot = $null
 $LocalWork = Join-Path ([IO.Path]::GetTempPath()) ("posix-gate1-windows-{0}" -f $RunId)
 $Credential = $null
 $RemoteCreated = $false
+$ConnectionOwned = $false
 
 function Find-FreeDriveName {
     foreach ($Letter in [char[]](90..68)) {
@@ -164,13 +168,15 @@ function Connect-ProbeShare {
         $script:DriveName = Find-FreeDriveName
     }
     New-PSDrive -Name $DriveName -PSProvider FileSystem -Root $RemotePath -Credential $Credential -Scope Script | Out-Null
+    $script:ConnectionOwned = $true
     $script:RemoteRoot = "{0}:\.posix-gate1-{1}" -f $DriveName, $RunId
 }
 
 function Test-Transport {
+    param([Parameter(Mandatory = $true)][string]$ObservationEvent)
+
     if (-not (Get-Command Get-SmbConnection -ErrorAction SilentlyContinue)) {
-        Write-Evidence -Event "transport-observation" -Status "pass" -Details @{ dialect = "unknown"; encryptionObservable = $false; encrypted = "unknown" }
-        return
+        throw "Get-SmbConnection is required to prove SMB encryption"
     }
     $Connection = Get-SmbConnection | Where-Object {
         $_.ServerName -ieq $Server -and $_.ShareName -ieq $Share
@@ -184,26 +190,68 @@ function Test-Transport {
     }
     $EncryptedProperty = $Connection.PSObject.Properties["Encrypted"]
     if ($null -eq $EncryptedProperty) {
-        Write-Evidence -Event "transport-observation" -Status "pass" -Details @{ dialect = $Dialect; encryptionObservable = $false; encrypted = "unknown" }
-        return
+        throw "The SMB encryption state is not observable"
     }
     $Encrypted = [bool]$EncryptedProperty.Value
-    Write-Evidence -Event "transport-observation" -Status "pass" -Details @{ dialect = $Dialect; encryptionObservable = $true; encrypted = $Encrypted }
+    $ObservationStatus = if ($Encrypted) { "pass" } else { "fail" }
+    Write-Evidence -Event $ObservationEvent -Status $ObservationStatus -Details @{ dialect = $Dialect; encryptionObservable = $true; encrypted = $Encrypted }
     if (-not $Encrypted) {
         throw "The SMB session is observably unencrypted"
     }
 }
 
+function Get-TargetConnections {
+    @(Get-SmbConnection | Where-Object {
+        $_.ServerName -ieq $Server -and $_.ShareName -ieq $Share
+    })
+}
+
+function Assert-NoExistingServerConnection {
+    if (-not (Get-Command Get-SmbConnection -ErrorAction SilentlyContinue)) {
+        throw "Get-SmbConnection is required to prove connection ownership"
+    }
+    $Existing = @(Get-SmbConnection | Where-Object { $_.ServerName -ieq $Server })
+    if ($Existing.Count -ne 0) {
+        throw "An existing SMB connection to the target server prevents an isolated probe"
+    }
+}
+
+function Disconnect-ProbeShare {
+    if (-not [string]::IsNullOrWhiteSpace($DriveName)) {
+        $PreviousDriveName = $DriveName
+        Remove-PSDrive -Name $PreviousDriveName -Force
+        if (Get-PSDrive -Name $PreviousDriveName -ErrorAction SilentlyContinue) {
+            throw "The disposable PSDrive remains present"
+        }
+        $script:DriveName = $null
+        $script:RemoteRoot = $null
+    }
+    for ($Attempt = 0; $Attempt -lt 40; $Attempt++) {
+        if (@(Get-TargetConnections).Count -eq 0) {
+            $script:ConnectionOwned = $false
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    throw "The disposable SMB connection remains active"
+}
+
 try {
     [IO.Directory]::CreateDirectory($LocalWork) | Out-Null
+    Write-Evidence -Event "run" -Status "start"
+    Write-Evidence -Event "coverage" -Status "pass" -Details @{
+        measured = @("Windows SMB redirector", "filesystem operations", "alternate-data-stream round trip", "disconnect/reconnect")
+        excluded = @("Explorer UI workflows", "shell thumbnails and properties", "real Office application saves", "sleep and network-loss recovery")
+    }
+    Invoke-Probe -Name "existing-session-preflight" -Action { Assert-NoExistingServerConnection }
+
     $Credential = Get-Credential -Message ("Credentials for the disposable SMB target {0}" -f $RemotePath)
     if ($null -eq $Credential) {
         throw "Credential entry was cancelled"
     }
 
-    Write-Evidence -Event "run" -Status "start"
     Invoke-Probe -Name "connect" -Action { Connect-ProbeShare }
-    Invoke-Probe -Name "transport" -Action { Test-Transport }
+    Invoke-Probe -Name "transport" -Action { Test-Transport -ObservationEvent "transport-observation" }
 
     Invoke-Probe -Name "test-root-create" -Action {
         [IO.Directory]::CreateDirectory($RemoteRoot) | Out-Null
@@ -270,24 +318,34 @@ try {
         if ([IO.File]::ReadAllText($Target) -ne "base`n") { throw "ADS changed the base stream" }
     }
 
-    Invoke-Probe -Name "office-temp-replace" -Action {
-        $Target = Join-Path $RemoteRoot "office-document.docx"
-        $Temporary = Join-Path $RemoteRoot (".office-{0}.tmp" -f $RunId)
-        [IO.File]::WriteAllText($Target, "office-old`n")
-        [IO.File]::WriteAllText($Temporary, "office-new`n")
+    Invoke-Probe -Name "temp-file-replace" -Action {
+        $Target = Join-Path $RemoteRoot "replace-target.bin"
+        $Temporary = Join-Path $RemoteRoot (".replace-{0}.tmp" -f $RunId)
+        [IO.File]::WriteAllText($Target, "replace-old`n")
+        [IO.File]::WriteAllText($Temporary, "replace-new`n")
         Move-Item -LiteralPath $Temporary -Destination $Target -Force
-        if ([IO.File]::ReadAllText($Target) -ne "office-new`n") { throw "Office-style replacement mismatch" }
+        if ([IO.File]::ReadAllText($Target) -ne "replace-new`n") { throw "Temporary-file replacement mismatch" }
     }
 
     Invoke-Probe -Name "reconnect" -Action {
-        Remove-PSDrive -Name $DriveName -Force
+        Disconnect-ProbeShare
         Connect-ProbeShare
         $RemoteUpload = Join-Path $RemoteRoot "upload.bin"
         $LocalUpload = Join-Path $LocalWork "upload.bin"
         if ((Get-FileHash -LiteralPath $RemoteUpload -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $LocalUpload -Algorithm SHA256).Hash) {
             throw "Reconnect hash mismatch"
         }
+        Test-Transport -ObservationEvent "transport-after-reconnect-observation"
     }
+
+    Invoke-Probe -Name "remote-cleanup" -Action {
+        if (-not $RemoteCreated -or [string]::IsNullOrWhiteSpace($RemoteRoot)) { throw "The disposable test root is not owned by this probe" }
+        Remove-Item -LiteralPath $RemoteRoot -Recurse -Force
+        if (Test-Path -LiteralPath $RemoteRoot) { throw "The disposable test root remains present" }
+        $script:RemoteCreated = $false
+    }
+
+    Invoke-Probe -Name "disconnect" -Action { Disconnect-ProbeShare }
 
     Write-Evidence -Event "run" -Status "pass"
     [ordered]@{
@@ -296,6 +354,7 @@ try {
         host = $Server
         share = $Share
         status = "pass"
+        coverage = "Windows SMB redirector filesystem semantics only"
         evidence = $EvidencePath
     } | ConvertTo-Json -Compress
 } catch {
@@ -313,6 +372,11 @@ try {
     try {
         if (-not [string]::IsNullOrWhiteSpace($DriveName)) {
             Remove-PSDrive -Name $DriveName -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
+    try {
+        if ($ConnectionOwned -and (Get-Command Remove-SmbMapping -ErrorAction SilentlyContinue)) {
+            Remove-SmbMapping -RemotePath $RemotePath -Force -UpdateProfile:$false -ErrorAction SilentlyContinue
         }
     } catch {}
     try {
