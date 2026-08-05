@@ -10,7 +10,7 @@ action="status"
 action_set=false
 
 usage() {
-  echo "Usage: $0 [--dry-run|--execute] [prepare|start-samba|status|host-test|stop|destroy]" >&2
+  echo "Usage: $0 [--dry-run|--execute] [prepare|start-samba|status|host-test|api-test|stop|destroy]" >&2
 }
 
 for argument in "$@"; do
@@ -23,7 +23,7 @@ for argument in "$@"; do
       mode="$argument"
       mode_set=true
       ;;
-    prepare|start-samba|status|host-test|stop|destroy)
+    prepare|start-samba|status|host-test|api-test|stop|destroy)
       if [[ "$action_set" == "true" ]]; then
         usage
         exit 2
@@ -40,6 +40,7 @@ done
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 template="${POSIX_GATE1_SMB_TEMPLATE:-${script_dir}/../samba/posix-gate1-smb.conf.in}"
+probe_bundle="${POSIX_GATE1_PROBE_BUNDLE:-${script_dir}/../../apps/api/dist/posix-gate1-probe.js}"
 state_root="${POSIX_GATE1_ROOT:-/var/lib/deniz-cloud/posix-gate1}"
 if [[ "$state_root" != "/" ]]; then
   state_root="${state_root%/}"
@@ -155,7 +156,8 @@ if [[ "$mode" == "--dry-run" ]]; then
     --arg phase "$current_phase" \
     --arg tailscaleIp "$tailscale_ip" \
     --arg template "$template" \
-    '{mode:$mode,action:$action,root:$root,currentPhase:$phase,tailscaleIp:(if $tailscaleIp=="" then null else $tailscaleIp end),sambaTemplate:$template,willMountProductionBranches:false}'
+    --arg probeBundle "$probe_bundle" \
+    '{mode:$mode,action:$action,root:$root,currentPhase:$phase,tailscaleIp:(if $tailscaleIp=="" then null else $tailscaleIp end),sambaTemplate:$template,probeBundle:$probeBundle,willMountProductionBranches:false}'
   exit 0
 fi
 if (( EUID != 0 )); then
@@ -530,6 +532,49 @@ run_host_tests() {
     '{partialHostTestsPassed:true,evidence:$evidence,gate1Passed:false,pending:["API Bun/Range/TUS/slow-client probe","raw hardlink and symlink ingress","name-policy matrix","API-SMB concurrency and open handles","tier-move crash points","live branch loss and reboot","Finder and Explorer native-app checks","LAN and relay performance"]}'
 }
 
+run_api_tests() {
+  validate_live_spike
+  if [[ ! -f "$probe_bundle" || -L "$probe_bundle" ]]; then
+    echo "Bundled Gate 1 API probe is missing or unsafe: ${probe_bundle}" >&2
+    exit 1
+  fi
+  local api_image probe_evidence_dir result_file log_file
+  api_image="$(docker inspect --format '{{.Config.Image}}' deniz-cloud-api-1)"
+  if [[ -z "$api_image" ]]; then
+    echo "Could not resolve the deployed API image" >&2
+    exit 1
+  fi
+  probe_evidence_dir="$evidence_dir/api-${spike_id}"
+  result_file="$probe_evidence_dir/summary.json"
+  log_file="$probe_evidence_dir/checks.jsonl"
+  if [[ -e "$probe_evidence_dir" || -L "$probe_evidence_dir" ]]; then
+    echo "Refusing to overwrite Gate 1 API evidence" >&2
+    exit 1
+  fi
+  mkdir -m 700 "$probe_evidence_dir"
+  chown 1000:1000 "$probe_evidence_dir"
+
+  docker run --rm --network none --read-only --tmpfs /tmp --user 1000:1000 \
+    --volume "$probe_bundle:/gate1-probe.js:ro" \
+    --volume "$merged_mount:/gate1" \
+    --volume "$probe_evidence_dir:/evidence" \
+    --entrypoint bun "$api_image" \
+    /gate1-probe.js --execute --root /gate1/posix-gate1-disposable --log /evidence/checks.jsonl \
+    > "$result_file"
+  chmod 600 "$result_file"
+  chown root:root "$result_file"
+  [[ -s "$log_file" && ! -L "$log_file" ]] || { echo "API probe evidence is missing" >&2; exit 1; }
+  jq -e '
+    .probe == "posix-gate1" and
+    .dryRun == false and
+    ([.checks[] | select(.status == "pass") | .name] | index("same-mount-atomic-rename") != null) and
+    ([.checks[] | select(.status == "pass") | .name] | index("tus-interrupt-fsync-resume-publish") != null) and
+    ([.checks[] | select(.status == "pass") | .name] | index("bun-file-full-range-and-sparse-offset") != null)
+  ' "$result_file" >/dev/null
+  jq -n --arg evidence "$probe_evidence_dir" --arg image "$api_image" \
+    '{partialApiTestsPassed:true,gate1Passed:false,evidence:$evidence,deployedRuntimeImage:$image,pending:["5.8 GB slow-client backpressure/RSS","mmap","SMB concurrency","native clients","branch loss/reboot","throughput"]}'
+}
+
 show_status() {
   if [[ ! -e "$state_root" ]]; then
     jq -n --arg root "$state_root" '{present:false,root:$root}'
@@ -648,6 +693,7 @@ case "$action" in
   start-samba) start_samba ;;
   status) show_status ;;
   host-test) run_host_tests ;;
+  api-test) run_api_tests ;;
   stop) stop_spike ;;
   destroy) destroy_spike ;;
 esac
