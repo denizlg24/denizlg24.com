@@ -89,6 +89,14 @@ export {
   type StorageNamespaceCapabilities,
 } from "./namespace";
 export {
+  type NamespaceHealth,
+  type NamespaceHealthInput,
+  type NamespaceHealthStatus,
+  namespaceHealth,
+} from "./namespace-health";
+export { STORAGE_METADATA_HEALTH_KEYS } from "./namespace-health-keys";
+export { createProjectionRepository } from "./namespace-projection-repository";
+export {
   NamespaceProjector,
   type NamespaceSource,
   type ProjectionRepository,
@@ -105,6 +113,16 @@ export {
   type ScanCompletionInput,
   scanMayCount,
 } from "./namespace-reconcile";
+export {
+  rebuildStorageSearch,
+  type SearchRebuildResult,
+  type SearchRebuildSource,
+} from "./namespace-search-rebuild";
+export {
+  NamespaceWatcher,
+  type WatcherOptions,
+  type WatcherSignal,
+} from "./namespace-watcher";
 export {
   buildProjectRootPath,
   buildUserRootPath,
