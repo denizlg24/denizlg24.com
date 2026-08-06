@@ -1,12 +1,23 @@
 import { z } from "zod";
 import {
-  currencyCodeSchema,
   isoDateSchema,
   isoDateTimeSchema,
   priceSchema,
   quantitySchema,
   tickerSchema,
 } from "./common";
+
+/**
+ * The engine does no FX, and every provider quotes USD, so a portfolio has no
+ * currency to choose. This used to accept any ISO code and label the UI with it
+ * while the maths stayed unit-agnostic: a EUR portfolio recorded EUR entry
+ * prices against USD market data, so `marketValue - costBasis` subtracted one
+ * currency from another and reported the exchange rate as a gain.
+ *
+ * A literal rather than a default, so the mismatch is rejected at the boundary
+ * instead of being relabelled and carried inward.
+ */
+export const portfolioCurrencySchema = z.literal("USD");
 
 export const tradeSideSchema = z.enum(["buy", "sell"]);
 export type TradeSide = z.infer<typeof tradeSideSchema>;
@@ -105,7 +116,7 @@ export const DEFAULT_MARGIN: MarginConfig = marginConfigBaseSchema.parse({});
 export const portfolioSchema = z.object({
   id: z.string(),
   name: z.string().min(1).max(80),
-  baseCurrency: currencyCodeSchema.default("USD"),
+  baseCurrency: portfolioCurrencySchema.default("USD"),
   initialCash: z.number().nonnegative(),
   /** Ticker the equity curve is compared against, e.g. SPY. */
   benchmark: tickerSchema.nullable().default(null),
