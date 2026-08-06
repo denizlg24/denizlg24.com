@@ -38,8 +38,11 @@ function position(overrides: Partial<Position> = {}): Position {
 }
 
 describe("computeMetrics", () => {
+  // Three points, not two: the day delta is only read off the curve when the
+  // point before the last one is a real session rather than inception.
   test("a deposit is not counted as a day's gain", () => {
     const curve = [
+      point("2026-01-02", 1000, 1000),
       point("2026-01-05", 1000, 1000),
       point("2026-01-06", 1500, 1500),
     ];
@@ -54,7 +57,11 @@ describe("computeMetrics", () => {
   });
 
   test("genuine appreciation shows up as PnL", () => {
-    const curve = [point("2026-01-05", 1000), point("2026-01-06", 1100)];
+    const curve = [
+      point("2026-01-02", 1000),
+      point("2026-01-05", 1000),
+      point("2026-01-06", 1100),
+    ];
     const metrics = computeMetrics({
       curve,
       benchmarkCurve: [],
@@ -82,9 +89,26 @@ describe("computeMetrics", () => {
     expect(metrics.totalPnlPercent).toBeCloseTo(10, 10);
   });
 
+  test("a young book whose bars never landed is still not a day", () => {
+    // Opened two days ago, no cached bars: two points and a gap well inside a
+    // weekend, so the date rule alone let this through and Day stayed Total.
+    const metrics = computeMetrics({
+      curve: [point("2026-08-04", 1000), point("2026-08-06", 1100)],
+      benchmarkCurve: [],
+      state: emptyState(1000),
+      positions: [position()],
+    });
+    expect(metrics.dayPnl).toBeCloseTo(50, 10);
+    expect(metrics.totalPnl).toBeCloseTo(100, 10);
+  });
+
   test("a long weekend is still a day, so the curve keeps it", () => {
     const metrics = computeMetrics({
-      curve: [point("2026-01-02", 1000), point("2026-01-06", 1100)],
+      curve: [
+        point("2025-12-30", 900),
+        point("2026-01-02", 1000),
+        point("2026-01-06", 1100),
+      ],
       benchmarkCurve: [],
       state: emptyState(1000),
       positions: [position()],

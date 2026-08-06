@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { Trade, ValuationPoint } from "../../schemas";
-import { buildValuationCurve, performanceDates, replayTrades } from "./engine";
+import {
+  buildPositions,
+  buildValuationCurve,
+  performanceDates,
+  replayTrades,
+} from "./engine";
 import { computeMetrics } from "./metrics";
 
 function trade(overrides: Partial<Trade> & Pick<Trade, "ticker">): Trade {
@@ -144,24 +149,33 @@ describe("performance window", () => {
     expect(curve[0]?.value).toBe(10_000);
     expect(curve[0]?.totalPnl).toBe(0);
 
+    const state = replayTrades(
+      [
+        trade({
+          ticker: "AAPL",
+          quantity: 100,
+          price: 100,
+          executedAt: "2026-02-28T15:00:00.000Z",
+        }),
+      ],
+      10_000,
+    );
+    const positions = buildPositions(
+      state,
+      () => 110,
+      // Yesterday's close. The curve cannot supply one — its only other point is
+      // inception — so the day has to come from the quote.
+      () => 108,
+    );
     const metrics = computeMetrics({
       curve,
       benchmarkCurve: [],
-      state: replayTrades(
-        [
-          trade({
-            ticker: "AAPL",
-            quantity: 100,
-            price: 100,
-            executedAt: "2026-02-28T15:00:00.000Z",
-          }),
-        ],
-        10_000,
-      ),
-      positions: [],
+      state,
+      positions,
     });
-    expect(metrics.dayPnl).toBeCloseTo(1000, 10);
-    expect(metrics.dayPnlPercent).toBeCloseTo(10, 10);
+    // Total is the whole move off cost; the day is only the move off yesterday.
+    expect(metrics.totalPnl).toBeCloseTo(1000, 10);
+    expect(metrics.dayPnl).toBeCloseTo(200, 10);
   });
 });
 

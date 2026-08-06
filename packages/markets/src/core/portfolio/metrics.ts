@@ -152,11 +152,16 @@ export function computeMetrics(options: {
   // session before it. `performanceDates` builds the curve from cached bars plus
   // inception and today, so a book whose holdings have not backfilled has just
   // those two points and the "day" delta spans its entire life: Day silently
-  // reported Total. Anything wider than a long weekend falls back to the
-  // per-holding move against the previous close.
+  // reported Total.
+  //
+  // Both conditions are needed. The date gap alone misses a book opened days
+  // ago whose bars never landed — two points, a gap well inside a weekend, and
+  // Day still equal to Total. Inception is not a session close, so the first
+  // point can never be the previous one.
   const priorSession =
     last &&
     previous &&
+    previous !== first &&
     daysBetween(previous.date, last.date) <= MAX_SESSION_GAP_DAYS
       ? previous
       : null;
