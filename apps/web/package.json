@@ -85,7 +85,7 @@
     "ogl": "^1.0.11",
     "openai": "^7.3.0",
     "otpauth": "^9.5.1",
-    "pdfjs-dist": "5.4.296",
+    "pdfjs-dist": "6.2.108",
     "puppeteer-core": "^25.4.0",
     "radix-ui": "^1.6.7",
     "react": "19.2.8",
