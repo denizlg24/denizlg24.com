@@ -5,17 +5,42 @@ import { parseSmbAuditLine, RecentWriterIndex } from "./smb-audit";
 const ROOT = "/srv/deniz-cloud/storage";
 
 describe("parseSmbAuditLine", () => {
-  it("reads the principal and destination path off an authoring operation", () => {
+  it("reads the principal and path off a creating create_file", () => {
     const event = parseSmbAuditLine(
-      "dc-macbook-79f0fc95|100.64.0.2|Shared|pwrite|ok|/srv/deniz-cloud/storage/shared/report.pdf",
+      "dc-deniz-machin-fc0baf2c|100.108.153.46|Shared|create_file|ok|0x80|file|open_if|/srv/deniz-cloud/storage/shared/report.pdf",
     );
 
     expect(event).toEqual({
       absolutePath: "/srv/deniz-cloud/storage/shared/report.pdf",
-      operation: "pwrite",
-      principal: "dc-macbook-79f0fc95",
+      operation: "create_file",
+      principal: "dc-deniz-machin-fc0baf2c",
       share: "Shared",
     });
+  });
+
+  it("ignores create_file that merely opened an existing entry", () => {
+    // Captured verbatim from the Pi: browsing the share emits exactly this, and
+    // treating it as authorship would credit the file to whoever last read it.
+    expect(
+      parseSmbAuditLine(
+        "dc-deniz-machin-fc0baf2c|100.108.153.46|Shared|create_file|ok|0x80|file|open|/srv/deniz-cloud/storage/shared",
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts every disposition that brings an entry into existence", () => {
+    for (const disposition of [
+      "create",
+      "open_if",
+      "overwrite",
+      "overwrite_if",
+      "supersede",
+    ]) {
+      const event = parseSmbAuditLine(
+        `dc-x-1|1.2.3.4|Shared|create_file|ok|0x80|file|${disposition}|/srv/deniz-cloud/storage/shared/a.pdf`,
+      );
+      expect(event?.principal).toBe("dc-x-1");
+    }
   });
 
   it("strips a syslog prefix", () => {
@@ -36,14 +61,12 @@ describe("parseSmbAuditLine", () => {
     expect(event?.absolutePath).toBe("/srv/deniz-cloud/storage/shared/new.pdf");
   });
 
-  it("ignores reads, failures, the broker share and create_file", () => {
+  it("ignores reads, failures, the broker share and unknown lines", () => {
     const lines = [
       "dc-x-1|1.2.3.4|Shared|openat|ok|r|/srv/deniz-cloud/storage/shared/a.pdf",
-      "dc-x-1|1.2.3.4|Shared|pwrite|fail|/srv/deniz-cloud/storage/shared/a.pdf",
-      "api-broker|127.0.0.1|ApiBroker|pwrite|ok|/srv/deniz-cloud/storage/a.pdf",
-      // Samba emits create_file for opening an existing file too, so it would
-      // attribute a file to whoever last read it.
-      "dc-x-1|1.2.3.4|Shared|create_file|ok|0x80000080|file|open|/srv/deniz-cloud/storage/shared/a.pdf",
+      "dc-x-1|1.2.3.4|Shared|renameat|fail|/srv/a|/srv/deniz-cloud/storage/b",
+      "api-broker|127.0.0.1|ApiBroker|create_file|ok|0x80|file|create|/srv/deniz-cloud/storage/a.pdf",
+      "dc-x-1|1.2.3.4|Shared|close|ok|/srv/deniz-cloud/storage/shared/a.pdf",
       "not an audit line at all",
     ];
 
@@ -54,7 +77,7 @@ describe("parseSmbAuditLine", () => {
 describe("RecentWriterIndex", () => {
   const event = (path: string, principal: string) => ({
     absolutePath: `${ROOT}/${path}`,
-    operation: "pwrite",
+    operation: "create_file",
     principal,
     share: "Shared",
   });
@@ -72,7 +95,7 @@ describe("RecentWriterIndex", () => {
     index.record(
       {
         absolutePath: "/etc/passwd",
-        operation: "pwrite",
+        operation: "create_file",
         principal: "dc-x",
         share: "Shared",
       },

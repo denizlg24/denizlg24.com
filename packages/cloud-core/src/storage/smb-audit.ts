@@ -28,17 +28,30 @@ export interface RecentWriter {
 /**
  * Operations that make the actor an author rather than a reader.
  *
- * `create_file` is deliberately absent: Samba emits it for opening an existing
- * file as well as creating one — the disposition is a separate field — so
- * treating it as authorship would attribute a file to whoever last read it.
- * The narrower set costs nothing, because anything genuinely written also
- * produces a `pwrite`, and anything moved in produces a `renameat`.
+ * Notably not the write calls. Modern Samba writes through `pwrite_send` /
+ * `pwrite_recv`, so auditing plain `pwrite` logs nothing at all — and auditing
+ * the async pair logs one line per *chunk*, which turns a single large upload
+ * into tens of thousands of journal entries. `create_file` is one line per
+ * file and is already enabled, so it is both the cheaper signal and the only
+ * one being emitted.
  */
-const AUTHORING_OPERATIONS = new Set([
-  "pwrite",
-  "write",
-  "renameat",
-  "mkdirat",
+const AUTHORING_OPERATIONS = new Set(["renameat", "mkdirat"]);
+
+/**
+ * Create dispositions that mean the actor brought the entry into existence.
+ *
+ * `create_file` covers opening an existing file as well as creating one, and
+ * the disposition is what separates them — without this check the index would
+ * credit a file to whoever last *read* it. `open` is the read case and is the
+ * only one excluded; `open_if` creates when the entry is absent, which is what
+ * a macOS client uses for a new file.
+ */
+const CREATING_DISPOSITIONS = new Set([
+  "create",
+  "open_if",
+  "overwrite",
+  "overwrite_if",
+  "supersede",
 ]);
 
 /** The API's own broker share; those writes stamp their own identity. */
@@ -67,7 +80,13 @@ export function parseSmbAuditLine(line: string): ParsedAuditEvent | null {
   if (!principal || !share || !operation) return null;
   if (result !== "ok") return null;
   if (EXCLUDED_SHARES.has(share)) return null;
-  if (!AUTHORING_OPERATIONS.has(operation)) return null;
+  if (operation === "create_file") {
+    // `…|create_file|ok|<access mask>|<type>|<disposition>|<path>`
+    const disposition = fields[fields.length - 2];
+    if (!disposition || !CREATING_DISPOSITIONS.has(disposition)) return null;
+  } else if (!AUTHORING_OPERATIONS.has(operation)) {
+    return null;
+  }
 
   const absolutePath = fields[fields.length - 1]?.trim();
   if (!absolutePath?.startsWith("/")) return null;
