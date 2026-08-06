@@ -73,7 +73,9 @@ describe("POSIX production host boundary", () => {
     // serves the storage user's home directory to every device instead of the
     // account's own root. The per-principal include is what prevents that.
     expect(config).not.toMatch(/^\s*path = %H\s*$/m);
-    expect(config).toContain("include = /etc/samba/deniz-cloud-personal/%U.conf");
+    expect(config).toContain(
+      "include = /etc/samba/deniz-cloud-personal/%U.conf",
+    );
   });
 
   it("installs without activation and uninstalls only an exact manifest", async () => {

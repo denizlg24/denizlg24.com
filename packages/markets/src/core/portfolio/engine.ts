@@ -235,10 +235,8 @@ function sourceRank(trade: Trade): number {
   return 2;
 }
 
-export interface PriceLookup {
-  /** Raw close for a ticker on a date, or null when the market was shut. */
-  (ticker: string, date: string): number | null;
-}
+/** Raw close for a ticker on a date, or null when the market was shut. */
+export type PriceLookup = (ticker: string, date: string) => number | null;
 
 /**
  * The dates an equity curve is evaluated on: every session the cache knows
