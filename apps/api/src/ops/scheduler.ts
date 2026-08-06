@@ -5,6 +5,7 @@ import {
   getTask,
   markInterruptedTaskRuns,
   type ScheduledTask,
+  type StorageNamespaceMode,
   scheduledTasks,
   type TaskRun,
   taskRuns,
@@ -69,7 +70,10 @@ export function validateCronExpression(expression: string): string {
   return expression;
 }
 
-export async function seedDefaultOpsTasks(db: Database): Promise<void> {
+export async function seedDefaultOpsTasks(
+  db: Database,
+  namespaceMode: StorageNamespaceMode,
+): Promise<void> {
   const creator = await db.query.users.findFirst({
     columns: { id: true },
     where: eq(users.role, "superuser"),
@@ -115,15 +119,44 @@ export async function seedDefaultOpsTasks(db: Database): Promise<void> {
       createdBy: creator.id,
     });
   }
-  if (!existingTypes.has("tiering_pass")) {
+  // Nightly tiering is one job with two implementations, and which one is
+  // correct is a property of the deployment, not a choice. `tiering_pass` moves
+  // blobs between an SSD tree and a flat UUID store on the HDD, which is the
+  // legacy addressing scheme; under a broker-mounted namespace both branches
+  // carry the same relative path and only the privileged host service may open
+  // them. Seeding the legacy task in broker mode seeds a task that throws every
+  // night, so each mode seeds only its own.
+  const nightlyTieringType: TaskType =
+    namespaceMode === "broker-mounted" ? "namespace_tiering" : "tiering_pass";
+  if (!existingTypes.has(nightlyTieringType)) {
+    // Seeded disabled, as it always has been: arming a job that relocates data
+    // between physical disks stays a deliberate act, and the dry run on /disks
+    // is what it is meant to be armed from.
     const task = await createTask(db, {
       name: "Nightly storage tiering",
-      type: "tiering_pass",
+      type: nightlyTieringType,
       cronExpression: "0 3 * * *",
-      config: validatedTaskConfig("tiering_pass", { dryRun: false }),
+      config: validatedTaskConfig(nightlyTieringType, { dryRun: false }),
       createdBy: creator.id,
     });
     await updateTask(db, task.id, { enabled: false });
+  }
+  // A deployment that crossed over to the broker keeps its old task row, and an
+  // enabled one fails nightly against `assertLegacyTieringAllowed`. Disabling
+  // it is the honest end state: the row stays for its run history, and the
+  // broker task above is the one that runs.
+  if (namespaceMode === "broker-mounted" && existingTypes.has("tiering_pass")) {
+    const [legacy] = await db
+      .select({ enabled: scheduledTasks.enabled, id: scheduledTasks.id })
+      .from(scheduledTasks)
+      .where(eq(scheduledTasks.type, "tiering_pass"))
+      .limit(1);
+    if (legacy?.enabled) {
+      await updateTask(db, legacy.id, { enabled: false });
+      console.warn(
+        "[scheduler] Disabled the legacy tiering_pass task: broker-mounted storage tiers through namespace_tiering",
+      );
+    }
   }
 }
 
@@ -161,7 +194,10 @@ export class OpsScheduler {
 
   async start(): Promise<void> {
     await markInterruptedTaskRuns(this.options.db);
-    await seedDefaultOpsTasks(this.options.db);
+    await seedDefaultOpsTasks(
+      this.options.db,
+      this.options.executorContext.storageConfig.namespace.mode,
+    );
     const tasks = await this.options.db
       .select()
       .from(scheduledTasks)
@@ -407,6 +443,41 @@ export class OpsScheduler {
           )}${orphaned.length > 5 ? ", …" : ""} had no blob on either disk.`,
         url,
       });
+    }
+
+    const namespaceTiering = metadata.namespaceTiering;
+    if (namespaceTiering) {
+      const relocated = namespaceTiering.applied.filter(
+        (move) => move.outcome === "moved",
+      ).length;
+      if (relocated > 0) {
+        await this.options.notifications.dispatch({
+          type: "tiering_moved",
+          severity: "info",
+          subjectKey: task.id,
+          title: `Tiering moved ${relocated} file${relocated === 1 ? "" : "s"}`,
+          message: `${task.name} relocated ${relocated} file${relocated === 1 ? "" : "s"} between branches.`,
+          url,
+        });
+      }
+      // A quarantine is a path present on both branches whose copies disagree.
+      // Nothing resolves it automatically — that is the whole point — so it has
+      // to reach someone rather than sit in a report nobody opens.
+      if (namespaceTiering.quarantined.length > 0) {
+        const paths = namespaceTiering.quarantined.slice(0, 5);
+        await this.options.notifications.dispatch({
+          type: "tiering_orphaned",
+          severity: "warn",
+          subjectKey: task.id,
+          title: `Tiering quarantined ${namespaceTiering.quarantined.length} path${namespaceTiering.quarantined.length === 1 ? "" : "s"}`,
+          message: `${paths
+            .map((entry) => `${entry.relativePath} (${entry.reason})`)
+            .join(
+              ", ",
+            )}${namespaceTiering.quarantined.length > 5 ? ", …" : ""}`,
+          url,
+        });
+      }
     }
   }
 

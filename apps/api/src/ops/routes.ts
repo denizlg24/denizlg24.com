@@ -37,6 +37,7 @@ import {
   metricsQuerySchema,
   mintTerminalTicketInputSchema,
   parseTaskConfig,
+  type TaskType,
   tieringConfigPatchSchema,
   updateTaskInputSchema,
 } from "@repo/schemas/cloud";
@@ -297,9 +298,18 @@ export function opsRoutes(options: OpsRouteOptions) {
     return context.json({ data: { status: "deleted" } });
   });
 
+  // Which task *is* nightly tiering here. The two implementations are never
+  // both correct, so every tiering surface resolves the type from the mode
+  // rather than naming `tiering_pass` and quietly reporting nothing in broker
+  // deployments.
+  const nightlyTieringType: TaskType =
+    options.storageConfig.namespace.mode === "broker-mounted"
+      ? "namespace_tiering"
+      : "tiering_pass";
+
   const tieringSettings = async () => {
     const { tiering, ssdStoragePath, hddStoragePath } = options.storageConfig;
-    const task = await findTaskByType(options.db, "tiering_pass");
+    const task = await findTaskByType(options.db, nightlyTieringType);
     const runs = task
       ? await listTaskRuns(options.db, task.id, { limit: 1 })
       : { runs: [] };
@@ -313,6 +323,8 @@ export function opsRoutes(options: OpsRouteOptions) {
         minSizeBytes: tiering.minSizeBytes,
         batchCap: tiering.batchCap,
       },
+      mode: options.storageConfig.namespace.mode,
+      taskType: nightlyTieringType,
       task,
       lastRun: runs.runs[0] ?? null,
     };
@@ -359,13 +371,13 @@ export function opsRoutes(options: OpsRouteOptions) {
   );
 
   app.patch("/storage/tiering", async (context) => {
-    const task = await findTaskByType(options.db, "tiering_pass");
+    const task = await findTaskByType(options.db, nightlyTieringType);
     if (!task) {
       return context.json(
         {
           error: {
             code: "TASK_NOT_FOUND",
-            message: "No tiering_pass task has been seeded",
+            message: `No ${nightlyTieringType} task has been seeded`,
           },
         },
         404,
@@ -386,7 +398,7 @@ export function opsRoutes(options: OpsRouteOptions) {
     }
     const { cronExpression, ...config } = parsed.data;
     await updateTask(options.db, task.id, {
-      config: parseTaskConfig("tiering_pass", {
+      config: parseTaskConfig(nightlyTieringType, {
         ...task.config,
         ...config,
       }),

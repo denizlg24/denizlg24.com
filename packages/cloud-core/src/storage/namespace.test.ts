@@ -43,6 +43,9 @@ function config(
       minAgeMs: 0,
       minSizeBytes: 0,
       batchCap: 20,
+      placementLookahead: 500,
+      migrationMode: false,
+      restoreActive: false,
     },
   };
 }

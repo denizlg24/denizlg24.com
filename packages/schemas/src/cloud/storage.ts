@@ -326,6 +326,86 @@ export type TieringReport = z.infer<typeof tieringReportSchema>;
 export const tieringReportResponseSchema =
   apiResponseSchema(tieringReportSchema);
 
+/**
+ * Why a broker-mode pass did nothing. A blocked pass is a success — the gate
+ * exists to stop bytes moving on an untrustworthy picture of the namespace —
+ * so the reason has to survive into the report rather than into an error.
+ */
+export const namespaceTieringBlockSchema = z.enum([
+  "namespace-not-mounted",
+  "branch-marker-invalid",
+  "projection-dirty",
+  "backup-restore-active",
+  "migration-mode",
+  "branch-usage-unavailable",
+]);
+export type NamespaceTieringBlock = z.infer<typeof namespaceTieringBlockSchema>;
+
+/**
+ * What the privileged service reported for one path it was asked to move.
+ * Everything except `moved` leaves both branches exactly as they were.
+ */
+export const namespaceTierMoveOutcomeSchema = z.enum([
+  "moved",
+  /** Already on the destination branch; the projection was simply stale. */
+  "already-placed",
+  /** Gone, or no longer the entry whose identity the API asked for. */
+  "vanished",
+  /** Present on both branches and the copies disagree. Alerts, never resolves. */
+  "quarantined",
+  /** Refused by the gate on the privileged side, e.g. an open SMB handle. */
+  "deferred",
+]);
+export type NamespaceTierMoveOutcome = z.infer<
+  typeof namespaceTierMoveOutcomeSchema
+>;
+
+export const namespaceTierMoveSchema = z.object({
+  fileId: z.uuid(),
+  relativePath: z.string(),
+  from: storageTierSchema,
+  to: storageTierSchema,
+  sizeBytes: z.number().nonnegative(),
+  outcome: namespaceTierMoveOutcomeSchema,
+});
+export type NamespaceTierMove = z.infer<typeof namespaceTierMoveSchema>;
+
+export const branchUsageSchema = z.object({
+  tier: storageTierSchema,
+  totalBytes: z.number().nonnegative(),
+  usedBytes: z.number().nonnegative(),
+  freeBytes: z.number().nonnegative(),
+  usagePercent: z.number().nonnegative(),
+});
+export type BranchUsage = z.infer<typeof branchUsageSchema>;
+
+export const namespaceTieringReportSchema = z.object({
+  dryRun: z.boolean(),
+  /** Non-null means nothing was attempted; every other count is then zero. */
+  blockedBy: namespaceTieringBlockSchema.nullable(),
+  ssd: branchUsageSchema.nullable(),
+  hdd: branchUsageSchema.nullable(),
+  /** Projection rows the policy judged eligible before placement was checked. */
+  eligible: z.number().int().nonnegative(),
+  /** Of those, the ones the privileged service confirmed were on the SSD. */
+  onSsd: z.number().int().nonnegative(),
+  bytesToFree: z.number().nonnegative(),
+  planned: z.array(namespaceTierMoveSchema),
+  applied: z.array(namespaceTierMoveSchema),
+  quarantined: z.array(
+    z.object({ relativePath: z.string(), reason: z.string() }),
+  ),
+  failures: z.array(
+    z.object({ relativePath: z.string(), message: z.string() }),
+  ),
+});
+export type NamespaceTieringReport = z.infer<
+  typeof namespaceTieringReportSchema
+>;
+export const namespaceTieringReportResponseSchema = apiResponseSchema(
+  namespaceTieringReportSchema,
+);
+
 export const s3CredentialMetadataSchema = z.object({
   id: z.uuid(),
   projectId: z.uuid().nullable(),

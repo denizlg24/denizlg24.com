@@ -9,7 +9,12 @@ import {
 import { runTone } from "@repo/cloud-ui/status-tone";
 import { Unreachable } from "@repo/cloud-ui/unreachable";
 import { usePoll } from "@repo/cloud-ui/use-poll";
-import type { SafeTaskRun, TieringReport } from "@repo/schemas/cloud";
+import type {
+  NamespaceTieringReport,
+  SafeScheduledTask,
+  SafeTaskRun,
+  TieringReport,
+} from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import {
   Dialog,
@@ -33,13 +38,24 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
+import {
+  NamespaceTieringReportView,
+  relocatedBytes,
+} from "../_components/namespace-tiering-report";
 import { TaskFormDialog } from "../_components/task-form-dialog";
 import { movedBytes, TieringReportView } from "../_components/tiering-report";
 
+/** The two tiering task types report the same fact in different shapes. */
 function runMovedBytes(run: SafeTaskRun): string | null {
-  const report = run.metadata?.tieringReport;
-  if (!report) return null;
-  return formatBytes(movedBytes(report));
+  const legacy = run.metadata?.tieringReport;
+  if (legacy) return formatBytes(movedBytes(legacy));
+  const namespace = run.metadata?.namespaceTiering;
+  if (namespace) return formatBytes(relocatedBytes(namespace));
+  return null;
+}
+
+function isTieringTask(type: SafeScheduledTask["type"]): boolean {
+  return type === "tiering_pass" || type === "namespace_tiering";
 }
 
 function RunDialog({
@@ -67,6 +83,11 @@ function RunDialog({
             {run.metadata?.tieringReport && (
               <TieringReportView report={run.metadata.tieringReport} />
             )}
+            {run.metadata?.namespaceTiering && (
+              <NamespaceTieringReportView
+                report={run.metadata.namespaceTiering}
+              />
+            )}
             {run.output && (
               <pre className="max-h-72 overflow-auto rounded bg-muted px-3 py-2 font-mono text-[11px] leading-relaxed">
                 {run.output}
@@ -77,11 +98,13 @@ function RunDialog({
                 {run.error}
               </pre>
             )}
-            {run.metadata && !run.metadata.tieringReport && (
-              <pre className="overflow-auto font-mono text-[11px] text-muted-foreground">
-                {JSON.stringify(run.metadata, null, 1)}
-              </pre>
-            )}
+            {run.metadata &&
+              !run.metadata.tieringReport &&
+              !run.metadata.namespaceTiering && (
+                <pre className="overflow-auto font-mono text-[11px] text-muted-foreground">
+                  {JSON.stringify(run.metadata, null, 1)}
+                </pre>
+              )}
           </div>
         )}
       </DialogContent>
@@ -113,6 +136,8 @@ export default function TaskDetailPage() {
   const [selectedRun, setSelectedRun] = useState<SafeTaskRun | null>(null);
   const [dryRunBusy, setDryRunBusy] = useState(false);
   const [dryRunReport, setDryRunReport] = useState<TieringReport | null>(null);
+  const [namespaceDryRunReport, setNamespaceDryRunReport] =
+    useState<NamespaceTieringReport | null>(null);
 
   // The dry-run wait loop runs for up to two minutes; without this it keeps
   // polling, toasting and setting state after the page is gone.
@@ -138,6 +163,7 @@ export default function TaskDetailPage() {
     if (!task) return;
     setDryRunBusy(true);
     setDryRunReport(null);
+    setNamespaceDryRunReport(null);
     // The executor reads the task config when the run actually starts, so
     // dryRun has to stay on until the run reaches a terminal state — and then
     // be put back, or one dry run would silently disable live tiering forever.
@@ -175,6 +201,9 @@ export default function TaskDetailPage() {
           }
           if (run.metadata?.tieringReport) {
             setDryRunReport(run.metadata.tieringReport);
+          }
+          if (run.metadata?.namespaceTiering) {
+            setNamespaceDryRunReport(run.metadata.namespaceTiering);
           }
           return;
         }
@@ -240,7 +269,7 @@ export default function TaskDetailPage() {
         />
       )}
 
-      {task.type === "tiering_pass" && (
+      {isTieringTask(task.type) && (
         <Section title="tiering dry run">
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-3">
@@ -261,6 +290,9 @@ export default function TaskDetailPage() {
               </span>
             </div>
             {dryRunReport && <TieringReportView report={dryRunReport} />}
+            {namespaceDryRunReport && (
+              <NamespaceTieringReportView report={namespaceDryRunReport} />
+            )}
           </div>
         </Section>
       )}

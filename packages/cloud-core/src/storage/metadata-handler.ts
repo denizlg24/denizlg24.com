@@ -1,3 +1,4 @@
+import type { BranchTieringAgent } from "./branch-tiering-agent";
 import {
   METADATA_PROTOCOL_VERSION,
   type MetadataEntryPayload,
@@ -23,6 +24,12 @@ function payload(entry: NamespaceEntry): MetadataEntryPayload {
   };
 }
 
+/**
+ * Bounds one `tier-locate` so a batch cannot become an unbounded stat storm on
+ * the host. The pass reads its lookahead in chunks rather than one request.
+ */
+export const TIER_LOCATE_MAX_PATHS = 1_000;
+
 function isRequest(value: unknown): value is MetadataRequest {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
@@ -30,11 +37,26 @@ function isRequest(value: unknown): value is MetadataRequest {
   const isPathless =
     candidate.op === "smb-provision" ||
     candidate.op === "smb-revoke" ||
-    candidate.op === "branch-markers";
+    candidate.op === "branch-markers" ||
+    candidate.op === "branch-usage" ||
+    candidate.op === "tier-locate";
   if (!isPathless && typeof candidate.relativePath !== "string") return false;
   switch (candidate.op) {
     case "branch-markers":
+    case "branch-usage":
       return true;
+    case "tier-locate":
+      return (
+        Array.isArray(candidate.relativePaths) &&
+        candidate.relativePaths.length <= TIER_LOCATE_MAX_PATHS &&
+        candidate.relativePaths.every((path) => typeof path === "string")
+      );
+    case "tier-move":
+      return (
+        (candidate.toTier === "ssd" || candidate.toTier === "hdd") &&
+        typeof candidate.expectedId === "string" &&
+        typeof candidate.expectedChecksum === "string"
+      );
     case "smb-provision":
       return (
         typeof candidate.accountId === "string" &&
@@ -89,6 +111,7 @@ export async function handleMetadataRequest(
   auditWriters?: (
     relativePath: string,
   ) => { at: number; principal: string } | null,
+  tiering?: BranchTieringAgent,
 ): Promise<MetadataResponse> {
   if (!isRequest(body)) {
     return {
@@ -106,6 +129,40 @@ export async function handleMetadataRequest(
       return {
         branchMarkers: branchMarkers ? await branchMarkers() : {},
         ok: true,
+      };
+    }
+    if (
+      body.op === "branch-usage" ||
+      body.op === "tier-locate" ||
+      body.op === "tier-move"
+    ) {
+      // A host with no branch roles configured has not deployed tiering yet.
+      // UNAVAILABLE makes the pass report itself blocked; anything else would
+      // have it treat "not set up" as "nothing to move".
+      if (!tiering) {
+        return {
+          code: "UNAVAILABLE",
+          message: "Branch tiering is not enabled on this host",
+          ok: false,
+        };
+      }
+      if (body.op === "branch-usage") {
+        return { branchUsage: await tiering.usage(), ok: true };
+      }
+      if (body.op === "tier-locate") {
+        return {
+          ok: true,
+          placements: await tiering.locate(body.relativePaths),
+        };
+      }
+      return {
+        ok: true,
+        tierMove: await tiering.move({
+          expectedChecksum: body.expectedChecksum,
+          expectedId: body.expectedId,
+          relativePath: body.relativePath,
+          toTier: body.toTier,
+        }),
       };
     }
     if (body.op === "smb-provision" || body.op === "smb-revoke") {

@@ -2,6 +2,7 @@ import { chmod, chown, lstat, readFile, unlink } from "node:fs/promises";
 
 import {
   AttrCommandXattrBackend,
+  BranchTieringAgent,
   handleMetadataRequest,
   isSupportedProtocolVersion,
   NamespaceMetadataService,
@@ -54,10 +55,15 @@ const smbAgent = config.smbScriptPath
 const auditTail = new SmbAuditTail({ namespaceRoot: config.namespaceRoot });
 auditTail.start();
 
-const service = new NamespaceMetadataService(
-  config.namespaceRoot,
-  new AttrCommandXattrBackend(),
-);
+const xattr = new AttrCommandXattrBackend();
+const service = new NamespaceMetadataService(config.namespaceRoot, xattr);
+
+// The only process on the box that may open a branch path. Absent until the
+// host declares its branch roles, which is what keeps a not-yet-migrated
+// deployment from answering tiering requests against a layout it does not have.
+const tiering = config.branchRoots
+  ? new BranchTieringAgent(config.branchRoots, xattr)
+  : undefined;
 
 // A stale socket from an unclean stop would make bind fail; only remove one
 // that is actually a socket, never a regular file someone put there.
@@ -124,6 +130,7 @@ const server = Bun.serve({
       smbAgent,
       () => readBranchMarkers(config.branchPaths),
       (relativePath) => auditTail.writerOf(relativePath),
+      tiering,
     );
     return Response.json(response, { status: response.ok ? 200 : 409 });
   },

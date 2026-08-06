@@ -4,6 +4,7 @@ import {
   assertLegacyTieringAllowed,
   countActivity,
   createNamespaceSource,
+  createNamespaceTieringRepository,
   createProjectionRepository,
   createTieringRepository,
   type Database,
@@ -20,6 +21,7 @@ import {
   removeStorageDocuments,
   requestOutcomeCounts,
   rollupAndPruneMetrics,
+  runNamespaceTieringPass,
   runTieringPass,
   type StorageConfig,
 } from "@repo/cloud-core";
@@ -35,6 +37,7 @@ import {
   type NotificationPayload,
   type NotificationType,
   namespaceScanTaskConfigSchema,
+  namespaceTieringTaskConfigSchema,
   parseTaskConfig,
   postgresBackupTaskConfigSchema,
   restartContainerTaskConfigSchema,
@@ -642,6 +645,58 @@ export function getExecutor(
           metadata: {
             durationMs: Date.now() - startedAt,
             tieringReport: report,
+          },
+        };
+      };
+    case "namespace_tiering":
+      return async (rawConfig) => {
+        const config = namespaceTieringTaskConfigSchema.parse(rawConfig);
+        const startedAt = Date.now();
+        const namespace = context.storageConfig.namespace;
+        // The mirror image of the legacy guard. There are no branches to move
+        // between in legacy mode: the HDD tier there is a flat UUID store, not
+        // a second copy of the namespace.
+        if (namespace.mode !== "broker-mounted" || !context.metadataClient) {
+          throw new Error(
+            "Namespace tiering requires broker-mounted storage with a metadata socket",
+          );
+        }
+        const defaults = context.storageConfig.tiering;
+        const report = await runNamespaceTieringPass(
+          createNamespaceTieringRepository(context.db),
+          context.metadataClient,
+          {
+            backupRestoreActive: defaults.restoreActive,
+            batchCap: config.batchCap ?? defaults.batchCap,
+            dryRun: config.dryRun,
+            highWatermarkPercent:
+              config.highWatermarkPercent ?? defaults.highWatermarkPercent,
+            migrationModeEnabled: defaults.migrationMode,
+            minAgeMs:
+              config.minAgeDays === undefined
+                ? defaults.minAgeMs
+                : config.minAgeDays * 24 * 60 * 60 * 1_000,
+            minSizeBytes: config.minSizeBytes ?? defaults.minSizeBytes,
+            placementLookahead:
+              config.placementLookahead ?? defaults.placementLookahead,
+            targetWatermarkPercent:
+              config.targetWatermarkPercent ?? defaults.targetWatermarkPercent,
+          },
+        );
+        const moved = report.applied.filter(
+          (move) => move.outcome === "moved",
+        ).length;
+        // A blocked pass completes rather than fails: the gate firing is the
+        // system working. It still has to be legible in the run history, which
+        // is why the reason leads the output line.
+        const output = report.blockedBy
+          ? `Namespace tiering blocked: ${report.blockedBy}`
+          : `Namespace tiering ${config.dryRun ? "dry run" : "completed"}: ${report.eligible} eligible, ${report.onSsd} on SSD, ${report.planned.length} planned, ${moved} moved, ${report.quarantined.length} quarantined, ${report.failures.length} failed`;
+        return {
+          output,
+          metadata: {
+            durationMs: Date.now() - startedAt,
+            namespaceTiering: report,
           },
         };
       };

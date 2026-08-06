@@ -54,7 +54,26 @@ export interface StorageConfig {
     minAgeMs: number;
     minSizeBytes: number;
     batchCap: number;
+    /**
+     * How many eligible rows the broker pass resolves placement for before the
+     * batch cap applies. The projection's tier is a hint, so a pass that read
+     * exactly `batchCap` rows would move nothing at all once the hint drifted.
+     */
+    placementLookahead: number;
+    /**
+     * Operator switches that stop the pass without disabling the task. Both
+     * describe a window in which the namespace is being rewritten by something
+     * other than normal traffic, so any placement decision is made against a
+     * picture that is about to change.
+     */
+    migrationMode: boolean;
+    restoreActive: boolean;
   };
+}
+
+function booleanEnv(name: string): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
 }
 
 export type StorageNamespaceMode = "legacy-dual-path" | "broker-mounted";
@@ -260,6 +279,14 @@ export function storageConfigFromEnv(): StorageConfig {
         boundedInteger("STORAGE_TIER_MIN_SIZE_MIB", 500, 0, 1_048_576) *
         MEBIBYTE,
       batchCap: boundedInteger("STORAGE_TIER_BATCH_CAP", 20, 1, 10_000),
+      migrationMode: booleanEnv("STORAGE_MIGRATION_MODE"),
+      placementLookahead: boundedInteger(
+        "STORAGE_TIER_PLACEMENT_LOOKAHEAD",
+        500,
+        1,
+        50_000,
+      ),
+      restoreActive: booleanEnv("STORAGE_RESTORE_ACTIVE"),
     },
   };
 }

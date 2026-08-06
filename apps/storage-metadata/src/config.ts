@@ -4,6 +4,12 @@ export interface MetadataServiceConfig {
    * whole of a projection scan. Empty means the projector can never reap.
    */
   branchPaths: string[];
+  /**
+   * The two branches by tier role, for the tiering ops. Absent until the host
+   * is configured for tiering, and the service then answers UNAVAILABLE rather
+   * than guessing a layout — the same shape as SMB provisioning.
+   */
+  branchRoots: { ssd: string; hdd: string } | null;
   namespaceRoot: string;
   /** Absent when this host does not provision SMB accounts. */
   smbScriptPath: string | null;
@@ -89,8 +95,37 @@ export function configFromEnv(): MetadataServiceConfig {
       );
     }
   }
+  const ssdBranch = process.env.STORAGE_SSD_BRANCH_PATH?.trim();
+  const hddBranch = process.env.STORAGE_HDD_BRANCH_PATH?.trim();
+  if (Boolean(ssdBranch) !== Boolean(hddBranch)) {
+    throw new Error(
+      "STORAGE_SSD_BRANCH_PATH and STORAGE_HDD_BRANCH_PATH must be set together",
+    );
+  }
+  for (const branchPath of [ssdBranch, hddBranch]) {
+    if (!branchPath) continue;
+    if (!branchPath.startsWith("/")) {
+      throw new Error("Branch role paths must be absolute");
+    }
+    // Same reason as STORAGE_BRANCH_PATHS: a role pointed at the union mount
+    // would make every tier move copy a file onto itself through FUSE.
+    if (
+      branchPath === namespaceRoot ||
+      branchPath.startsWith(`${namespaceRoot}/`)
+    ) {
+      throw new Error("Branch role paths must be outside the namespace root");
+    }
+  }
+  if (ssdBranch && ssdBranch === hddBranch) {
+    throw new Error(
+      "STORAGE_SSD_BRANCH_PATH and STORAGE_HDD_BRANCH_PATH must differ",
+    );
+  }
+
   return {
     branchPaths,
+    branchRoots:
+      ssdBranch && hddBranch ? { hdd: hddBranch, ssd: ssdBranch } : null,
     namespaceRoot,
     watchMaxPending: boundedInt(
       "STORAGE_WATCH_MAX_PENDING",

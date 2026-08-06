@@ -254,6 +254,15 @@ export type TieringDefaults = z.infer<typeof tieringDefaultsSchema>;
 
 export const tieringSettingsSchema = z.object({
   defaults: tieringDefaultsSchema,
+  /**
+   * Which of the two tiering implementations this deployment runs. Legacy moves
+   * blobs between an SSD tree and a flat UUID store; broker asks the privileged
+   * host service to republish a path on the other branch. The storage paths in
+   * `defaults` are meaningless to the broker task, which is why the panel needs
+   * to know rather than infer.
+   */
+  mode: z.enum(["legacy-dual-path", "broker-mounted"]),
+  taskType: z.enum(["tiering_pass", "namespace_tiering"]),
   task: safeScheduledTaskSchema.nullable(),
   lastRun: safeTaskRunSchema.nullable(),
 });

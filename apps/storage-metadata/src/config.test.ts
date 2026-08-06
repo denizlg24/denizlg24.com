@@ -36,6 +36,7 @@ describe("metadata service configuration", () => {
     apply();
     expect(configFromEnv()).toEqual({
       branchPaths: [],
+      branchRoots: null,
       namespaceRoot: valid.STORAGE_NAMESPACE_ROOT,
       watchMaxPending: 5_000,
       watchQuietMs: 400,

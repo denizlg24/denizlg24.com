@@ -1,11 +1,15 @@
+import type { StorageTier } from "../db/schema";
 import type { ProtectedMetadata } from "./metadata";
 import {
+  type BranchUsagePayload,
   METADATA_PROTOCOL_VERSION,
   MetadataClientError,
   type MetadataEntryPayload,
   type MetadataListingPayload,
   type MetadataRequest,
   type MetadataResponse,
+  type TierMovePayload,
+  type TierPlacementPayload,
 } from "./metadata-protocol";
 import type { NamespaceWatchMessage } from "./namespace-watch";
 
@@ -149,6 +153,58 @@ export class NamespaceMetadataClient {
       );
     }
     return payload.branchMarkers;
+  }
+
+  /**
+   * Free space per physical branch.
+   *
+   * `UNAVAILABLE` here means the host has no branch roles configured, which is
+   * the state every host is in until tiering is deployed. The pass reads that
+   * as "cannot judge the watermark" and does nothing, rather than assuming an
+   * empty disk and demoting on a guess.
+   */
+  async branchUsage(): Promise<BranchUsagePayload[]> {
+    const payload = await this.raw({ op: "branch-usage" });
+    if (!payload.ok || !("branchUsage" in payload)) {
+      throw new MetadataClientError(
+        "Metadata service returned no branch usage",
+        "UNAVAILABLE",
+      );
+    }
+    return payload.branchUsage;
+  }
+
+  async locateTiers(
+    relativePaths: readonly string[],
+  ): Promise<TierPlacementPayload[]> {
+    if (relativePaths.length === 0) return [];
+    const payload = await this.raw({
+      op: "tier-locate",
+      relativePaths: [...relativePaths],
+    });
+    if (!payload.ok || !("placements" in payload)) {
+      throw new MetadataClientError(
+        "Metadata service returned no placements",
+        "UNAVAILABLE",
+      );
+    }
+    return payload.placements;
+  }
+
+  async moveTier(input: {
+    relativePath: string;
+    toTier: StorageTier;
+    expectedId: string;
+    expectedChecksum: string;
+  }): Promise<TierMovePayload> {
+    const payload = await this.raw({ ...input, op: "tier-move" });
+    if (!payload.ok || !("tierMove" in payload)) {
+      throw new MetadataClientError(
+        "Metadata service returned no move result",
+        "UNAVAILABLE",
+      );
+    }
+    return payload.tierMove;
   }
 
   async revokeSmb(principal: string): Promise<void> {

@@ -63,6 +63,15 @@ const TEMPLATES = [
       config: { dryRun: false },
     },
   },
+  {
+    label: "namespace_tiering",
+    value: {
+      name: "",
+      type: "namespace_tiering",
+      cronExpression: "0 3 * * *",
+      config: { dryRun: false },
+    },
+  },
 ] as const;
 
 function cronPreview(expression: unknown): string[] | null {

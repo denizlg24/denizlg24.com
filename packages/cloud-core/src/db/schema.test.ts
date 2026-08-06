@@ -54,6 +54,7 @@ describe("cloud database schema", () => {
       "alert_evaluation",
       "run_command",
       "namespace_scan",
+      "namespace_tiering",
     ]);
     expect(taskRunStatusEnum.enumValues).toEqual([
       "pending",

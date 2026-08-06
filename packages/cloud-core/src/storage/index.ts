@@ -30,6 +30,10 @@ export {
   readBranchMarkers,
 } from "./branch-markers";
 export {
+  type BranchRoots,
+  BranchTieringAgent,
+} from "./branch-tiering-agent";
+export {
   BROKER_NAMESPACE_WITNESS_NAME,
   type StorageConfig,
   type StorageNamespaceConfig,
@@ -64,14 +68,19 @@ export {
   handleMetadataRequest,
   isSupportedProtocolVersion,
   type SmbProvisioningAgent,
+  TIER_LOCATE_MAX_PATHS,
   tokenMatches,
 } from "./metadata-handler";
 export {
+  type BranchUsagePayload,
   METADATA_PROTOCOL_VERSION,
   type MetadataEntryPayload,
   type MetadataListingPayload,
   type MetadataRequest,
   type MetadataResponse,
+  type TierMoveOutcome,
+  type TierMovePayload,
+  type TierPlacementPayload,
 } from "./metadata-protocol";
 export {
   isReservedSegment,
@@ -149,11 +158,20 @@ export {
   resolveBranchDuplicate,
   selectDemotions,
   type TierCandidate,
+  type TieringBlockedReason,
   type TieringGateInput,
   type TierMove,
   type TierSelectionInput,
   tieringBlockedReason,
 } from "./namespace-tiering";
+export {
+  bytesToFreeFor,
+  createNamespaceTieringRepository,
+  type NamespaceTieringCandidate,
+  type NamespaceTieringOptions,
+  type NamespaceTieringRepository,
+  runNamespaceTieringPass,
+} from "./namespace-tiering-pass";
 export {
   type NamespaceWatchMessage,
   watchPathToRelative,
