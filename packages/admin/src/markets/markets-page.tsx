@@ -445,7 +445,10 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
           {watchlistPanel}
         </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
+        {/* Scrolls at every width. `lg:overflow-hidden` assumed the quote strip,
+            chart and detail panel always fit above lg; on a short window they do
+            not, and what did not fit could not be reached. */}
+        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-2 sm:px-4">
             <CompanyLogo
               url={detail?.profile?.logoUrl}
@@ -577,7 +580,7 @@ export function MarketsPage({ ticker, onSelectTicker }: MarketsPageProps) {
               rather than every pane splitting one phone screen between them.
               Definite rather than a minimum: the chart fills its container, and
               a `flex-1` box inside a scrolling column has no height to fill. */}
-          <div className="h-72 shrink-0 px-2 py-2 lg:h-auto lg:min-h-0 lg:flex-1 lg:shrink">
+          <div className="h-72 shrink-0 px-2 py-2 lg:h-auto lg:min-h-72 lg:flex-1 lg:shrink">
             {loading ? (
               <Skeleton className="h-full w-full" />
             ) : error ? (
