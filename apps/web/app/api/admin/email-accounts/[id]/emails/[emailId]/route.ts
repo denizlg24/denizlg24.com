@@ -1,6 +1,7 @@
 import { simpleParser } from "mailparser";
 import { type NextRequest, NextResponse } from "next/server";
-import { createImapClient } from "@/lib/email";
+import { createImapClient, markEmailsSeen } from "@/lib/email";
+import { loadEmailBody, saveEmailBodies } from "@/lib/email-body-store";
 import { connectDB } from "@/lib/mongodb";
 import { getAdminSession } from "@/lib/require-admin";
 import { decryptPassword } from "@/lib/safe-email-password";
@@ -23,6 +24,29 @@ export async function GET(
     const email = await EmailModel.findById(emailId).lean();
     if (!email) {
       return NextResponse.json({ error: "Email not found" }, { status: 404 });
+    }
+
+    // Sync stores the body when the message arrives, so the common path never
+    // opens an IMAP connection at all. Marking seen still has to reach the
+    // server, but it does not have to hold up the response.
+    const stored = await loadEmailBody(email._id);
+    if (stored) {
+      if (!email.seen) {
+        void markEmailsSeen([email._id]).catch((error) => {
+          console.error("mark seen failed:", error);
+        });
+      }
+      return NextResponse.json(
+        {
+          email: {
+            ...email,
+            htmlBody: stored.html,
+            seen: true,
+            textBody: stored.text,
+          },
+        },
+        { status: 200 },
+      );
     }
 
     const account = await EmailAccountModel.findById(id).lean();
@@ -80,6 +104,29 @@ export async function GET(
         textBody: parsed.text || "",
         htmlBody: parsed.html || "",
       };
+
+      // Backlog fill: emails that predate body storage become fast after one
+      // slow open, rather than staying slow forever.
+      await saveEmailBodies([
+        {
+          body: {
+            attachmentCount: parsed.attachments?.length ?? 0,
+            attachmentText: [],
+            date: parsed.date ?? email.date,
+            from: [],
+            html: fullEmail.htmlBody,
+            subject: parsed.subject ?? email.subject,
+            text: fullEmail.textBody,
+          },
+          ref: {
+            accountId: String(email.accountId),
+            emailId: String(email._id),
+            uid: email.uid,
+          },
+        },
+      ]).catch((error) => {
+        console.error("Failed to store email body:", error);
+      });
 
       lock.release();
       await client.logout();

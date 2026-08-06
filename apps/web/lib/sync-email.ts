@@ -1,7 +1,46 @@
+import { simpleParser } from "mailparser";
 import type { Types } from "mongoose";
 import { EmailAccountModel, type IEmailAccount } from "@/models/EmailAccount";
-import { createImapClient, saveEmail } from "./email";
+import { createImapClient, type FetchedEmailBody, saveEmail } from "./email";
+import { saveEmailBodies } from "./email-body-store";
 import { decryptPassword } from "./safe-email-password";
+
+/**
+ * `source` is fetched alongside the envelope so a message's body is stored the
+ * moment it arrives. Without it every later open pays a fresh IMAP connect,
+ * login, mailbox lock and fetch — thirty seconds to render one email — and the
+ * bytes were already on the wire during this sync anyway.
+ */
+const FETCH_QUERY = {
+  envelope: true,
+  flags: true,
+  source: true,
+  uid: true,
+} as const;
+
+async function parseBody(
+  source: Buffer | undefined,
+): Promise<FetchedEmailBody | null> {
+  if (!source) return null;
+  try {
+    const parsed = await simpleParser(source);
+    return {
+      attachmentCount: parsed.attachments?.length ?? 0,
+      attachmentText: [],
+      date: parsed.date ?? new Date(),
+      from: (parsed.from?.value ?? []).map((address) => ({
+        address: address.address ?? "",
+        name: address.name || undefined,
+      })),
+      html: typeof parsed.html === "string" ? parsed.html : "",
+      subject: parsed.subject ?? "",
+      text: parsed.text ?? "",
+    };
+  } catch (error) {
+    console.error("Failed to parse email body during sync:", error);
+    return null;
+  }
+}
 
 export async function syncInbox(account: IEmailAccount) {
   const password = decryptPassword(
@@ -21,6 +60,10 @@ export async function syncInbox(account: IEmailAccount) {
   const lastUid = account.lastUid ?? 0;
   let highestUid = lastUid;
   const emailIds: Types.ObjectId[] = [];
+  const pendingBodies: {
+    ref: { emailId: string; accountId: string; uid: number };
+    body: FetchedEmailBody;
+  }[] = [];
 
   const lock = await client.getMailboxLock(account.inboxName || "INBOX");
   try {
@@ -47,15 +90,9 @@ export async function syncInbox(account: IEmailAccount) {
         `Fetching last 50 messages: seq ${startSeq}:${endSeq} (total: ${totalMessages})`,
       );
 
-      const messages = client.fetch(
-        `${startSeq}:${endSeq}`,
-        {
-          envelope: true,
-          flags: true,
-          uid: true,
-        },
-        { uid: false },
-      );
+      const messages = client.fetch(`${startSeq}:${endSeq}`, FETCH_QUERY, {
+        uid: false,
+      });
 
       for await (const msg of messages) {
         messageCount++;
@@ -80,6 +117,17 @@ export async function syncInbox(account: IEmailAccount) {
           });
 
           emailIds.push(email._id);
+          const body = await parseBody(msg.source);
+          if (body) {
+            pendingBodies.push({
+              body,
+              ref: {
+                accountId: account._id.toString(),
+                emailId: email._id.toString(),
+                uid: msg.uid,
+              },
+            });
+          }
 
           if (msg.uid > highestUid) {
             highestUid = msg.uid;
@@ -93,15 +141,9 @@ export async function syncInbox(account: IEmailAccount) {
         `Incremental sync: fetching messages with UID ${lastUid + 1}:*`,
       );
 
-      const messages = client.fetch(
-        `${lastUid + 1}:*`,
-        {
-          envelope: true,
-          flags: true,
-          uid: true,
-        },
-        { uid: true },
-      );
+      const messages = client.fetch(`${lastUid + 1}:*`, FETCH_QUERY, {
+        uid: true,
+      });
 
       for await (const msg of messages) {
         messageCount++;
@@ -129,6 +171,17 @@ export async function syncInbox(account: IEmailAccount) {
           });
 
           emailIds.push(email._id);
+          const body = await parseBody(msg.source);
+          if (body) {
+            pendingBodies.push({
+              body,
+              ref: {
+                accountId: account._id.toString(),
+                emailId: email._id.toString(),
+                uid: msg.uid,
+              },
+            });
+          }
 
           if (msg.uid > highestUid) {
             highestUid = msg.uid;
@@ -140,6 +193,16 @@ export async function syncInbox(account: IEmailAccount) {
     }
 
     console.log(`Synced ${messageCount} messages. Highest UID: ${highestUid}`);
+
+    // After the loop and before the account update, so one write covers the
+    // batch. Best-effort by design: a body that fails to store costs a slow
+    // first open, and failing the sync over it would stall `lastUid` and make
+    // the same messages arrive again on the next run.
+    if (pendingBodies.length > 0) {
+      await saveEmailBodies(pendingBodies).catch((error) => {
+        console.error("Failed to store synced email bodies:", error);
+      });
+    }
 
     if (emailIds.length > 0) {
       await EmailAccountModel.findByIdAndUpdate(account._id, {
