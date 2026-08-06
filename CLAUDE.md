@@ -139,6 +139,30 @@ Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
   slug, and that bucket is not created at provisioning time — the first
   `CreateBucket` makes it. Wrong bucket reads as `AccessDenied`, missing bucket as
   `NoSuchBucket`.
+- **Nightly tiering is two tasks, and only one is right for a deployment.**
+  `tiering_pass` is the legacy mover (SSD tree ↔ flat UUID store on the HDD);
+  `namespace_tiering` is the broker one (same relative path on both branches,
+  moved by the privileged host service). `seedDefaultOpsTasks` seeds whichever
+  matches `STORAGE_NAMESPACE_MODE` and disables an enabled legacy row on a
+  broker box; `/storage/tiering` and the `/disks` panel resolve the type the
+  same way. Anything new that names `tiering_pass` literally will silently do
+  nothing in production once the broker cutover lands.
+- **The broker pass only moves on the watermark.** Age and size choose *which*
+  files go, never *whether* any do. Both branches carry the same path, so
+  demoting off a half-empty SSD relocates data for no reason. The legacy pass
+  demotes on age or size alone because HDD placement there is also the
+  addressing scheme.
+- **`files.tier` is a hint in broker mode, not a fact.** The projector never
+  writes it; the branch holding the path is the authority. The pass over-reads
+  by `placementLookahead`, asks `tier-locate` where each path actually is, and
+  repairs stale rows before selecting — otherwise one drifted row leads every
+  batch forever.
+- **Branch tiering ops answer UNAVAILABLE until the host declares its roles.**
+  `STORAGE_SSD_BRANCH_PATH` / `STORAGE_HDD_BRANCH_PATH` on
+  `apps/storage-metadata`, both or neither. Unset means the pass reports
+  `blockedBy: branch-usage-unavailable` — it never reads that as an empty
+  namespace. And as with every change to that service, **CI does not deploy it**;
+  the binary is replaced by hand before the API starts calling a new op.
 - **`tiering_pass` is live** as of 2026-07-26: enabled, `0 3 * * *`,
   `dryRun: false`. The gate it used to sit behind — review a dry run before
   arming it — has been passed. It genuinely relocates data between physical
@@ -224,6 +248,17 @@ Canonical API contract lives in `packages/schemas` (zod schemas; all TS types ar
 - `GET /email-accounts/{id}/emails` → email list
 - `GET /email-accounts/{accountId}/emails/{emailId}` → full email
 - `GET /email-accounts/{accountId}/emails/{emailId}/attachments` → attachment list
+- `POST /triage/bodies` → `{ triageIds: string[] }` → warms stored bodies for those rows
+
+Bodies live in the `EmailBody` collection, written by `lib/email-body-store.ts`
+and never on the `Email` document — `Email` is read in bulk by the triage
+candidate scan and the inbox list, and Mongo returns whole documents. They are
+stored on sync (which fetches `source`), on the triage run (which already
+parsed them), and lazily on first open for anything older. Every write is
+best-effort: a body that fails to store costs one slow render, and failing the
+sync over it would stall `lastUid` and re-deliver the same messages.
+Attachment *text* is deliberately not stored — it exists only to feed
+extraction and is re-derived per run.
 
 ### Blog
 - `GET /blogs` → `{ blogs: IBlog[] }`
