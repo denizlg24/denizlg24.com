@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { IndexDefinition, IndexOptions } from "mongoose";
 import { AgentEvidenceEvent } from "./AgentEvidenceEvent";
 import { AgentMemory } from "./AgentMemory";
 import { AgentMemoryCandidate } from "./AgentMemoryCandidate";
@@ -8,15 +9,25 @@ import { AgentResourceSuggestion } from "./AgentResourceSuggestion";
 import { BackgroundAgentRun } from "./BackgroundAgentRun";
 import { Conversation } from "./Conversation";
 
+/**
+ * Mongoose's own index types rather than a hand-rolled structural match: the
+ * shape has moved under us before, and `unique` is `boolean | [true, string]`
+ * since 9.9 — the tuple form carries a duplicate-key message and still means
+ * unique.
+ */
+function isUnique(options: IndexOptions): boolean {
+  return Array.isArray(options.unique)
+    ? options.unique[0] === true
+    : options.unique === true;
+}
+
 function indexIsUnique(
-  model: {
-    schema: { indexes(): [Record<string, unknown>, { unique?: boolean }][] };
-  },
+  model: { schema: { indexes(): [IndexDefinition, IndexOptions][] } },
   key: string,
 ) {
   return model.schema
     .indexes()
-    .some(([fields, options]) => key in fields && options.unique === true);
+    .some(([fields, options]) => key in fields && isUnique(options));
 }
 
 describe("agent memory models", () => {
@@ -63,14 +74,10 @@ describe("agent memory models", () => {
     expect(indexIsUnique(AgentEvidenceEvent, "idempotencyKey")).toBe(true);
     expect(indexIsUnique(AgentMemoryJob, "idempotencyKey")).toBe(true);
 
-    const revisionIndexes = AgentMemoryRevision.schema.indexes() as unknown as [
-      Record<string, unknown>,
-      { unique?: boolean },
-    ][];
-    const revisionIndex = revisionIndexes.find(
-      ([fields]) => "memoryId" in fields && "revision" in fields,
-    );
-    expect(revisionIndex?.[1].unique).toBe(true);
+    const revisionIndex = AgentMemoryRevision.schema
+      .indexes()
+      .find(([fields]) => "memoryId" in fields && "revision" in fields);
+    expect(revisionIndex && isUnique(revisionIndex[1])).toBe(true);
   });
 
   test("rejects an active memory without evidence", async () => {

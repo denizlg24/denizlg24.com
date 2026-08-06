@@ -107,7 +107,7 @@ jobs:
         working-directory: apps/authenticator-extension
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: extension-packages
           path: apps/authenticator-extension/release/*.zip
@@ -125,7 +125,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: extension-packages
           path: artifacts
@@ -165,7 +165,7 @@ jobs:
           } > extension-release-notes.md
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
           target_commitish: ${{ github.sha }}
