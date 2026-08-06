@@ -29,7 +29,9 @@ import {
   storageConfigFromEnv,
   syncRedisProjectAclUsers,
 } from "@repo/cloud-core";
+import { smbCredentials } from "@repo/cloud-core/db/schema";
 import type { DiskKind } from "@repo/schemas/cloud";
+import { eq } from "drizzle-orm";
 import { MongoClient } from "mongodb";
 import { createClient } from "redis";
 
@@ -373,6 +375,17 @@ export async function createRuntimeApp() {
       const namespaceSource = createNamespaceSource(
         metadataClient,
         storageConfig.namespace.rootPath,
+        // Adoption asks the metadata service who wrote a path and gets back an
+        // SMB principal; only this side can turn that into an account, because
+        // the privileged service holds no database handle by design.
+        async (principal) => {
+          const [credential] = await db
+            .select({ userId: smbCredentials.userId })
+            .from(smbCredentials)
+            .where(eq(smbCredentials.principal, principal))
+            .limit(1);
+          return credential?.userId ?? null;
+        },
       );
       const sync = new NamespaceSyncSupervisor({
         client: metadataClient,

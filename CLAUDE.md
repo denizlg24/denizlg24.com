@@ -117,6 +117,16 @@ Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
   runs as root only with `TERMINAL_ALLOW_ROOT=1`. It is a compiled binary
   (`bun build --compile --target=bun-linux-arm64`) installed at
   `/usr/local/bin/cloud-terminal` — CI does not deploy it; rebuild and copy manually.
+- **`apps/storage-metadata` is the same deal, and it is easier to forget.** It is a
+  compiled binary at `/usr/local/bin/cloud-storage-metadata` under
+  `deniz-cloud-storage-metadata.service`; `bun run build:pi` then copy and
+  `systemctl restart`. Pushing to `main` rebuilds only the API container, so a fix
+  in this app is not live until the binary is replaced by hand — and because the
+  API keeps working against the old service, nothing reports that it wasn't.
+  Deploy it *before* pushing code that calls a new socket op. Two adjacent traps:
+  piping the binary through a shell `cat` can corrupt it (use `dd`), and the
+  `Release cloud API` workflow's **Deploy to Pi job waits on a manual environment
+  approval**, so a green build does not mean the API rolled out.
 - **Storage files must be owned by uid 1000.** The API runs unprivileged as `bun`;
   anything written as root makes deletes, renames and uploads fail with EACCES
   while reads keep working.

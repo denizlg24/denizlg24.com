@@ -48,7 +48,11 @@ function harness(options: {
       const adopted = options.adoptions?.[relativePath];
       if (!adopted) throw new MetadataClientError("no ancestor", "NO_IDENTITY");
       return {
-        attribution: { fromRelativePath: "a", ownerId: "owner" },
+        attribution: {
+          fromRelativePath: "a",
+          ownerId: "owner",
+          via: "ancestor" as const,
+        },
         entry: adopted,
       };
     },

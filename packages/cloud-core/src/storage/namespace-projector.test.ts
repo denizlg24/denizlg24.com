@@ -52,7 +52,11 @@ function source(state: FakeState): NamespaceSource {
       const adopted = state.adoptions?.[relativePath];
       if (!adopted) throw new Error(`no ancestor for ${relativePath}`);
       return {
-        attribution: { fromRelativePath: "/", ownerId: "owner" },
+        attribution: {
+          fromRelativePath: "/",
+          ownerId: "owner",
+          via: "ancestor" as const,
+        },
         entry: adopted,
       };
     },

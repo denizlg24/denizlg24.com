@@ -194,6 +194,12 @@ export {
   verifyShareToken,
 } from "./share";
 export {
+  type ParsedAuditEvent,
+  parseSmbAuditLine,
+  type RecentWriter,
+  RecentWriterIndex,
+} from "./smb-audit";
+export {
   type IssuedSmbCredential,
   issueSmbCredential,
   listSmbCredentials,

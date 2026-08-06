@@ -9,6 +9,7 @@ import {
   tokenMatches,
 } from "@repo/cloud-core";
 
+import { SmbAuditTail } from "./audit-tail";
 import { configFromEnv } from "./config";
 import { createSmbAgent } from "./smb-agent";
 import { watchStream } from "./watch-stream";
@@ -47,6 +48,11 @@ if (!(await namespaceIsMounted())) {
 const smbAgent = config.smbScriptPath
   ? createSmbAgent(config.smbScriptPath)
   : undefined;
+
+// Started before the server so a write that arrives with the first request is
+// already attributable. Best-effort by construction: see SmbAuditTail.
+const auditTail = new SmbAuditTail({ namespaceRoot: config.namespaceRoot });
+auditTail.start();
 
 const service = new NamespaceMetadataService(
   config.namespaceRoot,
@@ -112,8 +118,12 @@ const server = Bun.serve({
     } catch {
       return deny("BAD_REQUEST", "Body is not JSON", 400);
     }
-    const response = await handleMetadataRequest(service, body, smbAgent, () =>
-      readBranchMarkers(config.branchPaths),
+    const response = await handleMetadataRequest(
+      service,
+      body,
+      smbAgent,
+      () => readBranchMarkers(config.branchPaths),
+      (relativePath) => auditTail.writerOf(relativePath),
     );
     return Response.json(response, { status: response.ok ? 200 : 409 });
   },
@@ -141,6 +151,7 @@ console.info(
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
+    auditTail.stop();
     watcher.stop();
     server.stop();
     void unlink(config.socketPath).catch(() => {});

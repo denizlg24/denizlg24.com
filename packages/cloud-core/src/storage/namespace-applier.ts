@@ -5,7 +5,11 @@ import type { ProjectionRepository } from "./namespace-projector";
 import type { ReconcilePlan } from "./namespace-reconcile";
 
 export interface AdoptionOutcome {
-  attribution: { fromRelativePath: string; ownerId: string | null };
+  attribution: {
+    fromRelativePath: string | null;
+    ownerId: string | null;
+    via: "audit" | "ancestor";
+  };
   entry: NamespaceEntry;
 }
 

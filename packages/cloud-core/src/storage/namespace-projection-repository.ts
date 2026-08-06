@@ -297,6 +297,16 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
       if (!folder) {
         throw new Error(`No projected parent folder for ${path}`);
       }
+      // `files.owner_id` is NOT NULL with a foreign key, unlike `folders`, so an
+      // ownerless file is not a row this table can hold. Coercing the null to ""
+      // used to push that decision into Postgres, which rejected it as a
+      // malformed uuid — a nineteen-parameter SQL dump for what is really one
+      // sentence about the entry.
+      if (!entry.metadata.ownerId) {
+        throw new Error(
+          `Refusing to project ownerless file ${path}: only the shared root is ownerless, and a file needs an owner`,
+        );
+      }
       await db
         .insert(files)
         .values({
@@ -307,7 +317,7 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
           folderId: folder.id,
           id: entry.metadata.id,
           mimeType: entry.metadata.mimeType ?? null,
-          ownerId: entry.metadata.ownerId ?? "",
+          ownerId: entry.metadata.ownerId,
           path,
           sizeBytes: entry.sizeBytes,
           updatedAt: entry.modifiedAt,

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ProtectedMetadata } from "./metadata";
+import type { ResolvedEntry } from "./metadata-resolve";
 import {
   MetadataServiceError,
   type NamespaceEntry,
@@ -15,8 +16,10 @@ import {
  * identity, and an unexplained owner is not reviewable after the fact.
  */
 export interface AdoptionAttribution {
-  fromRelativePath: string;
+  /** The ancestor an owner was inherited from; null when the audit supplied it. */
+  fromRelativePath: string | null;
   ownerId: string | null;
+  via: "audit" | "ancestor";
 }
 
 export interface AdoptionResult {
@@ -47,16 +50,21 @@ export function ancestorPaths(relativePath: string): string[] {
  * deletion, and it is only ever *assigned* under a stated policy rather than
  * guessed at the point of use.
  *
- * Owner is inherited from the nearest ancestor that already carries identity,
- * which is what makes this equivalent to attributing the write to the credential
- * that made it. Samba gives every share `force user`, so the file itself records
- * uid 1000 no matter which device wrote it — but `[Personal]` resolves its path
+ * Owner comes from the SMB audit stream when it can, and from the tree when it
+ * cannot. The file itself never carries the answer: every share sets
+ * `force user`, so an entry records uid 1000 whichever device wrote it.
+ *
+ * The audit stream is the better evidence — it names the authenticated
+ * principal — but it is a log, so it only covers writes still inside its
+ * retention window. Inheritance covers the rest: `[Personal]` resolves its path
  * through a per-principal include naming that account's own root, and an
- * unprovisioned principal falls through to a path that does not exist. A device
- * can therefore only create entries inside its own account subtree or `shared`,
- * so the subtree an orphan is found in *is* the credential that produced it.
- * Unlike the credential, the subtree is still there hours later, which is when
- * a scan actually looks.
+ * unprovisioned principal falls through to a path that does not exist, so a
+ * device can only create entries inside its own subtree. There the subtree *is*
+ * the credential, and unlike the credential it is still there hours later.
+ *
+ * Inheritance runs out in exactly one place, which is why the audit path exists:
+ * a file dropped straight into the shared root has one ancestor and it is
+ * deliberately ownerless, while `files.owner_id` is NOT NULL.
  *
  * Two things are deliberately refused rather than handled:
  *
@@ -72,6 +80,15 @@ export function ancestorPaths(relativePath: string): string[] {
 export async function adoptEntry(
   service: NamespaceMetadataService,
   relativePath: string,
+  /**
+   * Owner recovered from the SMB audit stream, when one was found.
+   *
+   * Takes precedence over the tree because it is the better evidence: it names
+   * the credential that actually wrote the entry, where inheritance only says
+   * where it landed. It is also the only answer available for a file dropped
+   * straight into the shared root, whose one ancestor is deliberately ownerless.
+   */
+  auditOwnerId?: string | null,
 ): Promise<AdoptionResult> {
   const existingId = await service.readIdentityId(relativePath);
   if (existingId) {
@@ -81,9 +98,34 @@ export async function adoptEntry(
     );
   }
 
-  const attribution = await inheritedOwner(service, relativePath);
   const observed = await service.observe(relativePath);
+  if (auditOwnerId) {
+    return finish(service, relativePath, observed, {
+      fromRelativePath: null,
+      ownerId: auditOwnerId,
+      via: "audit",
+    });
+  }
+  // `files.owner_id` is NOT NULL where `folders.owner_id` is not, and the
+  // namespace agrees: only the shared *root* is ownerless, while everything
+  // inside it carries the owner of whoever put it there. So a file may not
+  // inherit the shared root's absent owner — it has to keep looking, and
+  // refuse if nothing above supplies one.
+  const attribution = await inheritedOwner(
+    service,
+    relativePath,
+    observed.kind === "file",
+  );
 
+  return finish(service, relativePath, observed, attribution);
+}
+
+async function finish(
+  service: NamespaceMetadataService,
+  relativePath: string,
+  observed: ResolvedEntry,
+  attribution: AdoptionAttribution,
+): Promise<AdoptionResult> {
   const metadata: ProtectedMetadata = {
     // No birthtime is portable enough to trust here, and mtime is the oldest
     // defensible claim the filesystem still makes about the bytes. Minting
@@ -100,6 +142,7 @@ export async function adoptEntry(
 async function inheritedOwner(
   service: NamespaceMetadataService,
   relativePath: string,
+  requireOwner: boolean,
 ): Promise<AdoptionAttribution> {
   for (const ancestor of ancestorPaths(relativePath)) {
     let entry: NamespaceEntry;
@@ -110,13 +153,17 @@ async function inheritedOwner(
       // walking. If none of them resolves, the throw below is the answer.
       continue;
     }
+    if (requireOwner && !entry.metadata.ownerId) continue;
     return {
       fromRelativePath: ancestor,
       ownerId: entry.metadata.ownerId,
+      via: "ancestor",
     };
   }
   throw new MetadataServiceError(
-    `${relativePath} has no ancestor carrying identity; refusing to invent an owner`,
+    requireOwner
+      ? `${relativePath} has no ancestor carrying an owner; a file dropped straight into the shared root cannot be attributed from the tree`
+      : `${relativePath} has no ancestor carrying identity; refusing to invent an owner`,
     "NO_IDENTITY",
   );
 }

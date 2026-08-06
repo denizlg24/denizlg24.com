@@ -20,6 +20,16 @@ import type { NamespaceSource } from "./namespace-projector";
 export function createNamespaceSource(
   client: NamespaceMetadataClient,
   requestRootPath: string,
+  /**
+   * Maps an SMB principal to the account it belongs to.
+   *
+   * Lives here rather than in the metadata service because that service never
+   * touches PostgreSQL — it is the privileged host component, and giving it a
+   * database handle would widen it from "reads xattrs" to "reads the platform".
+   * So the API asks who wrote the path, resolves the principal itself, and
+   * hands the answer back down.
+   */
+  resolvePrincipalOwner?: (principal: string) => Promise<string | null>,
 ): NamespaceSource & ApplierSource {
   const toEntry = (payload: MetadataEntryPayload): NamespaceEntry => ({
     absolutePath: join(requestRootPath, payload.relativePath),
@@ -39,7 +49,18 @@ export function createNamespaceSource(
       return toEntry(await client.stat(relativePath));
     },
     async adopt(relativePath: string): Promise<AdoptionOutcome> {
-      const result = await client.adopt(relativePath);
+      // A miss here is "unknown", never "nobody": the audit stream is a log with
+      // a retention window, so anything older than it falls through to the tree.
+      let ownerId: string | undefined;
+      if (resolvePrincipalOwner) {
+        const writer = await client.auditWriter(relativePath).catch(() => null);
+        if (writer) {
+          ownerId =
+            (await resolvePrincipalOwner(writer.principal).catch(() => null)) ??
+            undefined;
+        }
+      }
+      const result = await client.adopt(relativePath, ownerId);
       return {
         attribution: result.attribution,
         entry: toEntry(result.entry),

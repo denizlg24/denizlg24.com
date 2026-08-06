@@ -181,11 +181,25 @@ export class NamespaceMetadataClient {
    * entry already had identity and `NO_IDENTITY` means no ancestor could
    * supply an owner. Both leave the entry exactly as it was.
    */
-  async adopt(relativePath: string): Promise<{
-    attribution: { fromRelativePath: string; ownerId: string | null };
+  async auditWriter(
+    relativePath: string,
+  ): Promise<{ at: number; principal: string } | null> {
+    const payload = await this.raw({ op: "audit-writer", relativePath });
+    return payload.ok && "writer" in payload ? payload.writer : null;
+  }
+
+  async adopt(
+    relativePath: string,
+    ownerId?: string,
+  ): Promise<{
+    attribution: {
+      fromRelativePath: string | null;
+      ownerId: string | null;
+      via: "audit" | "ancestor";
+    };
     entry: MetadataEntryPayload;
   }> {
-    const payload = await this.raw({ op: "adopt", relativePath });
+    const payload = await this.raw({ op: "adopt", ownerId, relativePath });
     if (!payload.ok || !("adopted" in payload)) {
       throw new MetadataClientError(
         "Metadata service returned no adoption result",

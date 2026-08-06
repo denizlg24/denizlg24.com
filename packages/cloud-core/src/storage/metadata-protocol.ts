@@ -26,7 +26,10 @@ export type MetadataRequest =
   | { op: "checksum"; relativePath: string; checksum: string }
   // Assigns identity to an entry that has none. Only the privileged service can
   // do this, and only it can read an unstamped entry's timestamps at all.
-  | { op: "adopt"; relativePath: string }
+  | { op: "adopt"; relativePath: string; ownerId?: string }
+  // Who the SMB audit stream says last wrote a path. Read-only, and a miss is
+  // "unknown" rather than "nobody": the stream is a log with a retention window.
+  | { op: "audit-writer"; relativePath: string }
   // SMB account provisioning. Samba's passdb lives on the host, so the
   // unprivileged API can only ask; the privileged agent performs it. The
   // secret crosses this socket once and is never stored on the API side.
@@ -50,9 +53,14 @@ export type MetadataResponse =
   | { ok: true; entry: MetadataEntryPayload }
   | {
       ok: true;
-      adopted: { fromRelativePath: string; ownerId: string | null };
+      adopted: {
+        fromRelativePath: string | null;
+        ownerId: string | null;
+        via: "audit" | "ancestor";
+      };
       entry: MetadataEntryPayload;
     }
+  | { ok: true; writer: { at: number; principal: string } | null }
   | { ok: true; provisioned: true }
   | { ok: true; listing: MetadataListingPayload }
   | { ok: true; branchMarkers: Record<string, string> }

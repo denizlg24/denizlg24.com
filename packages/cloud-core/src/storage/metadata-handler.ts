@@ -45,8 +45,12 @@ function isRequest(value: unknown): value is MetadataRequest {
       return typeof candidate.principal === "string";
     case "stat":
     case "list":
-    case "adopt":
+    case "audit-writer":
       return true;
+    case "adopt":
+      return (
+        candidate.ownerId === undefined || typeof candidate.ownerId === "string"
+      );
     case "verify":
       return typeof candidate.expectedId === "string";
     case "checksum":
@@ -82,6 +86,9 @@ export async function handleMetadataRequest(
   body: unknown,
   smb?: SmbProvisioningAgent,
   branchMarkers?: () => Promise<Record<string, string>>,
+  auditWriters?: (
+    relativePath: string,
+  ) => { at: number; principal: string } | null,
 ): Promise<MetadataResponse> {
   if (!isRequest(body)) {
     return {
@@ -130,8 +137,11 @@ export async function handleMetadataRequest(
         ok: true,
       };
     }
+    if (body.op === "audit-writer") {
+      return { ok: true, writer: auditWriters?.(body.relativePath) ?? null };
+    }
     if (body.op === "adopt") {
-      const result = await adoptEntry(service, body.relativePath);
+      const result = await adoptEntry(service, body.relativePath, body.ownerId);
       return {
         adopted: result.attribution,
         entry: payload(result.entry),

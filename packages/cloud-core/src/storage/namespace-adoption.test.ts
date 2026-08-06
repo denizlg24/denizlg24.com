@@ -96,6 +96,7 @@ describe("adoptEntry", () => {
     expect(result.attribution).toEqual({
       fromRelativePath: "account",
       ownerId: OWNER,
+      via: "ancestor",
     });
     expect(result.entry.metadata.ownerId).toBe(OWNER);
     expect(result.entry.metadata.id).toMatch(/^[0-9a-f-]{36}$/);
@@ -124,18 +125,52 @@ describe("adoptEntry", () => {
     );
   });
 
-  it("inherits shared scope rather than an owner under the shared root", async () => {
+  it("lets a folder inherit the shared root's absent owner", async () => {
+    await mkdir(join(root, "shared", "team"), { recursive: true });
+    xattr.seed(
+      join(root, "shared"),
+      identity("22222222-2222-4222-8222-222222222222", null),
+    );
+
+    const result = await adoptEntry(service, "shared/team");
+
+    // `folders.owner_id` is nullable, so an ownerless folder is a row the
+    // projection can actually hold.
+    expect(result.entry.metadata.ownerId).toBeNull();
+    expect(result.entry.metadata.scope).toBe("shared");
+  });
+
+  it("refuses a file whose only ancestor is the ownerless shared root", async () => {
     await mkdir(join(root, "shared"), { recursive: true });
     xattr.seed(
       join(root, "shared"),
       identity("22222222-2222-4222-8222-222222222222", null),
     );
-    await writeFile(join(root, "shared", "team.txt"), "bytes");
+    await writeFile(join(root, "shared", "dropped.txt"), "bytes");
 
-    const result = await adoptEntry(service, "shared/team.txt");
+    // `files.owner_id` is NOT NULL. Inheriting the shared root's null owner
+    // produced an insert Postgres rejected as a malformed uuid; refusing here
+    // states the actual problem instead.
+    expect(adoptEntry(service, "shared/dropped.txt")).rejects.toThrow(
+      /cannot be attributed from the tree/,
+    );
+  });
 
-    expect(result.entry.metadata.ownerId).toBeNull();
-    expect(result.entry.metadata.scope).toBe("shared");
+  it("skips the ownerless shared root to reach an owned subfolder", async () => {
+    await mkdir(join(root, "shared", "deniz"), { recursive: true });
+    xattr.seed(
+      join(root, "shared"),
+      identity("22222222-2222-4222-8222-222222222222", null),
+    );
+    xattr.seed(
+      join(root, "shared", "deniz"),
+      identity("44444444-4444-4444-8444-444444444444", OWNER),
+    );
+    await writeFile(join(root, "shared", "deniz", "diploma.pdf"), "bytes");
+
+    const result = await adoptEntry(service, "shared/deniz/diploma.pdf");
+
+    expect(result.entry.metadata.ownerId).toBe(OWNER);
   });
 
   it("refuses to overwrite an entry that already carries identity", async () => {
@@ -148,6 +183,40 @@ describe("adoptEntry", () => {
     expect(adoptEntry(service, "account/owned.txt")).rejects.toThrow(
       /already carries/,
     );
+  });
+
+  it("prefers the audit owner over the tree, and takes it where the tree has none", async () => {
+    await mkdir(join(root, "shared"), { recursive: true });
+    xattr.seed(
+      join(root, "shared"),
+      identity("22222222-2222-4222-8222-222222222222", null),
+    );
+    await writeFile(join(root, "shared", "dropped.txt"), "bytes");
+
+    const writer = "b5ed04a9-330d-4a5e-bc1e-dc086c5a8731";
+    const result = await adoptEntry(service, "shared/dropped.txt", writer);
+
+    // The tree would have refused this one outright; the credential answers it.
+    expect(result.attribution).toEqual({
+      fromRelativePath: null,
+      ownerId: writer,
+      via: "audit",
+    });
+    expect(result.entry.metadata.ownerId).toBe(writer);
+  });
+
+  it("still refuses to overwrite identity even with an audit owner", async () => {
+    const path = join(root, "account", "owned.txt");
+    await writeFile(path, "bytes");
+    xattr.seed(path, identity("33333333-3333-4333-8333-333333333333", OWNER));
+
+    expect(
+      adoptEntry(
+        service,
+        "account/owned.txt",
+        "b5ed04a9-330d-4a5e-bc1e-dc086c5a8731",
+      ),
+    ).rejects.toThrow(/already carries/);
   });
 
   it("refuses when no ancestor carries identity", async () => {
