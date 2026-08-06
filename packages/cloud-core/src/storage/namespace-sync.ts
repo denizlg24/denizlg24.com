@@ -182,9 +182,14 @@ export class NamespaceSyncSupervisor {
           });
           // Withheld paths are entries the watcher believes are gone but the
           // branch check would not confirm. The scan is the only thing allowed
-          // to resolve that.
-          if (outcome.withheld > 0 || outcome.problems > 0) {
+          // to resolve that. Problems are a different failure — an entry that
+          // could not be read at all — and reporting both as `apply-withheld`
+          // sends anyone reading the log to check branch mounts that were never
+          // in question.
+          if (outcome.withheld > 0) {
             await this.#markDirtyAndScan("apply-withheld");
+          } else if (outcome.problems > 0) {
+            await this.#markDirtyAndScan("apply-problems");
           }
         }
       } catch (error) {

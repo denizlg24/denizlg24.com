@@ -163,6 +163,28 @@ export class NamespaceMetadataService {
   }
 
   /**
+   * Kind, size and mtime without reading identity.
+   *
+   * `stat` throws for exactly the entries adoption exists to fix, so the one
+   * thing that needs an unstamped entry's timestamps cannot use it.
+   */
+  observe(relativePath: string): Promise<ResolvedEntry> {
+    return resolveNamespacePath(this.root, relativePath);
+  }
+
+  /**
+   * The raw id xattr, or null when the entry carries none.
+   *
+   * Distinguishes "no identity at all" from "identity present but unreadable"
+   * without the interpretation `stat` layers on top: adoption may fill the
+   * first and must never touch the second.
+   */
+  async readIdentityId(relativePath: string): Promise<string | null> {
+    const entry = await resolveNamespacePath(this.root, relativePath);
+    return this.xattr.get(entry.absolutePath, PROTECTED_XATTR_KEYS.id);
+  }
+
+  /**
    * Lists a folder's children with their identity, from the one component that
    * can see both.
    *

@@ -198,6 +198,16 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
         });
     },
 
+    async clearProblem(relativePath: string): Promise<void> {
+      // Deleted rather than marked repaired: the row exists to say the
+      // projection does not describe the namespace, and once identity is
+      // assigned it does. A repaired-but-present row would keep reading as
+      // outstanding to anything counting rows rather than reading timestamps.
+      await db
+        .delete(namespaceProjectionErrors)
+        .where(eq(namespaceProjectionErrors.relativePath, relativePath));
+    },
+
     async recordScan(scan: ScanRecord): Promise<void> {
       await db.insert(namespaceScans).values({
         abortReason: scan.abortReason,

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { NamespaceMetadataClient } from "./metadata-client";
 import type { MetadataEntryPayload } from "./metadata-protocol";
 import type { NamespaceEntry, NamespaceListing } from "./metadata-service";
-import type { ApplierSource } from "./namespace-applier";
+import type { AdoptionOutcome, ApplierSource } from "./namespace-applier";
 import type { NamespaceSource } from "./namespace-projector";
 
 /**
@@ -37,6 +37,13 @@ export function createNamespaceSource(
     },
     async stat(relativePath: string): Promise<NamespaceEntry> {
       return toEntry(await client.stat(relativePath));
+    },
+    async adopt(relativePath: string): Promise<AdoptionOutcome> {
+      const result = await client.adopt(relativePath);
+      return {
+        attribution: result.attribution,
+        entry: toEntry(result.entry),
+      };
     },
     async list(relativePath: string): Promise<NamespaceListing> {
       const listing = await client.list(relativePath);

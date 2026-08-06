@@ -173,6 +173,28 @@ export class NamespaceMetadataClient {
     return this.send({ op: "stat", relativePath });
   }
 
+  /**
+   * Assigns identity to an entry that has none, returning the entry and the
+   * ancestor its owner was inherited from.
+   *
+   * Refusals are ordinary failures, not faults: `IDENTITY_CONFLICT` means the
+   * entry already had identity and `NO_IDENTITY` means no ancestor could
+   * supply an owner. Both leave the entry exactly as it was.
+   */
+  async adopt(relativePath: string): Promise<{
+    attribution: { fromRelativePath: string; ownerId: string | null };
+    entry: MetadataEntryPayload;
+  }> {
+    const payload = await this.raw({ op: "adopt", relativePath });
+    if (!payload.ok || !("adopted" in payload)) {
+      throw new MetadataClientError(
+        "Metadata service returned no adoption result",
+        "UNAVAILABLE",
+      );
+    }
+    return { attribution: payload.adopted, entry: payload.entry };
+  }
+
   verify(
     relativePath: string,
     expectedId: string,

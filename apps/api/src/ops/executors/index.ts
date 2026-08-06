@@ -691,11 +691,12 @@ export function getExecutor(
           );
         }
         return {
-          output: `Namespace scan generation ${result.generation}: ${result.filesSeen} files, ${result.foldersSeen} folders, ${result.problemsSeen} problems, ${result.reapPlan.reap.length} reapable${result.reapApplied ? ` (${result.reapedRows} reaped)` : " (not reaped)"}, ${indexed} indexed`,
+          output: `Namespace scan generation ${result.generation}: ${result.filesSeen} files, ${result.foldersSeen} folders, ${result.problemsSeen} problems, ${result.adoptedSeen} adopted, ${result.reapPlan.reap.length} reapable${result.reapApplied ? ` (${result.reapedRows} reaped)` : " (not reaped)"}, ${indexed} indexed`,
           metadata: {
             durationMs: Date.now() - startedAt,
             namespaceScan: {
               abortReason: result.abortReason,
+              adoptedSeen: result.adoptedSeen,
               complete: result.complete,
               durationMs: Date.now() - startedAt,
               filesSeen: result.filesSeen,

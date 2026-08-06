@@ -24,6 +24,9 @@ export type MetadataRequest =
   | { op: "verify"; relativePath: string; expectedId: string }
   | { op: "assign"; relativePath: string; metadata: ProtectedMetadata }
   | { op: "checksum"; relativePath: string; checksum: string }
+  // Assigns identity to an entry that has none. Only the privileged service can
+  // do this, and only it can read an unstamped entry's timestamps at all.
+  | { op: "adopt"; relativePath: string }
   // SMB account provisioning. Samba's passdb lives on the host, so the
   // unprivileged API can only ask; the privileged agent performs it. The
   // secret crosses this socket once and is never stored on the API side.
@@ -45,6 +48,11 @@ export interface MetadataListingPayload {
 
 export type MetadataResponse =
   | { ok: true; entry: MetadataEntryPayload }
+  | {
+      ok: true;
+      adopted: { fromRelativePath: string; ownerId: string | null };
+      entry: MetadataEntryPayload;
+    }
   | { ok: true; provisioned: true }
   | { ok: true; listing: MetadataListingPayload }
   | { ok: true; branchMarkers: Record<string, string> }

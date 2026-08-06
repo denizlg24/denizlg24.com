@@ -1,11 +1,18 @@
 import { MetadataClientError } from "./metadata-client";
 import type { NamespaceEntry } from "./metadata-service";
+import { isAdoptable } from "./namespace-adoption";
 import type { ProjectionRepository } from "./namespace-projector";
 import type { ReconcilePlan } from "./namespace-reconcile";
+
+export interface AdoptionOutcome {
+  attribution: { fromRelativePath: string; ownerId: string | null };
+  entry: NamespaceEntry;
+}
 
 export interface ApplierSource {
   branchMarkers(): Promise<Record<string, string>>;
   stat(relativePath: string): Promise<NamespaceEntry>;
+  adopt(relativePath: string): Promise<AdoptionOutcome>;
 }
 
 export interface ApplyOutcome {
@@ -13,6 +20,7 @@ export interface ApplyOutcome {
   removed: number;
   withheld: number;
   problems: number;
+  adopted: number;
 }
 
 /**
@@ -43,6 +51,7 @@ export async function applyWatchedPaths(
   paths: readonly string[],
 ): Promise<ApplyOutcome> {
   const outcome: ApplyOutcome = {
+    adopted: 0,
     problems: 0,
     removed: 0,
     upserted: 0,
@@ -61,7 +70,26 @@ export async function applyWatchedPaths(
       const absent =
         error instanceof MetadataClientError && ABSENT_CODES.has(error.code);
       if (!absent) {
-        outcome.problems += 1;
+        // An SMB write arrives with no identity, so this is the ordinary path
+        // for a file dropped on the share rather than an exceptional one.
+        // Adopting here is what lets it appear in seconds; without it the entry
+        // is unprojectable and waits for a scan that cannot fix it either.
+        const adopted =
+          error instanceof MetadataClientError && isAdoptable(error.code)
+            ? await source.adopt(relativePath).catch(() => null)
+            : null;
+        if (!adopted) {
+          outcome.problems += 1;
+          continue;
+        }
+        outcome.adopted += 1;
+        entry = adopted.entry;
+        if (entry.kind === "folder") {
+          await repository.upsertFolder(entry);
+        } else {
+          await repository.upsertFile(entry);
+        }
+        outcome.upserted += 1;
         continue;
       }
       const row = await repository.findByPath(relativePath);

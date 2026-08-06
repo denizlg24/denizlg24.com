@@ -1,4 +1,6 @@
 import type { NamespaceEntry, NamespaceListing } from "./metadata-service";
+import { isAdoptable } from "./namespace-adoption";
+import type { AdoptionOutcome } from "./namespace-applier";
 import {
   type ProjectedRow,
   planReconciliation,
@@ -11,6 +13,7 @@ import {
 export interface NamespaceSource {
   list(relativePath: string): Promise<NamespaceListing>;
   branchMarkers(): Promise<Record<string, string>>;
+  adopt(relativePath: string): Promise<AdoptionOutcome>;
 }
 
 export interface ProjectionRepository {
@@ -26,6 +29,8 @@ export interface ProjectionRepository {
     generation: number,
     problem: { code: string; relativePath: string },
   ): Promise<void>;
+  /** Drops a problem that adoption resolved, so it stops holding the scan dirty. */
+  clearProblem(relativePath: string): Promise<void>;
   applyReapPlan(plan: ReconcilePlan): Promise<void>;
   persistCandidates(plan: ReconcilePlan): Promise<void>;
   recordScan(scan: ScanRecord): Promise<void>;
@@ -42,6 +47,7 @@ export interface ScanRecord {
   foldersSeen: number;
   filesSeen: number;
   problemsSeen: number;
+  adoptedSeen: number;
   reapedRows: number;
 }
 
@@ -89,6 +95,7 @@ export class NamespaceProjector {
     let foldersSeen = 0;
     let filesSeen = 0;
     let problemsSeen = 0;
+    let adoptedSeen = 0;
     let walkErrored = false;
     let abortDetail: string | null = null;
 
@@ -99,6 +106,28 @@ export class NamespaceProjector {
         const listing = await this.source.list(folderPath);
 
         for (const problem of listing.problems) {
+          // Adoption is attempted before the problem is recorded, so an entry
+          // that can be given identity is projected in the same generation
+          // rather than counted against a scan it no longer belongs to.
+          if (isAdoptable(problem.code)) {
+            const adopted = await this.source
+              .adopt(problem.relativePath)
+              .catch(() => null);
+            if (adopted) {
+              adoptedSeen += 1;
+              observedIds.add(adopted.entry.metadata.id);
+              if (adopted.entry.kind === "folder") {
+                foldersSeen += 1;
+                await this.repository.upsertFolder(adopted.entry);
+                queue.push(adopted.entry.relativePath);
+              } else {
+                filesSeen += 1;
+                await this.repository.upsertFile(adopted.entry);
+              }
+              await this.repository.clearProblem(problem.relativePath);
+              continue;
+            }
+          }
           problemPaths.add(problem.relativePath);
           problemsSeen += 1;
           await this.repository.recordProblem(generation, problem);
@@ -152,6 +181,7 @@ export class NamespaceProjector {
         finishedAt: new Date(),
         foldersSeen,
         generation,
+        adoptedSeen,
         problemsSeen,
         reapedRows: 0,
         startedAt,
@@ -188,6 +218,7 @@ export class NamespaceProjector {
       finishedAt: new Date(),
       foldersSeen,
       generation,
+      adoptedSeen,
       problemsSeen,
       reapedRows: reapApplied ? plan.reap.length : 0,
       startedAt,

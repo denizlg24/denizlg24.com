@@ -94,6 +94,14 @@ export {
   type StorageNamespaceCapabilities,
 } from "./namespace";
 export {
+  type AdoptionAttribution,
+  type AdoptionResult,
+  adoptEntry,
+  ancestorPaths,
+  isAdoptable,
+} from "./namespace-adoption";
+export {
+  type AdoptionOutcome,
   type ApplierSource,
   type ApplyOutcome,
   applyWatchedPaths,

@@ -24,6 +24,7 @@ function entry(relativePath: string, kind: "file" | "folder"): NamespaceEntry {
 }
 
 function harness(options: {
+  adoptions?: Record<string, NamespaceEntry>;
   entries?: Record<string, NamespaceEntry>;
   failures?: Record<string, MetadataClientError>;
   markers?: Record<string, string>;
@@ -42,6 +43,14 @@ function harness(options: {
       const found = options.entries?.[relativePath];
       if (!found) throw new MetadataClientError("gone", "NOT_FOUND");
       return found;
+    },
+    async adopt(relativePath) {
+      const adopted = options.adoptions?.[relativePath];
+      if (!adopted) throw new MetadataClientError("no ancestor", "NO_IDENTITY");
+      return {
+        attribution: { fromRelativePath: "a", ownerId: "owner" },
+        entry: adopted,
+      };
     },
   };
 
@@ -154,6 +163,7 @@ describe("applying watched paths", () => {
       ["a/never-existed.txt"],
     );
     expect(outcome).toEqual({
+      adopted: 0,
       problems: 0,
       removed: 0,
       upserted: 0,

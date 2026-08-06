@@ -39,6 +39,7 @@ function entry(
 }
 
 interface FakeState {
+  adoptions?: Record<string, NamespaceEntry>;
   listings: Record<string, NamespaceListing>;
   markers: Record<string, string>;
   markersAtEnd?: Record<string, string>;
@@ -47,6 +48,14 @@ interface FakeState {
 function source(state: FakeState): NamespaceSource {
   let calls = 0;
   return {
+    async adopt(relativePath) {
+      const adopted = state.adoptions?.[relativePath];
+      if (!adopted) throw new Error(`no ancestor for ${relativePath}`);
+      return {
+        attribution: { fromRelativePath: "/", ownerId: "owner" },
+        entry: adopted,
+      };
+    },
     async branchMarkers() {
       calls += 1;
       return calls === 1
@@ -78,6 +87,12 @@ function repository(
   const base: ProjectionRepository = {
     async applyReapPlan(plan) {
       applied = plan;
+    },
+    async clearProblem(relativePath) {
+      const index = problems.findIndex(
+        (problem) => problem.relativePath === relativePath,
+      );
+      if (index >= 0) problems.splice(index, 1);
     },
     async findByPath(relativePath) {
       return (
@@ -262,6 +277,9 @@ describe("namespace projector", () => {
     const context = repository();
     const projector = new NamespaceProjector(
       {
+        async adopt() {
+          throw new Error("not reached");
+        },
         async branchMarkers() {
           return MARKERS;
         },

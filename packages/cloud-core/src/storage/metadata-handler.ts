@@ -10,6 +10,7 @@ import type {
   NamespaceMetadataService,
 } from "./metadata-service";
 import { MetadataServiceError } from "./metadata-service";
+import { adoptEntry } from "./namespace-adoption";
 
 function payload(entry: NamespaceEntry): MetadataEntryPayload {
   return {
@@ -44,6 +45,7 @@ function isRequest(value: unknown): value is MetadataRequest {
       return typeof candidate.principal === "string";
     case "stat":
     case "list":
+    case "adopt":
       return true;
     case "verify":
       return typeof candidate.expectedId === "string";
@@ -125,6 +127,14 @@ export async function handleMetadataRequest(
           entries: listing.entries.map(payload),
           problems: listing.problems,
         },
+        ok: true,
+      };
+    }
+    if (body.op === "adopt") {
+      const result = await adoptEntry(service, body.relativePath);
+      return {
+        adopted: result.attribution,
+        entry: payload(result.entry),
         ok: true,
       };
     }
