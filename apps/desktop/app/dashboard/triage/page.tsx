@@ -13,6 +13,10 @@ import type {
   IEmailTriage,
   TriageFilter,
   TriageListResponse,
+  TriageUpdateInput,
+  TriageUpdateResponse,
+  TriageWarmBodiesInput,
+  TriageWarmBodiesResponse,
 } from "@/lib/data-types";
 import { TriageDetail } from "./_components/triage-detail";
 import { TriageLoadingSkeleton } from "./_components/triage-loading-skeleton";
@@ -110,12 +114,34 @@ export default function TriagePage() {
   const [running, setRunning] = useState(false);
   const [archivingAll, setArchivingAll] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
   const loadedBlocksRef = useRef<Set<string>>(new Set());
   const inFlightBlocksRef = useRef<Set<string>>(new Set());
   const cacheGenerationRef = useRef(0);
 
   const items = itemsByPage[pageIndex] ?? [];
   const currentPageLoading = loading && items.length === 0;
+
+  // Emails triaged before bodies were stored still need one IMAP fetch. Doing
+  // it for the whole visible page on one connection means the first open of an
+  // old row is instant too, instead of each one paying its own login.
+  //
+  // Keyed by the rows themselves, not by `filter:pageIndex`: a refresh can put
+  // entirely different rows on the same page of the same filter, and a
+  // position-based key would skip warming every one of them.
+  const warmedPagesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!api || items.length === 0) return;
+    const triageIds = items.map((item) => item._id);
+    const key = triageIds.join(",");
+    if (warmedPagesRef.current.has(key)) return;
+    warmedPagesRef.current.add(key);
+    const body: TriageWarmBodiesInput = { triageIds };
+    void api.POST<TriageWarmBodiesResponse>({
+      endpoint: "triage/bodies",
+      body,
+    });
+  }, [api, items]);
 
   const cacheItems = useCallback((page: TriageListResponse) => {
     setItemsByPage((prev) => ({
@@ -188,6 +214,91 @@ export default function TriagePage() {
     setPageIndex(0);
     await fetchItems({ force: true, pageIndex: 0 });
   }, [fetchItems, resetItemsCache]);
+
+  /**
+   * Applies a verdict without leaving the list.
+   *
+   * A row that the verdict removes from the active filter is dropped from the
+   * page rather than refetched: a review queue is worked top to bottom, and
+   * re-fetching the block after every decision would reflow the list under the
+   * pointer. Counts are adjusted locally and the next block fetch reconciles
+   * them.
+   */
+  const decideInline = useCallback(
+    async (item: IEmailTriage, body: TriageUpdateInput) => {
+      if (!api) return;
+      setDecidingIds((prev) => new Set(prev).add(item._id));
+
+      const res = await api.PATCH<TriageUpdateResponse>({
+        endpoint: `triage/${item._id}`,
+        body,
+      });
+
+      setDecidingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item._id);
+        return next;
+      });
+
+      if ("code" in res || res.ok === false) {
+        toast.error(
+          "error" in res && typeof res.error === "string"
+            ? res.error
+            : "Failed to update",
+        );
+        return;
+      }
+
+      // What the row becomes. Both verdicts clear `reviewRequired`, and only
+      // `category` moves it between category tabs.
+      const nextCategory = body.category ?? item.category;
+      // The archived tab selects on `userStatus`, which neither verdict
+      // changes — an archived row stays archived after being reclassified, so
+      // removing it here would hide a record still in the result set.
+      const staysVisible =
+        filter === "archived" ||
+        (filter !== "review" && filter === nextCategory);
+
+      if (staysVisible) {
+        setItemsByPage((prev) => {
+          const next: Record<number, IEmailTriage[]> = {};
+          for (const [page, rows] of Object.entries(prev)) {
+            next[Number(page)] = rows.map((row) =>
+              row._id === item._id
+                ? { ...row, category: nextCategory, reviewRequired: false }
+                : row,
+            );
+          }
+          return next;
+        });
+      } else {
+        setItemsByPage((prev) => {
+          const next: Record<number, IEmailTriage[]> = {};
+          for (const [page, rows] of Object.entries(prev)) {
+            next[Number(page)] = rows.filter((row) => row._id !== item._id);
+          }
+          return next;
+        });
+        setTotalRows((total) => Math.max(0, total - 1));
+        // The block is now short by one row, so the next visit must refetch it.
+        loadedBlocksRef.current.delete(
+          getPrefetchBlockKey(filter, pageIndex, TRIAGE_PAGE_SIZE),
+        );
+      }
+
+      setStats((prev) => {
+        const from = item.reviewRequired ? "review" : item.category;
+        const to = nextCategory;
+        if (from === to) return prev;
+        return {
+          ...prev,
+          [from]: Math.max(0, (prev[from] ?? 0) - 1),
+          [to]: (prev[to] ?? 0) + 1,
+        };
+      });
+    },
+    [api, filter, pageIndex],
+  );
 
   useEffect(() => {
     void fetchItems();
@@ -383,7 +494,17 @@ export default function TriagePage() {
                   key={item._id}
                   item={item}
                   selected={item._id === selectedId}
+                  busy={decidingIds.has(item._id)}
                   onSelect={() => setSelectedId(item._id)}
+                  onConfirm={() =>
+                    void decideInline(item, {
+                      category: item.category,
+                      userStatus: "reviewed",
+                    })
+                  }
+                  onRecategorize={(category) =>
+                    void decideInline(item, { category })
+                  }
                 />
               ))}
             </div>

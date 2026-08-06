@@ -16,7 +16,16 @@ export interface TieringGateInput {
   namespaceMounted: boolean;
 }
 
-export function tieringBlockedReason(input: TieringGateInput): string | null {
+export type TieringBlockedReason =
+  | "namespace-not-mounted"
+  | "branch-marker-invalid"
+  | "projection-dirty"
+  | "backup-restore-active"
+  | "migration-mode";
+
+export function tieringBlockedReason(
+  input: TieringGateInput,
+): TieringBlockedReason | null {
   if (!input.namespaceMounted) return "namespace-not-mounted";
   if (!input.branchMarkersValid) return "branch-marker-invalid";
   if (input.projectionDirty) return "projection-dirty";

@@ -27,8 +27,20 @@ function apply(overrides: Partial<Record<string, string | undefined>> = {}) {
   }
 }
 
+const BRANCH_KEYS = [
+  "STORAGE_SSD_BRANCH_PATH",
+  "STORAGE_HDD_BRANCH_PATH",
+] as const;
+
+function applyBranches(ssd: string | undefined, hdd: string | undefined) {
+  if (ssd === undefined) delete process.env.STORAGE_SSD_BRANCH_PATH;
+  else process.env.STORAGE_SSD_BRANCH_PATH = ssd;
+  if (hdd === undefined) delete process.env.STORAGE_HDD_BRANCH_PATH;
+  else process.env.STORAGE_HDD_BRANCH_PATH = hdd;
+}
+
 afterEach(() => {
-  for (const key of KEYS) delete process.env[key];
+  for (const key of [...KEYS, ...BRANCH_KEYS]) delete process.env[key];
 });
 
 describe("metadata service configuration", () => {
@@ -36,6 +48,7 @@ describe("metadata service configuration", () => {
     apply();
     expect(configFromEnv()).toEqual({
       branchPaths: [],
+      branchRoots: null,
       namespaceRoot: valid.STORAGE_NAMESPACE_ROOT,
       watchMaxPending: 5_000,
       watchQuietMs: 400,
@@ -67,5 +80,68 @@ describe("metadata service configuration", () => {
   it("rejects a token short enough to guess", () => {
     apply({ STORAGE_METADATA_TOKEN: "short" });
     expect(() => configFromEnv()).toThrow("at least 16");
+  });
+});
+
+describe("branch role configuration", () => {
+  it("reads a valid pair, normalising trailing slashes", () => {
+    apply();
+    applyBranches(
+      "/mnt/ssd/deniz-cloud/namespace/",
+      "/mnt/hdd/deniz-cloud/namespace",
+    );
+    expect(configFromEnv().branchRoots).toEqual({
+      hdd: "/mnt/hdd/deniz-cloud/namespace",
+      ssd: "/mnt/ssd/deniz-cloud/namespace",
+    });
+  });
+
+  it("requires both roles or neither", () => {
+    apply();
+    applyBranches("/mnt/ssd/namespace", undefined);
+    expect(() => configFromEnv()).toThrow("must be set together");
+    applyBranches(undefined, "/mnt/hdd/namespace");
+    expect(() => configFromEnv()).toThrow("must be set together");
+  });
+
+  it("rejects relative role paths", () => {
+    apply();
+    applyBranches("mnt/ssd/namespace", "/mnt/hdd/namespace");
+    expect(() => configFromEnv()).toThrow("absolute");
+  });
+
+  it("rejects a role inside the namespace root", () => {
+    // The union mount reading itself: every tier move would copy a file onto
+    // itself through FUSE.
+    apply();
+    applyBranches(`${valid.STORAGE_NAMESPACE_ROOT}/ssd`, "/mnt/hdd/namespace");
+    expect(() => configFromEnv()).toThrow("outside the namespace root");
+    applyBranches("/mnt/ssd/namespace", valid.STORAGE_NAMESPACE_ROOT);
+    expect(() => configFromEnv()).toThrow("outside the namespace root");
+  });
+
+  it("rejects roles that are the same directory or nest", () => {
+    apply();
+    applyBranches("/mnt/disks/ssd", "/mnt/disks/ssd");
+    expect(() => configFromEnv()).toThrow("must not nest");
+    // `/mnt/ssd/` and `/mnt/ssd` are the same directory.
+    applyBranches("/mnt/disks/ssd/", "/mnt/disks/ssd");
+    expect(() => configFromEnv()).toThrow("must not nest");
+    // The dangerous one: the HDD branch sitting inside the SSD branch makes an
+    // unmounted SSD read as non-empty, so `branchesMounted` says yes and the
+    // pass migrates the namespace onto one disk.
+    applyBranches("/mnt/disks", "/mnt/disks/hdd");
+    expect(() => configFromEnv()).toThrow("must not nest");
+    applyBranches("/mnt/disks/ssd", "/mnt/disks");
+    expect(() => configFromEnv()).toThrow("must not nest");
+  });
+
+  it("allows sibling roots under a shared parent", () => {
+    apply();
+    applyBranches("/mnt/disks/ssd", "/mnt/disks/hdd");
+    expect(configFromEnv().branchRoots).toEqual({
+      hdd: "/mnt/disks/hdd",
+      ssd: "/mnt/disks/ssd",
+    });
   });
 });

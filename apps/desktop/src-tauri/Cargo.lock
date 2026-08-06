@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "denizlg24"
-version = "1.6.1"
+version = "1.7.0"
 dependencies = [
  "serde",
  "serde_json",

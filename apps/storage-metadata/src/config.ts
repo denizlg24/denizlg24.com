@@ -1,9 +1,22 @@
+import { resolve, sep } from "node:path";
+
+/** True when `parent` is `child` or an ancestor of it. Both must be resolved. */
+function contains(parent: string, child: string): boolean {
+  return child === parent || child.startsWith(`${parent}${sep}`);
+}
+
 export interface MetadataServiceConfig {
   /**
    * Physical branch roots, used only to prove they were all mounted for the
    * whole of a projection scan. Empty means the projector can never reap.
    */
   branchPaths: string[];
+  /**
+   * The two branches by tier role, for the tiering ops. Absent until the host
+   * is configured for tiering, and the service then answers UNAVAILABLE rather
+   * than guessing a layout — the same shape as SMB provisioning.
+   */
+  branchRoots: { ssd: string; hdd: string } | null;
   namespaceRoot: string;
   /** Absent when this host does not provision SMB accounts. */
   smbScriptPath: string | null;
@@ -89,8 +102,47 @@ export function configFromEnv(): MetadataServiceConfig {
       );
     }
   }
+  const rawSsdBranch = process.env.STORAGE_SSD_BRANCH_PATH?.trim();
+  const rawHddBranch = process.env.STORAGE_HDD_BRANCH_PATH?.trim();
+  if (Boolean(rawSsdBranch) !== Boolean(rawHddBranch)) {
+    throw new Error(
+      "STORAGE_SSD_BRANCH_PATH and STORAGE_HDD_BRANCH_PATH must be set together",
+    );
+  }
+  for (const branchPath of [rawSsdBranch, rawHddBranch]) {
+    if (branchPath !== undefined && !branchPath.startsWith("/")) {
+      throw new Error("Branch role paths must be absolute");
+    }
+  }
+  // Normalised before every comparison below: `/mnt/ssd/` and `/mnt/ssd` name
+  // the same directory and would otherwise pass every distinctness check.
+  const ssdBranch = rawSsdBranch ? resolve(rawSsdBranch) : undefined;
+  const hddBranch = rawHddBranch ? resolve(rawHddBranch) : undefined;
+  for (const branchPath of [ssdBranch, hddBranch]) {
+    if (!branchPath) continue;
+    // Same reason as STORAGE_BRANCH_PATHS: a role pointed at the union mount
+    // would make every tier move copy a file onto itself through FUSE.
+    if (contains(namespaceRoot, branchPath)) {
+      throw new Error("Branch role paths must be outside the namespace root");
+    }
+  }
+  if (ssdBranch && hddBranch) {
+    // Nesting, not just equality. With the HDD branch inside the SSD one,
+    // `BranchTieringAgent.branchesMounted` reads the SSD root as non-empty
+    // because the HDD subdirectory is sitting in it — so an unmounted SSD
+    // still reports as mounted, and the pass migrates the namespace onto one
+    // disk. That is the failure the mounted check exists to prevent.
+    if (contains(ssdBranch, hddBranch) || contains(hddBranch, ssdBranch)) {
+      throw new Error(
+        "STORAGE_SSD_BRANCH_PATH and STORAGE_HDD_BRANCH_PATH must be distinct and must not nest",
+      );
+    }
+  }
+
   return {
     branchPaths,
+    branchRoots:
+      ssdBranch && hddBranch ? { hdd: hddBranch, ssd: ssdBranch } : null,
     namespaceRoot,
     watchMaxPending: boundedInt(
       "STORAGE_WATCH_MAX_PENDING",

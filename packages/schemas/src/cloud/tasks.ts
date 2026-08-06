@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { cloudDateTimeSchema } from "./common";
-import { tieringReportSchema } from "./storage";
+import { namespaceTieringReportSchema, tieringReportSchema } from "./storage";
 
 export const TASK_TYPES = [
   "backup_postgres",
@@ -15,6 +15,7 @@ export const TASK_TYPES = [
   "alert_evaluation",
   "run_command",
   "namespace_scan",
+  "namespace_tiering",
 ] as const;
 
 export const taskTypeSchema = z.enum(TASK_TYPES);
@@ -108,6 +109,29 @@ export const namespaceScanTaskConfigSchema = z.object({
   allowReap: z.boolean().default(false),
   maxEntries: z.number().int().min(1).max(50_000_000).optional(),
 });
+/**
+ * The broker-mode nightly pass. It names no storage paths at all, unlike
+ * `tiering_pass`: the branches belong to the privileged service, and the whole
+ * point of the broker boundary is that the API is never told where they are.
+ */
+export const namespaceTieringTaskConfigSchema = z.object({
+  dryRun: z.boolean().default(false),
+  highWatermarkPercent: z.number().min(1).max(99).optional(),
+  targetWatermarkPercent: z.number().min(1).max(99).optional(),
+  minAgeDays: z.number().int().min(0).max(3_650).optional(),
+  minSizeBytes: z.number().int().nonnegative().optional(),
+  batchCap: z.number().int().min(1).max(1_000).optional(),
+  /**
+   * How many eligible rows have their placement resolved before the batch cap
+   * is applied. The projection's tier is a hint that goes stale, so the pass
+   * over-reads and then filters on what the branches actually hold.
+   */
+  placementLookahead: z.number().int().min(1).max(5_000).optional(),
+});
+export type NamespaceTieringTaskConfig = z.infer<
+  typeof namespaceTieringTaskConfigSchema
+>;
+
 export const metricsRollupTaskConfigSchema = z.object({
   rawRetentionHours: z.number().int().min(24).max(168).default(24),
   rollupRetentionDays: z.number().int().min(1).max(365).default(90),
@@ -200,6 +224,7 @@ export const taskConfigSchema = z.object({
   timeoutMs: z.number().optional(),
   allowReap: z.boolean().optional(),
   maxEntries: z.number().optional(),
+  placementLookahead: z.number().optional(),
 });
 export type TaskConfig = z.infer<typeof taskConfigSchema>;
 
@@ -215,6 +240,7 @@ export const TASK_CONFIG_SCHEMAS = {
   alert_evaluation: alertEvaluationTaskConfigSchema,
   run_command: runCommandTaskConfigSchema,
   namespace_scan: namespaceScanTaskConfigSchema,
+  namespace_tiering: namespaceTieringTaskConfigSchema,
 } as const satisfies Record<TaskType, z.ZodType>;
 
 export function parseTaskConfig(type: TaskType, input: unknown): TaskConfig {
@@ -234,6 +260,7 @@ export const taskRunMetadataSchema = z.object({
   alerts: z.array(z.string()).optional(),
   exitCode: z.number().int().optional(),
   namespaceScan: namespaceScanReportSchema.optional(),
+  namespaceTiering: namespaceTieringReportSchema.optional(),
 });
 export type TaskRunMetadata = z.infer<typeof taskRunMetadataSchema>;
 

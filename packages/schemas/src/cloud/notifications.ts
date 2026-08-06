@@ -20,6 +20,10 @@ export const NOTIFICATION_TYPES = [
   "auth_failure_burst",
   "tiering_moved",
   "tiering_orphaned",
+  // Distinct from orphaned: an orphan is a row with no blob on either disk, a
+  // quarantine is one path present on both branches whose copies disagree.
+  // Sharing a type would misfile every quarantine in the notification history.
+  "tiering_quarantined",
   "metric_rule",
   "metric_rule_resolved",
   "test",
@@ -96,6 +100,7 @@ export const NOTIFICATION_COOLDOWN_MINUTES: Record<NotificationType, number> = {
   auth_failure_burst: 30,
   tiering_moved: 0,
   tiering_orphaned: 0,
+  tiering_quarantined: 0,
   // Rules carry their own cooldown and pass it explicitly; this is only the
   // fallback for a dispatch that somehow arrives without one.
   metric_rule: 60,

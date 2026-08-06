@@ -17,6 +17,7 @@ import {
   updateCourseDeadline,
 } from "@/lib/courses";
 import { type FetchedEmailBody, fetchEmailBodies } from "@/lib/email";
+import { saveEmailBodies } from "@/lib/email-body-store";
 import { classifyEmail } from "@/lib/email-classifier";
 import { createCard } from "@/lib/kanban";
 import { generateToolResult } from "@/lib/llm-service";
@@ -1741,6 +1742,31 @@ export async function runTriage(
         }
       }),
     );
+
+    // The bodies are already parsed and in memory here, so storing them costs
+    // one write per batch and turns every later open of these emails into a
+    // Mongo read. Best-effort: a body that fails to store makes one screen slow
+    // to render, and failing the triage run over that would be absurd.
+    await saveEmailBodies(
+      batch.flatMap((email) => {
+        const accountId = email.accountId.toString();
+        const body = prefetched.get(`${accountId}:${email.uid}`);
+        return body
+          ? [
+              {
+                body,
+                ref: {
+                  accountId,
+                  emailId: email._id.toString(),
+                  uid: email.uid,
+                },
+              },
+            ]
+          : [];
+      }),
+    ).catch((error) => {
+      console.error("Failed to store triage email bodies:", error);
+    });
 
     let nextIndex = 0;
     async function work(): Promise<void> {

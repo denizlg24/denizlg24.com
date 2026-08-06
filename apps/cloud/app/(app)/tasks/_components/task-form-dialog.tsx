@@ -63,6 +63,18 @@ const TEMPLATES = [
       config: { dryRun: false },
     },
   },
+  {
+    label: "namespace_tiering",
+    value: {
+      name: "",
+      type: "namespace_tiering",
+      cronExpression: "0 3 * * *",
+      // A created task is enabled and scheduled immediately, so a template
+      // with live moves would arm data relocation in one click. Seeding takes
+      // the same stance: opting into live moves stays deliberate.
+      config: { dryRun: true },
+    },
+  },
 ] as const;
 
 function cronPreview(expression: unknown): string[] | null {

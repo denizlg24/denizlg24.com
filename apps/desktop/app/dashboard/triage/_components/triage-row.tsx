@@ -4,10 +4,26 @@ import {
   CATEGORY_ACCENT,
   CATEGORY_LABELS,
   CATEGORY_SPINE,
+  TRIAGE_CATEGORIES,
 } from "@repo/admin/triage/category-meta";
+import { Button } from "@repo/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@repo/ui/select";
 import { cn } from "@repo/ui/utils";
-import { CalendarClock, CircleCheck, ListTodo, PenLine } from "lucide-react";
-import type { IEmailTriage } from "@/lib/data-types";
+import {
+  CalendarClock,
+  Check,
+  CircleCheck,
+  ListTodo,
+  Loader2,
+  PenLine,
+  Tag,
+} from "lucide-react";
+import type { IEmailTriage, TriageCategory } from "@/lib/data-types";
 
 function relativeTime(iso: string): string {
   const date = new Date(iso);
@@ -57,14 +73,25 @@ function ConfidenceMeter({
   );
 }
 
+function isTriageCategory(value: string): value is TriageCategory {
+  return TRIAGE_CATEGORIES.some((category) => category === value);
+}
+
 export function TriageRow({
   item,
   selected,
+  busy = false,
   onSelect,
+  onConfirm,
+  onRecategorize,
 }: {
   item: IEmailTriage;
   selected: boolean;
+  busy?: boolean;
   onSelect: () => void;
+  /** Accepts the model's own category and clears the review flag. */
+  onConfirm: () => void;
+  onRecategorize: (category: TriageCategory) => void;
 }) {
   const sender =
     item.email?.from.map((entry) => entry.name ?? entry.address).join(", ") ??
@@ -76,16 +103,26 @@ export function TriageRow({
     item.suggestedEvents.filter((event) => event.status === "accepted").length;
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    // A div, not a button: the row hosts its own controls, and a select inside
+    // a button is invalid markup that Radix cannot escape. Opening the row is
+    // an overlay button underneath the content instead.
+    <div
       aria-current={selected ? "true" : undefined}
       className={cn(
         "group relative flex w-full items-center gap-3 py-2.5 pl-3 pr-1 text-left transition-colors",
-        "hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none",
+        "hover:bg-accent/40 focus-within:bg-accent/40",
         selected && "bg-accent/60",
+        busy && "opacity-50",
       )}
     >
+      <button
+        type="button"
+        onClick={onSelect}
+        disabled={busy}
+        aria-label={`Open ${item.email?.subject ?? "email"}`}
+        className="absolute inset-0 z-0 focus-visible:outline-none"
+      />
+
       <span
         aria-hidden
         className={cn(
@@ -94,7 +131,7 @@ export function TriageRow({
         )}
       />
 
-      <div className="min-w-0 flex-1">
+      <div className="pointer-events-none relative z-10 min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-snug">
             {item.email?.subject ?? "(no subject)"}
@@ -128,7 +165,63 @@ export function TriageRow({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="pointer-events-none relative z-10 flex shrink-0 items-center gap-3">
+        {/*
+         * Reclassifying and confirming are the whole job of the review queue,
+         * so they happen here rather than behind an open. Always visible on a
+         * row that needs review; on every other row they stay out of the way
+         * until the pointer or keyboard reaches it.
+         */}
+        <div
+          className={cn(
+            "pointer-events-auto flex items-center gap-1",
+            !item.reviewRequired &&
+              "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100",
+          )}
+        >
+          <Select
+            value={item.category}
+            disabled={busy}
+            onValueChange={(value) => {
+              if (isTriageCategory(value) && value !== item.category) {
+                onRecategorize(value);
+              }
+            }}
+          >
+            <SelectTrigger
+              size="sm"
+              aria-label="Change category"
+              className="h-7 w-auto gap-1 border-none px-1.5 shadow-none [&>svg:last-child]:hidden"
+            >
+              <Tag className="size-3.5 text-muted-foreground" />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {TRIAGE_CATEGORIES.map((category) => (
+                <SelectItem key={category} value={category} className="text-xs">
+                  {CATEGORY_LABELS[category]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {item.reviewRequired && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              disabled={busy}
+              aria-label={`Confirm ${CATEGORY_LABELS[item.category]}`}
+              onClick={onConfirm}
+            >
+              {busy ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Check className="size-3.5" />
+              )}
+            </Button>
+          )}
+        </div>
+
         {(tasks > 0 || events > 0) && (
           <span className="flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
             {tasks > 0 && (
@@ -167,6 +260,6 @@ export function TriageRow({
           {relativeTime(item.triagedAt)}
         </span>
       </div>
-    </button>
+    </div>
   );
 }

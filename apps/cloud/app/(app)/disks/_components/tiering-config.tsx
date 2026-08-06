@@ -11,6 +11,7 @@ import { Section } from "@repo/ui/section";
 import { StatusDot } from "@repo/ui/status-dot";
 import { useState } from "react";
 import { toast } from "sonner";
+import { NamespaceTieringReportView } from "@/app/(app)/tasks/_components/namespace-tiering-report";
 import { TieringReportView } from "@/app/(app)/tasks/_components/tiering-report";
 import { api, errorMessage } from "@/lib/api";
 
@@ -149,7 +150,9 @@ export function TieringConfig({
   if (!task) {
     return (
       <Section title="tiering">
-        <p className="text-xs text-destructive">no tiering_pass task seeded</p>
+        <p className="text-xs text-destructive">
+          no {settings.taskType} task seeded
+        </p>
       </Section>
     );
   }
@@ -294,6 +297,11 @@ export function TieringConfig({
           </div>
           {lastRun.metadata?.tieringReport && (
             <TieringReportView report={lastRun.metadata.tieringReport} />
+          )}
+          {lastRun.metadata?.namespaceTiering && (
+            <NamespaceTieringReportView
+              report={lastRun.metadata.namespaceTiering}
+            />
           )}
         </div>
       )}

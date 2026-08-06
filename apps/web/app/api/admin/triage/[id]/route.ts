@@ -1,7 +1,8 @@
 import { TRIAGE_CATEGORIES } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
-import { fetchEmailBody, markEmailsSeen } from "@/lib/email";
+import { markEmailsSeen } from "@/lib/email";
+import { readEmailBody } from "@/lib/email-body-store";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
 import { EmailModel } from "@/models/Email";
@@ -51,10 +52,17 @@ export async function GET(
     return NextResponse.json({ error: "Email not found" }, { status: 404 });
   }
 
+  // Stored at triage time, so this is a Mongo read for anything triaged since
+  // bodies started being kept. Older emails fall through to one IMAP fetch that
+  // stores what it gets, which is why the backlog gets fast by being opened.
   let body: { text: string; html: string } | null = null;
   try {
-    const fetched = await fetchEmailBody(String(email.accountId), email.uid);
-    if (fetched) body = { text: fetched.text, html: fetched.html };
+    const stored = await readEmailBody({
+      accountId: String(email.accountId),
+      emailId: String(email._id),
+      uid: email.uid,
+    });
+    if (stored) body = { text: stored.text, html: stored.html };
   } catch (err) {
     console.error("body fetch failed:", err);
   }
