@@ -34,6 +34,7 @@ import {
   filesBackupTaskConfigSchema,
   metricsRollupTaskConfigSchema,
   mongoBackupTaskConfigSchema,
+  type NamespaceTieringReport,
   type NotificationPayload,
   type NotificationType,
   namespaceScanTaskConfigSchema,
@@ -57,6 +58,7 @@ import {
   executeMongoBackup,
   executePostgresBackup,
 } from "./backups";
+import { formatBytes } from "./utils";
 
 export type { ExecutorResult } from "./backups";
 
@@ -113,6 +115,34 @@ async function executeAllBackups(
     output: [postgres.output, mongo.output, files.output].join("\n---\n"),
     metadata: { durationMs: Date.now() - startedAt },
   };
+}
+
+/**
+ * One line describing what a namespace tiering pass did.
+ *
+ * There are three outcomes and they must not read alike. A blocked pass
+ * completes rather than fails, because the gate firing is the system working.
+ * A pass with no space pressure returns before it reads any candidates, so
+ * reporting its counts would print a row of zeros indistinguishable from a
+ * scan that looked at everything and found nothing — which is exactly the
+ * wrong conclusion to hand someone staring at a disk full of files.
+ */
+export function namespaceTieringSummary(
+  report: NamespaceTieringReport,
+  options: { dryRun: boolean; highWatermarkPercent: number },
+): string {
+  if (report.blockedBy) {
+    return `Namespace tiering blocked: ${report.blockedBy}`;
+  }
+  const kind = options.dryRun ? "dry run" : "completed";
+  if (report.bytesToFree === 0) {
+    const used = report.ssd ? `${report.ssd.usagePercent.toFixed(1)}%` : "?";
+    return `Namespace tiering ${kind}: nothing to free — ssd at ${used} is under the ${options.highWatermarkPercent}% high watermark, so no candidates were read`;
+  }
+  const moved = report.applied.filter(
+    (move) => move.outcome === "moved",
+  ).length;
+  return `Namespace tiering ${kind}: ${formatBytes(report.bytesToFree)} to free, ${report.eligible} eligible, ${report.onSsd} on SSD, ${report.planned.length} planned, ${moved} moved, ${report.quarantined.length} quarantined, ${report.failures.length} failed`;
 }
 
 export function assertApiFilesBackupAllowed(
@@ -662,6 +692,8 @@ export function getExecutor(
           );
         }
         const defaults = context.storageConfig.tiering;
+        const highWatermarkPercent =
+          config.highWatermarkPercent ?? defaults.highWatermarkPercent;
         const report = await runNamespaceTieringPass(
           createNamespaceTieringRepository(context.db),
           context.metadataClient,
@@ -669,8 +701,7 @@ export function getExecutor(
             backupRestoreActive: defaults.restoreActive,
             batchCap: config.batchCap ?? defaults.batchCap,
             dryRun: config.dryRun,
-            highWatermarkPercent:
-              config.highWatermarkPercent ?? defaults.highWatermarkPercent,
+            highWatermarkPercent,
             migrationModeEnabled: defaults.migrationMode,
             minAgeMs:
               config.minAgeDays === undefined
@@ -683,17 +714,11 @@ export function getExecutor(
               config.targetWatermarkPercent ?? defaults.targetWatermarkPercent,
           },
         );
-        const moved = report.applied.filter(
-          (move) => move.outcome === "moved",
-        ).length;
-        // A blocked pass completes rather than fails: the gate firing is the
-        // system working. It still has to be legible in the run history, which
-        // is why the reason leads the output line.
-        const output = report.blockedBy
-          ? `Namespace tiering blocked: ${report.blockedBy}`
-          : `Namespace tiering ${config.dryRun ? "dry run" : "completed"}: ${report.eligible} eligible, ${report.onSsd} on SSD, ${report.planned.length} planned, ${moved} moved, ${report.quarantined.length} quarantined, ${report.failures.length} failed`;
         return {
-          output,
+          output: namespaceTieringSummary(report, {
+            dryRun: config.dryRun,
+            highWatermarkPercent,
+          }),
           metadata: {
             durationMs: Date.now() - startedAt,
             namespaceTiering: report,
