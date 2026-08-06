@@ -23,6 +23,7 @@ import {
   getExecutor,
   validatedTaskConfig,
 } from "./executors";
+import { formatBytes } from "./executors/utils";
 import type { NotificationDispatcher } from "./notifications";
 
 const ONE_OFF_POLL_MS = 30_000;
@@ -36,18 +37,6 @@ const BACKUP_TASK_TYPES = new Set<TaskType>([
   "backup_files",
   "backup_all",
 ]);
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(1)} ${units[unit]}`;
-}
 
 interface PreparedRun {
   task: ScheduledTask;
