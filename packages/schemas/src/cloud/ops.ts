@@ -252,20 +252,35 @@ export const tieringDefaultsSchema = z.object({
 });
 export type TieringDefaults = z.infer<typeof tieringDefaultsSchema>;
 
-export const tieringSettingsSchema = z.object({
-  defaults: tieringDefaultsSchema,
-  /**
-   * Which of the two tiering implementations this deployment runs. Legacy moves
-   * blobs between an SSD tree and a flat UUID store; broker asks the privileged
-   * host service to republish a path on the other branch. The storage paths in
-   * `defaults` are meaningless to the broker task, which is why the panel needs
-   * to know rather than infer.
-   */
-  mode: z.enum(["legacy-dual-path", "broker-mounted"]),
-  taskType: z.enum(["tiering_pass", "namespace_tiering"]),
-  task: safeScheduledTaskSchema.nullable(),
-  lastRun: safeTaskRunSchema.nullable(),
-});
+export const tieringSettingsSchema = z
+  .object({
+    defaults: tieringDefaultsSchema,
+    /**
+     * Which of the two tiering implementations this deployment runs. Legacy moves
+     * blobs between an SSD tree and a flat UUID store; broker asks the privileged
+     * host service to republish a path on the other branch. The storage paths in
+     * `defaults` are meaningless to the broker task, which is why the panel needs
+     * to know rather than infer.
+     */
+    mode: z.enum(["legacy-dual-path", "broker-mounted"]),
+    taskType: z.enum(["tiering_pass", "namespace_tiering"]),
+    task: safeScheduledTaskSchema.nullable(),
+    lastRun: safeTaskRunSchema.nullable(),
+  })
+  .refine(
+    (settings) =>
+      settings.taskType ===
+      (settings.mode === "broker-mounted"
+        ? "namespace_tiering"
+        : "tiering_pass"),
+    {
+      path: ["taskType"],
+      // The pair is derived from one value server-side, so a mismatch means a
+      // stale or hand-edited payload. Rejecting it beats rendering a panel whose
+      // placeholders describe the other implementation's config.
+      message: "taskType must match the namespace mode",
+    },
+  );
 export type TieringSettings = z.infer<typeof tieringSettingsSchema>;
 
 /**

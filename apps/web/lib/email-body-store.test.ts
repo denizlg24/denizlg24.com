@@ -35,8 +35,13 @@ const fetchEmailBodiesMock = mock(
   }),
 );
 
+// The real BODY_MAX_CHARS, not a copy: re-declaring it in the mock would let
+// the constant and the test drift apart silently.
+const { BODY_MAX_CHARS: REAL_MAX } = await import("@/models/EmailBody");
+let storedBody: Record<string, unknown> | null = null;
+
 mock.module("@/models/EmailBody", () => ({
-  BODY_MAX_CHARS: 2_000_000,
+  BODY_MAX_CHARS: REAL_MAX,
   EmailBodyModel: {
     bulkWrite: bulkWriteMock,
     find: () => ({
@@ -44,13 +49,13 @@ mock.module("@/models/EmailBody", () => ({
         lean: async () => storedEmailIds.map((id) => ({ emailId: id })),
       }),
     }),
-    findOne: () => ({ select: () => ({ lean: async () => null }) }),
+    findOne: () => ({ select: () => ({ lean: async () => storedBody }) }),
   },
 }));
 
 mock.module("@/lib/email", () => ({ fetchEmailBodies: fetchEmailBodiesMock }));
 
-const { saveEmailBodies, warmEmailBodies } = await import(
+const { readEmailBody, saveEmailBodies, warmEmailBodies } = await import(
   "@/lib/email-body-store"
 );
 
@@ -78,6 +83,7 @@ beforeEach(() => {
   bulkWriteMock.mockClear();
   fetchEmailBodiesMock.mockClear();
   storedEmailIds.length = 0;
+  storedBody = null;
 });
 
 describe("saveEmailBodies", () => {
@@ -104,6 +110,60 @@ describe("saveEmailBodies", () => {
     const update = operations?.[0]?.updateOne.update.$set;
     expect(String(update?.text)).toHaveLength(BODY_MAX_CHARS);
     expect(update?.truncated).toBe(true);
+  });
+});
+
+describe("readEmailBody", () => {
+  test("serves a stored body without touching IMAP", async () => {
+    storedBody = {
+      attachmentCount: 1,
+      html: "<p>stored</p>",
+      text: "stored",
+      truncated: false,
+    };
+    const result = await readEmailBody(ref(3));
+    expect(result?.text).toBe("stored");
+    expect(fetchEmailBodiesMock).not.toHaveBeenCalled();
+  });
+
+  test("fetches once, stores, and returns what it fetched", async () => {
+    const result = await readEmailBody(ref(4));
+    expect(result?.text).toBe("uid 4");
+    expect(fetchEmailBodiesMock).toHaveBeenCalledTimes(1);
+    expect(bulkWriteMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("reports the same truncation state the stored copy will have", async () => {
+    // Hardcoding `false` here made the first read of an oversized body
+    // disagree with every read after it.
+    fetchEmailBodiesMock.mockImplementationOnce(async (_id, uids) => ({
+      bodies: new Map(
+        uids.map((uid) => [
+          uid,
+          {
+            attachmentCount: 0,
+            attachmentText: [],
+            date: new Date(),
+            from: [],
+            html: "",
+            subject: "",
+            text: "x".repeat(REAL_MAX + 10),
+          },
+        ]),
+      ),
+      missingUids: new Set<number>(),
+    }));
+    const result = await readEmailBody(ref(5));
+    expect(result?.truncated).toBe(true);
+    expect(result?.text).toHaveLength(REAL_MAX);
+  });
+
+  test("returns null when the message is gone from the server", async () => {
+    fetchEmailBodiesMock.mockImplementationOnce(async () => ({
+      bodies: new Map(),
+      missingUids: new Set([6]),
+    }));
+    expect(await readEmailBody(ref(6))).toBeNull();
   });
 });
 

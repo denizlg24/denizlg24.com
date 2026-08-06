@@ -22,7 +22,27 @@ export function NamespaceTieringReportView({
 }: {
   report: NamespaceTieringReport;
 }) {
-  const rows = report.applied.length > 0 ? report.applied : report.planned;
+  // A plan carries no outcome by construction, so the two lists render as one
+  // table with the outcome column filled only for what was actually attempted.
+  const rows: {
+    fileId: string;
+    relativePath: string;
+    from: string;
+    to: string;
+    sizeBytes: number;
+    outcome: string;
+    reason: string | null;
+  }[] =
+    report.applied.length > 0
+      ? report.applied.map((move) => ({
+          ...move,
+          from: move.observedFrom ?? move.from,
+        }))
+      : report.planned.map((plan) => ({
+          ...plan,
+          outcome: "planned",
+          reason: null,
+        }));
   return (
     <div className="flex flex-col gap-3">
       {report.blockedBy && (
@@ -84,7 +104,12 @@ export function NamespaceTieringReportView({
                     {move.from} → {move.to}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {report.applied.length > 0 ? move.outcome : "planned"}
+                    {move.outcome}
+                    {move.reason && (
+                      <span className="ml-1 text-muted-foreground/70">
+                        · {move.reason}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
                     {formatBytes(move.sizeBytes)}

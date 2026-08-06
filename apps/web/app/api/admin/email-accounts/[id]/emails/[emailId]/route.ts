@@ -1,5 +1,5 @@
 import { simpleParser } from "mailparser";
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { createImapClient, markEmailsSeen } from "@/lib/email";
 import { loadEmailBody, saveEmailBodies } from "@/lib/email-body-store";
 import { connectDB } from "@/lib/mongodb";
@@ -28,12 +28,18 @@ export async function GET(
 
     // Sync stores the body when the message arrives, so the common path never
     // opens an IMAP connection at all. Marking seen still has to reach the
-    // server, but it does not have to hold up the response.
+    // server, but it does not have to hold up the response — `after()` rather
+    // than a bare floating promise, because Next.js may end the invocation the
+    // moment the response resolves and cut the IMAP round trip off midway.
     const stored = await loadEmailBody(email._id);
     if (stored) {
       if (!email.seen) {
-        void markEmailsSeen([email._id]).catch((error) => {
-          console.error("mark seen failed:", error);
+        after(async () => {
+          try {
+            await markEmailsSeen([email._id]);
+          } catch (error) {
+            console.error("mark seen failed:", error);
+          }
         });
       }
       return NextResponse.json(
@@ -41,7 +47,9 @@ export async function GET(
           email: {
             ...email,
             htmlBody: stored.html,
-            seen: true,
+            // The stored value, not `true`. `markEmailsSeen` gives up if IMAP
+            // flagging fails, leaving Mongo unchanged; claiming it succeeded
+            // shows the mail as read until the next list load flips it back.
             textBody: stored.text,
           },
         },

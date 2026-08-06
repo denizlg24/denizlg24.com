@@ -65,6 +65,10 @@ export interface StorageConfig {
      * describe a window in which the namespace is being rewritten by something
      * other than normal traffic, so any placement decision is made against a
      * picture that is about to change.
+     *
+     * Read once at boot, like every other value here. Setting either during a
+     * restore therefore does nothing until the API container restarts — bounce
+     * it, or disable the task, before starting the work they describe.
      */
     migrationMode: boolean;
     restoreActive: boolean;

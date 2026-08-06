@@ -157,6 +157,10 @@ Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
   by `placementLookahead`, asks `tier-locate` where each path actually is, and
   repairs stale rows before selecting — otherwise one drifted row leads every
   batch forever.
+- **`STORAGE_MIGRATION_MODE` and `STORAGE_RESTORE_ACTIVE` need a container
+  restart.** They are read once when `storageConfigFromEnv` runs. Setting one
+  mid-restore does nothing until the API bounces, so bounce it — or disable the
+  task — before starting the work they are meant to guard.
 - **Branch tiering ops answer UNAVAILABLE until the host declares its roles.**
   `STORAGE_SSD_BRANCH_PATH` / `STORAGE_HDD_BRANCH_PATH` on
   `apps/storage-metadata`, both or neither. Unset means the pass reports

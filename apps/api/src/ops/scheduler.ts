@@ -129,17 +129,19 @@ export async function seedDefaultOpsTasks(
   const nightlyTieringType: TaskType =
     namespaceMode === "broker-mounted" ? "namespace_tiering" : "tiering_pass";
   if (!existingTypes.has(nightlyTieringType)) {
-    // Seeded disabled, as it always has been: arming a job that relocates data
-    // between physical disks stays a deliberate act, and the dry run on /disks
-    // is what it is meant to be armed from.
-    const task = await createTask(db, {
+    // Disabled in the insert, not disabled afterwards. Two statements leave a
+    // window where a crash between them persists an enabled `0 3 * * *` row
+    // that no later boot corrects, because the type is then already present —
+    // and arming a job that relocates data between physical disks stays a
+    // deliberate act, taken from the dry run on /disks.
+    await createTask(db, {
       name: "Nightly storage tiering",
       type: nightlyTieringType,
       cronExpression: "0 3 * * *",
       config: validatedTaskConfig(nightlyTieringType, { dryRun: false }),
+      enabled: false,
       createdBy: creator.id,
     });
-    await updateTask(db, task.id, { enabled: false });
   }
   // A deployment that crossed over to the broker keeps its old task row, and an
   // enabled one fails nightly against `assertLegacyTieringAllowed`. Disabling
@@ -466,7 +468,7 @@ export class OpsScheduler {
       if (namespaceTiering.quarantined.length > 0) {
         const paths = namespaceTiering.quarantined.slice(0, 5);
         await this.options.notifications.dispatch({
-          type: "tiering_orphaned",
+          type: "tiering_quarantined",
           severity: "warn",
           subjectKey: task.id,
           title: `Tiering quarantined ${namespaceTiering.quarantined.length} path${namespaceTiering.quarantined.length === 1 ? "" : "s"}`,

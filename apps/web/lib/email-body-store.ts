@@ -107,11 +107,16 @@ export async function readEmailBody(
   await saveEmailBodies([{ body: fetched, ref }]).catch((error) => {
     console.error("Failed to store email body", error);
   });
+  // Clamped exactly as the stored copy is, and reporting the same truncation
+  // flag. Hardcoding `false` here made the first read of an oversized body
+  // disagree with every read after it.
+  const html = clamp(fetched.html);
+  const text = clamp(fetched.text);
   return {
     attachmentCount: fetched.attachmentCount,
-    html: clamp(fetched.html).value,
-    text: clamp(fetched.text).value,
-    truncated: false,
+    html: html.value,
+    text: text.value,
+    truncated: html.truncated || text.truncated,
   };
 }
 

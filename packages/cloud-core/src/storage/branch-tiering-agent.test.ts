@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -107,9 +109,10 @@ describe("BranchTieringAgent", () => {
     // has exactly one copy again.
     const { pathExists } = await import("./fs");
     expect(await pathExists(source)).toBe(false);
-    expect(
-      (await import("node:fs/promises")).readdir(join(hdd, "acct")),
-    ).resolves.toEqual(["note.bin"]);
+    // Awaited, not a floating `.resolves`: without the await the assertion is
+    // scheduled and the test ends before it can fail.
+    const { readdir } = await import("node:fs/promises");
+    expect(await readdir(join(hdd, "acct"))).toEqual(["note.bin"]);
   });
 
   it("refuses when the entry at the path is no longer the planned one", async () => {
@@ -194,5 +197,112 @@ describe("BranchTieringAgent", () => {
         toTier: "hdd",
       }),
     ).rejects.toThrow();
+  });
+
+  it("refuses to traverse a symlinked directory component", async () => {
+    const { agent, ssd } = await branches();
+    // `namespaceSegments` rejects `..` but not this: the link resolves outside
+    // the branch with no `..` anywhere in the path.
+    await mkdir(join(ssd, "real"), { recursive: true });
+    await symlink(join(ssd, "real"), join(ssd, "acct", "link"));
+    await writeFile(join(ssd, "real", "note.bin"), "bytes");
+
+    await expect(
+      agent.move({
+        expectedChecksum: checksum,
+        expectedId: fileId,
+        relativePath: "acct/link/note.bin",
+        toTier: "hdd",
+      }),
+    ).rejects.toThrow(/Symlink/);
+  });
+
+  it("quarantines rather than replacing a destination created during the copy", async () => {
+    // The absence check happens before the copy; for a large file that gap is
+    // minutes. `rename` would silently publish over whatever landed there, so
+    // the publish uses `link` and takes the EEXIST as the atomic check.
+    const { agent, hdd, ssd, xattr } = await branches();
+    const source = join(ssd, "acct", "note.bin");
+    await writeFile(source, "bytes");
+    await xattr.set(source, PROTECTED_XATTR_KEYS.id, fileId);
+    const expectedChecksum = await realChecksum(source);
+
+    const racer = {
+      async get(path: string, key: string) {
+        const value = await xattr.get(path, key);
+        // Fires on the pre-publish identity re-check, which is the last thing
+        // the move does before linking.
+        if (path === source && key === PROTECTED_XATTR_KEYS.id) {
+          await writeFile(join(hdd, "acct", "note.bin"), "someone else").catch(
+            () => {},
+          );
+        }
+        return value;
+      },
+      list: xattr.list.bind(xattr),
+      remove: xattr.remove.bind(xattr),
+      set: xattr.set.bind(xattr),
+    };
+    const racing = new BranchTieringAgent(
+      { hdd, ssd },
+      racer as unknown as InMemoryXattrBackend,
+    );
+
+    const result = await racing.move({
+      expectedChecksum,
+      expectedId: fileId,
+      relativePath: "acct/note.bin",
+      toTier: "hdd",
+    });
+    expect(result.outcome).toBe("quarantined");
+    // The interloper's bytes are intact and the source is untouched.
+    expect(await readFile(join(hdd, "acct", "note.bin"), "utf8")).toBe(
+      "someone else",
+    );
+    expect(await readFile(source, "utf8")).toBe("bytes");
+    expect(await readdir(join(hdd, "acct"))).toEqual(["note.bin"]);
+  });
+
+  it("defers a second move for a path already being moved", async () => {
+    const { agent, ssd, xattr } = await branches();
+    const source = join(ssd, "acct", "note.bin");
+    await writeFile(source, "bytes");
+    await xattr.set(source, PROTECTED_XATTR_KEYS.id, fileId);
+    const input = {
+      expectedChecksum: await realChecksum(source),
+      expectedId: fileId,
+      relativePath: "acct/note.bin",
+      toTier: "hdd" as const,
+    };
+
+    const [first, second] = await Promise.all([
+      agent.move(input),
+      agent.move(input),
+    ]);
+    const outcomes = [first?.outcome, second?.outcome].sort();
+    expect(outcomes).toEqual(["deferred", "moved"]);
+  });
+
+  it("defers rather than moving a directory or a symlink at the path", async () => {
+    const { agent, ssd } = await branches();
+    await mkdir(join(ssd, "acct", "folder"), { recursive: true });
+    const result = await agent.move({
+      expectedChecksum: checksum,
+      expectedId: fileId,
+      relativePath: "acct/folder",
+      toTier: "hdd",
+    });
+    expect(result.outcome).toBe("deferred");
+    expect(result.reason).toBe("not-a-regular-file");
+  });
+
+  it("reports usage per branch role", async () => {
+    const { agent } = await branches();
+    const usage = await agent.usage();
+    expect(usage.map((entry) => entry.tier).sort()).toEqual(["hdd", "ssd"]);
+    for (const entry of usage) {
+      expect(entry.totalBytes).toBeGreaterThan(0);
+      expect(entry.usagePercent).toBeGreaterThanOrEqual(0);
+    }
   });
 });

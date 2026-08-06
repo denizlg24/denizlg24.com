@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { warmEmailBodies } from "@/lib/email-body-store";
 import { connectDB } from "@/lib/mongodb";
@@ -29,8 +30,14 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+  // Filtered on castability, not just on being a string: Mongoose throws a
+  // CastError from inside `find` for a malformed id, and an unhandled one here
+  // would answer 500 to what is plainly a bad request.
   const triageIds = ids
-    .filter((id): id is string => typeof id === "string")
+    .filter(
+      (id): id is string =>
+        typeof id === "string" && mongoose.Types.ObjectId.isValid(id),
+    )
     .slice(0, MAX_WARM);
   if (triageIds.length === 0) {
     return NextResponse.json(

@@ -3,7 +3,7 @@ import type {
   NamespaceTieringReport,
   NamespaceTierMove,
 } from "@repo/schemas/cloud";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 
 import type { Database } from "../db";
 import {
@@ -32,6 +32,8 @@ export interface NamespaceTieringRepository {
   listSsdCandidates(limit: number): Promise<NamespaceTieringCandidate[]>;
   /** Records where a move actually landed. Fails silently if the row moved on. */
   recordTier(id: string, tier: StorageTier): Promise<void>;
+  /** Repairs many stale hints to one tier in a single statement. */
+  recordTiers(ids: readonly string[], tier: StorageTier): Promise<void>;
   projectionDirty(): Promise<boolean>;
 }
 
@@ -72,6 +74,23 @@ function usageFor(
   tier: StorageTier,
 ): BranchUsagePayload | null {
   return usage.find((entry) => entry.tier === tier) ?? null;
+}
+
+/**
+ * Turns a client failure into the reason the run history shows.
+ *
+ * `BAD_REQUEST` is its own reason and not a mount problem: it is what a
+ * metadata service that predates these ops answers, which is the exact symptom
+ * of the API rolling out ahead of the hand-installed host binary. Reporting
+ * that as `namespace-not-mounted` sends the operator to inspect a healthy
+ * mount.
+ */
+function blockReasonFor(
+  code: MetadataClientError["code"],
+): NamespaceTieringBlock {
+  if (code === "UNAVAILABLE") return "branch-usage-unavailable";
+  if (code === "BAD_REQUEST") return "metadata-protocol-rejected";
+  return "namespace-not-mounted";
 }
 
 /**
@@ -129,6 +148,14 @@ export function createNamespaceTieringRepository(
         .where(eq(files.id, id));
     },
 
+    async recordTiers(ids, tier) {
+      if (ids.length === 0) return;
+      await db
+        .update(files)
+        .set({ tier, updatedAt: new Date() })
+        .where(inArray(files.id, [...ids]));
+    },
+
     async projectionDirty() {
       const [state] = await db
         .select({ dirty: namespaceProjectionState.dirty })
@@ -172,12 +199,7 @@ export async function runNamespaceTieringPass(
     // An unreachable or unconfigured service is the namespace being unavailable
     // to this pass, not an empty namespace. Reported, never treated as "clean".
     if (error instanceof MetadataClientError) {
-      return emptyReport(
-        error.code === "UNAVAILABLE"
-          ? "branch-usage-unavailable"
-          : "namespace-not-mounted",
-        dryRun,
-      );
+      return emptyReport(blockReasonFor(error.code), dryRun);
     }
     throw error;
   }
@@ -247,6 +269,7 @@ export async function runNamespaceTieringPass(
   // is not a demotion candidate, and leaving the stale hint in place would make
   // the same row lead every subsequent pass's lookahead forever.
   const onSsd: TierCandidate[] = [];
+  const staleOnHdd: string[] = [];
   for (const candidate of candidates) {
     const placement = placements.get(candidate.relativePath);
     if (!placement || placement.tier === null) continue;
@@ -258,10 +281,16 @@ export async function runNamespaceTieringPass(
       continue;
     }
     if (placement.tier === "hdd") {
-      if (!dryRun) await repository.recordTier(candidate.id, "hdd");
+      staleOnHdd.push(candidate.id);
       continue;
     }
     onSsd.push(candidate);
+  }
+  // One statement, not one per row. Straight after a migration most of the
+  // lookahead can be stale, and a sequential UPDATE each would spend hundreds
+  // of round trips before the pass plans a single move.
+  if (!dryRun && staleOnHdd.length > 0) {
+    await repository.recordTiers(staleOnHdd, "hdd");
   }
   report.onSsd = onSsd.length;
 
@@ -276,7 +305,6 @@ export async function runNamespaceTieringPass(
   report.planned = moves.map((move) => ({
     fileId: move.id,
     from: move.from,
-    outcome: "moved" as const,
     relativePath: move.relativePath,
     sizeBytes: move.sizeBytes,
     to: move.to,
@@ -304,7 +332,12 @@ export async function runNamespaceTieringPass(
     const applied: NamespaceTierMove = {
       fileId: move.id,
       from: move.from,
+      // What the host saw, which is not always what the plan assumed: an
+      // `already-placed` result means the source was on the destination all
+      // along, and reporting the planned `ssd → hdd` for it would be a lie.
+      observedFrom: result.from,
       outcome: result.outcome,
+      reason: result.reason,
       relativePath: move.relativePath,
       sizeBytes: move.sizeBytes,
       to: move.to,

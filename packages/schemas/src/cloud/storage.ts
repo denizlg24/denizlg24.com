@@ -338,6 +338,13 @@ export const namespaceTieringBlockSchema = z.enum([
   "backup-restore-active",
   "migration-mode",
   "branch-usage-unavailable",
+  /**
+   * The privileged service rejected the request rather than failing it — it
+   * predates these ops. Distinct from a mount problem on purpose: the symptom
+   * of deploying the API ahead of the hand-installed host binary is otherwise
+   * an operator investigating a healthy mount.
+   */
+  "metadata-protocol-rejected",
 ]);
 export type NamespaceTieringBlock = z.infer<typeof namespaceTieringBlockSchema>;
 
@@ -360,13 +367,31 @@ export type NamespaceTierMoveOutcome = z.infer<
   typeof namespaceTierMoveOutcomeSchema
 >;
 
-export const namespaceTierMoveSchema = z.object({
+/**
+ * A move the pass intends to attempt. Deliberately has no `outcome`: a plan
+ * that can report one invites a consumer to count unattempted moves as
+ * relocated bytes.
+ */
+export const namespaceTierPlanSchema = z.object({
   fileId: z.uuid(),
   relativePath: z.string(),
   from: storageTierSchema,
   to: storageTierSchema,
   sizeBytes: z.number().nonnegative(),
+});
+export type NamespaceTierPlan = z.infer<typeof namespaceTierPlanSchema>;
+
+export const namespaceTierMoveSchema = namespaceTierPlanSchema.extend({
   outcome: namespaceTierMoveOutcomeSchema,
+  /**
+   * Where the bytes actually were. Null when the privileged service could not
+   * say — an unmounted branch, or an entry that had already vanished. It is
+   * not always the `from` the plan assumed: `already-placed` means the source
+   * was on the destination all along.
+   */
+  observedFrom: storageTierSchema.nullable(),
+  /** Why a non-`moved` outcome happened. Null for a clean move. */
+  reason: z.string().nullable(),
 });
 export type NamespaceTierMove = z.infer<typeof namespaceTierMoveSchema>;
 
@@ -390,7 +415,7 @@ export const namespaceTieringReportSchema = z.object({
   /** Of those, the ones the privileged service confirmed were on the SSD. */
   onSsd: z.number().int().nonnegative(),
   bytesToFree: z.number().nonnegative(),
-  planned: z.array(namespaceTierMoveSchema),
+  planned: z.array(namespaceTierPlanSchema),
   applied: z.array(namespaceTierMoveSchema),
   quarantined: z.array(
     z.object({ relativePath: z.string(), reason: z.string() }),

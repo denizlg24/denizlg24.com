@@ -63,6 +63,8 @@ interface Harness {
   };
   recorded: { id: string; tier: StorageTier }[];
   moved: string[];
+  /** Calls to the batched writer, so a per-row regression is visible. */
+  batchedTierWrites: () => number;
 }
 
 function harness(input: {
@@ -76,7 +78,9 @@ function harness(input: {
 }): Harness {
   const recorded: { id: string; tier: StorageTier }[] = [];
   const moved: string[] = [];
+  let batchedTierWrites = 0;
   return {
+    batchedTierWrites: () => batchedTierWrites,
     client: {
       async branchMarkers() {
         return (
@@ -119,6 +123,10 @@ function harness(input: {
       },
       async recordTier(id, tier) {
         recorded.push({ id, tier });
+      },
+      async recordTiers(ids, tier) {
+        batchedTierWrites += 1;
+        for (const id of ids) recorded.push({ id, tier });
       },
     },
   };
@@ -243,6 +251,133 @@ describe("runNamespaceTieringPass", () => {
     expect(report.onSsd).toBe(0);
     expect(test.moved).toEqual([]);
     expect(test.recorded).toEqual([{ id: "aaaaaaaa", tier: "hdd" }]);
+  });
+
+  it("repairs every stale hint in one statement", async () => {
+    // Straight after a migration the whole lookahead can be stale. One UPDATE
+    // per row would be hundreds of round trips before a single move is planned.
+    const test = harness({
+      candidates: Array.from({ length: 30 }, (_, index) =>
+        candidate({ id: `f${String(index).padStart(7, "0")}` }),
+      ),
+      placement: (relativePath) => ({
+        duplicate: false,
+        relativePath,
+        tier: "hdd",
+      }),
+    });
+    await runNamespaceTieringPass(test.repository, test.client, options());
+    expect(test.recorded).toHaveLength(30);
+    expect(test.batchedTierWrites()).toBe(1);
+  });
+
+  it("leaves stale hints alone on a dry run", async () => {
+    const test = harness({
+      candidates: [candidate({ id: "aaaaaaaa" })],
+      placement: (relativePath) => ({
+        duplicate: false,
+        relativePath,
+        tier: "hdd",
+      }),
+    });
+    await runNamespaceTieringPass(
+      test.repository,
+      test.client,
+      options({ dryRun: true }),
+    );
+    expect(test.recorded).toEqual([]);
+  });
+
+  it("reports a rejected op as protocol skew, not as a broken mount", async () => {
+    // What a metadata service that predates these ops answers. Calling it
+    // "namespace-not-mounted" sends the operator to inspect a healthy mount.
+    const test = harness({
+      usageError: new MetadataClientError("unknown op", "BAD_REQUEST"),
+    });
+    const report = await runNamespaceTieringPass(
+      test.repository,
+      test.client,
+      options(),
+    );
+    expect(report.blockedBy).toBe("metadata-protocol-rejected");
+  });
+
+  it("blocks while a restore or a migration is in progress", async () => {
+    for (const override of [
+      { backupRestoreActive: true },
+      { migrationModeEnabled: true },
+    ]) {
+      const test = harness({ candidates: [candidate({ id: "aaaaaaaa" })] });
+      const report = await runNamespaceTieringPass(
+        test.repository,
+        test.client,
+        options(override),
+      );
+      expect(report.blockedBy).toBe(
+        "backupRestoreActive" in override
+          ? "backup-restore-active"
+          : "migration-mode",
+      );
+      expect(test.moved).toEqual([]);
+    }
+  });
+
+  it("records a failed move as a failure without touching the hint", async () => {
+    const test = harness({ candidates: [candidate({ id: "aaaaaaaa" })] });
+    test.client.moveTier = async () => {
+      throw new Error("socket closed");
+    };
+    const report = await runNamespaceTieringPass(
+      test.repository,
+      test.client,
+      options(),
+    );
+    expect(report.failures).toEqual([
+      { message: "socket closed", relativePath: "acct/aaaaaaaa.bin" },
+    ]);
+    expect(report.applied).toEqual([]);
+    expect(test.recorded).toEqual([]);
+  });
+
+  it("reports where the bytes actually were, not where the plan assumed", async () => {
+    const test = harness({
+      candidates: [candidate({ id: "aaaaaaaa" })],
+      outcome: "already-placed",
+    });
+    test.client.moveTier = async ({ relativePath, toTier }) => ({
+      // The source was on the HDD all along; the plan said ssd → hdd.
+      from: "hdd",
+      outcome: "already-placed",
+      reason: null,
+      relativePath,
+      to: toTier,
+    });
+    const report = await runNamespaceTieringPass(
+      test.repository,
+      test.client,
+      options(),
+    );
+    expect(report.applied[0]?.observedFrom).toBe("hdd");
+    expect(report.applied[0]?.from).toBe("ssd");
+    expect(test.recorded).toEqual([{ id: "aaaaaaaa", tier: "hdd" }]);
+  });
+
+  it("keeps the refusal reason for a deferred move", async () => {
+    const test = harness({ candidates: [candidate({ id: "aaaaaaaa" })] });
+    test.client.moveTier = async ({ relativePath, toTier }) => ({
+      from: "ssd",
+      outcome: "deferred",
+      reason: "source-changed-during-copy",
+      relativePath,
+      to: toTier,
+    });
+    const report = await runNamespaceTieringPass(
+      test.repository,
+      test.client,
+      options(),
+    );
+    expect(report.applied[0]?.reason).toBe("source-changed-during-copy");
+    expect(test.recorded).toEqual([]);
   });
 
   it("quarantines a path present on both branches rather than choosing", async () => {

@@ -18,7 +18,19 @@ export interface MetadataClientOptions {
   token: string;
   /** Bounded so a wedged privileged service degrades the API rather than hanging it. */
   timeoutMs?: number;
+  /** Separate budget for `tier-move`. See MOVE_TIMEOUT_MS. */
+  moveTimeoutMs?: number;
 }
+
+/**
+ * Every other operation is a `stat` or a directory read and answers in
+ * milliseconds. A `tier-move` copies the file, hashes it twice and fsyncs, so
+ * on a Pi moving a multi-gigabyte file it runs for minutes. Sharing the 5s
+ * budget would abort the client while the host is still copying — reporting a
+ * failed move that then completes, leaving a duplicate the next pass has to
+ * quarantine.
+ */
+const MOVE_TIMEOUT_MS = 60 * 60 * 1_000;
 
 /**
  * The API's handle on the privileged metadata service.
@@ -30,13 +42,17 @@ export interface MetadataClientOptions {
  */
 export class NamespaceMetadataClient {
   private readonly timeoutMs: number;
+  private readonly moveTimeoutMs: number;
 
   constructor(private readonly options: MetadataClientOptions) {
     this.timeoutMs = options.timeoutMs ?? 5_000;
+    this.moveTimeoutMs = options.moveTimeoutMs ?? MOVE_TIMEOUT_MS;
   }
 
   private async raw(request: MetadataRequest): Promise<MetadataResponse> {
     let response: Response;
+    const timeoutMs =
+      request.op === "tier-move" ? this.moveTimeoutMs : this.timeoutMs;
     try {
       response = await fetch("http://metadata/v1", {
         body: JSON.stringify(request),
@@ -46,7 +62,7 @@ export class NamespaceMetadataClient {
           "x-metadata-version": String(METADATA_PROTOCOL_VERSION),
         },
         method: "POST",
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
         unix: this.options.socketPath,
       } as RequestInit & { unix: string });
     } catch (error) {

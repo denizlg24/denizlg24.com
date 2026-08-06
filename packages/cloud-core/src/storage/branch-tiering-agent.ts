@@ -1,9 +1,9 @@
 import {
   chmod,
   chown,
+  link,
   lstat,
   open,
-  rename,
   unlink,
   utimes,
 } from "node:fs/promises";
@@ -61,25 +61,73 @@ function otherTier(tier: StorageTier): StorageTier {
  * decided here against what the disks actually hold.
  */
 export class BranchTieringAgent {
+  /**
+   * Paths with a move in progress.
+   *
+   * The publish is already safe against a concurrent mover — `link` fails with
+   * EEXIST rather than replacing — but letting two requests copy the same
+   * multi-gigabyte file only for one to be quarantined turns a scheduling
+   * overlap into a false duplicate alert. One socket serves every caller, so
+   * the second request is refused here instead.
+   */
+  readonly #inFlight = new Set<string>();
+
   constructor(
     private readonly roots: BranchRoots,
     private readonly xattr: XattrBackend,
   ) {}
 
-  private branchPath(tier: StorageTier, relativePath: string): string {
+  /**
+   * Builds a branch path, refusing to traverse a symlink at any depth.
+   *
+   * `namespaceSegments` rejects `..`, which is not the same guarantee: a
+   * symlinked directory component resolves outside the branch without any
+   * `..` appearing in the path. Every existing component is `lstat`ed as it is
+   * appended, exactly as `resolveNamespacePath` does for the merged namespace.
+   * That function cannot be reused here because a destination path legitimately
+   * does not exist yet — a missing component ends the walk rather than failing
+   * it, and `ensureDir` creates the rest beneath a prefix already proven clean.
+   */
+  private async branchPath(
+    tier: StorageTier,
+    relativePath: string,
+  ): Promise<string> {
     const root = this.roots[tier];
     const segments = namespaceSegments(relativePath);
     if (segments.length === 0) {
       throw new NamespaceResolveError("Path names the root", "INVALID_PATH");
     }
-    const resolved = join(root, ...segments);
-    if (!resolved.startsWith(`${root}${sep}`)) {
-      throw new NamespaceResolveError(
-        `Path escapes the branch root: ${relativePath}`,
-        "ESCAPE",
-      );
+    let current = root;
+    for (const segment of segments) {
+      current = join(current, segment);
+      if (!current.startsWith(`${root}${sep}`)) {
+        throw new NamespaceResolveError(
+          `Path escapes the branch root: ${relativePath}`,
+          "ESCAPE",
+        );
+      }
+      let stats: Awaited<ReturnType<typeof lstat>>;
+      try {
+        stats = await lstat(current);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          (error.code === "ENOENT" || error.code === "ENOTDIR")
+        ) {
+          // Nothing further can be a symlink if this component is absent.
+          break;
+        }
+        throw error;
+      }
+      if (stats.isSymbolicLink()) {
+        throw new NamespaceResolveError(
+          `Symlink in path: ${relativePath}`,
+          "SYMLINK",
+        );
+      }
     }
-    return resolved;
+    return join(root, ...segments);
   }
 
   /**
@@ -126,8 +174,8 @@ export class BranchTieringAgent {
       let onSsd = false;
       let onHdd = false;
       try {
-        onSsd = await pathExists(this.branchPath("ssd", relativePath));
-        onHdd = await pathExists(this.branchPath("hdd", relativePath));
+        onSsd = await pathExists(await this.branchPath("ssd", relativePath));
+        onHdd = await pathExists(await this.branchPath("hdd", relativePath));
       } catch {
         // An unresolvable path is not on either branch as far as tiering is
         // concerned; the projector reports it separately as a problem.
@@ -159,14 +207,26 @@ export class BranchTieringAgent {
     await utimes(destination, stats.atime, stats.mtime);
   }
 
+  /**
+   * A publish is only durable once its parent directory entry is; without this
+   * a move survives a clean stop and loses the file on a power cut.
+   *
+   * Never fatal. Opening a directory and syncing it is not uniformly supported
+   * across runtimes, and by the time this is called the destination is already
+   * linked and its bytes are already fsynced. Turning "the durability hint was
+   * refused" into a failed move would re-copy a file that is correctly in
+   * place.
+   */
   private async fsyncDirectory(path: string): Promise<void> {
-    // A rename is only durable once its parent directory entry is. Publishing
-    // without this survives a clean stop and loses the file on a power cut.
-    const handle = await open(path, "r");
     try {
-      await handle.sync();
-    } finally {
-      await handle.close();
+      const handle = await open(path, "r");
+      try {
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      console.warn("Directory fsync unavailable", { error, path });
     }
   }
 
@@ -185,6 +245,30 @@ export class BranchTieringAgent {
     expectedId: string;
     expectedChecksum: string;
   }): Promise<TierMovePayload> {
+    const { relativePath } = input;
+    if (this.#inFlight.has(relativePath)) {
+      return {
+        from: null,
+        outcome: "deferred",
+        reason: "move-already-in-progress",
+        relativePath,
+        to: input.toTier,
+      };
+    }
+    this.#inFlight.add(relativePath);
+    try {
+      return await this.#move(input);
+    } finally {
+      this.#inFlight.delete(relativePath);
+    }
+  }
+
+  async #move(input: {
+    relativePath: string;
+    toTier: StorageTier;
+    expectedId: string;
+    expectedChecksum: string;
+  }): Promise<TierMovePayload> {
     const { expectedChecksum, expectedId, relativePath, toTier } = input;
     const fromTier = otherTier(toTier);
     const refuse = (
@@ -197,8 +281,8 @@ export class BranchTieringAgent {
       return refuse("deferred", "branch-not-mounted", null);
     }
 
-    const source = this.branchPath(fromTier, relativePath);
-    const destination = this.branchPath(toTier, relativePath);
+    const source = await this.branchPath(fromTier, relativePath);
+    const destination = await this.branchPath(toTier, relativePath);
 
     if (!(await pathExists(source))) {
       // Already where it was headed, so the projection was merely stale. Not a
@@ -239,7 +323,26 @@ export class BranchTieringAgent {
         await deletePath(temp);
         return refuse("deferred", "source-changed-during-copy");
       }
-      await rename(temp, destination);
+      // `link`, not `rename`. The destination-absent check above happened
+      // before the copy, and for a large file that gap is minutes; `rename(2)`
+      // replaces an existing destination atomically and silently, so anything
+      // that created this path meanwhile would be published over and lost.
+      // `link(2)` fails with EEXIST instead, which is the atomic version of
+      // the check and routes into the same quarantine.
+      try {
+        await link(temp, destination);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "EEXIST"
+        ) {
+          await deletePath(temp);
+          return refuse("quarantined", "duplicate-across-branches");
+        }
+        throw error;
+      }
+      await unlink(temp).catch(() => {});
       await this.fsyncDirectory(dirname(destination));
     } catch (error) {
       await deletePath(temp).catch(() => {});

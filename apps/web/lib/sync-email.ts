@@ -18,6 +18,16 @@ const FETCH_QUERY = {
   uid: true,
 } as const;
 
+/**
+ * How many parsed bodies are held before they are written.
+ *
+ * The incremental branch fetches `${lastUid + 1}:*`, which is unbounded — after
+ * an outage that range is thousands of messages. Holding every `text` and
+ * `html` until the loop ended grew memory with the mailbox and delayed the
+ * `lastUid` update behind one enormous write.
+ */
+const BODY_FLUSH_THRESHOLD = 25;
+
 async function parseBody(
   source: Buffer | undefined,
 ): Promise<FetchedEmailBody | null> {
@@ -64,6 +74,18 @@ export async function syncInbox(account: IEmailAccount) {
     ref: { emailId: string; accountId: string; uid: number };
     body: FetchedEmailBody;
   }[] = [];
+
+  // Best-effort by design: a body that fails to store costs a slow first open,
+  // and failing the sync over it would stall `lastUid` and make the same
+  // messages arrive again on the next run.
+  const flushBodies = async (force: boolean) => {
+    if (pendingBodies.length === 0) return;
+    if (!force && pendingBodies.length < BODY_FLUSH_THRESHOLD) return;
+    const batch = pendingBodies.splice(0, pendingBodies.length);
+    await saveEmailBodies(batch).catch((error) => {
+      console.error("Failed to store synced email bodies:", error);
+    });
+  };
 
   const lock = await client.getMailboxLock(account.inboxName || "INBOX");
   try {
@@ -132,6 +154,7 @@ export async function syncInbox(account: IEmailAccount) {
           if (msg.uid > highestUid) {
             highestUid = msg.uid;
           }
+          await flushBodies(false);
         } catch (error) {
           console.error(`Error saving email UID ${msg.uid}:`, error);
         }
@@ -186,6 +209,7 @@ export async function syncInbox(account: IEmailAccount) {
           if (msg.uid > highestUid) {
             highestUid = msg.uid;
           }
+          await flushBodies(false);
         } catch (error) {
           console.error(`Error saving email UID ${msg.uid}:`, error);
         }
@@ -194,15 +218,7 @@ export async function syncInbox(account: IEmailAccount) {
 
     console.log(`Synced ${messageCount} messages. Highest UID: ${highestUid}`);
 
-    // After the loop and before the account update, so one write covers the
-    // batch. Best-effort by design: a body that fails to store costs a slow
-    // first open, and failing the sync over it would stall `lastUid` and make
-    // the same messages arrive again on the next run.
-    if (pendingBodies.length > 0) {
-      await saveEmailBodies(pendingBodies).catch((error) => {
-        console.error("Failed to store synced email bodies:", error);
-      });
-    }
+    await flushBodies(true);
 
     if (emailIds.length > 0) {
       await EmailAccountModel.findByIdAndUpdate(account._id, {

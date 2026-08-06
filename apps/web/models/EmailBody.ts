@@ -39,8 +39,11 @@ const EmailBodySchema = new Schema<IEmailBody>(
     },
     accountId: { type: Schema.Types.ObjectId, required: true, index: true },
     uid: { type: Number, required: true },
-    text: { type: String, required: true, default: "" },
-    html: { type: String, required: true, default: "" },
+    // Not `required`: Mongoose treats "" as missing for a required String, and
+    // an HTML-only message legitimately has no text (and vice versa). The
+    // default carries the "present but empty" case instead.
+    text: { type: String, default: "" },
+    html: { type: String, default: "" },
     attachmentCount: { type: Number, required: true, default: 0 },
     truncated: { type: Boolean, required: true, default: false },
     fetchedAt: { type: Date, required: true, default: Date.now },

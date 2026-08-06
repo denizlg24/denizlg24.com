@@ -208,3 +208,50 @@ export const triageAcceptanceResponseSchema = z.discriminatedUnion("ok", [
 export type TriageAcceptanceResponse = z.infer<
   typeof triageAcceptanceResponseSchema
 >;
+
+export const triageUserStatusSchema = z.enum([
+  "pending",
+  "reviewed",
+  "archived",
+]);
+export type TriageUserStatus = z.infer<typeof triageUserStatusSchema>;
+
+/**
+ * `PATCH /triage/{id}`. Both fields are optional but at least one is required —
+ * the route answers 400 for a body that asks for nothing. Setting `category`
+ * is itself a human verdict: the server marks the row reviewed and snapshots
+ * the model's original label, so a caller never sends both to mean that.
+ */
+export const triageUpdateInputSchema = z
+  .object({
+    category: triageCategorySchema.optional(),
+    userStatus: triageUserStatusSchema.optional(),
+  })
+  .refine(
+    (input) => input.category !== undefined || input.userStatus !== undefined,
+    { message: "Provide a category or a userStatus" },
+  );
+export type TriageUpdateInput = z.infer<typeof triageUpdateInputSchema>;
+
+export const triageUpdateResponseSchema = z.object({
+  ok: z.boolean(),
+  error: z.string().optional(),
+});
+export type TriageUpdateResponse = z.infer<typeof triageUpdateResponseSchema>;
+
+/** `POST /triage/bodies`. Pre-stores bodies for rows about to be opened. */
+export const triageWarmBodiesInputSchema = z.object({
+  triageIds: z.array(z.string()).min(1).max(60),
+});
+export type TriageWarmBodiesInput = z.infer<typeof triageWarmBodiesInputSchema>;
+
+export const triageWarmBodiesResponseSchema = z.object({
+  ok: z.boolean(),
+  /** Fetched from IMAP and stored by this call. */
+  warmed: z.number().int().nonnegative(),
+  /** Already present, so they cost no IMAP traffic. */
+  alreadyStored: z.number().int().nonnegative(),
+});
+export type TriageWarmBodiesResponse = z.infer<
+  typeof triageWarmBodiesResponseSchema
+>;

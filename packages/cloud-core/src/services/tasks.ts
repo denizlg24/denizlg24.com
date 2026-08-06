@@ -21,6 +21,14 @@ export async function createTask(
     cronExpression?: string;
     scheduledAt?: Date;
     config?: TaskConfig;
+    /**
+     * Defaults to enabled, as the column does. Seeding a job that must not run
+     * unattended has to set this rather than disabling it afterwards: two
+     * statements leave a window where a crash arms the task permanently,
+     * because the next boot sees the type already present and never retries
+     * the disable.
+     */
+    enabled?: boolean;
     createdBy: string;
   },
 ): Promise<SafeScheduledTaskRecord> {
@@ -33,6 +41,7 @@ export async function createTask(
       scheduledAt: input.scheduledAt,
       nextRunAt: input.scheduledAt,
       config: input.config ?? {},
+      ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
       createdBy: input.createdBy,
     })
     .returning();
