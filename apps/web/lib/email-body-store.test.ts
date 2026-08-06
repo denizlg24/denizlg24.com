@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import mongoose from "mongoose";
+import * as emailModule from "@/lib/email";
 import { BODY_MAX_CHARS } from "@/models/EmailBody";
 
 interface BulkOperation {
@@ -53,7 +54,13 @@ mock.module("@/models/EmailBody", () => ({
   },
 }));
 
-mock.module("@/lib/email", () => ({ fetchEmailBodies: fetchEmailBodiesMock }));
+// Spread the real module: `mock.module` replaces it process-wide for every test
+// file that runs after this one, so a partial shape here deletes the exports the
+// other email suites import and they fail on whatever order the runner picks.
+mock.module("@/lib/email", () => ({
+  ...emailModule,
+  fetchEmailBodies: fetchEmailBodiesMock,
+}));
 
 const { readEmailBody, saveEmailBodies, warmEmailBodies } = await import(
   "@/lib/email-body-store"

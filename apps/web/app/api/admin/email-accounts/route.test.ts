@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { NextResponse } from "next/server";
+import * as emailModule from "@/lib/email";
 
 const requireAdminMock = mock(async () => null as NextResponse | null);
 const connectDBMock = mock(async () => {});
@@ -41,7 +42,12 @@ mock.module("@/lib/require-admin", () => ({
   requireAdmin: requireAdminMock,
 }));
 mock.module("@/lib/mongodb", () => ({ connectDB: connectDBMock }));
-mock.module("@/lib/email", () => ({ createImapClient: createImapClientMock }));
+// See the note in lib/email-body-store.test.ts: a partial shape here removes the
+// exports the other email suites need, process-wide.
+mock.module("@/lib/email", () => ({
+  ...emailModule,
+  createImapClient: createImapClientMock,
+}));
 mock.module("@/lib/safe-email-password", () => ({
   encryptPassword: encryptPasswordMock,
 }));
