@@ -779,10 +779,6 @@ export const marketsTools: ToolDefinition[] = [
             type: "string",
             description: "Date the portfolio starts, YYYY-MM-DD.",
           },
-          baseCurrency: {
-            type: "string",
-            description: "ISO currency code (default USD).",
-          },
           benchmark: {
             type: "string",
             description:
@@ -814,9 +810,9 @@ export const marketsTools: ToolDefinition[] = [
         name: String(input.name),
         initialCash: Number(input.initialCash),
         inceptionDate: String(input.inceptionDate),
-        baseCurrency: input.baseCurrency
-          ? String(input.baseCurrency).toUpperCase()
-          : "USD",
+        // Not an argument: the engine does no FX and every provider quotes USD,
+        // so a currency here only ever mislabelled the maths.
+        baseCurrency: "USD",
         benchmark: input.benchmark ? upper(input.benchmark) : null,
         reinvestDividends: input.reinvestDividends === true,
         allowShorts: input.allowShorts === true,
@@ -830,7 +826,7 @@ export const marketsTools: ToolDefinition[] = [
     schema: {
       name: "update_portfolio",
       description:
-        "Update a portfolio's name, benchmark, base currency, starting cash, inception date or dividend handling.",
+        "Update a portfolio's name, benchmark, starting cash, inception date or dividend handling.",
       input_schema: {
         type: "object",
         properties: {
@@ -840,7 +836,6 @@ export const marketsTools: ToolDefinition[] = [
             type: "string",
             description: "New benchmark ticker, or empty string to clear it.",
           },
-          baseCurrency: { type: "string", description: "ISO currency code." },
           initialCash: { type: "number", description: "Starting cash." },
           inceptionDate: { type: "string", description: "YYYY-MM-DD." },
           reinvestDividends: {
@@ -858,9 +853,6 @@ export const marketsTools: ToolDefinition[] = [
       if (input.name !== undefined) updates.name = String(input.name);
       if (input.benchmark !== undefined) {
         updates.benchmark = input.benchmark ? upper(input.benchmark) : null;
-      }
-      if (input.baseCurrency !== undefined) {
-        updates.baseCurrency = String(input.baseCurrency).toUpperCase();
       }
       if (input.initialCash !== undefined) {
         updates.initialCash = Number(input.initialCash);

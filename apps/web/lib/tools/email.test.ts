@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import * as emailModule from "@/lib/email";
 
 const connectDBMock = mock(async () => {});
 const sendMailFromAccountMock = mock(async () => ({}));
@@ -48,7 +49,10 @@ const draftFindOneAndUpdateMock = mock(() => ({
 const draftFindByIdAndUpdateMock = mock(async () => ({}));
 
 mock.module("@/lib/mongodb", () => ({ connectDB: connectDBMock }));
+// See the note in lib/email-body-store.test.ts: a partial shape here removes the
+// exports the other email suites need, process-wide.
 mock.module("@/lib/email", () => ({
+  ...emailModule,
   AGENT_EMAIL_BODY_MAX_CHARS: 16_000,
   fetchEmailBody: fetchEmailBodyMock,
   queryEmailMailbox: queryEmailMailboxMock,

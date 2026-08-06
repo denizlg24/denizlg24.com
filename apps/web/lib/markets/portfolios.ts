@@ -85,10 +85,20 @@ export function marginConfigOf(doc: IMarketPortfolio): MarginConfig {
 }
 
 function toPortfolio(doc: IMarketPortfolio): Portfolio {
+  // Reported rather than relabelled. Everything here is USD after the migration
+  // in `scripts/migrate-portfolios-to-usd.ts`, and a row that is not has entry
+  // prices in units the engine will subtract from USD market values — silently
+  // swapping the label would hide exactly the mismatch that made a portfolio's
+  // reported gain equal to the exchange rate.
+  if (doc.baseCurrency !== "USD") {
+    console.warn(
+      `[markets] Portfolio ${String(doc._id)} is ${doc.baseCurrency}; its P&L mixes currencies. Run markets:migrate-usd.`,
+    );
+  }
   return {
     id: String(doc._id),
     name: doc.name,
-    baseCurrency: doc.baseCurrency,
+    baseCurrency: "USD",
     initialCash: doc.initialCash,
     benchmark: doc.benchmark,
     reinvestDividends: doc.reinvestDividends,

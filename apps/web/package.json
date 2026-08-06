@@ -10,6 +10,7 @@
     "agent-memory:reclassify-contradictions": "bun --env-file=../../.env scripts/reclassify-agent-memory-contradictions.ts",
     "triage:backfill": "bun --env-file=../../.env scripts/backfill-triage.ts",
     "triage:dataset": "bun --env-file=../../.env scripts/build-triage-dataset.ts",
+    "markets:migrate-usd": "bun --env-file=../../.env scripts/migrate-portfolios-to-usd.ts",
     "dev": "bun --env-file=../../.env next dev",
     "build": "next build",
     "start": "next start",
