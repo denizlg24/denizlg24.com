@@ -110,12 +110,28 @@ export default function TriagePage() {
   const [running, setRunning] = useState(false);
   const [archivingAll, setArchivingAll] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
   const loadedBlocksRef = useRef<Set<string>>(new Set());
   const inFlightBlocksRef = useRef<Set<string>>(new Set());
   const cacheGenerationRef = useRef(0);
 
   const items = itemsByPage[pageIndex] ?? [];
   const currentPageLoading = loading && items.length === 0;
+
+  // Emails triaged before bodies were stored still need one IMAP fetch. Doing
+  // it for the whole visible page on one connection means the first open of an
+  // old row is instant too, instead of each one paying its own login.
+  const warmedPagesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!api || items.length === 0) return;
+    const key = `${filter}:${pageIndex}`;
+    if (warmedPagesRef.current.has(key)) return;
+    warmedPagesRef.current.add(key);
+    void api.POST<{ ok: boolean }>({
+      endpoint: "triage/bodies",
+      body: { triageIds: items.map((item) => item._id) },
+    });
+  }, [api, filter, items, pageIndex]);
 
   const cacheItems = useCallback((page: TriageListResponse) => {
     setItemsByPage((prev) => ({
@@ -188,6 +204,59 @@ export default function TriagePage() {
     setPageIndex(0);
     await fetchItems({ force: true, pageIndex: 0 });
   }, [fetchItems, resetItemsCache]);
+
+  /**
+   * Applies a verdict without leaving the list.
+   *
+   * The row is dropped from the page rather than refetched: a review queue is
+   * worked top to bottom, and re-fetching the block after every decision would
+   * reflow the list under the pointer. Counts are adjusted locally and the next
+   * block fetch reconciles them.
+   */
+  const decideInline = useCallback(
+    async (item: IEmailTriage, body: Record<string, unknown>) => {
+      if (!api) return;
+      setDecidingIds((prev) => new Set(prev).add(item._id));
+
+      const res = await api.PATCH<{ ok: boolean; error?: string }>({
+        endpoint: `triage/${item._id}`,
+        body,
+      });
+
+      setDecidingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item._id);
+        return next;
+      });
+
+      if ("code" in res || res.ok === false) {
+        toast.error(
+          "error" in res && typeof res.error === "string"
+            ? res.error
+            : "Failed to update",
+        );
+        return;
+      }
+
+      setItemsByPage((prev) => {
+        const next: Record<number, IEmailTriage[]> = {};
+        for (const [page, rows] of Object.entries(prev)) {
+          next[Number(page)] = rows.filter((row) => row._id !== item._id);
+        }
+        return next;
+      });
+      setTotalRows((total) => Math.max(0, total - 1));
+      setStats((prev) => {
+        const bucket = item.reviewRequired ? "review" : item.category;
+        return { ...prev, [bucket]: Math.max(0, (prev[bucket] ?? 0) - 1) };
+      });
+      // The block is now short by one row, so the next visit must refetch it.
+      loadedBlocksRef.current.delete(
+        getPrefetchBlockKey(filter, pageIndex, TRIAGE_PAGE_SIZE),
+      );
+    },
+    [api, filter, pageIndex],
+  );
 
   useEffect(() => {
     void fetchItems();
@@ -383,7 +452,17 @@ export default function TriagePage() {
                   key={item._id}
                   item={item}
                   selected={item._id === selectedId}
+                  busy={decidingIds.has(item._id)}
                   onSelect={() => setSelectedId(item._id)}
+                  onConfirm={() =>
+                    void decideInline(item, {
+                      category: item.category,
+                      userStatus: "reviewed",
+                    })
+                  }
+                  onRecategorize={(category) =>
+                    void decideInline(item, { category })
+                  }
                 />
               ))}
             </div>
