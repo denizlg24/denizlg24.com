@@ -416,10 +416,13 @@ export function PortfoliosPage({
         <div className="px-4 py-3 text-muted-foreground text-xs">—</div>
       ) : (
         // The dashboard shell clips at the viewport, so a page that outgrows it
-        // is cut off rather than scrolled. Below lg the metrics, chart and both
-        // panes cannot share one screen, so this column takes the scroll and the
-        // panes get a fixed height instead of a share of nothing.
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
+        // is cut off rather than scrolled. This column takes the scroll at every
+        // width: `lg:overflow-hidden` assumed the metrics, chart and panes always
+        // fit above lg, and on any window shorter than about 900px they do not —
+        // the panes were squeezed to nothing and the rest was simply unreachable.
+        // The panes still grow to fill a tall window, but not below the floor set
+        // on the grid, which is what makes this scroll rather than clip.
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           <MetricsRow
             metrics={performance.metrics}
             benchmark={portfolio.benchmark}
@@ -442,7 +445,7 @@ export function PortfoliosPage({
             performance={performance}
           />
 
-          <div className="grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-3">
+          <div className="grid grid-cols-1 lg:min-h-[24rem] lg:flex-1 lg:grid-cols-3">
             <Positions
               positions={performance.positions}
               cash={performance.metrics.cash}

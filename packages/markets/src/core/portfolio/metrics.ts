@@ -73,6 +73,38 @@ function yearsBetween(from: string, to: string): number {
   return (end - start) / (365.25 * 24 * 60 * 60 * 1000);
 }
 
+/**
+ * Friday to Tuesday over a long weekend is the widest gap two consecutive
+ * sessions can leave, so anything wider is not a day.
+ */
+const MAX_SESSION_GAP_DAYS = 4;
+
+function daysBetween(from: string, to: string): number {
+  return (
+    (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+    86_400_000
+  );
+}
+
+/**
+ * The move since the previous close, summed over what is currently held. The
+ * quotes carry `prevClose` per holding, so this is defined however far back the
+ * bar cache reaches — and it is the same number the positions table shows, so
+ * the header cannot disagree with the rows under it.
+ *
+ * A lot opened today is priced from yesterday's close rather than from its own
+ * fill, which overstates the day by the gap between the two. That is the
+ * standard convention and the price of not needing a curve; the curve delta is
+ * preferred wherever it is available precisely because it nets that out.
+ */
+function dayChangeFromPositions(positions: Position[]): number | null {
+  const held = positions.filter((position) => position.quantity !== 0);
+  // Cash earns nothing overnight here, so a book holding nothing moved by zero.
+  if (held.length === 0) return 0;
+  if (held.every((position) => position.dayChange === null)) return null;
+  return held.reduce((sum, position) => sum + (position.dayChange ?? 0), 0);
+}
+
 export function computeMetrics(options: {
   curve: ValuationPoint[];
   benchmarkCurve: BenchmarkPoint[];
@@ -115,10 +147,32 @@ export function computeMetrics(options: {
       ? yearsBetween(first.date, last.date)
       : 0;
 
-  const dayPnl =
-    last && previous
-      ? last.value - previous.value - (last.invested - previous.invested)
+  // The curve delta is the better day P&L — it nets out the day's own trades and
+  // deposits — but it is only a *day* when the point before the last one is the
+  // session before it. `performanceDates` builds the curve from cached bars plus
+  // inception and today, so a book whose holdings have not backfilled has just
+  // those two points and the "day" delta spans its entire life: Day silently
+  // reported Total. Anything wider than a long weekend falls back to the
+  // per-holding move against the previous close.
+  const priorSession =
+    last &&
+    previous &&
+    daysBetween(previous.date, last.date) <= MAX_SESSION_GAP_DAYS
+      ? previous
       : null;
+
+  const dayPnl =
+    last && priorSession
+      ? last.value -
+        priorSession.value -
+        (last.invested - priorSession.invested)
+      : dayChangeFromPositions(positions);
+
+  // Yesterday's equity: the curve holds it directly, and without a prior session
+  // it is what the book is worth now less what it made getting there.
+  const dayBase = priorSession
+    ? priorSession.value
+    : totalValue - (dayPnl ?? 0);
 
   return {
     totalValue,
@@ -128,9 +182,7 @@ export function computeMetrics(options: {
     totalPnlPercent: invested === 0 ? 0 : (totalPnl / invested) * 100,
     dayPnl,
     dayPnlPercent:
-      dayPnl === null || !previous || previous.value === 0
-        ? null
-        : (dayPnl / previous.value) * 100,
+      dayPnl === null || dayBase === 0 ? null : (dayPnl / dayBase) * 100,
     realizedPnl: state.realizedPnl,
     unrealizedPnl,
     cagr: span > 0 ? annualizedReturn(returns, span) : null,
