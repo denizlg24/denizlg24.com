@@ -33,16 +33,18 @@ export function isTerminalDeploymentStatus(status: DeploymentStatus): boolean {
  * Where a run got to, for the UI. Distinct from `status` because "building" is
  * four minutes long and a spinner that never changes reads as a hang.
  */
-export const deploymentPhaseSchema = z.enum([
+export const DEPLOYMENT_PHASES = [
   "cloning",
   "building",
   "starting",
   "health-check",
   "routing",
-]);
+] as const;
+export const deploymentPhaseSchema = z.enum(DEPLOYMENT_PHASES);
 export type DeploymentPhase = z.infer<typeof deploymentPhaseSchema>;
 
-export const deployTriggerSchema = z.enum(["git", "manual", "rollback", "api"]);
+export const DEPLOY_TRIGGERS = ["git", "manual", "rollback", "api"] as const;
+export const deployTriggerSchema = z.enum(DEPLOY_TRIGGERS);
 export type DeployTrigger = z.infer<typeof deployTriggerSchema>;
 
 /**
@@ -50,8 +52,43 @@ export type DeployTrigger = z.infer<typeof deployTriggerSchema>;
  * the failure mode of pure detection is silent: a stray Dockerfile in a repo
  * root produces a baffling build with no indication that detection chose it.
  */
-export const deployBuilderSchema = z.enum(["auto", "dockerfile", "nixpacks"]);
+export const DEPLOY_BUILDERS = ["auto", "dockerfile", "nixpacks"] as const;
+export const deployBuilderSchema = z.enum(DEPLOY_BUILDERS);
 export type DeployBuilder = z.infer<typeof deployBuilderSchema>;
+
+export const DEPLOY_ENV_SOURCES = ["literal", "binding", "template"] as const;
+export const deployEnvSourceSchema = z.enum(DEPLOY_ENV_SOURCES);
+export type DeployEnvSource = z.infer<typeof deployEnvSourceSchema>;
+
+export const DEPLOY_ENV_SCOPES = ["all", "production", "preview"] as const;
+export const deployEnvScopeSchema = z.enum(DEPLOY_ENV_SCOPES);
+export type DeployEnvScope = z.infer<typeof deployEnvScopeSchema>;
+
+export const DEPLOY_DOMAIN_MODES = ["zone_record", "custom_hostname"] as const;
+export const deployDomainModeSchema = z.enum(DEPLOY_DOMAIN_MODES);
+export type DeployDomainMode = z.infer<typeof deployDomainModeSchema>;
+
+export const DEPLOY_DOMAIN_STATUSES = [
+  "pending",
+  "verifying",
+  "active",
+  "failed",
+] as const;
+export const deployDomainStatusSchema = z.enum(DEPLOY_DOMAIN_STATUSES);
+export type DeployDomainStatus = z.infer<typeof deployDomainStatusSchema>;
+
+export const domainVerificationRecordsSchema = z.object({
+  ownership: z
+    .array(z.object({ name: z.string(), type: z.string(), value: z.string() }))
+    .default([]),
+  ssl: z
+    .array(z.object({ name: z.string(), type: z.string(), value: z.string() }))
+    .default([]),
+  error: z.string().nullish(),
+});
+export type DomainVerificationRecords = z.infer<
+  typeof domainVerificationRecordsSchema
+>;
 
 const gitShaSchema = z
   .string()
@@ -305,6 +342,106 @@ export function previewHostnameLabel(options: {
       : "";
   return branch ? `${slug}-${branch}-${suffix}` : `${slug}-${suffix}`;
 }
+
+const repoSegmentSchema = z.string().min(1).max(128);
+const branchSchema = z.string().min(1).max(128);
+
+export const createDeployTargetInputSchema = z.object({
+  projectId: z.uuid(),
+  name: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[a-z0-9][a-z0-9-]*$/, "Name must be lowercase alphanumeric"),
+  repoOwner: repoSegmentSchema,
+  repoName: repoSegmentSchema,
+  productionBranch: branchSchema.default("main"),
+  githubInstallationId: z.number().int().positive().nullish(),
+  rootDirectory: relativePathSchema.nullish(),
+  builder: deployBuilderSchema.default("auto"),
+  dockerfilePath: relativePathSchema.nullish(),
+  installCommand: commandSchema.nullish(),
+  buildCommand: commandSchema.nullish(),
+  startCommand: commandSchema.nullish(),
+  healthPath: z.string().min(1).max(1_024).default("/"),
+  memoryLimitMb: z.number().int().min(64).max(32_768).default(512),
+  cpuLimit: z.number().min(0.1).max(32).default(1),
+  autoDeploy: z.boolean().default(true),
+  previewDeploys: z.boolean().default(true),
+  /**
+   * The stable `<hostname>.denizlg24.com` label. Defaults to the project slug
+   * at the route, not here, because the slug is not on the request.
+   */
+  hostname: z.string().min(1).max(63).nullish(),
+});
+export type CreateDeployTargetInput = z.infer<
+  typeof createDeployTargetInputSchema
+>;
+
+export const updateDeployTargetInputSchema = createDeployTargetInputSchema
+  .omit({ projectId: true, name: true, hostname: true })
+  .partial();
+export type UpdateDeployTargetInput = z.infer<
+  typeof updateDeployTargetInputSchema
+>;
+
+export const createDeploymentInputSchema = z.object({
+  ref: z.string().min(1).max(255),
+  sha: gitShaSchema.optional(),
+  message: z.string().max(4_096).optional(),
+  kind: deploymentKindSchema.default("production"),
+});
+export type CreateDeploymentInput = z.infer<typeof createDeploymentInputSchema>;
+
+export const deployTargetSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  projectSlug: z.string(),
+  name: z.string(),
+  repoOwner: z.string(),
+  repoName: z.string(),
+  productionBranch: z.string(),
+  githubInstallationId: z.number().int().nullable(),
+  rootDirectory: z.string().nullable(),
+  builder: deployBuilderSchema,
+  dockerfilePath: z.string().nullable(),
+  installCommand: z.string().nullable(),
+  buildCommand: z.string().nullable(),
+  startCommand: z.string().nullable(),
+  healthPath: z.string(),
+  memoryLimitMb: z.number().int(),
+  cpuLimit: z.number(),
+  autoDeploy: z.boolean(),
+  previewDeploys: z.boolean(),
+  primaryHostname: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type DeployTarget = z.infer<typeof deployTargetSchema>;
+
+export const deploymentSchema = z.object({
+  id: z.uuid(),
+  targetId: z.uuid(),
+  kind: deploymentKindSchema,
+  status: deploymentStatusSchema,
+  phase: deploymentPhaseSchema.nullable(),
+  gitRef: z.string(),
+  gitSha: z.string(),
+  gitMessage: z.string().nullable(),
+  hostname: z.string(),
+  url: z.string(),
+  port: z.number().int().nullable(),
+  imageTag: z.string().nullable(),
+  imageSizeBytes: z.number().int().nullable(),
+  buildDurationMs: z.number().int().nullable(),
+  error: z.string().nullable(),
+  triggeredBy: deployTriggerSchema,
+  createdAt: z.iso.datetime(),
+  startedAt: z.iso.datetime().nullable(),
+  readyAt: z.iso.datetime().nullable(),
+  stoppedAt: z.iso.datetime().nullable(),
+});
+export type Deployment = z.infer<typeof deploymentSchema>;
 
 export class DeployHostnameError extends Error {
   constructor(message: string) {

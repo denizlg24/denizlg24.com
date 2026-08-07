@@ -7,6 +7,16 @@ import {
   ALERT_COMPARISONS,
   ALERT_RULE_STATES,
   ALERT_RULE_UNITS,
+  DEPLOY_BUILDERS,
+  DEPLOY_DOMAIN_MODES,
+  DEPLOY_DOMAIN_STATUSES,
+  DEPLOY_ENV_SCOPES,
+  DEPLOY_ENV_SOURCES,
+  DEPLOY_TRIGGERS,
+  DEPLOYMENT_KINDS,
+  DEPLOYMENT_PHASES,
+  DEPLOYMENT_STATUSES,
+  type DomainVerificationRecords,
   NOTIFICATION_TYPES,
   type NotificationPayload,
   type TaskConfig,
@@ -16,15 +26,18 @@ import {
   type InferInsertModel,
   type InferSelectModel,
   relations,
+  sql,
 } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   doublePrecision,
   foreignKey,
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -119,6 +132,31 @@ export const alertComparisonEnum = pgEnum(
 );
 export const alertRuleStateEnum = pgEnum("alert_rule_state", ALERT_RULE_STATES);
 export const alertRuleUnitEnum = pgEnum("alert_rule_unit", ALERT_RULE_UNITS);
+
+export const deployBuilderEnum = pgEnum("deploy_builder", DEPLOY_BUILDERS);
+export const deploymentKindEnum = pgEnum("deployment_kind", DEPLOYMENT_KINDS);
+export const deploymentStatusEnum = pgEnum(
+  "deployment_status",
+  DEPLOYMENT_STATUSES,
+);
+export const deploymentPhaseEnum = pgEnum(
+  "deployment_phase",
+  DEPLOYMENT_PHASES,
+);
+export const deployTriggerEnum = pgEnum("deploy_trigger", DEPLOY_TRIGGERS);
+export const deployEnvSourceEnum = pgEnum(
+  "deploy_env_source",
+  DEPLOY_ENV_SOURCES,
+);
+export const deployEnvScopeEnum = pgEnum("deploy_env_scope", DEPLOY_ENV_SCOPES);
+export const deployDomainModeEnum = pgEnum(
+  "deploy_domain_mode",
+  DEPLOY_DOMAIN_MODES,
+);
+export const deployDomainStatusEnum = pgEnum(
+  "deploy_domain_status",
+  DEPLOY_DOMAIN_STATUSES,
+);
 
 export interface FieldMapping {
   includeFields?: string[];
@@ -957,6 +995,172 @@ export const namespaceProjectionErrors = pgTable(
   ],
 );
 
+export const deployTargets = pgTable(
+  "deploy_targets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 128 }).notNull(),
+    repoOwner: varchar("repo_owner", { length: 128 }).notNull(),
+    repoName: varchar("repo_name", { length: 128 }).notNull(),
+    productionBranch: varchar("production_branch", { length: 128 })
+      .notNull()
+      .default("main"),
+    githubInstallationId: bigint("github_installation_id", { mode: "number" }),
+    rootDirectory: text("root_directory"),
+    builder: deployBuilderEnum("builder").notNull().default("auto"),
+    dockerfilePath: text("dockerfile_path"),
+    installCommand: text("install_command"),
+    buildCommand: text("build_command"),
+    startCommand: text("start_command"),
+    healthPath: text("health_path").notNull().default("/"),
+    memoryLimitMb: integer("memory_limit_mb").notNull().default(512),
+    cpuLimit: numeric("cpu_limit", { precision: 4, scale: 2 })
+      .notNull()
+      .default("1.0"),
+    autoDeploy: boolean("auto_deploy").notNull().default(true),
+    previewDeploys: boolean("preview_deploys").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("deploy_targets_project_name_key").on(
+      table.projectId,
+      table.name,
+    ),
+    index("deploy_targets_repo_idx").on(table.repoOwner, table.repoName),
+  ],
+);
+
+export const deployments = pgTable(
+  "deployments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    targetId: uuid("target_id")
+      .notNull()
+      .references(() => deployTargets.id, { onDelete: "cascade" }),
+    kind: deploymentKindEnum("kind").notNull(),
+    status: deploymentStatusEnum("status").notNull().default("queued"),
+    /**
+     * Where a run got to inside `building`, which is four minutes long. The
+     * status alone leaves a spinner that never changes, and that reads as a
+     * hang rather than a build.
+     */
+    phase: deploymentPhaseEnum("phase"),
+    gitRef: varchar("git_ref", { length: 255 }).notNull(),
+    gitSha: varchar("git_sha", { length: 40 }).notNull(),
+    gitMessage: text("git_message"),
+    hostname: varchar("hostname", { length: 255 }).notNull().unique(),
+    dnsRecordId: varchar("dns_record_id", { length: 64 }),
+    port: integer("port"),
+    imageTag: text("image_tag"),
+    containerId: varchar("container_id", { length: 64 }),
+    imageSizeBytes: bigint("image_size_bytes", { mode: "number" }),
+    buildDurationMs: integer("build_duration_ms"),
+    error: text("error"),
+    triggeredBy: deployTriggerEnum("triggered_by").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    readyAt: timestamp("ready_at", { withTimezone: true }),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("deployments_target_idx").on(table.targetId),
+    index("deployments_status_idx").on(table.status),
+    index("deployments_created_at_idx").on(table.createdAt),
+  ],
+);
+
+/**
+ * One table, not two: a binding is an env var whose value the platform owns
+ * rather than one that was typed. The check constraint is what keeps the three
+ * shapes from drifting into each other, which is the failure this design would
+ * otherwise invite.
+ */
+export const deployEnvVars = pgTable(
+  "deploy_env_vars",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    targetId: uuid("target_id")
+      .notNull()
+      .references(() => deployTargets.id, { onDelete: "cascade" }),
+    key: varchar("key", { length: 255 }).notNull(),
+    source: deployEnvSourceEnum("source").notNull().default("literal"),
+    encryptedValue: text("encrypted_value"),
+    valueIv: text("value_iv"),
+    valueAuthTag: text("value_auth_tag"),
+    reference: varchar("reference", { length: 255 }),
+    template: text("template"),
+    scope: deployEnvScopeEnum("scope").notNull().default("all"),
+    buildTime: boolean("build_time").notNull().default(false),
+    runTime: boolean("run_time").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("deploy_env_vars_target_key_scope_key").on(
+      table.targetId,
+      table.key,
+      table.scope,
+    ),
+    check(
+      "deploy_env_vars_source_shape",
+      sql`
+    (source = 'literal'  AND encrypted_value IS NOT NULL AND reference IS NULL AND template IS NULL) OR
+    (source = 'binding'  AND reference       IS NOT NULL AND encrypted_value IS NULL AND template IS NULL) OR
+    (source = 'template' AND template        IS NOT NULL AND encrypted_value IS NULL AND reference IS NULL)
+  `,
+    ),
+  ],
+);
+
+/**
+ * The primary domain is the row with `isPrimary`, enforced one-per-target by
+ * the partial unique index — there is no `productionHostname` column on the
+ * target. Deployments keep their own ephemeral `hostname`; those are
+ * per-deployment and never appear here.
+ */
+export const deployDomains = pgTable(
+  "deploy_domains",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    targetId: uuid("target_id")
+      .notNull()
+      .references(() => deployTargets.id, { onDelete: "cascade" }),
+    hostname: varchar("hostname", { length: 255 }).notNull().unique(),
+    mode: deployDomainModeEnum("mode").notNull(),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    zoneId: varchar("zone_id", { length: 64 }),
+    dnsRecordId: varchar("dns_record_id", { length: 64 }),
+    customHostnameId: varchar("custom_hostname_id", { length: 64 }),
+    status: deployDomainStatusEnum("status").notNull().default("pending"),
+    verification: jsonb("verification").$type<DomainVerificationRecords>(),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("deploy_domains_primary_per_target")
+      .on(table.targetId)
+      .where(sql`is_primary`),
+    index("deploy_domains_target_idx").on(table.targetId),
+  ],
+);
+
 /**
  * Rows a scan did not observe. A row must be missed by two consecutive complete
  * generations before it is reaped, so a single bad scan cannot delete the
@@ -1012,5 +1216,48 @@ export type NamespaceProjectionError = InferSelectModel<
 export type NamespaceReapCandidate = InferSelectModel<
   typeof namespaceReapCandidates
 >;
+
+export const deployTargetsRelations = relations(
+  deployTargets,
+  ({ many, one }) => ({
+    project: one(projects, {
+      fields: [deployTargets.projectId],
+      references: [projects.id],
+    }),
+    deployments: many(deployments),
+    envVars: many(deployEnvVars),
+    domains: many(deployDomains),
+  }),
+);
+
+export const deploymentsRelations = relations(deployments, ({ one }) => ({
+  target: one(deployTargets, {
+    fields: [deployments.targetId],
+    references: [deployTargets.id],
+  }),
+}));
+
+export const deployEnvVarsRelations = relations(deployEnvVars, ({ one }) => ({
+  target: one(deployTargets, {
+    fields: [deployEnvVars.targetId],
+    references: [deployTargets.id],
+  }),
+}));
+
+export const deployDomainsRelations = relations(deployDomains, ({ one }) => ({
+  target: one(deployTargets, {
+    fields: [deployDomains.targetId],
+    references: [deployTargets.id],
+  }),
+}));
+
+export type DeployTargetRow = InferSelectModel<typeof deployTargets>;
+export type NewDeployTargetRow = InferInsertModel<typeof deployTargets>;
+export type DeploymentRow = InferSelectModel<typeof deployments>;
+export type NewDeploymentRow = InferInsertModel<typeof deployments>;
+export type DeployEnvVarRow = InferSelectModel<typeof deployEnvVars>;
+export type NewDeployEnvVarRow = InferInsertModel<typeof deployEnvVars>;
+export type DeployDomainRow = InferSelectModel<typeof deployDomains>;
+export type NewDeployDomainRow = InferInsertModel<typeof deployDomains>;
 
 export * from "./auth-schema";
