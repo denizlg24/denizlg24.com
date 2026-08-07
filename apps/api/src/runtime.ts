@@ -30,6 +30,10 @@ import {
   syncRedisProjectAclUsers,
 } from "@repo/cloud-core";
 import { smbCredentials } from "@repo/cloud-core/db/schema";
+import {
+  CloudflareDnsClient,
+  cloudflareDeployConfigFromEnv,
+} from "@repo/cloud-core/deploy";
 import type { DiskKind } from "@repo/schemas/cloud";
 import { eq } from "drizzle-orm";
 import { MongoClient } from "mongodb";
@@ -42,6 +46,8 @@ import {
 } from "./auth/better-auth";
 import { RedisRateLimitStore } from "./auth/redis-rate-limit";
 import { mongoDbAdminRoutes, postgresDbAdminRoutes } from "./db-admin/routes";
+import { DeployAgentProxy } from "./deploy/proxy";
+import { deployRoutes } from "./deploy/routes";
 import { OpsHealthService } from "./ops/health";
 import {
   databaseClaimStore,
@@ -411,6 +417,44 @@ export async function createRuntimeApp() {
       ticketSecret: requiredEnv("TERMINAL_TICKET_SECRET"),
     });
 
+    // The deploy surface is optional: a host with no agent to reach mounts
+    // nothing rather than answering every route with a 503 nobody can act on.
+    let cloudflareDeployConfig: ReturnType<
+      typeof cloudflareDeployConfigFromEnv
+    > | null = null;
+    try {
+      cloudflareDeployConfig = cloudflareDeployConfigFromEnv();
+    } catch {
+      cloudflareDeployConfig = null;
+    }
+    const deployAgentUrl = process.env.DEPLOY_AGENT_URL?.trim();
+    const deployAgentToken = process.env.DEPLOY_AGENT_TOKEN?.trim();
+    const deploy =
+      deployAgentUrl && deployAgentToken
+        ? deployRoutes({
+            db,
+            agent: new DeployAgentProxy({
+              baseUrl: deployAgentUrl,
+              token: deployAgentToken,
+            }),
+            agentToken: deployAgentToken,
+            // Cloudflare is configured separately. Without it a deployment
+            // still builds, runs and routes through Caddy — it just has no
+            // public name, which is a better failure than refusing to deploy.
+            dns: cloudflareDeployConfig
+              ? new CloudflareDnsClient({ config: cloudflareDeployConfig })
+              : null,
+            zoneName: cloudflareDeployConfig?.zoneName ?? "denizlg24.com",
+            envEncryptionKey: requiredEnv("DEPLOY_ENV_ENCRYPTION_KEY"),
+            databaseEncryptionSecret,
+            databaseHosts,
+            s3Endpoint:
+              process.env.DEPLOY_S3_ENDPOINT ?? "https://api.denizlg24.com/v2",
+            s3Region: process.env.DEPLOY_S3_REGION ?? "auto",
+            s3CredentialEncryptionKey: storageConfig.s3.credentialEncryptionKey,
+          })
+        : undefined;
+
     const app = createCloudApiApp({
       auth,
       db,
@@ -469,6 +513,7 @@ export async function createRuntimeApp() {
         scheduler,
         terminal,
       }),
+      deploy,
       opsTools: {
         adminerUrl:
           process.env.ADMINER_URL ??

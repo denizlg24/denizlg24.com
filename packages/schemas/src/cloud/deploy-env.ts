@@ -126,7 +126,12 @@ const envVarBaseSchema = z.object({
 export const deployEnvVarInputSchema = z.discriminatedUnion("source", [
   envVarBaseSchema.extend({
     source: z.literal("literal"),
-    value: z.string().max(32_768),
+    /**
+     * Absent means "keep what is stored". `GET .../env` never returns a
+     * literal's value, so a full replace that demanded one would force the
+     * editor to re-type every secret on the target to change a flag.
+     */
+    value: z.string().max(32_768).optional(),
   }),
   envVarBaseSchema.extend({
     source: z.literal("binding"),
