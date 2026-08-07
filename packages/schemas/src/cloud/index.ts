@@ -2,6 +2,7 @@ export * from "./activity";
 export * from "./alert-rules";
 export * from "./auth";
 export * from "./common";
+export * from "./deploy";
 export * from "./notifications";
 export * from "./operations";
 export * from "./ops";

@@ -1,0 +1,43 @@
+[Unit]
+Description=Forge deploy agent
+Documentation=https://github.com/denizlg24/denizlg24.com/blob/main/apps/deploy-agent/README.md
+After=network-online.target docker.service tailscaled.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/forge-agent
+EnvironmentFile=/etc/forge/agent.env
+Restart=always
+RestartSec=5
+
+# The agent drives the Docker daemon and writes build trees, so it runs
+# privileged. The listener is bound to the Tailscale address (enforced in
+# config.ts) and the token is the second lock; neither is a substitute for the
+# firewall keeping this off the WAN entirely.
+User=root
+Group=root
+
+# stop() aborts in-flight builds and waits out its own 30s grace period before
+# giving up, so systemd must allow longer than that or it SIGKILLs mid-drain and
+# the final status reports are lost.
+TimeoutStopSec=45
+KillSignal=SIGTERM
+
+# /srv/forge is the only tree it writes. Docker's own state is reached through
+# the socket, not the filesystem.
+ReadWritePaths=/srv/forge
+StateDirectory=forge
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=forge-agent
+
+[Install]
+WantedBy=multi-user.target
