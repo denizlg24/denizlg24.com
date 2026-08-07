@@ -163,12 +163,15 @@ export const deployEnvVarSchema = z.object({
 });
 export type DeployEnvVar = z.infer<typeof deployEnvVarSchema>;
 
+/**
+ * Unavailable references are listed rather than hidden. The picker showing
+ * `database.postgres.url` greyed out answers "why can I not bind this?" with
+ * "the project has no Postgres", which is the actual next action.
+ */
 export const deployBindingValueSchema = z.object({
   reference: z.string(),
   available: z.boolean(),
   secret: z.boolean(),
-  /** Null when the value is secret or the namespace is not provisioned. */
-  preview: z.string().nullable(),
 });
 export type DeployBindingValue = z.infer<typeof deployBindingValueSchema>;
 
