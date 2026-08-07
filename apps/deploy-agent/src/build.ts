@@ -7,6 +7,7 @@ import type {
 } from "@repo/schemas/cloud";
 
 import type { BuildLog } from "./build-log";
+import { BUILDER_NAME, ensureBuildxBuilder } from "./buildx";
 import { type Exec, execOrThrow } from "./exec";
 
 export type ResolvedBuilder = "dockerfile" | "nixpacks";
@@ -17,6 +18,11 @@ export interface BuildOptions {
   signal: AbortSignal;
   exec: Exec;
   buildRoot: string;
+  /**
+   * Per-target BuildKit cache root. Set to null to build through the classic
+   * `docker build` path, which cannot export one.
+   */
+  cacheRoot?: string | null;
   /** Passed to `docker run`-style flags, e.g. `6144m`. */
   buildMemoryLimit: string;
   cloneToken?: string | null;
@@ -310,29 +316,71 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
     );
 
     if (builder === "dockerfile") {
+      const cacheDirectory = options.cacheRoot
+        ? join(options.cacheRoot, request.targetId, "buildkit")
+        : null;
+      // A builder we cannot create is a slower build, never a failed one.
+      const exportsCache =
+        cacheDirectory !== null &&
+        (await ensureBuildxBuilder(exec, signal).catch(() => false));
+      if (cacheDirectory !== null && !exportsCache) {
+        log.note(
+          "no docker-container builder available; building without the cache-mount export",
+        );
+      }
+
       await execOrThrow(exec, "docker build", {
-        command: [
-          "docker",
-          "build",
-          "--file",
-          dockerfile ?? join(contextDirectory, "Dockerfile"),
-          "--tag",
-          imageTag,
-          "--tag",
-          latestTag,
-          "--build-arg",
-          "BUILDKIT_INLINE_CACHE=1",
-          ...envFlags("--build-arg", buildEnv),
-          "--cache-from",
-          latestTag,
-          "--memory",
-          options.buildMemoryLimit,
-          "--memory-swap",
-          options.buildMemoryLimit,
-          "--progress",
-          "plain",
-          ".",
-        ],
+        command: exportsCache
+          ? [
+              "docker",
+              "buildx",
+              "build",
+              "--builder",
+              BUILDER_NAME,
+              "--file",
+              dockerfile ?? join(contextDirectory, "Dockerfile"),
+              "--tag",
+              imageTag,
+              "--tag",
+              latestTag,
+              ...envFlags("--build-arg", buildEnv),
+              // A container-driver builder cannot read the daemon's image
+              // store, so the previous image is no use to it as a cache source
+              // — the local cache below supersedes it and carries the cache
+              // mounts the image never held.
+              "--cache-from",
+              `type=local,src=${cacheDirectory}`,
+              "--cache-to",
+              `type=local,dest=${cacheDirectory},mode=max`,
+              // Without this the image stays in the builder and `docker run`
+              // reports it as missing.
+              "--load",
+              "--progress",
+              "plain",
+              ".",
+            ]
+          : [
+              "docker",
+              "build",
+              "--file",
+              dockerfile ?? join(contextDirectory, "Dockerfile"),
+              "--tag",
+              imageTag,
+              "--tag",
+              latestTag,
+              "--build-arg",
+              "BUILDKIT_INLINE_CACHE=1",
+              ...envFlags("--build-arg", buildEnv),
+              "--cache-from",
+              latestTag,
+              "--memory",
+              options.buildMemoryLimit,
+              "--memory-swap",
+              options.buildMemoryLimit,
+              "--progress",
+              "plain",
+              ".",
+            ],
         cwd: contextDirectory,
         env: { DOCKER_BUILDKIT: "1" },
         signal,

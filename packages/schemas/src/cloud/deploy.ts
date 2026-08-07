@@ -252,6 +252,59 @@ export const DISK_DEGRADED_PERCENT = 85;
 export const DISK_UNAVAILABLE_PERCENT = 97;
 
 /**
+ * The full hostname set a deployment should serve, not a delta. Promote,
+ * rollback and a domain rename all end up here, and each of them is "these are
+ * the names now" — expressing it as an add or a remove would leave the agent
+ * reconstructing a set the control plane already knows.
+ */
+export const agentPromoteRequestSchema = z.object({
+  hostnames: z.array(hostnameSchema).min(1).max(64),
+});
+export type AgentPromoteRequest = z.infer<typeof agentPromoteRequestSchema>;
+
+/**
+ * What the sweep must not touch. The agent has no view of deployment status —
+ * that lives in Postgres — so the control plane resolves "still wanted" and the
+ * agent only reaps what is left. An empty keep set is therefore refused: it is
+ * far more likely to mean the caller failed to load anything than that the box
+ * genuinely holds nothing.
+ */
+export const agentGcRequestSchema = z.object({
+  keepDeploymentIds: z.array(z.uuid()).max(10_000),
+  keepImageTags: z.array(z.string().min(1).max(512)).max(10_000),
+  logRetentionDays: z.number().int().min(1).max(365).default(30),
+  buildCacheMaxMb: z.number().int().min(0).max(1_048_576).default(2_048),
+  buildCacheMaxAgeDays: z.number().int().min(1).max(365).default(14),
+  builderPruneHours: z.number().int().min(1).max(8_760).default(168),
+  dryRun: z.boolean().default(false),
+});
+export type AgentGcRequest = z.infer<typeof agentGcRequestSchema>;
+
+export const agentGcFailureSchema = z.object({
+  step: z.string(),
+  subject: z.string(),
+  error: z.string(),
+});
+
+/**
+ * Per-item failures live in the report, never in the status — the same shape as
+ * `tieringReport.failures` and for the same reason: one unremovable image must
+ * not mark the sweep failed and mute the disk notification that matters.
+ */
+export const agentGcReportSchema = z.object({
+  dryRun: z.boolean(),
+  imagesRemoved: z.array(z.string()),
+  containersRemoved: z.array(z.string()),
+  buildsRemoved: z.array(z.string()),
+  logsRemoved: z.array(z.string()),
+  cacheDirsRemoved: z.array(z.string()),
+  builderCacheReclaimedBytes: z.number().int().min(0).nullable(),
+  disk: agentDiskHealthSchema,
+  failures: z.array(agentGcFailureSchema),
+});
+export type AgentGcReport = z.infer<typeof agentGcReportSchema>;
+
+/**
  * Deployment hostnames share the apex zone with real infrastructure, so these
  * first labels are refused outright. `api`, `cloud` and `storage` are the ones
  * that would take a live service down; the mail and `_acme-challenge`-adjacent

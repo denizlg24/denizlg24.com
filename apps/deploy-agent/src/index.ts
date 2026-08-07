@@ -4,12 +4,13 @@ import { agentConfigFromEnv } from "./config";
 import { ControlPlaneClient } from "./control-plane";
 import { DockerClient } from "./docker";
 import { spawnExec } from "./exec";
+import { runGarbageCollection } from "./gc";
 import { HealthService } from "./health";
 import { createDeploymentRunner } from "./pipeline";
 import { PortAllocator } from "./ports";
 import { DeploymentQueue, type QueueLogger } from "./queue";
 import { createAgentApp } from "./routes";
-import { teardownDeployment } from "./run";
+import { restartDeployment, teardownDeployment } from "./run";
 
 const VERSION = process.env.APP_VERSION ?? "dev";
 
@@ -49,6 +50,7 @@ const queue = new DeploymentQueue({
     ports,
     routes: caddy,
     buildRoot: config.buildRoot,
+    cacheRoot: config.cacheRoot,
     envRoot: config.runEnvRoot,
     network: config.dockerNetwork,
     buildMemoryLimit: `${config.buildMemoryLimitMb}m`,
@@ -73,6 +75,15 @@ const health = new HealthService({
   queue: () => queue.snapshot(),
 });
 
+/** The live routing table is the only honest source for a running port. */
+function routedPort(deploymentId: string): number | null {
+  const entry = caddy
+    .routes()
+    .find((route) => route.deploymentId === deploymentId);
+  const port = Number(entry?.upstream.split(":").at(-1));
+  return Number.isInteger(port) && port > 0 ? port : null;
+}
+
 const app = createAgentApp({
   token: config.token,
   health,
@@ -81,6 +92,22 @@ const app = createAgentApp({
   routes: () => caddy.routes(),
   teardown: (deploymentId) =>
     teardownDeployment({ deploymentId, exec: spawnExec, routes: caddy, ports }),
+  restart: (deploymentId) =>
+    restartDeployment({
+      deploymentId,
+      exec: spawnExec,
+      port: routedPort(deploymentId),
+      healthPollMs: config.healthPollMs,
+    }),
+  rehost: (deploymentId, hostnames) => caddy.rehost(deploymentId, hostnames),
+  collectGarbage: (request) =>
+    runGarbageCollection(request, {
+      exec: spawnExec,
+      buildRoot: config.buildRoot,
+      logRoot: config.logRoot,
+      cacheRoot: config.cacheRoot,
+      dockerDataRoot: config.dockerDataRoot,
+    }),
 });
 
 // Before the queue starts claiming: a build that finishes first would publish

@@ -1,4 +1,9 @@
-import { agentDeploymentRequestSchema } from "@repo/schemas/cloud";
+import type { AgentGcReport, AgentGcRequest } from "@repo/schemas/cloud";
+import {
+  agentDeploymentRequestSchema,
+  agentGcRequestSchema,
+  agentPromoteRequestSchema,
+} from "@repo/schemas/cloud";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
@@ -7,7 +12,7 @@ import type { BuildLogStore } from "./build-log";
 import type { CaddyRouteEntry } from "./caddy";
 import type { HealthService } from "./health";
 import { type DeploymentQueue, QueueAtCapacityError } from "./queue";
-import type { TeardownResult } from "./run";
+import type { RestartResult, TeardownResult } from "./run";
 
 export interface AgentRouteOptions {
   token: string;
@@ -16,6 +21,9 @@ export interface AgentRouteOptions {
   logs: BuildLogStore;
   routes: () => CaddyRouteEntry[];
   teardown: (deploymentId: string) => Promise<TeardownResult>;
+  restart: (deploymentId: string) => Promise<RestartResult>;
+  rehost: (deploymentId: string, hostnames: string[]) => Promise<boolean>;
+  collectGarbage: (request: AgentGcRequest) => Promise<AgentGcReport>;
 }
 
 export function createAgentApp(options: AgentRouteOptions): Hono {
@@ -123,6 +131,70 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
   guarded.get("/routes", (context) =>
     context.json({ routes: options.routes() }),
   );
+
+  guarded.post("/deployments/:id/restart", async (context) => {
+    const result = await options.restart(context.req.param("id"));
+    return context.json(result, result.restarted ? 200 : 409);
+  });
+
+  /**
+   * The body is the complete hostname set, so this serves promote, rollback and
+   * a mid-rename window where two names must answer at once. 409 rather than
+   * 404 when the deployment has no route: it exists, it is simply not serving,
+   * and the caller's next move is to redeploy rather than to stop asking.
+   */
+  guarded.post("/deployments/:id/promote", async (context) => {
+    const parsed = agentPromoteRequestSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "Promote request failed validation",
+            issues: parsed.error.issues,
+          },
+        },
+        400,
+      );
+    }
+    const rehosted = await options.rehost(
+      context.req.param("id"),
+      parsed.data.hostnames,
+    );
+    if (!rehosted) {
+      return context.json(
+        {
+          error: {
+            code: "NOT_ROUTED",
+            message: "Deployment has no live route to promote",
+          },
+        },
+        409,
+      );
+    }
+    return context.json({ hostnames: parsed.data.hostnames });
+  });
+
+  guarded.post("/gc", async (context) => {
+    const parsed = agentGcRequestSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "GC request failed validation",
+            issues: parsed.error.issues,
+          },
+        },
+        400,
+      );
+    }
+    return context.json({ report: await options.collectGarbage(parsed.data) });
+  });
 
   guarded.post("/deployments/:id/cancel", (context) => {
     const cancelled = options.queue.cancel(context.req.param("id"));

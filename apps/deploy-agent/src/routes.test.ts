@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentHealth } from "@repo/schemas/cloud";
+import type { AgentGcRequest, AgentHealth } from "@repo/schemas/cloud";
 
 import { BuildLogStore } from "./build-log";
 import type { CaddyRouteEntry } from "./caddy";
@@ -53,6 +53,9 @@ function app(
     root: options.logRoot ?? join(tmpdir(), "forge-agent-absent"),
   });
   const torndown: string[] = [];
+  const restarted: string[] = [];
+  const rehosted: { deploymentId: string; hostnames: string[] }[] = [];
+  const collected: AgentGcRequest[] = [];
   const routes: CaddyRouteEntry[] = [
     {
       deploymentId: "dep-1",
@@ -66,6 +69,9 @@ function app(
     logs,
     routes,
     torndown,
+    restarted,
+    rehosted,
+    collected,
     instance: createAgentApp({
       token: TOKEN,
       health: healthStub(options.status ?? "ok"),
@@ -75,6 +81,37 @@ function app(
       teardown: async (deploymentId) => {
         torndown.push(deploymentId);
         return { containerRemoved: true, imageRemoved: null };
+      },
+      restart: async (deploymentId) => {
+        restarted.push(deploymentId);
+        return { restarted: true, healthy: true, error: null };
+      },
+      rehost: async (deploymentId, hostnames) => {
+        if (!routes.some((route) => route.deploymentId === deploymentId)) {
+          return false;
+        }
+        rehosted.push({ deploymentId, hostnames });
+        return true;
+      },
+      collectGarbage: async (request) => {
+        collected.push(request);
+        return {
+          dryRun: request.dryRun,
+          imagesRemoved: [],
+          containersRemoved: [],
+          buildsRemoved: [],
+          logsRemoved: [],
+          cacheDirsRemoved: [],
+          builderCacheReclaimedBytes: null,
+          disk: {
+            path: "/var/lib/docker",
+            totalBytes: 100,
+            freeBytes: 50,
+            usedPercent: 50,
+            error: null,
+          },
+          failures: [],
+        };
       },
     }),
   };
@@ -275,5 +312,88 @@ describe("POST /deployments/:id/cancel", () => {
       { method: "POST", headers: AUTH },
     );
     expect(response.status).toBe(409);
+  });
+});
+
+describe("POST /deployments/:id/restart", () => {
+  it("restarts without rebuilding", async () => {
+    const { instance, restarted } = app();
+    const response = await instance.request("/deployments/dep-1/restart", {
+      method: "POST",
+      headers: AUTH,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      restarted: true,
+      healthy: true,
+      error: null,
+    });
+    expect(restarted).toEqual(["dep-1"]);
+  });
+});
+
+describe("POST /deployments/:id/promote", () => {
+  it("replaces the hostname set of a live route", async () => {
+    const { instance, rehosted } = app();
+    const response = await instance.request("/deployments/dep-1/promote", {
+      method: "POST",
+      headers: { ...AUTH, "content-type": "application/json" },
+      body: JSON.stringify({
+        hostnames: ["app.denizlg24.com", "www.clientsite.com"],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(rehosted).toEqual([
+      {
+        deploymentId: "dep-1",
+        hostnames: ["app.denizlg24.com", "www.clientsite.com"],
+      },
+    ]);
+  });
+
+  it("409s a deployment that is not routed", async () => {
+    const response = await app().instance.request(
+      "/deployments/dep-missing/promote",
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body: JSON.stringify({ hostnames: ["app.denizlg24.com"] }),
+      },
+    );
+    expect(response.status).toBe(409);
+  });
+
+  it("rejects an empty hostname set", async () => {
+    const response = await app().instance.request(
+      "/deployments/dep-1/promote",
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body: JSON.stringify({ hostnames: [] }),
+      },
+    );
+    expect(response.status).toBe(400);
+  });
+});
+
+describe("POST /gc", () => {
+  it("passes the keep set through and reports", async () => {
+    const { instance, collected } = app();
+    const keep = crypto.randomUUID();
+    const response = await instance.request("/gc", {
+      method: "POST",
+      headers: { ...AUTH, "content-type": "application/json" },
+      body: JSON.stringify({
+        keepDeploymentIds: [keep],
+        keepImageTags: ["forge/app:abc1234-0000"],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(collected[0]?.keepDeploymentIds).toEqual([keep]);
+    expect(collected[0]?.logRetentionDays).toBe(30);
+    expect((await response.json()).report.failures).toEqual([]);
   });
 });

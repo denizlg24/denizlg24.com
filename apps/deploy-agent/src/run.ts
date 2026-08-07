@@ -426,6 +426,78 @@ export async function reapSuperseded(
   return reaped;
 }
 
+export interface RestartOptions {
+  deploymentId: string;
+  exec: Exec;
+  /** From the live route table, so a restart never guesses at the port. */
+  port: number | null;
+  healthPath?: string;
+  healthTimeoutMs?: number;
+  healthPollMs?: number;
+  healthProbe?: HealthProbe;
+  signal?: AbortSignal;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+export interface RestartResult {
+  restarted: boolean;
+  healthy: boolean | null;
+  error: string | null;
+}
+
+/**
+ * No rebuild, and no route change — the container keeps its name, its port and
+ * its place in the routing table, so a restart that comes back healthy is
+ * invisible to Caddy. The health probe is advisory: a container that restarts
+ * and then fails to listen is already serving 502s, and reporting that is more
+ * use than pretending the restart failed.
+ */
+export async function restartDeployment(
+  options: RestartOptions,
+): Promise<RestartResult> {
+  const name = containerNameFor(options.deploymentId);
+  const restarted = await options.exec({
+    command: ["docker", "restart", "--time", "10", name],
+    signal: options.signal,
+    timeoutMs: 120_000,
+  });
+  if (restarted.exitCode !== 0) {
+    return {
+      restarted: false,
+      healthy: null,
+      error:
+        restarted.stderr.trim() ||
+        `docker restart exited ${restarted.exitCode}`,
+    };
+  }
+  if (options.port === null) {
+    return { restarted: true, healthy: null, error: null };
+  }
+
+  const probe = options.healthProbe ?? fetchHealthProbe;
+  const sleep =
+    options.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = options.now ?? Date.now;
+  const url = healthUrl(options.port, options.healthPath ?? "/");
+  const deadline = now() + (options.healthTimeoutMs ?? 90_000);
+  const signal = options.signal ?? new AbortController().signal;
+
+  while (now() < deadline) {
+    const status = await probe(url, signal);
+    if (status !== null && status < 500) {
+      return { restarted: true, healthy: true, error: null };
+    }
+    await sleep(options.healthPollMs ?? 2_000);
+  }
+  return {
+    restarted: true,
+    healthy: false,
+    error: "Container restarted but did not answer the health check",
+  };
+}
+
 export interface TeardownOptions {
   deploymentId: string;
   exec: Exec;

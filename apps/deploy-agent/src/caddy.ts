@@ -177,6 +177,19 @@ export class CaddyRouter implements RouteManager {
     });
   }
 
+  /**
+   * Promote, rollback and a domain rename are all this: the upstream does not
+   * move, the set of names pointing at it does. Rehosting rather than
+   * republishing keeps the port out of the caller's hands, which matters
+   * because the control plane's copy of it can be a deploy behind.
+   */
+  async rehost(deploymentId: string, hostnames: string[]): Promise<boolean> {
+    const existing = this.#entries.get(deploymentId);
+    if (!existing) return false;
+    await this.publishEntry({ ...existing, hostnames: [...hostnames] });
+    return true;
+  }
+
   async withdraw(deploymentId: string): Promise<void> {
     await this.#serialise(async () => {
       const previous = this.#entries.get(deploymentId);

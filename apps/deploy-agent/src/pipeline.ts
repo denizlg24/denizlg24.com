@@ -44,6 +44,7 @@ export interface PipelineOptions {
   ports: PortAllocator;
   routes: RouteManager;
   buildRoot: string;
+  cacheRoot?: string | null;
   envRoot: string;
   network: string;
   buildMemoryLimit: string;
@@ -78,6 +79,7 @@ export function createDeploymentRunner(
         signal: context.signal,
         exec: options.exec,
         buildRoot: options.buildRoot,
+        cacheRoot: options.cacheRoot,
         buildMemoryLimit: options.buildMemoryLimit,
         cloneToken: resolved.cloneToken,
         buildEnv: resolved.buildEnv,

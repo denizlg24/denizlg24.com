@@ -66,8 +66,11 @@ alive. Everything else needs `Authorization: Bearer $AGENT_TOKEN`.
 | `GET` | `/deployments/:id` | |
 | `GET` | `/deployments/:id/logs` | SSE, replayed from the first line then tailed |
 | `POST` | `/deployments/:id/cancel` | 409 if not running |
+| `POST` | `/deployments/:id/restart` | `docker restart`, no rebuild, no route change |
+| `POST` | `/deployments/:id/promote` | replaces the deployment's hostname set; 409 if it has no live route |
 | `DELETE` | `/deployments/:id` | route, container and image; idempotent, never 404s |
 | `GET` | `/routes` | the live Caddy routing table |
+| `POST` | `/gc` | runs the reaper; body carries the keep set |
 
 `/healthz` pings the Docker daemon and stats the Docker data root on every call.
 A liveness probe that only proves the process is up reports green while every
@@ -126,9 +129,23 @@ whole layer cache (§2.6/§7.2).
 
 `BUILD_MEMORY_LIMIT_MB` is passed as `--memory`, but BuildKit ignores that flag:
 the effective cap is `buildkitd`'s own. Treat it as belt-and-braces, not as the
-control. The per-target BuildKit local cache export (§2.6 layer 2) is not wired
-up — `--cache-to type=local` needs a `docker-container` driver builder, which is
-a host change, and it lands with the cache capping on day 8.
+control.
+
+The Dockerfile path additionally exports a per-target BuildKit cache to
+`$CACHE_ROOT/<targetId>/buildkit` (§2.6 layer 2). That needs a
+`docker-container` driver builder, which the agent creates once as `forge`; if
+it cannot, the build falls back to the plain `docker build` path with the
+inline cache and says so in the log. The two mechanisms do not compose — a
+container-driver builder cannot read the daemon's image store, so
+`--cache-from forge/<slug>:latest` is no use to it. The local cache supersedes
+it and additionally carries `RUN --mount=type=cache` mounts, which the image
+never held. `--load` is what copies the finished image back to the daemon, and
+it is the reason §2.4 insists on `output: "standalone"`.
+
+`--cache-to mode=max` grows without bound, so `POST /gc` deletes any per-target
+cache directory over `buildCacheMaxMb` (default 2048) or untouched for
+`buildCacheMaxAgeDays` (default 14). A deleted cache costs one slow build and
+nothing else, which is what makes capping it safe to do bluntly.
 
 ### Running and the health gate
 
@@ -179,15 +196,31 @@ happened to redeploy it. A failure to *write* that file is logged, not raised:
 routing is already correct, and failing the deploy over it would remove a
 container that is serving traffic.
 
+## Garbage collection
+
+`POST /gc` reaps; it does not decide. The agent has no view of deployment
+status — that lives in Postgres — so the control plane resolves what is still
+wanted and sends it as `keepDeploymentIds` and `keepImageTags`. Containers are
+removed before images, because an image a container still references cannot be
+removed and reaping in the other order turns every removable image into a
+failure. The image of a container that could not be removed is likewise kept,
+so one problem produces one line in the report rather than two.
+
+Per-item failures land in `report.failures`, never in the response status. One
+unremovable image must not mark the sweep failed and mute the disk notification
+that actually matters — the same shape as `tieringReport.failures`, for the
+same reason.
+
+`forge/<slug>:latest` is never a candidate. It looks like a stale tag and it is
+the thing making the next build fast.
+
 ## Status
 
-Day 4 of the plan. A deployment mints its route the moment the health gate
-passes, and `DELETE /deployments/:id` takes the route, container and image back
-down. The DNS record that points a hostname at the tunnel is the control plane's
-half — `packages/cloud-core/src/deploy/`.
-
-Not yet here: `promote`, `restart`, `/gc`, and the control-plane routes the
-claim loop polls (day 5).
+Days 2–4 of the plan, plus `restart`, `promote` and `/gc`. A deployment mints
+its route the moment the health gate passes, and `DELETE /deployments/:id`
+takes the route, container and image back down. The DNS record that points a
+hostname at the tunnel is the control plane's half —
+`packages/cloud-core/src/deploy/`.
 
 ```sh
 bun test
