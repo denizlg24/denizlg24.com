@@ -1070,6 +1070,15 @@ export const deployments = pgTable(
     createdBy: uuid("created_by").references(() => users.id, {
       onDelete: "set null",
     }),
+    /**
+     * Set only for a preview built from a pull request. It is what makes a
+     * `closed` webhook able to find the previews to tear down, and which
+     * comment to edit — a preview from a plain branch push has neither.
+     */
+    prNumber: integer("pr_number"),
+    /** The ✓/✗ beside the commit, and the environment box in the timeline. */
+    githubCheckRunId: bigint("github_check_run_id", { mode: "number" }),
+    githubDeploymentId: bigint("github_deployment_id", { mode: "number" }),
     heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     readyAt: timestamp("ready_at", { withTimezone: true }),
@@ -1082,6 +1091,7 @@ export const deployments = pgTable(
     index("deployments_target_idx").on(table.targetId),
     index("deployments_status_idx").on(table.status),
     index("deployments_created_at_idx").on(table.createdAt),
+    index("deployments_pr_idx").on(table.targetId, table.prNumber),
   ],
 );
 

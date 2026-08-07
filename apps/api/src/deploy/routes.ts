@@ -31,17 +31,27 @@ import {
   deployNamespaceAvailability,
   describeBindings,
   encryptDeployEnvValue,
+  findInFlightDeploymentForSha,
+  type GithubAppClient,
   HostnameConflictError,
+  isPullRequestTeardown,
   listDeployDomains,
   loadDeployDomain,
+  planPullRequestDeployment,
+  planPushDeployment,
+  pullRequestDeployments,
   recordDeploymentStatus,
+  recordGithubInstallation,
   refreshDeployDomain,
   releaseDeployDomain,
   renameDeployDomain,
   resolveDeploymentEnv,
   setPrimaryDeployDomain,
   supersedeOlderDeployments,
+  supersedeQueuedDeployments,
+  targetsForRepository,
   toAgentRequest,
+  verifyGithubSignature,
 } from "@repo/cloud-core/deploy";
 import {
   assertDeployHostname,
@@ -51,18 +61,23 @@ import {
   type DeployEnvVarInput,
   DeployHostnameError,
   deploymentStatusUpdateSchema,
+  githubInstallationEventSchema,
+  githubPullRequestEventSchema,
+  githubPushEventSchema,
   isTerminalDeploymentStatus,
   previewHostnameLabel,
   replaceDeployEnvInputSchema,
   slugifyHostnameLabel,
   updateDeployDomainInputSchema,
   updateDeployTargetInputSchema,
+  type WebhookDeployIntent,
 } from "@repo/schemas/cloud";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
 import { requireAgentToken } from "./agent-auth";
+import type { GithubSurfaces } from "./github-surfaces";
 import type { ForgeOps } from "./ops";
 import { DeployAgentUnavailableError } from "./proxy";
 
@@ -73,6 +88,12 @@ export interface DeployRouteOptions {
    * scheduled passes so both sides compose the same hostname set.
    */
   forge: ForgeOps;
+  /**
+   * Absent until the GitHub App is installed. Without it a deployment must be
+   * given an explicit SHA, private repositories cannot be cloned, and nothing
+   * is written back to a pull request.
+   */
+  github: { client: GithubAppClient; surfaces: GithubSurfaces } | null;
   agentToken: string;
   envEncryptionKey: string;
   databaseEncryptionSecret: string;
@@ -684,6 +705,7 @@ export function deployRoutes(options: DeployRouteOptions) {
     kind: "production" | "preview";
     triggeredBy: "manual" | "rollback" | "api" | "git";
     createdBy: string | null;
+    prNumber?: number | null;
   }) {
     const rows = await db
       .select()
@@ -722,6 +744,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         hostname,
         triggeredBy: input.triggeredBy,
         createdBy: input.createdBy,
+        prNumber: input.prNumber ?? null,
       })
       .returning();
     if (!created) throw new Error("Deployment insert returned no row");
@@ -752,6 +775,29 @@ export function deployRoutes(options: DeployRouteOptions) {
     return created;
   }
 
+  /**
+   * A ref is only resolvable through the App — this control plane holds no
+   * git credentials of its own. Without one the caller must say which commit
+   * it means, because guessing would build whatever HEAD happened to be.
+   */
+  async function resolveRef(
+    target: DeployTargetRow,
+    ref: string,
+  ): Promise<{ sha: string; message: string | null }> {
+    if (!options.github || target.githubInstallationId === null) {
+      throw new ValidationError(
+        "A commit SHA is required until the GitHub App is installed on this repository",
+        "GIT_SHA_REQUIRED",
+      );
+    }
+    return options.github.client.resolveCommit({
+      installationId: target.githubInstallationId,
+      owner: target.repoOwner,
+      repo: target.repoName,
+      ref,
+    });
+  }
+
   owner.post("/targets/:id/deployments", async (context) => {
     const parsed = createDeploymentInputSchema.safeParse(
       await context.req.json().catch(() => null),
@@ -770,24 +816,20 @@ export function deployRoutes(options: DeployRouteOptions) {
       if (!project) {
         throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
       }
-      if (!parsed.data.sha) {
-        // Resolving a ref to a SHA needs the GitHub App, which this control
-        // plane does not have yet. Asking for it explicitly beats guessing.
-        throw new ValidationError(
-          "A commit SHA is required until the GitHub App is installed",
-          "GIT_SHA_REQUIRED",
-        );
-      }
+      const resolved = parsed.data.sha
+        ? { sha: parsed.data.sha, message: parsed.data.message ?? null }
+        : await resolveRef(target, parsed.data.ref);
       const created = await enqueueDeployment({
         target,
         projectSlug: project.slug,
         ref: parsed.data.ref,
-        sha: parsed.data.sha,
-        message: parsed.data.message ?? null,
+        sha: resolved.sha,
+        message: parsed.data.message ?? resolved.message,
         kind: parsed.data.kind,
         triggeredBy: "manual",
         createdBy: context.get("user").id,
       });
+      await options.github?.surfaces.onEnqueued(created, target);
       return context.json({ data: serializeDeployment(created) }, 202);
     } catch (error) {
       const response = errorResponse(error);
@@ -1174,6 +1216,14 @@ export function deployRoutes(options: DeployRouteOptions) {
     } else if (isTerminalDeploymentStatus(updated.status)) {
       await forge.releaseDeployment(updated);
     }
+    // Best-effort and last, so nothing GitHub does can hold up the agent's
+    // status write or the route publish it depends on.
+    if (options.github && isTerminalDeploymentStatus(updated.status)) {
+      const target = await db.query.deployTargets.findFirst({
+        where: eq(deployTargets.id, updated.targetId),
+      });
+      if (target) await options.github.surfaces.onFinished(updated, target);
+    }
     return context.json({ data: { status: updated.status } });
   });
 
@@ -1228,12 +1278,23 @@ export function deployRoutes(options: DeployRouteOptions) {
           runKeys: resolved.runKeys,
         }),
       );
+      // Minted per installation, not per deployment, and cached until five
+      // minutes before it expires. A public repository clones without one, so
+      // a failure here is logged rather than fatal.
+      const cloneToken =
+        options.github && target.githubInstallationId !== null
+          ? await options.github.client
+              .installationToken(target.githubInstallationId)
+              .catch((error: unknown) => {
+                console.error("[deploy] clone token mint failed", error);
+                return null;
+              })
+          : null;
+
       return context.json({
         deploymentId: row.id,
         kind: row.kind,
-        // Minted per deployment by the GitHub App, which is not installed
-        // yet. A public repository clones without one.
-        cloneToken: null,
+        cloneToken,
         buildEnv: resolved.buildEnv,
         runEnv: resolved.runEnv,
       });
@@ -1244,6 +1305,186 @@ export function deployRoutes(options: DeployRouteOptions) {
   });
 
   app.route("/agent", agent);
+
+  // ---- GitHub webhook ------------------------------------------------------
+
+  /**
+   * Everything a webhook-driven build needs beyond what the event says. A
+   * target with no installation id is not deployable from a hook — the App is
+   * how the repository is read at all — so it is skipped rather than failed.
+   */
+  async function deployFromWebhook(
+    target: DeployTargetRow,
+    intent: WebhookDeployIntent,
+  ): Promise<DeploymentRow | null> {
+    if (target.githubInstallationId === null) return null;
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, target.projectId),
+    });
+    if (!project) return null;
+
+    // A pull request on a branch of this repository fires `push` and
+    // `pull_request` for the same commit. The first one through wins; the
+    // second only backfills the PR number the push could not know.
+    const existing = await findInFlightDeploymentForSha(db, {
+      targetId: target.id,
+      sha: intent.sha,
+      kind: intent.kind,
+    });
+    if (existing) {
+      if (intent.prNumber !== null && existing.prNumber === null) {
+        await db
+          .update(deployments)
+          .set({ prNumber: intent.prNumber })
+          .where(eq(deployments.id, existing.id));
+      }
+      return null;
+    }
+
+    await supersedeQueuedDeployments(db, {
+      targetId: target.id,
+      gitRef: intent.ref,
+      kind: intent.kind,
+    });
+
+    const created = await enqueueDeployment({
+      target,
+      projectSlug: project.slug,
+      ref: intent.ref,
+      sha: intent.sha,
+      message: intent.message,
+      kind: intent.kind,
+      triggeredBy: "git",
+      createdBy: null,
+      prNumber: intent.prNumber,
+    });
+    await options.github?.surfaces.onEnqueued(created, target);
+    return created;
+  }
+
+  async function teardownPullRequest(
+    target: DeployTargetRow,
+    prNumber: number,
+  ): Promise<number> {
+    const rows = await pullRequestDeployments(db, {
+      targetId: target.id,
+      prNumber,
+    });
+    if (rows.length === 0) return 0;
+    await options.github?.surfaces.onPullRequestClosed(rows, target);
+    for (const row of rows) {
+      await agentProxy.delete(`/deployments/${row.id}`).catch(() => {});
+      await forge.releaseDeployment(row);
+      await db.delete(deployments).where(eq(deployments.id, row.id));
+    }
+    return rows.length;
+  }
+
+  const hooks = new Hono();
+
+  /**
+   * Unauthenticated by necessity — GitHub presents no session and no bearer
+   * token, only an HMAC over the body. The raw text is read before anything
+   * parses it: re-serialising the JSON changes the bytes and the signature
+   * then never matches, which looks exactly like a wrong secret.
+   */
+  hooks.post("/github", async (context) => {
+    const github = options.github;
+    if (!github) {
+      return context.json(
+        { error: { code: "GITHUB_APP_DISABLED", message: "No GitHub App" } },
+        503,
+      );
+    }
+    const raw = await context.req.text();
+    if (
+      !verifyGithubSignature(
+        github.client.webhookSecret,
+        raw,
+        context.req.header("x-hub-signature-256"),
+      )
+    ) {
+      return context.json(
+        { error: { code: "BAD_SIGNATURE", message: "Invalid signature" } },
+        401,
+      );
+    }
+
+    const event = context.req.header("x-github-event") ?? "";
+    let payload: unknown;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return context.json(
+        { error: { code: "INVALID_INPUT", message: "Malformed body" } },
+        400,
+      );
+    }
+
+    if (event === "installation" || event === "installation_repositories") {
+      const parsed = githubInstallationEventSchema.safeParse(payload);
+      if (!parsed.success) return context.json({ data: { ignored: true } });
+      await recordGithubInstallation(db, parsed.data);
+      return context.json({ data: { installation: parsed.data.action } });
+    }
+
+    if (event === "push") {
+      const parsed = githubPushEventSchema.safeParse(payload);
+      if (!parsed.success) return context.json({ data: { ignored: true } });
+      const targets = await targetsForRepository(db, {
+        owner: parsed.data.repository.owner.login,
+        repo: parsed.data.repository.name,
+      });
+      const enqueued: string[] = [];
+      for (const target of targets) {
+        const intent = planPushDeployment(parsed.data, target);
+        if (!intent) continue;
+        const created = await deployFromWebhook(target, intent).catch(
+          (error: unknown) => {
+            // One target's bindings being unresolvable must not stop the
+            // others; the row it would have created is what reports it.
+            console.error("[deploy] webhook deployment failed", error);
+            return null;
+          },
+        );
+        if (created) enqueued.push(created.id);
+      }
+      return context.json({ data: { enqueued } });
+    }
+
+    if (event === "pull_request") {
+      const parsed = githubPullRequestEventSchema.safeParse(payload);
+      if (!parsed.success) return context.json({ data: { ignored: true } });
+      const targets = await targetsForRepository(db, {
+        owner: parsed.data.repository.owner.login,
+        repo: parsed.data.repository.name,
+      });
+      if (isPullRequestTeardown(parsed.data.action)) {
+        let removed = 0;
+        for (const target of targets) {
+          removed += await teardownPullRequest(target, parsed.data.number);
+        }
+        return context.json({ data: { removed } });
+      }
+      const enqueued: string[] = [];
+      for (const target of targets) {
+        const intent = planPullRequestDeployment(parsed.data, target);
+        if (!intent) continue;
+        const created = await deployFromWebhook(target, intent).catch(
+          (error: unknown) => {
+            console.error("[deploy] webhook deployment failed", error);
+            return null;
+          },
+        );
+        if (created) enqueued.push(created.id);
+      }
+      return context.json({ data: { enqueued } });
+    }
+
+    return context.json({ data: { ignored: true } });
+  });
+
+  app.route("/hooks", hooks);
 
   return app;
 }

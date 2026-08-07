@@ -34,6 +34,9 @@ import {
   CloudflareCustomHostnameClient,
   CloudflareDnsClient,
   cloudflareDeployConfigFromEnv,
+  GithubAppClient,
+  type GithubAppConfig,
+  githubAppConfigFromEnv,
 } from "@repo/cloud-core/deploy";
 import type { DiskKind } from "@repo/schemas/cloud";
 import { eq } from "drizzle-orm";
@@ -47,6 +50,7 @@ import {
 } from "./auth/better-auth";
 import { RedisRateLimitStore } from "./auth/redis-rate-limit";
 import { mongoDbAdminRoutes, postgresDbAdminRoutes } from "./db-admin/routes";
+import { GithubSurfaces } from "./deploy/github-surfaces";
 import { ForgeOps } from "./deploy/ops";
 import { DeployAgentProxy } from "./deploy/proxy";
 import { deployRoutes } from "./deploy/routes";
@@ -465,11 +469,47 @@ export async function createRuntimeApp() {
       ticketSecret: requiredEnv("TERMINAL_TICKET_SECRET"),
     });
 
+    // Optional in the same way the agent is: without the App a target still
+    // deploys, it just has to be told which commit and cannot clone a private
+    // repository or write anything back to a pull request.
+    let githubApp: GithubAppConfig | null = null;
+    try {
+      githubApp = githubAppConfigFromEnv();
+    } catch {
+      githubApp = null;
+    }
+    const github = githubApp
+      ? (() => {
+          const client = new GithubAppClient({
+            config: githubApp,
+            cache: {
+              get: async (key) => redis.get(key),
+              set: async (key, value, ttlSeconds) => {
+                await redis.set(key, value, { EX: ttlSeconds });
+              },
+              delete: async (key) => {
+                await redis.del(key);
+              },
+            },
+          });
+          return {
+            client,
+            surfaces: new GithubSurfaces({
+              db,
+              client,
+              adminBaseUrl:
+                process.env.CLOUD_ADMIN_URL ?? "https://cloud.denizlg24.com",
+            }),
+          };
+        })()
+      : null;
+
     const deploy =
       forge && deployAgentToken
         ? deployRoutes({
             db,
             forge,
+            github,
             agentToken: deployAgentToken,
             envEncryptionKey: requiredEnv("DEPLOY_ENV_ENCRYPTION_KEY"),
             databaseEncryptionSecret,

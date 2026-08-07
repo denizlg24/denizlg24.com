@@ -734,9 +734,12 @@ export function createCloudApiApp(options: CloudApiOptions) {
   if (options.deploy) {
     // The agent presents a bearer token, not a session, and the routes it
     // calls enforce that themselves. Running `authenticate` over them first
-    // would reject the agent before it ever reached its own guard.
+    // would reject the agent before it ever reached its own guard. GitHub
+    // presents neither — the webhook authenticates by HMAC over the raw body,
+    // and nothing here may read that body first.
     app.use("/api/deploy/*", async (context, next) => {
       if (context.req.path.startsWith("/api/deploy/agent/")) return next();
+      if (context.req.path.startsWith("/api/deploy/hooks/")) return next();
       return authenticate(context, next);
     });
     app.route("/api/deploy", options.deploy);
