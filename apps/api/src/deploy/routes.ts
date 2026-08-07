@@ -23,12 +23,9 @@ import {
 import {
   assertBindingsResolvable,
   BindingUnresolvableError,
-  type CloudflareCustomHostnameClient,
-  type CloudflareDnsClient,
   claimQueuedDeployment,
   createDeployBindingResolvers,
   createDeployDomain,
-  type DomainContext,
   decryptDeployEnvValue,
   deleteDeployDomain,
   deployNamespaceAvailability,
@@ -42,8 +39,6 @@ import {
   releaseDeployDomain,
   renameDeployDomain,
   resolveDeploymentEnv,
-  revokeDeploymentS3Credentials,
-  routeHostnames,
   setPrimaryDeployDomain,
   supersedeOlderDeployments,
   toAgentRequest,
@@ -68,17 +63,17 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import { requireAgentToken } from "./agent-auth";
-import { type DeployAgentProxy, DeployAgentUnavailableError } from "./proxy";
+import type { ForgeOps } from "./ops";
+import { DeployAgentUnavailableError } from "./proxy";
 
 export interface DeployRouteOptions {
   db: Database;
-  agent: DeployAgentProxy;
+  /**
+   * The agent, Cloudflare and the route-publishing rules, shared with the
+   * scheduled passes so both sides compose the same hostname set.
+   */
+  forge: ForgeOps;
   agentToken: string;
-  /** Absent when the host has no Cloudflare credentials; hostnames then only exist in the database. */
-  dns: CloudflareDnsClient | null;
-  /** Absent unless Cloudflare for SaaS is enabled; external domains then cannot be added. */
-  customHostnames: CloudflareCustomHostnameClient | null;
-  zoneName: string;
   envEncryptionKey: string;
   databaseEncryptionSecret: string;
   databaseHosts: ProjectDatabaseHosts;
@@ -218,14 +213,9 @@ function serializeEnvVar(row: DeployEnvVarRow) {
 const uuidParam = z.uuid();
 
 export function deployRoutes(options: DeployRouteOptions) {
-  const { db } = options;
+  const { db, forge } = options;
   const app = new Hono<{ Variables: AuthVariables }>();
-  const domainContext: DomainContext = {
-    db,
-    dns: options.dns,
-    customHostnames: options.customHostnames,
-    zoneName: options.zoneName,
-  };
+  const { agent: agentProxy, domainContext, zoneName } = forge;
 
   async function loadTarget(id: string): Promise<DeployTargetRow> {
     if (!uuidParam.safeParse(id).success) {
@@ -261,69 +251,6 @@ export function deployRoutes(options: DeployRouteOptions) {
       ),
     });
     return row?.hostname ?? null;
-  }
-
-  /**
-   * Releases everything a deployment holds outside its own row: the DNS
-   * record, and any S3 credential the resolver issued for it. Both are
-   * idempotent, because this runs on teardown and on every terminal failure.
-   */
-  async function releaseDeploymentResources(row: DeploymentRow): Promise<void> {
-    await revokeDeploymentS3Credentials(db, row.id);
-    if (!row.dnsRecordId || !options.dns) return;
-    await options.dns.deleteRecord(row.dnsRecordId).catch((error: unknown) => {
-      console.error("[deploy] DNS record delete failed", error);
-    });
-    await db
-      .update(deployments)
-      .set({ dnsRecordId: null })
-      .where(eq(deployments.id, row.id));
-  }
-
-  /**
-   * Hands the agent the complete hostname set for a deployment. Best-effort by
-   * design: it runs after the deployment is already live on its own hostname,
-   * so an agent that refuses this leaves a stable domain pointing at the
-   * previous release rather than taking the site down.
-   */
-  async function publishRoutes(row: DeploymentRow): Promise<boolean> {
-    const hostnames = await routeHostnames(db, row);
-    const response = await options.agent
-      .post(`/deployments/${row.id}/promote`, { hostnames })
-      .catch((error: unknown) => {
-        console.error("[deploy] route publish failed", error);
-        return null;
-      });
-    return response?.ok ?? false;
-  }
-
-  /** The deployment a target's stable domains currently point at. */
-  async function liveProductionDeployment(
-    targetId: string,
-  ): Promise<DeploymentRow | null> {
-    const [row] = await db
-      .select()
-      .from(deployments)
-      .where(
-        and(
-          eq(deployments.targetId, targetId),
-          eq(deployments.kind, "production"),
-          eq(deployments.status, "ready"),
-        ),
-      )
-      .orderBy(desc(deployments.readyAt))
-      .limit(1);
-    return row ?? null;
-  }
-
-  /**
-   * A domain change is only real once Caddy knows about it. Running this on
-   * every mutation is what keeps a custom domain from lagging a deploy behind
-   * the deployment it names.
-   */
-  async function republishTargetRoutes(targetId: string): Promise<void> {
-    const live = await liveProductionDeployment(targetId);
-    if (live) await publishRoutes(live);
   }
 
   // ---- Owner-facing routes -------------------------------------------------
@@ -384,10 +311,7 @@ export function deployRoutes(options: DeployRouteOptions) {
       // Runs the reserved-name and one-level-deep guards before anything is
       // written, so a target can never be created holding a hostname the DNS
       // step would refuse.
-      const hostname = assertDeployHostname(
-        `${label}.${options.zoneName}`,
-        options.zoneName,
-      );
+      const hostname = assertDeployHostname(`${label}.${zoneName}`, zoneName);
 
       const availability = await deployNamespaceAvailability(db, project.id);
       const [storageCredential] = await db
@@ -560,8 +484,8 @@ export function deployRoutes(options: DeployRouteOptions) {
       // cascade drops the record ids too, and a container nobody knows about
       // keeps serving on a hostname nobody can delete.
       for (const row of live) {
-        await options.agent.delete(`/deployments/${row.id}`).catch(() => {});
-        await releaseDeploymentResources(row);
+        await agentProxy.delete(`/deployments/${row.id}`).catch(() => {});
+        await forge.releaseDeployment(row);
       }
       // Same reasoning for the stable domains: the cascade takes the record and
       // custom-hostname ids with it, and what is left is a name pointing at a
@@ -780,8 +704,8 @@ export function deployRoutes(options: DeployRouteOptions) {
       `${previewHostnameLabel({
         projectSlug: input.projectSlug,
         branch: input.ref,
-      })}.${options.zoneName}`,
-      options.zoneName,
+      })}.${zoneName}`,
+      zoneName,
     );
 
     // Insert first, then call Cloudflare. The reverse leaves an orphan record
@@ -802,9 +726,9 @@ export function deployRoutes(options: DeployRouteOptions) {
       .returning();
     if (!created) throw new Error("Deployment insert returned no row");
 
-    if (options.dns) {
+    if (forge.dns) {
       try {
-        const record = await options.dns.createDeploymentRecord({
+        const record = await forge.dns.createDeploymentRecord({
           hostname,
           deploymentId: created.id,
         });
@@ -889,7 +813,7 @@ export function deployRoutes(options: DeployRouteOptions) {
   owner.get("/deployments/:id/logs", async (context) => {
     try {
       const row = await loadDeployment(context.req.param("id"));
-      return await options.agent.stream(
+      return await agentProxy.stream(
         `/deployments/${row.id}/logs`,
         context.req.raw.signal,
       );
@@ -921,14 +845,12 @@ export function deployRoutes(options: DeployRouteOptions) {
           status: "cancelled",
           error: "Cancelled before it was claimed",
         });
-        await releaseDeploymentResources(row);
+        await forge.releaseDeployment(row);
         return context.json({
           data: serializeDeployment(cancelled ?? row),
         });
       }
-      const response = await options.agent.post(
-        `/deployments/${row.id}/cancel`,
-      );
+      const response = await agentProxy.post(`/deployments/${row.id}/cancel`);
       if (!response.ok && response.status !== 409) {
         return context.json(
           {
@@ -1004,7 +926,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         .returning();
       if (!promoted) throw new Error("Promote returned no row");
 
-      const published = await publishRoutes(promoted);
+      const published = await forge.publishRoutes(promoted);
       if (!published) {
         // The row now says production and Caddy does not. Reverting is worse:
         // the agent may have taken the config and failed to answer, and a
@@ -1043,7 +965,7 @@ export function deployRoutes(options: DeployRouteOptions) {
           409,
         );
       }
-      const result = await options.agent.json<{
+      const result = await agentProxy.json<{
         restarted: boolean;
         healthy: boolean | null;
         error: string | null;
@@ -1069,8 +991,8 @@ export function deployRoutes(options: DeployRouteOptions) {
   owner.delete("/deployments/:id", async (context) => {
     try {
       const row = await loadDeployment(context.req.param("id"));
-      await options.agent.delete(`/deployments/${row.id}`).catch(() => {});
-      await releaseDeploymentResources(row);
+      await agentProxy.delete(`/deployments/${row.id}`).catch(() => {});
+      await forge.releaseDeployment(row);
       await db.delete(deployments).where(eq(deployments.id, row.id));
       return context.json({ data: { id: row.id } });
     } catch (error) {
@@ -1112,7 +1034,8 @@ export function deployRoutes(options: DeployRouteOptions) {
       });
       // A custom hostname is not routable until it validates, so there is
       // nothing to publish yet and the verification task does it later.
-      if (created.status === "active") await republishTargetRoutes(target.id);
+      if (created.status === "active")
+        await forge.republishTargetRoutes(target.id);
       return context.json({ data: serializeDomain(created) }, 201);
     } catch (error) {
       const response = errorResponse(error);
@@ -1140,7 +1063,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         );
         // Both names route until the grace period expires, which is the whole
         // point of add-swap-remove — the old links keep working.
-        await republishTargetRoutes(row.targetId);
+        await forge.republishTargetRoutes(row.targetId);
         return context.json({ data: serializeDomain(created) });
       }
       const updated = await setPrimaryDeployDomain(domainContext, row);
@@ -1155,7 +1078,7 @@ export function deployRoutes(options: DeployRouteOptions) {
     try {
       const row = await loadDeployDomain(db, context.req.param("id"));
       await deleteDeployDomain(domainContext, row);
-      await republishTargetRoutes(row.targetId);
+      await forge.republishTargetRoutes(row.targetId);
       return context.json({ data: { id: row.id } });
     } catch (error) {
       const response = errorResponse(error);
@@ -1168,7 +1091,7 @@ export function deployRoutes(options: DeployRouteOptions) {
       const row = await loadDeployDomain(db, context.req.param("id"));
       const refreshed = await refreshDeployDomain(domainContext, row);
       if (refreshed.status === "active" && row.status !== "active") {
-        await republishTargetRoutes(refreshed.targetId);
+        await forge.republishTargetRoutes(refreshed.targetId);
       }
       return context.json({ data: serializeDomain(refreshed) });
     } catch (error) {
@@ -1247,9 +1170,9 @@ export function deployRoutes(options: DeployRouteOptions) {
       // The agent routed the deployment's own hostname when the gate passed;
       // this adds the target's stable domains on top, which is what makes a
       // custom domain follow the release rather than lag it.
-      if (updated.kind === "production") await publishRoutes(updated);
+      if (updated.kind === "production") await forge.publishRoutes(updated);
     } else if (isTerminalDeploymentStatus(updated.status)) {
-      await releaseDeploymentResources(updated);
+      await forge.releaseDeployment(updated);
     }
     return context.json({ data: { status: updated.status } });
   });

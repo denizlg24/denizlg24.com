@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { cloudDateTimeSchema } from "./common";
+import { agentGcReportSchema } from "./deploy";
 import { namespaceTieringReportSchema, tieringReportSchema } from "./storage";
 
 export const TASK_TYPES = [
@@ -16,6 +17,8 @@ export const TASK_TYPES = [
   "run_command",
   "namespace_scan",
   "namespace_tiering",
+  "forge_gc",
+  "domain_verification",
 ] as const;
 
 export const taskTypeSchema = z.enum(TASK_TYPES);
@@ -132,6 +135,76 @@ export type NamespaceTieringTaskConfig = z.infer<
   typeof namespaceTieringTaskConfigSchema
 >;
 
+/**
+ * The deploy host's nightly reaper, driven from here because only this side
+ * knows which deployments are still wanted. The retention numbers are the
+ * control plane's; everything past `imageRetention` is forwarded to the agent
+ * untouched.
+ */
+export const forgeGcTaskConfigSchema = z.object({
+  /**
+   * Images kept per target beyond the ones a live deployment references. Three
+   * is two rollbacks deep — a rollback rebuilds, so this is a speed floor, not
+   * the thing that makes rollback possible.
+   */
+  imageRetention: z.number().int().min(1).max(50).default(3),
+  logRetentionDays: z.number().int().min(1).max(365).default(30),
+  buildCacheMaxMb: z.number().int().min(0).max(1_048_576).default(2_048),
+  buildCacheMaxAgeDays: z.number().int().min(1).max(365).default(14),
+  builderPruneHours: z.number().int().min(1).max(8_760).default(168),
+  /** Free space under this raises `forge_disk_low`. */
+  diskLowPercent: z.number().min(1).max(99).default(15),
+  dryRun: z.boolean().default(false),
+});
+export type ForgeGcTaskConfig = z.infer<typeof forgeGcTaskConfigSchema>;
+
+/**
+ * Polls the domains Cloudflare has not validated yet. Only custom hostnames
+ * ever sit in that state — a record in the zone we own is active the moment it
+ * is written — so this is short-lived work per domain and stops entirely once
+ * the sweep gives up on one.
+ */
+export const domainVerificationTaskConfigSchema = z.object({
+  batchCap: z.number().int().min(1).max(1_000).default(50),
+});
+export type DomainVerificationTaskConfig = z.infer<
+  typeof domainVerificationTaskConfigSchema
+>;
+
+const forgeStepFailureSchema = z.object({
+  step: z.string(),
+  subject: z.string(),
+  error: z.string(),
+});
+
+/**
+ * Shaped like `tieringReport`: per-item failures live here rather than in the
+ * run status, so one unremovable image cannot mark the sweep failed and mute
+ * the disk notification that is the whole reason it runs.
+ */
+export const forgeGcReportSchema = z.object({
+  dryRun: z.boolean(),
+  /** Null when the agent refused or was unreachable; the rest still ran. */
+  agent: agentGcReportSchema.nullable(),
+  deploymentsInterrupted: z.array(z.uuid()),
+  dnsRecordsRemoved: z.array(z.string()),
+  domainsRetired: z.array(z.string()),
+  domainsTimedOut: z.array(z.string()),
+  failures: z.array(forgeStepFailureSchema),
+});
+export type ForgeGcReport = z.infer<typeof forgeGcReportSchema>;
+
+export const domainVerificationReportSchema = z.object({
+  checked: z.number().int().nonnegative(),
+  activated: z.array(z.string()),
+  failed: z.array(z.string()),
+  republishedTargetIds: z.array(z.uuid()),
+  failures: z.array(forgeStepFailureSchema),
+});
+export type DomainVerificationReport = z.infer<
+  typeof domainVerificationReportSchema
+>;
+
 export const metricsRollupTaskConfigSchema = z.object({
   rawRetentionHours: z.number().int().min(24).max(168).default(24),
   rollupRetentionDays: z.number().int().min(1).max(365).default(90),
@@ -225,6 +298,12 @@ export const taskConfigSchema = z.object({
   allowReap: z.boolean().optional(),
   maxEntries: z.number().optional(),
   placementLookahead: z.number().optional(),
+  imageRetention: z.number().optional(),
+  logRetentionDays: z.number().optional(),
+  buildCacheMaxMb: z.number().optional(),
+  buildCacheMaxAgeDays: z.number().optional(),
+  builderPruneHours: z.number().optional(),
+  diskLowPercent: z.number().optional(),
 });
 export type TaskConfig = z.infer<typeof taskConfigSchema>;
 
@@ -241,6 +320,8 @@ export const TASK_CONFIG_SCHEMAS = {
   run_command: runCommandTaskConfigSchema,
   namespace_scan: namespaceScanTaskConfigSchema,
   namespace_tiering: namespaceTieringTaskConfigSchema,
+  forge_gc: forgeGcTaskConfigSchema,
+  domain_verification: domainVerificationTaskConfigSchema,
 } as const satisfies Record<TaskType, z.ZodType>;
 
 export function parseTaskConfig(type: TaskType, input: unknown): TaskConfig {
@@ -261,6 +342,8 @@ export const taskRunMetadataSchema = z.object({
   exitCode: z.number().int().optional(),
   namespaceScan: namespaceScanReportSchema.optional(),
   namespaceTiering: namespaceTieringReportSchema.optional(),
+  forgeGc: forgeGcReportSchema.optional(),
+  domainVerification: domainVerificationReportSchema.optional(),
 });
 export type TaskRunMetadata = z.infer<typeof taskRunMetadataSchema>;
 

@@ -31,7 +31,10 @@ import {
   type AlertEvaluationTaskConfig,
   alertEvaluationTaskConfigSchema,
   allBackupsTaskConfigSchema,
+  domainVerificationTaskConfigSchema,
+  type ForgeGcReport,
   filesBackupTaskConfigSchema,
+  forgeGcTaskConfigSchema,
   metricsRollupTaskConfigSchema,
   mongoBackupTaskConfigSchema,
   type NamespaceTieringReport,
@@ -48,6 +51,7 @@ import {
   tieringPassTaskConfigSchema,
 } from "@repo/schemas/cloud";
 
+import type { ForgeOps } from "../../deploy/ops";
 import type { OpsHealthService } from "../health";
 import type { NotificationDispatcher } from "../notifications";
 import type { MetricsSampler } from "../sampler";
@@ -67,6 +71,8 @@ export interface ExecutorContext extends BackupExecutorOptions {
   meili: MeiliSearch;
   /** Null in legacy mode, where there is no privileged host agent to scan. */
   metadataClient: NamespaceMetadataClient | null;
+  /** Null when no deploy agent is configured; the forge tasks then refuse. */
+  forge: ForgeOps | null;
   health: OpsHealthService;
   notifications: NotificationDispatcher;
   rebootSentinelPath: string;
@@ -143,6 +149,78 @@ export function namespaceTieringSummary(
     (move) => move.outcome === "moved",
   ).length;
   return `Namespace tiering ${kind}: ${formatBytes(report.bytesToFree)} to free, ${report.eligible} eligible, ${report.onSsd} on SSD, ${report.planned.length} planned, ${moved} moved, ${report.quarantined.length} quarantined, ${report.failures.length} failed`;
+}
+
+/**
+ * One line for the sweep. The failures count is deliberately in the summary
+ * rather than the run status: a single unremovable image must not read as a
+ * failed sweep and mute the disk warning that is the point of the whole pass.
+ */
+export function forgeGcSummary(report: ForgeGcReport): string {
+  const agent = report.agent;
+  const parts = [
+    `${agent?.imagesRemoved.length ?? 0} images`,
+    `${agent?.containersRemoved.length ?? 0} containers`,
+    `${agent?.buildsRemoved.length ?? 0} builds`,
+    `${agent?.logsRemoved.length ?? 0} logs`,
+    `${report.dnsRecordsRemoved.length} DNS records`,
+    `${report.domainsRetired.length} retired domains`,
+  ];
+  const extras = [
+    report.deploymentsInterrupted.length > 0
+      ? `${report.deploymentsInterrupted.length} interrupted`
+      : null,
+    report.domainsTimedOut.length > 0
+      ? `${report.domainsTimedOut.length} unvalidated`
+      : null,
+    agent?.builderCacheReclaimedBytes
+      ? `${formatBytes(agent.builderCacheReclaimedBytes)} build cache`
+      : null,
+    report.failures.length > 0 ? `${report.failures.length} failed` : null,
+    agent === null ? "the agent did not answer" : null,
+  ].filter(Boolean);
+  const disk = agent?.disk;
+  const free =
+    disk?.usedPercent === null || disk?.usedPercent === undefined
+      ? null
+      : `; disk at ${disk.usedPercent.toFixed(1)}%`;
+  return `Forge GC ${report.dryRun ? "dry run" : "completed"}: ${parts.join(", ")}${extras.length > 0 ? ` (${extras.join(", ")})` : ""}${free ?? ""}`;
+}
+
+function requireForge(context: ExecutorContext): ForgeOps {
+  if (!context.forge) {
+    throw new Error(
+      "The forge tasks need a deploy agent; set DEPLOY_AGENT_URL and DEPLOY_AGENT_TOKEN",
+    );
+  }
+  return context.forge;
+}
+
+/**
+ * The one thing in the report that has to reach someone. A full deploy host
+ * fails every build at once, and the pass that would have told you is the same
+ * one that just failed to free anything.
+ */
+async function notifyForgeDisk(
+  context: ExecutorContext,
+  report: ForgeGcReport,
+  diskLowPercent: number,
+): Promise<void> {
+  const disk = report.agent?.disk;
+  if (!disk || disk.usedPercent === null) return;
+  const freePercent = 100 - disk.usedPercent;
+  if (freePercent >= diskLowPercent) return;
+  await context.notifications.dispatch({
+    type: "forge_disk_low",
+    severity: freePercent < diskLowPercent / 2 ? "error" : "warn",
+    subjectKey: disk.path,
+    title: "Deploy host filling up",
+    message: `${disk.path} is ${disk.usedPercent.toFixed(1)}% full after the sweep (threshold ${diskLowPercent}% free)`,
+    details:
+      disk.freeBytes === null
+        ? undefined
+        : { free: formatBytes(disk.freeBytes) },
+  });
 }
 
 export function assertApiFilesBackupAllowed(
@@ -809,6 +887,44 @@ export function getExecutor(
             samplesRolledUp: result.rolledUp,
             samplesPruned: result.pruned,
             activityPruned,
+          },
+        };
+      };
+    case "forge_gc":
+      return async (rawConfig) => {
+        const config = forgeGcTaskConfigSchema.parse(rawConfig);
+        const startedAt = Date.now();
+        const report = await requireForge(context).garbageCollect(config);
+        await notifyForgeDisk(context, report, config.diskLowPercent);
+        return {
+          output: forgeGcSummary(report),
+          metadata: { durationMs: Date.now() - startedAt, forgeGc: report },
+        };
+      };
+    case "domain_verification":
+      return async (rawConfig) => {
+        const config = domainVerificationTaskConfigSchema.parse(rawConfig);
+        const startedAt = Date.now();
+        const report = await requireForge(context).verifyDomains(config);
+        const detail = [
+          report.activated.length > 0
+            ? `activated ${report.activated.join(", ")}`
+            : null,
+          report.failed.length > 0
+            ? `failed ${report.failed.join(", ")}`
+            : null,
+          report.republishedTargetIds.length > 0
+            ? `${report.republishedTargetIds.length} republished`
+            : null,
+          report.failures.length > 0
+            ? `${report.failures.length} errored`
+            : null,
+        ].filter(Boolean);
+        return {
+          output: `Domain verification: ${report.checked} pending${detail.length > 0 ? ` — ${detail.join(", ")}` : ""}`,
+          metadata: {
+            durationMs: Date.now() - startedAt,
+            domainVerification: report,
           },
         };
       };

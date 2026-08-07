@@ -20,6 +20,28 @@ export function domainRecordComment(domainId: string): string {
   return `${FORGE_RECORD_COMMENT_PREFIX}domain ${domainId}`;
 }
 
+export interface ForgeRecordSubject {
+  kind: "deployment" | "domain";
+  id: string;
+}
+
+/**
+ * The inverse of the two writers above. A managed record whose comment this
+ * cannot read is left alone rather than reaped: an unparseable comment means
+ * something wrote a shape this version does not know, and deleting it would
+ * make the reconciler destroy exactly what it failed to understand.
+ */
+export function parseForgeRecordComment(
+  comment: string | null,
+): ForgeRecordSubject | null {
+  if (!comment?.startsWith(FORGE_RECORD_COMMENT_PREFIX)) return null;
+  const rest = comment.slice(FORGE_RECORD_COMMENT_PREFIX.length).trim();
+  const [kind, id, ...extra] = rest.split(/\s+/);
+  if (extra.length > 0 || !id) return null;
+  if (kind !== "deployment" && kind !== "domain") return null;
+  return { kind, id };
+}
+
 export interface CloudflareDnsRecord {
   id: string;
   name: string;

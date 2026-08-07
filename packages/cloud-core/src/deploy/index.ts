@@ -4,3 +4,4 @@ export * from "./custom-hostnames";
 export * from "./deployments";
 export * from "./domains";
 export * from "./env";
+export * from "./gc";

@@ -1,0 +1,284 @@
+import type { Database } from "@repo/cloud-core";
+import { type DeploymentRow, deployments } from "@repo/cloud-core/db/schema";
+import {
+  type CloudflareCustomHostnameClient,
+  type CloudflareDnsClient,
+  type DomainContext,
+  loadForgeKeepSet,
+  markInterruptedDeployments,
+  pendingVerificationDomains,
+  reconcileForgeDnsRecords,
+  refreshDeployDomain,
+  releaseDeploymentResources,
+  routeHostnames,
+  sweepDeployDomains,
+} from "@repo/cloud-core/deploy";
+import {
+  type AgentGcReport,
+  agentGcReportSchema,
+  type DomainVerificationReport,
+  type DomainVerificationTaskConfig,
+  type ForgeGcReport,
+  type ForgeGcTaskConfig,
+} from "@repo/schemas/cloud";
+import { and, desc, eq } from "drizzle-orm";
+
+import type { DeployAgentProxy } from "./proxy";
+
+export interface ForgeOpsOptions {
+  db: Database;
+  agent: DeployAgentProxy;
+  /** Absent when the host has no Cloudflare credentials; hostnames then only exist in the database. */
+  dns: CloudflareDnsClient | null;
+  /** Absent unless Cloudflare for SaaS is enabled; external domains then cannot be added. */
+  customHostnames: CloudflareCustomHostnameClient | null;
+  zoneName: string;
+}
+
+interface StepFailure {
+  step: string;
+  subject: string;
+  error: string;
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Everything that acts on the deploy platform from outside a request: the two
+ * scheduled passes, and the route publishing both they and the owner routes
+ * need. It lives here rather than inside `deployRoutes` because a task has no
+ * Hono context to reach into, and two copies of "which names should Caddy
+ * serve" is precisely the drift that leaves a domain pointing at a dead
+ * container.
+ */
+export class ForgeOps {
+  readonly db: Database;
+  readonly agent: DeployAgentProxy;
+  readonly dns: CloudflareDnsClient | null;
+  readonly zoneName: string;
+  readonly domainContext: DomainContext;
+
+  constructor(options: ForgeOpsOptions) {
+    this.db = options.db;
+    this.agent = options.agent;
+    this.dns = options.dns;
+    this.zoneName = options.zoneName;
+    this.domainContext = {
+      db: options.db,
+      dns: options.dns,
+      customHostnames: options.customHostnames,
+      zoneName: options.zoneName,
+    };
+  }
+
+  /**
+   * Hands the agent the complete hostname set for a deployment. Best-effort by
+   * design: it runs after the deployment is already live on its own hostname,
+   * so an agent that refuses this leaves a stable domain pointing at the
+   * previous release rather than taking the site down.
+   */
+  async publishRoutes(row: DeploymentRow): Promise<boolean> {
+    const hostnames = await routeHostnames(this.db, row);
+    const response = await this.agent
+      .post(`/deployments/${row.id}/promote`, { hostnames })
+      .catch((error: unknown) => {
+        console.error("[deploy] route publish failed", error);
+        return null;
+      });
+    return response?.ok ?? false;
+  }
+
+  /** The deployment a target's stable domains currently point at. */
+  async liveProductionDeployment(
+    targetId: string,
+  ): Promise<DeploymentRow | null> {
+    const [row] = await this.db
+      .select()
+      .from(deployments)
+      .where(
+        and(
+          eq(deployments.targetId, targetId),
+          eq(deployments.kind, "production"),
+          eq(deployments.status, "ready"),
+        ),
+      )
+      .orderBy(desc(deployments.readyAt))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * A domain change is only real once Caddy knows about it. Running this on
+   * every mutation is what keeps a custom domain from lagging a deploy behind
+   * the deployment it names.
+   */
+  async republishTargetRoutes(targetId: string): Promise<boolean> {
+    const live = await this.liveProductionDeployment(targetId);
+    if (!live) return false;
+    return this.publishRoutes(live);
+  }
+
+  async releaseDeployment(row: DeploymentRow): Promise<void> {
+    await releaseDeploymentResources(this.db, this.dns, row);
+  }
+
+  /**
+   * The reaper's control-plane half. The agent decides nothing — it has no view
+   * of deployment status — so this resolves what is still wanted, sends the
+   * keep set, and reconciles the two things the agent cannot see: Cloudflare
+   * records, and domain rows whose rename grace period or validation window has
+   * run out.
+   */
+  async garbageCollect(config: ForgeGcTaskConfig): Promise<ForgeGcReport> {
+    const failures: StepFailure[] = [];
+    const dryRun = config.dryRun;
+
+    // First, so a build whose agent died is not still holding its image in the
+    // keep set below.
+    const interrupted = await markInterruptedDeployments(this.db, { dryRun });
+    if (!dryRun) {
+      for (const row of interrupted) {
+        await this.releaseDeployment(row).catch((error: unknown) => {
+          failures.push({
+            step: "release",
+            subject: row.id,
+            error: describe(error),
+          });
+        });
+      }
+    }
+
+    const keep = await loadForgeKeepSet(this.db, {
+      imageRetention: config.imageRetention,
+    });
+    let agentReport: AgentGcReport | null = null;
+    try {
+      const response = await this.agent.json<{ report?: unknown }>("/gc", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...keep,
+          logRetentionDays: config.logRetentionDays,
+          buildCacheMaxMb: config.buildCacheMaxMb,
+          buildCacheMaxAgeDays: config.buildCacheMaxAgeDays,
+          builderPruneHours: config.builderPruneHours,
+          dryRun,
+        }),
+      });
+      if (response.status >= 400) {
+        throw new Error(`The agent refused the sweep (${response.status})`);
+      }
+      agentReport = agentGcReportSchema.parse(response.body?.report);
+    } catch (error) {
+      failures.push({ step: "agent", subject: "gc", error: describe(error) });
+    }
+
+    // Before the DNS reconcile, not after: the sweep deletes domain rows and
+    // their records together, and the reconcile is what catches the ones whose
+    // record delete failed.
+    const sweep = await sweepDeployDomains(this.domainContext).catch(
+      (error: unknown) => {
+        failures.push({
+          step: "domains",
+          subject: "sweep",
+          error: describe(error),
+        });
+        return null;
+      },
+    );
+    for (const failure of sweep?.failures ?? []) {
+      failures.push({
+        step: "domains",
+        subject: failure.hostname,
+        error: failure.error,
+      });
+    }
+
+    let dnsRecordsRemoved: string[] = [];
+    if (this.dns) {
+      const reconciled = await reconcileForgeDnsRecords(
+        { db: this.db, dns: this.dns },
+        { dryRun },
+      ).catch((error: unknown) => {
+        failures.push({ step: "dns", subject: "list", error: describe(error) });
+        return null;
+      });
+      dnsRecordsRemoved = reconciled?.removed ?? [];
+      for (const failure of reconciled?.failures ?? []) {
+        failures.push({ step: "dns", ...failure });
+      }
+    }
+
+    return {
+      dryRun,
+      agent: agentReport,
+      deploymentsInterrupted: interrupted.map((row) => row.id),
+      dnsRecordsRemoved,
+      domainsRetired: sweep?.retiredRemoved ?? [],
+      domainsTimedOut: sweep?.verificationTimedOut ?? [],
+      failures,
+    };
+  }
+
+  /**
+   * One poll of every domain still waiting on Cloudflare. A domain that flips
+   * to `active` is not routable until Caddy is told, so the target it belongs
+   * to is republished in the same pass — otherwise a validated domain sits
+   * doing nothing until the next unrelated deploy.
+   */
+  async verifyDomains(
+    config: DomainVerificationTaskConfig,
+  ): Promise<DomainVerificationReport> {
+    const failures: StepFailure[] = [];
+    const activated: string[] = [];
+    const failed: string[] = [];
+    const republish = new Set<string>();
+
+    const pending = (await pendingVerificationDomains(this.db)).slice(
+      0,
+      config.batchCap,
+    );
+    for (const row of pending) {
+      try {
+        const refreshed = await refreshDeployDomain(this.domainContext, row);
+        if (refreshed.status === "active" && row.status !== "active") {
+          activated.push(refreshed.hostname);
+          republish.add(refreshed.targetId);
+        } else if (refreshed.status === "failed" && row.status !== "failed") {
+          failed.push(refreshed.hostname);
+        }
+      } catch (error) {
+        failures.push({
+          step: "verify",
+          subject: row.hostname,
+          error: describe(error),
+        });
+      }
+    }
+
+    const republishedTargetIds: string[] = [];
+    for (const targetId of republish) {
+      const published = await this.republishTargetRoutes(targetId).catch(
+        (error: unknown) => {
+          failures.push({
+            step: "publish",
+            subject: targetId,
+            error: describe(error),
+          });
+          return false;
+        },
+      );
+      if (published) republishedTargetIds.push(targetId);
+    }
+
+    return {
+      checked: pending.length,
+      activated,
+      failed,
+      republishedTargetIds,
+      failures,
+    };
+  }
+}

@@ -47,6 +47,7 @@ import {
 } from "./auth/better-auth";
 import { RedisRateLimitStore } from "./auth/redis-rate-limit";
 import { mongoDbAdminRoutes, postgresDbAdminRoutes } from "./db-admin/routes";
+import { ForgeOps } from "./deploy/ops";
 import { DeployAgentProxy } from "./deploy/proxy";
 import { deployRoutes } from "./deploy/routes";
 import { OpsHealthService } from "./ops/health";
@@ -297,6 +298,47 @@ export async function createRuntimeApp() {
     await seedDefaultAlertRules(db).catch((error) => {
       console.error("[alerts] Seeding default rules failed", error);
     });
+    // The deploy surface is optional: a host with no agent to reach mounts
+    // nothing rather than answering every route with a 503 nobody can act on.
+    // Built here rather than beside the routes because the health check and the
+    // two scheduled passes need the same object.
+    let cloudflareDeployConfig: ReturnType<
+      typeof cloudflareDeployConfigFromEnv
+    > | null = null;
+    try {
+      cloudflareDeployConfig = cloudflareDeployConfigFromEnv();
+    } catch {
+      cloudflareDeployConfig = null;
+    }
+    const deployAgentUrl = process.env.DEPLOY_AGENT_URL?.trim();
+    const deployAgentToken = process.env.DEPLOY_AGENT_TOKEN?.trim();
+    const forge =
+      deployAgentUrl && deployAgentToken
+        ? new ForgeOps({
+            db,
+            agent: new DeployAgentProxy({
+              baseUrl: deployAgentUrl,
+              token: deployAgentToken,
+            }),
+            // Cloudflare is configured separately. Without it a deployment
+            // still builds, runs and routes through Caddy — it just has no
+            // public name, which is a better failure than refusing to deploy.
+            dns: cloudflareDeployConfig
+              ? new CloudflareDnsClient({ config: cloudflareDeployConfig })
+              : null,
+            // Same credentials, separate client: a zone record and a custom
+            // hostname are different mechanisms and only one of them is
+            // quota-limited, so nothing should be able to reach for the wrong
+            // one by accident.
+            customHostnames: cloudflareDeployConfig
+              ? new CloudflareCustomHostnameClient({
+                  config: cloudflareDeployConfig,
+                })
+              : null,
+            zoneName: cloudflareDeployConfig?.zoneName ?? "denizlg24.com",
+          })
+        : null;
+
     const health = new OpsHealthService({
       db,
       mongo: mongoAdmin,
@@ -305,6 +347,10 @@ export async function createRuntimeApp() {
       meilisearchUrl: requiredEnv("MEILISEARCH_URL"),
       mongotUrl: process.env.MONGOT_HEALTH_URL ?? "http://mongot:8080",
       tunnelUrl: process.env.TUNNEL_HEALTH_URL || undefined,
+      // The agent's own `/healthz` pings Docker and stats the data root, so a
+      // 200 from it means it can actually build — not merely that it is up.
+      forgeUrl: deployAgentUrl && forge ? `${deployAgentUrl}/healthz` : null,
+      forgeToken: deployAgentToken ?? null,
       diskHeadroomPercent: numberEnv("DISK_MIN_HEADROOM_PERCENT", 10, 1, 99),
     });
     const activityRecorder = new ActivityRecorder({
@@ -347,6 +393,7 @@ export async function createRuntimeApp() {
         sampler,
         storageConfig,
         metadataClient,
+        forge,
         backupDirectory: process.env.BACKUP_DIR ?? "/backups",
         postgresContainer: process.env.POSTGRES_CONTAINER ?? "postgres",
         mongoContainer: process.env.MONGODB_CONTAINER ?? "mongodb",
@@ -418,43 +465,12 @@ export async function createRuntimeApp() {
       ticketSecret: requiredEnv("TERMINAL_TICKET_SECRET"),
     });
 
-    // The deploy surface is optional: a host with no agent to reach mounts
-    // nothing rather than answering every route with a 503 nobody can act on.
-    let cloudflareDeployConfig: ReturnType<
-      typeof cloudflareDeployConfigFromEnv
-    > | null = null;
-    try {
-      cloudflareDeployConfig = cloudflareDeployConfigFromEnv();
-    } catch {
-      cloudflareDeployConfig = null;
-    }
-    const deployAgentUrl = process.env.DEPLOY_AGENT_URL?.trim();
-    const deployAgentToken = process.env.DEPLOY_AGENT_TOKEN?.trim();
     const deploy =
-      deployAgentUrl && deployAgentToken
+      forge && deployAgentToken
         ? deployRoutes({
             db,
-            agent: new DeployAgentProxy({
-              baseUrl: deployAgentUrl,
-              token: deployAgentToken,
-            }),
+            forge,
             agentToken: deployAgentToken,
-            // Cloudflare is configured separately. Without it a deployment
-            // still builds, runs and routes through Caddy — it just has no
-            // public name, which is a better failure than refusing to deploy.
-            dns: cloudflareDeployConfig
-              ? new CloudflareDnsClient({ config: cloudflareDeployConfig })
-              : null,
-            // Same credentials, separate client: a zone record and a custom
-            // hostname are different mechanisms and only one of them is
-            // quota-limited, so nothing should be able to reach for the wrong
-            // one by accident.
-            customHostnames: cloudflareDeployConfig
-              ? new CloudflareCustomHostnameClient({
-                  config: cloudflareDeployConfig,
-                })
-              : null,
-            zoneName: cloudflareDeployConfig?.zoneName ?? "denizlg24.com",
             envEncryptionKey: requiredEnv("DEPLOY_ENV_ENCRYPTION_KEY"),
             databaseEncryptionSecret,
             databaseHosts,

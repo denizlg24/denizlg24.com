@@ -1,4 +1,4 @@
-import { type Exec, execOrThrow } from "./exec";
+import type { Exec } from "./exec";
 
 export const BUILDER_NAME = "forge";
 

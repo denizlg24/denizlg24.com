@@ -55,6 +55,8 @@ describe("cloud database schema", () => {
       "run_command",
       "namespace_scan",
       "namespace_tiering",
+      "forge_gc",
+      "domain_verification",
     ]);
     expect(taskRunStatusEnum.enumValues).toEqual([
       "pending",

@@ -2,6 +2,7 @@ import type { Database } from "@repo/cloud-core";
 import type { HealthCheck, OpsHealth } from "@repo/schemas/cloud";
 import { sql } from "drizzle-orm";
 import type { MongoClient } from "mongodb";
+import { z } from "zod";
 
 import type { MetricsSampler } from "./sampler";
 
@@ -17,6 +18,9 @@ export interface OpsHealthServiceOptions {
   meilisearchUrl: string;
   mongotUrl: string;
   tunnelUrl?: string;
+  /** Null when no deploy agent is configured; the check then reports unknown. */
+  forgeUrl?: string | null;
+  forgeToken?: string | null;
   diskHeadroomPercent?: number;
   fetchImplementation?: typeof fetch;
 }
@@ -51,6 +55,60 @@ async function httpCheck(
   }
 }
 
+/**
+ * Deliberately not `agentHealthSchema.partial()`. That validates the whole
+ * body, so an agent that added a field to `docker` would fail the parse and
+ * take `status` down with it — reporting a box whose Docker is unreachable as
+ * healthy. Each field is read on its own and a field that does not parse is
+ * simply absent.
+ */
+const forgeHealthBodySchema = z.object({
+  status: z.enum(["ok", "degraded", "unavailable"]).nullish().catch(undefined),
+  docker: z.object({ error: z.string().nullish() }).nullish().catch(undefined),
+  disk: z
+    .object({ usedPercent: z.number().nullish() })
+    .nullish()
+    .catch(undefined),
+  queue: z
+    .object({ running: z.number(), capacity: z.number() })
+    .nullish()
+    .catch(undefined),
+});
+
+/** What the agent said about itself, collapsed into a check. */
+export function interpretForgeHealth(
+  status: number,
+  body: unknown,
+  latencyMs: number,
+): HealthCheck {
+  const parsed = forgeHealthBodySchema.safeParse(body);
+  const data = parsed.success ? parsed.data : null;
+  if (status >= 400 || data?.status === "unavailable") {
+    return {
+      status: "down",
+      latencyMs,
+      message: data?.docker?.error ?? `HTTP ${status}`,
+    };
+  }
+  const queue = data?.queue;
+  const depth = queue ? `${queue.running}/${queue.capacity} building` : null;
+  if (data?.status === "degraded") {
+    const usedPercent = data.disk?.usedPercent;
+    const parts = [
+      usedPercent === null || usedPercent === undefined
+        ? null
+        : `disk at ${usedPercent.toFixed(1)}%`,
+      depth,
+    ].filter(Boolean);
+    return {
+      status: "degraded",
+      latencyMs,
+      message: parts.length > 0 ? parts.join(", ") : "The agent is degraded",
+    };
+  }
+  return { status: "ok", latencyMs, message: depth };
+}
+
 export class OpsHealthService {
   private readonly fetchImplementation: typeof fetch;
   private readonly diskHeadroomPercent: number;
@@ -62,7 +120,7 @@ export class OpsHealthService {
 
   async check(): Promise<OpsHealth> {
     const tunnelUrl = this.options.tunnelUrl;
-    const [postgres, mongodb, redis, meilisearch, mongot, disk, tunnel] =
+    const [postgres, mongodb, redis, meilisearch, mongot, disk, tunnel, forge] =
       await Promise.all([
         timedCheck(async () => {
           await this.options.db.execute(sql`select 1`);
@@ -94,6 +152,7 @@ export class OpsHealthService {
               latencyMs: null,
               message: "TUNNEL_HEALTH_URL is not configured",
             } satisfies HealthCheck),
+        this.forgeCheck(),
       ]);
 
     const checks = {
@@ -104,6 +163,7 @@ export class OpsHealthService {
       meilisearch,
       disk,
       tunnel,
+      forge,
     };
     const values = Object.values(checks);
     const status = values.some((check) => check.status === "down")
@@ -117,6 +177,44 @@ export class OpsHealthService {
       timestamp: new Date().toISOString(),
       checks,
     };
+  }
+
+  /**
+   * The deploy host, reached over the same token the proxy uses. Its `/healthz`
+   * answers 503 when Docker is unreachable, which is the case a plain liveness
+   * probe reports as healthy while every build fails — so the body's own status
+   * is what `interpretForgeHealth` reads, not just the transport succeeding.
+   */
+  private async forgeCheck(): Promise<HealthCheck> {
+    const url = this.options.forgeUrl;
+    if (!url) {
+      return {
+        status: "unknown",
+        latencyMs: null,
+        message: "DEPLOY_AGENT_URL is not configured",
+      };
+    }
+    const startedAt = performance.now();
+    try {
+      const response = await this.fetchImplementation(url, {
+        headers: this.options.forgeToken
+          ? { authorization: `Bearer ${this.options.forgeToken}` }
+          : {},
+        signal: AbortSignal.timeout(5_000),
+      });
+      return interpretForgeHealth(
+        response.status,
+        await response.json().catch(() => null),
+        performance.now() - startedAt,
+      );
+    } catch (error) {
+      return {
+        status: "down",
+        latencyMs: performance.now() - startedAt,
+        message:
+          error instanceof Error ? error.message.slice(0, 500) : "Failed",
+      };
+    }
   }
 
   private async diskCheck(): Promise<HealthCheck> {
