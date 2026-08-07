@@ -213,3 +213,152 @@ export type AgentHealth = z.infer<typeof agentHealthSchema>;
 
 export const DISK_DEGRADED_PERCENT = 85;
 export const DISK_UNAVAILABLE_PERCENT = 97;
+
+/**
+ * Deployment hostnames share the apex zone with real infrastructure, so these
+ * first labels are refused outright. `api`, `cloud` and `storage` are the ones
+ * that would take a live service down; the mail and `_acme-challenge`-adjacent
+ * names are here because a record on one of them breaks delivery or renewal in
+ * a way that looks nothing like a deploy problem.
+ */
+export const RESERVED_DEPLOY_LABELS: ReadonlySet<string> = new Set([
+  "admin",
+  "api",
+  "app",
+  "assets",
+  "autoconfig",
+  "autodiscover",
+  "cdn",
+  "cloud",
+  "dev",
+  "forge",
+  "imap",
+  "mail",
+  "mx",
+  "ns1",
+  "ns2",
+  "pi",
+  "pi-cloud",
+  "pop",
+  "search",
+  "smtp",
+  "staging",
+  "static",
+  "storage",
+  "tailscale",
+  "vpn",
+  "www",
+  "_dmarc",
+  "_domainkey",
+]);
+
+export const MAX_HOSTNAME_LABEL_LENGTH = 63;
+const PREVIEW_SUFFIX_LENGTH = 6;
+const LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
+export function isReservedDeployLabel(label: string): boolean {
+  return RESERVED_DEPLOY_LABELS.has(label.toLowerCase());
+}
+
+export function slugifyHostnameLabel(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, MAX_HOSTNAME_LABEL_LENGTH);
+}
+
+function trimHyphens(value: string): string {
+  return value.replace(/^-+|-+$/g, "");
+}
+
+export function randomHostnameSuffix(
+  length: number = PREVIEW_SUFFIX_LENGTH,
+): string {
+  const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return [...bytes]
+    .map((byte) => alphabet[byte % alphabet.length] ?? "0")
+    .join("");
+}
+
+/**
+ * A long branch on a long slug overflows the 63-character label limit, and
+ * Cloudflare's error for that names neither. The branch is what gets truncated
+ * — the random suffix is what makes the name unique, so it is never the part
+ * that goes.
+ */
+export function previewHostnameLabel(options: {
+  projectSlug: string;
+  branch: string;
+  suffix?: string;
+}): string {
+  const suffix = options.suffix ?? randomHostnameSuffix();
+  const room = MAX_HOSTNAME_LABEL_LENGTH - (suffix.length + 1);
+  const slug =
+    trimHyphens(slugifyHostnameLabel(options.projectSlug).slice(0, room)) ||
+    "app";
+  const branchRoom = room - slug.length - 1;
+  const branch =
+    branchRoom > 0
+      ? trimHyphens(slugifyHostnameLabel(options.branch).slice(0, branchRoom))
+      : "";
+  return branch ? `${slug}-${branch}-${suffix}` : `${slug}-${suffix}`;
+}
+
+export class DeployHostnameError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DeployHostnameError";
+  }
+}
+
+/**
+ * `zone` is the zone whose Universal SSL certificate covers the name. That
+ * certificate is **one level deep**: `app.denizlg24.com` is covered and
+ * `app.dpl.denizlg24.com` is not, and the second serves a certificate error
+ * that looks exactly like a tunnel fault. So a name in the managed zone must
+ * sit directly under it.
+ */
+export function assertDeployHostname(hostname: string, zone: string): string {
+  const value = hostname.trim().toLowerCase();
+  if (value.length === 0 || value.length > 253) {
+    throw new DeployHostnameError("Hostname must be 1–253 characters");
+  }
+
+  const labels = value.split(".");
+  for (const label of labels) {
+    if (label.length === 0 || label.length > MAX_HOSTNAME_LABEL_LENGTH) {
+      throw new DeployHostnameError(
+        `Hostname label "${label}" must be 1–${MAX_HOSTNAME_LABEL_LENGTH} characters`,
+      );
+    }
+    if (!LABEL_PATTERN.test(label) && !label.startsWith("_")) {
+      throw new DeployHostnameError(`Hostname label "${label}" is not valid`);
+    }
+  }
+  if (labels.length < 2) {
+    throw new DeployHostnameError("Hostname must include a domain");
+  }
+
+  const normalisedZone = zone.toLowerCase();
+  if (value === normalisedZone) {
+    throw new DeployHostnameError(
+      `${value} is the zone apex; pointing it at a deployment replaces the site that lives there`,
+    );
+  }
+
+  const suffix = `.${normalisedZone}`;
+  if (value.endsWith(suffix)) {
+    const subdomain = value.slice(0, -suffix.length);
+    if (subdomain.includes(".")) {
+      throw new DeployHostnameError(
+        `${value} is more than one level under ${zone}; Universal SSL does not cover it`,
+      );
+    }
+    if (isReservedDeployLabel(subdomain)) {
+      throw new DeployHostnameError(`"${subdomain}" is a reserved name`);
+    }
+  }
+  return value;
+}
