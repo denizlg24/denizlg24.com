@@ -934,6 +934,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         triggeredBy: "rollback",
         createdBy: context.get("user").id,
       });
+      await options.github?.surfaces.onEnqueued(created, target);
       return context.json({ data: serializeDeployment(created) }, 202);
     } catch (error) {
       const response = errorResponse(error);
