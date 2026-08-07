@@ -4,5 +4,6 @@ export * from "./custom-hostnames";
 export * from "./deployments";
 export * from "./domains";
 export * from "./env";
+export * from "./envoy-env";
 export * from "./gc";
 export * from "./github";

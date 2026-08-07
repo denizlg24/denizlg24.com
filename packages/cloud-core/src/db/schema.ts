@@ -1024,6 +1024,21 @@ export const deployTargets = pgTable(
       .default("1.0"),
     autoDeploy: boolean("auto_deploy").notNull().default(true),
     previewDeploys: boolean("preview_deploys").notNull().default(true),
+    /**
+     * Opt-in, and the opt-in is this column being set. Envoy env is never
+     * pulled because a project happens to have an Envoy counterpart — the link
+     * is made deliberately, per target, or nothing happens.
+     *
+     * The passphrase has to be stored because Envoy is client-side encrypted:
+     * its server holds ciphertext and never the key, so a control plane that
+     * resolves env from it necessarily holds the key too. That is a real
+     * reduction in what Envoy's encryption buys for this one project, which is
+     * exactly why it is opt-in rather than automatic.
+     */
+    envoyProjectId: uuid("envoy_project_id"),
+    envoyPassphrase: text("envoy_passphrase"),
+    envoyPassphraseIv: text("envoy_passphrase_iv"),
+    envoyPassphraseAuthTag: text("envoy_passphrase_auth_tag"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1035,6 +1050,14 @@ export const deployTargets = pgTable(
     uniqueIndex("deploy_targets_project_name_key").on(
       table.projectId,
       table.name,
+    ),
+    check(
+      "deploy_targets_envoy_link_shape",
+      sql`
+    (envoy_project_id IS NULL AND envoy_passphrase IS NULL) OR
+    (envoy_project_id IS NOT NULL AND envoy_passphrase IS NOT NULL
+     AND envoy_passphrase_iv IS NOT NULL AND envoy_passphrase_auth_tag IS NOT NULL)
+  `,
     ),
     index("deploy_targets_repo_idx").on(table.repoOwner, table.repoName),
   ],

@@ -438,6 +438,18 @@ export type UpdateDeployTargetInput = z.infer<
   typeof updateDeployTargetInputSchema
 >;
 
+/**
+ * Linking is a separate call from the rest of the settings, and deliberately
+ * so: it carries a passphrase, which no other target update does, and it is the
+ * whole of the opt-in. Envoy env is never pulled for a target that has not made
+ * this call, however obvious the matching project looks.
+ */
+export const linkEnvoyProjectInputSchema = z.object({
+  envoyProjectId: z.uuid(),
+  passphrase: z.string().min(1).max(1_024),
+});
+export type LinkEnvoyProjectInput = z.infer<typeof linkEnvoyProjectInputSchema>;
+
 export const createDeploymentInputSchema = z.object({
   ref: z.string().min(1).max(255),
   sha: gitShaSchema.optional(),
@@ -466,6 +478,8 @@ export const deployTargetSchema = z.object({
   cpuLimit: z.number(),
   autoDeploy: z.boolean(),
   previewDeploys: z.boolean(),
+  /** Set means this target opted into pulling env from Envoy. Never the passphrase. */
+  envoyProjectId: z.uuid().nullable(),
   primaryHostname: z.string().nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),

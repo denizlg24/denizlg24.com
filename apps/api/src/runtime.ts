@@ -510,6 +510,8 @@ export async function createRuntimeApp() {
             db,
             forge,
             github,
+            // No decrypt exists yet, so a linked target pulls nothing.
+            envoyEnv: null,
             agentToken: deployAgentToken,
             envEncryptionKey: requiredEnv("DEPLOY_ENV_ENCRYPTION_KEY"),
             databaseEncryptionSecret,

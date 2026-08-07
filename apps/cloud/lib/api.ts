@@ -47,6 +47,7 @@ import {
   type IssuedProjectS3Credential,
   issuedProjectS3CredentialSchema,
   type LargestFile,
+  type LinkEnvoyProjectInput,
   largestFileSchema,
   type MetricCatalogResponse,
   type MetricsResponse,
@@ -823,6 +824,20 @@ export const api = {
       }),
     logsUrl: (id: string): string =>
       buildUrl(`/api/deploy/deployments/${id}/logs`, undefined).toString(),
+
+    /** Opt in to pulling env from Envoy. Sends a passphrase; nothing reads it back. */
+    linkEnvoy: (
+      targetId: string,
+      input: LinkEnvoyProjectInput,
+    ): Promise<DeployTarget> =>
+      requestData(deployTargetSchema, `/api/deploy/targets/${targetId}/envoy`, {
+        method: "PUT",
+        body: input,
+      }),
+    unlinkEnvoy: (targetId: string): Promise<DeployTarget> =>
+      requestData(deployTargetSchema, `/api/deploy/targets/${targetId}/envoy`, {
+        method: "DELETE",
+      }),
 
     env: (targetId: string): Promise<DeployEnvVar[]> =>
       requestData(

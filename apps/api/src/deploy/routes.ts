@@ -30,7 +30,9 @@ import {
   deleteDeployDomain,
   deployNamespaceAvailability,
   describeBindings,
+  type EnvoyEnvSource,
   encryptDeployEnvValue,
+  envoyLinkFor,
   findInFlightDeploymentForSha,
   type GithubAppClient,
   HostnameConflictError,
@@ -46,6 +48,7 @@ import {
   releaseDeployDomain,
   renameDeployDomain,
   resolveDeploymentEnv,
+  resolveEnvoyEnv,
   setPrimaryDeployDomain,
   supersedeOlderDeployments,
   supersedeQueuedDeployments,
@@ -65,6 +68,7 @@ import {
   githubPullRequestEventSchema,
   githubPushEventSchema,
   isTerminalDeploymentStatus,
+  linkEnvoyProjectInputSchema,
   previewHostnameLabel,
   replaceDeployEnvInputSchema,
   slugifyHostnameLabel,
@@ -94,6 +98,11 @@ export interface DeployRouteOptions {
    * is written back to a pull request.
    */
   github: { client: GithubAppClient; surfaces: GithubSurfaces } | null;
+  /**
+   * Absent until an Envoy decrypt exists. A target may still be linked; the
+   * pull simply resolves to nothing, which is the same as not opting in.
+   */
+  envoyEnv: EnvoyEnvSource | null;
   agentToken: string;
   envEncryptionKey: string;
   databaseEncryptionSecret: string;
@@ -168,6 +177,7 @@ function serializeTarget(
     cpuLimit: Number(target.cpuLimit),
     autoDeploy: target.autoDeploy,
     previewDeploys: target.previewDeploys,
+    envoyProjectId: target.envoyProjectId,
     primaryHostname: extra.primaryHostname,
     createdAt: target.createdAt.toISOString(),
     updatedAt: target.updatedAt.toISOString(),
@@ -520,6 +530,83 @@ export function deployRoutes(options: DeployRouteOptions) {
       }
       await db.delete(deployTargets).where(eq(deployTargets.id, target.id));
       return context.json({ data: { id: target.id } });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * The opt-in. Storing the passphrase is what makes the pull possible at all —
+   * Envoy encrypts client-side, so its server holds ciphertext and never a key
+   * — and it is the reason this is a deliberate act per target rather than
+   * something that happens because a matching Envoy project exists.
+   */
+  owner.put("/targets/:id/envoy", async (context) => {
+    const parsed = linkEnvoyProjectInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        { error: { code: "INVALID_INPUT", message: "Invalid Envoy link" } },
+        400,
+      );
+    }
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const cipher = encryptDeployEnvValue(
+        parsed.data.passphrase,
+        options.envEncryptionKey,
+      );
+      const [updated] = await db
+        .update(deployTargets)
+        .set({
+          envoyProjectId: parsed.data.envoyProjectId,
+          envoyPassphrase: cipher.encrypted,
+          envoyPassphraseIv: cipher.iv,
+          envoyPassphraseAuthTag: cipher.authTag,
+          updatedAt: new Date(),
+        })
+        .where(eq(deployTargets.id, target.id))
+        .returning();
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, target.projectId),
+      });
+      return context.json({
+        data: serializeTarget(updated ?? target, {
+          projectSlug: project?.slug ?? "",
+          primaryHostname: await primaryHostname(target.id),
+        }),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.delete("/targets/:id/envoy", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const [updated] = await db
+        .update(deployTargets)
+        .set({
+          envoyProjectId: null,
+          envoyPassphrase: null,
+          envoyPassphraseIv: null,
+          envoyPassphraseAuthTag: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(deployTargets.id, target.id))
+        .returning();
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, target.projectId),
+      });
+      return context.json({
+        data: serializeTarget(updated ?? target, {
+          projectSlug: project?.slug ?? "",
+          primaryHostname: await primaryHostname(target.id),
+        }),
+      });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1247,7 +1334,17 @@ export function deployRoutes(options: DeployRouteOptions) {
         .select()
         .from(deployEnvVars)
         .where(eq(deployEnvVars.targetId, target.id));
+      // Step 2 of resolution, and only for a target that was deliberately
+      // linked. Layered beneath `deploy_env_vars`, so a key set on the target
+      // still wins over the same key in the Envoy file.
+      const envoy = await resolveEnvoyEnv(
+        options.envoyEnv,
+        envoyLinkFor(target, (candidate) =>
+          decryptDeployEnvValue(candidate, options.envEncryptionKey),
+        ),
+      );
       const resolved = await resolveDeploymentEnv({
+        envoy,
         rows,
         deployment: {
           id: row.id,

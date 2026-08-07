@@ -140,6 +140,99 @@ export function SettingsPanel({
           Save
         </Button>
       </div>
+
+      <EnvoyLink target={target} onChanged={onSaved} />
+    </div>
+  );
+}
+
+/**
+ * Off unless it is turned on here, per target. Envoy encrypts client-side, so
+ * pulling env from it means this box holds the project passphrase — which is
+ * why it is never inferred from a matching project.
+ */
+function EnvoyLink({
+  target,
+  onChanged,
+}: {
+  target: DeployTarget;
+  onChanged: () => void;
+}) {
+  const [projectId, setProjectId] = useState(target.envoyProjectId ?? "");
+  const [passphrase, setPassphrase] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function run(label: string, action: () => Promise<unknown>) {
+    setBusy(true);
+    try {
+      await action();
+      toast.success(label);
+      setPassphrase("");
+      onChanged();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium">Envoy</span>
+        {target.envoyProjectId && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              void run("Unlinked", () => api.deploy.unlinkEnvoy(target.id))
+            }
+          >
+            Unlink
+          </Button>
+        )}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="envoy-project">Project</Label>
+          <Input
+            id="envoy-project"
+            value={projectId}
+            className="font-mono text-xs"
+            onChange={(event) => setProjectId(event.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="envoy-passphrase">Passphrase</Label>
+          <Input
+            id="envoy-passphrase"
+            type="password"
+            value={passphrase}
+            placeholder={target.envoyProjectId ? "stored" : ""}
+            onChange={(event) => setPassphrase(event.target.value)}
+          />
+        </div>
+      </div>
+      <div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={
+            busy || projectId.trim().length === 0 || passphrase.length === 0
+          }
+          onClick={() =>
+            void run("Linked", () =>
+              api.deploy.linkEnvoy(target.id, {
+                envoyProjectId: projectId.trim(),
+                passphrase,
+              }),
+            )
+          }
+        >
+          Link
+        </Button>
+      </div>
     </div>
   );
 }
