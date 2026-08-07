@@ -41,6 +41,9 @@ corrupt it, and the failure looks like a crash-loop with no useful message.
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | |
 | `DOCKER_DATA_ROOT` | `/var/lib/docker` | What `/healthz` stats for disk pressure. |
 | `DOCKER_NETWORK` | `forge-apps` | The network every deployment container joins. |
+| `CADDY_ADMIN_URL` | `http://127.0.0.1:2019` | Refused at startup unless it points at loopback. |
+| `CADDY_LISTEN` | `:8080` | What cloudflared's catch-all ingress targets. |
+| `CADDY_STATE_PATH` | `/srv/forge/caddy/config.json` | The route table replayed at agent start. |
 | `BUILD_MEMORY_LIMIT_MB` | `6144` | See the caveat under Building. |
 | `HEALTH_POLL_MS` | `2000` | The gate's poll interval; the budget comes from the request. |
 | `CONTAINER_DRAIN_MS` | `10000` | How long a superseded container keeps serving after the route flips. |
@@ -63,6 +66,8 @@ alive. Everything else needs `Authorization: Bearer $AGENT_TOKEN`.
 | `GET` | `/deployments/:id` | |
 | `GET` | `/deployments/:id/logs` | SSE, replayed from the first line then tailed |
 | `POST` | `/deployments/:id/cancel` | 409 if not running |
+| `DELETE` | `/deployments/:id` | route, container and image; idempotent, never 404s |
+| `GET` | `/routes` | the live Caddy routing table |
 
 `/healthz` pings the Docker daemon and stats the Docker data root on every call.
 A liveness probe that only proves the process is up reports green while every
@@ -150,17 +155,39 @@ scoped to `forge.target` + `forge.kind=production`: preview hostnames are unique
 per deployment, so reaping previews by target would kill another branch's live
 preview. Those are the GC pass's business.
 
+### Routing
+
+Caddy runs with **no Caddyfile** and its admin API on loopback; the agent owns
+the config outright and every change is a full `POST /load`. Patching individual
+route indices is the alternative and it is a trap — an index computed before a
+concurrent delete addresses the wrong route, and the symptom is one hostname
+quietly serving another app.
+
+Writes are serialised. Two deployments finishing together would otherwise each
+build a full config from its own view of the table, and the later `/load` would
+erase the earlier one's route. A config Caddy rejects is rolled back out of the
+in-memory table, so it cannot be smuggled into the next deploy's reload.
+
+Every route sets `X-Forwarded-Proto: https`. cloudflared speaks plain HTTP to
+Caddy, and without it Next.js generates `http://` absolute URLs and anything
+doing an HTTPS redirect redirects to itself forever.
+
+The table is persisted to `CADDY_STATE_PATH` after each successful load and
+replayed at agent start — Caddy with no Caddyfile boots empty, so a Caddy
+restart would otherwise black-hole every live deployment until something
+happened to redeploy it. A failure to *write* that file is logged, not raised:
+routing is already correct, and failing the deploy over it would remove a
+container that is serving traffic.
+
 ## Status
 
-Day 3 of the plan. Clone → build → run → health gate → reap works end to end and
-is driven by `curl` against the agent.
+Day 4 of the plan. A deployment mints its route the moment the health gate
+passes, and `DELETE /deployments/:id` takes the route, container and image back
+down. The DNS record that points a hostname at the tunnel is the control plane's
+half — `packages/cloud-core/src/deploy/`.
 
-**Routing is not wired.** `loopbackOnlyRouteManager` publishes nothing, so a
-healthy deployment is reachable on `127.0.0.1:<port>` and nowhere else; the build
-log records that port. Day 4 replaces it with the Caddy admin-API client.
-
-Also not yet here: `promote`, `DELETE /deployments/:id`, `restart`, `/routes`,
-`/gc`, and the control-plane routes the claim loop polls (day 5).
+Not yet here: `promote`, `restart`, `/gc`, and the control-plane routes the
+claim loop polls (day 5).
 
 ```sh
 bun test

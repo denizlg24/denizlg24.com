@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { BuildLog } from "./build-log";
 import { deploymentRequest, fakeExec, withTempDir } from "./fixtures";
+import { PortAllocator } from "./ports";
 import {
   containerNameFor,
   healthUrl,
@@ -14,6 +15,7 @@ import {
   renderEnvFile,
   resolveContainerPort,
   runDeployment,
+  teardownDeployment,
 } from "./run";
 
 function recordingRoutes(): RouteManager & { published: string[] } {
@@ -276,6 +278,102 @@ describe("runDeployment", () => {
       await promise;
       expect(exec.find("docker run")?.command).toContain("bun start");
     });
+  });
+});
+
+describe("teardownDeployment", () => {
+  function withdrawer(): RouteManager & { withdrawn: string[] } {
+    const withdrawn: string[] = [];
+    return {
+      withdrawn,
+      publish: async () => {},
+      withdraw: async (deploymentId) => {
+        withdrawn.push(deploymentId);
+      },
+    };
+  }
+
+  it("drops the route before removing the container", async () => {
+    const order: string[] = [];
+    const routes = withdrawer();
+    const exec = fakeExec((call) => {
+      order.push(call.command.slice(0, 2).join(" "));
+      if (call.command.includes("{{.Config.Image}}")) {
+        return { stdout: "forge/app:abc1234-dep\n" };
+      }
+      return undefined;
+    });
+    const ports = new PortAllocator({ probe: async () => false });
+    ports.reserve(24_817, "dep-1");
+
+    const result = await teardownDeployment({
+      deploymentId: "dep-1",
+      exec: exec.exec,
+      routes: {
+        publish: routes.publish,
+        withdraw: async (id) => {
+          order.push("withdraw");
+          await routes.withdraw(id);
+        },
+      },
+      ports,
+    });
+
+    expect(order[0]).toBe("withdraw");
+    expect(routes.withdrawn).toEqual(["dep-1"]);
+    expect(result).toEqual({
+      containerRemoved: true,
+      imageRemoved: "forge/app:abc1234-dep",
+    });
+    expect(ports.reservations().size).toBe(0);
+  });
+
+  it("never deletes the moving tag that holds the build cache", async () => {
+    const exec = fakeExec((call) =>
+      call.command.includes("{{.Config.Image}}")
+        ? { stdout: "forge/app:latest\n" }
+        : undefined,
+    );
+    const result = await teardownDeployment({
+      deploymentId: "dep-1",
+      exec: exec.exec,
+      routes: withdrawer(),
+    });
+    expect(result.imageRemoved).toBeNull();
+    expect(
+      exec.commands.some((command) => command.startsWith("docker rmi")),
+    ).toBe(false);
+  });
+
+  it("succeeds on a deployment that never had a container", async () => {
+    const exec = fakeExec(() => ({ exitCode: 1, stderr: "No such object" }));
+    const result = await teardownDeployment({
+      deploymentId: "dep-1",
+      exec: exec.exec,
+      routes: withdrawer(),
+    });
+    expect(result).toEqual({ containerRemoved: false, imageRemoved: null });
+  });
+
+  it("tolerates an image another container still uses", async () => {
+    const exec = fakeExec((call) => {
+      if (call.command.includes("{{.Config.Image}}")) {
+        return { stdout: "forge/app:abc1234-dep\n" };
+      }
+      if (call.command[1] === "rmi") {
+        return {
+          exitCode: 1,
+          stderr: "image is being used by running container",
+        };
+      }
+      return undefined;
+    });
+    const result = await teardownDeployment({
+      deploymentId: "dep-1",
+      exec: exec.exec,
+      routes: withdrawer(),
+    });
+    expect(result).toEqual({ containerRemoved: true, imageRemoved: null });
   });
 });
 

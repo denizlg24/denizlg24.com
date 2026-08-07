@@ -15,6 +15,9 @@ export interface AgentConfig {
   dockerSocket: string;
   dockerDataRoot: string;
   dockerNetwork: string;
+  caddyAdminUrl: string;
+  caddyListen: string;
+  caddyStatePath: string;
   buildMemoryLimitMb: number;
   healthPollMs: number;
   drainMs: number;
@@ -76,6 +79,25 @@ function dockerNetworkEnv(): string {
   return value;
 }
 
+/**
+ * Caddy's admin API is an unauthenticated remote-code-execution surface — it
+ * loads arbitrary config, including handlers that execute. Caddy binds it to
+ * loopback for that reason and so does this.
+ */
+function caddyAdminUrlEnv(): string {
+  const raw = process.env.CADDY_ADMIN_URL ?? "http://127.0.0.1:2019";
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("CADDY_ADMIN_URL must be an absolute URL");
+  }
+  if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") {
+    throw new Error("CADDY_ADMIN_URL must point at loopback");
+  }
+  return parsed.toString().replace(/\/+$/, "");
+}
+
 function controlPlaneUrlEnv(): string {
   const raw = requiredEnv("CONTROL_PLANE_URL");
   let parsed: URL;
@@ -129,6 +151,12 @@ export function agentConfigFromEnv(): AgentConfig {
     dockerSocket: absolutePathEnv("DOCKER_SOCKET", "/var/run/docker.sock"),
     dockerDataRoot: absolutePathEnv("DOCKER_DATA_ROOT", "/var/lib/docker"),
     dockerNetwork: dockerNetworkEnv(),
+    caddyAdminUrl: caddyAdminUrlEnv(),
+    caddyListen: process.env.CADDY_LISTEN ?? ":8080",
+    caddyStatePath: absolutePathEnv(
+      "CADDY_STATE_PATH",
+      "/srv/forge/caddy/config.json",
+    ),
     buildMemoryLimitMb: integerEnv(
       "BUILD_MEMORY_LIMIT_MB",
       6_144,

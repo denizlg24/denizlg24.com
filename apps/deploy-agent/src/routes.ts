@@ -4,14 +4,18 @@ import { streamSSE } from "hono/streaming";
 
 import { requireAgentToken } from "./auth";
 import type { BuildLogStore } from "./build-log";
+import type { CaddyRouteEntry } from "./caddy";
 import type { HealthService } from "./health";
 import { type DeploymentQueue, QueueAtCapacityError } from "./queue";
+import type { TeardownResult } from "./run";
 
 export interface AgentRouteOptions {
   token: string;
   health: HealthService;
   queue: DeploymentQueue;
   logs: BuildLogStore;
+  routes: () => CaddyRouteEntry[];
+  teardown: (deploymentId: string) => Promise<TeardownResult>;
 }
 
 export function createAgentApp(options: AgentRouteOptions): Hono {
@@ -105,6 +109,20 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
       }
     });
   });
+
+  /**
+   * Teardown is idempotent and never 404s. It is called on a deployment that
+   * failed before it ever had a container as readily as on a live one, and
+   * making the caller distinguish those would only invite it to skip the call.
+   */
+  guarded.delete("/deployments/:id", async (context) => {
+    const result = await options.teardown(context.req.param("id"));
+    return context.json(result);
+  });
+
+  guarded.get("/routes", (context) =>
+    context.json({ routes: options.routes() }),
+  );
 
   guarded.post("/deployments/:id/cancel", (context) => {
     const cancelled = options.queue.cancel(context.req.param("id"));

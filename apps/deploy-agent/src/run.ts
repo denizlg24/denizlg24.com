@@ -24,10 +24,9 @@ export interface RouteManager {
 }
 
 /**
- * Day 4 replaces this with `caddy.ts`. Until then a healthy deployment is
- * reachable on its loopback port and nowhere else — which is why `runDeployment`
- * writes that port into the build log before publishing, so "healthy but not
- * reachable by hostname" never has to be inferred.
+ * Routes nothing. `CaddyRouter` is the real implementation; this exists so a
+ * deployment can be run without a Caddy to talk to — the build log always
+ * records the loopback port, so the container is still reachable.
  */
 export function loopbackOnlyRouteManager(): RouteManager {
   return {
@@ -425,6 +424,58 @@ export async function reapSuperseded(
     reaped.push(entry);
   }
   return reaped;
+}
+
+export interface TeardownOptions {
+  deploymentId: string;
+  exec: Exec;
+  routes: RouteManager;
+  ports?: { releaseOwner: (owner: string) => void };
+}
+
+export interface TeardownResult {
+  containerRemoved: boolean;
+  imageRemoved: string | null;
+}
+
+/**
+ * The route comes down before the container does — the other order serves 502s
+ * for however long the removal takes. `forge/<slug>:latest` is never deleted:
+ * it looks like a stale tag and it is the thing making the next build fast.
+ */
+export async function teardownDeployment(
+  options: TeardownOptions,
+): Promise<TeardownResult> {
+  const { exec, deploymentId } = options;
+  const name = containerNameFor(deploymentId);
+
+  await options.routes.withdraw(deploymentId);
+
+  const inspected = await exec({
+    command: ["docker", "inspect", "--format", "{{.Config.Image}}", name],
+    timeoutMs: 30_000,
+  });
+  const imageTag =
+    inspected.exitCode === 0 ? inspected.stdout.trim() || null : null;
+
+  const removed = await exec({
+    command: ["docker", "rm", "--force", name],
+    timeoutMs: 60_000,
+  });
+  options.ports?.releaseOwner(deploymentId);
+
+  let imageRemoved: string | null = null;
+  if (imageTag && !imageTag.endsWith(":latest")) {
+    const deleted = await exec({
+      command: ["docker", "rmi", imageTag],
+      timeoutMs: 120_000,
+    });
+    // A refusal here is normal: another container may still be running this
+    // image, and an image left behind is the GC pass's problem, not a failure.
+    if (deleted.exitCode === 0) imageRemoved = imageTag;
+  }
+
+  return { containerRemoved: removed.exitCode === 0, imageRemoved };
 }
 
 export async function removeContainer(exec: Exec, name: string): Promise<void> {

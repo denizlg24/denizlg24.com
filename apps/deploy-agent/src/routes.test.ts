@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { AgentHealth } from "@repo/schemas/cloud";
 
 import { BuildLogStore } from "./build-log";
+import type { CaddyRouteEntry } from "./caddy";
 import { deploymentRequest } from "./fixtures";
 import type { HealthService } from "./health";
 import { DeploymentQueue } from "./queue";
@@ -51,14 +52,30 @@ function app(
   const logs = new BuildLogStore({
     root: options.logRoot ?? join(tmpdir(), "forge-agent-absent"),
   });
+  const torndown: string[] = [];
+  const routes: CaddyRouteEntry[] = [
+    {
+      deploymentId: "dep-1",
+      projectSlug: "app",
+      hostnames: ["app.denizlg24.com"],
+      upstream: "127.0.0.1:24817",
+    },
+  ];
   return {
     queue,
     logs,
+    routes,
+    torndown,
     instance: createAgentApp({
       token: TOKEN,
       health: healthStub(options.status ?? "ok"),
       queue,
       logs,
+      routes: () => routes,
+      teardown: async (deploymentId) => {
+        torndown.push(deploymentId);
+        return { containerRemoved: true, imageRemoved: null };
+      },
     }),
   };
 }
@@ -90,6 +107,7 @@ describe("authentication", () => {
     const { instance } = app();
     for (const path of [
       "/deployments",
+      "/routes",
       `/deployments/${crypto.randomUUID()}`,
       `/deployments/${crypto.randomUUID()}/logs`,
     ]) {
@@ -206,6 +224,34 @@ describe("GET /deployments/:id/logs", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("GET /routes", () => {
+  it("returns the live routing table", async () => {
+    const response = await app().instance.request("/routes", { headers: AUTH });
+    expect(response.status).toBe(200);
+    expect((await response.json()).routes[0].hostnames).toEqual([
+      "app.denizlg24.com",
+    ]);
+  });
+});
+
+describe("DELETE /deployments/:id", () => {
+  it("tears down without caring whether anything was there", async () => {
+    const { instance, torndown } = app();
+    const id = crypto.randomUUID();
+    const response = await instance.request(`/deployments/${id}`, {
+      method: "DELETE",
+      headers: AUTH,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      containerRemoved: true,
+      imageRemoved: null,
+    });
+    expect(torndown).toEqual([id]);
   });
 });
 

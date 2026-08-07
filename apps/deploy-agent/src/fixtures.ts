@@ -76,6 +76,16 @@ export function fakeExec(responder: ExecResponder = () => undefined): FakeExec {
   };
 }
 
+/** Test-only. Carries `fetch`'s extra properties so no cast is needed. */
+export function fakeFetch(
+  handler: (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => Promise<Response>,
+): typeof fetch {
+  return Object.assign(handler, { preconnect: () => {} });
+}
+
 export async function withTempDir<T>(
   body: (dir: string) => Promise<T>,
 ): Promise<T> {

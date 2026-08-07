@@ -1,4 +1,5 @@
 import { BuildLogStore } from "./build-log";
+import { CaddyRouter } from "./caddy";
 import { agentConfigFromEnv } from "./config";
 import { ControlPlaneClient } from "./control-plane";
 import { DockerClient } from "./docker";
@@ -8,7 +9,7 @@ import { createDeploymentRunner } from "./pipeline";
 import { PortAllocator } from "./ports";
 import { DeploymentQueue, type QueueLogger } from "./queue";
 import { createAgentApp } from "./routes";
-import { loopbackOnlyRouteManager } from "./run";
+import { teardownDeployment } from "./run";
 
 const VERSION = process.env.APP_VERSION ?? "dev";
 
@@ -29,6 +30,12 @@ const controlPlane = new ControlPlaneClient({
 
 const logs = new BuildLogStore({ root: config.logRoot });
 const ports = new PortAllocator();
+const caddy = new CaddyRouter({
+  statePath: config.caddyStatePath,
+  adminUrl: config.caddyAdminUrl,
+  listen: config.caddyListen,
+  logger,
+});
 
 const queue = new DeploymentQueue({
   capacity: config.maxConcurrentBuilds,
@@ -40,9 +47,7 @@ const queue = new DeploymentQueue({
     exec: spawnExec,
     logs,
     ports,
-    // Day 4 swaps this for the Caddy admin-API client. Until then a deployment
-    // is reachable on its loopback port only, which the build log records.
-    routes: loopbackOnlyRouteManager(),
+    routes: caddy,
     buildRoot: config.buildRoot,
     envRoot: config.runEnvRoot,
     network: config.dockerNetwork,
@@ -60,7 +65,26 @@ const health = new HealthService({
   queue: () => queue.snapshot(),
 });
 
-const app = createAgentApp({ token: config.token, health, queue, logs });
+const app = createAgentApp({
+  token: config.token,
+  health,
+  queue,
+  logs,
+  routes: () => caddy.routes(),
+  teardown: (deploymentId) =>
+    teardownDeployment({ deploymentId, exec: spawnExec, routes: caddy, ports }),
+});
+
+// Before the queue starts claiming: a build that finishes first would publish
+// its route into a table that has not read the persisted one yet, and the
+// resulting /load would drop every other live deployment.
+const restored = await caddy.restore().catch((error: unknown) => {
+  logger.error("could not restore the Caddy config", {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  return 0;
+});
+if (restored > 0) logger.info("restored routes", { count: restored });
 
 queue.start();
 
