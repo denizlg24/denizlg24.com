@@ -496,6 +496,53 @@ export const deploymentSchema = z.object({
 });
 export type Deployment = z.infer<typeof deploymentSchema>;
 
+export const createDeployDomainInputSchema = z.object({
+  hostname: hostnameSchema,
+  /**
+   * Omitted, this follows from the hostname: a name inside the managed zone is
+   * a plain record, anything else needs Cloudflare for SaaS. Stated explicitly
+   * for a domain in another zone you happen to control, where a plain record
+   * is free and a custom hostname would spend quota for nothing.
+   */
+  mode: deployDomainModeSchema.optional(),
+  isPrimary: z.boolean().default(false),
+});
+export type CreateDeployDomainInput = z.infer<
+  typeof createDeployDomainInputSchema
+>;
+
+/**
+ * A rename is add-swap-remove, never an in-place edit, so `hostname` here mints
+ * a second row rather than rewriting this one.
+ */
+export const updateDeployDomainInputSchema = z
+  .object({
+    hostname: hostnameSchema.optional(),
+    isPrimary: z.literal(true).optional(),
+  })
+  .refine(
+    (value) => value.hostname !== undefined || value.isPrimary !== undefined,
+    "Nothing to update",
+  );
+export type UpdateDeployDomainInput = z.infer<
+  typeof updateDeployDomainInputSchema
+>;
+
+export const deployDomainSchema = z.object({
+  id: z.uuid(),
+  targetId: z.uuid(),
+  hostname: z.string(),
+  url: z.string(),
+  mode: deployDomainModeSchema,
+  status: deployDomainStatusSchema,
+  isPrimary: z.boolean(),
+  verification: domainVerificationRecordsSchema.nullable(),
+  lastCheckedAt: z.iso.datetime().nullable(),
+  retiredAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type DeployDomain = z.infer<typeof deployDomainSchema>;
+
 export class DeployHostnameError extends Error {
   constructor(message: string) {
     super(message);

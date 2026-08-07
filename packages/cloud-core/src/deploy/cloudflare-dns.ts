@@ -73,7 +73,7 @@ export class HostnameConflictError extends Error {
   }
 }
 
-interface CloudflareEnvelope {
+export interface CloudflareEnvelope {
   success?: unknown;
   errors?: unknown;
   result?: unknown;
@@ -95,7 +95,10 @@ function readRecord(value: unknown): CloudflareDnsRecord | null {
   };
 }
 
-function readErrors(value: unknown): { code: number; message: string }[] {
+export function readCloudflareErrors(value: unknown): {
+  code: number;
+  message: string;
+}[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
     if (typeof entry !== "object" || entry === null) return [];
@@ -176,7 +179,7 @@ export class CloudflareDnsClient {
     status: number,
     envelope: CloudflareEnvelope,
   ): CloudflareApiError {
-    const errors = readErrors(envelope.errors);
+    const errors = readCloudflareErrors(envelope.errors);
     const detail =
       errors.map((error) => `${error.code}: ${error.message}`).join("; ") ||
       `HTTP ${status}`;

@@ -9,6 +9,7 @@ import {
   ValidationError,
 } from "@repo/cloud-core";
 import {
+  type DeployDomainRow,
   type DeployEnvVarRow,
   type DeploymentRow,
   type DeployTargetRow,
@@ -22,22 +23,34 @@ import {
 import {
   assertBindingsResolvable,
   BindingUnresolvableError,
+  type CloudflareCustomHostnameClient,
   type CloudflareDnsClient,
   claimQueuedDeployment,
   createDeployBindingResolvers,
+  createDeployDomain,
+  type DomainContext,
   decryptDeployEnvValue,
+  deleteDeployDomain,
   deployNamespaceAvailability,
   describeBindings,
   encryptDeployEnvValue,
   HostnameConflictError,
+  listDeployDomains,
+  loadDeployDomain,
   recordDeploymentStatus,
+  refreshDeployDomain,
+  releaseDeployDomain,
+  renameDeployDomain,
   resolveDeploymentEnv,
   revokeDeploymentS3Credentials,
+  routeHostnames,
+  setPrimaryDeployDomain,
   supersedeOlderDeployments,
   toAgentRequest,
 } from "@repo/cloud-core/deploy";
 import {
   assertDeployHostname,
+  createDeployDomainInputSchema,
   createDeploymentInputSchema,
   createDeployTargetInputSchema,
   type DeployEnvVarInput,
@@ -47,6 +60,7 @@ import {
   previewHostnameLabel,
   replaceDeployEnvInputSchema,
   slugifyHostnameLabel,
+  updateDeployDomainInputSchema,
   updateDeployTargetInputSchema,
 } from "@repo/schemas/cloud";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
@@ -62,6 +76,8 @@ export interface DeployRouteOptions {
   agentToken: string;
   /** Absent when the host has no Cloudflare credentials; hostnames then only exist in the database. */
   dns: CloudflareDnsClient | null;
+  /** Absent unless Cloudflare for SaaS is enabled; external domains then cannot be added. */
+  customHostnames: CloudflareCustomHostnameClient | null;
   zoneName: string;
   envEncryptionKey: string;
   databaseEncryptionSecret: string;
@@ -167,6 +183,22 @@ function serializeDeployment(row: DeploymentRow) {
   };
 }
 
+function serializeDomain(row: DeployDomainRow) {
+  return {
+    id: row.id,
+    targetId: row.targetId,
+    hostname: row.hostname,
+    url: `https://${row.hostname}`,
+    mode: row.mode,
+    status: row.status,
+    isPrimary: row.isPrimary,
+    verification: row.verification ?? null,
+    lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
+    retiredAt: row.retiredAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 /** A literal's value is never returned; only that one is stored. */
 function serializeEnvVar(row: DeployEnvVarRow) {
   return {
@@ -188,6 +220,12 @@ const uuidParam = z.uuid();
 export function deployRoutes(options: DeployRouteOptions) {
   const { db } = options;
   const app = new Hono<{ Variables: AuthVariables }>();
+  const domainContext: DomainContext = {
+    db,
+    dns: options.dns,
+    customHostnames: options.customHostnames,
+    zoneName: options.zoneName,
+  };
 
   async function loadTarget(id: string): Promise<DeployTargetRow> {
     if (!uuidParam.safeParse(id).success) {
@@ -240,6 +278,52 @@ export function deployRoutes(options: DeployRouteOptions) {
       .update(deployments)
       .set({ dnsRecordId: null })
       .where(eq(deployments.id, row.id));
+  }
+
+  /**
+   * Hands the agent the complete hostname set for a deployment. Best-effort by
+   * design: it runs after the deployment is already live on its own hostname,
+   * so an agent that refuses this leaves a stable domain pointing at the
+   * previous release rather than taking the site down.
+   */
+  async function publishRoutes(row: DeploymentRow): Promise<boolean> {
+    const hostnames = await routeHostnames(db, row);
+    const response = await options.agent
+      .post(`/deployments/${row.id}/promote`, { hostnames })
+      .catch((error: unknown) => {
+        console.error("[deploy] route publish failed", error);
+        return null;
+      });
+    return response?.ok ?? false;
+  }
+
+  /** The deployment a target's stable domains currently point at. */
+  async function liveProductionDeployment(
+    targetId: string,
+  ): Promise<DeploymentRow | null> {
+    const [row] = await db
+      .select()
+      .from(deployments)
+      .where(
+        and(
+          eq(deployments.targetId, targetId),
+          eq(deployments.kind, "production"),
+          eq(deployments.status, "ready"),
+        ),
+      )
+      .orderBy(desc(deployments.readyAt))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * A domain change is only real once Caddy knows about it. Running this on
+   * every mutation is what keeps a custom domain from lagging a deploy behind
+   * the deployment it names.
+   */
+  async function republishTargetRoutes(targetId: string): Promise<void> {
+    const live = await liveProductionDeployment(targetId);
+    if (live) await publishRoutes(live);
   }
 
   // ---- Owner-facing routes -------------------------------------------------
@@ -380,16 +464,19 @@ export function deployRoutes(options: DeployRouteOptions) {
           );
         }
 
-        // The row only. The record and the Caddy route follow the stable-domain
-        // flow, which nothing here drives yet — a `pending` row is what the GC
-        // pass reconciles, an orphan record is not.
-        await tx.insert(deployDomains).values({
-          targetId: target.id,
-          hostname,
-          mode: "zone_record",
-          isPrimary: true,
-        });
         return target;
+      });
+
+      // Outside the transaction because it calls Cloudflare. A record that
+      // fails to mint leaves a `pending` row the GC pass reconciles, which is
+      // strictly better than a target that could not be created at all.
+      await createDeployDomain(domainContext, {
+        targetId: created.id,
+        hostname,
+        mode: "zone_record",
+        isPrimary: true,
+      }).catch((error: unknown) => {
+        console.error("[deploy] primary domain provisioning failed", error);
       });
 
       return context.json(
@@ -475,6 +562,16 @@ export function deployRoutes(options: DeployRouteOptions) {
       for (const row of live) {
         await options.agent.delete(`/deployments/${row.id}`).catch(() => {});
         await releaseDeploymentResources(row);
+      }
+      // Same reasoning for the stable domains: the cascade takes the record and
+      // custom-hostname ids with it, and what is left is a name pointing at a
+      // tunnel with nothing behind it.
+      for (const domain of await listDeployDomains(db, target.id)) {
+        await releaseDeployDomain(domainContext, domain).catch(
+          (error: unknown) => {
+            console.error("[deploy] domain release failed", error);
+          },
+        );
       }
       await db.delete(deployTargets).where(eq(deployTargets.id, target.id));
       return context.json({ data: { id: target.id } });
@@ -880,6 +977,95 @@ export function deployRoutes(options: DeployRouteOptions) {
     }
   });
 
+  /**
+   * A preview becomes the production one without rebuilding: the image is
+   * already built and already healthy, and rebuilding it to change which names
+   * point at it would reintroduce every way a build can fail.
+   */
+  owner.post("/deployments/:id/promote", async (context) => {
+    try {
+      const row = await loadDeployment(context.req.param("id"));
+      if (row.status !== "ready") {
+        return context.json(
+          {
+            error: {
+              code: "NOT_READY",
+              message: "Only a ready deployment can be promoted",
+            },
+          },
+          409,
+        );
+      }
+
+      const [promoted] = await db
+        .update(deployments)
+        .set({ kind: "production" })
+        .where(eq(deployments.id, row.id))
+        .returning();
+      if (!promoted) throw new Error("Promote returned no row");
+
+      const published = await publishRoutes(promoted);
+      if (!published) {
+        // The row now says production and Caddy does not. Reverting is worse:
+        // the agent may have taken the config and failed to answer, and a
+        // second promote is idempotent where a revert is not.
+        return context.json(
+          {
+            data: serializeDeployment(promoted),
+            warning: "The agent did not confirm the route change",
+          },
+          202,
+        );
+      }
+      await supersedeOlderDeployments(db, {
+        targetId: promoted.targetId,
+        kind: "production",
+        keepDeploymentId: promoted.id,
+      });
+      return context.json({ data: serializeDeployment(promoted) });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.post("/deployments/:id/restart", async (context) => {
+    try {
+      const row = await loadDeployment(context.req.param("id"));
+      if (row.status !== "ready") {
+        return context.json(
+          {
+            error: {
+              code: "NOT_READY",
+              message: "Only a ready deployment has a container to restart",
+            },
+          },
+          409,
+        );
+      }
+      const result = await options.agent.json<{
+        restarted: boolean;
+        healthy: boolean | null;
+        error: string | null;
+      }>(`/deployments/${row.id}/restart`, { method: "POST" });
+      if (result.status >= 500 || !result.body?.restarted) {
+        return context.json(
+          {
+            error: {
+              code: "RESTART_FAILED",
+              message: result.body?.error ?? "The agent refused the restart",
+            },
+          },
+          502,
+        );
+      }
+      return context.json({ data: result.body });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
   owner.delete("/deployments/:id", async (context) => {
     try {
       const row = await loadDeployment(context.req.param("id"));
@@ -887,6 +1073,104 @@ export function deployRoutes(options: DeployRouteOptions) {
       await releaseDeploymentResources(row);
       await db.delete(deployments).where(eq(deployments.id, row.id));
       return context.json({ data: { id: row.id } });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  // ---- Domains -------------------------------------------------------------
+
+  owner.get("/targets/:id/domains", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const rows = await listDeployDomains(db, target.id);
+      return context.json({ data: rows.map(serializeDomain) });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.post("/targets/:id/domains", async (context) => {
+    const parsed = createDeployDomainInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        { error: { code: "INVALID_INPUT", message: "Invalid domain" } },
+        400,
+      );
+    }
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const created = await createDeployDomain(domainContext, {
+        targetId: target.id,
+        hostname: parsed.data.hostname,
+        mode: parsed.data.mode,
+        isPrimary: parsed.data.isPrimary,
+      });
+      // A custom hostname is not routable until it validates, so there is
+      // nothing to publish yet and the verification task does it later.
+      if (created.status === "active") await republishTargetRoutes(target.id);
+      return context.json({ data: serializeDomain(created) }, 201);
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.patch("/domains/:id", async (context) => {
+    const parsed = updateDeployDomainInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        { error: { code: "INVALID_INPUT", message: "Invalid domain update" } },
+        400,
+      );
+    }
+    try {
+      const row = await loadDeployDomain(db, context.req.param("id"));
+      if (parsed.data.hostname) {
+        const { created } = await renameDeployDomain(
+          domainContext,
+          row,
+          parsed.data.hostname,
+        );
+        // Both names route until the grace period expires, which is the whole
+        // point of add-swap-remove — the old links keep working.
+        await republishTargetRoutes(row.targetId);
+        return context.json({ data: serializeDomain(created) });
+      }
+      const updated = await setPrimaryDeployDomain(domainContext, row);
+      return context.json({ data: serializeDomain(updated) });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.delete("/domains/:id", async (context) => {
+    try {
+      const row = await loadDeployDomain(db, context.req.param("id"));
+      await deleteDeployDomain(domainContext, row);
+      await republishTargetRoutes(row.targetId);
+      return context.json({ data: { id: row.id } });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.post("/domains/:id/verify", async (context) => {
+    try {
+      const row = await loadDeployDomain(db, context.req.param("id"));
+      const refreshed = await refreshDeployDomain(domainContext, row);
+      if (refreshed.status === "active" && row.status !== "active") {
+        await republishTargetRoutes(refreshed.targetId);
+      }
+      return context.json({ data: serializeDomain(refreshed) });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -960,6 +1244,10 @@ export function deployRoutes(options: DeployRouteOptions) {
         kind: updated.kind,
         keepDeploymentId: updated.id,
       });
+      // The agent routed the deployment's own hostname when the gate passed;
+      // this adds the target's stable domains on top, which is what makes a
+      // custom domain follow the release rather than lag it.
+      if (updated.kind === "production") await publishRoutes(updated);
     } else if (isTerminalDeploymentStatus(updated.status)) {
       await releaseDeploymentResources(updated);
     }

@@ -1149,6 +1149,12 @@ export const deployDomains = pgTable(
     status: deployDomainStatusEnum("status").notNull().default("pending"),
     verification: jsonb("verification").$type<DomainVerificationRecords>(),
     lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    /**
+     * Set when a rename supersedes this row. It keeps serving until the GC pass
+     * finishes the job a grace period later, so links that already exist do not
+     * break the moment the new name goes primary.
+     */
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1159,6 +1165,36 @@ export const deployDomains = pgTable(
       .where(sql`is_primary`),
     index("deploy_domains_target_idx").on(table.targetId),
   ],
+);
+
+/**
+ * What the GitHub App is installed on. Written entirely from `installation` and
+ * `installation_repositories` webhooks, so nobody configures a repository by
+ * hand — installing the App is the setup step. A target references an
+ * installation by id rather than by row so an uninstall cannot cascade a
+ * deploy target away.
+ */
+export const deployGithubInstallations = pgTable(
+  "deploy_github_installations",
+  {
+    installationId: bigint("installation_id", { mode: "number" }).primaryKey(),
+    accountLogin: varchar("account_login", { length: 128 }).notNull(),
+    accountType: varchar("account_type", { length: 32 }).notNull(),
+    repositorySelection: varchar("repository_selection", {
+      length: 16,
+    }).notNull(),
+    repositories: jsonb("repositories")
+      .$type<{ owner: string; name: string }[]>()
+      .notNull()
+      .default([]),
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
 );
 
 /**
@@ -1259,5 +1295,11 @@ export type DeployEnvVarRow = InferSelectModel<typeof deployEnvVars>;
 export type NewDeployEnvVarRow = InferInsertModel<typeof deployEnvVars>;
 export type DeployDomainRow = InferSelectModel<typeof deployDomains>;
 export type NewDeployDomainRow = InferInsertModel<typeof deployDomains>;
+export type DeployGithubInstallationRow = InferSelectModel<
+  typeof deployGithubInstallations
+>;
+export type NewDeployGithubInstallationRow = InferInsertModel<
+  typeof deployGithubInstallations
+>;
 
 export * from "./auth-schema";

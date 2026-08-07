@@ -31,6 +31,7 @@ import {
 } from "@repo/cloud-core";
 import { smbCredentials } from "@repo/cloud-core/db/schema";
 import {
+  CloudflareCustomHostnameClient,
   CloudflareDnsClient,
   cloudflareDeployConfigFromEnv,
 } from "@repo/cloud-core/deploy";
@@ -443,6 +444,15 @@ export async function createRuntimeApp() {
             // public name, which is a better failure than refusing to deploy.
             dns: cloudflareDeployConfig
               ? new CloudflareDnsClient({ config: cloudflareDeployConfig })
+              : null,
+            // Same credentials, separate client: a zone record and a custom
+            // hostname are different mechanisms and only one of them is
+            // quota-limited, so nothing should be able to reach for the wrong
+            // one by accident.
+            customHostnames: cloudflareDeployConfig
+              ? new CloudflareCustomHostnameClient({
+                  config: cloudflareDeployConfig,
+                })
               : null,
             zoneName: cloudflareDeployConfig?.zoneName ?? "denizlg24.com",
             envEncryptionKey: requiredEnv("DEPLOY_ENV_ENCRYPTION_KEY"),
