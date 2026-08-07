@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-
+import { POSIX_GATE1_SUPPORTED } from "./posix-gate1-platform";
 import {
   ProbeSafetyError,
   parseProbeArguments,
@@ -39,7 +39,7 @@ afterEach(async () => {
   }
 });
 
-describe("POSIX Gate 1 probe safety", () => {
+describe.skipIf(!POSIX_GATE1_SUPPORTED)("POSIX Gate 1 probe safety", () => {
   it("is dry-run by default and requires an explicit root", () => {
     expect(
       parseProbeArguments(["--root", "/tmp/posix-gate1-disposable-test"]),
@@ -80,7 +80,7 @@ describe("POSIX Gate 1 probe safety", () => {
   });
 });
 
-describe("POSIX Gate 1 probe", () => {
+describe.skipIf(!POSIX_GATE1_SUPPORTED)("POSIX Gate 1 probe", () => {
   it("does not mutate its disposable root in dry-run mode", async () => {
     const root = await makeDisposableRoot();
     const before = await readdir(root);

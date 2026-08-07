@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { PROTECTED_XATTR_KEYS } from "@repo/cloud-core";
-
+import { POSIX_GATE1_SUPPORTED } from "./posix-gate1-platform";
 import { protectedHash } from "./posix-manifest-verify";
 
 const script = resolve(
@@ -261,176 +261,184 @@ async function manifestRecords(path: string) {
     .map((line) => JSON.parse(line));
 }
 
-describe("POSIX namespace reverse exporter", () => {
-  it("has valid shell syntax", () => {
-    expect(Bun.spawnSync(["bash", "-n", script]).exitCode).toBe(0);
-  });
-
-  it("reconstructs the legacy layout plan without touching the namespace", async () => {
-    const data = await fixture();
-    const result = run(data);
-
-    expect(result.stderr.toString()).toBe("");
-    expect(result.exitCode).toBe(0);
-    expect(JSON.parse(result.stdout.toString())).toMatchObject({
-      schemaVersion: 1,
-      mode: "--dry-run",
-      state: "planned",
-      namespaceEntries: 4,
-      namespaceFolders: 2,
-      namespaceFiles: 2,
-      namespaceMutated: false,
-      sourceDeletionAllowed: false,
+describe.skipIf(!POSIX_GATE1_SUPPORTED)(
+  "POSIX namespace reverse exporter",
+  () => {
+    it("has valid shell syntax", () => {
+      expect(Bun.spawnSync(["bash", "-n", script]).exitCode).toBe(0);
     });
 
-    const records = await manifestRecords(data.manifest);
-    expect(records[0]).toMatchObject({
-      event: "reverse-summary",
-      manifestSchema: "deniz-cloud-posix-reverse-v1",
-      namespace: { folders: 2, files: 2 },
+    it("reconstructs the legacy layout plan without touching the namespace", async () => {
+      const data = await fixture();
+      const result = run(data);
+
+      expect(result.stderr.toString()).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout.toString())).toMatchObject({
+        schemaVersion: 1,
+        mode: "--dry-run",
+        state: "planned",
+        namespaceEntries: 4,
+        namespaceFolders: 2,
+        namespaceFiles: 2,
+        namespaceMutated: false,
+        sourceDeletionAllowed: false,
+      });
+
+      const records = await manifestRecords(data.manifest);
+      expect(records[0]).toMatchObject({
+        event: "reverse-summary",
+        manifestSchema: "deniz-cloud-posix-reverse-v1",
+        namespace: { folders: 2, files: 2 },
+      });
+      // Folders precede files, and each group is ordered so a consumer can
+      // replay the manifest into the legacy layout top-down.
+      expect(records.slice(1).map((record) => record.event)).toEqual([
+        "reverse-folder",
+        "reverse-folder",
+        "reverse-file",
+        "reverse-file",
+      ]);
+      expect(records.slice(1).map((record) => record.path)).toEqual([
+        `/${ownerId}`,
+        "/shared",
+        "/shared/archive.bin",
+        "/shared/notes.txt",
+      ]);
+
+      const shared = records.find((record) => record.path === "/shared");
+      expect(shared).toMatchObject({
+        id: sharedFolderId,
+        ownerId: null,
+        sourceTier: "ssd",
+      });
+      // The HDD file keeps its namespace path here; only the legacy destination
+      // returns it to a flat UUID address.
+      expect(
+        records.find((record) => record.path === "/shared/archive.bin"),
+      ).toMatchObject({
+        id: hddFileId,
+        sourceTier: "hdd",
+        checksum,
+        mimeType: null,
+      });
+      expect(
+        records.find((record) => record.path === "/shared/notes.txt"),
+      ).toMatchObject({
+        id: ssdFileId,
+        sourceTier: "ssd",
+        mimeType: "text/plain",
+      });
+
+      // Pin the exporter's hash to the shared canonical form rather than only
+      // its shape: the whole point of the hash is that both migration directions
+      // compute the same one, and a regex cannot catch them drifting apart.
+      const notes = records.find(
+        (record) => record.path === "/shared/notes.txt",
+      ) as Record<string, unknown> | undefined;
+      expect(notes?.protectedXattrHash).toBe(
+        protectedHash(
+          {
+            checksum,
+            createdAt: "2026-07-02T10:00:00Z",
+            event: "migration-file",
+            id: ssdFileId,
+            mimeType: "text/plain",
+            ownerId,
+            path: "/shared/notes.txt",
+          },
+          "file",
+        ),
+      );
+      for (const record of records.slice(1)) {
+        expect(record.protectedXattrHash).toMatch(/^[0-9a-f]{64}$/);
+      }
+      // Distinct protected metadata must not collide into one hash.
+      const hashes = records
+        .slice(1)
+        .map((record) => record.protectedXattrHash);
+      expect(new Set(hashes).size).toBe(hashes.length);
     });
-    // Folders precede files, and each group is ordered so a consumer can
-    // replay the manifest into the legacy layout top-down.
-    expect(records.slice(1).map((record) => record.event)).toEqual([
-      "reverse-folder",
-      "reverse-folder",
-      "reverse-file",
-      "reverse-file",
-    ]);
-    expect(records.slice(1).map((record) => record.path)).toEqual([
-      `/${ownerId}`,
-      "/shared",
-      "/shared/archive.bin",
-      "/shared/notes.txt",
-    ]);
 
-    const shared = records.find((record) => record.path === "/shared");
-    expect(shared).toMatchObject({
-      id: sharedFolderId,
-      ownerId: null,
-      sourceTier: "ssd",
-    });
-    // The HDD file keeps its namespace path here; only the legacy destination
-    // returns it to a flat UUID address.
-    expect(
-      records.find((record) => record.path === "/shared/archive.bin"),
-    ).toMatchObject({
-      id: hddFileId,
-      sourceTier: "hdd",
-      checksum,
-      mimeType: null,
-    });
-    expect(
-      records.find((record) => record.path === "/shared/notes.txt"),
-    ).toMatchObject({
-      id: ssdFileId,
-      sourceTier: "ssd",
-      mimeType: "text/plain",
+    it("stops on an entry that carries no identity on either branch", async () => {
+      const data = await fixture();
+      const parsed = JSON.parse(await readFile(data.xattrDb, "utf8")) as Xattrs;
+      delete parsed[join(data.sourceSsd, ownerId)];
+      await writeFile(data.xattrDb, JSON.stringify(parsed));
+
+      const result = run(data);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain("No branch carries identity");
     });
 
-    // Pin the exporter's hash to the shared canonical form rather than only
-    // its shape: the whole point of the hash is that both migration directions
-    // compute the same one, and a regex cannot catch them drifting apart.
-    const notes = records.find(
-      (record) => record.path === "/shared/notes.txt",
-    ) as Record<string, unknown> | undefined;
-    expect(notes?.protectedXattrHash).toBe(
-      protectedHash(
-        {
-          checksum,
-          createdAt: "2026-07-02T10:00:00Z",
-          event: "migration-file",
-          id: ssdFileId,
-          mimeType: "text/plain",
-          ownerId,
-          path: "/shared/notes.txt",
-        },
-        "file",
-      ),
-    );
-    for (const record of records.slice(1)) {
-      expect(record.protectedXattrHash).toMatch(/^[0-9a-f]{64}$/);
-    }
-    // Distinct protected metadata must not collide into one hash.
-    const hashes = records.slice(1).map((record) => record.protectedXattrHash);
-    expect(new Set(hashes).size).toBe(hashes.length);
-  });
+    it("stops on a duplicate stable ID", async () => {
+      const data = await fixture();
+      const parsed = JSON.parse(await readFile(data.xattrDb, "utf8")) as Xattrs;
+      entryXattrs(parsed, join(data.sourceHdd, "shared", "archive.bin"))[
+        PROTECTED_XATTR_KEYS.id
+      ] = ssdFileId;
+      await writeFile(data.xattrDb, JSON.stringify(parsed));
 
-  it("stops on an entry that carries no identity on either branch", async () => {
-    const data = await fixture();
-    const parsed = JSON.parse(await readFile(data.xattrDb, "utf8")) as Xattrs;
-    delete parsed[join(data.sourceSsd, ownerId)];
-    await writeFile(data.xattrDb, JSON.stringify(parsed));
-
-    const result = run(data);
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toContain("No branch carries identity");
-  });
-
-  it("stops on a duplicate stable ID", async () => {
-    const data = await fixture();
-    const parsed = JSON.parse(await readFile(data.xattrDb, "utf8")) as Xattrs;
-    entryXattrs(parsed, join(data.sourceHdd, "shared", "archive.bin"))[
-      PROTECTED_XATTR_KEYS.id
-    ] = ssdFileId;
-    await writeFile(data.xattrDb, JSON.stringify(parsed));
-
-    const result = run(data);
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toContain("Duplicate stable ID");
-  });
-
-  it("refuses to export bytes the namespace has not verified", async () => {
-    const data = await fixture();
-    const parsed = JSON.parse(await readFile(data.xattrDb, "utf8")) as Xattrs;
-    entryXattrs(parsed, join(data.sourceSsd, "shared", "notes.txt"))[
-      PROTECTED_XATTR_KEYS.checksumState
-    ] = "pending";
-    await writeFile(data.xattrDb, JSON.stringify(parsed));
-
-    const result = run(data);
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toContain("not verified");
-  });
-
-  it("stops when the same file resolves on both branches", async () => {
-    const data = await fixture();
-    await writeFile(join(data.sourceSsd, "shared", "archive.bin"), "duplicate");
-
-    const result = run(data);
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toContain("resolves on both branches");
-  });
-
-  it("stops on an interrupted forward migration staging file", async () => {
-    const data = await fixture();
-    await writeFile(
-      join(data.sourceSsd, "shared", `.${ssdFileId}.migration.partial`),
-      "partial",
-    );
-
-    const result = run(data);
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toContain("Interrupted staging file");
-  });
-
-  it("keeps execute fail-closed outside the production allowlist", async () => {
-    const data = await fixture();
-    const result = run(data, ["--execute"]);
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toMatch(
-      /requires root|exact production storage path allowlist/,
-    );
-  });
-
-  it("requires the operator-confirmed snapshot ID", async () => {
-    const data = await fixture();
-    const result = run(data, ["--manifest"], {
-      POSIX_REVERSE_CURRENT_SNAPSHOT_ID: "posix-gate0-20260101T000000Z",
+      const result = run(data);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain("Duplicate stable ID");
     });
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toContain(
-      "POSIX_REVERSE_CURRENT_SNAPSHOT_ID",
-    );
-  });
-});
+
+    it("refuses to export bytes the namespace has not verified", async () => {
+      const data = await fixture();
+      const parsed = JSON.parse(await readFile(data.xattrDb, "utf8")) as Xattrs;
+      entryXattrs(parsed, join(data.sourceSsd, "shared", "notes.txt"))[
+        PROTECTED_XATTR_KEYS.checksumState
+      ] = "pending";
+      await writeFile(data.xattrDb, JSON.stringify(parsed));
+
+      const result = run(data);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain("not verified");
+    });
+
+    it("stops when the same file resolves on both branches", async () => {
+      const data = await fixture();
+      await writeFile(
+        join(data.sourceSsd, "shared", "archive.bin"),
+        "duplicate",
+      );
+
+      const result = run(data);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain("resolves on both branches");
+    });
+
+    it("stops on an interrupted forward migration staging file", async () => {
+      const data = await fixture();
+      await writeFile(
+        join(data.sourceSsd, "shared", `.${ssdFileId}.migration.partial`),
+        "partial",
+      );
+
+      const result = run(data);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain("Interrupted staging file");
+    });
+
+    it("keeps execute fail-closed outside the production allowlist", async () => {
+      const data = await fixture();
+      const result = run(data, ["--execute"]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toMatch(
+        /requires root|exact production storage path allowlist/,
+      );
+    });
+
+    it("requires the operator-confirmed snapshot ID", async () => {
+      const data = await fixture();
+      const result = run(data, ["--manifest"], {
+        POSIX_REVERSE_CURRENT_SNAPSHOT_ID: "posix-gate0-20260101T000000Z",
+      });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain(
+        "POSIX_REVERSE_CURRENT_SNAPSHOT_ID",
+      );
+    });
+  },
+);

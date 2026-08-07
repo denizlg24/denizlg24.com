@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { PROTECTED_XATTR_KEYS } from "@repo/cloud-core";
-
+import { POSIX_GATE1_SUPPORTED } from "./posix-gate1-platform";
 import {
   type ManifestEntry,
   protectedCanonical,
@@ -120,194 +120,197 @@ async function manifests(
   return { forwardPath, reversePath };
 }
 
-describe("POSIX migration manifest verifier", () => {
-  it("agrees byte for byte with the shell exporter's canonical form", async () => {
-    const canonical = protectedCanonical(
-      forwardFile as unknown as ManifestEntry,
-      "file",
-    );
-    expect(canonical).toBe(
-      [
-        `${PROTECTED_XATTR_KEYS.checksum}=${checksum}`,
-        `${PROTECTED_XATTR_KEYS.checksumState}=verified`,
-        `${PROTECTED_XATTR_KEYS.createdAt}=2026-07-02T10:00:00Z`,
-        `${PROTECTED_XATTR_KEYS.id}=${fileId}`,
-        `${PROTECTED_XATTR_KEYS.mimeType}=text/plain`,
-        `${PROTECTED_XATTR_KEYS.ownerId}=${ownerId}`,
-        `${PROTECTED_XATTR_KEYS.schemaVersion}=1`,
-        "",
-      ].join("\n"),
-    );
-    // The reverse exporter pipes exactly this string through `sha256sum`.
-    const shell = Bun.spawnSync({
-      cmd: [
-        "bash",
-        "-c",
-        `printf '%s' "$1" | sha256sum | cut -d' ' -f1`,
-        "_",
-        canonical,
-      ],
-      stdout: "pipe",
-    });
-    expect(shell.stdout.toString().trim()).toBe(
-      protectedHash(forwardFile as unknown as ManifestEntry, "file"),
-    );
-  });
-
-  it("omits owner and adds scope for the ownerless shared root", () => {
-    const canonical = protectedCanonical(
-      forwardFolder as unknown as ManifestEntry,
-      "folder",
-    );
-    expect(canonical).not.toContain(PROTECTED_XATTR_KEYS.ownerId);
-    expect(canonical).toContain(`${PROTECTED_XATTR_KEYS.scope}=shared`);
-  });
-
-  it("passes when both directions describe the same namespace", async () => {
-    const { forwardPath, reversePath } = await manifests(
-      [forwardFolder, forwardFile],
-      [reverseOf(forwardFolder), reverseOf(forwardFile)],
-    );
-    const result = await verifyManifests({
-      forwardPath,
-      requireExact: true,
-      reversePath,
-    });
-    expect(result).toMatchObject({
-      added: 0,
-      drift: 0,
-      exact: true,
-      ok: true,
-    });
-    expect(result.differences).toEqual([]);
-  });
-
-  it("reports a checksum that moved without the path moving", async () => {
-    const { forwardPath, reversePath } = await manifests(
-      [forwardFolder, forwardFile],
-      // Rewriting the file changes the checksum xattr, so the protected hash
-      // moves with it rather than independently.
-      [
-        reverseOf(forwardFolder),
-        reverseOf({ ...forwardFile, checksum: "c".repeat(64) }),
-      ],
-    );
-    const result = await verifyManifests({
-      forwardPath,
-      requireExact: true,
-      reversePath,
-    });
-    expect(result.ok).toBe(false);
-    expect(result.differences.map((d) => d.code)).toEqual(
-      expect.arrayContaining([
-        "CHECKSUM_CHANGED",
-        "PROTECTED_METADATA_CHANGED",
-      ]),
-    );
-  });
-
-  it("reports protected metadata drift even when bytes agree", async () => {
-    const { forwardPath, reversePath } = await manifests(
-      [forwardFolder, forwardFile],
-      [
-        reverseOf(forwardFolder),
-        reverseOf(forwardFile, { protectedXattrHash: "d".repeat(64) }),
-      ],
-    );
-    const result = await verifyManifests({
-      forwardPath,
-      requireExact: true,
-      reversePath,
-    });
-    expect(result.ok).toBe(false);
-    expect(result.differences).toEqual([
-      {
-        code: "PROTECTED_METADATA_CHANGED",
-        detail: expect.stringContaining("expected"),
-        id: fileId,
-        path: "/shared/notes.txt",
-      },
-    ]);
-  });
-
-  it("reports an ID the namespace lost", async () => {
-    const { forwardPath, reversePath } = await manifests(
-      [forwardFolder, forwardFile],
-      [reverseOf(forwardFolder)],
-    );
-    const result = await verifyManifests({
-      forwardPath,
-      requireExact: true,
-      reversePath,
-    });
-    expect(result.ok).toBe(false);
-    expect(result.differences).toEqual([
-      {
-        code: "MISSING_IN_REVERSE",
-        detail: expect.any(String),
-        id: fileId,
-        path: "/shared/notes.txt",
-      },
-    ]);
-  });
-
-  it("separates post-cutover entries from drift", async () => {
-    const postCutover = {
-      ...forwardFile,
-      id: "50000000-0000-4000-8000-000000000099",
-      name: "new.txt",
-      path: "/shared/new.txt",
-      targetRelativePath: "shared/new.txt",
-    };
-    const { forwardPath, reversePath } = await manifests(
-      [forwardFolder, forwardFile],
-      [
-        reverseOf(forwardFolder),
-        reverseOf(forwardFile),
-        reverseOf(postCutover),
-      ],
-    );
-
-    const strict = await verifyManifests({
-      forwardPath,
-      requireExact: true,
-      reversePath,
-    });
-    expect(strict).toMatchObject({
-      added: 1,
-      drift: 0,
-      exact: false,
-      ok: false,
+describe.skipIf(!POSIX_GATE1_SUPPORTED)(
+  "POSIX migration manifest verifier",
+  () => {
+    it("agrees byte for byte with the shell exporter's canonical form", async () => {
+      const canonical = protectedCanonical(
+        forwardFile as unknown as ManifestEntry,
+        "file",
+      );
+      expect(canonical).toBe(
+        [
+          `${PROTECTED_XATTR_KEYS.checksum}=${checksum}`,
+          `${PROTECTED_XATTR_KEYS.checksumState}=verified`,
+          `${PROTECTED_XATTR_KEYS.createdAt}=2026-07-02T10:00:00Z`,
+          `${PROTECTED_XATTR_KEYS.id}=${fileId}`,
+          `${PROTECTED_XATTR_KEYS.mimeType}=text/plain`,
+          `${PROTECTED_XATTR_KEYS.ownerId}=${ownerId}`,
+          `${PROTECTED_XATTR_KEYS.schemaVersion}=1`,
+          "",
+        ].join("\n"),
+      );
+      // The reverse exporter pipes exactly this string through `sha256sum`.
+      const shell = Bun.spawnSync({
+        cmd: [
+          "bash",
+          "-c",
+          `printf '%s' "$1" | sha256sum | cut -d' ' -f1`,
+          "_",
+          canonical,
+        ],
+        stdout: "pipe",
+      });
+      expect(shell.stdout.toString().trim()).toBe(
+        protectedHash(forwardFile as unknown as ManifestEntry, "file"),
+      );
     });
 
-    // A rollback after writes have been accepted expects exactly this shape.
-    const tolerant = await verifyManifests({
-      forwardPath,
-      requireExact: false,
-      reversePath,
+    it("omits owner and adds scope for the ownerless shared root", () => {
+      const canonical = protectedCanonical(
+        forwardFolder as unknown as ManifestEntry,
+        "folder",
+      );
+      expect(canonical).not.toContain(PROTECTED_XATTR_KEYS.ownerId);
+      expect(canonical).toContain(`${PROTECTED_XATTR_KEYS.scope}=shared`);
     });
-    expect(tolerant).toMatchObject({ added: 1, drift: 0, ok: true });
-    expect(tolerant.differences).toEqual([
-      {
-        code: "ADDED_AFTER_FORWARD",
-        detail: expect.any(String),
+
+    it("passes when both directions describe the same namespace", async () => {
+      const { forwardPath, reversePath } = await manifests(
+        [forwardFolder, forwardFile],
+        [reverseOf(forwardFolder), reverseOf(forwardFile)],
+      );
+      const result = await verifyManifests({
+        forwardPath,
+        requireExact: true,
+        reversePath,
+      });
+      expect(result).toMatchObject({
+        added: 0,
+        drift: 0,
+        exact: true,
+        ok: true,
+      });
+      expect(result.differences).toEqual([]);
+    });
+
+    it("reports a checksum that moved without the path moving", async () => {
+      const { forwardPath, reversePath } = await manifests(
+        [forwardFolder, forwardFile],
+        // Rewriting the file changes the checksum xattr, so the protected hash
+        // moves with it rather than independently.
+        [
+          reverseOf(forwardFolder),
+          reverseOf({ ...forwardFile, checksum: "c".repeat(64) }),
+        ],
+      );
+      const result = await verifyManifests({
+        forwardPath,
+        requireExact: true,
+        reversePath,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.differences.map((d) => d.code)).toEqual(
+        expect.arrayContaining([
+          "CHECKSUM_CHANGED",
+          "PROTECTED_METADATA_CHANGED",
+        ]),
+      );
+    });
+
+    it("reports protected metadata drift even when bytes agree", async () => {
+      const { forwardPath, reversePath } = await manifests(
+        [forwardFolder, forwardFile],
+        [
+          reverseOf(forwardFolder),
+          reverseOf(forwardFile, { protectedXattrHash: "d".repeat(64) }),
+        ],
+      );
+      const result = await verifyManifests({
+        forwardPath,
+        requireExact: true,
+        reversePath,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.differences).toEqual([
+        {
+          code: "PROTECTED_METADATA_CHANGED",
+          detail: expect.stringContaining("expected"),
+          id: fileId,
+          path: "/shared/notes.txt",
+        },
+      ]);
+    });
+
+    it("reports an ID the namespace lost", async () => {
+      const { forwardPath, reversePath } = await manifests(
+        [forwardFolder, forwardFile],
+        [reverseOf(forwardFolder)],
+      );
+      const result = await verifyManifests({
+        forwardPath,
+        requireExact: true,
+        reversePath,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.differences).toEqual([
+        {
+          code: "MISSING_IN_REVERSE",
+          detail: expect.any(String),
+          id: fileId,
+          path: "/shared/notes.txt",
+        },
+      ]);
+    });
+
+    it("separates post-cutover entries from drift", async () => {
+      const postCutover = {
+        ...forwardFile,
         id: "50000000-0000-4000-8000-000000000099",
+        name: "new.txt",
         path: "/shared/new.txt",
-      },
-    ]);
-  });
+        targetRelativePath: "shared/new.txt",
+      };
+      const { forwardPath, reversePath } = await manifests(
+        [forwardFolder, forwardFile],
+        [
+          reverseOf(forwardFolder),
+          reverseOf(forwardFile),
+          reverseOf(postCutover),
+        ],
+      );
 
-  it("refuses a manifest that is not the expected schema", async () => {
-    const { forwardPath, reversePath } = await manifests(
-      [forwardFolder],
-      [reverseOf(forwardFolder)],
-    );
-    await writeFile(
-      forwardPath,
-      `${JSON.stringify({ event: "inventory-summary", manifestSchema: "something-else", schemaVersion: 1 })}\n`,
-    );
-    await expect(
-      verifyManifests({ forwardPath, requireExact: true, reversePath }),
-    ).rejects.toThrow("deniz-cloud-posix-migration-v1");
-  });
-});
+      const strict = await verifyManifests({
+        forwardPath,
+        requireExact: true,
+        reversePath,
+      });
+      expect(strict).toMatchObject({
+        added: 1,
+        drift: 0,
+        exact: false,
+        ok: false,
+      });
+
+      // A rollback after writes have been accepted expects exactly this shape.
+      const tolerant = await verifyManifests({
+        forwardPath,
+        requireExact: false,
+        reversePath,
+      });
+      expect(tolerant).toMatchObject({ added: 1, drift: 0, ok: true });
+      expect(tolerant.differences).toEqual([
+        {
+          code: "ADDED_AFTER_FORWARD",
+          detail: expect.any(String),
+          id: "50000000-0000-4000-8000-000000000099",
+          path: "/shared/new.txt",
+        },
+      ]);
+    });
+
+    it("refuses a manifest that is not the expected schema", async () => {
+      const { forwardPath, reversePath } = await manifests(
+        [forwardFolder],
+        [reverseOf(forwardFolder)],
+      );
+      await writeFile(
+        forwardPath,
+        `${JSON.stringify({ event: "inventory-summary", manifestSchema: "something-else", schemaVersion: 1 })}\n`,
+      );
+      await expect(
+        verifyManifests({ forwardPath, requireExact: true, reversePath }),
+      ).rejects.toThrow("deniz-cloud-posix-migration-v1");
+    });
+  },
+);

@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { POSIX_GATE1_SUPPORTED } from "./posix-gate1-platform";
 
 const script = resolve(
   import.meta.dir,
@@ -116,7 +117,7 @@ function run(
   });
 }
 
-describe("POSIX same-path tier executor", () => {
+describe.skipIf(!POSIX_GATE1_SUPPORTED)("POSIX same-path tier executor", () => {
   it("has valid shell syntax", () => {
     expect(Bun.spawnSync(["bash", "-n", script]).exitCode).toBe(0);
   });

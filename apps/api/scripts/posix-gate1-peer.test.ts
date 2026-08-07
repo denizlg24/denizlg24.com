@@ -20,6 +20,7 @@ import {
   parsePeerArguments,
   runPosixGate1Peer,
 } from "./posix-gate1-peer";
+import { POSIX_GATE1_SUPPORTED } from "./posix-gate1-platform";
 
 const RUN_ID = "12345678-1234-4234-8234-123456789abc";
 const temporaryParents: string[] = [];
@@ -118,179 +119,185 @@ describe("POSIX Gate 1 concurrency peer arguments", () => {
   });
 });
 
-describe("POSIX Gate 1 concurrency peer safety", () => {
-  it("rejects production roots, symlink roots, markers and unexpected entries", async () => {
-    await expect(
-      runPosixGate1Peer(
-        options(`/mnt/ssd/storage/posix-gate1-disposable-${RUN_ID}`, {
-          dryRun: true,
-        }),
-      ),
-    ).rejects.toThrow("protected production");
-    await expect(
-      runPosixGate1Peer(
-        options(
-          `/mnt/hdd/deniz-cloud/namespace/posix-gate1-disposable-${RUN_ID}`,
-          { dryRun: false },
+describe.skipIf(!POSIX_GATE1_SUPPORTED)(
+  "POSIX Gate 1 concurrency peer safety",
+  () => {
+    it("rejects production roots, symlink roots, markers and unexpected entries", async () => {
+      await expect(
+        runPosixGate1Peer(
+          options(`/mnt/ssd/storage/posix-gate1-disposable-${RUN_ID}`, {
+            dryRun: true,
+          }),
         ),
-      ),
-    ).rejects.toThrow("protected production");
+      ).rejects.toThrow("protected production");
+      await expect(
+        runPosixGate1Peer(
+          options(
+            `/mnt/hdd/deniz-cloud/namespace/posix-gate1-disposable-${RUN_ID}`,
+            { dryRun: false },
+          ),
+        ),
+      ).rejects.toThrow("protected production");
 
-    const { root } = await fixture();
-    const linked = join(
-      dirname(root),
-      `posix-gate1-disposable-${RUN_ID}-linked`,
-    );
-    await symlink(root, linked);
-    await expect(
-      runPosixGate1Peer(options(linked, { dryRun: true })),
-    ).rejects.toThrow(PeerSafetyError);
+      const { root } = await fixture();
+      const linked = join(
+        dirname(root),
+        `posix-gate1-disposable-${RUN_ID}-linked`,
+      );
+      await symlink(root, linked);
+      await expect(
+        runPosixGate1Peer(options(linked, { dryRun: true })),
+      ).rejects.toThrow(PeerSafetyError);
 
-    await writeFile(join(root, "unexpected"), "nope");
-    await expect(
-      runPosixGate1Peer(options(root, { dryRun: true })),
-    ).rejects.toThrow("unexpected entry");
-  });
-
-  it("does not mutate a valid root in dry-run mode", async () => {
-    const { root } = await fixture();
-    const before = await readdir(root);
-    const result = await runPosixGate1Peer(options(root, { dryRun: true }));
-    expect(result).toMatchObject({ dryRun: true, ok: false });
-    expect(await readdir(root)).toEqual(before);
-  });
-
-  it("rejects a symlink evidence target before executing an action", async () => {
-    const { root } = await fixture();
-    const parent = dirname(root);
-    const evidenceTarget = join(parent, "evidence-target.jsonl");
-    const evidenceLink = join(parent, "evidence-link.jsonl");
-    await writeFile(evidenceTarget, "");
-    await symlink(evidenceTarget, evidenceLink);
-
-    await expect(
-      runPosixGate1Peer(options(root, { logPath: evidenceLink })),
-    ).rejects.toThrow("must not be a symlink");
-    expect(await readdir(root)).toEqual([".posix-gate1-disposable"]);
-  });
-});
-
-describe("POSIX Gate 1 concurrency peer actions", () => {
-  it("seeds, atomically replaces, snapshots, renames, holds and unlinks exact generations", async () => {
-    const { control, evidence, root } = await fixture();
-    const seeded = await runPosixGate1Peer(
-      options(root, { logPath: evidence }),
-    );
-    expect(seeded).toMatchObject({
-      ok: true,
-      details: { hash: expectedGenerationHash("A", 4096) },
+      await writeFile(join(root, "unexpected"), "nope");
+      await expect(
+        runPosixGate1Peer(options(root, { dryRun: true })),
+      ).rejects.toThrow("unexpected entry");
     });
 
-    const replaced = await runPosixGate1Peer(
-      options(root, {
-        action: "atomic-replace",
-        generation: "B",
-        logPath: evidence,
-      }),
-    );
-    expect(replaced).toMatchObject({
-      ok: true,
-      details: { hash: expectedGenerationHash("B", 4096) },
+    it("does not mutate a valid root in dry-run mode", async () => {
+      const { root } = await fixture();
+      const before = await readdir(root);
+      const result = await runPosixGate1Peer(options(root, { dryRun: true }));
+      expect(result).toMatchObject({ dryRun: true, ok: false });
+      expect(await readdir(root)).toEqual(before);
     });
 
-    const snapshots = await runPosixGate1Peer(
-      options(root, {
-        action: "snapshot-loop",
-        expectedGenerations: ["A", "B"],
-        generation: undefined,
-      }),
-    );
-    expect(snapshots).toMatchObject({
-      ok: true,
-      details: { counts: { B: 3 }, missing: 0, unknown: 0 },
+    it("rejects a symlink evidence target before executing an action", async () => {
+      const { root } = await fixture();
+      const parent = dirname(root);
+      const evidenceTarget = join(parent, "evidence-target.jsonl");
+      const evidenceLink = join(parent, "evidence-link.jsonl");
+      await writeFile(evidenceTarget, "");
+      await symlink(evidenceTarget, evidenceLink);
+
+      await expect(
+        runPosixGate1Peer(options(root, { logPath: evidenceLink })),
+      ).rejects.toThrow("must not be a symlink");
+      expect(await readdir(root)).toEqual([".posix-gate1-disposable"]);
     });
+  },
+);
 
-    expect(
-      await runPosixGate1Peer(
-        options(root, { action: "rename", generation: undefined }),
-      ),
-    ).toMatchObject({ ok: true });
+describe.skipIf(!POSIX_GATE1_SUPPORTED)(
+  "POSIX Gate 1 concurrency peer actions",
+  () => {
+    it("seeds, atomically replaces, snapshots, renames, holds and unlinks exact generations", async () => {
+      const { control, evidence, root } = await fixture();
+      const seeded = await runPosixGate1Peer(
+        options(root, { logPath: evidence }),
+      );
+      expect(seeded).toMatchObject({
+        ok: true,
+        details: { hash: expectedGenerationHash("A", 4096) },
+      });
 
-    const held = await runPosixGate1Peer(
-      options(root, {
-        action: "hold-read",
-        controlDir: control,
-        generation: undefined,
-        target: "renamed",
-      }),
-      {
-        async onReady() {
-          await writeFile(join(control, "release"), "release\n", {
-            flag: "wx",
-          });
-        },
-      },
-    );
-    expect(held).toMatchObject({
-      ok: true,
-      details: {
-        afterHash: expectedGenerationHash("B", 4096),
-        beforeHash: expectedGenerationHash("B", 4096),
-        released: true,
-      },
-    });
-
-    expect(
-      await runPosixGate1Peer(
+      const replaced = await runPosixGate1Peer(
         options(root, {
-          action: "unlink",
+          action: "atomic-replace",
+          generation: "B",
+          logPath: evidence,
+        }),
+      );
+      expect(replaced).toMatchObject({
+        ok: true,
+        details: { hash: expectedGenerationHash("B", 4096) },
+      });
+
+      const snapshots = await runPosixGate1Peer(
+        options(root, {
+          action: "snapshot-loop",
+          expectedGenerations: ["A", "B"],
+          generation: undefined,
+        }),
+      );
+      expect(snapshots).toMatchObject({
+        ok: true,
+        details: { counts: { B: 3 }, missing: 0, unknown: 0 },
+      });
+
+      expect(
+        await runPosixGate1Peer(
+          options(root, { action: "rename", generation: undefined }),
+        ),
+      ).toMatchObject({ ok: true });
+
+      const held = await runPosixGate1Peer(
+        options(root, {
+          action: "hold-read",
+          controlDir: control,
           generation: undefined,
           target: "renamed",
         }),
-      ),
-    ).toMatchObject({ ok: true });
-    expect(await readdir(root)).toEqual([".posix-gate1-disposable"]);
+        {
+          async onReady() {
+            await writeFile(join(control, "release"), "release\n", {
+              flag: "wx",
+            });
+          },
+        },
+      );
+      expect(held).toMatchObject({
+        ok: true,
+        details: {
+          afterHash: expectedGenerationHash("B", 4096),
+          beforeHash: expectedGenerationHash("B", 4096),
+          released: true,
+        },
+      });
 
-    const evidenceText = await readFile(evidence, "utf8");
-    expect(evidenceText).not.toContain(root);
-    const records = evidenceText
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-    expect(records).toHaveLength(2);
-    expect((await stat(evidence)).mode & 0o777).toBe(0o600);
-  });
+      expect(
+        await runPosixGate1Peer(
+          options(root, {
+            action: "unlink",
+            generation: undefined,
+            target: "renamed",
+          }),
+        ),
+      ).toMatchObject({ ok: true });
+      expect(await readdir(root)).toEqual([".posix-gate1-disposable"]);
 
-  it("reports unknown snapshots and injects explicit test-only links", async () => {
-    const first = await fixture();
-    await runPosixGate1Peer(options(first.root));
-    const snapshots = await runPosixGate1Peer(
-      options(first.root, {
-        action: "snapshot-loop",
-        expectedGenerations: ["B"],
-        generation: undefined,
-      }),
-    );
-    expect(snapshots).toMatchObject({
-      ok: false,
-      details: { missing: 0, unknown: 3 },
+      const evidenceText = await readFile(evidence, "utf8");
+      expect(evidenceText).not.toContain(root);
+      const records = evidenceText
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(records).toHaveLength(2);
+      expect((await stat(evidence)).mode & 0o777).toBe(0o600);
     });
 
-    const second = await fixture();
-    await runPosixGate1Peer(options(second.root));
-    const injected = await runPosixGate1Peer(
-      options(second.root, {
-        action: "inject-test-link",
-        generation: undefined,
-      }),
-    );
-    expect(injected).toMatchObject({
-      ok: true,
-      details: { hardLinkCount: 2, symbolicLink: true },
+    it("reports unknown snapshots and injects explicit test-only links", async () => {
+      const first = await fixture();
+      await runPosixGate1Peer(options(first.root));
+      const snapshots = await runPosixGate1Peer(
+        options(first.root, {
+          action: "snapshot-loop",
+          expectedGenerations: ["B"],
+          generation: undefined,
+        }),
+      );
+      expect(snapshots).toMatchObject({
+        ok: false,
+        details: { missing: 0, unknown: 3 },
+      });
+
+      const second = await fixture();
+      await runPosixGate1Peer(options(second.root));
+      const injected = await runPosixGate1Peer(
+        options(second.root, {
+          action: "inject-test-link",
+          generation: undefined,
+        }),
+      );
+      expect(injected).toMatchObject({
+        ok: true,
+        details: { hardLinkCount: 2, symbolicLink: true },
+      });
+      expect(
+        (await lstat(join(second.root, "test-symlink"))).isSymbolicLink(),
+      ).toBe(true);
+      expect((await lstat(join(second.root, "test-hardlink"))).nlink).toBe(2);
     });
-    expect(
-      (await lstat(join(second.root, "test-symlink"))).isSymbolicLink(),
-    ).toBe(true);
-    expect((await lstat(join(second.root, "test-hardlink"))).nlink).toBe(2);
-  });
-});
+  },
+);

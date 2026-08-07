@@ -9,6 +9,14 @@ import { PathValidationError } from "./path";
 import { StorageService } from "./service";
 import { PromotionQueue, type TieringRepository } from "./tiering";
 
+/**
+ * Creating a symlink on Windows needs SeCreateSymbolicLinkPrivilege, which an
+ * unelevated shell without Developer Mode does not hold — the fixture throws
+ * EPERM before the assertion is reached. Broker startup refusing a symlinked
+ * root is a property of the Linux deployment; CI runs it there.
+ */
+const CAN_SYMLINK = process.platform !== "win32";
+
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
@@ -134,42 +142,45 @@ describe("StorageNamespace", () => {
     ).toThrow("Broker mount witness is outside the user namespace");
   });
 
-  it("fails broker startup for a missing root or symlink", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "storage-namespace-"));
-    temporaryRoots.push(parent);
-    const missing = createStorageNamespace(
-      config({
-        metadata: null,
-        mode: "broker-mounted",
-        rootPath: join(parent, "missing"),
-        witnessPath: join(parent, "missing", ".denizcloud-mount-witness"),
-        witnessValue: "test-witness",
-      }),
-    );
-    await expect(missing.initialize()).rejects.toThrow(
-      "Broker-mounted storage namespace is unavailable",
-    );
+  it.skipIf(!CAN_SYMLINK)(
+    "fails broker startup for a missing root or symlink",
+    async () => {
+      const parent = await mkdtemp(join(tmpdir(), "storage-namespace-"));
+      temporaryRoots.push(parent);
+      const missing = createStorageNamespace(
+        config({
+          metadata: null,
+          mode: "broker-mounted",
+          rootPath: join(parent, "missing"),
+          witnessPath: join(parent, "missing", ".denizcloud-mount-witness"),
+          witnessValue: "test-witness",
+        }),
+      );
+      await expect(missing.initialize()).rejects.toThrow(
+        "Broker-mounted storage namespace is unavailable",
+      );
 
-    const target = join(parent, "target");
-    const targetNamespace = createStorageNamespace(
-      config({ mode: "legacy-dual-path", rootPath: null }, target),
-    );
-    await targetNamespace.initialize();
-    const link = join(parent, "link");
-    await symlink(join(target, "ssd"), link);
-    const linked = createStorageNamespace(
-      config({
-        metadata: null,
-        mode: "broker-mounted",
-        rootPath: link,
-        witnessPath: join(link, ".denizcloud-mount-witness"),
-        witnessValue: "test-witness",
-      }),
-    );
-    await expect(linked.initialize()).rejects.toThrow(
-      "must be an existing non-symlink directory",
-    );
-  });
+      const target = join(parent, "target");
+      const targetNamespace = createStorageNamespace(
+        config({ mode: "legacy-dual-path", rootPath: null }, target),
+      );
+      await targetNamespace.initialize();
+      const link = join(parent, "link");
+      await symlink(join(target, "ssd"), link);
+      const linked = createStorageNamespace(
+        config({
+          metadata: null,
+          mode: "broker-mounted",
+          rootPath: link,
+          witnessPath: join(link, ".denizcloud-mount-witness"),
+          witnessValue: "test-witness",
+        }),
+      );
+      await expect(linked.initialize()).rejects.toThrow(
+        "must be an existing non-symlink directory",
+      );
+    },
+  );
 
   it("fails closed when legacy promotion tiering is enabled", () => {
     const brokerConfig = config({

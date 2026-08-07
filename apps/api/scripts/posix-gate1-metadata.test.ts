@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { POSIX_GATE1_SUPPORTED } from "./posix-gate1-platform";
 
 const SCRIPT = resolve(
   import.meta.dir,
@@ -53,111 +54,114 @@ afterEach(async () => {
   }
 });
 
-describe("POSIX Gate 1 metadata adversary safety", () => {
-  it("dry-runs without changing the marked disposable root", async () => {
-    const { root } = await fixture();
-    const result = await runMetadata([
-      "--action",
-      "seed",
-      "--root",
-      root,
-      "--run-id",
-      RUN_ID,
-    ]);
+describe.skipIf(!POSIX_GATE1_SUPPORTED)(
+  "POSIX Gate 1 metadata adversary safety",
+  () => {
+    it("dry-runs without changing the marked disposable root", async () => {
+      const { root } = await fixture();
+      const result = await runMetadata([
+        "--action",
+        "seed",
+        "--root",
+        root,
+        "--run-id",
+        RUN_ID,
+      ]);
 
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr).toBe("");
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      action: "seed",
-      allGreen: false,
-      credentialsInArguments: false,
-      mode: "dry-run",
-      writes: false,
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        action: "seed",
+        allGreen: false,
+        credentialsInArguments: false,
+        mode: "dry-run",
+        writes: false,
+      });
+      expect(await Bun.file(join(root, "metadata.bin")).exists()).toBe(false);
     });
-    expect(await Bun.file(join(root, "metadata.bin")).exists()).toBe(false);
-  });
 
-  it("rejects conflicting modes, unsafe roots and in-namespace evidence", async () => {
-    const { root } = await fixture();
-    const conflicting = await runMetadata([
-      "--dry-run",
-      "--execute",
-      "--action",
-      "seed",
-      "--root",
-      root,
-      "--run-id",
-      RUN_ID,
-    ]);
-    expect(conflicting.exitCode).toBe(2);
+    it("rejects conflicting modes, unsafe roots and in-namespace evidence", async () => {
+      const { root } = await fixture();
+      const conflicting = await runMetadata([
+        "--dry-run",
+        "--execute",
+        "--action",
+        "seed",
+        "--root",
+        root,
+        "--run-id",
+        RUN_ID,
+      ]);
+      expect(conflicting.exitCode).toBe(2);
 
-    const protectedPath = `/mnt/ssd/storage/posix-gate1-metadata-${RUN_ID}`;
-    const protectedResult = await runMetadata([
-      "--action",
-      "seed",
-      "--root",
-      protectedPath,
-      "--run-id",
-      RUN_ID,
-    ]);
-    expect(protectedResult.exitCode).toBe(1);
-    expect(protectedResult.stderr).toContain("protected production path");
+      const protectedPath = `/mnt/ssd/storage/posix-gate1-metadata-${RUN_ID}`;
+      const protectedResult = await runMetadata([
+        "--action",
+        "seed",
+        "--root",
+        protectedPath,
+        "--run-id",
+        RUN_ID,
+      ]);
+      expect(protectedResult.exitCode).toBe(1);
+      expect(protectedResult.stderr).toContain("protected production path");
 
-    const evidenceResult = await runMetadata([
-      "--action",
-      "seed",
-      "--root",
-      root,
-      "--run-id",
-      RUN_ID,
-      "--evidence",
-      join(root, "evidence.jsonl"),
-    ]);
-    expect(evidenceResult.exitCode).toBe(1);
-    expect(evidenceResult.stderr).toContain("outside the metadata namespace");
-  });
+      const evidenceResult = await runMetadata([
+        "--action",
+        "seed",
+        "--root",
+        root,
+        "--run-id",
+        RUN_ID,
+        "--evidence",
+        join(root, "evidence.jsonl"),
+      ]);
+      expect(evidenceResult.exitCode).toBe(1);
+      expect(evidenceResult.stderr).toContain("outside the metadata namespace");
+    });
 
-  it("rejects symlink roots and mismatched markers", async () => {
-    const { parent, root } = await fixture();
-    const linked = join(parent, `posix-gate1-metadata-${RUN_ID}-link`);
-    await symlink(root, linked);
-    const linkedResult = await runMetadata([
-      "--action",
-      "verify",
-      "--root",
-      linked,
-      "--run-id",
-      RUN_ID,
-    ]);
-    expect(linkedResult.exitCode).not.toBe(0);
+    it("rejects symlink roots and mismatched markers", async () => {
+      const { parent, root } = await fixture();
+      const linked = join(parent, `posix-gate1-metadata-${RUN_ID}-link`);
+      await symlink(root, linked);
+      const linkedResult = await runMetadata([
+        "--action",
+        "verify",
+        "--root",
+        linked,
+        "--run-id",
+        RUN_ID,
+      ]);
+      expect(linkedResult.exitCode).not.toBe(0);
 
-    await writeFile(join(root, ".posix-gate1-metadata"), "wrong\n");
-    const markerResult = await runMetadata([
-      "--action",
-      "verify",
-      "--root",
-      root,
-      "--run-id",
-      RUN_ID,
-    ]);
-    expect(markerResult.exitCode).toBe(1);
-    expect(markerResult.stderr).toContain("marker is missing or mismatched");
-  });
+      await writeFile(join(root, ".posix-gate1-metadata"), "wrong\n");
+      const markerResult = await runMetadata([
+        "--action",
+        "verify",
+        "--root",
+        root,
+        "--run-id",
+        RUN_ID,
+      ]);
+      expect(markerResult.exitCode).toBe(1);
+      expect(markerResult.stderr).toContain("marker is missing or mismatched");
+    });
 
-  it("contains the exact reserved-xattr and AppleDouble adversarial probes", async () => {
-    const source = await Bun.file(SCRIPT).text();
-    for (const attribute of [
-      "user.denizcloud.id",
-      "user.denizcloud.owner_id",
-      "user.denizcloud.created_at",
-      "user.denizcloud.schema_version",
-      "user.denizcloud.checksum",
-    ]) {
-      expect(source).toContain(attribute);
-    }
-    expect(source).toContain("metadata.bin:user.denizcloud.id");
-    expect(source).toContain("metadata.bin:AFP_Resource");
-    expect(source).toContain('== "00051607"');
-    expect(source).toContain("appleDoubleVisibleOverSmb");
-  });
-});
+    it("contains the exact reserved-xattr and AppleDouble adversarial probes", async () => {
+      const source = await Bun.file(SCRIPT).text();
+      for (const attribute of [
+        "user.denizcloud.id",
+        "user.denizcloud.owner_id",
+        "user.denizcloud.created_at",
+        "user.denizcloud.schema_version",
+        "user.denizcloud.checksum",
+      ]) {
+        expect(source).toContain(attribute);
+      }
+      expect(source).toContain("metadata.bin:user.denizcloud.id");
+      expect(source).toContain("metadata.bin:AFP_Resource");
+      expect(source).toContain('== "00051607"');
+      expect(source).toContain("appleDoubleVisibleOverSmb");
+    });
+  },
+);

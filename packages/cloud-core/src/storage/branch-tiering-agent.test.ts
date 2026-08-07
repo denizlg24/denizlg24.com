@@ -16,6 +16,14 @@ import { BranchTieringAgent } from "./branch-tiering-agent";
 import { PROTECTED_XATTR_KEYS } from "./metadata";
 import { InMemoryXattrBackend } from "./xattr";
 
+/**
+ * Creating a symlink on Windows needs SeCreateSymbolicLinkPrivilege, which an
+ * unelevated shell without Developer Mode does not hold — the fixture throws
+ * EPERM before the assertion is reached. The traversal refusal being tested is
+ * a property of the Linux deployment; CI runs it there.
+ */
+const CAN_SYMLINK = process.platform !== "win32";
+
 const roots: string[] = [];
 const fileId = "50000000-0000-4000-8000-000000000006";
 // sha256 of "bytes"
@@ -199,23 +207,26 @@ describe("BranchTieringAgent", () => {
     ).rejects.toThrow();
   });
 
-  it("refuses to traverse a symlinked directory component", async () => {
-    const { agent, ssd } = await branches();
-    // `namespaceSegments` rejects `..` but not this: the link resolves outside
-    // the branch with no `..` anywhere in the path.
-    await mkdir(join(ssd, "real"), { recursive: true });
-    await symlink(join(ssd, "real"), join(ssd, "acct", "link"));
-    await writeFile(join(ssd, "real", "note.bin"), "bytes");
+  it.skipIf(!CAN_SYMLINK)(
+    "refuses to traverse a symlinked directory component",
+    async () => {
+      const { agent, ssd } = await branches();
+      // `namespaceSegments` rejects `..` but not this: the link resolves outside
+      // the branch with no `..` anywhere in the path.
+      await mkdir(join(ssd, "real"), { recursive: true });
+      await symlink(join(ssd, "real"), join(ssd, "acct", "link"));
+      await writeFile(join(ssd, "real", "note.bin"), "bytes");
 
-    await expect(
-      agent.move({
-        expectedChecksum: checksum,
-        expectedId: fileId,
-        relativePath: "acct/link/note.bin",
-        toTier: "hdd",
-      }),
-    ).rejects.toThrow(/Symlink/);
-  });
+      await expect(
+        agent.move({
+          expectedChecksum: checksum,
+          expectedId: fileId,
+          relativePath: "acct/link/note.bin",
+          toTier: "hdd",
+        }),
+      ).rejects.toThrow(/Symlink/);
+    },
+  );
 
   it("quarantines rather than replacing a destination created during the copy", async () => {
     // The absence check happens before the copy; for a large file that gap is
