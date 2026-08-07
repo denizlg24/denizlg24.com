@@ -17,9 +17,9 @@ import {
 
 /**
  * Everything the control plane resolves and the request deliberately does not
- * carry (§3.2). Day 5 fills this in; until then a deployment builds a public
- * repository with no environment, which is exactly what day 3 needs to prove
- * the pipeline end to end.
+ * carry: a queued row that outlives its build cannot leak a credential, and
+ * neither can a log line that echoes the request. `noSecrets` stays for tests
+ * and for running the pipeline against no control plane at all.
  */
 export interface DeploymentSecrets {
   cloneToken: string | null;

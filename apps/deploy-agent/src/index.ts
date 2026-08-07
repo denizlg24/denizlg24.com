@@ -54,6 +54,14 @@ const queue = new DeploymentQueue({
     buildMemoryLimit: `${config.buildMemoryLimitMb}m`,
     drainMs: config.drainMs,
     healthPollMs: config.healthPollMs,
+    secrets: async (request, signal) => {
+      const resolved = await controlPlane.env(request.deploymentId, signal);
+      return {
+        cloneToken: resolved.cloneToken,
+        buildEnv: resolved.buildEnv,
+        runEnv: resolved.runEnv,
+      };
+    },
   }),
   logger,
 });

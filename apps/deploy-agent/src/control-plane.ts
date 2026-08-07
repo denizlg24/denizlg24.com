@@ -1,6 +1,8 @@
 import {
+  type AgentDeploymentEnv,
   type AgentDeploymentRequest,
   agentClaimResponseSchema,
+  agentDeploymentEnvSchema,
   type DeploymentStatusUpdate,
 } from "@repo/schemas/cloud";
 
@@ -36,15 +38,14 @@ export class ControlPlaneClient {
     this.#fetch = options.fetchImplementation ?? fetch;
   }
 
-  async #post(path: string, body: unknown): Promise<unknown> {
+  async #request(path: string, init: RequestInit): Promise<unknown> {
     const response = await this.#fetch(`${this.#baseUrl}${path}`, {
-      method: "POST",
+      ...init,
       headers: {
+        ...(init.headers as Record<string, string> | undefined),
         authorization: `Bearer ${this.#token}`,
-        "content-type": "application/json",
       },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.#timeoutMs),
+      signal: init.signal ?? AbortSignal.timeout(this.#timeoutMs),
     });
     if (!response.ok) {
       throw new ControlPlaneError(
@@ -54,6 +55,14 @@ export class ControlPlaneClient {
     }
     if (response.status === 204) return null;
     return response.json();
+  }
+
+  async #post(path: string, body: unknown): Promise<unknown> {
+    return this.#request(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
   }
 
   /**
@@ -81,5 +90,22 @@ export class ControlPlaneClient {
       `/api/deploy/agent/deployments/${deploymentId}/status`,
       update,
     );
+  }
+
+  /**
+   * Fetched once, immediately before the build, and never persisted by the
+   * agent beyond the 0600 env file `docker run` reads and the pipeline
+   * deletes. The request deliberately carries no env of its own, so a queued
+   * row that outlives its build cannot leak one.
+   */
+  async env(
+    deploymentId: string,
+    signal?: AbortSignal,
+  ): Promise<AgentDeploymentEnv> {
+    const body = await this.#request(
+      `/api/deploy/agent/deployments/${deploymentId}/env`,
+      { method: "GET", signal },
+    );
+    return agentDeploymentEnvSchema.parse(body);
   }
 }
