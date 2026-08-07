@@ -1,7 +1,9 @@
 import { agentDeploymentRequestSchema } from "@repo/schemas/cloud";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 
 import { requireAgentToken } from "./auth";
+import type { BuildLogStore } from "./build-log";
 import type { HealthService } from "./health";
 import { type DeploymentQueue, QueueAtCapacityError } from "./queue";
 
@@ -9,6 +11,7 @@ export interface AgentRouteOptions {
   token: string;
   health: HealthService;
   queue: DeploymentQueue;
+  logs: BuildLogStore;
 }
 
 export function createAgentApp(options: AgentRouteOptions): Hono {
@@ -73,6 +76,34 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
       );
     }
     return context.json({ deployment });
+  });
+
+  /**
+   * Replays from the first line before tailing, so watching a build never
+   * requires having been connected when it started — and a finished build is
+   * served from its file, which is the only view that exists after a restart.
+   */
+  guarded.get("/deployments/:id/logs", async (context) => {
+    const deploymentId = context.req.param("id");
+    if (!(await options.logs.has(deploymentId))) {
+      return context.json(
+        { error: { code: "NOT_FOUND", message: "No build log" } },
+        404,
+      );
+    }
+    return streamSSE(context, async (stream) => {
+      const controller = new AbortController();
+      stream.onAbort(() => controller.abort());
+      for await (const line of options.logs.stream(
+        deploymentId,
+        controller.signal,
+      )) {
+        await stream.writeSSE({ data: line });
+      }
+      if (!controller.signal.aborted) {
+        await stream.writeSSE({ event: "end", data: "" });
+      }
+    });
   });
 
   guarded.post("/deployments/:id/cancel", (context) => {

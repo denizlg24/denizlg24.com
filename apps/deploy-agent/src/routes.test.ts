@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AgentHealth } from "@repo/schemas/cloud";
 
+import { BuildLogStore } from "./build-log";
 import { deploymentRequest } from "./fixtures";
 import type { HealthService } from "./health";
 import { DeploymentQueue } from "./queue";
@@ -33,7 +37,9 @@ function healthStub(status: AgentHealth["status"]): HealthService {
   } as unknown as HealthService;
 }
 
-function app(options: { status?: AgentHealth["status"] } = {}) {
+function app(
+  options: { status?: AgentHealth["status"]; logRoot?: string } = {},
+) {
   const queue = new DeploymentQueue({
     capacity: 1,
     pollIntervalMs: 1_000,
@@ -42,12 +48,17 @@ function app(options: { status?: AgentHealth["status"] } = {}) {
     report: async () => {},
     runner: () => new Promise(() => {}),
   });
+  const logs = new BuildLogStore({
+    root: options.logRoot ?? join(tmpdir(), "forge-agent-absent"),
+  });
   return {
     queue,
+    logs,
     instance: createAgentApp({
       token: TOKEN,
       health: healthStub(options.status ?? "ok"),
       queue,
+      logs,
     }),
   };
 }
@@ -80,6 +91,7 @@ describe("authentication", () => {
     for (const path of [
       "/deployments",
       `/deployments/${crypto.randomUUID()}`,
+      `/deployments/${crypto.randomUUID()}/logs`,
     ]) {
       expect((await instance.request(path)).status).toBe(401);
     }
@@ -160,6 +172,40 @@ describe("GET /deployments/:id", () => {
 
     expect(response.status).toBe(200);
     expect((await response.json()).deployment.status).toBe("building");
+  });
+});
+
+describe("GET /deployments/:id/logs", () => {
+  it("404s a deployment with no log", async () => {
+    const response = await app().instance.request(
+      `/deployments/${crypto.randomUUID()}/logs`,
+      { headers: AUTH },
+    );
+    expect(response.status).toBe(404);
+  });
+
+  it("replays a finished build's log as SSE", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-agent-routes-"));
+    try {
+      const { logs, instance } = app({ logRoot: root });
+      const log = await logs.open("dep-1");
+      log.write("step 1\nstep 2\n");
+      await logs.close("dep-1");
+
+      const response = await instance.request("/deployments/dep-1/logs", {
+        headers: AUTH,
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain(
+        "text/event-stream",
+      );
+      const body = await response.text();
+      expect(body).toContain("data: step 1");
+      expect(body).toContain("data: step 2");
+      expect(body).toContain("event: end");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

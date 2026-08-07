@@ -25,10 +25,16 @@ Group=root
 TimeoutStopSec=45
 KillSignal=SIGTERM
 
-# /srv/forge is the only tree it writes. Docker's own state is reached through
+# /srv/forge holds build trees and logs. Docker's own state is reached through
 # the socket, not the filesystem.
 ReadWritePaths=/srv/forge
 StateDirectory=forge
+
+# /run/forge is where a deployment's resolved environment lives for the length
+# of one `docker run`. RuntimeDirectory puts it on tmpfs and removes it when the
+# unit stops, so a crash mid-deploy cannot leave a readable secret on disk.
+RuntimeDirectory=forge
+RuntimeDirectoryMode=0700
 NoNewPrivileges=yes
 ProtectHome=yes
 ProtectKernelTunables=yes

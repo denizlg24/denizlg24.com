@@ -11,8 +11,13 @@ export interface AgentConfig {
   buildRoot: string;
   logRoot: string;
   cacheRoot: string;
+  runEnvRoot: string;
   dockerSocket: string;
   dockerDataRoot: string;
+  dockerNetwork: string;
+  buildMemoryLimitMb: number;
+  healthPollMs: number;
+  drainMs: number;
 }
 
 /**
@@ -59,6 +64,14 @@ function absolutePathEnv(name: string, fallback: string): string {
   const value = process.env[name] ?? fallback;
   if (!value.startsWith("/")) {
     throw new Error(`${name} must be an absolute path`);
+  }
+  return value;
+}
+
+function dockerNetworkEnv(): string {
+  const value = process.env.DOCKER_NETWORK ?? "forge-apps";
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(value)) {
+    throw new Error("DOCKER_NETWORK is not a valid docker network name");
   }
   return value;
 }
@@ -110,7 +123,19 @@ export function agentConfigFromEnv(): AgentConfig {
     buildRoot: absolutePathEnv("BUILD_ROOT", "/srv/forge/builds"),
     logRoot: absolutePathEnv("LOG_ROOT", "/srv/forge/logs"),
     cacheRoot: absolutePathEnv("CACHE_ROOT", "/srv/forge/cache"),
+    // A tmpfs, so a resolved env set never reaches the disk even for the
+    // length of one `docker run`.
+    runEnvRoot: absolutePathEnv("RUN_ENV_ROOT", "/run/forge"),
     dockerSocket: absolutePathEnv("DOCKER_SOCKET", "/var/run/docker.sock"),
     dockerDataRoot: absolutePathEnv("DOCKER_DATA_ROOT", "/var/lib/docker"),
+    dockerNetwork: dockerNetworkEnv(),
+    buildMemoryLimitMb: integerEnv(
+      "BUILD_MEMORY_LIMIT_MB",
+      6_144,
+      512,
+      131_072,
+    ),
+    healthPollMs: integerEnv("HEALTH_POLL_MS", 2_000, 250, 60_000),
+    drainMs: integerEnv("CONTAINER_DRAIN_MS", 10_000, 0, 300_000),
   };
 }
