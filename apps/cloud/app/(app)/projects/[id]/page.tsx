@@ -14,6 +14,7 @@ import { STORAGE_APP_URL } from "@/lib/env";
 import { ApiKeysSection } from "./_components/api-keys-section";
 import { CollectionsSection } from "./_components/collections-section";
 import { DatabasesSection } from "./_components/databases-section";
+import { DeploySection } from "./_components/deploy-section";
 import { S3CredentialsSection } from "./_components/s3-credentials-section";
 import { SearchTokenSection } from "./_components/search-token-section";
 import { VectorIndexesSection } from "./_components/vector-indexes-section";
@@ -103,6 +104,7 @@ export default function ProjectDetailPage() {
         />
       </div>
 
+      <DeploySection projectId={projectId} />
       <ApiKeysSection projectId={projectId} />
       <S3CredentialsSection projectId={projectId} />
       <DatabasesSection projectId={projectId} />

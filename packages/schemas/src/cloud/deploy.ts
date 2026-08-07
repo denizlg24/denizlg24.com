@@ -496,6 +496,16 @@ export const deploymentSchema = z.object({
 });
 export type Deployment = z.infer<typeof deploymentSchema>;
 
+/**
+ * The list shape. A target with no deployment yet is the normal state right
+ * after it is created, so `latestDeployment` is nullable rather than the list
+ * being filtered.
+ */
+export const deployTargetListEntrySchema = deployTargetSchema.extend({
+  latestDeployment: deploymentSchema.nullable(),
+});
+export type DeployTargetListEntry = z.infer<typeof deployTargetListEntrySchema>;
+
 export const createDeployDomainInputSchema = z.object({
   hostname: hostnameSchema,
   /**

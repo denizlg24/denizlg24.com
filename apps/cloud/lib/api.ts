@@ -14,6 +14,9 @@ import {
   type CompleteSignupResult,
   type ContainerSnapshot,
   type CreateCollectionInput,
+  type CreateDeployDomainInput,
+  type CreateDeploymentInput,
+  type CreateDeployTargetInput,
   type CreatedApiKey,
   type CreateMongoCollectionInput,
   type CreateMongoIndexInput,
@@ -24,8 +27,20 @@ import {
   completeSignupResultSchema,
   containerSnapshotSchema,
   createdApiKeySchema,
+  type DeployBindings,
+  type DeployDomain,
+  type DeployEnvVar,
+  type Deployment,
+  type DeployTarget,
+  type DeployTargetListEntry,
   type DiscoverFieldsInput,
   type DiscoverFieldsResult,
+  deployBindingsSchema,
+  deployDomainSchema,
+  deployEnvVarSchema,
+  deploymentSchema,
+  deployTargetListEntrySchema,
+  deployTargetSchema,
   discoverFieldsResultSchema,
   type FindMongoDocumentsInput,
   type GenerateSearchTokenInput,
@@ -75,6 +90,7 @@ import {
   projectS3CredentialMetadataSchema,
   projectVectorIndexSchema,
   projectVectorSearchOverviewSchema,
+  type ReplaceDeployEnvInput,
   type S3BucketUsage,
   type S3CredentialMetadata,
   type SafeActivityEntry,
@@ -107,6 +123,8 @@ import {
   terminalSessionSchema,
   tieringSettingsSchema,
   type UpdateCollectionInput,
+  type UpdateDeployDomainInput,
+  type UpdateDeployTargetInput,
   type UpdateProjectInput,
   type UpdateTaskInput,
   type UserStorageStat,
@@ -712,6 +730,149 @@ export const api = {
           { method: "DELETE" },
         ),
     },
+  },
+
+  deploy: {
+    targets: (): Promise<DeployTargetListEntry[]> =>
+      requestData(z.array(deployTargetListEntrySchema), "/api/deploy/targets"),
+    target: (id: string): Promise<DeployTarget> =>
+      requestData(deployTargetSchema, `/api/deploy/targets/${id}`),
+    createTarget: (input: CreateDeployTargetInput): Promise<DeployTarget> =>
+      requestData(deployTargetSchema, "/api/deploy/targets", {
+        method: "POST",
+        body: input,
+        // Creating a target provisions a DNS record on Cloudflare.
+        timeoutMs: SLOW_TIMEOUT_MS,
+      }),
+    updateTarget: (
+      id: string,
+      input: UpdateDeployTargetInput,
+    ): Promise<DeployTarget> =>
+      requestData(deployTargetSchema, `/api/deploy/targets/${id}`, {
+        method: "PATCH",
+        body: input,
+      }),
+    removeTarget: (id: string): Promise<{ id: string }> =>
+      requestData(z.object({ id: z.uuid() }), `/api/deploy/targets/${id}`, {
+        method: "DELETE",
+        // Tears down every container and record the target owns.
+        timeoutMs: SLOW_TIMEOUT_MS,
+      }),
+
+    deployments: (
+      targetId: string,
+      query?: { page?: number; limit?: number },
+    ): Promise<Paginated<Deployment>> =>
+      requestPaginated(
+        deploymentSchema,
+        `/api/deploy/targets/${targetId}/deployments`,
+        { query },
+      ),
+    deployment: (id: string): Promise<Deployment> =>
+      requestData(deploymentSchema, `/api/deploy/deployments/${id}`),
+    create: (
+      targetId: string,
+      input: CreateDeploymentInput,
+    ): Promise<Deployment> =>
+      requestData(
+        deploymentSchema,
+        `/api/deploy/targets/${targetId}/deployments`,
+        { method: "POST", body: input, timeoutMs: SLOW_TIMEOUT_MS },
+      ),
+    cancel: (id: string): Promise<unknown> =>
+      requestData(z.unknown(), `/api/deploy/deployments/${id}/cancel`, {
+        method: "POST",
+      }),
+    rollback: (id: string): Promise<Deployment> =>
+      requestData(deploymentSchema, `/api/deploy/deployments/${id}/rollback`, {
+        method: "POST",
+        timeoutMs: SLOW_TIMEOUT_MS,
+      }),
+    restart: (
+      id: string,
+    ): Promise<{ restarted: boolean; healthy: boolean | null }> =>
+      requestData(
+        z.object({
+          restarted: z.boolean(),
+          healthy: z.boolean().nullable(),
+          error: z.string().nullable(),
+        }),
+        `/api/deploy/deployments/${id}/restart`,
+        { method: "POST", timeoutMs: SLOW_TIMEOUT_MS },
+      ),
+    remove: (id: string): Promise<{ id: string }> =>
+      requestData(z.object({ id: z.uuid() }), `/api/deploy/deployments/${id}`, {
+        method: "DELETE",
+      }),
+    /**
+     * 202 with a `warning` means the row says production and the agent did not
+     * confirm the route change — a half-promoted deployment that looks fine
+     * everywhere else, so the caller has to surface it.
+     */
+    promote: (
+      id: string,
+    ): Promise<{ deployment: Deployment; warning: string | null }> =>
+      rawRequest(`/api/deploy/deployments/${id}/promote`, {
+        method: "POST",
+        timeoutMs: SLOW_TIMEOUT_MS,
+      }).then((payload) => {
+        const parsed = z
+          .object({ data: deploymentSchema, warning: z.string().optional() })
+          .parse(payload);
+        return { deployment: parsed.data, warning: parsed.warning ?? null };
+      }),
+    logsUrl: (id: string): string =>
+      buildUrl(`/api/deploy/deployments/${id}/logs`, undefined).toString(),
+
+    env: (targetId: string): Promise<DeployEnvVar[]> =>
+      requestData(
+        z.array(deployEnvVarSchema),
+        `/api/deploy/targets/${targetId}/env`,
+      ),
+    replaceEnv: (
+      targetId: string,
+      input: ReplaceDeployEnvInput,
+    ): Promise<DeployEnvVar[]> =>
+      requestData(
+        z.array(deployEnvVarSchema),
+        `/api/deploy/targets/${targetId}/env`,
+        { method: "PUT", body: input },
+      ),
+    bindings: (targetId: string): Promise<DeployBindings> =>
+      requestData(deployBindingsSchema, `/api/deploy/bindings/${targetId}`),
+
+    domains: (targetId: string): Promise<DeployDomain[]> =>
+      requestData(
+        z.array(deployDomainSchema),
+        `/api/deploy/targets/${targetId}/domains`,
+      ),
+    addDomain: (
+      targetId: string,
+      input: CreateDeployDomainInput,
+    ): Promise<DeployDomain> =>
+      requestData(
+        deployDomainSchema,
+        `/api/deploy/targets/${targetId}/domains`,
+        { method: "POST", body: input, timeoutMs: SLOW_TIMEOUT_MS },
+      ),
+    updateDomain: (
+      id: string,
+      input: UpdateDeployDomainInput,
+    ): Promise<DeployDomain> =>
+      requestData(deployDomainSchema, `/api/deploy/domains/${id}`, {
+        method: "PATCH",
+        body: input,
+        timeoutMs: SLOW_TIMEOUT_MS,
+      }),
+    removeDomain: (id: string): Promise<{ id: string }> =>
+      requestData(z.object({ id: z.uuid() }), `/api/deploy/domains/${id}`, {
+        method: "DELETE",
+      }),
+    verifyDomain: (id: string): Promise<DeployDomain> =>
+      requestData(deployDomainSchema, `/api/deploy/domains/${id}/verify`, {
+        method: "POST",
+        timeoutMs: SLOW_TIMEOUT_MS,
+      }),
   },
 
   storageAnalytics: {
