@@ -295,9 +295,22 @@ services:
     image: ${API_IMAGE:-ghcr.io/denizlg24/deniz-cloud-api:latest}
     networks: [app, docker-api]
     ports:
+      # The tunnel's origin. cloudflared dials loopback, so this binding is
+      # what api.denizlg24.com resolves to in practice — moving it is how the
+      # public API 502s while the container reports healthy.
       - target: 3001
         published: "${API_PORT:-3001}"
         host_ip: "${API_BIND_ADDRESS:-127.0.0.1}"
+        protocol: tcp
+      # The deploy agent, which runs on another host and claims work over the
+      # tailnet. A second binding rather than moving the first: `host_ip` takes
+      # one address, and the two callers genuinely need different ones.
+      # Left at the loopback default this collapses into the binding above —
+      # Docker deduplicates identical mappings — so a host with no agent
+      # publishes exactly what it always did.
+      - target: 3001
+        published: "${API_PORT:-3001}"
+        host_ip: "${API_TAILNET_BIND_ADDRESS:-127.0.0.1}"
         protocol: tcp
     environment:
       APP_VERSION: ${API_VERSION:-latest}
