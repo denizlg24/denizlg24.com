@@ -1,6 +1,13 @@
 [Unit]
 Description=Deniz Cloud POSIX storage boundary
 Requires=deniz-cloud-storage-namespace.service
+# The metadata service is only PartOf this target, which stops it with the
+# target but never starts it. It is also not enabled, so nothing brought it up
+# at boot — and the SMB unit validates the metadata socket in ExecStartPre, so
+# the whole boundary failed to start without it while the target reported a
+# dependency failure that named smbd instead. Requiring it here is what makes a
+# reboot come back; its own Before= already orders it ahead of smbd.
+Requires=deniz-cloud-storage-metadata.service
 Requires=deniz-cloud-storage-firewall.service
 Requires=deniz-cloud-storage-smb.service
 Requires=deniz-cloud-storage-api-broker.service
