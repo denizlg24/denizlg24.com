@@ -31,6 +31,14 @@ services:
       - /mnt/ssd/deniz-cloud/internal/.capacity:/data/capacity/ssd:ro
       - /mnt/hdd/deniz-cloud/internal/.capacity:/data/capacity/hdd:ro
       - /srv/deniz-cloud/internal/.capacity:/data/capacity/root:ro
+      # One per pool member, because /data/capacity/hdd now resolves to mergerfs
+      # and df reports the pool rather than a block device. The disk sampler
+      # matches HDD_DEVICES against the device column of df, so without these
+      # every physical HDD reads as offline with 0% used while the pool itself
+      # reports the right total. These are what keep per-disk health visible
+      # once a tier spans more than one spindle.
+      - /mnt/hdd-disks/d1/deniz-cloud/internal/.capacity:/data/capacity/hdd-d1:ro
+      - /mnt/hdd-disks/d2/deniz-cloud/internal/.capacity:/data/capacity/hdd-d2:ro
       # Project S3 and request staging remain independent from Personal/Shared.
       # One mount, so the temp and final S3 paths share a filesystem and the
       # publish rename works; see S3_ROOT_PATH above.

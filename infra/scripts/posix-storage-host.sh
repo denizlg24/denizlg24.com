@@ -248,14 +248,19 @@ validate_compose() {
     # Compose renders a writable bind as read_only:null, not false, so this
     # asserts "not read-only" rather than an exact false.
     ([volumes[] | select(.type == "bind" and .source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage" and (.read_only != true))] | length) == 1 and
-    ([volumes[] | select(.type == "bind")] | length) == 10 and
-    ([volumes[] | select(.type == "bind") | .target] | unique | length) == 10 and
+    ([volumes[] | select(.type == "bind")] | length) == 12 and
+    ([volumes[] | select(.type == "bind") | .target] | unique | length) == 12 and
     ([volumes[] | select(.type == "bind") | select(
       (.source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage") or
       (.source == "/run/deniz-cloud" and .target == "/run/deniz-cloud") or
       (.source == "/mnt/ssd/deniz-cloud/internal/.capacity" and .target == "/data/capacity/ssd" and .read_only == true) or
       (.source == "/mnt/hdd/deniz-cloud/internal/.capacity" and .target == "/data/capacity/hdd" and .read_only == true) or
       (.source == "/srv/deniz-cloud/internal/.capacity" and .target == "/data/capacity/root" and .read_only == true) or
+      # Per-member capacity, read-only. A pooled tier makes df report the
+      # mergerfs mount instead of a block device, so the sampler cannot resolve
+      # a physical disk without these.
+      (.source == "/mnt/hdd-disks/d1/deniz-cloud/internal/.capacity" and .target == "/data/capacity/hdd-d1" and .read_only == true) or
+      (.source == "/mnt/hdd-disks/d2/deniz-cloud/internal/.capacity" and .target == "/data/capacity/hdd-d2" and .read_only == true) or
       # One mount with subdirectories, not four mounts. S3 publishes by renaming
       # the temp path onto the final path, and rename() across two binds is
       # EXDEV even on the same disk, so the split layout failed every upload
