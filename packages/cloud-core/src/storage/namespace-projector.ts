@@ -27,7 +27,7 @@ export interface ProjectionRepository {
   upsertFile(entry: NamespaceEntry): Promise<void>;
   recordProblem(
     generation: number,
-    problem: { code: string; relativePath: string },
+    problem: { code: string; detail?: string; relativePath: string },
   ): Promise<void>;
   /** Drops a problem that adoption resolved, so it stops holding the scan dirty. */
   clearProblem(relativePath: string): Promise<void>;
@@ -137,14 +137,37 @@ export class NamespaceProjector {
           if (observedIds.size >= maxEntries) {
             throw new Error(`Namespace exceeded ${maxEntries} entries`);
           }
+          // Observed before the write is attempted, not after. `observedIds`
+          // answers "is this still in the namespace", which the walk has just
+          // established; letting a failed write make a present entry look
+          // absent would hand a live file to the reaper.
           observedIds.add(entry.metadata.id);
-          if (entry.kind === "folder") {
-            foldersSeen += 1;
-            await this.repository.upsertFolder(entry);
-            queue.push(entry.relativePath);
-          } else {
-            filesSeen += 1;
-            await this.repository.upsertFile(entry);
+          const isFolder = entry.kind === "folder";
+          // The subtree is queued whether or not the folder row persisted, so
+          // everything beneath it is still observed. Skipping it would make an
+          // entire branch look deleted because one row above it failed.
+          if (isFolder) queue.push(entry.relativePath);
+          try {
+            if (isFolder) {
+              await this.repository.upsertFolder(entry);
+              foldersSeen += 1;
+            } else {
+              await this.repository.upsertFile(entry);
+              filesSeen += 1;
+            }
+          } catch (error) {
+            // One unprojectable entry is a fact about that entry, not a reason
+            // to abandon the walk. This used to throw, which froze the entire
+            // projection behind a single row for as long as it existed: the
+            // scan could not complete, and only a complete scan reconciles the
+            // stale row that was blocking it.
+            problemPaths.add(entry.relativePath);
+            problemsSeen += 1;
+            await this.repository.recordProblem(generation, {
+              code: "PROJECTION_WRITE_FAILED",
+              detail: error instanceof Error ? error.message : String(error),
+              relativePath: entry.relativePath,
+            });
           }
         }
       }

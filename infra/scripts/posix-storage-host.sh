@@ -62,8 +62,14 @@ load_config() {
   # shellcheck disable=SC1090
   source "$config"
   set +a
-  : "${DENIZ_POSIX_SSD_UUID:?required}"
-  : "${DENIZ_POSIX_HDD_UUID:?required}"
+  # Each role names its member mountpoints and the filesystem UUID of each, in
+  # the same order. A single-disk role names its own mountpoint and one UUID; a
+  # pooled role names the members underneath its mergerfs mount. The plural
+  # spelling is what lets the hdd role span more than one physical disk.
+  : "${DENIZ_POSIX_SSD_UUIDS:?required}"
+  : "${DENIZ_POSIX_HDD_UUIDS:?required}"
+  : "${DENIZ_POSIX_SSD_MEMBERS:?required}"
+  : "${DENIZ_POSIX_HDD_MEMBERS:?required}"
   : "${DENIZ_POSIX_SSD_BRANCH_ID:?required}"
   : "${DENIZ_POSIX_HDD_BRANCH_ID:?required}"
   : "${DENIZ_POSIX_TAILSCALE_IP:?required}"
@@ -74,8 +80,19 @@ load_config() {
   : "${DENIZ_POSIX_COMPOSE_FILE:?required}"
   : "${DENIZ_POSIX_COMPOSE_OVERRIDE:?required}"
   : "${DENIZ_POSIX_COMPOSE_ENV:?required}"
-  for uuid in "$DENIZ_POSIX_SSD_UUID" "$DENIZ_POSIX_HDD_UUID" "$DENIZ_POSIX_SSD_BRANCH_ID" "$DENIZ_POSIX_HDD_BRANCH_ID"; do
+  for uuid in ${DENIZ_POSIX_SSD_UUIDS//,/ } ${DENIZ_POSIX_HDD_UUIDS//,/ } "$DENIZ_POSIX_SSD_BRANCH_ID" "$DENIZ_POSIX_HDD_BRANCH_ID"; do
     [[ "$uuid" =~ ^[0-9A-Fa-f-]{8,64}$ ]] || { echo "Invalid UUID-shaped config value" >&2; return 1; }
+  done
+  # Members and UUIDs are positional, so a length mismatch means validation
+  # would silently check fewer disks than are actually carrying data.
+  local -a _members _uuids
+  local role_upper
+  for role_upper in SSD HDD; do
+    local members_var="DENIZ_POSIX_${role_upper}_MEMBERS" uuids_var="DENIZ_POSIX_${role_upper}_UUIDS"
+    IFS=: read -ra _members <<< "${!members_var}"
+    IFS=, read -ra _uuids <<< "${!uuids_var}"
+    (( ${#_members[@]} > 0 && ${#_members[@]} == ${#_uuids[@]} )) \
+      || { echo "$role_upper member and UUID lists must be non-empty and the same length" >&2; return 1; }
   done
   [[ "$DENIZ_POSIX_SSD_BRANCH_ID" != "$DENIZ_POSIX_HDD_BRANCH_ID" ]] || { echo "Branch IDs must be distinct" >&2; return 1; }
   IFS=. read -r tail_a tail_b tail_c tail_d <<< "$DENIZ_POSIX_TAILSCALE_IP"
@@ -88,19 +105,67 @@ load_config() {
   [[ "$DENIZ_POSIX_COMPOSE_FILE" == /* && "$DENIZ_POSIX_COMPOSE_OVERRIDE" == /* && "$DENIZ_POSIX_COMPOSE_ENV" == /* ]] || { echo "Compose paths must be absolute" >&2; return 1; }
 }
 
+# Sorted, comma-joined set of the filesystem UUIDs actually backing a role,
+# read from the member mounts themselves. Sorting makes the comparison against
+# the configured set a plain string compare.
+observed_member_uuids() {
+  local members=$1 member src uuid
+  local -a member_arr out=()
+  IFS=: read -ra member_arr <<< "$members"
+  for member in "${member_arr[@]}"; do
+    mountpoint -q "$member" || { echo "member is not mounted: $member" >&2; return 1; }
+    src=$(findmnt -n -o SOURCE --target "$member") || return 1
+    uuid=$(blkid -s UUID -o value "$src" 2>/dev/null) || true
+    [[ -n "$uuid" ]] || { echo "member has no filesystem UUID: $member" >&2; return 1; }
+    out+=("${uuid,,}")
+  done
+  printf '%s\n' "${out[@]}" | sort | paste -sd, -
+}
+
+# A pooled role must be serving every configured member and nothing else.
+#
+# This is the check that makes pooling safe. mergerfs does not fail when one of
+# its branches disappears — it silently serves the remaining subset, so every
+# file on the absent disk simply stops existing. Downstream that is
+# indistinguishable from a mass deletion, and the "tier root is non-empty"
+# guard that protects a single-disk tier does not fire, because the surviving
+# member keeps the root populated. The watchdog calls this on every tick, which
+# is what turns a dropped member into a withdrawn namespace instead.
+validate_pool_membership() {
+  local mount_path=$1 members=$2 role=$3 runtime expected
+  [[ "$(findmnt -n -o FSTYPE --target "$mount_path")" == fuse.mergerfs ]] \
+    || { echo "$role pool is not a mergerfs mount" >&2; return 1; }
+  # The runtime config lives on the .mergerfs pseudo-file inside the mount, not
+  # on the mount root, and each branch carries a =RW / =RO mode suffix.
+  runtime=$(getfattr --only-values -n user.mergerfs.branches "$mount_path/.mergerfs" 2>/dev/null \
+            | tr ':' '\n' | sed 's/=.*$//' | sed '/^$/d' | sort | paste -sd: -) \
+    || { echo "$role pool branch list is unreadable" >&2; return 1; }
+  [[ -n "$runtime" ]] || { echo "$role pool reported no branches" >&2; return 1; }
+  expected=$(printf '%s\n' "${members//:/$'\n'}" | sort | paste -sd: -)
+  [[ "$runtime" == "$expected" ]] \
+    || { echo "$role pool membership drift: serving [$runtime] want [$expected]" >&2; return 1; }
+}
+
 validate_branch() {
-  local mount_path=$1 branch_path=$2 role=$3 expected_uuid=$4 expected_id=$5 marker source actual_uuid
+  local mount_path=$1 branch_path=$2 role=$3 expected_uuids=$4 expected_id=$5 members=$6
+  local marker actual_uuids expected_sorted
   mountpoint -q "$mount_path" || { echo "$role filesystem is not mounted" >&2; return 1; }
-  source=$(findmnt -n -o SOURCE --target "$mount_path")
-  actual_uuid=$(blkid -s UUID -o value "$source")
-  [[ "${actual_uuid,,}" == "${expected_uuid,,}" ]] || { echo "$role filesystem UUID mismatch" >&2; return 1; }
+  # More than one member means the role is pooled; assert the pool is whole
+  # before anything is trusted to be a complete view of it.
+  if [[ "$members" == *:* ]]; then
+    validate_pool_membership "$mount_path" "$members" "$role" || return 1
+  fi
+  actual_uuids=$(observed_member_uuids "$members") || { echo "$role member enumeration failed" >&2; return 1; }
+  expected_sorted=$(printf '%s\n' "${expected_uuids//,/$'\n'}" | tr 'A-Z' 'a-z' | sort | paste -sd, -)
+  [[ "$actual_uuids" == "$expected_sorted" ]] \
+    || { echo "$role filesystem UUID mismatch: have [$actual_uuids] want [$expected_sorted]" >&2; return 1; }
   [[ -d "$branch_path" && ! -L "$branch_path" ]] || { echo "$role namespace branch is missing or unsafe" >&2; return 1; }
   [[ "$(findmnt -n -o TARGET --target "$branch_path")" == "$mount_path" ]] || { echo "$role branch crossed an unexpected mount" >&2; return 1; }
   marker="$branch_path/.denizcloud-branch.json"
   [[ -f "$marker" && ! -L "$marker" ]] || { echo "$role branch marker is missing or unsafe" >&2; return 1; }
-  jq -e --arg role "$role" --arg uuid "$expected_uuid" --arg id "$expected_id" '
-    .schemaVersion == 1 and .role == $role and
-    ((.filesystemUuid | ascii_downcase) == ($uuid | ascii_downcase)) and
+  jq -e --arg role "$role" --arg uuids "$expected_sorted" --arg id "$expected_id" '
+    .schemaVersion == 2 and .role == $role and
+    ((.filesystemUuids | map(ascii_downcase) | sort | join(",")) == $uuids) and
     .branchId == $id and (.createdAt | type == "string")
   ' "$marker" >/dev/null || { echo "$role branch marker mismatch" >&2; return 1; }
   [[ ! -e "$branch_path/.s3-v2" && ! -L "$branch_path/.s3-v2" ]] || { echo "S3 storage must remain outside the POSIX namespace" >&2; return 1; }
@@ -108,8 +173,8 @@ validate_branch() {
 
 validate_branches() {
   load_config
-  validate_branch "$ssd_mount" "$ssd_branch" ssd "$DENIZ_POSIX_SSD_UUID" "$DENIZ_POSIX_SSD_BRANCH_ID"
-  validate_branch "$hdd_mount" "$hdd_branch" hdd "$DENIZ_POSIX_HDD_UUID" "$DENIZ_POSIX_HDD_BRANCH_ID"
+  validate_branch "$ssd_mount" "$ssd_branch" ssd "$DENIZ_POSIX_SSD_UUIDS" "$DENIZ_POSIX_SSD_BRANCH_ID" "$DENIZ_POSIX_SSD_MEMBERS"
+  validate_branch "$hdd_mount" "$hdd_branch" hdd "$DENIZ_POSIX_HDD_UUIDS" "$DENIZ_POSIX_HDD_BRANCH_ID" "$DENIZ_POSIX_HDD_MEMBERS"
 }
 
 validate_samba_principals() {
@@ -183,18 +248,21 @@ validate_compose() {
     # Compose renders a writable bind as read_only:null, not false, so this
     # asserts "not read-only" rather than an exact false.
     ([volumes[] | select(.type == "bind" and .source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage" and (.read_only != true))] | length) == 1 and
-    ([volumes[] | select(.type == "bind")] | length) == 13 and
-    ([volumes[] | select(.type == "bind") | .target] | unique | length) == 13 and
+    ([volumes[] | select(.type == "bind")] | length) == 10 and
+    ([volumes[] | select(.type == "bind") | .target] | unique | length) == 10 and
     ([volumes[] | select(.type == "bind") | select(
       (.source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage") or
       (.source == "/run/deniz-cloud" and .target == "/run/deniz-cloud") or
       (.source == "/mnt/ssd/deniz-cloud/internal/.capacity" and .target == "/data/capacity/ssd" and .read_only == true) or
       (.source == "/mnt/hdd/deniz-cloud/internal/.capacity" and .target == "/data/capacity/hdd" and .read_only == true) or
       (.source == "/srv/deniz-cloud/internal/.capacity" and .target == "/data/capacity/root" and .read_only == true) or
-      (.source == "/mnt/ssd/deniz-cloud/internal/.s3-v2" and .target == "/data/internal/s3") or
-      (.source == "/mnt/ssd/deniz-cloud/internal/.s3-v2-temp" and .target == "/data/internal/s3-temp") or
-      (.source == "/mnt/ssd/deniz-cloud/internal/.tus-partial" and .target == "/data/internal/tus") or
-      (.source == "/mnt/ssd/deniz-cloud/internal/.archives" and .target == "/data/internal/archives") or
+      # One mount with subdirectories, not four mounts. S3 publishes by renaming
+      # the temp path onto the final path, and rename() across two binds is
+      # EXDEV even on the same disk, so the split layout failed every upload
+      # (a323062). The boundary this check defends is the namespace one: the API
+      # still reaches projected storage only through the broker bind above, and
+      # internal/ sits deliberately outside the namespace as API-private state.
+      (.source == "/mnt/ssd/deniz-cloud/internal" and .target == "/data/internal") or
       (.source == "/proc" and .target == "/host/proc" and .read_only == true) or
       (.source == "/sys" and .target == "/host/sys" and .read_only == true) or
       (.source == "/mnt/hdd/backups" and .target == "/backups") or
@@ -214,6 +282,23 @@ validate_compose() {
   done < <(jq -r '.services.api.volumes[] | select(.type == "bind") | .source' <<< "$rendered")
 }
 
+# Stamps the identity an account root has to carry to be projectable.
+#
+# This happens here because it cannot happen anywhere else: identity lives in
+# the security xattr namespace, which only root may write, and the API reaches
+# storage through the unprivileged broker. An unstamped root is also not
+# something adoption can rescue — its only ancestor is the namespace root,
+# which is deliberately ownerless — so the projector records NO_IDENTITY
+# against it on every scan, never walks into it, and holds the whole projection
+# dirty while the account it belongs to stays invisible.
+stamp_account_identity() {
+  local target=$1 owner=$2
+  setfattr -n security.denizcloud.schema_version -v 1 "$target"
+  setfattr -n security.denizcloud.id -v "$(cat /proc/sys/kernel/random/uuid)" "$target"
+  setfattr -n security.denizcloud.owner_id -v "$owner" "$target"
+  setfattr -n security.denizcloud.created_at -v "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$target"
+}
+
 provision_account() {
   load_config
   [[ "$account_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || { echo "A canonical lowercase account UUID is required" >&2; return 1; }
@@ -224,9 +309,18 @@ provision_account() {
   local account_root="$merged/$account_id"
   if [[ -e "$account_root" || -L "$account_root" ]]; then
     [[ -d "$account_root" && ! -L "$account_root" && "$(stat -c '%u:%g:%a' "$account_root")" == "${storage_uid}:${storage_gid}:770" ]] || { echo "Existing account root is unsafe" >&2; return 1; }
+    # An existing root is reported, never stamped. A root that predates this
+    # stamping usually already has a projected folder row, and its id is what
+    # share links are keyed on — but that id lives in Postgres, which this
+    # script has no access to. Minting a fresh one here would displace the row
+    # rather than adopt it, so the repair is left to an operator who can read
+    # the projected id and set it explicitly.
+    [[ -n "$(getfattr --only-values -n security.denizcloud.id "$account_root" 2>/dev/null)" ]] \
+      || echo "Account root $account_root carries no identity; stamp it with the projected folder id" >&2
     return
   fi
   install -d -m 0770 -o "$storage_uid" -g "$storage_gid" "$account_root"
+  stamp_account_identity "$account_root" "$account_id"
   sync -f "$merged"
 }
 
@@ -405,11 +499,12 @@ watch_once() {
 
 status_json() {
   load_config
-  jq -n --argjson ssd "$(validate_branch "$ssd_mount" "$ssd_branch" ssd "$DENIZ_POSIX_SSD_UUID" "$DENIZ_POSIX_SSD_BRANCH_ID" >/dev/null 2>&1 && echo true || echo false)" \
-    --argjson hdd "$(validate_branch "$hdd_mount" "$hdd_branch" hdd "$DENIZ_POSIX_HDD_UUID" "$DENIZ_POSIX_HDD_BRANCH_ID" >/dev/null 2>&1 && echo true || echo false)" \
+  jq -n --argjson ssd "$(validate_branch "$ssd_mount" "$ssd_branch" ssd "$DENIZ_POSIX_SSD_UUIDS" "$DENIZ_POSIX_SSD_BRANCH_ID" "$DENIZ_POSIX_SSD_MEMBERS" >/dev/null 2>&1 && echo true || echo false)" \
+    --argjson hdd "$(validate_branch "$hdd_mount" "$hdd_branch" hdd "$DENIZ_POSIX_HDD_UUIDS" "$DENIZ_POSIX_HDD_BRANCH_ID" "$DENIZ_POSIX_HDD_MEMBERS" >/dev/null 2>&1 && echo true || echo false)" \
+    --arg hddMembers "$DENIZ_POSIX_HDD_MEMBERS" \
     --argjson merged "$(merged_is_current && echo true || echo false)" --argjson broker "$(broker_is_current && echo true || echo false)" \
     --argjson firewall "$(firewall_current && echo true || echo false)" --argjson critical "$([[ -e "$critical" || -L "$critical" ]] && echo true || echo false)" \
-    --arg witnessPath "/data/storage/$witness_name" '{ssdValid:$ssd,hddValid:$hdd,mergedMounted:$merged,apiBrokerMounted:$broker,firewallCurrent:$firewall,critical:$critical,containerWitnessPath:$witnessPath,s3Included:false}'
+    --arg witnessPath "/data/storage/$witness_name" '{ssdValid:$ssd,hddValid:$hdd,hddMembers:($hddMembers|split(":")),mergedMounted:$merged,apiBrokerMounted:$broker,firewallCurrent:$firewall,critical:$critical,containerWitnessPath:$witnessPath,s3Included:false}'
 }
 
 if [[ "$mode" == --dry-run ]]; then
@@ -418,7 +513,7 @@ if [[ "$mode" == --dry-run ]]; then
 fi
 
 (( EUID == 0 )) || { echo "Execute mode requires root" >&2; exit 1; }
-for command in blkid docker find findmnt fusermount3 getent ip jq mergerfs mount mountpoint nft pdbedit realpath smbstatus ss stat systemctl umount; do command -v "$command" >/dev/null || { echo "Missing command: $command" >&2; exit 1; }; done
+for command in blkid docker find findmnt fusermount3 getent getfattr ip jq mergerfs mount mountpoint nft paste pdbedit realpath setfattr smbstatus sort ss stat systemctl umount; do command -v "$command" >/dev/null || { echo "Missing command: $command" >&2; exit 1; }; done
 
 case "$action" in
   validate) validate_runtime; validate_compose; jq -n '{valid:true,boundaryMode:"gate1b-pilot",humanSharesAvailable:false,externalTcp445Allowed:false,s3Included:false}' ;;
