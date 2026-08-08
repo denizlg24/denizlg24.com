@@ -378,6 +378,29 @@ export async function activeDomainHostnames(
 }
 
 /**
+ * Every target that owns at least one active domain, so a reconciler can
+ * re-assert what Caddy should be serving.
+ *
+ * Republishing is not conditional on anything having changed, because the
+ * thing that goes wrong is invisible from here: the route publish that follows
+ * a production deployment going ready is a single call to the agent, and if
+ * the agent answers 409 or is briefly unreachable the domain silently stays on
+ * the previous release with the deployment still reporting ready. Nothing in
+ * the database records that, so there is no "needs republish" flag to read —
+ * the only safe assumption is that it might always need doing. A full
+ * `POST /load` is idempotent, so re-asserting costs one request per target.
+ */
+export async function targetsWithActiveDomains(
+  db: Database,
+): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ targetId: deployDomains.targetId })
+    .from(deployDomains)
+    .where(eq(deployDomains.status, "active"));
+  return rows.map((row) => row.targetId);
+}
+
+/**
  * What Caddy should serve for a deployment: its own ephemeral hostname always,
  * plus the target's stable domains when it is the production one. A preview
  * never carries a stable domain — that is what makes promote a real operation

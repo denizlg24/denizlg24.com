@@ -12,6 +12,7 @@ import {
   releaseDeploymentResources,
   routeHostnames,
   sweepDeployDomains,
+  targetsWithActiveDomains,
 } from "@repo/cloud-core/deploy";
 import {
   type AgentGcReport,
@@ -87,6 +88,18 @@ export class ForgeOps {
         console.error("[deploy] route publish failed", error);
         return null;
       });
+    // A refusal is not an exception. The agent answers 409 when it holds no
+    // live route for the deployment, and the proxy hands that back as an
+    // ordinary response — so without this the single call that attaches a
+    // target's stable domains can fail in total silence, leaving a deployment
+    // that reports ready while its domain still points at the last release.
+    if (response && !response.ok) {
+      console.error("[deploy] route publish refused", {
+        deploymentId: row.id,
+        status: response.status,
+        hostnames,
+      });
+    }
     return response?.ok ?? false;
   }
 
@@ -107,6 +120,58 @@ export class ForgeOps {
       .orderBy(desc(deployments.readyAt))
       .limit(1);
     return row ?? null;
+  }
+
+  /**
+   * Targets whose live production deployment is not serving every hostname it
+   * should be.
+   *
+   * One request for the agent's whole table, then a set comparison per target.
+   * An agent that cannot be asked yields nothing rather than everything: with
+   * the agent unreachable a republish would fail anyway, and reporting every
+   * target as unrouted would turn one outage into a wall of failures that says
+   * nothing the agent's own unreachability does not.
+   */
+  async unroutedTargets(failures: StepFailure[]): Promise<string[]> {
+    const targetIds = await targetsWithActiveDomains(this.db);
+    if (targetIds.length === 0) return [];
+
+    const live = await this.agent
+      .json<{ routes?: { deploymentId?: string; hostnames?: string[] }[] }>(
+        "/routes",
+        { method: "GET" },
+      )
+      .catch((error: unknown) => {
+        failures.push({
+          step: "publish",
+          subject: "agent routes",
+          error: describe(error),
+        });
+        return null;
+      });
+    if (!live || !Array.isArray(live.body.routes)) return [];
+
+    const served = new Map<string, Set<string>>();
+    for (const route of live.body.routes) {
+      if (typeof route?.deploymentId !== "string") continue;
+      served.set(route.deploymentId, new Set(route.hostnames ?? []));
+    }
+
+    const stale: string[] = [];
+    for (const targetId of targetIds) {
+      const deployment = await this.liveProductionDeployment(targetId);
+      if (!deployment) continue;
+      const expected = await routeHostnames(this.db, deployment);
+      const actual = served.get(deployment.id);
+      // A deployment the agent has never heard of is the 409 case: it will
+      // refuse the promote, so republishing cannot fix it and would only
+      // report a failure every two minutes.
+      if (!actual) continue;
+      if (expected.some((hostname) => !actual.has(hostname))) {
+        stale.push(targetId);
+      }
+    }
+    return stale;
   }
 
   /**
@@ -256,6 +321,20 @@ export class ForgeOps {
           error: describe(error),
         });
       }
+    }
+
+    // Targets whose stable domains are not actually being served, not only the
+    // ones that changed state above. A domain activated on an earlier run
+    // whose publish never landed leaves no trace in the database — the row
+    // says `active` either way — so a reconciler keyed on transitions never
+    // revisits it, and a production deployment stays ready with its domain
+    // still pointing at the previous release.
+    //
+    // Diffed against the agent's live table rather than republished blindly:
+    // this runs every two minutes, and a full `POST /load` per target per tick
+    // is a lot of Caddy reloads to fix something that is almost never wrong.
+    for (const targetId of await this.unroutedTargets(failures)) {
+      republish.add(targetId);
     }
 
     const republishedTargetIds: string[] = [];
