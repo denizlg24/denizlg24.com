@@ -33,7 +33,7 @@
     "knip": "^6.31.0",
     "lint-staged": "^17.3.0",
     "turbo": "^2.10.8",
-    "typescript": "5.9.3"
+    "typescript": "7.0.2"
   },
   "engines": {
     "node": ">=18"
