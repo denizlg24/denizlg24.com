@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Installs a staged forge-agent binary and restarts the service.
+#
+# The only thing `denizlg24` may run as root without a password. Scoping the
+# sudoers rule to this script rather than to `install`, `mv` and `systemctl`
+# is the point: NOPASSWD on those three is NOPASSWD on everything, since
+# `install` can write any file anywhere.
+#
+# Root-owned, 0755, in a directory the deploy user cannot write. The staging
+# path is fixed and owned by the deploy user, so CI can drop a binary there
+# over SSH but cannot influence where it lands.
+
+set -euo pipefail
+
+STAGED=/var/lib/forge-agent/staging/forge-agent
+TARGET=/usr/local/bin/forge-agent
+PREVIOUS=/var/lib/forge-agent/forge-agent.prev
+
+[ -f "$STAGED" ] || { echo "nothing staged at $STAGED" >&2; exit 1; }
+[ -s "$STAGED" ] || { echo "staged binary is empty" >&2; exit 1; }
+
+# A truncated scp produces a file that exists, is executable and dies at
+# startup. Checking it runs before it becomes the service costs a second.
+chmod 0755 "$STAGED"
+if ! "$STAGED" --version >/dev/null 2>&1; then
+  # The agent has no --version flag today; a non-zero exit from a missing flag
+  # is fine, a signal or "cannot execute" is not. 126/127 are the shell's
+  # "not executable" and "not found".
+  status=$?
+  if [ "$status" -ge 126 ]; then
+    echo "staged binary is not executable on this host (exit $status)" >&2
+    exit 1
+  fi
+fi
+
+[ -f "$TARGET" ] && cp -f "$TARGET" "$PREVIOUS"
+
+# rename(2), not a write. Overwriting a running executable in place fails with
+# ETXTBSY; renaming over it leaves the old inode alive for the running process
+# and is atomic for anything starting after.
+install -m 0755 -o root -g root "$STAGED" "${TARGET}.new"
+mv -f "${TARGET}.new" "$TARGET"
+rm -f "$STAGED"
+
+systemctl restart forge-agent
+
+for _ in $(seq 1 30); do
+  if systemctl is-active --quiet forge-agent; then
+    # Active is not the same as serving; the caller still health-gates.
+    echo "forge-agent restarted"
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "forge-agent did not become active; rolling back" >&2
+if [ -f "$PREVIOUS" ]; then
+  install -m 0755 -o root -g root "$PREVIOUS" "${TARGET}.new"
+  mv -f "${TARGET}.new" "$TARGET"
+  systemctl restart forge-agent || true
+  echo "rolled back to the previous binary" >&2
+fi
+exit 1
