@@ -1,4 +1,4 @@
-import { requiredEnv } from "../../env";
+import { optionalEnv, requiredEnv } from "../../env";
 import { createAppJwt, readGithubPrivateKey } from "./jwt";
 
 export const GITHUB_API_BASE = "https://api.github.com";
@@ -7,6 +7,12 @@ export interface GithubAppConfig {
   appId: string;
   privateKey: string;
   webhookSecret: string;
+  /**
+   * Only ever used to build the install link the UI sends the browser to.
+   * Optional because every API call authenticates with the app id and key —
+   * an unset slug costs the "Connect GitHub" button, not any functionality.
+   */
+  slug: string | null;
 }
 
 export function githubAppConfigFromEnv(): GithubAppConfig {
@@ -16,6 +22,7 @@ export function githubAppConfigFromEnv(): GithubAppConfig {
     // webhook, when the only symptom is a build that never starts.
     privateKey: readGithubPrivateKey(requiredEnv("GITHUB_APP_PRIVATE_KEY")),
     webhookSecret: requiredEnv("GITHUB_APP_WEBHOOK_SECRET"),
+    slug: optionalEnv("GITHUB_APP_SLUG", "").trim() || null,
   };
 }
 
@@ -57,6 +64,35 @@ export interface GithubCheckRunUpdate {
   output?: { title: string; summary: string };
 }
 
+export interface GithubRepository {
+  id: number;
+  owner: string;
+  name: string;
+  fullName: string;
+  private: boolean;
+  defaultBranch: string;
+  pushedAt: string | null;
+}
+
+export interface GithubInstallation {
+  id: number;
+  accountLogin: string;
+  accountType: string;
+  repositorySelection: string;
+  suspendedAt: string | null;
+}
+
+export interface GithubBranch {
+  name: string;
+  sha: string;
+}
+
+export interface GithubTreeEntry {
+  path: string;
+  name: string;
+  type: "file" | "dir";
+}
+
 /**
  * Five minutes of headroom on a one-hour token. A clone that starts at minute
  * 59 with a token about to expire fails mid-fetch, which surfaces as a build
@@ -65,8 +101,87 @@ export interface GithubCheckRunUpdate {
 const TOKEN_EXPIRY_SKEW_MS = 5 * 60 * 1_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+const PER_PAGE = 100;
+
 export function installationTokenKey(installationId: number): string {
   return `forge:gh:inst:${installationId}`;
+}
+
+/**
+ * An empty path has to drop the trailing slash: `/contents/` 404s where
+ * `/contents` lists the repository root.
+ */
+function contentsPath(
+  owner: string,
+  repo: string,
+  path: string,
+  ref?: string,
+): string {
+  const clean = path.replace(/^\/+|\/+$/g, "");
+  const encoded = clean
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const query = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+  return `/repos/${owner}/${repo}/contents${encoded ? `/${encoded}` : ""}${query}`;
+}
+
+function readInstallation(value: unknown): GithubInstallation | null {
+  if (value === null || typeof value !== "object") return null;
+  const installation = value as Record<string, unknown>;
+  if (typeof installation.id !== "number") return null;
+  const account = installation.account;
+  const read = (key: string): string | null => {
+    if (account === null || typeof account !== "object") return null;
+    const found = (account as Record<string, unknown>)[key];
+    return typeof found === "string" ? found : null;
+  };
+  return {
+    id: installation.id,
+    accountLogin: read("login") ?? "unknown",
+    accountType: read("type") ?? "unknown",
+    repositorySelection:
+      typeof installation.repository_selection === "string"
+        ? installation.repository_selection
+        : "selected",
+    suspendedAt:
+      typeof installation.suspended_at === "string"
+        ? installation.suspended_at
+        : null,
+  };
+}
+
+function readRepository(value: unknown): GithubRepository | null {
+  if (value === null || typeof value !== "object") return null;
+  const repository = value as Record<string, unknown>;
+  const owner = repository.owner;
+  const login =
+    owner !== null && typeof owner === "object" && "login" in owner
+      ? owner.login
+      : null;
+  if (
+    typeof repository.id !== "number" ||
+    typeof repository.name !== "string" ||
+    typeof login !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: repository.id,
+    owner: login,
+    name: repository.name,
+    fullName:
+      typeof repository.full_name === "string"
+        ? repository.full_name
+        : `${login}/${repository.name}`,
+    private: repository.private === true,
+    defaultBranch:
+      typeof repository.default_branch === "string"
+        ? repository.default_branch
+        : "main",
+    pushedAt:
+      typeof repository.pushed_at === "string" ? repository.pushed_at : null,
+  };
 }
 
 export class GithubAppClient {
@@ -165,6 +280,181 @@ export class GithubAppClient {
     await this.#cache
       .delete(installationTokenKey(installationId))
       .catch(() => {});
+  }
+
+  /** `null` for 404 rather than a throw, for the paths where absence is an answer. */
+  async #maybeJson<T>(
+    path: string,
+    init: RequestInit & { token: string },
+  ): Promise<T | null> {
+    try {
+      return await this.#json<T>(path, init);
+    } catch (error) {
+      if (error instanceof GithubApiError && error.status === 404) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * Pages until short, capped: an installation with thousands of repositories
+   * would otherwise hold the request open for as many round trips as it takes.
+   * The picker searches client-side over what this returns, so the cap is the
+   * ceiling on what is findable, not a page size.
+   */
+  async #paged<T>(
+    build: (page: number) => string,
+    init: { token: string },
+    read: (body: unknown) => T[],
+    maxPages = 10,
+  ): Promise<T[]> {
+    const collected: T[] = [];
+    for (let page = 1; page <= maxPages; page += 1) {
+      const body = await this.#json<unknown>(build(page), {
+        method: "GET",
+        token: init.token,
+      });
+      const items = read(body);
+      collected.push(...items);
+      if (items.length < PER_PAGE) break;
+    }
+    return collected;
+  }
+
+  /**
+   * Every installation of this App, read with the App JWT rather than an
+   * installation token.
+   *
+   * This is the only way to learn about an installation without a webhook, and
+   * that matters twice: locally, where the App's webhook necessarily points at
+   * the deployed API and nothing reaches a laptop, and in production, where a
+   * webhook delivered while the container was restarting is otherwise lost
+   * with no way back other than reinstalling the App.
+   */
+  async listInstallations(): Promise<GithubInstallation[]> {
+    const jwt = createAppJwt({
+      appId: this.#config.appId,
+      privateKey: this.#config.privateKey,
+      now: this.#now,
+    });
+    return this.#paged<GithubInstallation>(
+      (page) => `/app/installations?per_page=${PER_PAGE}&page=${page}`,
+      { token: jwt },
+      (body) =>
+        (Array.isArray(body) ? body : []).flatMap((entry) => {
+          const installation = readInstallation(entry);
+          return installation ? [installation] : [];
+        }),
+    );
+  }
+
+  async listRepositories(installationId: number): Promise<GithubRepository[]> {
+    const token = await this.installationToken(installationId);
+    return this.#paged<GithubRepository>(
+      (page) => `/installation/repositories?per_page=${PER_PAGE}&page=${page}`,
+      { token },
+      (body) => {
+        const repositories =
+          body !== null &&
+          typeof body === "object" &&
+          "repositories" in body &&
+          Array.isArray(body.repositories)
+            ? body.repositories
+            : [];
+        return repositories.flatMap((entry) => {
+          const repository = readRepository(entry);
+          return repository ? [repository] : [];
+        });
+      },
+    );
+  }
+
+  async listBranches(input: {
+    installationId: number;
+    owner: string;
+    repo: string;
+  }): Promise<GithubBranch[]> {
+    const token = await this.installationToken(input.installationId);
+    return this.#paged<GithubBranch>(
+      (page) =>
+        `/repos/${input.owner}/${input.repo}/branches?per_page=${PER_PAGE}&page=${page}`,
+      { token },
+      (body) =>
+        (Array.isArray(body) ? body : []).flatMap((entry) => {
+          if (entry === null || typeof entry !== "object") return [];
+          const branch = entry as { name?: unknown; commit?: unknown };
+          if (typeof branch.name !== "string") return [];
+          const sha =
+            branch.commit !== null &&
+            typeof branch.commit === "object" &&
+            "sha" in branch.commit &&
+            typeof branch.commit.sha === "string"
+              ? branch.commit.sha
+              : "";
+          return [{ name: branch.name, sha }];
+        }),
+    );
+  }
+
+  /**
+   * One level, not a recursive tree: the browser walks down a directory at a
+   * time, and `git/trees?recursive=1` on a large repository returns megabytes
+   * to render one folder.
+   */
+  async listDirectory(input: {
+    installationId: number;
+    owner: string;
+    repo: string;
+    path: string;
+    ref?: string;
+  }): Promise<GithubTreeEntry[] | null> {
+    const token = await this.installationToken(input.installationId);
+    const body = await this.#maybeJson<unknown>(
+      contentsPath(input.owner, input.repo, input.path, input.ref),
+      { method: "GET", token },
+    );
+    if (!Array.isArray(body)) return null;
+    return body.flatMap((entry) => {
+      if (entry === null || typeof entry !== "object") return [];
+      const item = entry as { path?: unknown; name?: unknown; type?: unknown };
+      if (typeof item.path !== "string" || typeof item.name !== "string") {
+        return [];
+      }
+      if (item.type !== "file" && item.type !== "dir") return [];
+      return [{ path: item.path, name: item.name, type: item.type }];
+    });
+  }
+
+  /**
+   * `null` covers both "not there" and "there but not readable as text" —
+   * detection treats an unreadable manifest exactly as it treats a missing
+   * one, so distinguishing them would only give the caller a branch to ignore.
+   * Files over the Contents API's 1 MB inline limit come back with an empty
+   * body, which lands here as null; nothing detection reads approaches that.
+   */
+  async readFile(input: {
+    installationId: number;
+    owner: string;
+    repo: string;
+    path: string;
+    ref?: string;
+  }): Promise<string | null> {
+    const token = await this.installationToken(input.installationId);
+    const body = await this.#maybeJson<unknown>(
+      contentsPath(input.owner, input.repo, input.path, input.ref),
+      { method: "GET", token },
+    );
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      return null;
+    }
+    const file = body as { content?: unknown; encoding?: unknown };
+    if (file.encoding !== "base64" || typeof file.content !== "string") {
+      return null;
+    }
+    try {
+      return Buffer.from(file.content, "base64").toString("utf8");
+    } catch {
+      return null;
+    }
   }
 
   async resolveCommit(input: {

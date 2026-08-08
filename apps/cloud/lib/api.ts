@@ -16,7 +16,7 @@ import {
   type CreateCollectionInput,
   type CreateDeployDomainInput,
   type CreateDeploymentInput,
-  type CreateDeployTargetInput,
+  type CreateDeployTargetRequest,
   type CreatedApiKey,
   type CreateMongoCollectionInput,
   type CreateMongoIndexInput,
@@ -33,6 +33,7 @@ import {
   type Deployment,
   type DeployTarget,
   type DeployTargetListEntry,
+  type DetectedBuildConfigResponse,
   type DiscoverFieldsInput,
   type DiscoverFieldsResult,
   deployBindingsSchema,
@@ -41,9 +42,18 @@ import {
   deploymentSchema,
   deployTargetListEntrySchema,
   deployTargetSchema,
+  detectedBuildConfigSchema,
   discoverFieldsResultSchema,
   type FindMongoDocumentsInput,
   type GenerateSearchTokenInput,
+  type GithubConnection,
+  type GithubInstallationSummary,
+  type GithubRepositorySummary,
+  githubBranchSchema,
+  githubConnectionSchema,
+  githubInstallationSummarySchema,
+  githubRepositorySchema,
+  githubTreeEntrySchema,
   type IssuedProjectS3Credential,
   issuedProjectS3CredentialSchema,
   type LargestFile,
@@ -130,6 +140,7 @@ import {
   type UpdateTaskInput,
   type UserStorageStat,
   userStorageStatSchema,
+  workspaceCandidateSchema,
 } from "@repo/schemas/cloud";
 import { z } from "zod";
 import { API_BASE_URL } from "./env";
@@ -734,15 +745,70 @@ export const api = {
   },
 
   deploy: {
+    github: {
+      connection: (): Promise<GithubConnection> =>
+        requestData(githubConnectionSchema, "/api/deploy/github/connection"),
+      syncInstallations: (): Promise<GithubInstallationSummary[]> =>
+        requestData(
+          z.array(githubInstallationSummarySchema),
+          "/api/deploy/github/installations/sync",
+          // One GitHub call for the installation list, then one per
+          // installation for its repositories.
+          { method: "POST", timeoutMs: SLOW_TIMEOUT_MS },
+        ),
+      repositories: (): Promise<GithubRepositorySummary[]> =>
+        requestData(
+          z.array(githubRepositorySchema),
+          "/api/deploy/github/repositories",
+          // Fans out to one GitHub call per installation, each paginated.
+          { timeoutMs: SLOW_TIMEOUT_MS },
+        ),
+      branches: (
+        owner: string,
+        repo: string,
+      ): Promise<{ name: string; sha: string }[]> =>
+        requestData(
+          z.array(githubBranchSchema),
+          `/api/deploy/github/repos/${owner}/${repo}/branches`,
+        ),
+      tree: (
+        owner: string,
+        repo: string,
+        query: { ref?: string; path?: string },
+      ): Promise<{ path: string; name: string; type: "file" | "dir" }[]> =>
+        requestData(
+          z.array(githubTreeEntrySchema),
+          `/api/deploy/github/repos/${owner}/${repo}/tree`,
+          { query },
+        ),
+      detect: (
+        owner: string,
+        repo: string,
+        query: { ref?: string; dir?: string },
+      ): Promise<
+        DetectedBuildConfigResponse & {
+          workspaces: { path: string; name: string }[];
+        }
+      > =>
+        requestData(
+          detectedBuildConfigSchema.extend({
+            workspaces: z.array(workspaceCandidateSchema),
+          }),
+          `/api/deploy/github/repos/${owner}/${repo}/detect`,
+          { query, timeoutMs: SLOW_TIMEOUT_MS },
+        ),
+    },
+
     targets: (): Promise<DeployTargetListEntry[]> =>
       requestData(z.array(deployTargetListEntrySchema), "/api/deploy/targets"),
     target: (id: string): Promise<DeployTarget> =>
       requestData(deployTargetSchema, `/api/deploy/targets/${id}`),
-    createTarget: (input: CreateDeployTargetInput): Promise<DeployTarget> =>
+    createTarget: (input: CreateDeployTargetRequest): Promise<DeployTarget> =>
       requestData(deployTargetSchema, "/api/deploy/targets", {
         method: "POST",
         body: input,
-        // Creating a target provisions a DNS record on Cloudflare.
+        // Creating a target provisions a DNS record on Cloudflare, and may
+        // provision the project it belongs to first.
         timeoutMs: SLOW_TIMEOUT_MS,
       }),
     updateTarget: (
@@ -783,6 +849,11 @@ export const api = {
     cancel: (id: string): Promise<unknown> =>
       requestData(z.unknown(), `/api/deploy/deployments/${id}/cancel`, {
         method: "POST",
+      }),
+    retry: (id: string): Promise<Deployment> =>
+      requestData(deploymentSchema, `/api/deploy/deployments/${id}/retry`, {
+        method: "POST",
+        timeoutMs: SLOW_TIMEOUT_MS,
       }),
     rollback: (id: string): Promise<Deployment> =>
       requestData(deploymentSchema, `/api/deploy/deployments/${id}/rollback`, {

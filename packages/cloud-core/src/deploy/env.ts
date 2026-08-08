@@ -157,24 +157,18 @@ export interface ResolveDeploymentEnvOptions {
 }
 
 export interface ResolvedDeploymentEnv {
-  buildEnv: Record<string, string>;
-  runEnv: Record<string, string>;
+  /**
+   * One map for the build and the container alike. The platform injects
+   * nothing implicit here: `PORT` and `NODE_ENV` are run-time facts the agent
+   * adds when it starts the container, because `NODE_ENV=production` during a
+   * build makes an install step skip devDependencies and the build then fails
+   * on a missing compiler — a failure that reads as a broken repository rather
+   * than as an env var the platform set behind your back.
+   */
+  env: Record<string, string>;
   /** Keys only. A resolved map is never logged; the key list is the audit. */
-  buildKeys: string[];
-  runKeys: string[];
+  keys: string[];
 }
-
-/**
- * `PORT` and `NODE_ENV` are the only implicit injection that survives, and
- * they are run-time only. `NODE_ENV=production` during a build makes an
- * install step skip devDependencies, and the build then fails on a missing
- * compiler — a failure that reads as a broken repository rather than as an
- * env var the platform set behind your back.
- */
-const AUTO_RUN_ENV: Readonly<Record<string, string>> = {
-  PORT: "3000",
-  NODE_ENV: "production",
-};
 
 function scopeMatches(
   scope: DeployEnvVarRow["scope"],
@@ -262,12 +256,9 @@ export async function resolveDeploymentEnv(
     throw new BindingUnresolvableError(missing.sort(), [...missingKeys].sort());
   }
 
+  // Envoy env first so an explicit row on the target always wins.
   const resolved = new Map<string, string>(Object.entries(options.envoy ?? {}));
-  const rowKeys = new Set<string>();
-  const buildOnly = new Set<string>();
-  const runOnly = new Set<string>();
   for (const row of rows) {
-    rowKeys.add(row.key);
     const value =
       row.source === "literal"
         ? options.decrypt(row)
@@ -275,33 +266,10 @@ export async function resolveDeploymentEnv(
           ? (values.get(row.reference ?? "") ?? "")
           : renderTemplate(row.template ?? "", values);
     resolved.set(row.key, value);
-    // NEXT_PUBLIC_* is baked into the bundle at build time regardless of the
-    // flag: a row marked run-time only would silently do nothing, and the
-    // resulting page ships the fallback value with no error anywhere.
-    if (row.buildTime || row.key.startsWith("NEXT_PUBLIC_")) {
-      buildOnly.add(row.key);
-    }
-    if (row.runTime) runOnly.add(row.key);
   }
 
-  const buildEnv: Record<string, string> = {};
-  const runEnv: Record<string, string> = { ...AUTO_RUN_ENV };
-  for (const [key, value] of resolved) {
-    // An Envoy key carries no flags, so it lands in both. It is an env file
-    // for the app, and splitting it would need a convention Envoy does not
-    // have. A row with both flags off is a row that was switched off, and it
-    // lands in neither.
-    const fromEnvoy = !rowKeys.has(key);
-    if (fromEnvoy || buildOnly.has(key)) buildEnv[key] = value;
-    if (fromEnvoy || runOnly.has(key)) runEnv[key] = value;
-  }
-
-  return {
-    buildEnv,
-    runEnv,
-    buildKeys: Object.keys(buildEnv).sort(),
-    runKeys: Object.keys(runEnv).sort(),
-  };
+  const env = Object.fromEntries(resolved);
+  return { env, keys: Object.keys(env).sort() };
 }
 
 /**

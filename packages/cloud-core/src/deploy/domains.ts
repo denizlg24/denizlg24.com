@@ -29,8 +29,19 @@ export interface DomainContext extends DomainClients {
   zoneName: string;
 }
 
+/**
+ * The apex counts. It is not a subdomain of the zone, but it is unambiguously
+ * *in* it, and three behaviours hang off this answer: which mode a domain
+ * defaults to, whether the managed-record conflict check runs, and whether
+ * deletion reaps the record. Reading the apex as foreign would send the most
+ * important name in the zone down the Cloudflare-for-SaaS path — the mechanism
+ * for names in other people's zones — and skip the one check that stops a
+ * deployment overwriting the live site.
+ */
 export function isZoneHostname(hostname: string, zoneName: string): boolean {
-  return hostname.toLowerCase().endsWith(`.${zoneName.toLowerCase()}`);
+  const value = hostname.toLowerCase();
+  const zone = zoneName.toLowerCase();
+  return value === zone || value.endsWith(`.${zone}`);
 }
 
 /**
@@ -56,7 +67,11 @@ export async function assertDomainAvailable(
   hostname: string,
   options: { excludeDomainId?: string } = {},
 ): Promise<string> {
-  const normalised = assertDeployHostname(hostname, context.zoneName);
+  // The operator typed this name, so the apex is allowed here and nowhere
+  // else. Check 5 below is what keeps that safe.
+  const normalised = assertDeployHostname(hostname, context.zoneName, {
+    allowApex: true,
+  });
 
   const existing = await context.db.query.deployDomains.findFirst({
     where: eq(deployDomains.hostname, normalised),

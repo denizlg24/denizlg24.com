@@ -510,6 +510,7 @@ export async function createRuntimeApp() {
             db,
             forge,
             github,
+            githubAppSlug: githubApp?.slug ?? null,
             // No decrypt exists yet, so a linked target pulls nothing.
             envoyEnv: null,
             agentToken: deployAgentToken,

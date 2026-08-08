@@ -51,3 +51,14 @@ export function deploymentLabel(
 export function isDeploymentLive(status: DeploymentStatus): boolean {
   return status === "queued" || status === "building" || status === "deploying";
 }
+
+/**
+ * A run that stopped without shipping. `superseded` is excluded: it did not
+ * fail, it lost to a newer commit, and retrying it deliberately deploys code
+ * that something already replaced.
+ */
+export function isDeploymentRetryable(status: DeploymentStatus): boolean {
+  return (
+    status === "failed" || status === "cancelled" || status === "interrupted"
+  );
+}

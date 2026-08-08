@@ -23,8 +23,8 @@ import {
  */
 export interface DeploymentSecrets {
   cloneToken: string | null;
-  buildEnv: Record<string, string>;
-  runEnv: Record<string, string>;
+  /** One map, applied to the build and to the container alike. */
+  env: Record<string, string>;
 }
 
 export type SecretsProvider = (
@@ -34,8 +34,7 @@ export type SecretsProvider = (
 
 export const noSecrets: SecretsProvider = async () => ({
   cloneToken: null,
-  buildEnv: {},
-  runEnv: {},
+  env: {},
 });
 
 export interface PipelineOptions {
@@ -82,7 +81,7 @@ export function createDeploymentRunner(
         cacheRoot: options.cacheRoot,
         buildMemoryLimit: options.buildMemoryLimit,
         cloneToken: resolved.cloneToken,
-        buildEnv: resolved.buildEnv,
+        env: resolved.env,
         onPhase: (phase) => context.report({ status: "building", phase }),
         now: options.now,
       });
@@ -108,7 +107,7 @@ export function createDeploymentRunner(
         routes: options.routes,
         envRoot: options.envRoot,
         network: options.network,
-        runEnv: resolved.runEnv,
+        env: resolved.env,
         healthProbe: options.healthProbe,
         healthPollMs: options.healthPollMs,
         sleep: options.sleep,

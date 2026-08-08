@@ -3,7 +3,7 @@ import { CaddyRouter } from "./caddy";
 import { agentConfigFromEnv } from "./config";
 import { ControlPlaneClient } from "./control-plane";
 import { DockerClient } from "./docker";
-import { spawnExec } from "./exec";
+import { type Exec, spawnExec } from "./exec";
 import { runGarbageCollection } from "./gc";
 import { HealthService } from "./health";
 import { createDeploymentRunner } from "./pipeline";
@@ -22,6 +22,20 @@ const logger: QueueLogger = {
 };
 
 const config = agentConfigFromEnv();
+
+/**
+ * `dockerSocket` is the authority for which daemon this agent drives, and that
+ * has to hold for the CLI as much as for the API client below. An inherited
+ * `DOCKER_HOST` — the ops socket-proxy, a dev shell, a compose file — otherwise
+ * redirects every build and run at a daemon the config never named. A proxy
+ * that only whitelists the ops endpoints then answers `docker buildx` with an
+ * HTML 403, which surfaces as an unexplained "docker build failed".
+ */
+const exec: Exec = (options) =>
+  spawnExec({
+    ...options,
+    env: { DOCKER_HOST: `unix://${config.dockerSocket}`, ...options.env },
+  });
 
 const docker = new DockerClient({ socketPath: config.dockerSocket });
 const controlPlane = new ControlPlaneClient({
@@ -45,7 +59,7 @@ const queue = new DeploymentQueue({
   claim: () => controlPlane.claim(),
   report: (deploymentId, update) => controlPlane.report(deploymentId, update),
   runner: createDeploymentRunner({
-    exec: spawnExec,
+    exec,
     logs,
     ports,
     routes: caddy,
@@ -58,11 +72,7 @@ const queue = new DeploymentQueue({
     healthPollMs: config.healthPollMs,
     secrets: async (request, signal) => {
       const resolved = await controlPlane.env(request.deploymentId, signal);
-      return {
-        cloneToken: resolved.cloneToken,
-        buildEnv: resolved.buildEnv,
-        runEnv: resolved.runEnv,
-      };
+      return { cloneToken: resolved.cloneToken, env: resolved.env };
     },
   }),
   logger,
@@ -91,18 +101,18 @@ const app = createAgentApp({
   logs,
   routes: () => caddy.routes(),
   teardown: (deploymentId) =>
-    teardownDeployment({ deploymentId, exec: spawnExec, routes: caddy, ports }),
+    teardownDeployment({ deploymentId, exec, routes: caddy, ports }),
   restart: (deploymentId) =>
     restartDeployment({
       deploymentId,
-      exec: spawnExec,
+      exec,
       port: routedPort(deploymentId),
       healthPollMs: config.healthPollMs,
     }),
   rehost: (deploymentId, hostnames) => caddy.rehost(deploymentId, hostnames),
   collectGarbage: (request) =>
     runGarbageCollection(request, {
-      exec: spawnExec,
+      exec,
       buildRoot: config.buildRoot,
       logRoot: config.logRoot,
       cacheRoot: config.cacheRoot,

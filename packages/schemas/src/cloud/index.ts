@@ -5,6 +5,8 @@ export * from "./common";
 export * from "./deploy";
 export * from "./deploy-env";
 export * from "./deploy-github";
+export * from "./deploy-provision";
+export * from "./dotenv";
 export * from "./notifications";
 export * from "./operations";
 export * from "./ops";

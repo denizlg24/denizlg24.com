@@ -155,7 +155,7 @@ describe("runDeployment", () => {
       routes,
       envRoot: join(dir, "env"),
       network: "forge-apps",
-      runEnv: { DATABASE_URL: "postgres://x" },
+      env: { DATABASE_URL: "postgres://x" },
       healthProbe: async () => statuses.shift() ?? null,
       healthPollMs: 1,
       sleep: async () => {

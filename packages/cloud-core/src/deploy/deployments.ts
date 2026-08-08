@@ -3,6 +3,7 @@ import {
   type DeploymentKind,
   type DeploymentStatus,
   type DeploymentStatusUpdate,
+  isDeployNodeVersion,
   isTerminalDeploymentStatus,
 } from "@repo/schemas/cloud";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
@@ -81,6 +82,9 @@ export function toAgentRequest(input: {
         : {}),
       ...(target.buildCommand ? { buildCommand: target.buildCommand } : {}),
       ...(target.startCommand ? { startCommand: target.startCommand } : {}),
+      ...(isDeployNodeVersion(target.nodeVersion)
+        ? { nodeVersion: target.nodeVersion }
+        : {}),
     },
     runtime: {
       healthPath: target.healthPath,

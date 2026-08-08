@@ -1012,7 +1012,15 @@ export const deployTargets = pgTable(
       .default("main"),
     githubInstallationId: bigint("github_installation_id", { mode: "number" }),
     rootDirectory: text("root_directory"),
+    /** Detection's label, for display and re-detect. Nothing branches on it. */
+    framework: varchar("framework", { length: 64 }),
     builder: deployBuilderEnum("builder").notNull().default("auto"),
+    /**
+     * Passed to nixpacks as NIXPACKS_NODE_VERSION, which outranks the
+     * repository's `engines.node`. Null defers to the repository — see
+     * DEPLOY_NODE_VERSIONS for why that is the riskier of the two.
+     */
+    nodeVersion: varchar("node_version", { length: 8 }),
     dockerfilePath: text("dockerfile_path"),
     installCommand: text("install_command"),
     buildCommand: text("build_command"),
@@ -1139,8 +1147,6 @@ export const deployEnvVars = pgTable(
     reference: varchar("reference", { length: 255 }),
     template: text("template"),
     scope: deployEnvScopeEnum("scope").notNull().default("all"),
-    buildTime: boolean("build_time").notNull().default(false),
-    runTime: boolean("run_time").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

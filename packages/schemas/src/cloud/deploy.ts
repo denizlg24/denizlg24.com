@@ -56,6 +56,36 @@ export const DEPLOY_BUILDERS = ["auto", "dockerfile", "nixpacks"] as const;
 export const deployBuilderSchema = z.enum(DEPLOY_BUILDERS);
 export type DeployBuilder = z.infer<typeof deployBuilderSchema>;
 
+/**
+ * Pinned versions rather than a free-text box, and deliberately only the ones
+ * the builder's nixpkgs still carries.
+ *
+ * Unset means "whatever the repository says", which is not the safe default it
+ * looks like: nixpacks resolves an `engines.node` range to its lower bound, so
+ * the near-universal `">=18"` asks for a Node that nixpkgs removed at EOL. The
+ * build then dies in a nix evaluation trace that names nothing the owner
+ * wrote. An explicit choice here outranks `engines.node`, which is the whole
+ * reason it exists.
+ */
+export const DEPLOY_NODE_VERSIONS = ["20", "22", "24"] as const;
+export const deployNodeVersionSchema = z.enum(DEPLOY_NODE_VERSIONS);
+export type DeployNodeVersion = z.infer<typeof deployNodeVersionSchema>;
+
+/**
+ * The column is a varchar, so a row written before a version left this list
+ * still reads back as a string. Narrowing rather than asserting means such a
+ * row builds as if unset instead of asking nixpacks for a Node that is gone.
+ */
+export function isDeployNodeVersion(
+  value: string | null | undefined,
+): value is DeployNodeVersion {
+  return (
+    value !== null &&
+    value !== undefined &&
+    (DEPLOY_NODE_VERSIONS as readonly string[]).includes(value)
+  );
+}
+
 export const DEPLOY_ENV_SOURCES = ["literal", "binding", "template"] as const;
 export const deployEnvSourceSchema = z.enum(DEPLOY_ENV_SOURCES);
 export type DeployEnvSource = z.infer<typeof deployEnvSourceSchema>;
@@ -131,6 +161,7 @@ export const deploymentBuildSpecSchema = z.object({
   installCommand: commandSchema.optional(),
   buildCommand: commandSchema.optional(),
   startCommand: commandSchema.optional(),
+  nodeVersion: deployNodeVersionSchema.optional(),
 });
 export type DeploymentBuildSpec = z.infer<typeof deploymentBuildSpecSchema>;
 
@@ -411,7 +442,15 @@ export const createDeployTargetInputSchema = z.object({
   productionBranch: branchSchema.default("main"),
   githubInstallationId: z.number().int().positive().nullish(),
   rootDirectory: relativePathSchema.nullish(),
+  /**
+   * What detection decided this is, kept only so the UI can name it and offer
+   * a re-detect. Nothing branches on it: the commands are the contract, and a
+   * target whose framework label disagrees with its commands still builds
+   * exactly as its commands say.
+   */
+  framework: z.string().max(64).nullish(),
   builder: deployBuilderSchema.default("auto"),
+  nodeVersion: deployNodeVersionSchema.nullish(),
   dockerfilePath: relativePathSchema.nullish(),
   installCommand: commandSchema.nullish(),
   buildCommand: commandSchema.nullish(),
@@ -468,7 +507,9 @@ export const deployTargetSchema = z.object({
   productionBranch: z.string(),
   githubInstallationId: z.number().int().nullable(),
   rootDirectory: z.string().nullable(),
+  framework: z.string().nullable(),
   builder: deployBuilderSchema,
+  nodeVersion: deployNodeVersionSchema.nullable(),
   dockerfilePath: z.string().nullable(),
   installCommand: z.string().nullable(),
   buildCommand: z.string().nullable(),
@@ -579,9 +620,22 @@ export class DeployHostnameError extends Error {
  * certificate is **one level deep**: `app.denizlg24.com` is covered and
  * `app.dpl.denizlg24.com` is not, and the second serves a certificate error
  * that looks exactly like a tunnel fault. So a name in the managed zone must
- * sit directly under it.
+ * sit directly under it. The apex is covered by the same certificate, so it is
+ * a question of intent rather than of TLS.
+ *
+ * `allowApex` is off by default because almost every caller derives a hostname
+ * from a project slug or a branch, and for those the apex can only ever be an
+ * accident. The one caller that passes it is the explicit "add a domain"
+ * route, where the operator typed the name. Even there the record is not
+ * clobbered blindly: a proxied CNAME at the apex is legal on Cloudflare
+ * (flattening), so the only thing standing between a deploy and the public
+ * site is the managed-record conflict check, which stays in force.
  */
-export function assertDeployHostname(hostname: string, zone: string): string {
+export function assertDeployHostname(
+  hostname: string,
+  zone: string,
+  options: { allowApex?: boolean } = {},
+): string {
   const value = hostname.trim().toLowerCase();
   if (value.length === 0 || value.length > 253) {
     throw new DeployHostnameError("Hostname must be 1–253 characters");
@@ -603,7 +657,7 @@ export function assertDeployHostname(hostname: string, zone: string): string {
   }
 
   const normalisedZone = zone.toLowerCase();
-  if (value === normalisedZone) {
+  if (value === normalisedZone && !options.allowApex) {
     throw new DeployHostnameError(
       `${value} is the zone apex; pointing it at a deployment replaces the site that lives there`,
     );

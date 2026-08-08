@@ -1,6 +1,7 @@
 import {
   type AuthVariables,
   CloudCoreError,
+  createProject,
   type Database,
   NotFoundError,
   type ProjectDatabaseHosts,
@@ -15,6 +16,7 @@ import {
   type DeployTargetRow,
   deployDomains,
   deployEnvVars,
+  deployGithubInstallations,
   deployments,
   deployTargets,
   projects,
@@ -30,10 +32,13 @@ import {
   deleteDeployDomain,
   deployNamespaceAvailability,
   describeBindings,
+  detectBuildConfig,
+  detectWorkspaces,
   type EnvoyEnvSource,
   encryptDeployEnvValue,
   envoyLinkFor,
   findInFlightDeploymentForSha,
+  GithubApiError,
   type GithubAppClient,
   HostnameConflictError,
   isPullRequestTeardown,
@@ -52,6 +57,7 @@ import {
   setPrimaryDeployDomain,
   supersedeOlderDeployments,
   supersedeQueuedDeployments,
+  syncGithubInstallations,
   targetsForRepository,
   toAgentRequest,
   verifyGithubSignature,
@@ -60,13 +66,14 @@ import {
   assertDeployHostname,
   createDeployDomainInputSchema,
   createDeploymentInputSchema,
-  createDeployTargetInputSchema,
+  createDeployTargetRequestSchema,
   type DeployEnvVarInput,
   DeployHostnameError,
   deploymentStatusUpdateSchema,
   githubInstallationEventSchema,
   githubPullRequestEventSchema,
   githubPushEventSchema,
+  isDeployNodeVersion,
   isTerminalDeploymentStatus,
   linkEnvoyProjectInputSchema,
   previewHostnameLabel,
@@ -98,6 +105,8 @@ export interface DeployRouteOptions {
    * is written back to a pull request.
    */
   github: { client: GithubAppClient; surfaces: GithubSurfaces } | null;
+  /** Only for the install link. Null hides the connect button, nothing else. */
+  githubAppSlug: string | null;
   /**
    * Absent until an Envoy decrypt exists. A target may still be linked; the
    * pull simply resolves to nothing, which is the same as not opting in.
@@ -112,7 +121,38 @@ export interface DeployRouteOptions {
   s3CredentialEncryptionKey: string;
 }
 
+/**
+ * Same shape as the agent's unavailability: the surface is configured out, not
+ * broken, so it is a 503 the UI can render as "connect GitHub" rather than an
+ * error it has to explain.
+ */
+class GithubAppUnavailableError extends Error {
+  constructor() {
+    super("GitHub App is not configured");
+    this.name = "GithubAppUnavailableError";
+  }
+}
+
 function errorResponse(error: unknown) {
+  if (error instanceof GithubAppUnavailableError) {
+    return {
+      body: { error: { code: "GITHUB_APP_DISABLED", message: error.message } },
+      status: 503 as const,
+    } as const;
+  }
+  if (error instanceof GithubApiError) {
+    // Pass through what GitHub said when it is about the request, and report
+    // anything else as an upstream failure — a 500 here reads as a bug in this
+    // service when the rate limit or a revoked installation is the cause.
+    const status =
+      error.status === 403 || error.status === 404 || error.status === 429
+        ? error.status
+        : (502 as const);
+    return {
+      body: { error: { code: "GITHUB_ERROR", message: error.message } },
+      status,
+    } as const;
+  }
   if (error instanceof BindingUnresolvableError) {
     return {
       body: {
@@ -167,7 +207,11 @@ function serializeTarget(
     productionBranch: target.productionBranch,
     githubInstallationId: target.githubInstallationId,
     rootDirectory: target.rootDirectory,
+    framework: target.framework,
     builder: target.builder,
+    nodeVersion: isDeployNodeVersion(target.nodeVersion)
+      ? target.nodeVersion
+      : null,
     dockerfilePath: target.dockerfilePath,
     installCommand: target.installCommand,
     buildCommand: target.buildCommand,
@@ -235,9 +279,40 @@ function serializeEnvVar(row: DeployEnvVarRow) {
     template: row.template,
     hasValue: row.encryptedValue !== null,
     scope: row.scope,
-    buildTime: row.buildTime,
-    runTime: row.runTime,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/**
+ * The create path's env row builder. Deliberately not shared with the env
+ * editor's: that one accepts a literal with no value as "keep what is stored",
+ * which on a target that does not exist yet can only ever be a mistake.
+ */
+function newEnvRow(
+  targetId: string,
+  input: DeployEnvVarInput,
+  encryptionKey: string,
+) {
+  const base = { targetId, key: input.key, scope: input.scope };
+  if (input.source === "binding") {
+    return { ...base, source: "binding" as const, reference: input.reference };
+  }
+  if (input.source === "template") {
+    return { ...base, source: "template" as const, template: input.template };
+  }
+  if (input.value === undefined) {
+    throw new ValidationError(
+      `${input.key} was sent without a value`,
+      "ENV_VALUE_REQUIRED",
+    );
+  }
+  const cipher = encryptDeployEnvValue(input.value, encryptionKey);
+  return {
+    ...base,
+    source: "literal" as const,
+    encryptedValue: cipher.encrypted,
+    valueIv: cipher.iv,
+    valueAuthTag: cipher.authTag,
   };
 }
 
@@ -289,6 +364,221 @@ export function deployRoutes(options: DeployRouteOptions) {
   const owner = new Hono<{ Variables: AuthVariables }>();
   owner.use("*", requireSession(), requireRole("superuser"));
 
+  /**
+   * Every browse route needs one. Throwing here rather than returning an empty
+   * list is deliberate: a repository picker that renders "no repositories"
+   * when the App is simply not configured sends you looking at GitHub for a
+   * problem that is in the environment file.
+   */
+  function requireGithub(): { client: GithubAppClient } {
+    if (!options.github) throw new GithubAppUnavailableError();
+    return options.github;
+  }
+
+  /**
+   * The installation that can actually see this repository. Resolved from what
+   * the webhooks recorded rather than trusted from the query string — an
+   * installation id is a bearer of repository access, and accepting one the
+   * caller supplied would let a mistyped id read a repository through an
+   * installation that happens to hold it.
+   */
+  async function installationFor(
+    repoOwner: string,
+    repoName: string,
+  ): Promise<number> {
+    const rows = await db.select().from(deployGithubInstallations);
+    const match = rows.find(
+      (row) =>
+        row.suspendedAt === null &&
+        row.repositories.some(
+          (repository) =>
+            repository.owner.toLowerCase() === repoOwner.toLowerCase() &&
+            repository.name.toLowerCase() === repoName.toLowerCase(),
+        ),
+    );
+    if (match) return match.installationId;
+    // An `all repositories` installation carries no explicit list for anything
+    // created after it was granted, so owner match is the fallback.
+    const byOwner = rows.find(
+      (row) =>
+        row.suspendedAt === null &&
+        row.accountLogin.toLowerCase() === repoOwner.toLowerCase(),
+    );
+    if (byOwner) return byOwner.installationId;
+    throw new NotFoundError(
+      `No GitHub installation can see ${repoOwner}/${repoName}`,
+      "INSTALLATION_NOT_FOUND",
+    );
+  }
+
+  /** The Contents API view of one repository, for detection to read through. */
+  function inspectorFor(
+    installationId: number,
+    repoOwner: string,
+    repoName: string,
+    ref: string | undefined,
+  ) {
+    const { client } = requireGithub();
+    return {
+      readFile: (path: string) =>
+        client.readFile({
+          installationId,
+          owner: repoOwner,
+          repo: repoName,
+          path,
+          ref,
+        }),
+      listDirectory: (path: string) =>
+        client.listDirectory({
+          installationId,
+          owner: repoOwner,
+          repo: repoName,
+          path,
+          ref,
+        }),
+    };
+  }
+
+  owner.get("/github/connection", async (context) => {
+    const slug = options.githubAppSlug;
+    const rows = await db.select().from(deployGithubInstallations);
+    return context.json({
+      data: {
+        installUrl: slug
+          ? `https://github.com/apps/${slug}/installations/new`
+          : null,
+        installations: rows.map((row) => ({
+          installationId: row.installationId,
+          accountLogin: row.accountLogin,
+          accountType: row.accountType,
+          repositorySelection: row.repositorySelection,
+        })),
+      },
+    });
+  });
+
+  owner.post("/github/installations/sync", async (context) => {
+    try {
+      const { client } = requireGithub();
+      const rows = await syncGithubInstallations(db, {
+        listInstallations: () => client.listInstallations(),
+        listRepositories: (installationId) =>
+          client.listRepositories(installationId),
+      });
+      return context.json({
+        data: rows.map((row) => ({
+          installationId: row.installationId,
+          accountLogin: row.accountLogin,
+          accountType: row.accountType,
+          repositorySelection: row.repositorySelection,
+        })),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.get("/github/repositories", async (context) => {
+    try {
+      const { client } = requireGithub();
+      const rows = await db.select().from(deployGithubInstallations);
+      const live = await Promise.all(
+        rows
+          .filter((row) => row.suspendedAt === null)
+          .map(async (row) => {
+            const repositories = await client
+              .listRepositories(row.installationId)
+              // One suspended or revoked installation must not empty the whole
+              // picker; the others still list.
+              .catch(() => []);
+            return repositories.map((repository) => ({
+              ...repository,
+              installationId: row.installationId,
+            }));
+          }),
+      );
+      const flattened = live.flat().sort((a, b) => {
+        const left = a.pushedAt ?? "";
+        const right = b.pushedAt ?? "";
+        if (left === right) return a.fullName.localeCompare(b.fullName);
+        return left < right ? 1 : -1;
+      });
+      return context.json({ data: flattened });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.get("/github/repos/:owner/:repo/branches", async (context) => {
+    try {
+      const { client } = requireGithub();
+      const repoOwner = context.req.param("owner");
+      const repoName = context.req.param("repo");
+      const installationId = await installationFor(repoOwner, repoName);
+      const branches = await client.listBranches({
+        installationId,
+        owner: repoOwner,
+        repo: repoName,
+      });
+      return context.json({ data: branches });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.get("/github/repos/:owner/:repo/tree", async (context) => {
+    try {
+      const { client } = requireGithub();
+      const repoOwner = context.req.param("owner");
+      const repoName = context.req.param("repo");
+      const installationId = await installationFor(repoOwner, repoName);
+      const path = context.req.query("path") ?? "";
+      const entries = await client.listDirectory({
+        installationId,
+        owner: repoOwner,
+        repo: repoName,
+        path,
+        ref: context.req.query("ref"),
+      });
+      if (!entries) {
+        throw new NotFoundError("Directory not found", "DIRECTORY_NOT_FOUND");
+      }
+      return context.json({
+        data: entries.sort((a, b) =>
+          a.type === b.type
+            ? a.name.localeCompare(b.name)
+            : a.type === "dir"
+              ? -1
+              : 1,
+        ),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.get("/github/repos/:owner/:repo/detect", async (context) => {
+    try {
+      const repoOwner = context.req.param("owner");
+      const repoName = context.req.param("repo");
+      const installationId = await installationFor(repoOwner, repoName);
+      const ref = context.req.query("ref");
+      const inspector = inspectorFor(installationId, repoOwner, repoName, ref);
+      const [config, workspaces] = await Promise.all([
+        detectBuildConfig(inspector, context.req.query("dir") ?? ""),
+        detectWorkspaces(inspector),
+      ]);
+      return context.json({ data: { ...config, workspaces } });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
   owner.get("/targets", async (context) => {
     const rows = await db
       .select({ target: deployTargets, projectSlug: projects.slug })
@@ -316,33 +606,59 @@ export function deployRoutes(options: DeployRouteOptions) {
   });
 
   owner.post("/targets", async (context) => {
-    const parsed = createDeployTargetInputSchema.safeParse(
+    const parsed = createDeployTargetRequestSchema.safeParse(
       await context.req.json().catch(() => null),
     );
     if (!parsed.success) {
       return context.json(
-        { error: { code: "INVALID_INPUT", message: "Invalid deploy target" } },
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid deploy target",
+            issues: parsed.error.issues,
+          },
+        },
         400,
       );
     }
     const input = parsed.data;
     try {
-      const project = await db.query.projects.findFirst({
-        where: eq(projects.id, input.projectId),
-      });
-      if (!project) {
+      const existingProject = input.projectId
+        ? await db.query.projects.findFirst({
+            where: eq(projects.id, input.projectId),
+          })
+        : null;
+      if (input.projectId && !existingProject) {
         throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
+      }
+      const projectSlug = input.project?.slug ?? existingProject?.slug;
+      if (!projectSlug) {
+        throw new ValidationError(
+          "Provide exactly one of projectId or project",
+          "INVALID_INPUT",
+        );
       }
 
       const label =
         input.hostname ??
         slugifyHostnameLabel(
-          input.name === "web" ? project.slug : `${project.slug}-${input.name}`,
+          input.name === "web" ? projectSlug : `${projectSlug}-${input.name}`,
         );
       // Runs the reserved-name and one-level-deep guards before anything is
       // written, so a target can never be created holding a hostname the DNS
-      // step would refuse.
+      // step would refuse — and, on the inline-project path, before a project
+      // is provisioned that would then have nothing attached to it.
       const hostname = assertDeployHostname(`${label}.${zoneName}`, zoneName);
+
+      const project =
+        existingProject ??
+        (await createProject(db, {
+          name: input.project?.name ?? projectSlug,
+          slug: projectSlug,
+          description: input.project?.description,
+          ownerId: context.get("user").id,
+          storageRootPath: `/${projectSlug}`,
+        }));
 
       const availability = await deployNamespaceAvailability(db, project.id);
       const [storageCredential] = await db
@@ -367,7 +683,9 @@ export function deployRoutes(options: DeployRouteOptions) {
             productionBranch: input.productionBranch,
             githubInstallationId: input.githubInstallationId ?? null,
             rootDirectory: input.rootDirectory ?? null,
+            framework: input.framework ?? null,
             builder: input.builder,
+            nodeVersion: input.nodeVersion ?? null,
             dockerfilePath: input.dockerfilePath ?? null,
             installCommand: input.installCommand ?? null,
             buildCommand: input.buildCommand ?? null,
@@ -408,15 +726,32 @@ export function deployRoutes(options: DeployRouteOptions) {
             { key: "S3_SECRET_ACCESS_KEY", reference: "s3.secretAccessKey" },
           );
         }
-        if (seeds.length > 0) {
-          await tx.insert(deployEnvVars).values(
-            seeds.map((seed) => ({
+        // Anything the request carried at the same key and scope replaces the
+        // seed rather than sitting beside it: a pasted DATABASE_URL is a
+        // deliberate override of the project's own Postgres, and two rows for
+        // one name is not a state the resolver can be asked to arbitrate.
+        const supplied = input.env ?? [];
+        const overridden = new Set(
+          supplied.map((entry) => `${entry.key}:${entry.scope}`),
+        );
+        const rows = [
+          ...seeds
+            .filter((seed) => !overridden.has(`${seed.key}:all`))
+            .map((seed) => ({
               targetId: target.id,
               key: seed.key,
               source: "binding" as const,
               reference: seed.reference,
             })),
-          );
+          ...supplied.map((entry) =>
+            newEnvRow(target.id, entry, options.envEncryptionKey),
+          ),
+        ];
+        if (rows.length > 0) {
+          // Same check the env editor runs, for the same reason: an env set
+          // that cannot resolve is not worth storing.
+          assertBindingsResolvable(rows as DeployEnvVarRow[], availability);
+          await tx.insert(deployEnvVars).values(rows);
         }
 
         return target;
@@ -651,7 +986,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         .from(deployEnvVars)
         .where(eq(deployEnvVars.targetId, target.id));
       const stored = new Map(
-        existing.map((row) => [`${row.key} ${row.scope}`, row]),
+        existing.map((row) => [`${row.key}:${row.scope}`, row]),
       );
 
       const values = parsed.data.vars.map((input: DeployEnvVarInput) => {
@@ -659,8 +994,6 @@ export function deployRoutes(options: DeployRouteOptions) {
           targetId: target.id,
           key: input.key,
           scope: input.scope,
-          buildTime: input.buildTime,
-          runTime: input.runTime,
         };
         if (input.source === "binding") {
           return {
@@ -689,7 +1022,7 @@ export function deployRoutes(options: DeployRouteOptions) {
             valueAuthTag: cipher.authTag,
           };
         }
-        const previous = stored.get(`${input.key} ${input.scope}`);
+        const previous = stored.get(`${input.key}:${input.scope}`);
         if (!previous?.encryptedValue) {
           throw new ValidationError(
             `${input.key} has no stored value to keep`,
@@ -775,6 +1108,7 @@ export function deployRoutes(options: DeployRouteOptions) {
           page: query.page,
           limit: query.limit,
           total: counted?.total ?? 0,
+          totalPages: Math.ceil((counted?.total ?? 0) / query.limit),
         },
       });
     } catch (error) {
@@ -992,6 +1326,49 @@ export function deployRoutes(options: DeployRouteOptions) {
         );
       }
       return context.json({ data: { status: "cancelling" } }, 202);
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * The same commit, again. Distinct from rollback, which always rebuilds as
+   * production: a retry keeps the original's kind and pull request, so a
+   * failed preview retries as a preview and its check run and PR comment go on
+   * pointing at the same place. Reconstructing that client-side would need the
+   * caller to send back a `prNumber` it has no business holding, and getting
+   * it wrong orphans the surfaces on the pull request silently.
+   */
+  owner.post("/deployments/:id/retry", async (context) => {
+    try {
+      const row = await loadDeployment(context.req.param("id"));
+      if (!isTerminalDeploymentStatus(row.status)) {
+        throw new ValidationError(
+          `A ${row.status} deployment is still running`,
+          "DEPLOYMENT_NOT_TERMINAL",
+        );
+      }
+      const target = await loadTarget(row.targetId);
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, target.projectId),
+      });
+      if (!project) {
+        throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
+      }
+      const created = await enqueueDeployment({
+        target,
+        projectSlug: project.slug,
+        ref: row.gitRef,
+        sha: row.gitSha,
+        message: row.gitMessage,
+        kind: row.kind,
+        triggeredBy: "manual",
+        createdBy: context.get("user").id,
+        prNumber: row.prNumber,
+      });
+      await options.github?.surfaces.onEnqueued(created, target);
+      return context.json({ data: serializeDeployment(created) }, 202);
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1230,8 +1607,6 @@ export function deployRoutes(options: DeployRouteOptions) {
     }
   });
 
-  app.route("/", owner);
-
   // ---- Agent-facing routes -------------------------------------------------
 
   const agent = new Hono();
@@ -1372,8 +1747,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         JSON.stringify({
           event: "deploy-env-resolved",
           deploymentId: row.id,
-          buildKeys: resolved.buildKeys,
-          runKeys: resolved.runKeys,
+          keys: resolved.keys,
         }),
       );
       // Minted per installation, not per deployment, and cached until five
@@ -1393,8 +1767,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         deploymentId: row.id,
         kind: row.kind,
         cloneToken,
-        buildEnv: resolved.buildEnv,
-        runEnv: resolved.runEnv,
+        env: resolved.env,
       });
     } catch (error) {
       const response = errorResponse(error);
@@ -1583,6 +1956,15 @@ export function deployRoutes(options: DeployRouteOptions) {
   });
 
   app.route("/hooks", hooks);
+
+  // Mounted last, and it has to stay last. `owner` guards itself with a `*`
+  // middleware, and mounting it at "/" spreads that over every path under
+  // /api/deploy — including /agent and /hooks, neither of which has a session.
+  // Hono runs matched handlers in registration order, so the agent's and the
+  // webhook's own handlers only get to answer first while they are registered
+  // ahead of it. Mounted before them, the agent gets 403 SESSION_REQUIRED on
+  // every claim and GitHub gets the same on every delivery.
+  app.route("/", owner);
 
   return app;
 }

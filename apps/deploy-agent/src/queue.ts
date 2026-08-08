@@ -55,6 +55,18 @@ interface RunningDeployment {
 const NOOP_LOGGER: QueueLogger = { info: () => {}, error: () => {} };
 const DEFAULT_HISTORY_LIMIT = 100;
 const DEFAULT_STOP_GRACE_MS = 30_000;
+/**
+ * Consecutive failed claims before the log level goes from info to error.
+ *
+ * The control plane being briefly unreachable is normal, not exceptional: it
+ * restarts on every deploy, and in development the agent and the API start
+ * together so the first few polls always lose the race — the API's runtime is
+ * built lazily on the first `/api/*` request, which on a cold box takes longer
+ * than the claim timeout. Logging all of that at error trains the reader to
+ * ignore the one line that matters. At the default 3s poll this escalates
+ * after roughly fifteen seconds of genuine unreachability.
+ */
+const CLAIM_FAILURES_BEFORE_ERROR = 5;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -75,6 +87,7 @@ export class DeploymentQueue {
   readonly #running = new Map<string, RunningDeployment>();
   readonly #history = new Map<string, AgentDeploymentState>();
   #started = false;
+  #claimFailures = 0;
   #stopped = false;
   #loopPromise: Promise<void> | null = null;
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -306,8 +319,23 @@ export class DeploymentQueue {
     while (this.#started) {
       try {
         await this.pump();
+        if (this.#claimFailures > 0) {
+          this.#logger.info("control plane reachable", {
+            afterFailures: this.#claimFailures,
+          });
+          this.#claimFailures = 0;
+        }
       } catch (error) {
-        this.#logger.error("claim failed", { error: errorMessage(error) });
+        this.#claimFailures += 1;
+        const fields = {
+          error: errorMessage(error),
+          consecutive: this.#claimFailures,
+        };
+        if (this.#claimFailures >= CLAIM_FAILURES_BEFORE_ERROR) {
+          this.#logger.error("claim failed", fields);
+        } else {
+          this.#logger.info("claim failed", fields);
+        }
       }
       if (!this.#started) break;
       await this.#idle(this.#options.pollIntervalMs);

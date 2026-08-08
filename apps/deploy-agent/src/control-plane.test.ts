@@ -36,8 +36,10 @@ describe("ControlPlaneClient.env", () => {
         deploymentId: DEPLOYMENT_ID,
         kind: "production",
         cloneToken: null,
-        buildEnv: { NEXT_PUBLIC_URL: "https://app.denizlg24.com" },
-        runEnv: { PORT: "3000", POSTGRES_PRISMA_URL: "postgresql://x" },
+        env: {
+          NEXT_PUBLIC_URL: "https://app.denizlg24.com",
+          POSTGRES_PRISMA_URL: "postgresql://x",
+        },
       });
     });
     const resolved = await control.env(DEPLOYMENT_ID);
@@ -46,8 +48,8 @@ describe("ControlPlaneClient.env", () => {
       `https://api.denizlg24.com/api/deploy/agent/deployments/${DEPLOYMENT_ID}/env`,
     );
     expect(request.headers.get("authorization")).toBe(`Bearer ${TOKEN}`);
-    expect(resolved.runEnv.POSTGRES_PRISMA_URL).toBe("postgresql://x");
-    expect(resolved.buildEnv.NEXT_PUBLIC_URL).toBe("https://app.denizlg24.com");
+    expect(resolved.env.POSTGRES_PRISMA_URL).toBe("postgresql://x");
+    expect(resolved.env.NEXT_PUBLIC_URL).toBe("https://app.denizlg24.com");
   });
 
   test("rejects a response that does not match the contract", async () => {

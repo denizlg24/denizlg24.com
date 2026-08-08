@@ -271,7 +271,7 @@ describe("runBuild", () => {
     });
   });
 
-  it("passes build-time env to the build, not just the run", async () => {
+  it("passes the deployment env to the build as build args", async () => {
     await withTempDir(async (dir) => {
       const request = deploymentRequest();
       const exec = fakeExec(checkoutWriter({ Dockerfile: "FROM scratch" }));
@@ -283,7 +283,7 @@ describe("runBuild", () => {
         exec: exec.exec,
         buildRoot: join(dir, "builds"),
         buildMemoryLimit: "6144m",
-        buildEnv: { NEXT_PUBLIC_API_URL: "https://api.example.com" },
+        env: { NEXT_PUBLIC_API_URL: "https://api.example.com" },
       });
       await buildLog.close();
       expect(exec.find("docker build")?.command).toContain(

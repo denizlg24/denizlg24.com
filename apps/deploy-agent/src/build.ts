@@ -26,7 +26,12 @@ export interface BuildOptions {
   /** Passed to `docker run`-style flags, e.g. `6144m`. */
   buildMemoryLimit: string;
   cloneToken?: string | null;
-  buildEnv?: Record<string, string>;
+  /**
+   * The deployment's environment. Passed as `--build-arg`, so every value here
+   * is recoverable from the image's layer history — the platform makes no
+   * build/run distinction, and a built image carries its secrets.
+   */
+  env?: Record<string, string>;
   onPhase?: (phase: DeploymentPhase) => Promise<void>;
   now?: () => number;
 }
@@ -163,6 +168,10 @@ export function assertCommandsSupported(
     [
       ["installCommand", request.build.installCommand],
       ["buildCommand", request.build.buildCommand],
+      // A Dockerfile states its own base image. Accepting a Node version here
+      // and silently ignoring it is how someone spends an afternoon wondering
+      // why the selector does nothing.
+      ["nodeVersion", request.build.nodeVersion],
     ] as const
   )
     .filter(([, value]) => value !== undefined)
@@ -215,6 +224,11 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
   const source = join(workspace, "src");
   const cloneUrl = cloneUrlFor(request, options.cloneToken);
   log.protect(options.cloneToken);
+  // Every var reaches the build now, so anything a build step echoes — a failing
+  // command printing its environment, a framework dumping resolved config —
+  // would otherwise put a credential in the log. `protect` ignores values too
+  // short to redact without turning the log into a wall of asterisks.
+  for (const value of Object.values(options.env ?? {})) log.protect(value);
 
   await rm(workspace, { recursive: true, force: true });
   await mkdir(source, { recursive: true });
@@ -306,7 +320,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
 
     const imageTag = imageTagFor(request);
     const latestTag = latestTagFor(request);
-    const buildEnv = options.buildEnv ?? {};
+    const buildEnv = options.env ?? {};
     // The clone is seconds and the image build is minutes. Leaving the reported
     // phase on "cloning" for all of it is the stalled-spinner the phase field
     // exists to avoid.
@@ -388,7 +402,8 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         onOutput: (chunk) => log.write(chunk),
       });
     } else {
-      const { installCommand, buildCommand, startCommand } = request.build;
+      const { installCommand, buildCommand, startCommand, nodeVersion } =
+        request.build;
       await execOrThrow(exec, "nixpacks build", {
         command: [
           "nixpacks",
@@ -401,6 +416,13 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
           request.targetId,
           "--env",
           "PORT=3000",
+          // Skipped outright when the target already sets the variable by
+          // hand — the escape hatch for a repository the version list cannot
+          // serve. Passing both and relying on nixpacks to prefer the later
+          // `--env` would be resting on precedence nothing here verifies.
+          ...(nodeVersion && !("NIXPACKS_NODE_VERSION" in buildEnv)
+            ? ["--env", `NIXPACKS_NODE_VERSION=${nodeVersion}`]
+            : []),
           ...envFlags("--env", buildEnv),
           ...(installCommand ? ["--install-cmd", installCommand] : []),
           ...(buildCommand ? ["--build-cmd", buildCommand] : []),

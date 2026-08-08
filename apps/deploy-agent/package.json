@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
-    "build:host": "bun build src/index.ts --compile --target=bun-linux-x64 --outfile dist/forge-agent",
+    "dev": "bun --env-file=../../.env  run --watch src/index.ts",
+    "build": "bun --env-file=../../.env build src/index.ts --outdir dist --target bun",
+    "build:host": "bun --env-file=../../.env build src/index.ts --compile --target=bun-linux-x64 --outfile dist/forge-agent",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

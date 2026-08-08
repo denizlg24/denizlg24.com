@@ -16,6 +16,7 @@ interface Harness {
   queue: DeploymentQueue;
   reports: Array<{ deploymentId: string; update: DeploymentStatusUpdate }>;
   errors: string[];
+  infos: string[];
 }
 
 function harness(
@@ -24,6 +25,7 @@ function harness(
 ): Harness {
   const reports: Harness["reports"] = [];
   const errors: string[] = [];
+  const infos: string[] = [];
   const pending = [...queued];
   const queue = new DeploymentQueue({
     capacity: 1,
@@ -34,10 +36,13 @@ function harness(
       reports.push({ deploymentId, update });
     },
     runner: async () => ({ status: "ready" }),
-    logger: { info: () => {}, error: (message) => errors.push(message) },
+    logger: {
+      info: (message) => infos.push(message),
+      error: (message) => errors.push(message),
+    },
     ...overrides,
   });
-  return { queue, reports, errors };
+  return { queue, reports, errors, infos };
 }
 
 async function settle(): Promise<void> {
@@ -255,7 +260,7 @@ describe("DeploymentQueue.start", () => {
   it("survives a claim that throws and keeps polling", async () => {
     const request = deploymentRequest();
     let claims = 0;
-    const { queue, errors } = harness({
+    const { queue, errors, infos } = harness({
       claim: async () => {
         claims += 1;
         if (claims === 1) throw new Error("tunnel down");
@@ -267,8 +272,26 @@ describe("DeploymentQueue.start", () => {
     await settle();
     await queue.stop();
 
-    expect(errors).toContain("claim failed");
+    // One blip is reported, but not as an error: the control plane restarting
+    // is ordinary, and an error here is what teaches the reader to skim.
+    expect(infos).toContain("claim failed");
+    expect(errors).not.toContain("claim failed");
+    expect(infos).toContain("control plane reachable");
     expect(queue.get(request.deploymentId)?.status).toBe("ready");
+  });
+
+  it("escalates to error once the control plane stays unreachable", async () => {
+    const { queue, errors } = harness({
+      claim: async () => {
+        throw new Error("connection refused");
+      },
+    });
+
+    queue.start();
+    await settle();
+    await queue.stop();
+
+    expect(errors).toContain("claim failed");
   });
 
   it("heartbeats running deployments", async () => {

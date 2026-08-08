@@ -22,7 +22,14 @@ interface CaddyConfigRoute {
 export interface CaddyConfig {
   apps: {
     http: {
-      servers: Record<string, { listen: string[]; routes: CaddyConfigRoute[] }>;
+      servers: Record<
+        string,
+        {
+          listen: string[];
+          routes: CaddyConfigRoute[];
+          automatic_https: { disable: true };
+        }
+      >;
     };
   };
 }
@@ -92,7 +99,21 @@ export function buildCaddyConfig(
 
   return {
     apps: {
-      http: { servers: { [SERVER_NAME]: { listen: [listen], routes } } },
+      http: {
+        servers: {
+          [SERVER_NAME]: {
+            listen: [listen],
+            routes,
+            // TLS terminates at Cloudflare; cloudflared reaches this listener
+            // over plain HTTP. Caddy turns automatic HTTPS on for any server
+            // carrying host matchers, which would both serve TLS on this port —
+            // answering every tunnel request with "Client sent an HTTP request
+            // to an HTTPS server" — and start an ACME order per deployment
+            // hostname that nothing can complete.
+            automatic_https: { disable: true },
+          },
+        },
+      },
     },
   };
 }

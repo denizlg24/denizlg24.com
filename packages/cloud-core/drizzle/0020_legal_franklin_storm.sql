@@ -1,0 +1,1 @@
+ALTER TABLE "deploy_targets" ADD COLUMN "node_version" varchar(8);

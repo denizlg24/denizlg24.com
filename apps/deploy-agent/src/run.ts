@@ -65,7 +65,7 @@ export interface RunOptions {
   routes: RouteManager;
   envRoot: string;
   network: string;
-  runEnv?: Record<string, string>;
+  env?: Record<string, string>;
   onPhase?: (phase: DeploymentPhase) => Promise<void>;
   healthProbe?: HealthProbe;
   healthPollMs?: number;
@@ -88,6 +88,20 @@ export class RunError extends Error {
 }
 
 const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * The only env the platform injects, and it is added here rather than by the
+ * control plane because it is run-time only: `NODE_ENV=production` during a
+ * build makes an install step skip devDependencies, and the build then fails on
+ * a missing compiler — a failure that reads as a broken repository rather than
+ * as an env var the platform set behind your back. The deployment's own vars
+ * are spread over these, so setting either explicitly still wins, and `PORT` is
+ * passed again as a `--env` flag once the container port is known.
+ */
+export const RUN_DEFAULT_ENV: Readonly<Record<string, string>> = {
+  PORT: "3000",
+  NODE_ENV: "production",
+};
 
 export function containerNameFor(deploymentId: string): string {
   return `dpl-${deploymentId}`;
@@ -203,10 +217,14 @@ export async function startContainer(options: RunOptions): Promise<RunOutcome> {
 
   await mkdir(options.envRoot, { recursive: true });
   await rm(envFile, { force: true });
-  await writeFile(envFile, renderEnvFile(options.runEnv ?? {}), {
-    mode: 0o600,
-    flag: "wx",
-  });
+  await writeFile(
+    envFile,
+    renderEnvFile({ ...RUN_DEFAULT_ENV, ...options.env }),
+    {
+      mode: 0o600,
+      flag: "wx",
+    },
+  );
 
   let containerId: string;
   try {

@@ -22,8 +22,6 @@ function row(overrides: Partial<DeployEnvVarRow>): DeployEnvVarRow {
     reference: null,
     template: null,
     scope: "all",
-    buildTime: false,
-    runTime: true,
     createdAt: new Date(),
     ...overrides,
   };
@@ -154,7 +152,7 @@ describe("assertBindingsResolvable", () => {
 });
 
 describe("resolveDeploymentEnv", () => {
-  test("injects only PORT and NODE_ENV when nothing is bound", async () => {
+  test("injects nothing of its own", async () => {
     const resolved = await resolveDeploymentEnv({
       rows: [],
       deployment,
@@ -162,8 +160,11 @@ describe("resolveDeploymentEnv", () => {
       resolvers: resolvers(),
       decrypt,
     });
-    expect(resolved.runEnv).toEqual({ PORT: "3000", NODE_ENV: "production" });
-    expect(resolved.buildEnv).toEqual({});
+    // PORT and NODE_ENV are the agent's, added when it starts the container —
+    // NODE_ENV must not reach a build, where it makes an install skip
+    // devDependencies.
+    expect(resolved.env).toEqual({});
+    expect(resolved.keys).toEqual([]);
   });
 
   test("never resolves a namespace nothing references", async () => {
@@ -174,7 +175,7 @@ describe("resolveDeploymentEnv", () => {
       resolvers: resolvers(),
       decrypt,
     });
-    expect(resolved.runEnv.SENTRY_DSN).toBe("plain:SENTRY_DSN");
+    expect(resolved.env.SENTRY_DSN).toBe("plain:SENTRY_DSN");
   });
 
   test("a binding is a rename", async () => {
@@ -191,7 +192,7 @@ describe("resolveDeploymentEnv", () => {
       resolvers: resolvers(),
       decrypt,
     });
-    expect(resolved.runEnv.POSTGRES_PRISMA_URL).toBe(
+    expect(resolved.env.POSTGRES_PRISMA_URL).toBe(
       "postgresql://u:p@postgres.denizlg24.com:5433/app",
     );
   });
@@ -211,7 +212,7 @@ describe("resolveDeploymentEnv", () => {
       resolvers: resolvers(),
       decrypt,
     });
-    expect(resolved.runEnv.DATABASE_URL).toBe(
+    expect(resolved.env.DATABASE_URL).toBe(
       "postgresql://u:p@postgres.denizlg24.com:5433/app?sslmode=require",
     );
   });
@@ -230,29 +231,23 @@ describe("resolveDeploymentEnv", () => {
       resolvers: resolvers(),
       decrypt,
     });
-    expect(resolved.buildEnv.NEXT_PUBLIC_API_URL).toBe(
+    expect(resolved.env.NEXT_PUBLIC_API_URL).toBe(
       "https://app-pr-12-a1b2c3.denizlg24.com/api",
     );
   });
 
-  test("NEXT_PUBLIC_* reaches the build even without the flag", async () => {
+  test("every var lands in the one map, whatever its name", async () => {
     const resolved = await resolveDeploymentEnv({
       rows: [
-        row({ key: "NEXT_PUBLIC_X", encryptedValue: "x", buildTime: false }),
-        row({ key: "PRIVATE_X", encryptedValue: "x", buildTime: false }),
+        row({ key: "NEXT_PUBLIC_X", encryptedValue: "x" }),
+        row({ key: "PRIVATE_X", encryptedValue: "x" }),
       ],
       deployment,
       project,
       resolvers: resolvers(),
       decrypt,
     });
-    expect(resolved.buildKeys).toEqual(["NEXT_PUBLIC_X"]);
-    expect(resolved.runKeys).toEqual([
-      "NEXT_PUBLIC_X",
-      "NODE_ENV",
-      "PORT",
-      "PRIVATE_X",
-    ]);
+    expect(resolved.keys).toEqual(["NEXT_PUBLIC_X", "PRIVATE_X"]);
   });
 
   test("scope narrows a row to one deployment kind", async () => {
@@ -267,8 +262,8 @@ describe("resolveDeploymentEnv", () => {
       resolvers: resolvers(),
       decrypt,
     });
-    expect(production.runEnv.A).toBeUndefined();
-    expect(production.runEnv.B).toBe("plain:B");
+    expect(production.env.A).toBeUndefined();
+    expect(production.env.B).toBe("plain:B");
   });
 
   test("an explicit row wins over Envoy", async () => {
@@ -280,28 +275,9 @@ describe("resolveDeploymentEnv", () => {
       decrypt,
       envoy: { SHARED: "from-envoy", ONLY_ENVOY: "kept" },
     });
-    expect(resolved.runEnv.SHARED).toBe("plain:SHARED");
-    expect(resolved.runEnv.ONLY_ENVOY).toBe("kept");
-    expect(resolved.buildEnv.ONLY_ENVOY).toBe("kept");
-  });
-
-  test("a row with both flags off lands in neither map", async () => {
-    const resolved = await resolveDeploymentEnv({
-      rows: [
-        row({
-          key: "DISABLED",
-          encryptedValue: "x",
-          buildTime: false,
-          runTime: false,
-        }),
-      ],
-      deployment,
-      project,
-      resolvers: resolvers(),
-      decrypt,
-    });
-    expect(resolved.buildEnv.DISABLED).toBeUndefined();
-    expect(resolved.runEnv.DISABLED).toBeUndefined();
+    expect(resolved.env.SHARED).toBe("plain:SHARED");
+    expect(resolved.env.ONLY_ENVOY).toBe("kept");
+    expect(resolved.env.ONLY_ENVOY).toBe("kept");
   });
 
   test("an unprovisioned namespace fails with the key that wanted it", async () => {
@@ -349,7 +325,7 @@ describe("resolveDeploymentEnv", () => {
       decrypt,
     });
     expect(issued).toBe(1);
-    expect(resolved.runEnv.S3_ACCESS_KEY_ID).toBe("AKIA");
+    expect(resolved.env.S3_ACCESS_KEY_ID).toBe("AKIA");
   });
 
   test("a namespace referenced twice is resolved once", async () => {

@@ -111,11 +111,17 @@ export const deployEnvKeySchema = z
   .max(255)
   .regex(ENV_KEY_PATTERN, "Not a valid environment variable name");
 
+/**
+ * `scope` is the only axis a var has. There is deliberately no build/run split:
+ * a var that reaches the container but not the build is the single most common
+ * way for a framework that inlines env at build time to ship a fallback value
+ * with no error anywhere, and the split cost more debugging than it ever saved.
+ * The consequence is that a value is visible in the image's layer history, so
+ * treat a built image as carrying its secrets.
+ */
 const envVarBaseSchema = z.object({
   key: deployEnvKeySchema,
   scope: deployEnvScopeSchema.default("all"),
-  buildTime: z.boolean().default(false),
-  runTime: z.boolean().default(true),
 });
 
 /**
@@ -129,7 +135,7 @@ export const deployEnvVarInputSchema = z.discriminatedUnion("source", [
     /**
      * Absent means "keep what is stored". `GET .../env` never returns a
      * literal's value, so a full replace that demanded one would force the
-     * editor to re-type every secret on the target to change a flag.
+     * editor to re-type every secret on the target to change a scope.
      */
     value: z.string().max(32_768).optional(),
   }),
@@ -162,8 +168,6 @@ export const deployEnvVarSchema = z.object({
   template: z.string().nullable(),
   hasValue: z.boolean(),
   scope: deployEnvScopeSchema,
-  buildTime: z.boolean(),
-  runTime: z.boolean(),
   createdAt: z.iso.datetime(),
 });
 export type DeployEnvVar = z.infer<typeof deployEnvVarSchema>;
@@ -196,7 +200,12 @@ export const agentDeploymentEnvSchema = z.object({
   deploymentId: z.uuid(),
   kind: deploymentKindSchema,
   cloneToken: z.string().nullable(),
-  buildEnv: z.record(z.string(), z.string()),
-  runEnv: z.record(z.string(), z.string()),
+  /**
+   * One map, used for both the build and the container. The agent adds its own
+   * run-time facts (`PORT`, `NODE_ENV`) on the run side only — `NODE_ENV` in
+   * particular must not reach a build, where it makes an install skip
+   * devDependencies and fail on a missing compiler.
+   */
+  env: z.record(z.string(), z.string()),
 });
 export type AgentDeploymentEnv = z.infer<typeof agentDeploymentEnvSchema>;

@@ -31,6 +31,27 @@ describe("assertDeployHostname", () => {
     expect(() => assertDeployHostname(ZONE, ZONE)).toThrow(/apex/);
   });
 
+  it("allows the apex only when the caller asks for it", () => {
+    // Every derived hostname — project slug, preview branch — goes through the
+    // default, where the apex can only be an accident. The explicit
+    // add-a-domain route is the one caller that opts in.
+    expect(assertDeployHostname(ZONE, ZONE, { allowApex: true })).toBe(ZONE);
+    expect(
+      assertDeployHostname(`  ${ZONE.toUpperCase()} `, ZONE, {
+        allowApex: true,
+      }),
+    ).toBe(ZONE);
+  });
+
+  it("still applies every other rule to the apex", () => {
+    expect(() =>
+      assertDeployHostname("not a hostname", ZONE, { allowApex: true }),
+    ).toThrow();
+    expect(() =>
+      assertDeployHostname(`www.${ZONE}`, ZONE, { allowApex: true }),
+    ).toThrow(/reserved/);
+  });
+
   it("refuses a second level, which Universal SSL does not cover", () => {
     expect(() => assertDeployHostname(`app.dpl.${ZONE}`, ZONE)).toThrow(
       /Universal SSL/,
