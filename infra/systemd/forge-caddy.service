@@ -1,0 +1,41 @@
+[Unit]
+Description=Caddy for the Forge deploy host
+After=network-online.target
+Wants=network-online.target
+# The agent replays its persisted route table into Caddy at startup, so Caddy
+# has to be listening first or every live deployment is a 404 until the next
+# deploy happens to republish it.
+Before=forge-agent.service
+
+[Service]
+Type=notify
+User=forge
+Group=forge
+# No Caddyfile anywhere. The agent owns the configuration outright and does a
+# full POST /load on every change; this config exists only to bring the admin
+# endpoint up with no servers defined. Anything declared here is erased by the
+# first publish, so declaring anything would only disagree with production in
+# the meantime.
+ExecStart=/usr/bin/caddy run --config /etc/forge/caddy-bootstrap.json
+ExecReload=/usr/bin/caddy reload --config /etc/forge/caddy-bootstrap.json --force
+Restart=on-failure
+RestartSec=3s
+
+# Binding :8080 needs no privilege, but keep the capability available in case
+# CADDY_LISTEN is ever moved to :80.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/forge/caddy
+StateDirectory=forge-caddy
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
