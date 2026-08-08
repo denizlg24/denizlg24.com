@@ -344,6 +344,90 @@ describe("namespace projector", () => {
     expect(context.dirty.at(-1)).toEqual({ dirty: false, reason: null });
   });
 
+  it("survives an entry it cannot project instead of abandoning the walk", async () => {
+    // Regression: a path re-created under a new id violates `files_path_unique`,
+    // which `ON CONFLICT (id)` cannot absorb. That raise used to abort the scan,
+    // so the projection froze behind one row — and only a complete scan runs the
+    // reconciliation that clears it.
+    const projected: string[] = [];
+    const fake = repository({
+      async upsertFile(value) {
+        if (value.relativePath === "docs/~tmp.pst") {
+          throw new Error('duplicate key value violates "files_path_unique"');
+        }
+        projected.push(value.relativePath);
+      },
+    });
+    const result = await new NamespaceProjector(
+      source({
+        listings: {
+          "/": {
+            entries: [entry("docs", "folder", "folder-1")],
+            problems: [],
+          },
+          docs: {
+            entries: [
+              entry("docs/~tmp.pst", "file", "file-new"),
+              entry("docs/keep.pdf", "file", "file-keep"),
+            ],
+            problems: [],
+          },
+        },
+        markers: MARKERS,
+      }),
+      fake.repository,
+    ).scan();
+
+    expect(result.complete).toBe(true);
+    expect(result.abortReason).toBeNull();
+    // The walk carried on past the bad row rather than stopping at it.
+    expect(projected).toEqual(["docs/keep.pdf"]);
+    expect(fake.problems).toContainEqual(
+      expect.objectContaining({
+        code: "PROJECTION_WRITE_FAILED",
+        relativePath: "docs/~tmp.pst",
+      }),
+    );
+    // Unrepaired problems still hold the projection dirty.
+    expect(fake.dirty.at(-1)).toEqual({
+      dirty: true,
+      reason: "unrepaired-projection-errors",
+    });
+  });
+
+  it("still observes an entry whose write failed, so the reaper cannot claim it", async () => {
+    // The row exists on disk; a failed write says nothing about its existence.
+    // Counting it as unobserved would mark a live file for deletion.
+    const fake = repository({
+      lastComplete: 1,
+      rows: [
+        {
+          id: "file-new",
+          kind: "file",
+          relativePath: "docs/~tmp.pst",
+        } as ProjectedRow,
+      ],
+      async upsertFile() {
+        throw new Error('duplicate key value violates "files_path_unique"');
+      },
+    });
+    const result = await new NamespaceProjector(
+      source({
+        listings: {
+          "/": { entries: [entry("docs", "folder", "folder-1")], problems: [] },
+          docs: {
+            entries: [entry("docs/~tmp.pst", "file", "file-new")],
+            problems: [],
+          },
+        },
+        markers: MARKERS,
+      }),
+      fake.repository,
+    ).scan();
+
+    expect(result.reapPlan.reap).toHaveLength(0);
+  });
+
   it("aborts rather than walking an unbounded namespace", async () => {
     const context = repository();
     const projector = new NamespaceProjector(

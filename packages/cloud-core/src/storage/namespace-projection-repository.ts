@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, max, ne, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
 import {
@@ -181,6 +181,7 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
         .insert(namespaceProjectionErrors)
         .values({
           code: problem.code,
+          detail: problem.detail ?? null,
           firstSeenGeneration: generation,
           lastSeenGeneration: generation,
           relativePath: problem.relativePath,
@@ -188,6 +189,7 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
         .onConflictDoUpdate({
           set: {
             code: problem.code,
+            detail: problem.detail ?? null,
             lastSeenGeneration: generation,
             // A problem seen again is not repaired, whatever a previous scan
             // concluded.
@@ -302,39 +304,61 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
       // used to push that decision into Postgres, which rejected it as a
       // malformed uuid — a nineteen-parameter SQL dump for what is really one
       // sentence about the entry.
-      if (!entry.metadata.ownerId) {
+      const ownerId = entry.metadata.ownerId;
+      if (!ownerId) {
         throw new Error(
           `Refusing to project ownerless file ${path}: only the shared root is ownerless, and a file needs an owner`,
         );
       }
-      await db
-        .insert(files)
-        .values({
-          checksum: entry.metadata.checksum ?? "",
-          createdAt: new Date(entry.metadata.createdAt),
-          diskPath: entry.absolutePath,
-          filename: path.slice(path.lastIndexOf("/") + 1),
-          folderId: folder.id,
-          id: entry.metadata.id,
-          mimeType: entry.metadata.mimeType ?? null,
-          ownerId: entry.metadata.ownerId,
-          path,
-          sizeBytes: entry.sizeBytes,
-          updatedAt: entry.modifiedAt,
-        })
-        .onConflictDoUpdate({
-          set: {
+      // `files` is unique on `path` as well as on `id`, and the two disagree
+      // whenever a path is re-created under a new identity — which is routine:
+      // an editor that writes through a temp file deletes and recreates the
+      // same name, and the new entry carries a new stamped id.
+      //
+      // `ON CONFLICT (id)` cannot absorb a violation of `files_path_unique`, so
+      // that insert raised instead of upserting. Reconciliation is what clears
+      // the displaced row, but reconciliation only runs on a *complete* scan,
+      // and the raise was preventing completion — the stale row blocked the one
+      // pass that removes it.
+      //
+      // The namespace is the authority on what lives at a path, so the row
+      // holding it under another id is stale by definition. A file that merely
+      // moved is re-inserted at its true path by its own entry later in the
+      // same walk; it forfeits `tier`, `access_count` and `last_accessed_at`,
+      // which are a hint and two analytics counters, not identity.
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(files)
+          .where(and(eq(files.path, path), ne(files.id, entry.metadata.id)));
+        await tx
+          .insert(files)
+          .values({
             checksum: entry.metadata.checksum ?? "",
+            createdAt: new Date(entry.metadata.createdAt),
             diskPath: entry.absolutePath,
             filename: path.slice(path.lastIndexOf("/") + 1),
             folderId: folder.id,
+            id: entry.metadata.id,
             mimeType: entry.metadata.mimeType ?? null,
+            ownerId,
             path,
             sizeBytes: entry.sizeBytes,
             updatedAt: entry.modifiedAt,
-          },
-          target: files.id,
-        });
+          })
+          .onConflictDoUpdate({
+            set: {
+              checksum: entry.metadata.checksum ?? "",
+              diskPath: entry.absolutePath,
+              filename: path.slice(path.lastIndexOf("/") + 1),
+              folderId: folder.id,
+              mimeType: entry.metadata.mimeType ?? null,
+              path,
+              sizeBytes: entry.sizeBytes,
+              updatedAt: entry.modifiedAt,
+            },
+            target: files.id,
+          });
+      });
     },
 
     async upsertFolder(entry: NamespaceEntry): Promise<void> {
@@ -348,6 +372,53 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
               .from(folders)
               .where(eq(folders.path, parent))
               .limit(1);
+      // Same two-unique-keys problem as `upsertFile`: a folder deleted and
+      // recreated over SMB keeps its name and gets a new stamped id, so the
+      // path collides under `folders_path_unique` while `ON CONFLICT (id)`
+      // looks elsewhere. This is the common case behind renames not landing.
+      //
+      // It cannot be resolved the way a file is, by deleting the displaced row.
+      // `files.folder_id` references `folders.id` ON DELETE CASCADE, so that
+      // would take every projected file beneath the folder with it, and
+      // `projects.storage_folder_id` would quietly go NULL. The children are
+      // real — the walk has just listed them — so they are carried across to
+      // the new identity instead: free the path, insert under the new id,
+      // re-point what referenced the old one, then drop it. `folders.parent_id`
+      // carries no foreign key, so it has to be re-pointed explicitly rather
+      // than by cascade.
+      const [displaced] = await db
+        .select({ id: folders.id })
+        .from(folders)
+        .where(and(eq(folders.path, path), ne(folders.id, entry.metadata.id)))
+        .limit(1);
+      if (displaced) {
+        await db.transaction(async (tx) => {
+          // Real paths are absolute, so this prefix cannot collide with one.
+          await tx
+            .update(folders)
+            .set({ path: `:displaced:${displaced.id}:${path}` })
+            .where(eq(folders.id, displaced.id));
+          await tx.insert(folders).values({
+            createdAt: new Date(entry.metadata.createdAt),
+            id: entry.metadata.id,
+            name: path.slice(path.lastIndexOf("/") + 1),
+            ownerId: entry.metadata.ownerId,
+            parentId: parentRow?.id ?? null,
+            path,
+            updatedAt: entry.modifiedAt,
+          });
+          await tx
+            .update(files)
+            .set({ folderId: entry.metadata.id })
+            .where(eq(files.folderId, displaced.id));
+          await tx
+            .update(folders)
+            .set({ parentId: entry.metadata.id })
+            .where(eq(folders.parentId, displaced.id));
+          await tx.delete(folders).where(eq(folders.id, displaced.id));
+        });
+        return;
+      }
       await db
         .insert(folders)
         .values({
