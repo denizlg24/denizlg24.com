@@ -39,17 +39,29 @@ export async function readBranchMarkers(
       return {};
     }
     if (typeof parsed !== "object" || parsed === null) return {};
-    const { branchId, filesystemUuid } = parsed as {
+    const { branchId, filesystemUuid, filesystemUuids } = parsed as {
       branchId?: unknown;
       filesystemUuid?: unknown;
+      filesystemUuids?: unknown;
     };
     if (typeof branchId !== "string" || branchId.length === 0) return {};
-    if (typeof filesystemUuid !== "string" || filesystemUuid.length === 0) {
+    // A branch may be a pool, so schemaVersion 2 carries every member UUID.
+    // Sorted and joined, because the set is the identity — one branch losing a
+    // member has to read as a different branch, which is exactly the case that
+    // must not be allowed to license reaping.
+    const uuids = Array.isArray(filesystemUuids)
+      ? filesystemUuids
+      : [filesystemUuid];
+    if (
+      uuids.length === 0 ||
+      !uuids.every((uuid) => typeof uuid === "string" && uuid.length > 0)
+    ) {
       return {};
     }
-    // The filesystem UUID is part of the value, not just the branch id, so a
+    // The filesystem UUIDs are part of the value, not just the branch id, so a
     // different disk carrying a copied marker reads as a different branch.
-    markers[branchPath] = `${branchId}:${filesystemUuid}`;
+    markers[branchPath] =
+      `${branchId}:${[...(uuids as string[])].sort().join(",")}`;
   }
   return markers;
 }
