@@ -15,9 +15,26 @@ User=forge
 Group=forge
 SupplementaryGroups=docker
 EnvironmentFile=/etc/forge/agent.env
+
+# AGENT_BIND_ADDRESS is a Tailscale address, and `After=tailscaled.service`
+# only orders against the daemon starting — not against it having finished
+# authenticating and brought the interface up. Binding an address that does not
+# exist yet fails immediately, so at boot the agent would otherwise burn its
+# five default restarts inside fifteen seconds and stay dead until someone
+# noticed. Waiting is quieter than crash-looping, and bounded so a genuinely
+# wrong address still fails instead of hanging the boot forever.
+ExecStartPre=/bin/bash -c 'for _ in $(seq 1 90); do ip -4 -o addr show | grep -qF "$AGENT_BIND_ADDRESS" && exit 0; sleep 1; done; echo "AGENT_BIND_ADDRESS $AGENT_BIND_ADDRESS never appeared on any interface" >&2; exit 1'
 ExecStart=/usr/local/bin/forge-agent
-Restart=on-failure
-RestartSec=3s
+
+# `always`, not `on-failure`: a clean exit is not a reason for the deploy agent
+# to stay down either.
+Restart=always
+RestartSec=5s
+# No rate limit. The failure that matters here is transient and external — the
+# tailnet, the control plane, the docker socket — and a unit that gives up
+# after five tries turns a thirty-second outage into an indefinite one.
+StartLimitIntervalSec=0
+TimeoutStartSec=120
 
 # /run/forge, as tmpfs, wiped on every restart. The resolved env set for a
 # deployment is written here for the length of one `docker run`; RUN_ENV_ROOT
