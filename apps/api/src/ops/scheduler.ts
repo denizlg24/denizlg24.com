@@ -31,6 +31,11 @@ const FAILURE_NOTIFICATION_THROTTLE_MS = 6 * 60 * 60 * 1_000;
 const RUN_LOG_TAIL_LENGTH = 16_000;
 const NOTIFICATION_MESSAGE_LIMIT = 2_000;
 
+const FORGE_TASK_TYPES: readonly TaskType[] = [
+  "forge_gc",
+  "domain_verification",
+];
+
 const BACKUP_TASK_TYPES = new Set<TaskType>([
   "backup_postgres",
   "backup_mongodb",
@@ -62,6 +67,7 @@ export function validateCronExpression(expression: string): string {
 export async function seedDefaultOpsTasks(
   db: Database,
   namespaceMode: StorageNamespaceMode,
+  options: { forgeEnabled?: boolean } = {},
 ): Promise<void> {
   const creator = await db.query.users.findFirst({
     columns: { id: true },
@@ -132,6 +138,53 @@ export async function seedDefaultOpsTasks(
       createdBy: creator.id,
     });
   }
+  // The deploy platform's two passes. Neither exists on a host with no agent to
+  // reach: they would fail on every tick with an error nobody can act on, which
+  // is the same reasoning as seeding only one of the two tiering tasks.
+  if (options.forgeEnabled) {
+    // Hourly rather than nightly. It is the only thing that reclaims disk on
+    // the deploy host, and the interrupted-deployment sweep rides along with
+    // it — a build whose agent died stays "building" in the UI until this runs.
+    if (!existingTypes.has("forge_gc")) {
+      await createTask(db, {
+        name: "Forge garbage collection",
+        type: "forge_gc",
+        cronExpression: "17 * * * *",
+        config: validatedTaskConfig("forge_gc", {}),
+        createdBy: creator.id,
+      });
+    }
+    // A custom hostname validates when Cloudflare notices the owner's DNS
+    // records, which nothing tells us about; two minutes is short enough that
+    // adding a domain feels immediate and the sweep stops the polling a day
+    // later either way.
+    if (!existingTypes.has("domain_verification")) {
+      await createTask(db, {
+        name: "Domain verification",
+        type: "domain_verification",
+        cronExpression: "*/2 * * * *",
+        config: validatedTaskConfig("domain_verification", {}),
+        createdBy: creator.id,
+      });
+    }
+  } else {
+    // The agent went away. An enabled row here fails every tick against a
+    // config that no longer exists, so it is disabled rather than left to
+    // generate a failure notification an hour for the rest of time.
+    for (const type of FORGE_TASK_TYPES) {
+      if (!existingTypes.has(type)) continue;
+      const [row] = await db
+        .select({ enabled: scheduledTasks.enabled, id: scheduledTasks.id })
+        .from(scheduledTasks)
+        .where(eq(scheduledTasks.type, type))
+        .limit(1);
+      if (!row?.enabled) continue;
+      await updateTask(db, row.id, { enabled: false });
+      console.warn(
+        `[scheduler] Disabled ${type}: no deploy agent is configured`,
+      );
+    }
+  }
   // A deployment that crossed over to the broker keeps its old task row, and an
   // enabled one fails nightly against `assertLegacyTieringAllowed`. Disabling
   // it is the honest end state: the row stays for its run history, and the
@@ -188,6 +241,7 @@ export class OpsScheduler {
     await seedDefaultOpsTasks(
       this.options.db,
       this.options.executorContext.storageConfig.namespace.mode,
+      { forgeEnabled: this.options.executorContext.forge !== null },
     );
     const tasks = await this.options.db
       .select()

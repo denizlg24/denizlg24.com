@@ -1,0 +1,50 @@
+[Unit]
+Description=Forge deploy agent
+After=network-online.target tailscaled.service docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+# Unprivileged, unlike cloud-terminal. The agent shells out to docker, git and
+# nixpacks and never needs root itself — docker group membership is what lets
+# it reach the socket. That membership is root-equivalent in practice (anyone
+# who can talk to the socket can mount / into a container), so `forge` is a
+# dedicated account with no shell and no sudo rather than a human's login.
+User=forge
+Group=forge
+SupplementaryGroups=docker
+EnvironmentFile=/etc/forge/agent.env
+ExecStart=/usr/local/bin/forge-agent
+Restart=on-failure
+RestartSec=3s
+
+# /run/forge, as tmpfs, wiped on every restart. The resolved env set for a
+# deployment is written here for the length of one `docker run`; RUN_ENV_ROOT
+# must point at it or a decrypted env file lands on a real disk.
+RuntimeDirectory=forge
+RuntimeDirectoryMode=0700
+WorkingDirectory=/srv/forge
+
+# Everything outside the build tree and the docker socket is off limits. The
+# agent's whole job is running other people's code, so the blast radius of the
+# supervisor itself is worth keeping small even though the containers it starts
+# are not constrained by any of this.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/forge
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

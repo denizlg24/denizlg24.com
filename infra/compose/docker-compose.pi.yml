@@ -317,8 +317,32 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       DATABASE_CREDENTIAL_ENCRYPTION_KEY: ${DATABASE_CREDENTIAL_ENCRYPTION_KEY:?DATABASE_CREDENTIAL_ENCRYPTION_KEY is required}
       DB_POOL_MAX: ${DB_POOL_MAX:-25}
+      # The forge deploy platform. Left empty these are falsy and /api/deploy is
+      # not mounted at all, which is the intended "no agent on this host" state —
+      # a half-configured deploy surface answering 503 on every route is worse
+      # than one that is plainly absent.
+      DEPLOY_AGENT_URL: ${DEPLOY_AGENT_URL:-}
+      DEPLOY_AGENT_TOKEN: ${DEPLOY_AGENT_TOKEN:-}
+      DEPLOY_ENV_ENCRYPTION_KEY: ${DEPLOY_ENV_ENCRYPTION_KEY:-}
+      DEPLOY_S3_ENDPOINT: ${DEPLOY_S3_ENDPOINT:-https://api.denizlg24.com/v2}
+      DEPLOY_S3_REGION: ${DEPLOY_S3_REGION:-auto}
       DISK_MIN_HEADROOM_PERCENT: ${DISK_MIN_HEADROOM_PERCENT:-10}
       DOCKER_HOST: tcp://docker-proxy:2375
+      # Cloudflare, resolved separately from the agent: without it a deployment
+      # still builds, runs and routes through Caddy, it just has no public name.
+      FORGE_CLOUDFLARE_API_TOKEN: ${FORGE_CLOUDFLARE_API_TOKEN:-}
+      FORGE_CLOUDFLARE_ZONE_ID: ${FORGE_CLOUDFLARE_ZONE_ID:-}
+      FORGE_CLOUDFLARE_ZONE_NAME: ${FORGE_CLOUDFLARE_ZONE_NAME:-denizlg24.com}
+      FORGE_TUNNEL_ID: ${FORGE_TUNNEL_ID:-}
+      # The GitHub App, resolved separately again. Without all three a target
+      # deploys only from an explicit SHA, cannot clone a private repository and
+      # writes nothing back to a pull request.
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-}
+      # Only builds the install link the picker sends the browser to. Unset
+      # costs the "Connect GitHub" button, not any API call.
+      GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
       HDD_DEVICES: ${HDD_DEVICES:-}
       HDD_STORAGE_PATH: /data/hdd
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required for legacy share links}

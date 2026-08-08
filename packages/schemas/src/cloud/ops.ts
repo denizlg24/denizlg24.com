@@ -228,6 +228,11 @@ export const opsHealthSchema = z.object({
     meilisearch: healthCheckSchema,
     disk: healthCheckSchema,
     tunnel: healthCheckSchema,
+    /**
+     * The deploy host, not this one. `unknown` when no agent is configured —
+     * the deploy surface is optional and a host without one is not degraded.
+     */
+    forge: healthCheckSchema,
   }),
 });
 

@@ -51,6 +51,7 @@ import type {
   mongoDbAdminRoutes,
   postgresDbAdminRoutes,
 } from "./db-admin/routes";
+import type { deployRoutes } from "./deploy/routes";
 import type { opsRoutes } from "./ops/routes";
 import { type OpsToolsConfig, toolsProxyRoutes } from "./ops/tools-proxy";
 import type { projectRoutes } from "./projects/routes";
@@ -115,6 +116,8 @@ export interface CloudApiOptions {
   };
   ops?: ReturnType<typeof opsRoutes>;
   opsTools?: OpsToolsConfig;
+  /** Absent when the host has no deploy agent configured. */
+  deploy?: ReturnType<typeof deployRoutes>;
   activity?: {
     recorder: ActivityRecorder;
     slowRequestMs?: number;
@@ -726,6 +729,20 @@ export function createCloudApiApp(options: CloudApiOptions) {
     );
     app.route("/api/ops/tools", toolsProxyRoutes(options.opsTools ?? {}));
     app.route("/api/ops", options.ops);
+  }
+
+  if (options.deploy) {
+    // The agent presents a bearer token, not a session, and the routes it
+    // calls enforce that themselves. Running `authenticate` over them first
+    // would reject the agent before it ever reached its own guard. GitHub
+    // presents neither — the webhook authenticates by HMAC over the raw body,
+    // and nothing here may read that body first.
+    app.use("/api/deploy/*", async (context, next) => {
+      if (context.req.path.startsWith("/api/deploy/agent/")) return next();
+      if (context.req.path.startsWith("/api/deploy/hooks/")) return next();
+      return authenticate(context, next);
+    });
+    app.route("/api/deploy", options.deploy);
   }
 
   app.on(["GET", "POST"], "/api/auth/*", (context) =>

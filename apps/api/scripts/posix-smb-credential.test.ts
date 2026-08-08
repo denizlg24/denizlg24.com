@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { resolve } from "node:path";
+import { POSIX_GATE1_SUPPORTED } from "./posix-gate1-platform";
 
 const script = resolve(
   import.meta.dir,
@@ -15,7 +16,7 @@ function run(args: string[], env: Record<string, string> = {}) {
   });
 }
 
-describe("SMB credential provisioning", () => {
+describe.skipIf(!POSIX_GATE1_SUPPORTED)("SMB credential provisioning", () => {
   it("has valid shell syntax", () => {
     expect(Bun.spawnSync(["bash", "-n", script]).exitCode).toBe(0);
   });

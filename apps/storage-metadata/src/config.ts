@@ -59,10 +59,16 @@ function required(name: string): string {
  * could read as mass deletion.
  */
 export function configFromEnv(): MetadataServiceConfig {
-  const namespaceRoot = required("STORAGE_NAMESPACE_ROOT");
-  if (!namespaceRoot.startsWith("/")) {
+  const rawNamespaceRoot = required("STORAGE_NAMESPACE_ROOT");
+  if (!rawNamespaceRoot.startsWith("/")) {
     throw new Error("STORAGE_NAMESPACE_ROOT must be absolute");
   }
+  // `contains` requires both sides resolved, and every branch path below is.
+  // Leaving this one raw made the comparison mixed, so a trailing slash or a
+  // `/./` in the deployed value defeated the containment check outright and
+  // admitted a branch sitting inside the union mount — the FUSE self-copy that
+  // check exists to reject.
+  const namespaceRoot = resolve(rawNamespaceRoot);
   const socketPath = required("STORAGE_METADATA_SOCKET");
   if (!socketPath.startsWith("/")) {
     throw new Error("STORAGE_METADATA_SOCKET must be absolute");
@@ -85,18 +91,18 @@ export function configFromEnv(): MetadataServiceConfig {
   const branchPaths = (process.env.STORAGE_BRANCH_PATHS ?? "")
     .split(",")
     .map((value) => value.trim())
-    .filter((value) => value.length > 0);
+    .filter((value) => value.length > 0)
+    .map((value) => {
+      if (!value.startsWith("/")) {
+        throw new Error("STORAGE_BRANCH_PATHS entries must be absolute paths");
+      }
+      return resolve(value);
+    });
   for (const branchPath of branchPaths) {
-    if (!branchPath.startsWith("/")) {
-      throw new Error("STORAGE_BRANCH_PATHS entries must be absolute paths");
-    }
     // A branch inside the namespace would be the union mount reading itself:
     // the same entries would appear under two roots and the marker would not
     // describe a physical disk.
-    if (
-      branchPath === namespaceRoot ||
-      branchPath.startsWith(`${namespaceRoot}/`)
-    ) {
+    if (contains(namespaceRoot, branchPath)) {
       throw new Error(
         "STORAGE_BRANCH_PATHS entries must be outside the namespace root",
       );

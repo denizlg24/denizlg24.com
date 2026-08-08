@@ -1,0 +1,174 @@
+name: Release deploy agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/deploy-agent/**"
+      - "packages/cloud-core/**"
+      - "packages/schemas/**"
+      - "infra/systemd/forge-agent.service"
+      - "infra/systemd/forge-agent-install"
+      - ".github/workflows/release-deploy-agent.yml"
+      - "bun.lock"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: >-
+          validate exercises the whole path (tailnet, SSH, staging copy,
+          checksum) but never installs the binary or restarts the service.
+          deploy is the real thing.
+        required: false
+        default: deploy
+        type: choice
+        options: [deploy, validate]
+
+concurrency:
+  group: release-deploy-agent-forge
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the agent binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The agent is the one thing on the deploy host that runs unsandboxed
+      # against every repository's build. Shipping it past its own tests would
+      # be shipping the least supervised component blind.
+      - name: Typecheck and test
+        run: |
+          bunx turbo typecheck --filter=deploy-agent
+          bunx turbo test --filter=deploy-agent
+
+      - name: Compile
+        run: bun run --filter=deploy-agent build:host
+
+      - name: Checksum
+        run: |
+          cd apps/deploy-agent/dist
+          sha256sum forge-agent > forge-agent.sha256
+          cat forge-agent.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-agent
+          path: |
+            apps/deploy-agent/dist/forge-agent
+            apps/deploy-agent/dist/forge-agent.sha256
+          retention-days: 14
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy to the forge host
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Manual approval gate, same as the Pi. A green build is not a rollout.
+    environment: forge
+    env:
+      FORGE_HOST: ${{ vars.FORGE_TAILNET_HOST }}
+      DEPLOY_MODE: ${{ inputs.mode || 'deploy' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-agent
+          path: dist
+
+      - name: Join the tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Validate deployment settings
+        run: |
+          test -n "$FORGE_HOST"
+          [[ "$FORGE_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+
+      - name: Resolve the host on the tailnet
+        run: |
+          # tailscale/github-action leaves --accept-dns=false so MagicDNS names
+          # never resolve here; tailscaled answers from the netmap instead.
+          if ! FORGE_ADDR="$(tailscale ip -4 "$FORGE_HOST")"; then
+            tailscale status --peers >&2
+            exit 1
+          fi
+          [[ "$FORGE_ADDR" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "FORGE_ADDR=$FORGE_ADDR" >> "$GITHUB_ENV"
+
+      - name: Stage the binary
+        run: |
+          scp \
+            -o StrictHostKeyChecking=accept-new \
+            -o BatchMode=yes \
+            dist/forge-agent \
+            "denizlg24@${FORGE_ADDR}:/var/lib/forge-agent/staging/forge-agent"
+
+      # scp reports success on a short write often enough to be worth one
+      # round trip. The install script refuses an empty file; this catches a
+      # corrupt one, which is the failure that otherwise surfaces as a service
+      # that restart-loops with no useful message.
+      - name: Verify the staged checksum
+        run: |
+          expected="$(cut -d' ' -f1 dist/forge-agent.sha256)"
+          actual="$(ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+            "denizlg24@${FORGE_ADDR}" \
+            "sha256sum /var/lib/forge-agent/staging/forge-agent | cut -d' ' -f1")"
+          echo "expected $expected"
+          echo "actual   $actual"
+          [ "$expected" = "$actual" ]
+
+      - name: Install and restart
+        if: env.DEPLOY_MODE == 'deploy'
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+            "denizlg24@${FORGE_ADDR}" "sudo /usr/local/sbin/forge-agent-install"
+
+      # /healthz is deliberately unauthenticated and the runner is on the
+      # tailnet, so this asks the agent directly rather than trusting
+      # `systemctl is-active`, which is true for a process that started and
+      # then failed to bind.
+      - name: Health gate
+        if: env.DEPLOY_MODE == 'deploy'
+        run: |
+          for _ in {1..20}; do
+            if curl --fail --silent --show-error --max-time 5 \
+              "http://${FORGE_ADDR}:4010/healthz" > /tmp/health.json; then
+              cat /tmp/health.json
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "agent did not answer /healthz" >&2
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+            "denizlg24@${FORGE_ADDR}" \
+            "journalctl -u forge-agent -n 50 --no-pager" >&2 || true
+          exit 1
+
+      - name: Clean up staging after a validate run
+        if: env.DEPLOY_MODE != 'deploy'
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+            "denizlg24@${FORGE_ADDR}" \
+            "rm -f /var/lib/forge-agent/staging/forge-agent"
+          {
+            echo "### Validate-only run"
+            echo
+            echo "Tailnet, SSH, staging copy and checksum all succeeded."
+            echo "Nothing was installed and the service was not restarted."
+          } >> "$GITHUB_STEP_SUMMARY"

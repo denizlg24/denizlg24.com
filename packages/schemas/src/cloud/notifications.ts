@@ -24,6 +24,11 @@ export const NOTIFICATION_TYPES = [
   // quarantine is one path present on both branches whose copies disagree.
   // Sharing a type would misfile every quarantine in the notification history.
   "tiering_quarantined",
+  // The deploy host filling up is the failure that takes every build down at
+  // once, and the sweep that would report it is the same pass that cannot free
+  // anything more. It is raised from the report, not from a disk threshold on
+  // the Pi: the two hosts are different machines.
+  "forge_disk_low",
   "metric_rule",
   "metric_rule_resolved",
   "test",
@@ -101,6 +106,10 @@ export const NOTIFICATION_COOLDOWN_MINUTES: Record<NotificationType, number> = {
   tiering_moved: 0,
   tiering_orphaned: 0,
   tiering_quarantined: 0,
+  // The sweep runs hourly and cannot free what it already could not free, so
+  // repeating on every pass would be four notifications before anyone reads the
+  // first one.
+  forge_disk_low: 360,
   // Rules carry their own cooldown and pass it explicitly; this is only the
   // fallback for a dispatch that somehow arrives without one.
   metric_rule: 60,

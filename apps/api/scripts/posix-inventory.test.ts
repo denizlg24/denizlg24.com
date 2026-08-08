@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ArchiveJobStore } from "@repo/cloud-core/storage";
-
+import { POSIX_GATE1_SUPPORTED } from "./posix-gate1-platform";
 import {
   collectPosixInventory,
   crossPlatformNameKey,
@@ -39,7 +39,7 @@ function fakeDb(rows: {
   };
 }
 
-describe("POSIX inventory", () => {
+describe.skipIf(!POSIX_GATE1_SUPPORTED)("POSIX inventory", () => {
   it("uses a compatibility-normalized casefold key", () => {
     expect(crossPlatformNameKey("Ｆｏｏ.TXT")).toBe("FOO.TXT");
     expect(crossPlatformNameKey("Résumé")).toBe(

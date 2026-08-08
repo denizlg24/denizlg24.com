@@ -17,6 +17,14 @@ import {
   resolveNamespacePath,
 } from "./metadata-resolve";
 
+/**
+ * Creating a symlink on Windows needs SeCreateSymbolicLinkPrivilege, which an
+ * unelevated shell without Developer Mode does not hold — the fixture throws
+ * EPERM before the assertion is reached. The traversal refusal being tested is
+ * a property of the Linux deployment; CI runs it there.
+ */
+const CAN_SYMLINK = process.platform !== "win32";
+
 const roots: string[] = [];
 
 afterEach(async () => {
@@ -105,28 +113,34 @@ describe("resolving beneath the namespace root", () => {
     expect((await resolveNamespacePath(root, "/")).kind).toBe("folder");
   });
 
-  it("refuses to traverse a symlinked directory", async () => {
-    const root = await namespace();
-    const outside = await realpath(await mkdtemp(join(tmpdir(), "outside-")));
-    roots.push(outside);
-    await writeFile(join(outside, "secret.txt"), "not yours");
-    await symlink(outside, join(root, "acct", "escape"));
+  it.skipIf(!CAN_SYMLINK)(
+    "refuses to traverse a symlinked directory",
+    async () => {
+      const root = await namespace();
+      const outside = await realpath(await mkdtemp(join(tmpdir(), "outside-")));
+      roots.push(outside);
+      await writeFile(join(outside, "secret.txt"), "not yours");
+      await symlink(outside, join(root, "acct", "escape"));
 
-    await expectCode(
-      resolveNamespacePath(root, "acct/escape/secret.txt"),
-      "SYMLINK",
-    );
-    await expectCode(resolveNamespacePath(root, "acct/escape"), "SYMLINK");
-  });
+      await expectCode(
+        resolveNamespacePath(root, "acct/escape/secret.txt"),
+        "SYMLINK",
+      );
+      await expectCode(resolveNamespacePath(root, "acct/escape"), "SYMLINK");
+    },
+  );
 
-  it("refuses a symlinked leaf even though it resolves inside the root", async () => {
-    const root = await namespace();
-    await symlink(
-      join(root, "acct", "docs", "note.txt"),
-      join(root, "acct", "alias.txt"),
-    );
-    await expectCode(resolveNamespacePath(root, "acct/alias.txt"), "SYMLINK");
-  });
+  it.skipIf(!CAN_SYMLINK)(
+    "refuses a symlinked leaf even though it resolves inside the root",
+    async () => {
+      const root = await namespace();
+      await symlink(
+        join(root, "acct", "docs", "note.txt"),
+        join(root, "acct", "alias.txt"),
+      );
+      await expectCode(resolveNamespacePath(root, "acct/alias.txt"), "SYMLINK");
+    },
+  );
 
   it("reports a missing entry distinctly from a rejected one", async () => {
     const root = await namespace();

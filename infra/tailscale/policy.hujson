@@ -1,0 +1,88 @@
+// Tailnet policy. Paste into the Tailscale admin console (Access Controls).
+// Kept here so a change to who can reach the deploy agent is reviewable in the
+// same place as the code that assumes it.
+{
+    "tagOwners": {
+        "tag:ci": ["denizlg24@github"],
+        "tag:pi": ["denizlg24@github"],
+        // The deploy host. Tagged rather than user-owned so its node key does
+        // not expire: a user-owned node drops off the tailnet after 180 days,
+        // which on a build host means deploys stop with no code change to
+        // explain it.
+        "tag:forge": ["denizlg24@github"],
+    },
+
+    "grants": [
+        {
+            "src": ["denizlg24@github"],
+            // tag:forge is listed explicitly because tagging the node takes it
+            // out of autogroup:self. Without this line, tagging forge is the
+            // moment admin SSH to it stops working.
+            "dst": ["autogroup:self", "tag:pi", "tag:forge"],
+            "ip":  ["tcp:22", "tcp:445"],
+        },
+        {
+            "src": ["denizlg24@github"],
+            "dst": ["192.168.1.0/24"],
+            "ip":  ["*"],
+        },
+        {
+            "src": ["tag:ci"],
+            "dst": ["tag:pi"],
+            "ip":  ["tcp:22"],
+        },
+        {
+            // The control plane claiming work from the deploy agent. This is
+            // the edge that was missing: the Pi had a direct session to forge
+            // but no grant permitted the flow, so every claim timed out.
+            "src": ["tag:pi"],
+            "dst": ["tag:forge"],
+            "ip":  ["tcp:4010"],
+        },
+        {
+            // CI: 22 to stage the binary and run the install script, 4010 for
+            // the health gate that follows the restart.
+            "src": ["tag:ci"],
+            "dst": ["tag:forge"],
+            "ip":  ["tcp:22", "tcp:4010"],
+        },
+    ],
+
+    "ssh": [
+        {
+            "action":      "check",
+            "checkPeriod": "12h",
+            "src":         ["denizlg24@github"],
+            "dst":         ["autogroup:self"],
+            "users":       ["denizlg24"],
+        },
+        {
+            "action":      "check",
+            "checkPeriod": "12h",
+            "src":         ["denizlg24@github"],
+            "dst":         ["tag:pi"],
+            "users":       ["denizlg24"],
+        },
+        {
+            "action":      "check",
+            "checkPeriod": "12h",
+            "src":         ["denizlg24@github"],
+            "dst":         ["tag:forge"],
+            "users":       ["denizlg24"],
+        },
+        {
+            // Unattended, so accept rather than check — a workflow cannot
+            // satisfy a re-authentication prompt.
+            "action": "accept",
+            "src":    ["tag:ci"],
+            "dst":    ["tag:pi"],
+            "users":  ["denizlg24"],
+        },
+        {
+            "action": "accept",
+            "src":    ["tag:ci"],
+            "dst":    ["tag:forge"],
+            "users":  ["denizlg24"],
+        },
+    ],
+}

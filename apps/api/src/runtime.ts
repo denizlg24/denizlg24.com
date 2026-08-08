@@ -30,6 +30,14 @@ import {
   syncRedisProjectAclUsers,
 } from "@repo/cloud-core";
 import { smbCredentials } from "@repo/cloud-core/db/schema";
+import {
+  CloudflareCustomHostnameClient,
+  CloudflareDnsClient,
+  cloudflareDeployConfigFromEnv,
+  GithubAppClient,
+  type GithubAppConfig,
+  githubAppConfigFromEnv,
+} from "@repo/cloud-core/deploy";
 import type { DiskKind } from "@repo/schemas/cloud";
 import { eq } from "drizzle-orm";
 import { MongoClient } from "mongodb";
@@ -42,6 +50,10 @@ import {
 } from "./auth/better-auth";
 import { RedisRateLimitStore } from "./auth/redis-rate-limit";
 import { mongoDbAdminRoutes, postgresDbAdminRoutes } from "./db-admin/routes";
+import { GithubSurfaces } from "./deploy/github-surfaces";
+import { ForgeOps } from "./deploy/ops";
+import { DeployAgentProxy } from "./deploy/proxy";
+import { deployRoutes } from "./deploy/routes";
 import { OpsHealthService } from "./ops/health";
 import {
   databaseClaimStore,
@@ -290,6 +302,47 @@ export async function createRuntimeApp() {
     await seedDefaultAlertRules(db).catch((error) => {
       console.error("[alerts] Seeding default rules failed", error);
     });
+    // The deploy surface is optional: a host with no agent to reach mounts
+    // nothing rather than answering every route with a 503 nobody can act on.
+    // Built here rather than beside the routes because the health check and the
+    // two scheduled passes need the same object.
+    let cloudflareDeployConfig: ReturnType<
+      typeof cloudflareDeployConfigFromEnv
+    > | null = null;
+    try {
+      cloudflareDeployConfig = cloudflareDeployConfigFromEnv();
+    } catch {
+      cloudflareDeployConfig = null;
+    }
+    const deployAgentUrl = process.env.DEPLOY_AGENT_URL?.trim();
+    const deployAgentToken = process.env.DEPLOY_AGENT_TOKEN?.trim();
+    const forge =
+      deployAgentUrl && deployAgentToken
+        ? new ForgeOps({
+            db,
+            agent: new DeployAgentProxy({
+              baseUrl: deployAgentUrl,
+              token: deployAgentToken,
+            }),
+            // Cloudflare is configured separately. Without it a deployment
+            // still builds, runs and routes through Caddy — it just has no
+            // public name, which is a better failure than refusing to deploy.
+            dns: cloudflareDeployConfig
+              ? new CloudflareDnsClient({ config: cloudflareDeployConfig })
+              : null,
+            // Same credentials, separate client: a zone record and a custom
+            // hostname are different mechanisms and only one of them is
+            // quota-limited, so nothing should be able to reach for the wrong
+            // one by accident.
+            customHostnames: cloudflareDeployConfig
+              ? new CloudflareCustomHostnameClient({
+                  config: cloudflareDeployConfig,
+                })
+              : null,
+            zoneName: cloudflareDeployConfig?.zoneName ?? "denizlg24.com",
+          })
+        : null;
+
     const health = new OpsHealthService({
       db,
       mongo: mongoAdmin,
@@ -298,6 +351,10 @@ export async function createRuntimeApp() {
       meilisearchUrl: requiredEnv("MEILISEARCH_URL"),
       mongotUrl: process.env.MONGOT_HEALTH_URL ?? "http://mongot:8080",
       tunnelUrl: process.env.TUNNEL_HEALTH_URL || undefined,
+      // The agent's own `/healthz` pings Docker and stats the data root, so a
+      // 200 from it means it can actually build — not merely that it is up.
+      forgeUrl: deployAgentUrl && forge ? `${deployAgentUrl}/healthz` : null,
+      forgeToken: deployAgentToken ?? null,
       diskHeadroomPercent: numberEnv("DISK_MIN_HEADROOM_PERCENT", 10, 1, 99),
     });
     const activityRecorder = new ActivityRecorder({
@@ -340,6 +397,7 @@ export async function createRuntimeApp() {
         sampler,
         storageConfig,
         metadataClient,
+        forge,
         backupDirectory: process.env.BACKUP_DIR ?? "/backups",
         postgresContainer: process.env.POSTGRES_CONTAINER ?? "postgres",
         mongoContainer: process.env.MONGODB_CONTAINER ?? "mongodb",
@@ -411,6 +469,61 @@ export async function createRuntimeApp() {
       ticketSecret: requiredEnv("TERMINAL_TICKET_SECRET"),
     });
 
+    // Optional in the same way the agent is: without the App a target still
+    // deploys, it just has to be told which commit and cannot clone a private
+    // repository or write anything back to a pull request.
+    let githubApp: GithubAppConfig | null = null;
+    try {
+      githubApp = githubAppConfigFromEnv();
+    } catch {
+      githubApp = null;
+    }
+    const github = githubApp
+      ? (() => {
+          const client = new GithubAppClient({
+            config: githubApp,
+            cache: {
+              get: async (key) => redis.get(key),
+              set: async (key, value, ttlSeconds) => {
+                await redis.set(key, value, { EX: ttlSeconds });
+              },
+              delete: async (key) => {
+                await redis.del(key);
+              },
+            },
+          });
+          return {
+            client,
+            surfaces: new GithubSurfaces({
+              db,
+              client,
+              adminBaseUrl:
+                process.env.CLOUD_ADMIN_URL ?? "https://cloud.denizlg24.com",
+            }),
+          };
+        })()
+      : null;
+
+    const deploy =
+      forge && deployAgentToken
+        ? deployRoutes({
+            db,
+            forge,
+            github,
+            githubAppSlug: githubApp?.slug ?? null,
+            // No decrypt exists yet, so a linked target pulls nothing.
+            envoyEnv: null,
+            agentToken: deployAgentToken,
+            envEncryptionKey: requiredEnv("DEPLOY_ENV_ENCRYPTION_KEY"),
+            databaseEncryptionSecret,
+            databaseHosts,
+            s3Endpoint:
+              process.env.DEPLOY_S3_ENDPOINT ?? "https://api.denizlg24.com/v2",
+            s3Region: process.env.DEPLOY_S3_REGION ?? "auto",
+            s3CredentialEncryptionKey: storageConfig.s3.credentialEncryptionKey,
+          })
+        : undefined;
+
     const app = createCloudApiApp({
       auth,
       db,
@@ -469,6 +582,7 @@ export async function createRuntimeApp() {
         scheduler,
         terminal,
       }),
+      deploy,
       opsTools: {
         adminerUrl:
           process.env.ADMINER_URL ??

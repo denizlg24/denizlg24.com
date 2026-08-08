@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { join, resolve } from "node:path";
 
 import { storageConfigFromEnv } from "./config";
 
@@ -64,17 +65,29 @@ describe("storage namespace configuration", () => {
 
     const config = storageConfigFromEnv();
 
+    // The namespace paths are the only ones `storageConfigFromEnv` resolves, so
+    // the expectation resolves too. Hard-coding the POSIX form would assert the
+    // behaviour of `path.resolve` on the developer's machine rather than the
+    // namespace selection this test is about, and fails on Windows where
+    // "/srv/..." resolves against the current drive.
     expect(config.namespace).toEqual({
       metadata: null,
       mode: "broker-mounted",
-      rootPath: "/srv/deniz-cloud/storage",
-      witnessPath: "/srv/deniz-cloud/storage/.denizcloud-mount-witness",
+      rootPath: resolve("/srv/deniz-cloud/storage"),
+      witnessPath: resolve(
+        "/srv/deniz-cloud/storage/.denizcloud-mount-witness",
+      ),
       witnessValue: "production-witness",
     });
-    expect(config.tempUploadPath).toBe("/private/ssd/namespace/.tus-partial");
-    expect(config.archivePath).toBe("/private/ssd/namespace/.archives");
-    expect(config.s3.rootPath).toBe("/private/ssd/namespace/.s3-v2");
-    expect(config.s3.tempPath).toBe("/private/ssd/namespace/.s3-v2-temp");
+    // These stay under SSD_STORAGE_PATH rather than moving into the broker
+    // namespace — that is the "without moving internals" half of this test.
+    // Joined rather than spelled out for the same reason as above: the
+    // separator is the platform's, the parent directory is the assertion.
+    const ssd = "/private/ssd/namespace";
+    expect(config.tempUploadPath).toBe(join(ssd, ".tus-partial"));
+    expect(config.archivePath).toBe(join(ssd, ".archives"));
+    expect(config.s3.rootPath).toBe(join(ssd, ".s3-v2"));
+    expect(config.s3.tempPath).toBe(join(ssd, ".s3-v2-temp"));
   });
 
   it("rejects ambiguous modes and namespace paths", () => {

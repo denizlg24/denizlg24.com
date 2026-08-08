@@ -52,6 +52,8 @@ infra/compose/.env.dev
 infra/compose/.env.pi
 infra/compose/.env.staging
 infra/systemd/terminal.env
+# Rendered from .env by scripts/forge-agent-env.mjs; carries AGENT_TOKEN.
+infra/systemd/forge-agent.env
 # not part of this monorepo
 bookmark-extension/
 deniz-nutrition-api/
@@ -74,6 +76,9 @@ apps/desktop/src-tauri/target/
 
 # Local dev storage tiers (apps/api)
 .data/
+
+# Bootstrap config and log for the dev Caddy (scripts/forge-caddy-dev.mjs)
+.forge-dev/
 
 # bun build artifacts
 *.bun-build

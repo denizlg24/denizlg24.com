@@ -3,15 +3,6 @@
 import { formatRelative } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@repo/ui/dialog";
-import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
 import { Skeleton } from "@repo/ui/skeleton";
 import {
   Table,
@@ -23,104 +14,8 @@ import {
 } from "@repo/ui/table";
 import { Plus } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
-import { toast } from "sonner";
-import { api, errorMessage } from "@/lib/api";
-
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function CreateProjectDialog() {
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [slugTouched, setSlugTouched] = useState(false);
-  const [description, setDescription] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const create = async () => {
-    setBusy(true);
-    try {
-      const project = await api.projects.create({
-        name: name.trim(),
-        slug,
-        description: description.trim() || undefined,
-      });
-      router.push(`/projects/${project.id}`);
-    } catch (err) {
-      toast.error(errorMessage(err));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
-          <Plus className="size-3.5" />
-          project
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Create project</DialogTitle>
-        </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="project-name" className="text-xs">
-              Name
-            </Label>
-            <Input
-              id="project-name"
-              autoFocus
-              value={name}
-              onChange={(event) => {
-                setName(event.target.value);
-                if (!slugTouched) setSlug(slugify(event.target.value));
-              }}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="project-slug" className="text-xs">
-              Slug
-            </Label>
-            <Input
-              id="project-slug"
-              className="font-mono text-sm"
-              value={slug}
-              onChange={(event) => {
-                setSlugTouched(true);
-                setSlug(event.target.value);
-              }}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="project-description" className="text-xs">
-              Description
-            </Label>
-            <Input
-              id="project-description"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </div>
-          <Button
-            disabled={busy || name.trim().length === 0 || slug.length < 3}
-            onClick={() => void create()}
-          >
-            Create
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
+import { useCallback } from "react";
+import { api } from "@/lib/api";
 
 export default function ProjectsPage() {
   const fetchProjects = useCallback(
@@ -140,7 +35,12 @@ export default function ProjectsPage() {
             </span>
           )}
         </h1>
-        <CreateProjectDialog />
+        <Button asChild size="sm" variant="outline">
+          <Link href="/projects/new">
+            <Plus className="size-3.5" />
+            project
+          </Link>
+        </Button>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
       {!data ? (

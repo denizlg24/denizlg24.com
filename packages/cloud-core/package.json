@@ -8,6 +8,7 @@
     "./auth": "./src/auth/index.ts",
     "./db": "./src/db/index.ts",
     "./db/schema": "./src/db/schema.ts",
+    "./deploy": "./src/deploy/index.ts",
     "./docker": "./src/docker.ts",
     "./env": "./src/env.ts",
     "./errors": "./src/errors.ts",
