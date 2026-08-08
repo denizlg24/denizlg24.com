@@ -32,9 +32,19 @@
             "ip":  ["tcp:22"],
         },
         {
-            // The control plane claiming work from the deploy agent. This is
-            // the edge that was missing: the Pi had a direct session to forge
-            // but no grant permitted the flow, so every claim timed out.
+            // The agent claiming work. This is the hot path and it is
+            // agent-initiated: nothing pushes a build, the agent polls
+            // POST /api/deploy/agent/claim every few seconds. Easy to get
+            // backwards, because the control plane is the thing being
+            // "deployed from" — but it is the destination here, not the source.
+            "src": ["tag:forge"],
+            "dst": ["tag:pi"],
+            "ip":  ["tcp:3001"],
+        },
+        {
+            // The other direction, for the owner-initiated operations the
+            // control plane proxies to a running deployment: log streaming,
+            // cancel, restart. Not needed to build anything.
             "src": ["tag:pi"],
             "dst": ["tag:forge"],
             "ip":  ["tcp:4010"],
