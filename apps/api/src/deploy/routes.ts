@@ -1,8 +1,10 @@
 import {
   type AuthVariables,
   CloudCoreError,
+  ConflictError,
   createProject,
   type Database,
+  isPostgresErrorCode,
   NotFoundError,
   type ProjectDatabaseHosts,
   requireRole,
@@ -94,7 +96,7 @@ import {
   updateDeployTargetInputSchema,
   type WebhookDeployIntent,
 } from "@repo/schemas/cloud";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -918,16 +920,46 @@ export function deployRoutes(options: DeployRouteOptions) {
           "INVALID_MEMORY_LIMIT",
         );
       }
+      if (parsed.data.name && parsed.data.name !== target.name) {
+        const sibling = await db.query.deployTargets.findFirst({
+          where: and(
+            eq(deployTargets.projectId, target.projectId),
+            eq(deployTargets.name, parsed.data.name),
+            ne(deployTargets.id, target.id),
+          ),
+        });
+        if (sibling) {
+          throw new ConflictError(
+            `A deployment named ${parsed.data.name} already exists in this project`,
+            "DEPLOY_TARGET_NAME_TAKEN",
+          );
+        }
+      }
       const { cpuLimit, ...input } = parsed.data;
-      const [updated] = await db
-        .update(deployTargets)
-        .set({
-          ...input,
-          ...(cpuLimit === undefined ? {} : { cpuLimit: cpuLimit.toFixed(2) }),
-          updatedAt: new Date(),
-        })
-        .where(eq(deployTargets.id, target.id))
-        .returning();
+      let updated: DeployTargetRow | undefined;
+      try {
+        [updated] = await db
+          .update(deployTargets)
+          .set({
+            ...input,
+            ...(cpuLimit === undefined
+              ? {}
+              : { cpuLimit: cpuLimit.toFixed(2) }),
+            updatedAt: new Date(),
+          })
+          .where(eq(deployTargets.id, target.id))
+          .returning();
+      } catch (error) {
+        // The preflight gives the usual request a useful response; the unique
+        // index closes the race between two simultaneous renames.
+        if (parsed.data.name && isPostgresErrorCode(error, "23505")) {
+          throw new ConflictError(
+            `A deployment named ${parsed.data.name} already exists in this project`,
+            "DEPLOY_TARGET_NAME_TAKEN",
+          );
+        }
+        throw error;
+      }
       const project = await db.query.projects.findFirst({
         where: eq(projects.id, target.projectId),
       });

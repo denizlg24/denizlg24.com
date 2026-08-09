@@ -20,6 +20,7 @@ export {
   updateCollection,
   updateSyncStatus,
 } from "./collections";
+export { isPostgresErrorCode } from "./database-errors";
 export {
   createProject,
   deleteProject,

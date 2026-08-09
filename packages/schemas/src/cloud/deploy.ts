@@ -727,8 +727,20 @@ export type CreateDeployTargetInput = z.infer<
 >;
 
 export const updateDeployTargetInputSchema = createDeployTargetInputSchema
-  .omit({ projectId: true, name: true, hostname: true })
-  .partial();
+  .omit({ projectId: true, hostname: true })
+  .partial()
+  // Zod keeps defaults inside optional fields. Override every create-time
+  // default so PATCH parses only what the caller actually sent instead of
+  // resetting unrelated settings during a rename.
+  .extend({
+    productionBranch: branchSchema.optional(),
+    builder: deployBuilderSchema.optional(),
+    healthPath: z.string().min(1).max(1_024).optional(),
+    memoryReservationMb: memoryMbSchema.optional(),
+    cpuLimit: z.number().min(0.1).max(32).optional(),
+    autoDeploy: z.boolean().optional(),
+    previewDeploys: z.boolean().optional(),
+  });
 export type UpdateDeployTargetInput = z.infer<
   typeof updateDeployTargetInputSchema
 >;
