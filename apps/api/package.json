@@ -9,6 +9,7 @@
     "cutover:apply-migrations": "bun --env-file=../../.env scripts/apply-migrations.ts",
     "cutover:inventory": "bun --env-file=../../.env scripts/inventory-dependents.ts",
     "cutover:migrate-s3-legacy": "bun --env-file=../../.env scripts/migrate-s3-legacy.ts",
+    "cutover:rekey-disk-metrics": "bun --env-file=../../.env scripts/rekey-disk-metrics.ts",
     "cutover:snapshot": "bun --env-file=../../.env scripts/pre-cutover-snapshot.ts",
     "ops:posix-gate1-peer": "bun scripts/posix-gate1-peer.ts",
     "ops:posix-gate1-probe": "bun scripts/posix-gate1-probe.ts",

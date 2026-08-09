@@ -385,10 +385,15 @@ export class MetricsSampler {
 
     samples.push(...databaseSamples(ts, overview.databases));
     for (const disk of overview.disks) {
+      // The UUID, so a series follows the physical disk rather than the name
+      // the kernel happened to give it at boot. Falls back to the device path
+      // only for a host still configured that way, which then keeps the old
+      // rename-on-reboot behaviour it already had.
+      const series = disk.uuid ?? disk.device;
       samples.push({
         ts,
         kind: "disk",
-        key: `${disk.device}.usage_percent`,
+        key: `${series}.usage_percent`,
         value: disk.usagePercent,
       });
       // Absent on an offline disk and on the first sample after a restart.
@@ -397,7 +402,7 @@ export class MetricsSampler {
         samples.push({
           ts,
           kind: "disk",
-          key: `${disk.device}.read_bytes_per_second`,
+          key: `${series}.read_bytes_per_second`,
           value: disk.readBytesPerSecond,
         });
       }
@@ -405,7 +410,7 @@ export class MetricsSampler {
         samples.push({
           ts,
           kind: "disk",
-          key: `${disk.device}.write_bytes_per_second`,
+          key: `${series}.write_bytes_per_second`,
           value: disk.writeBytesPerSecond,
         });
       }
@@ -413,7 +418,7 @@ export class MetricsSampler {
         samples.push({
           ts,
           kind: "disk",
-          key: `${disk.device}.io_utilization_percent`,
+          key: `${series}.io_utilization_percent`,
           value: disk.utilizationPercent,
         });
       }

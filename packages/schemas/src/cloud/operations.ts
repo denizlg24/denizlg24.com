@@ -15,7 +15,19 @@ export const diskKindSchema = z.enum(["ssd", "hdd", "microsd"]);
 export type DiskKind = z.infer<typeof diskKindSchema>;
 
 export const diskInfoSchema = z.object({
+  /**
+   * The kernel name the disk currently answers to, e.g. `/dev/sda1`. A display
+   * detail and nothing more: it is assigned in probe order, so adding a disk or
+   * rebooting renames the others. Never key anything on it.
+   */
   device: z.string(),
+  /**
+   * Filesystem UUID — the identity that survives a rename, and what metric
+   * series and selections are keyed on. Optional only for the rollout: samples
+   * written before the switch carry a device path in their series key, and a
+   * host still configured with `/dev/...` values has no UUID to report.
+   */
+  uuid: z.string().optional(),
   // Optional while the cloud UI and API are rolled out independently. New
   // API samples always include it; clients can fall back to the device name.
   kind: diskKindSchema.optional(),

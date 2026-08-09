@@ -55,6 +55,7 @@ import { ForgeOps } from "./deploy/ops";
 import { DeployAgentProxy } from "./deploy/proxy";
 import { deployRoutes } from "./deploy/routes";
 import { OpsHealthService } from "./ops/health";
+import type { DiskDevice } from "./ops/host";
 import {
   databaseClaimStore,
   EmailNotifier,
@@ -278,10 +279,18 @@ export async function createRuntimeApp() {
       mongo: mongoAdmin,
     };
     const docker = new DockerClient();
-    const devices: Array<{ device: string; kind: DiskKind }> = [];
-    const addDevice = (device: string | undefined, kind: DiskKind) => {
-      const normalized = device?.trim();
-      if (normalized) devices.push({ device: normalized, kind });
+    // Either a filesystem UUID or a `/dev/...` path, per entry. Both spellings
+    // are accepted so the image and `.env.pi` can roll separately; a UUID is
+    // what survives the kernel renaming disks on the next reboot, so prefer it.
+    const devices: DiskDevice[] = [];
+    const addDevice = (value: string | undefined, kind: DiskKind) => {
+      const normalized = value?.trim();
+      if (!normalized) return;
+      devices.push(
+        normalized.startsWith("/dev/")
+          ? { device: normalized, kind }
+          : { uuid: normalized, kind },
+      );
     };
     addDevice(process.env.SSD_DEVICE, "ssd");
     for (const device of (process.env.HDD_DEVICES ?? "").split(",")) {

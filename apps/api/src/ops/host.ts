@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, readlink } from "node:fs/promises";
 import { cpus, freemem, totalmem } from "node:os";
 import type { DiskInfo, DiskKind, OpsOverview } from "@repo/schemas/cloud";
 
@@ -14,9 +14,71 @@ export interface NetworkCounters {
   txBytes: number;
 }
 
-export interface DiskDevice {
-  device: string;
+/**
+ * A disk to sample, named by whichever identity the host was configured with.
+ *
+ * `uuid` is the filesystem UUID and is the identity that survives a reboot;
+ * `device` is a fixed kernel path for hosts not yet migrated. Exactly one is
+ * set. Kernel names are assigned in probe order, so the 1 TB HDD in this rack
+ * has answered to `sda1`, then `sdc1` when a second disk joined the pool, then
+ * `sda1` again after a reboot — each rename silently retired its metric series
+ * and reported the disk offline until the config caught up.
+ */
+export type DiskDevice = { kind: DiskKind } & (
+  | { uuid: string; device?: undefined }
+  | { device: string; uuid?: undefined }
+);
+
+/** A disk resolved to the kernel name it currently answers to. */
+export interface ResolvedDisk {
   kind: DiskKind;
+  uuid?: string;
+  device: string;
+}
+
+/**
+ * Maps filesystem UUID to current kernel device path from the `by-uuid`
+ * symlink farm.
+ *
+ * The link text is what matters, never the target: the container mounts the
+ * directory read-only and has no block devices of its own, so `../../sda1`
+ * resolves to nothing inside it. Reading the name is enough, and it keeps the
+ * container from needing device access it should not have.
+ */
+export function parseDiskUuidLinks(
+  entries: ReadonlyArray<{ uuid: string; target: string }>,
+): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const { uuid, target } of entries) {
+    const name = target.split("/").pop();
+    if (!uuid || !name) continue;
+    result.set(uuid.toLowerCase(), `/dev/${name}`);
+  }
+  return result;
+}
+
+/**
+ * A configured disk paired with the kernel name it currently holds.
+ *
+ * A UUID with no link is a disk that is genuinely absent — unplugged, or its
+ * enclosure lost power. It still has to appear in the output, because a disk
+ * that vanishes from the list reads as "nothing wrong" rather than "offline",
+ * so it keeps its identity and resolves to an empty device that matches no `df`
+ * row and no diskstats entry.
+ */
+export function resolveDisks(
+  devices: readonly DiskDevice[],
+  uuidLinks: ReadonlyMap<string, string>,
+): ResolvedDisk[] {
+  return devices.map((disk) =>
+    disk.uuid !== undefined
+      ? {
+          kind: disk.kind,
+          uuid: disk.uuid,
+          device: uuidLinks.get(disk.uuid.toLowerCase()) ?? "",
+        }
+      : { kind: disk.kind, device: disk.device },
+  );
 }
 
 export function parseCpuStat(input: string): CpuCounters {
@@ -550,6 +612,33 @@ export function hasDeviceRows(output: string): boolean {
 }
 
 /**
+ * The host's `by-uuid` symlinks, read through the container's bind of them.
+ *
+ * Falls back to the container's own `/dev` so a host that runs the API outside
+ * Docker still resolves; an unreadable directory yields an empty map, which
+ * reports every UUID-configured disk offline rather than throwing away the
+ * whole sample.
+ */
+async function readDiskUuidLinks(): Promise<
+  Array<{ uuid: string; target: string }>
+> {
+  for (const root of ["/host/dev/disk/by-uuid", "/dev/disk/by-uuid"]) {
+    try {
+      const names = await readdir(root);
+      return await Promise.all(
+        names.map(async (uuid) => ({
+          uuid,
+          target: await readlink(`${root}/${uuid}`).catch(() => ""),
+        })),
+      );
+    } catch {
+      // Try the container-local fallback, then give up.
+    }
+  }
+  return [];
+}
+
+/**
  * The container's own `/proc/self`, never the `/host/proc` mount: `self`
  * resolves against the reading process's PID namespace, so under the host mount
  * it would name a different process — or nothing at all.
@@ -573,6 +662,7 @@ export interface HostCollectorDependencies {
   readTemperature(): Promise<number | null>;
   countProcessFds(): Promise<number | null>;
   readProcessLimits(): Promise<string>;
+  readDiskUuidLinks(): Promise<Array<{ uuid: string; target: string }>>;
 }
 
 const defaultHostCollectorDependencies: HostCollectorDependencies = {
@@ -582,6 +672,7 @@ const defaultHostCollectorDependencies: HostCollectorDependencies = {
   readTemperature: readCpuTemperature,
   countProcessFds,
   readProcessLimits,
+  readDiskUuidLinks,
 };
 
 function fallbackCpuCounters(): CpuCounters {
@@ -601,7 +692,7 @@ function fallbackCpuCounters(): CpuCounters {
 }
 
 function diskInfo(
-  disk: DiskDevice,
+  disk: ResolvedDisk,
   values:
     | { totalBytes: number; usedBytes: number; availableBytes: number }
     | undefined,
@@ -675,6 +766,7 @@ export class HostCollector {
       processLimitResult,
       socketResult,
       sockstatResult,
+      uuidLinksResult,
     ] = await Promise.all([
       this.dependencies
         .readProc("stat")
@@ -744,7 +836,15 @@ export class HostCollector {
         .readProc("net/sockstat")
         .then(parseSockstat)
         .catch(() => ({ orphan: 0, tcpMemoryBytes: 0 })),
+      this.dependencies
+        .readDiskUuidLinks()
+        .then(parseDiskUuidLinks)
+        .catch(() => new Map<string, string>()),
     ]);
+    // Resolved every sample, not once at startup: a disk that is replugged or
+    // renamed while the process lives has to be followed, and that is the whole
+    // point of configuring it by UUID.
+    const disks = resolveDisks(this.devices, uuidLinksResult);
 
     const cpuDelta = this.previousCpu
       ? cpuResult.total - this.previousCpu.total
@@ -782,7 +882,8 @@ export class HostCollector {
       ? Math.max((now - this.previousDiskAt) / 1_000, 0.001)
       : null;
     const diskActivity = new Map<string, DiskActivity>();
-    for (const disk of this.devices) {
+    for (const disk of disks) {
+      if (!disk.device) continue;
       const key = diskstatsKey(disk.device);
       const current = diskstatsResult.get(key);
       const previous = this.previousDisk.get(key);
@@ -859,7 +960,7 @@ export class HostCollector {
         ...socketResult,
         ...sockstatResult,
       },
-      disks: this.devices.map((disk) =>
+      disks: disks.map((disk) =>
         diskInfo(
           disk,
           dfResult.get(disk.device),

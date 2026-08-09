@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 
+import type { DiskDevice } from "./host";
 import {
   classifySockets,
   diskActivityBetween,
@@ -11,6 +12,7 @@ import {
   parseCpuStat,
   parseDf,
   parseDiskstats,
+  parseDiskUuidLinks,
   parseFileNr,
   parseLoadAverage,
   parseMeminfo,
@@ -21,6 +23,7 @@ import {
   parseSwapInfo,
   parseVmstat,
   readCpuTemperature,
+  resolveDisks,
 } from "./host";
 
 async function fixture(name: string): Promise<string> {
@@ -387,5 +390,63 @@ describe("df partial-failure tolerance", () => {
       ),
     ).toBe(false);
     expect(hasDeviceRows("")).toBe(false);
+  });
+});
+
+describe("disk identity", () => {
+  const links = parseDiskUuidLinks([
+    { uuid: "5FDCF9CE-A062-4118-8402-9A438297E54B", target: "../../sda1" },
+    { uuid: "26cfb470-d809-410a-876e-097f0ddfc1a6", target: "../../sdb1" },
+  ]);
+
+  it("reads the link name without following the link", () => {
+    // The container has no block devices, so resolving `../../sda1` would fail;
+    // only the basename is needed and only the basename is used.
+    expect(links.get("26cfb470-d809-410a-876e-097f0ddfc1a6")).toBe("/dev/sdb1");
+  });
+
+  it("matches a UUID case-insensitively", () => {
+    // blkid reports uppercase, the by-uuid farm lowercase; a host configured
+    // from either must resolve.
+    expect(
+      resolveDisks(
+        [{ uuid: "5fdcf9ce-a062-4118-8402-9a438297e54b", kind: "hdd" }],
+        links,
+      ),
+    ).toEqual([
+      {
+        device: "/dev/sda1",
+        kind: "hdd",
+        uuid: "5fdcf9ce-a062-4118-8402-9a438297e54b",
+      },
+    ]);
+  });
+
+  it("follows a disk the kernel renamed rather than reporting it offline", () => {
+    // The rename this whole change exists for: the same UUID answered to sdc1
+    // before the reboot and sda1 after, and the configured identity is unchanged.
+    const renamed = parseDiskUuidLinks([
+      { uuid: "5fdcf9ce-a062-4118-8402-9a438297e54b", target: "../../sdc1" },
+    ]);
+    const disk = {
+      uuid: "5fdcf9ce-a062-4118-8402-9a438297e54b",
+      kind: "hdd",
+    } satisfies DiskDevice;
+    expect(resolveDisks([disk], renamed)[0]?.device).toBe("/dev/sdc1");
+    expect(resolveDisks([disk], links)[0]?.device).toBe("/dev/sda1");
+  });
+
+  it("keeps an unresolvable disk in the list so it reads as offline", () => {
+    // Dropping it would read as "nothing wrong" instead of "this disk is gone",
+    // which is precisely the failure a rack display exists to show.
+    expect(
+      resolveDisks([{ uuid: "not-plugged-in", kind: "hdd" }], links),
+    ).toEqual([{ device: "", kind: "hdd", uuid: "not-plugged-in" }]);
+  });
+
+  it("leaves a device-configured host on its device path", () => {
+    expect(
+      resolveDisks([{ device: "/dev/nvme0n1p1", kind: "ssd" }], links),
+    ).toEqual([{ device: "/dev/nvme0n1p1", kind: "ssd" }]);
   });
 });

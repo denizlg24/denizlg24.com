@@ -2,12 +2,8 @@
 
 import type { OpsOverview } from "@repo/schemas/cloud";
 import { useMemo } from "react";
+import { diskLabel, diskSeriesKey } from "@/lib/disk-identity";
 import { type ChartGroup, MetricSection } from "./metric-section";
-
-/** `/dev/nvme0n1p1` -> `nvme0n1p1`; the prefix is noise in a legend. */
-function shortDevice(device: string): string {
-  return device.replace(/^\/dev\//, "");
-}
 
 /**
  * Four labelled blocks rather than one wall of charts, ordered so related
@@ -134,12 +130,12 @@ function buildGroups(overview: OpsOverview): ChartGroup[] {
           unit: "bytesPerSecond",
           series: overview.disks.slice(0, 3).flatMap((disk) => [
             {
-              name: `disk:${disk.device}.read_bytes_per_second`,
-              label: `${shortDevice(disk.device)} read`,
+              name: `disk:${diskSeriesKey(disk)}.read_bytes_per_second`,
+              label: `${diskLabel(disk)} read`,
             },
             {
-              name: `disk:${disk.device}.write_bytes_per_second`,
-              label: `${shortDevice(disk.device)} write`,
+              name: `disk:${diskSeriesKey(disk)}.write_bytes_per_second`,
+              label: `${diskLabel(disk)} write`,
             },
           ]),
         },
@@ -147,8 +143,8 @@ function buildGroups(overview: OpsOverview): ChartGroup[] {
           title: "disk busy",
           unit: "percent",
           series: overview.disks.slice(0, 5).map((disk) => ({
-            name: `disk:${disk.device}.io_utilization_percent`,
-            label: shortDevice(disk.device),
+            name: `disk:${diskSeriesKey(disk)}.io_utilization_percent`,
+            label: diskLabel(disk),
           })),
         },
         {

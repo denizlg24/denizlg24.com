@@ -26,6 +26,12 @@ services:
     volumes: !override
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
+      # Symlink names only. The disk sampler resolves a configured filesystem
+      # UUID to whatever kernel name it currently holds by reading the link
+      # text; it never follows the link, and the container has no block devices
+      # for `../../sda1` to resolve against anyway. Without this every
+      # UUID-configured disk reports offline.
+      - /dev/disk/by-uuid:/host/dev/disk/by-uuid:ro
       # Empty, read-only directories expose statfs for quota/health without
       # exposing either private namespace branch.
       - /mnt/ssd/deniz-cloud/internal/.capacity:/data/capacity/ssd:ro

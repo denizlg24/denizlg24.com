@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { useSession } from "@/components/session-provider";
 import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
+import { diskLabel } from "@/lib/disk-identity";
 import { API_BASE_URL, STORAGE_APP_URL } from "@/lib/env";
 
 function PasswordSection() {
@@ -234,7 +235,7 @@ function EnvironmentSection() {
                 {overview.disks
                   .map(
                     (disk) =>
-                      `${disk.device} ${formatBytes(disk.totalBytes)} (${formatPercent(disk.usagePercent)})`,
+                      `${diskLabel(disk)} ${formatBytes(disk.totalBytes)} (${formatPercent(disk.usagePercent)})`,
                   )
                   .join(" · ") || "—"}
               </dd>

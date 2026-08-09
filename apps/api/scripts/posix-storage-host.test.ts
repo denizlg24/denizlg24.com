@@ -18,6 +18,14 @@ const SAMBA = resolve(
   import.meta.dir,
   "../../../infra/samba/posix-storage-smb.conf",
 );
+const FIREWALL = resolve(
+  import.meta.dir,
+  "../../../infra/systemd/deniz-cloud-storage-firewall.service",
+);
+const WATCHDOG = resolve(
+  import.meta.dir,
+  "../../../infra/systemd/deniz-cloud-storage-watchdog.service",
+);
 
 describe.skipIf(!POSIX_GATE1_SUPPORTED)(
   "POSIX production host boundary",
@@ -54,6 +62,42 @@ describe.skipIf(!POSIX_GATE1_SUPPORTED)(
       expect(source).toContain("Refusing to unmount a foreign broker mount");
       expect(source).toContain("Gate1B broker pilot");
       expect(source).toContain('local account_root="$merged/$account_id"');
+    });
+
+    it("arms the watchdog before it may withdraw the namespace", async () => {
+      const source = await Bun.file(HOST).text();
+      // The checks and the withdrawal are separate: a boundary that has not
+      // finished starting must not be read as one that broke. The old shape
+      // called fail_closed straight out of the check list, so a lost boot race
+      // latched an outage nothing but `recover` could clear.
+      expect(source).toContain("boundary_fault()");
+      expect(source).not.toContain("|| fail_closed branch-validation");
+      expect(source).not.toContain("|| fail_closed api-broker-mount");
+      // Un-armed give-up is exit 21 and leaves the namespace mountable; only
+      // fail_closed's exit 20 withdraws it, and only that one is restart-proof.
+      expect(source).toContain("return 21");
+      expect(source).toContain(
+        'fault=$(boundary_fault) || fail_closed "$fault"',
+      );
+      const watchdog = await Bun.file(WATCHDOG).text();
+      expect(watchdog).toContain("RestartPreventExitStatus=20");
+      expect(watchdog).toContain("Restart=on-failure");
+    });
+
+    it("waits for the tailnet address instead of sampling it once", async () => {
+      const source = await Bun.file(HOST).text();
+      expect(source).toContain("wait_for_tailscale_address");
+      expect(source).toContain("wait_for_tailscale_address || return 1");
+      // systemd must not kill the wait it asked the script to perform.
+      const firewall = await Bun.file(FIREWALL).text();
+      const timeout = Number(
+        /TimeoutStartSec=(\d+)/.exec(firewall)?.[1] ?? "0",
+      );
+      const wait = Number(
+        /DENIZ_POSIX_TAILSCALE_WAIT:-(\d+)/.exec(source)?.[1] ?? "0",
+      );
+      expect(wait).toBeGreaterThan(0);
+      expect(timeout).toBeGreaterThan(wait);
     });
 
     it("keeps the conditions the human shares were enabled under", async () => {

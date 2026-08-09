@@ -13,5 +13,7 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute firewall-start
 ExecStop=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute firewall-stop
-TimeoutStartSec=30
+# Must exceed the script's own 90s wait for the tailscale0 address, or systemd
+# kills the wait it was given to do and the boot race comes back.
+TimeoutStartSec=120
 TimeoutStopSec=30

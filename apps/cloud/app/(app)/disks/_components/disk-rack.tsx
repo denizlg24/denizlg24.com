@@ -11,6 +11,7 @@ import { StatusDot } from "@repo/ui/status-dot";
 import { cn } from "@repo/ui/utils";
 import { Disc3, MemoryStick, Microchip } from "lucide-react";
 import { useId, useState } from "react";
+import { diskLabel, diskSeriesKey, shortUuid } from "@/lib/disk-identity";
 import { DISK_BAY_COUNT } from "@/lib/env";
 
 const KIND_META: Record<
@@ -52,10 +53,6 @@ function clampPercent(percent: number): number {
 
 function bayLabel(index: number): string {
   return String(index + 1).padStart(2, "0");
-}
-
-function shortDevice(device: string): string {
-  return device.replace(/^\/dev\//, "");
 }
 
 /**
@@ -133,7 +130,7 @@ function BaySlat({
       <span className="flex items-center justify-between gap-1 leading-none">
         <StatusDot
           tone={disk.online ? "good" : "critical"}
-          label={`${shortDevice(disk.device)} ${disk.online ? "online" : "offline"}`}
+          label={`${diskLabel(disk)} ${disk.online ? "online" : "offline"}`}
           className="size-1.5"
         />
         <span
@@ -168,7 +165,7 @@ function BaySlat({
                 : "text-muted-foreground",
             )}
           >
-            {shortDevice(disk.device)}
+            {diskLabel(disk)}
           </span>
           <span className="mt-auto font-mono text-[10px] leading-none tabular-nums text-muted-foreground">
             {disk.online ? formatPercent(disk.usagePercent) : "off"}
@@ -260,8 +257,18 @@ function BayDetail({
             className="size-4 shrink-0 text-muted-foreground"
           />
           <span className="truncate font-mono text-sm font-medium">
-            {disk.device}
+            {disk.device || "detached"}
           </span>
+          {/* The stable identity next to the volatile one, so a rename between
+              two glances is visibly a rename and not a different disk. */}
+          {disk.uuid ? (
+            <span
+              title={disk.uuid}
+              className="shrink-0 font-mono text-[10px] text-muted-foreground"
+            >
+              {shortUuid(disk.uuid)}
+            </span>
+          ) : null}
         </span>
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <StatusDot
@@ -337,7 +344,7 @@ function SummaryStat({
 export function DiskRack({ overview }: { overview: OpsOverview }) {
   const disks = overview.disks;
   const panelId = useId();
-  const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
+  const [selectedDisk, setSelectedDisk] = useState<string | null>(null);
 
   // Never hide a discovered disk if the configured chassis is too small.
   const rackBays = Math.max(DISK_BAY_COUNT, disks.length);
@@ -349,11 +356,13 @@ export function DiskRack({ overview }: { overview: OpsOverview }) {
   );
   const onlineCount = disks.filter((disk) => disk.online).length;
 
-  // Keying the selection by device rather than index means a poll that
+  // Keying the selection by identity rather than index means a poll that
   // reorders or drops a volume re-points the panel instead of silently
-  // showing a different drive's numbers.
+  // showing a different drive's numbers — and keying it on the UUID rather
+  // than the device name means a reboot that renames the disk keeps the
+  // panel on the disk the user selected.
   const selectedIndex = disks.findIndex(
-    (disk) => disk.device === selectedDevice,
+    (disk) => diskSeriesKey(disk) === selectedDisk,
   );
   const activeIndex = selectedIndex === -1 ? 0 : selectedIndex;
   const activeDisk = disks[activeIndex];
@@ -440,7 +449,7 @@ export function DiskRack({ overview }: { overview: OpsOverview }) {
               const disk = disks[index];
               return (
                 <li
-                  key={disk?.device ?? `bay-${index}`}
+                  key={disk ? diskSeriesKey(disk) : `bay-${index}`}
                   className="relative h-24 min-w-0 sm:h-28"
                 >
                   <BayRules />
@@ -450,7 +459,7 @@ export function DiskRack({ overview }: { overview: OpsOverview }) {
                       index={index}
                       panelId={panelId}
                       selected={index === activeIndex}
-                      onSelect={() => setSelectedDevice(disk.device)}
+                      onSelect={() => setSelectedDisk(diskSeriesKey(disk))}
                     />
                   ) : (
                     <EmptyBay index={index} />

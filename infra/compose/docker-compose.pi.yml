@@ -412,6 +412,10 @@ services:
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
+      # Symlink names only, so the disk sampler can resolve a configured
+      # filesystem UUID to the kernel name it currently holds. See the same
+      # mount in docker-compose.posix.yml, which replaces this whole list.
+      - /dev/disk/by-uuid:/host/dev/disk/by-uuid:ro
       - /:/host/rootfs:ro
       - ${SSD_STORAGE_PATH:?SSD_STORAGE_PATH is required}:/data/ssd
       - ${HDD_STORAGE_PATH:?HDD_STORAGE_PATH is required}:/data/hdd

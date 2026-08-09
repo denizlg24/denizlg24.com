@@ -6,11 +6,7 @@ import {
   type ChartSpec,
   MetricSection,
 } from "@/app/(app)/_components/metric-section";
-
-/** `/dev/nvme0n1p1` -> `nvme0n1p1`; the prefix is noise in a legend. */
-function shortDevice(device: string): string {
-  return device.replace(/^\/dev\//, "");
-}
+import { diskLabel, diskSeriesKey } from "@/lib/disk-identity";
 
 /**
  * One chart with every disk on it rather than one per disk: the point is
@@ -24,8 +20,8 @@ export function UsageHistory({ overview }: { overview: OpsOverview }) {
         title: "usage over time",
         unit: "percent",
         series: overview.disks.slice(0, 5).map((disk) => ({
-          name: `disk:${disk.device}.usage_percent`,
-          label: shortDevice(disk.device),
+          name: `disk:${diskSeriesKey(disk)}.usage_percent`,
+          label: diskLabel(disk),
         })),
       },
     ],

@@ -13,7 +13,10 @@ PartOf=deniz-cloud-storage.target
 Type=simple
 ExecStart=/usr/local/lib/deniz-cloud/posix-storage-host.sh --execute watch
 # Exit 20 is a deliberate fail-close, which must stay withdrawn until an
-# operator runs `recover`. Any other exit is a crash and should come back.
+# operator runs `recover`. Any other exit is a crash and should come back —
+# including exit 21, the watchdog giving up on a boundary that never finished
+# starting. That one is meant to come back: restarting re-runs the arming wait,
+# so the watchdog picks the boundary up on its own once the rest of it converges.
 Restart=on-failure
 RestartPreventExitStatus=20
 RestartSec=5

@@ -41,6 +41,13 @@ metadata_socket=/run/deniz-cloud/storage-metadata.sock
 credentials=/etc/deniz-cloud/posix-api-broker.credentials
 witness_name=.denizcloud-mount-witness
 critical=/run/deniz-cloud/posix-storage-critical.json
+# How long the watchdog waits for the boundary to become whole before giving up
+# *without* withdrawing it, and how long the firewall waits for tailscale0 to
+# carry its address. Both exist because systemd ordering says a unit was
+# started, never that what it configures has converged. Overridable so a test
+# does not have to sit through the real grace period.
+arming_grace=${DENIZ_POSIX_ARMING_GRACE:-120}
+tailscale_wait=${DENIZ_POSIX_TAILSCALE_WAIT:-90}
 firewall_table=deniz_cloud_storage
 firewall_comment=deniz-cloud-posix-storage-v1
 namespace_unit=deniz-cloud-storage-namespace.service
@@ -248,8 +255,8 @@ validate_compose() {
     # Compose renders a writable bind as read_only:null, not false, so this
     # asserts "not read-only" rather than an exact false.
     ([volumes[] | select(.type == "bind" and .source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage" and (.read_only != true))] | length) == 1 and
-    ([volumes[] | select(.type == "bind")] | length) == 12 and
-    ([volumes[] | select(.type == "bind") | .target] | unique | length) == 12 and
+    ([volumes[] | select(.type == "bind")] | length) == 13 and
+    ([volumes[] | select(.type == "bind") | .target] | unique | length) == 13 and
     ([volumes[] | select(.type == "bind") | select(
       (.source == "/srv/deniz-cloud/api-storage" and .target == "/data/storage") or
       (.source == "/run/deniz-cloud" and .target == "/run/deniz-cloud") or
@@ -270,6 +277,10 @@ validate_compose() {
       (.source == "/mnt/ssd/deniz-cloud/internal" and .target == "/data/internal") or
       (.source == "/proc" and .target == "/host/proc" and .read_only == true) or
       (.source == "/sys" and .target == "/host/sys" and .read_only == true) or
+      # Symlink names, read-only, so the sampler can follow a disk across the
+      # kernel renaming it. Exposes no block device: /dev inside the container
+      # is a tmpfs, so the `../../sda1` targets resolve to nothing there.
+      (.source == "/dev/disk/by-uuid" and .target == "/host/dev/disk/by-uuid" and .read_only == true) or
       (.source == "/mnt/hdd/backups" and .target == "/backups") or
       (.source == "/var/lib/deniz-cloud" and .target == "/host-control")
     )] | length) == ([volumes[] | select(.type == "bind")] | length)
@@ -415,9 +426,25 @@ firewall_current() {
     ' <<< "$ruleset" >/dev/null
 }
 
+# tailscaled assigns the tailnet address asynchronously, so `After=tailscaled`
+# orders against the daemon starting and says nothing about tailscale0 carrying
+# an address yet. Sampling it once lost that race on every unattended boot: the
+# firewall failed, its Requires= cascade cancelled smbd and the broker mount,
+# and the watchdog then latched the whole boundary into a fail-close. Wait for
+# the address instead of asserting it.
+wait_for_tailscale_address() {
+  local deadline=$((SECONDS + tailscale_wait)) observed
+  while :; do
+    observed=$(ip -4 -o address show dev tailscale0 2>/dev/null | awk 'NR==1{split($4,a,"/");print a[1]}')
+    [[ "$observed" != "$DENIZ_POSIX_TAILSCALE_IP" ]] || return 0
+    (( SECONDS < deadline )) || { echo "Configured Tailscale IP is not present on tailscale0 after ${tailscale_wait}s (last saw [${observed:-none}])" >&2; return 1; }
+    sleep 2
+  done
+}
+
 start_firewall() {
   load_config
-  [[ "$(ip -4 -o address show dev tailscale0 | awk 'NR==1{split($4,a,"/");print a[1]}')" == "$DENIZ_POSIX_TAILSCALE_IP" ]] || { echo "Configured Tailscale IP is not present on tailscale0" >&2; return 1; }
+  wait_for_tailscale_address || return 1
   ! ss -H -ltn 'sport = :445' | grep -q . || { echo "Refusing to protect an existing TCP 445 listener" >&2; return 1; }
   for stock_unit in smbd.service nmbd.service samba-ad-dc.service; do
     ! systemctl is-active --quiet "$stock_unit" || { echo "Stock Samba unit is active: $stock_unit" >&2; return 1; }
@@ -487,19 +514,49 @@ fail_closed() {
   return 20
 }
 
-watch_once() {
-  validate_branches || fail_closed branch-validation
-  merged_is_current || fail_closed merged-mount
-  validate_witness || fail_closed broker-witness
-  broker_is_current || fail_closed api-broker-mount
-  [[ "$(cat "$broker_mount/$witness_name" 2>/dev/null || true)" == "$STORAGE_NAMESPACE_WITNESS_VALUE" ]] || fail_closed api-broker-witness
-  systemctl is-active --quiet "$metadata_unit" || fail_closed metadata-service
-  systemctl is-active --quiet "$smb_unit" || fail_closed smbd-service
+# One pass over every condition the boundary has to hold, naming the first that
+# fails on stdout. Deliberately separate from fail_closed: the same checks mean
+# different things before and after the boundary has been seen whole, and only
+# the caller knows which it is.
+boundary_fault() {
+  validate_branches || { echo branch-validation; return 1; }
+  merged_is_current || { echo merged-mount; return 1; }
+  validate_witness || { echo broker-witness; return 1; }
+  broker_is_current || { echo api-broker-mount; return 1; }
+  [[ "$(cat "$broker_mount/$witness_name" 2>/dev/null || true)" == "$STORAGE_NAMESPACE_WITNESS_VALUE" ]] || { echo api-broker-witness; return 1; }
+  systemctl is-active --quiet "$metadata_unit" || { echo metadata-service; return 1; }
+  systemctl is-active --quiet "$smb_unit" || { echo smbd-service; return 1; }
   local smbd_pid
   smbd_pid=$(systemctl show -p MainPID --value "$smb_unit")
-  [[ "$smbd_pid" =~ ^[1-9][0-9]*$ && -r "/proc/$smbd_pid/comm" && "$(cat "/proc/$smbd_pid/comm")" == smbd ]] || fail_closed smbd-process
-  ss -H -ltnp 'sport = :445' | grep -Fq "pid=$smbd_pid," || fail_closed smbd-listener
-  firewall_current || fail_closed smb-firewall
+  [[ "$smbd_pid" =~ ^[1-9][0-9]*$ && -r "/proc/$smbd_pid/comm" && "$(cat "/proc/$smbd_pid/comm")" == smbd ]] || { echo smbd-process; return 1; }
+  ss -H -ltnp 'sport = :445' | grep -Fq "pid=$smbd_pid," || { echo smbd-listener; return 1; }
+  firewall_current || { echo smb-firewall; return 1; }
+}
+
+# Withdrawing the namespace has to mean "it was whole and it broke", never "it
+# is not whole yet".
+#
+# systemd satisfies After= with a start job that *failed*, so when anything
+# upstream lost a boot race this loop opened on a boundary systemd had already
+# given up on, read the missing broker mount as a breach, and latched a
+# fail-close that only an operator could clear. A twenty-second ordering race
+# became an outage lasting until someone noticed. Arming first separates the two
+# readings; exit 21 is the un-armed give-up, which systemd restarts, versus
+# exit 20 from fail_closed, which it must not.
+watch_loop() {
+  local deadline=$((SECONDS + arming_grace)) fault
+  until fault=$(boundary_fault); do
+    (( SECONDS < deadline )) || {
+      echo "Storage boundary did not become whole within ${arming_grace}s (last fault: $fault); leaving it mountable rather than withdrawing it" >&2
+      return 21
+    }
+    sleep 2
+  done
+  echo "Storage boundary armed" >&2
+  while :; do
+    fault=$(boundary_fault) || fail_closed "$fault"
+    sleep 2
+  done
 }
 
 status_json() {
@@ -530,7 +587,7 @@ case "$action" in
   broker-mount) mount_broker ;;
   broker-unmount) if mountpoint -q "$broker_mount"; then broker_is_current || { echo "Refusing to unmount a foreign broker mount" >&2; exit 1; }; umount "$broker_mount"; fi ;;
   provision-account) provision_account; jq -n --arg accountId "$account_id" '{provisioned:true,accountId:$accountId}' ;;
-  watch) while true; do watch_once; sleep 2; done ;;
+  watch) watch_loop ;;
   recover) validate_branches; [[ ! -L "$critical" ]] || { echo "Unsafe critical marker" >&2; exit 1; }; rm -f "$critical"; echo '{"recovered":true}' ;;
   status) status_json ;;
 esac
