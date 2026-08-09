@@ -1,20 +1,19 @@
 # Forge host
 
-The public boundary is Cloudflare Tunnel. Do not expose Caddy, the deploy
-agent, or the resource agent directly on the server's public interface.
+The public boundary is Cloudflare Tunnel. Do not expose Caddy or the deploy
+agent directly on the server's public interface.
 
 ## Traffic shape
 
 ```text
-forge-server.denizlg24.com -> cloudflared -> 127.0.0.1:<resource-agent-port>
 *.denizlg24.com            -> cloudflared -> 127.0.0.1:8080 (Caddy)
 Cloud API (DEPLOY_AGENT_URL) -> Tailscale -> 100.114.10.73:4010 (deploy-agent)
 deploy-agent (CONTROL_PLANE_URL) -> https://api.denizlg24.com
 ```
 
-The resource-agent route is public but HMAC-authenticated. The deploy agent is
-Bearer-authenticated and tailnet-only. Caddy's admin API stays on
-`127.0.0.1:2019`.
+The deploy agent is Bearer-authenticated and tailnet-only. It collects the host
+and Forge-scoped Docker telemetry used by the dashboard. Caddy's admin API
+stays on `127.0.0.1:2019`.
 
 ## Firewall
 
@@ -32,8 +31,8 @@ sudo ufw enable
 sudo ufw status verbose
 ```
 
-Do not add inbound rules for `80`, `443`, `8080`, `2019`, or the resource-agent
-port. `cloudflared` initiates outbound connections; the default outgoing policy
+Do not add inbound rules for `80`, `443`, `8080`, or `2019`. `cloudflared`
+initiates outbound connections; the default outgoing policy
 already permits its HTTPS/QUIC traffic. If outbound traffic is ever restricted,
 allow DNS and Cloudflare Tunnel traffic on TCP/UDP `7844` plus HTTPS on TCP
 `443` before tightening it.
@@ -46,19 +45,21 @@ curl -fsS http://127.0.0.1:2019/config/ >/dev/null
 curl -fsS http://100.114.10.73:4010/healthz
 ```
 
-The final check should be run from a tailnet peer when UFW is active. An
-unsigned request to `https://forge-server.denizlg24.com/resource/health` should
-return `401`; that confirms the tunnel is reachable without bypassing HMAC.
+The final check should be run from a tailnet peer when UFW is active.
+
+## Cloudflare Tunnel naming
+
+The tunnel display name and a public hostname are separate Cloudflare objects.
+The tunnel can remain named `forge` while it serves `forge.denizlg24.com`; the
+DNS record points to the tunnel UUID under `cfargotunnel.com`, not to its
+display name.
 
 ## Cloud API configuration
 
-Set all three together on the self-hosted API:
-
-```text
-FORGE_RESOURCE_AGENT_URL=https://forge-server.denizlg24.com
-FORGE_RESOURCE_AGENT_NODE_ID=<resource-agent node id>
-FORGE_RESOURCE_AGENT_SECRET=<same secret as resource-agent>
-```
-
-`DEPLOY_AGENT_URL` remains the Tailscale URL, for example
+`DEPLOY_AGENT_URL` is the Tailscale URL, for example
 `http://100.114.10.73:4010`; it must never point at a public hostname.
+
+When upgrading from resource-agent-based Forge monitoring, deploy and restart
+`deploy-agent` first, then deploy the cloud API and Forge web app. The newer
+agent response is backwards-compatible with the old API, while the newer API
+expects the host snapshot added by the newer agent.

@@ -57,14 +57,10 @@ export default function OverviewPage() {
       <Skeleton className="h-40" />
     );
   }
-  const resource = data.resource;
   const agent = data.agent;
-  const memory = resource?.system.memory;
-  const disk = resource?.system.disk;
-  const memoryPercent =
-    memory && memory.total > 0 ? (memory.used / memory.total) * 100 : null;
-  const diskPercent =
-    disk && disk.total > 0 ? (disk.used / disk.total) * 100 : null;
+  const host = agent?.host;
+  const memory = host?.memory;
+  const disk = agent?.health.disk;
   const running =
     agent?.containers.filter((container) => container.state === "running")
       .length ?? 0;
@@ -75,45 +71,45 @@ export default function OverviewPage() {
         title="overview"
         detail={`sampled ${new Date(data.timestamp).toLocaleTimeString()}`}
       />
-      {data.errors.resource || data.errors.agent ? (
+      {data.errors.agent ? (
         <div className="border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-          {[data.errors.resource, data.errors.agent]
-            .filter(Boolean)
-            .join(" · ")}
+          {data.errors.agent}
         </div>
       ) : null}
       <section className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
         <Tile
           label="host"
-          value={resource?.status ?? "offline"}
-          detail={resource?.nodeId}
+          value={agent?.health.status ?? "offline"}
+          detail={agent ? `${host?.cpu.cores ?? 0} cores` : undefined}
         />
         <Tile
           label="uptime"
-          value={resource ? formatDurationSeconds(resource.system.uptime) : "—"}
-        />
-        <Tile
-          label="cpu"
-          value={formatPercent(resource?.system.cpu_usage_percent)}
-          detail={
-            resource
-              ? `load ${resource.system.load_avg[0].toFixed(2)}`
-              : undefined
+          value={
+            agent ? formatDurationSeconds(agent.health.uptimeSeconds) : "—"
           }
         />
         <Tile
+          label="cpu"
+          value={formatPercent(host?.cpu.usagePercent)}
+          detail={host ? `load ${host.cpu.load1.toFixed(2)}` : undefined}
+        />
+        <Tile
           label="memory"
-          value={formatPercent(memoryPercent)}
+          value={formatPercent(memory?.usagePercent)}
           detail={
             memory
-              ? `${formatBytes(memory.used)} / ${formatBytes(memory.total)}`
+              ? `${formatBytes(memory.usedBytes)} / ${formatBytes(memory.totalBytes)}`
               : undefined
           }
         />
         <Tile
           label="disk"
-          value={formatPercent(diskPercent)}
-          detail={disk ? `${formatBytes(disk.free)} free` : undefined}
+          value={formatPercent(disk?.usedPercent)}
+          detail={
+            disk?.freeBytes !== null && disk?.freeBytes !== undefined
+              ? `${formatBytes(disk.freeBytes)} free`
+              : undefined
+          }
         />
         <Tile
           label="docker"
@@ -139,30 +135,6 @@ export default function OverviewPage() {
         />
       </section>
       <HostCharts />
-      <section className="space-y-3">
-        <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          services
-        </h2>
-        <div className="divide-y border-y">
-          {(resource?.services ?? []).map((service) => (
-            <div
-              key={service.name}
-              className="flex items-center justify-between py-2 text-xs"
-            >
-              <span className="font-mono">{service.name}</span>
-              <span
-                className={
-                  service.status === "active"
-                    ? "text-emerald-600"
-                    : "text-destructive"
-                }
-              >
-                {service.status}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }

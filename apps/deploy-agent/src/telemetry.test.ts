@@ -45,6 +45,24 @@ function container(index: number): ForgeDockerContainer {
 const healthService = {
   check: async () => health,
 } as unknown as HealthService;
+const host = {
+  collect: async () => ({
+    cpu: {
+      usagePercent: 10,
+      cores: 4,
+      load1: 0.1,
+      load5: 0.2,
+      load15: 0.3,
+      temperatureCelsius: 42,
+    },
+    memory: {
+      totalBytes: 100,
+      usedBytes: 50,
+      availableBytes: 50,
+      usagePercent: 50,
+    },
+  }),
+};
 
 describe("ForgeTelemetry", () => {
   it("bounds concurrent container stats calls", async () => {
@@ -78,6 +96,7 @@ describe("ForgeTelemetry", () => {
     const snapshot = await new ForgeTelemetry({
       docker,
       health: healthService,
+      host,
     }).snapshot();
     expect(snapshot.containers).toHaveLength(12);
     expect(peak).toBeLessThanOrEqual(4);
@@ -92,9 +111,11 @@ describe("ForgeTelemetry", () => {
     const snapshot = await new ForgeTelemetry({
       docker,
       health: healthService,
+      host,
     }).snapshot();
 
     expect(snapshot.health).toEqual(health);
+    expect(snapshot.host.cpu.usagePercent).toBe(10);
     expect(snapshot.containers).toEqual([]);
     expect(snapshot.images).toEqual([]);
   });

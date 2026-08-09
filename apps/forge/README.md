@@ -1,9 +1,8 @@
 # forge
 
-Superuser-only Forge host and deployment dashboard. It combines signed host
-metrics from `resource-agent`, Forge-scoped Docker telemetry from
-`deploy-agent`, deployment history from the cloud API, and live build/runtime
-logs.
+Superuser-only Forge host and deployment dashboard. It combines host and
+Forge-scoped Docker telemetry from `deploy-agent`, deployment history from the
+cloud API, and live build/runtime logs.
 
 ## Local development
 

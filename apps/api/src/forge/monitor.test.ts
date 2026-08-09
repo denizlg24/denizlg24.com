@@ -27,6 +27,22 @@ function snapshot(networkBytes: number): ForgeAgentSnapshot {
       },
       queue: { running: 0, capacity: 1, deploymentIds: [] },
     },
+    host: {
+      cpu: {
+        usagePercent: 25,
+        cores: 4,
+        load1: 0.5,
+        load5: 0.25,
+        load15: 0.1,
+        temperatureCelsius: 42,
+      },
+      memory: {
+        totalBytes: 100,
+        usedBytes: 50,
+        availableBytes: 50,
+        usagePercent: 50,
+      },
+    },
     containers: [
       {
         id: "container-1",
@@ -94,7 +110,6 @@ describe("ForgeMonitor", () => {
     const monitor = new ForgeMonitor({
       db: metricsDb([]),
       deployAgent: null,
-      resourceAgent: null,
     });
 
     for (const call of [
@@ -119,7 +134,6 @@ describe("ForgeMonitor", () => {
     const monitor = new ForgeMonitor({
       db: metricsDb([], new Error("database unavailable")),
       deployAgent,
-      resourceAgent: null,
       now: () => new Date("2026-08-09T12:00:00.000Z"),
     });
 
@@ -138,7 +152,6 @@ describe("ForgeMonitor", () => {
     const monitor = new ForgeMonitor({
       db: metricsDb(batches),
       deployAgent: agent(() => snapshot(bytes)),
-      resourceAgent: null,
       now: () => now,
     });
 

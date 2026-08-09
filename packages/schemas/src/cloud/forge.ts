@@ -43,55 +43,38 @@ export const forgeImageSchema = z.object({
 });
 export type ForgeImage = z.infer<typeof forgeImageSchema>;
 
+/** Host utilization collected by the deploy agent itself. */
+export const forgeHostSnapshotSchema = z.object({
+  cpu: z.object({
+    usagePercent: z.number().nonnegative(),
+    cores: z.number().int().nonnegative(),
+    load1: z.number().nonnegative(),
+    load5: z.number().nonnegative(),
+    load15: z.number().nonnegative(),
+    temperatureCelsius: z.number().nullable(),
+  }),
+  memory: z.object({
+    totalBytes: z.number().nonnegative(),
+    usedBytes: z.number().nonnegative(),
+    availableBytes: z.number().nonnegative(),
+    usagePercent: z.number().nonnegative(),
+  }),
+});
+export type ForgeHostSnapshot = z.infer<typeof forgeHostSnapshotSchema>;
+
 export const forgeAgentSnapshotSchema = z.object({
   timestamp: cloudDateTimeSchema,
   health: agentHealthSchema,
+  host: forgeHostSnapshotSchema,
   containers: z.array(forgeContainerSchema),
   images: z.array(forgeImageSchema),
 });
 export type ForgeAgentSnapshot = z.infer<typeof forgeAgentSnapshotSchema>;
 
-export const resourceAgentMemorySchema = z.object({
-  total: z.number().int().nonnegative(),
-  used: z.number().int().nonnegative(),
-  free: z.number().int().nonnegative(),
-});
-
-export const resourceAgentDiskSchema = z.object({
-  total: z.number().int().nonnegative(),
-  used: z.number().int().nonnegative(),
-  free: z.number().int().nonnegative(),
-});
-
-export const forgeResourceSnapshotSchema = z.object({
-  version: z.number().int().positive(),
-  nodeId: z.string().min(1),
-  status: z.enum(["ok", "degraded"]),
-  timestamp: z.number().int(),
-  system: z.object({
-    uptime: z.number().int().nonnegative(),
-    load_avg: z.tuple([z.number(), z.number(), z.number()]),
-    cpu_usage_percent: z.number().nonnegative(),
-    memory: resourceAgentMemorySchema,
-    disk: resourceAgentDiskSchema,
-  }),
-  services: z.array(
-    z.object({
-      name: z.string(),
-      status: z.string(),
-    }),
-  ),
-  error: z.string().optional(),
-  signature: z.string().min(1),
-});
-export type ForgeResourceSnapshot = z.infer<typeof forgeResourceSnapshotSchema>;
-
 export const forgeOverviewSchema = z.object({
   timestamp: cloudDateTimeSchema,
-  resource: forgeResourceSnapshotSchema.nullable(),
   agent: forgeAgentSnapshotSchema.nullable(),
   errors: z.object({
-    resource: z.string().nullable(),
     agent: z.string().nullable(),
   }),
 });

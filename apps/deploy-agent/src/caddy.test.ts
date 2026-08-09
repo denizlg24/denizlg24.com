@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { buildCaddyConfig, CaddyError, CaddyRouter } from "./caddy";
@@ -234,6 +235,44 @@ describe("CaddyRouter", () => {
     });
   });
 
+  it("moves a promoted hostname away from the previous deployment", async () => {
+    await withTempDir(async (dir) => {
+      const caddy = fakeCaddy();
+      const instance = router(dir, caddy);
+      await instance.publish({
+        deploymentId: "dep-old",
+        projectSlug: "forge",
+        hostname: "old.forge.denizlg24.com",
+        port: 20_555,
+      });
+      await instance.rehost("dep-old", [
+        "old.forge.denizlg24.com",
+        "forge.denizlg24.com",
+      ]);
+      await instance.publish({
+        deploymentId: "dep-new",
+        projectSlug: "forge",
+        hostname: "new.forge.denizlg24.com",
+        port: 21_769,
+      });
+      await instance.rehost("dep-new", [
+        "new.forge.denizlg24.com",
+        "forge.denizlg24.com",
+      ]);
+
+      expect(instance.routes()).toEqual([
+        expect.objectContaining({
+          deploymentId: "dep-old",
+          hostnames: ["old.forge.denizlg24.com"],
+        }),
+        expect.objectContaining({
+          deploymentId: "dep-new",
+          hostnames: ["new.forge.denizlg24.com", "forge.denizlg24.com"],
+        }),
+      ]);
+    });
+  });
+
   it("keeps every other deployment's route on a withdraw", async () => {
     await withTempDir(async (dir) => {
       const caddy = fakeCaddy();
@@ -348,6 +387,41 @@ describe("CaddyRouter", () => {
       expect(await second.restore()).toBe(1);
       expect(hostsOf(caddy.loads[0] as LoadedConfig)).toEqual([
         ["a.denizlg24.com"],
+      ]);
+    });
+  });
+
+  it("repairs duplicate persisted hostname owners on restore", async () => {
+    await withTempDir(async (dir) => {
+      const statePath = join(dir, "caddy", "config.json");
+      await mkdir(join(dir, "caddy"), { recursive: true });
+      await writeFile(
+        statePath,
+        JSON.stringify([
+          {
+            deploymentId: "dep-old",
+            projectSlug: "forge",
+            hostnames: ["old.forge.denizlg24.com", "forge.denizlg24.com"],
+            upstream: "127.0.0.1:20555",
+          },
+          {
+            deploymentId: "dep-new",
+            projectSlug: "forge",
+            hostnames: ["new.forge.denizlg24.com", "forge.denizlg24.com"],
+            upstream: "127.0.0.1:21769",
+          },
+        ]),
+      );
+
+      const caddy = fakeCaddy();
+      const instance = router(dir, caddy);
+      expect(await instance.restore()).toBe(2);
+      expect(instance.routes()[0]?.hostnames).toEqual([
+        "old.forge.denizlg24.com",
+      ]);
+      expect(hostsOf(caddy.loads[0] as LoadedConfig)).toEqual([
+        ["forge.denizlg24.com", "new.forge.denizlg24.com"],
+        ["old.forge.denizlg24.com"],
       ]);
     });
   });

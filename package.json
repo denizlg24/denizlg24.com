@@ -45,6 +45,8 @@
     "packages/*"
   ],
   "overrides": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
     "cmdk": "1.1.1",
     "pdfjs-dist": "5.4.296",
     "react": "19.2.7",

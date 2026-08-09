@@ -219,8 +219,11 @@ export class CaddyRouter implements RouteManager {
       return 0;
     }
 
+    this.#entries.clear();
     for (const entry of entries) {
-      if (entry?.deploymentId) this.#entries.set(entry.deploymentId, entry);
+      if (!entry?.deploymentId) continue;
+      this.#entries.set(entry.deploymentId, entry);
+      this.#claimHostnames(entry);
     }
     await this.#serialise(() => this.#apply());
     return this.#entries.size;
@@ -237,19 +240,63 @@ export class CaddyRouter implements RouteManager {
 
   async publishEntry(entry: CaddyRouteEntry): Promise<void> {
     await this.#serialise(async () => {
-      const previous = this.#entries.get(entry.deploymentId);
+      const previous = new Map(this.#entries);
       this.#entries.set(entry.deploymentId, entry);
+      this.#claimHostnames(entry);
       try {
         await this.#apply();
       } catch (error) {
         // The in-memory table is what the next /load is built from. Leaving a
         // route in it that Caddy rejected would smuggle the bad config into
         // every subsequent deploy's reload.
-        if (previous) this.#entries.set(entry.deploymentId, previous);
-        else this.#entries.delete(entry.deploymentId);
+        this.#entries.clear();
+        for (const [deploymentId, previousEntry] of previous) {
+          this.#entries.set(deploymentId, previousEntry);
+        }
         throw error;
       }
     });
+  }
+
+  /**
+   * A hostname has exactly one owner. Promotions used to add the stable name
+   * to the new deployment without removing it from the old one, so whichever
+   * route Caddy sorted first won — often a stopped container. Later entries
+   * win during restore, matching the order in which routes were published.
+   */
+  #claimHostnames(entry: CaddyRouteEntry): void {
+    const claimed = new Set([
+      ...entry.hostnames,
+      ...(entry.redirects ?? []).map((redirect) => redirect.hostname),
+      ...(entry.redirectHostnames ?? []),
+    ]);
+    if (claimed.size === 0) return;
+
+    for (const [deploymentId, existing] of this.#entries) {
+      if (deploymentId === entry.deploymentId) continue;
+      const hostnames = existing.hostnames.filter(
+        (hostname) => !claimed.has(hostname),
+      );
+      const redirects = existing.redirects?.filter(
+        (redirect) => !claimed.has(redirect.hostname),
+      );
+      const redirectHostnames = existing.redirectHostnames?.filter(
+        (hostname) => !claimed.has(hostname),
+      );
+      if (
+        hostnames.length === existing.hostnames.length &&
+        redirects?.length === existing.redirects?.length &&
+        redirectHostnames?.length === existing.redirectHostnames?.length
+      ) {
+        continue;
+      }
+      this.#entries.set(deploymentId, {
+        ...existing,
+        hostnames,
+        redirects,
+        redirectHostnames,
+      });
+    }
   }
 
   /**

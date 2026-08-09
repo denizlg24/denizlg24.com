@@ -11,7 +11,6 @@ import {
 } from "@repo/schemas/cloud";
 
 import type { DeployAgentProxy } from "../deploy/proxy";
-import type { ResourceAgentClient } from "./resource-agent";
 
 const SAMPLE_INTERVAL_MS = 30_000;
 
@@ -33,12 +32,11 @@ function describe(error: unknown): string {
 export interface ForgeMonitorOptions {
   db: Database;
   deployAgent: DeployAgentProxy | null;
-  resourceAgent: ResourceAgentClient | null;
   intervalMs?: number;
   now?: () => Date;
 }
 
-/** Polls both Forge agents, retains the latest snapshot, and stores chart data. */
+/** Polls the Forge deploy agent, retains its snapshot, and stores chart data. */
 export class ForgeMonitor {
   readonly #options: ForgeMonitorOptions;
   readonly #intervalMs: number;
@@ -124,24 +122,14 @@ export class ForgeMonitor {
 
   async #collectAndPersist(): Promise<ForgeOverview> {
     const timestamp = this.#options.now?.() ?? new Date();
-    const [resourceResult, agentResult] = await Promise.allSettled([
-      this.#options.resourceAgent
-        ? this.#options.resourceAgent.health()
-        : Promise.reject(
-            new Error("The Forge resource agent is not configured"),
-          ),
-      this.#agentSnapshot(),
-    ]);
+    const agentResult = await Promise.resolve(this.#agentSnapshot()).then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      (reason: unknown) => ({ status: "rejected" as const, reason }),
+    );
     const overview: ForgeOverview = {
       timestamp: timestamp.toISOString(),
-      resource:
-        resourceResult.status === "fulfilled" ? resourceResult.value : null,
       agent: agentResult.status === "fulfilled" ? agentResult.value : null,
       errors: {
-        resource:
-          resourceResult.status === "rejected"
-            ? describe(resourceResult.reason)
-            : null,
         agent:
           agentResult.status === "rejected"
             ? describe(agentResult.reason)
@@ -160,65 +148,50 @@ export class ForgeMonitor {
 
   #metricSamples(ts: Date, overview: ForgeOverview): MetricSampleInput[] {
     const samples: MetricSampleInput[] = [];
-    const resource = overview.resource;
-    if (resource) {
-      const memory = resource.system.memory;
-      const disk = resource.system.disk;
+    const agent = overview.agent;
+    if (agent) {
+      const { cpu, memory } = agent.host;
       samples.push(
         {
           ts,
           kind: "forge-host",
           key: "cpu.usage_percent",
-          value: resource.system.cpu_usage_percent,
+          value: cpu.usagePercent,
         },
         {
           ts,
           kind: "forge-host",
           key: "load.1",
-          value: resource.system.load_avg[0],
+          value: cpu.load1,
         },
         {
           ts,
           kind: "forge-host",
           key: "load.5",
-          value: resource.system.load_avg[1],
+          value: cpu.load5,
         },
         {
           ts,
           kind: "forge-host",
           key: "load.15",
-          value: resource.system.load_avg[2],
+          value: cpu.load15,
         },
-      );
-      if (memory.total > 0) {
-        samples.push({
+        {
           ts,
           kind: "forge-host",
           key: "memory.usage_percent",
-          value: (memory.used / memory.total) * 100,
-        });
-      }
-      if (disk.total > 0) {
-        samples.push({
-          ts,
-          kind: "forge-host",
-          key: "disk.usage_percent",
-          value: (disk.used / disk.total) * 100,
-        });
-      }
-    }
-
-    const agent = overview.agent;
-    if (agent) {
-      const seenNetworkKeys = new Set<string>();
+          value: memory.usagePercent,
+        },
+      );
       if (agent.health.disk.usedPercent !== null) {
         samples.push({
           ts,
           kind: "forge-host",
-          key: "docker_disk.usage_percent",
+          key: "disk.usage_percent",
           value: agent.health.disk.usedPercent,
         });
       }
+      const seenNetworkKeys = new Set<string>();
       for (const container of agent.containers) {
         if (!container.metrics) continue;
         const key = container.deploymentId ?? container.id.slice(0, 12);

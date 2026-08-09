@@ -55,7 +55,6 @@ import { ForgeOps } from "./deploy/ops";
 import { DeployAgentProxy } from "./deploy/proxy";
 import { deployRoutes } from "./deploy/routes";
 import { ForgeMonitor } from "./forge/monitor";
-import { resourceAgentClientFromEnv } from "./forge/resource-agent";
 import { forgeManagementRoutes } from "./forge/routes";
 import { OpsHealthService } from "./ops/health";
 import type { DiskDevice } from "./ops/host";
@@ -357,11 +356,9 @@ export async function createRuntimeApp() {
           zoneName: cloudflareDeployConfig?.zoneName ?? "denizlg24.com",
         })
       : null;
-    const resourceAgent = resourceAgentClientFromEnv();
-    const forgeMonitor =
-      deployAgent || resourceAgent
-        ? new ForgeMonitor({ db, deployAgent, resourceAgent })
-        : null;
+    const forgeMonitor = deployAgent
+      ? new ForgeMonitor({ db, deployAgent })
+      : null;
     if (forgeMonitor) {
       cleanupActions.push(() => forgeMonitor.stop());
       await forgeMonitor.start();

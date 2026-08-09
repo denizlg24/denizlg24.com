@@ -71,7 +71,7 @@ alive. Everything else needs `Authorization: Bearer $AGENT_TOKEN`.
 | `POST` | `/deployments/:id/promote` | replaces the deployment's hostname set; 409 if it has no live route |
 | `DELETE` | `/deployments/:id` | route, container and image; idempotent, never 404s |
 | `GET` | `/routes` | the live Caddy routing table |
-| `GET` | `/telemetry` | Forge-labelled containers, per-container stats, Forge images, and host capacity |
+| `GET` | `/telemetry` | Host CPU/load/memory plus Forge-labelled containers, per-container stats, images, and disk capacity |
 | `GET` | `/containers/:id/logs` | SSE stdout/stderr tail for a Forge-labelled container only |
 | `POST` | `/gc` | runs the reaper; body carries the keep set |
 

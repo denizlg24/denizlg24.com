@@ -2,6 +2,7 @@ import type { ForgeAgentSnapshot, ForgeContainer } from "@repo/schemas/cloud";
 
 import type { DockerClient, ForgeDockerContainer } from "./docker";
 import type { HealthService } from "./health";
+import { HostCollector } from "./host";
 
 const METRICS_CONCURRENCY = 4;
 
@@ -27,6 +28,7 @@ async function mapWithConcurrency<T, R>(
 export interface ForgeTelemetryOptions {
   docker: DockerClient;
   health: HealthService;
+  host?: Pick<HostCollector, "collect">;
   now?: () => Date;
 }
 
@@ -40,21 +42,25 @@ export interface ForgeTelemetryOptions {
  */
 export class ForgeTelemetry {
   readonly #options: ForgeTelemetryOptions;
+  readonly #host: Pick<HostCollector, "collect">;
 
   constructor(options: ForgeTelemetryOptions) {
     this.#options = options;
+    this.#host = options.host ?? new HostCollector();
   }
 
   async snapshot(): Promise<ForgeAgentSnapshot> {
     const healthPromise = this.#options.health.check();
+    const hostPromise = this.#host.collect();
     const containers = await this.#options.docker
       .listForgeContainers()
       .catch(() => null);
-    const health = await healthPromise;
+    const [health, host] = await Promise.all([healthPromise, hostPromise]);
     if (!containers) {
       return {
         timestamp: (this.#options.now?.() ?? new Date()).toISOString(),
         health,
+        host,
         containers: [],
         images: [],
       };
@@ -68,6 +74,7 @@ export class ForgeTelemetry {
     return {
       timestamp: (this.#options.now?.() ?? new Date()).toISOString(),
       health,
+      host,
       containers: withMetrics,
       images,
     };
