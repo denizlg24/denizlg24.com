@@ -230,10 +230,11 @@ def root() -> FileResponse:
     )
 
 @app.get("/env", response_class=HTMLResponse, include_in_schema=False)
-def root() -> FileResponse:
+def env() -> FileResponse:
     """Serve the classification playground."""
     return JSONResponse(
-        os.environ
+        status_code=200,
+        env=os.environ
     )
 
 
