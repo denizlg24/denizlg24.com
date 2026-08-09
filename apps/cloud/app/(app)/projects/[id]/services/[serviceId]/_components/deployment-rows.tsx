@@ -6,7 +6,11 @@ import { StatusDot } from "@repo/ui/status-dot";
 import { cn } from "@repo/ui/utils";
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
-import { deploymentLabel, deploymentTone } from "@/components/deploy/status";
+import {
+  DeploymentBadges,
+  deploymentLabel,
+  deploymentTone,
+} from "@/components/deploy/status";
 import { projectServiceHref } from "@/lib/project-routes";
 
 /**
@@ -45,14 +49,11 @@ export function DeploymentRow({
       <span className="min-w-0 flex-1 truncate">
         {deployment.gitMessage ?? deployment.gitRef}
       </span>
-      <span
-        className={cn(
-          "w-20 shrink-0 text-muted-foreground",
-          deployment.kind === "preview" && "italic",
-        )}
-      >
-        {deployment.kind}
-      </span>
+      <DeploymentBadges
+        kind={deployment.kind}
+        status={deployment.status}
+        className="w-36 shrink-0 justify-start"
+      />
       <span className="w-24 shrink-0 text-right text-muted-foreground tabular-nums">
         {formatRelative(deployment.createdAt)}
       </span>
@@ -109,6 +110,7 @@ export function ProductionSummary({
           />
           {deploymentLabel(deployment.status, deployment.phase)}
         </span>
+        <DeploymentBadges kind={deployment.kind} status={deployment.status} />
         <a
           href={deployment.url}
           target="_blank"

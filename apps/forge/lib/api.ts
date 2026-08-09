@@ -3,8 +3,11 @@ import {
   type CompleteSignupInput,
   type CompleteSignupResult,
   completeSignupResultSchema,
+  type ForgeDeploymentPage,
+  type ForgeDeploymentQuery,
   type ForgeDeploymentSummary,
   type ForgeOverview,
+  forgeDeploymentPageSchema,
   forgeDeploymentSummarySchema,
   forgeOverviewSchema,
   type MetricsResponse,
@@ -25,7 +28,7 @@ export {
 interface RequestOptions {
   method?: "GET" | "POST";
   body?: unknown;
-  query?: Record<string, string | number | undefined>;
+  query?: Record<string, string | number | undefined | null | string[]>;
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -35,7 +38,14 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 function buildUrl(path: string, query?: RequestOptions["query"]): URL {
   const url = new URL(path, API_BASE_URL);
   for (const [key, value] of Object.entries(query ?? {})) {
-    if (value !== undefined) url.searchParams.set(key, String(value));
+    if (value === undefined || value === null) continue;
+    // Repeated rather than comma-joined so a value containing a comma cannot
+    // silently split into two filters.
+    if (Array.isArray(value)) {
+      for (const entry of value) url.searchParams.append(key, entry);
+      continue;
+    }
+    url.searchParams.set(key, String(value));
   }
   return url;
 }
@@ -122,10 +132,25 @@ export const api = {
   forge: {
     overview: (): Promise<ForgeOverview> =>
       data(forgeOverviewSchema, "/api/forge/overview"),
-    deployments: (limit = 100): Promise<ForgeDeploymentSummary[]> =>
-      data(z.array(forgeDeploymentSummarySchema), "/api/forge/deployments", {
-        query: { limit },
+    deployments: (
+      query: Partial<ForgeDeploymentQuery> = {},
+    ): Promise<ForgeDeploymentPage> =>
+      data(forgeDeploymentPageSchema, "/api/forge/deployments", {
+        query: {
+          limit: query.limit,
+          offset: query.offset,
+          sort: query.sort,
+          direction: query.direction,
+          status: query.status,
+          project: query.project,
+          search: query.search,
+        },
       }),
+    deployment: (deploymentId: string): Promise<ForgeDeploymentSummary> =>
+      data(
+        forgeDeploymentSummarySchema,
+        `/api/forge/deployments/${encodeURIComponent(deploymentId)}`,
+      ),
     metrics: (query: {
       series: string[];
       from: string;

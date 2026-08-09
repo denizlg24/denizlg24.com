@@ -28,7 +28,7 @@ function LogViewer() {
     15_000,
   );
   const { data: deployments, error: deploymentError } = usePoll(
-    useMemo(() => () => api.forge.deployments(100), []),
+    useMemo(() => () => api.forge.deployments({ limit: 100 }), []),
     30_000,
   );
 
@@ -39,7 +39,7 @@ function LogViewer() {
             id: container.id,
             label: `${container.projectSlug ?? container.name} · ${container.id.slice(0, 12)}`,
           }))
-        : (deployments ?? []).map((deployment) => ({
+        : (deployments?.deployments ?? []).map((deployment) => ({
             id: deployment.id,
             label: `${deployment.projectSlug} · ${deployment.gitSha.slice(0, 7)} · ${deployment.status}`,
           })),

@@ -11,6 +11,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import {
+  DeploymentBadges,
   deploymentLabel,
   deploymentTone,
   isDeploymentLive,
@@ -94,6 +95,7 @@ export default function DeploymentPage() {
             <StatusDot tone={deploymentTone(data.status)} label={data.status} />
             {deploymentLabel(data.status, data.phase)}
           </span>
+          <DeploymentBadges kind={data.kind} status={data.status} />
           <span className="font-mono text-sm">{data.gitSha.slice(0, 7)}</span>
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
             {data.gitMessage ?? data.gitRef}
@@ -112,7 +114,6 @@ export default function DeploymentPage() {
       <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-y py-4 text-xs sm:grid-cols-3 lg:grid-cols-4">
         <Fact label="hostname" value={data.hostname} />
         <Fact label="branch" value={data.gitRef} />
-        <Fact label="kind" value={data.kind} />
         <Fact label="triggered by" value={data.triggeredBy} />
         <Fact
           label="build time"

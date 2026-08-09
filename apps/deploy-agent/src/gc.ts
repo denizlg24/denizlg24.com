@@ -55,6 +55,20 @@ export function selectImagesToRemove(
 }
 
 /**
+ * An untagged image still referenced by a container we kept must survive, and
+ * `docker ps --no-trunc` reports exactly the `sha256:…` id that `docker images
+ * --no-trunc` prints for it — so the same in-use set that guards the tagged
+ * pass guards this one.
+ */
+export function selectDanglingToRemove(
+  present: readonly string[],
+  keep: Iterable<string>,
+): string[] {
+  const kept = new Set(keep);
+  return present.filter((id) => id.length > 0 && !kept.has(id));
+}
+
+/**
  * Bytes on disk, not the apparent size — close enough for a cap whose only job
  * is to stop `--cache-to mode=max` growing until it eats the image store.
  */
@@ -72,6 +86,21 @@ export async function directorySizeBytes(path: string): Promise<number> {
     if (stats) total += stats.size;
   }
   return total;
+}
+
+/**
+ * `docker builder prune` reaches the daemon's embedded BuildKit and nothing
+ * else; a `docker-container` or `remote` builder keeps its cache in its own
+ * daemon, which is why `docker system df` cannot see it either. Both need
+ * sweeping, and the named one first so a failure there still leaves the
+ * runtime disk swept.
+ */
+export function builderPruneCommands(
+  buildxBuilder: string | null | undefined,
+): string[][] {
+  const daemon = ["docker", "builder", "prune"];
+  if (!buildxBuilder) return [daemon];
+  return [["docker", "buildx", "prune", "--builder", buildxBuilder], daemon];
 }
 
 function parseReclaimedBytes(output: string): number | null {
@@ -249,6 +278,54 @@ export async function runGarbageCollection(
     }
   }
 
+  // A rebuild moves `forge/<slug>:latest` off the previous image and leaves it
+  // untagged holding a full layer set. `reference=forge/*` cannot see an
+  // untagged image at all, so the pass above never reaches these and they
+  // accumulate one per build per project until the disk fills.
+  const dangling = await exec({
+    command: [
+      "docker",
+      "images",
+      "--no-trunc",
+      "--filter",
+      "dangling=true",
+      "--format",
+      "{{.ID}}",
+    ],
+    signal,
+    timeoutMs: 60_000,
+  });
+  if (dangling.exitCode !== 0) {
+    failures.push({
+      step: "dangling-images",
+      subject: "docker images",
+      error: dangling.stderr.trim() || `exit ${dangling.exitCode}`,
+    });
+  }
+
+  for (const id of selectDanglingToRemove(
+    dangling.stdout.split("\n").map((line) => line.trim()),
+    inUseImages,
+  )) {
+    if (request.dryRun) {
+      report.imagesRemoved.push(id);
+      continue;
+    }
+    const removed = await exec({
+      command: ["docker", "rmi", id],
+      signal,
+      timeoutMs: 180_000,
+    });
+    if (removed.exitCode === 0) report.imagesRemoved.push(id);
+    else {
+      failures.push({
+        step: "dangling-images",
+        subject: id.slice(0, 19),
+        error: removed.stderr.trim() || `exit ${removed.exitCode}`,
+      });
+    }
+  }
+
   const buildCutoff =
     now() - (options.buildMaxAgeMs ?? DEFAULT_BUILD_MAX_AGE_MS);
   for (const name of await listEntriesOlderThan(
@@ -319,29 +396,37 @@ export async function runGarbageCollection(
   }
 
   if (!request.dryRun) {
-    const pruneCommand = options.buildxBuilder
-      ? ["docker", "buildx", "prune", "--builder", options.buildxBuilder]
-      : ["docker", "builder", "prune"];
-    const pruned = await exec({
-      command: [
-        ...pruneCommand,
-        "--filter",
-        `until=${request.builderPruneHours}h`,
-        "--force",
-      ],
-      signal,
-      timeoutMs: 600_000,
-    });
-    if (pruned.exitCode === 0) {
-      report.builderCacheReclaimedBytes = parseReclaimedBytes(
-        `${pruned.stdout}\n${pruned.stderr}`,
-      );
-    } else {
-      failures.push({
-        step: "builder-cache",
-        subject: pruneCommand.join(" "),
-        error: pruned.stderr.trim() || `exit ${pruned.exitCode}`,
+    // The daemon's own BuildKit is not the named builder's. Pruning only the
+    // named one strands everything the embedded builder wrote — which is how
+    // 111 GB of reclaimable cache sat on the runtime disk unnoticed after the
+    // builder moved to its own daemon. It also keeps the sweep correct if
+    // BUILDKIT_ENDPOINT is ever unset and builds fall back to the daemon.
+    for (const pruneCommand of builderPruneCommands(options.buildxBuilder)) {
+      const pruned = await exec({
+        command: [
+          ...pruneCommand,
+          "--filter",
+          `until=${request.builderPruneHours}h`,
+          "--force",
+        ],
+        signal,
+        timeoutMs: 600_000,
       });
+      if (pruned.exitCode === 0) {
+        const reclaimed = parseReclaimedBytes(
+          `${pruned.stdout}\n${pruned.stderr}`,
+        );
+        if (reclaimed !== null) {
+          report.builderCacheReclaimedBytes =
+            (report.builderCacheReclaimedBytes ?? 0) + reclaimed;
+        }
+      } else {
+        failures.push({
+          step: "builder-cache",
+          subject: pruneCommand.join(" "),
+          error: pruned.stderr.trim() || `exit ${pruned.exitCode}`,
+        });
+      }
     }
   }
 

@@ -6,7 +6,16 @@ import { join } from "node:path";
 import { agentGcRequestSchema } from "@repo/schemas/cloud";
 
 import type { ExecOptions, ExecResult } from "./exec";
-import { runGarbageCollection, selectImagesToRemove } from "./gc";
+import {
+  builderPruneCommands,
+  runGarbageCollection,
+  selectDanglingToRemove,
+  selectImagesToRemove,
+} from "./gc";
+
+const DANGLING = `sha256:${"a".repeat(64)}`;
+const DANGLING_IN_USE = `sha256:${"b".repeat(64)}`;
+const KEPT_DEPLOYMENT = "00000000-0000-4000-8000-000000000001";
 
 function request(overrides: Record<string, unknown> = {}) {
   return agentGcRequestSchema.parse({
@@ -86,6 +95,32 @@ describe("selectImagesToRemove", () => {
         ["forge/app:def5678-1111"],
       ),
     ).toEqual(["forge/app:abc1234-0000"]);
+  });
+});
+
+describe("selectDanglingToRemove", () => {
+  it("spares an untagged image a kept container still runs", () => {
+    expect(
+      selectDanglingToRemove(
+        [DANGLING, DANGLING_IN_USE, ""],
+        [DANGLING_IN_USE],
+      ),
+    ).toEqual([DANGLING]);
+  });
+});
+
+describe("builderPruneCommands", () => {
+  it("sweeps the named builder and the daemon's own", () => {
+    expect(builderPruneCommands("forge-hdd")).toEqual([
+      ["docker", "buildx", "prune", "--builder", "forge-hdd"],
+      ["docker", "builder", "prune"],
+    ]);
+  });
+
+  it("sweeps only the daemon when no builder is configured", () => {
+    expect(builderPruneCommands(null)).toEqual([
+      ["docker", "builder", "prune"],
+    ]);
   });
 });
 
@@ -280,5 +315,56 @@ describe("runGarbageCollection", () => {
     expect(prune).toContain("--builder");
     expect(prune).toContain("forge-hdd");
     expect(report.builderCacheReclaimedBytes).toBe(1_500_000_000);
+  });
+
+  it("also prunes the daemon's own builder, and sums both", async () => {
+    const { exec, commands } = scriptedExec({
+      "docker buildx prune": { stderr: "Total: 1.5GB" },
+      "docker builder prune": { stdout: "Total reclaimed space: 2GB" },
+    });
+
+    const report = await withRoots((roots) =>
+      runGarbageCollection(request(), {
+        exec,
+        ...roots,
+        dockerDataRoot: "/var/lib/docker",
+        buildDataRoot: roots.buildRoot,
+        buildxBuilder: "forge-hdd",
+        statfsImplementation: NO_DISK,
+      }),
+    );
+
+    expect(
+      commands.some(
+        (command) => command.slice(0, 3).join(" ") === "docker builder prune",
+      ),
+    ).toBe(true);
+    expect(report.builderCacheReclaimedBytes).toBe(3_500_000_000);
+  });
+
+  it("reaps untagged images the reference filter cannot see", async () => {
+    const { exec, commands } = scriptedExec({
+      "docker images --no-trunc": { stdout: `${DANGLING}\n${DANGLING_IN_USE}` },
+      "docker ps --all": {
+        stdout: `abc\t${KEPT_DEPLOYMENT}\t${DANGLING_IN_USE}`,
+      },
+    });
+
+    const report = await withRoots((roots) =>
+      runGarbageCollection(request({ keepDeploymentIds: [KEPT_DEPLOYMENT] }), {
+        exec,
+        ...roots,
+        dockerDataRoot: "/var/lib/docker",
+        buildDataRoot: roots.buildRoot,
+        statfsImplementation: NO_DISK,
+      }),
+    );
+
+    expect(report.imagesRemoved).toEqual([DANGLING]);
+    expect(
+      commands.filter(
+        (command) => command[0] === "docker" && command[1] === "rmi",
+      ),
+    ).toEqual([["docker", "rmi", DANGLING]]);
   });
 });

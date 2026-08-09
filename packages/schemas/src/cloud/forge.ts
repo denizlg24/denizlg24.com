@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 import { cloudDateTimeSchema } from "./common";
-import { agentHealthSchema } from "./deploy";
+import {
+  agentHealthSchema,
+  deploymentKindSchema,
+  deploymentPhaseSchema,
+  deploymentStatusSchema,
+} from "./deploy";
 
 export const forgeContainerMetricsSchema = z.object({
   cpuPercent: z.number().nonnegative(),
@@ -86,9 +91,11 @@ export const forgeDeploymentSummarySchema = z.object({
   targetName: z.string(),
   projectId: z.uuid(),
   projectSlug: z.string(),
-  kind: z.string(),
-  status: z.string(),
-  phase: z.string().nullable(),
+  // These are pgEnum columns selected straight out of `deployments`, so the
+  // loose `z.string()` they used to carry only cost every consumer a cast.
+  kind: deploymentKindSchema,
+  status: deploymentStatusSchema,
+  phase: deploymentPhaseSchema.nullable(),
   gitRef: z.string(),
   gitSha: z.string(),
   gitMessage: z.string().nullable(),
@@ -107,3 +114,38 @@ export const forgeDeploymentSummarySchema = z.object({
 export type ForgeDeploymentSummary = z.infer<
   typeof forgeDeploymentSummarySchema
 >;
+
+export const FORGE_DEPLOYMENT_SORTS = [
+  "createdAt",
+  "projectSlug",
+  "status",
+  "buildDurationMs",
+  "imageSizeBytes",
+] as const;
+export const forgeDeploymentSortSchema = z.enum(FORGE_DEPLOYMENT_SORTS);
+export type ForgeDeploymentSort = z.infer<typeof forgeDeploymentSortSchema>;
+
+export const forgeDeploymentQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+  sort: forgeDeploymentSortSchema.default("createdAt"),
+  direction: z.enum(["asc", "desc"]).default("desc"),
+  status: z.array(deploymentStatusSchema).default([]),
+  project: z.string().min(1).nullable().default(null),
+  /** Matched against the commit sha, the commit message and the hostname. */
+  search: z.string().min(1).max(200).nullable().default(null),
+});
+export type ForgeDeploymentQuery = z.infer<typeof forgeDeploymentQuerySchema>;
+
+/**
+ * `total` counts the rows the filter matches, not the page, so the pager can
+ * size itself without a second request. `projects` is deliberately unfiltered:
+ * a slug that vanishes from the picker the moment you select it makes the
+ * filter impossible to undo.
+ */
+export const forgeDeploymentPageSchema = z.object({
+  deployments: z.array(forgeDeploymentSummarySchema),
+  total: z.number().int().nonnegative(),
+  projects: z.array(z.string()),
+});
+export type ForgeDeploymentPage = z.infer<typeof forgeDeploymentPageSchema>;

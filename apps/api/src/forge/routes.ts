@@ -8,8 +8,24 @@ import {
   deployTargets,
   projects,
 } from "@repo/cloud-core/db/schema";
-import { metricsQuerySchema } from "@repo/schemas/cloud";
-import { desc, eq } from "drizzle-orm";
+import {
+  type ForgeDeploymentQuery,
+  type ForgeDeploymentSort,
+  forgeDeploymentQuerySchema,
+  metricsQuerySchema,
+} from "@repo/schemas/cloud";
+import {
+  and,
+  asc,
+  type Column,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  or,
+  type SQL,
+} from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -20,9 +36,73 @@ export interface ForgeManagementRouteOptions {
   monitor: ForgeMonitor;
 }
 
-const deploymentQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(200).default(50),
-});
+const DEPLOYMENT_COLUMNS = {
+  id: deployments.id,
+  targetId: deployments.targetId,
+  targetName: deployTargets.name,
+  projectId: projects.id,
+  projectSlug: projects.slug,
+  kind: deployments.kind,
+  status: deployments.status,
+  phase: deployments.phase,
+  gitRef: deployments.gitRef,
+  gitSha: deployments.gitSha,
+  gitMessage: deployments.gitMessage,
+  hostname: deployments.hostname,
+  port: deployments.port,
+  imageTag: deployments.imageTag,
+  containerId: deployments.containerId,
+  imageSizeBytes: deployments.imageSizeBytes,
+  buildDurationMs: deployments.buildDurationMs,
+  error: deployments.error,
+  createdAt: deployments.createdAt,
+  startedAt: deployments.startedAt,
+  readyAt: deployments.readyAt,
+  stoppedAt: deployments.stoppedAt,
+} as const;
+
+const SORT_COLUMNS: Record<ForgeDeploymentSort, Column> = {
+  createdAt: deployments.createdAt,
+  projectSlug: projects.slug,
+  status: deployments.status,
+  buildDurationMs: deployments.buildDurationMs,
+  imageSizeBytes: deployments.imageSizeBytes,
+};
+
+function deploymentFilters(query: ForgeDeploymentQuery): SQL | undefined {
+  const clauses: SQL[] = [];
+  if (query.status.length > 0) {
+    clauses.push(inArray(deployments.status, query.status));
+  }
+  if (query.project) clauses.push(eq(projects.slug, query.project));
+  if (query.search) {
+    const pattern = `%${query.search}%`;
+    // A `?` in `or()` is only undefined when every branch is, which cannot
+    // happen here — but the type does not know that.
+    const matched = or(
+      ilike(deployments.gitSha, pattern),
+      ilike(deployments.gitMessage, pattern),
+      ilike(deployments.hostname, pattern),
+    );
+    if (matched) clauses.push(matched);
+  }
+  return clauses.length === 0 ? undefined : and(...clauses);
+}
+
+function serialize(row: {
+  createdAt: Date;
+  startedAt: Date | null;
+  readyAt: Date | null;
+  stoppedAt: Date | null;
+}) {
+  return {
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    startedAt: row.startedAt?.toISOString() ?? null,
+    readyAt: row.readyAt?.toISOString() ?? null,
+    stoppedAt: row.stoppedAt?.toISOString() ?? null,
+  };
+}
 
 export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
   const app = new Hono<{ Variables: AuthVariables }>();
@@ -63,48 +143,89 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
   });
 
   app.get("/deployments", async (context) => {
-    const query = deploymentQuerySchema.parse({
+    const query = forgeDeploymentQuerySchema.parse({
       limit: context.req.query("limit"),
+      offset: context.req.query("offset"),
+      sort: context.req.query("sort"),
+      direction: context.req.query("direction"),
+      status: context.req.queries("status") ?? [],
+      project: context.req.query("project") ?? null,
+      search: context.req.query("search") ?? null,
     });
-    const rows = await options.db
-      .select({
-        id: deployments.id,
-        targetId: deployments.targetId,
-        targetName: deployTargets.name,
-        projectId: projects.id,
-        projectSlug: projects.slug,
-        kind: deployments.kind,
-        status: deployments.status,
-        phase: deployments.phase,
-        gitRef: deployments.gitRef,
-        gitSha: deployments.gitSha,
-        gitMessage: deployments.gitMessage,
-        hostname: deployments.hostname,
-        port: deployments.port,
-        imageTag: deployments.imageTag,
-        containerId: deployments.containerId,
-        imageSizeBytes: deployments.imageSizeBytes,
-        buildDurationMs: deployments.buildDurationMs,
-        error: deployments.error,
-        createdAt: deployments.createdAt,
-        startedAt: deployments.startedAt,
-        readyAt: deployments.readyAt,
-        stoppedAt: deployments.stoppedAt,
-      })
+    const where = deploymentFilters(query);
+    const order = query.direction === "asc" ? asc : desc;
+    // Ties on a coarse sort key would otherwise page unstably: the same row can
+    // appear on two pages while another never appears at all.
+    const orderBy =
+      query.sort === "createdAt"
+        ? [order(deployments.createdAt), desc(deployments.id)]
+        : [order(SORT_COLUMNS[query.sort]), desc(deployments.createdAt)];
+
+    const [rows, [totals], projectRows] = await Promise.all([
+      options.db
+        .select(DEPLOYMENT_COLUMNS)
+        .from(deployments)
+        .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
+        .innerJoin(projects, eq(projects.id, deployTargets.projectId))
+        .where(where)
+        .orderBy(...orderBy)
+        .limit(query.limit)
+        .offset(query.offset),
+      options.db
+        .select({ value: count() })
+        .from(deployments)
+        .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
+        .innerJoin(projects, eq(projects.id, deployTargets.projectId))
+        .where(where),
+      options.db
+        .selectDistinct({ slug: projects.slug })
+        .from(deployments)
+        .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
+        .innerJoin(projects, eq(projects.id, deployTargets.projectId))
+        .orderBy(asc(projects.slug)),
+    ]);
+
+    return context.json({
+      data: {
+        deployments: rows.map(serialize),
+        total: totals?.value ?? 0,
+        projects: projectRows.map((row) => row.slug),
+      },
+    });
+  });
+
+  app.get("/deployments/:id", async (context) => {
+    const id = z.uuid().safeParse(context.req.param("id"));
+    if (!id.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_DEPLOYMENT_ID",
+            message: "That is not a deployment id",
+          },
+        },
+        400,
+      );
+    }
+    const [row] = await options.db
+      .select(DEPLOYMENT_COLUMNS)
       .from(deployments)
       .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
       .innerJoin(projects, eq(projects.id, deployTargets.projectId))
-      .orderBy(desc(deployments.createdAt))
-      .limit(query.limit);
-    return context.json({
-      data: rows.map((row) => ({
-        ...row,
-        createdAt: row.createdAt.toISOString(),
-        startedAt: row.startedAt?.toISOString() ?? null,
-        readyAt: row.readyAt?.toISOString() ?? null,
-        stoppedAt: row.stoppedAt?.toISOString() ?? null,
-      })),
-    });
+      .where(eq(deployments.id, id.data))
+      .limit(1);
+    if (!row) {
+      return context.json(
+        {
+          error: {
+            code: "DEPLOYMENT_NOT_FOUND",
+            message: "No deployment with that id",
+          },
+        },
+        404,
+      );
+    }
+    return context.json({ data: serialize(row) });
   });
 
   app.get("/containers/:id/logs", async (context) =>
