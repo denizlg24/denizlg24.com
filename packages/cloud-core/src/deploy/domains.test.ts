@@ -86,6 +86,16 @@ describe("planRouting", () => {
     ]);
   });
 
+  it("serves a domain whose redirect destination is unavailable", () => {
+    const routing = planRouting(production, [
+      { hostname: "www.denizlg24.com", redirectTo: "missing.denizlg24.com" },
+      { hostname: "denizlg24.com", redirectTo: null },
+    ]);
+
+    expect(routing.serve).toContain("www.denizlg24.com");
+    expect(routing.redirects).toEqual([]);
+  });
+
   it("always serves the deployment's own hostname", () => {
     // It is the only name that exists before any domain is attached, and it is
     // what the build log links to — redirecting it would break the one URL

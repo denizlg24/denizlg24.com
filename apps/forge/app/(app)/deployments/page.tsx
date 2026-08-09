@@ -26,9 +26,9 @@ import { api, errorMessage } from "@/lib/api";
 export default function DeploymentsPage() {
   const fetchDeployments = useCallback(() => api.forge.deployments(100), []);
   const { data, error, reload } = usePoll(fetchDeployments, 30_000);
-  const [restarting, setRestarting] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState<Set<string>>(() => new Set());
   const restart = async (id: string) => {
-    setRestarting(id);
+    setRestarting((current) => new Set(current).add(id));
     try {
       await api.forge.restart(id);
       toast.success("Deployment restarted");
@@ -36,7 +36,11 @@ export default function DeploymentsPage() {
     } catch (restartError) {
       toast.error(errorMessage(restartError));
     } finally {
-      setRestarting(null);
+      setRestarting((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
     }
   };
   return (
@@ -142,12 +146,12 @@ export default function DeploymentsPage() {
                         variant="ghost"
                         size="icon"
                         className="size-7"
-                        disabled={restarting === deployment.id}
+                        disabled={restarting.has(deployment.id)}
                         onClick={() => void restart(deployment.id)}
                         aria-label="Restart deployment"
                       >
                         <RotateCw
-                          className={`size-3.5 ${restarting === deployment.id ? "animate-spin" : ""}`}
+                          className={`size-3.5 ${restarting.has(deployment.id) ? "animate-spin" : ""}`}
                         />
                       </Button>
                     ) : null}

@@ -1,4 +1,5 @@
 import { requiredEnv } from "@repo/cloud-core";
+import { DEFAULT_LISTEN } from "./caddy";
 
 export interface AgentConfig {
   bindAddress: string;
@@ -154,7 +155,7 @@ export function agentConfigFromEnv(): AgentConfig {
     dockerDataRoot: absolutePathEnv("DOCKER_DATA_ROOT", "/var/lib/docker"),
     dockerNetwork: dockerNetworkEnv(),
     caddyAdminUrl: caddyAdminUrlEnv(),
-    caddyListen: process.env.CADDY_LISTEN ?? "127.0.0.1:8080",
+    caddyListen: process.env.CADDY_LISTEN?.trim() || DEFAULT_LISTEN,
     caddyStatePath: absolutePathEnv(
       "CADDY_STATE_PATH",
       "/srv/forge/caddy/config.json",

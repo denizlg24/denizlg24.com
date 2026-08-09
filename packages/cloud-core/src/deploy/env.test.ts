@@ -66,11 +66,12 @@ describe("defaultDeployEnvBindings", () => {
     expect(
       defaultDeployEnvBindings({
         postgres: true,
-        mongodb: false,
+        mongodb: true,
         redis: true,
       }),
     ).toEqual([
       { key: "DATABASE_URL", reference: "database.postgres.url" },
+      { key: "MONGODB_URI", reference: "database.mongodb.url" },
       { key: "REDIS_URL", reference: "database.redis.url" },
     ]);
   });

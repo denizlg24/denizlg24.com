@@ -162,17 +162,26 @@ function LoginForm() {
           authClient={authClient}
           password={password}
           onVerified={(codes) => {
+            setPassword("");
             setBackupCodes(codes);
             setStep("backup-codes");
           }}
           onFailed={(message) => {
+            setPassword("");
             setStep("credentials");
             setError(message);
           }}
         />
       ) : null}
       {step === "backup-codes" ? (
-        <BackupCodes codes={backupCodes} onContinue={() => void finish()} />
+        <BackupCodes
+          codes={backupCodes}
+          busy={busy}
+          onContinue={() => {
+            setBusy(true);
+            void finish().finally(() => setBusy(false));
+          }}
+        />
       ) : null}
     </AuthShell>
   );

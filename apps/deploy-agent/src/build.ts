@@ -136,7 +136,15 @@ async function isPythonWorkspace(workingDirectory: string): Promise<boolean> {
 }
 
 function pythonInstallCommand(command: string): string {
-  if (command.includes("/opt/venv") || command.includes("python -m venv")) {
+  const createsOptVenv =
+    /python(?:3(?:\.\d+)?)?\s+-m\s+venv(?:\s+--\S+)*\s+\/opt\/venv/.test(
+      command,
+    );
+  const activatesOptVenv =
+    /(?:^|[;&|]\s*)(?:source|\.)\s+\/opt\/venv\/bin\/activate(?:\s|$)/.test(
+      command,
+    );
+  if (createsOptVenv && activatesOptVenv) {
     return command;
   }
   // A CLI install override replaces Nixpacks' whole Python install phase,

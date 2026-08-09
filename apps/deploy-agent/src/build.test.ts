@@ -292,9 +292,10 @@ describe("runBuild", () => {
       const command = exec.find("nixpacks build")?.command ?? [];
       expect(command).toContain("--config");
       expect(command).toContain("apps/classifier/nixpacks.toml");
-      expect(command.join(" ")).toContain("python -m venv --copies /opt/venv");
-      expect(command.join(" ")).toContain(
-        "cd apps/classifier && pip install .",
+      const installIndex = command.indexOf("--install-cmd");
+      expect(installIndex).toBeGreaterThanOrEqual(0);
+      expect(command[installIndex + 1]).toBe(
+        "python -m venv --copies /opt/venv && . /opt/venv/bin/activate && cd apps/classifier && pip install .",
       );
     });
   });

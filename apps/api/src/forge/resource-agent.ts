@@ -63,7 +63,26 @@ export class ResourceAgentClient {
     if (!response.ok) {
       throw new Error(`Resource agent returned ${response.status}`);
     }
-    const snapshot = forgeResourceSnapshotSchema.parse(await response.json());
+    const raw: unknown = JSON.parse(await response.text());
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+      throw new Error("Resource agent returned an invalid response");
+    }
+    const payload = raw as Record<string, unknown>;
+    const signature = payload.signature;
+    if (typeof signature !== "string") {
+      throw new Error("Resource agent response signature is invalid");
+    }
+    // Verify the raw parsed object before Zod strips unknown keys or imposes
+    // schema key order. Overwriting an existing property retains its original
+    // insertion position, reproducing Go's compact JSON with an empty value.
+    const expected = signatureFor(
+      this.#key,
+      JSON.stringify({ ...payload, signature: "" }),
+    );
+    if (!equalHex(signature, expected)) {
+      throw new Error("Resource agent response signature is invalid");
+    }
+    const snapshot = forgeResourceSnapshotSchema.parse(payload);
     if (snapshot.nodeId !== this.#nodeId) {
       throw new Error("Resource agent returned the wrong node ID");
     }
@@ -72,16 +91,6 @@ export class ResourceAgentClient {
       throw new Error("Resource agent returned a stale response");
     }
 
-    // Go marshals the response once with an empty signature, signs those exact
-    // bytes, then marshals it again. Parsed object key order is retained by
-    // JSON.stringify, so restoring the empty field reproduces the signed body.
-    const expected = signatureFor(
-      this.#key,
-      JSON.stringify({ ...snapshot, signature: "" }),
-    );
-    if (!equalHex(snapshot.signature, expected)) {
-      throw new Error("Resource agent response signature is invalid");
-    }
     return snapshot;
   }
 }

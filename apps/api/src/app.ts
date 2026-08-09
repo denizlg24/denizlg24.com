@@ -211,6 +211,11 @@ export function createCloudApiApp(options: CloudApiOptions) {
       };
     },
   });
+  const guardSuperuser = (prefix: string) => {
+    for (const path of [prefix, `${prefix}/*`]) {
+      app.use(path, authenticate, requireSession(), requireRole("superuser"));
+    }
+  };
 
   app.use(
     "/api/*",
@@ -701,35 +706,13 @@ export function createCloudApiApp(options: CloudApiOptions) {
     app.use("/api/projects/*", authenticate);
     app.route("/api/projects", options.platform.projects);
 
-    app.use(
-      "/api/db",
-      authenticate,
-      requireSession(),
-      requireRole("superuser"),
-    );
-    app.use(
-      "/api/db/*",
-      authenticate,
-      requireSession(),
-      requireRole("superuser"),
-    );
+    guardSuperuser("/api/db");
     app.route("/api/db/postgres", options.platform.postgres);
     app.route("/api/db/mongodb", options.platform.mongodb);
   }
 
   if (options.ops) {
-    app.use(
-      "/api/ops",
-      authenticate,
-      requireSession(),
-      requireRole("superuser"),
-    );
-    app.use(
-      "/api/ops/*",
-      authenticate,
-      requireSession(),
-      requireRole("superuser"),
-    );
+    guardSuperuser("/api/ops");
     app.route("/api/ops/tools", toolsProxyRoutes(options.opsTools ?? {}));
     app.route("/api/ops", options.ops);
   }
@@ -749,18 +732,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
   }
 
   if (options.forge) {
-    app.use(
-      "/api/forge",
-      authenticate,
-      requireSession(),
-      requireRole("superuser"),
-    );
-    app.use(
-      "/api/forge/*",
-      authenticate,
-      requireSession(),
-      requireRole("superuser"),
-    );
+    guardSuperuser("/api/forge");
     app.route("/api/forge", options.forge);
   }
 

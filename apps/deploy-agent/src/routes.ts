@@ -10,6 +10,7 @@ import { streamSSE } from "hono/streaming";
 import { requireAgentToken } from "./auth";
 import type { BuildLogStore } from "./build-log";
 import type { CaddyRouteEntry } from "./caddy";
+import { ForgeContainerNotFoundError } from "./docker";
 import type { HealthService } from "./health";
 import { type DeploymentQueue, QueueAtCapacityError } from "./queue";
 import type { RestartResult, TeardownResult } from "./run";
@@ -145,13 +146,30 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
   guarded.get("/containers/:id/logs", async (context) => {
     const requestedTail = Number(context.req.query("tail") ?? 500);
     const tail = Number.isInteger(requestedTail) ? requestedTail : 500;
+    const controller = new AbortController();
+    const requestSignal = context.req.raw.signal;
+    const abort = () => controller.abort();
+    if (requestSignal.aborted) abort();
+    else requestSignal.addEventListener("abort", abort, { once: true });
     let lines: AsyncGenerator<string>;
     try {
       lines = await options.telemetry.logs(context.req.param("id"), {
         tail,
-        signal: context.req.raw.signal,
+        signal: controller.signal,
       });
-    } catch {
+    } catch (error) {
+      requestSignal.removeEventListener("abort", abort);
+      if (!(error instanceof ForgeContainerNotFoundError)) {
+        return context.json(
+          {
+            error: {
+              code: "DOCKER_UNAVAILABLE",
+              message: "Could not open the Forge container log stream",
+            },
+          },
+          502,
+        );
+      }
       return context.json(
         {
           error: {
@@ -163,11 +181,17 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
       );
     }
     return streamSSE(context, async (stream) => {
-      for await (const line of lines) {
-        await stream.writeSSE({ event: "log", data: line });
-      }
-      if (!context.req.raw.signal.aborted) {
-        await stream.writeSSE({ event: "end", data: "" });
+      stream.onAbort(abort);
+      try {
+        for await (const line of lines) {
+          await stream.writeSSE({ event: "log", data: line });
+        }
+        if (!controller.signal.aborted) {
+          await stream.writeSSE({ event: "end", data: "" });
+        }
+      } finally {
+        controller.abort();
+        requestSignal.removeEventListener("abort", abort);
       }
     });
   });

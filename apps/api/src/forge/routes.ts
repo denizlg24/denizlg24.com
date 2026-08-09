@@ -118,13 +118,17 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
     const upstream = await options.monitor.restartDeployment(
       context.req.param("id"),
     );
-    const body = await upstream.json().catch(() => null);
+    const body = (await upstream.json().catch(() => null)) as {
+      error?: string;
+    } | null;
     if (!upstream.ok) {
       return context.json(
         {
           error: {
             code: "AGENT_RESTART_FAILED",
-            message: `Forge agent refused the restart (${upstream.status})`,
+            message:
+              body?.error ??
+              `Forge agent refused the restart (${upstream.status})`,
           },
         },
         502,

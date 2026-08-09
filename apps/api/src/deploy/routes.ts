@@ -1782,11 +1782,6 @@ export function deployRoutes(options: DeployRouteOptions) {
 
   // ---- Domains -------------------------------------------------------------
 
-  /** Serialize the row returned by a mutation without a second database read. */
-  async function serializeDomainInTarget(row: DeployDomainRow) {
-    return serializeDomain(row);
-  }
-
   owner.get("/targets/:id/domains", async (context) => {
     try {
       const target = await loadTarget(context.req.param("id"));
@@ -1820,10 +1815,7 @@ export function deployRoutes(options: DeployRouteOptions) {
       // nothing to publish yet and the verification task does it later.
       if (created.status === "active")
         await forge.republishTargetRoutes(target.id);
-      return context.json(
-        { data: await serializeDomainInTarget(created) },
-        201,
-      );
+      return context.json({ data: serializeDomain(created) }, 201);
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1851,7 +1843,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         // Both names route until the grace period expires, which is the whole
         // point of add-swap-remove — the old links keep working.
         await forge.republishTargetRoutes(row.targetId);
-        return context.json({ data: await serializeDomainInTarget(created) });
+        return context.json({ data: serializeDomain(created) });
       }
       if (parsed.data.redirectTo !== undefined) {
         const updated = await setDeployDomainRedirect(
@@ -1860,11 +1852,11 @@ export function deployRoutes(options: DeployRouteOptions) {
           parsed.data.redirectTo,
         );
         await forge.republishTargetRoutes(row.targetId);
-        return context.json({ data: await serializeDomainInTarget(updated) });
+        return context.json({ data: serializeDomain(updated) });
       }
       const updated = await setPrimaryDeployDomain(domainContext, row);
       await forge.republishTargetRoutes(row.targetId);
-      return context.json({ data: await serializeDomainInTarget(updated) });
+      return context.json({ data: serializeDomain(updated) });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1890,7 +1882,7 @@ export function deployRoutes(options: DeployRouteOptions) {
       if (refreshed.status === "active" && row.status !== "active") {
         await forge.republishTargetRoutes(refreshed.targetId);
       }
-      return context.json({ data: await serializeDomainInTarget(refreshed) });
+      return context.json({ data: serializeDomain(refreshed) });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);

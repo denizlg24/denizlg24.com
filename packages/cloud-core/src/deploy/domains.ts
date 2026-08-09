@@ -373,61 +373,79 @@ export async function setDeployDomainRedirect(
   row: DeployDomainRow,
   redirectTo: string | null,
 ): Promise<DeployDomainRow> {
-  if (row.status !== "active" || row.retiredAt !== null) {
-    throw new ValidationError(
-      `${row.hostname} is not active`,
-      "DOMAIN_NOT_ACTIVE",
-    );
-  }
-  if (redirectTo === row.hostname) {
-    throw new ValidationError(
-      "A domain cannot redirect to itself",
-      "INVALID_DOMAIN_REDIRECT",
-    );
-  }
-
-  if (redirectTo !== null) {
-    const destination = await context.db.query.deployDomains.findFirst({
-      where: and(
-        eq(deployDomains.targetId, row.targetId),
-        eq(deployDomains.hostname, redirectTo),
-        eq(deployDomains.status, "active"),
-        isNull(deployDomains.retiredAt),
-      ),
+  return context.db.transaction(async (tx) => {
+    // Every redirect mutation for a target locks the same rows before reading
+    // them. Concurrent retargets therefore validate against committed state
+    // instead of each independently creating a chain or cycle.
+    await tx.execute(sql`
+      SELECT ${deployDomains.id}
+      FROM ${deployDomains}
+      WHERE ${deployDomains.targetId} = ${row.targetId}
+      ORDER BY ${deployDomains.id}
+      FOR UPDATE
+    `);
+    const current = await tx.query.deployDomains.findFirst({
+      where: eq(deployDomains.id, row.id),
     });
-    if (!destination) {
+    if (!current) {
+      throw new NotFoundError("Domain not found", "DOMAIN_NOT_FOUND");
+    }
+    if (current.status !== "active" || current.retiredAt !== null) {
       throw new ValidationError(
-        "Redirect target must be an active domain on this deployment",
+        `${current.hostname} is not active`,
+        "DOMAIN_NOT_ACTIVE",
+      );
+    }
+    if (redirectTo === current.hostname) {
+      throw new ValidationError(
+        "A domain cannot redirect to itself",
         "INVALID_DOMAIN_REDIRECT",
       );
     }
-    if (destination.redirectTo !== null) {
-      throw new ValidationError(
-        "Redirect target must serve the deployment directly",
-        "INVALID_DOMAIN_REDIRECT",
-      );
-    }
-    const inbound = await context.db.query.deployDomains.findFirst({
-      where: and(
-        eq(deployDomains.targetId, row.targetId),
-        eq(deployDomains.redirectTo, row.hostname),
-        ne(deployDomains.id, row.id),
-      ),
-    });
-    if (inbound) {
-      throw new ValidationError(
-        `${row.hostname} is already a redirect destination`,
-        "INVALID_DOMAIN_REDIRECT",
-      );
-    }
-  }
 
-  const [updated] = await context.db
-    .update(deployDomains)
-    .set({ redirectTo, ...(redirectTo === null ? {} : { isPrimary: false }) })
-    .where(eq(deployDomains.id, row.id))
-    .returning();
-  return updated ?? row;
+    if (redirectTo !== null) {
+      const destination = await tx.query.deployDomains.findFirst({
+        where: and(
+          eq(deployDomains.targetId, current.targetId),
+          eq(deployDomains.hostname, redirectTo),
+          eq(deployDomains.status, "active"),
+          isNull(deployDomains.retiredAt),
+        ),
+      });
+      if (!destination) {
+        throw new ValidationError(
+          "Redirect target must be an active domain on this deployment",
+          "INVALID_DOMAIN_REDIRECT",
+        );
+      }
+      if (destination.redirectTo !== null) {
+        throw new ValidationError(
+          "Redirect target must serve the deployment directly",
+          "INVALID_DOMAIN_REDIRECT",
+        );
+      }
+      const inbound = await tx.query.deployDomains.findFirst({
+        where: and(
+          eq(deployDomains.targetId, current.targetId),
+          eq(deployDomains.redirectTo, current.hostname),
+          ne(deployDomains.id, current.id),
+        ),
+      });
+      if (inbound) {
+        throw new ValidationError(
+          `${current.hostname} is already a redirect destination`,
+          "INVALID_DOMAIN_REDIRECT",
+        );
+      }
+    }
+
+    const [updated] = await tx
+      .update(deployDomains)
+      .set({ redirectTo, ...(redirectTo === null ? {} : { isPrimary: false }) })
+      .where(eq(deployDomains.id, current.id))
+      .returning();
+    return updated ?? current;
+  });
 }
 
 export async function loadDeployDomain(

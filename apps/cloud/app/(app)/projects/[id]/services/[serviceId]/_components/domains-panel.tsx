@@ -194,9 +194,10 @@ export function DomainsPanel({
           const redirectTargets = (data ?? []).filter(
             (candidate) =>
               candidate.id !== domain.id &&
-              candidate.status === "active" &&
               candidate.retiredAt === null &&
-              candidate.role !== "redirects",
+              candidate.role !== "redirects" &&
+              (candidate.status === "active" ||
+                candidate.hostname === domain.redirectsTo),
           );
           return (
             <div
@@ -247,7 +248,7 @@ export function DomainsPanel({
                         className="h-8 w-[15rem] font-mono text-xs"
                         aria-label={`Routing for ${domain.hostname}`}
                       >
-                        <SelectValue />
+                        <SelectValue placeholder="Select routing" />
                       </SelectTrigger>
                       <SelectContent align="end">
                         <SelectItem value={SERVE_DEPLOYMENT}>

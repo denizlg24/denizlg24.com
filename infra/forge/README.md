@@ -8,7 +8,8 @@ agent, or the resource agent directly on the server's public interface.
 ```text
 forge-server.denizlg24.com -> cloudflared -> 127.0.0.1:<resource-agent-port>
 *.denizlg24.com            -> cloudflared -> 127.0.0.1:8080 (Caddy)
-api.denizlg24.com          -> Tailscale -> 100.114.10.73:4010 (deploy-agent)
+Cloud API (DEPLOY_AGENT_URL) -> Tailscale -> 100.114.10.73:4010 (deploy-agent)
+deploy-agent (CONTROL_PLANE_URL) -> https://api.denizlg24.com
 ```
 
 The resource-agent route is public but HMAC-authenticated. The deploy agent is

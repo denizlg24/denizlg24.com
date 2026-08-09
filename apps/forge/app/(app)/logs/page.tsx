@@ -45,22 +45,27 @@ function LogViewer() {
           })),
     [deployments, mode, overview],
   );
+  const sourceLoaded =
+    mode === "runtime" ? overview !== null : deployments !== null;
+  const selectedSourceExists = options.some(
+    (option) => option.id === selectedId,
+  );
 
   useEffect(() => {
-    const sourceLoaded =
-      mode === "runtime" ? overview !== null : deployments !== null;
     if (!sourceLoaded) return;
     if (!selectedId || !options.some((option) => option.id === selectedId)) {
       setSelectedId(options[0]?.id ?? "");
     }
-  }, [deployments, mode, options, overview, selectedId]);
+  }, [options, selectedId, sourceLoaded]);
 
   useEffect(() => {
+    if (!sourceLoaded) return;
     if (!selectedId) {
       setLines([]);
       setStatus("idle");
       return;
     }
+    if (!selectedSourceExists) return;
     const controller = new AbortController();
     setLines([]);
     setError(null);
@@ -86,7 +91,7 @@ function LogViewer() {
         setError(errorMessage(streamError));
       });
     return () => controller.abort();
-  }, [mode, selectedId]);
+  }, [mode, selectedId, selectedSourceExists, sourceLoaded]);
 
   useEffect(() => {
     tail.current?.scrollIntoView({ block: "end" });

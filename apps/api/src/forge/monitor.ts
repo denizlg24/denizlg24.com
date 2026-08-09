@@ -1,4 +1,5 @@
 import {
+  CloudCoreError,
   type Database,
   insertMetricSamples,
   type MetricSampleInput,
@@ -13,6 +14,17 @@ import type { DeployAgentProxy } from "../deploy/proxy";
 import type { ResourceAgentClient } from "./resource-agent";
 
 const SAMPLE_INTERVAL_MS = 30_000;
+
+export class ForgeAgentUnavailableError extends CloudCoreError {
+  readonly status = 503;
+
+  constructor() {
+    super(
+      "The Forge deploy agent is not configured",
+      "FORGE_AGENT_UNAVAILABLE",
+    );
+  }
+}
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -33,6 +45,10 @@ export class ForgeMonitor {
   #timer: ReturnType<typeof setInterval> | null = null;
   #running: Promise<ForgeOverview> | null = null;
   #latest: ForgeOverview | null = null;
+  readonly #networkTotals = new Map<
+    string,
+    { at: number; rxBytes: number; txBytes: number }
+  >();
 
   constructor(options: ForgeMonitorOptions) {
     this.#options = options;
@@ -74,7 +90,7 @@ export class ForgeMonitor {
 
   runtimeLogs(containerId: string, signal?: AbortSignal): Promise<Response> {
     if (!this.#options.deployAgent) {
-      throw new Error("The Forge deploy agent is not configured");
+      throw new ForgeAgentUnavailableError();
     }
     return this.#options.deployAgent.stream(
       `/containers/${encodeURIComponent(containerId)}/logs`,
@@ -84,7 +100,7 @@ export class ForgeMonitor {
 
   restartDeployment(deploymentId: string): Promise<Response> {
     if (!this.#options.deployAgent) {
-      throw new Error("The Forge deploy agent is not configured");
+      throw new ForgeAgentUnavailableError();
     }
     return this.#options.deployAgent.post(
       `/deployments/${encodeURIComponent(deploymentId)}/restart`,
@@ -133,10 +149,12 @@ export class ForgeMonitor {
       },
     };
     const samples = this.#metricSamples(timestamp, overview);
-    if (samples.length > 0) {
-      await insertMetricSamples(this.#options.db, samples);
-    }
     this.#latest = overview;
+    if (samples.length > 0) {
+      await insertMetricSamples(this.#options.db, samples).catch((error) => {
+        console.error("[forge-metrics] Sample persistence failed", error);
+      });
+    }
     return overview;
   }
 
@@ -192,6 +210,7 @@ export class ForgeMonitor {
 
     const agent = overview.agent;
     if (agent) {
+      const seenNetworkKeys = new Set<string>();
       if (agent.health.disk.usedPercent !== null) {
         samples.push({
           ts,
@@ -203,6 +222,7 @@ export class ForgeMonitor {
       for (const container of agent.containers) {
         if (!container.metrics) continue;
         const key = container.deploymentId ?? container.id.slice(0, 12);
+        seenNetworkKeys.add(key);
         samples.push(
           {
             ts,
@@ -222,19 +242,43 @@ export class ForgeMonitor {
             key: `${key}:memory.bytes`,
             value: container.metrics.memoryBytes,
           },
-          {
-            ts,
-            kind: "forge-container",
-            key: `${key}:network.rx_bytes`,
-            value: container.metrics.networkRxBytes,
-          },
-          {
-            ts,
-            kind: "forge-container",
-            key: `${key}:network.tx_bytes`,
-            value: container.metrics.networkTxBytes,
-          },
         );
+        const previous = this.#networkTotals.get(key);
+        const current = {
+          at: ts.getTime(),
+          rxBytes: container.metrics.networkRxBytes,
+          txBytes: container.metrics.networkTxBytes,
+        };
+        this.#networkTotals.set(key, current);
+        const elapsedSeconds = previous
+          ? (current.at - previous.at) / 1_000
+          : 0;
+        if (
+          previous &&
+          elapsedSeconds > 0 &&
+          current.rxBytes >= previous.rxBytes &&
+          current.txBytes >= previous.txBytes
+        ) {
+          samples.push(
+            {
+              ts,
+              kind: "forge-container",
+              key: `${key}:network.rx_bytes_per_second`,
+              value: (current.rxBytes - previous.rxBytes) / elapsedSeconds,
+              intervalSeconds: elapsedSeconds,
+            },
+            {
+              ts,
+              kind: "forge-container",
+              key: `${key}:network.tx_bytes_per_second`,
+              value: (current.txBytes - previous.txBytes) / elapsedSeconds,
+              intervalSeconds: elapsedSeconds,
+            },
+          );
+        }
+      }
+      for (const key of this.#networkTotals.keys()) {
+        if (!seenNetworkKeys.has(key)) this.#networkTotals.delete(key);
       }
     }
     return samples;

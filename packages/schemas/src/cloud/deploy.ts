@@ -466,6 +466,23 @@ const agentDomainRedirectSchema = z.object({
   to: hostnameSchema,
 });
 
+interface RedirectCompatibilityInput {
+  redirects?: { hostname: string; to: string }[];
+  redirectHostnames?: string[];
+  canonical?: string | null;
+}
+
+function resolveRedirects(value: RedirectCompatibilityInput) {
+  if (value.redirects !== undefined) return value.redirects;
+  const canonical = value.canonical;
+  return canonical
+    ? (value.redirectHostnames ?? []).map((hostname) => ({
+        hostname,
+        to: canonical,
+      }))
+    : [];
+}
+
 export const agentPromoteRequestSchema = z
   .object({
     hostnames: z.array(hostnameSchema).min(1).max(64),
@@ -488,14 +505,7 @@ export const agentPromoteRequestSchema = z
       });
       return;
     }
-    const redirects =
-      value.redirects ??
-      (value.canonical
-        ? (value.redirectHostnames ?? []).map((hostname) => ({
-            hostname,
-            to: value.canonical as string,
-          }))
-        : []);
+    const redirects = resolveRedirects(value);
     if (redirects.some((entry) => entry.hostname === entry.to)) {
       context.addIssue({
         code: "custom",
@@ -533,14 +543,7 @@ export const agentPromoteRequestSchema = z
   })
   .transform((value) => ({
     hostnames: value.hostnames,
-    redirects:
-      value.redirects ??
-      (value.canonical
-        ? (value.redirectHostnames ?? []).map((hostname) => ({
-            hostname,
-            to: value.canonical as string,
-          }))
-        : []),
+    redirects: resolveRedirects(value),
   }));
 export type AgentPromoteRequest = z.infer<typeof agentPromoteRequestSchema>;
 
@@ -865,6 +868,13 @@ export const updateDeployDomainInputSchema = z
       value.isPrimary !== undefined ||
       value.redirectTo !== undefined,
     "Nothing to update",
+  )
+  .refine(
+    (value) => value.isPrimary === undefined || value.redirectTo === undefined,
+    {
+      message: "Choose either a primary domain or a redirect, not both",
+      path: ["redirectTo"],
+    },
   );
 export type UpdateDeployDomainInput = z.infer<
   typeof updateDeployDomainInputSchema

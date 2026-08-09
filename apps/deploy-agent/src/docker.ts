@@ -53,6 +53,13 @@ export interface DockerClientOptions {
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_LOG_FRAME_BYTES = 16 * 1024 * 1024;
 
+export class ForgeContainerNotFoundError extends Error {
+  constructor() {
+    super("Forge container was not found");
+    this.name = "ForgeContainerNotFoundError";
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -131,6 +138,7 @@ async function* dockerLogPayloads(
       }
     }
   } finally {
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
   if (pending.byteLength > 0) {
@@ -233,7 +241,10 @@ export class DockerClient {
         : [];
       const labels = isRecord(value.Labels) ? value.Labels : {};
       const status = stringAt(value, "Status") ?? "unknown";
-      const health = status.match(/\((?:health:\s*)?([^)]+)\)/)?.[1] ?? null;
+      const health =
+        status
+          .match(/\((?:health:\s*)?(healthy|unhealthy|starting)\)\s*$/i)?.[1]
+          ?.toLowerCase() ?? null;
       const created = numberAt(value, "Created");
       return [
         {
@@ -258,15 +269,19 @@ export class DockerClient {
     reference: string,
   ): Promise<ForgeDockerContainer> {
     const containers = await this.listForgeContainers();
-    const container = containers.find(
+    const exact = containers.find(
       (candidate) =>
         candidate.id === reference ||
-        candidate.id.startsWith(reference) ||
         candidate.name === reference ||
         candidate.deploymentId === reference,
     );
-    if (!container) throw new Error("Forge container was not found");
-    return container;
+    if (exact) return exact;
+    const prefix =
+      reference.length >= 12
+        ? containers.find((candidate) => candidate.id.startsWith(reference))
+        : undefined;
+    if (!prefix) throw new ForgeContainerNotFoundError();
+    return prefix;
   }
 
   async forgeContainerStats(
@@ -314,9 +329,10 @@ export class DockerClient {
       networkTxBytes += numberAt(network, "tx_bytes");
     }
 
-    const blockEntries = recordAt(payload, "blkio_stats")[
-      "io_service_bytes_recursive"
-    ];
+    const blockEntries = recordAt(
+      payload,
+      "blkio_stats",
+    ).io_service_bytes_recursive;
     let blockReadBytes = 0;
     let blockWriteBytes = 0;
     if (Array.isArray(blockEntries)) {

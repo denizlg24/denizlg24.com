@@ -86,14 +86,12 @@ async function streamSse(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let pending = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    pending += decoder.decode(value, { stream: true });
+  const drain = (final: boolean) => {
     let boundary = pending.indexOf("\n\n");
-    while (boundary >= 0) {
-      const event = pending.slice(0, boundary);
-      pending = pending.slice(boundary + 2);
+    while (boundary >= 0 || (final && pending.length > 0)) {
+      const end = boundary >= 0 ? boundary : pending.length;
+      const event = pending.slice(0, end);
+      pending = boundary >= 0 ? pending.slice(boundary + 2) : "";
       const lines = event
         .split("\n")
         .filter((line) => line.startsWith("data:"))
@@ -101,6 +99,16 @@ async function streamSse(
       if (lines.length > 0) onLine(lines.join("\n"));
       boundary = pending.indexOf("\n\n");
     }
+  };
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      pending += decoder.decode();
+      drain(true);
+      break;
+    }
+    pending += decoder.decode(value, { stream: true });
+    drain(false);
   }
 }
 
@@ -128,10 +136,14 @@ export const api = {
         query: { ...query, series: query.series.join(",") },
       }),
     restart: (deploymentId: string): Promise<unknown> =>
-      data(z.unknown(), `/api/forge/deployments/${deploymentId}/restart`, {
-        method: "POST",
-        timeoutMs: 120_000,
-      }),
+      data(
+        z.unknown(),
+        `/api/forge/deployments/${encodeURIComponent(deploymentId)}/restart`,
+        {
+          method: "POST",
+          timeoutMs: 120_000,
+        },
+      ),
     streamLogs: async (
       containerId: string,
       onLine: (line: string) => void,

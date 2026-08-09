@@ -25,11 +25,11 @@ import { api, errorMessage } from "@/lib/api";
 
 export default function ContainersPage() {
   const { data, error, reload } = usePoll(api.forge.overview, 15_000);
-  const [restarting, setRestarting] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState<Set<string>>(() => new Set());
   const containers = data?.agent?.containers ?? [];
 
   const restart = async (deploymentId: string) => {
-    setRestarting(deploymentId);
+    setRestarting((current) => new Set(current).add(deploymentId));
     try {
       await api.forge.restart(deploymentId);
       toast.success("Container restarted");
@@ -37,7 +37,11 @@ export default function ContainersPage() {
     } catch (restartError) {
       toast.error(errorMessage(restartError));
     } finally {
-      setRestarting(null);
+      setRestarting((current) => {
+        const next = new Set(current);
+        next.delete(deploymentId);
+        return next;
+      });
     }
   };
 
@@ -136,12 +140,12 @@ export default function ContainersPage() {
                         variant="ghost"
                         size="icon"
                         className="size-7"
-                        disabled={restarting === container.deploymentId}
+                        disabled={restarting.has(container.deploymentId)}
                         onClick={() => void restart(container.deploymentId!)}
                         aria-label={`Restart ${container.name}`}
                       >
                         <RotateCw
-                          className={`size-3.5 ${restarting === container.deploymentId ? "animate-spin" : ""}`}
+                          className={`size-3.5 ${restarting.has(container.deploymentId) ? "animate-spin" : ""}`}
                         />
                       </Button>
                     ) : null}

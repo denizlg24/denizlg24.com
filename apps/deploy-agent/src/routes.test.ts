@@ -6,6 +6,7 @@ import type { AgentGcRequest, AgentHealth } from "@repo/schemas/cloud";
 
 import { BuildLogStore } from "./build-log";
 import type { CaddyRouteEntry } from "./caddy";
+import { ForgeContainerNotFoundError } from "./docker";
 import { deploymentRequest } from "./fixtures";
 import type { HealthService } from "./health";
 import { DeploymentQueue } from "./queue";
@@ -55,7 +56,11 @@ function telemetryStub(status: AgentHealth["status"]): ForgeTelemetry {
 }
 
 function app(
-  options: { status?: AgentHealth["status"]; logRoot?: string } = {},
+  options: {
+    status?: AgentHealth["status"];
+    logRoot?: string;
+    telemetry?: ForgeTelemetry;
+  } = {},
 ) {
   const queue = new DeploymentQueue({
     capacity: 1,
@@ -95,7 +100,7 @@ function app(
     instance: createAgentApp({
       token: TOKEN,
       health: healthStub(options.status ?? "ok"),
-      telemetry: telemetryStub(options.status ?? "ok"),
+      telemetry: options.telemetry ?? telemetryStub(options.status ?? "ok"),
       queue,
       logs,
       routes: () => routes,
@@ -322,6 +327,46 @@ describe("GET /containers/:id/logs", () => {
     expect(body).toContain("event: log");
     expect(body).toContain("ready");
     expect(body).toContain("event: end");
+  });
+
+  it("forwards an integer tail and falls back to 500 for invalid input", async () => {
+    const tails: number[] = [];
+    const telemetry = {
+      snapshot: async () => telemetryStub("ok").snapshot(),
+      logs: async (_id: string, options: { tail?: number }) => {
+        tails.push(options.tail ?? -1);
+        return (async function* () {
+          yield "ready";
+        })();
+      },
+    } as unknown as ForgeTelemetry;
+    for (const tail of ["42", "invalid"]) {
+      const response = await app({ telemetry }).instance.request(
+        `/containers/dep-1/logs?tail=${tail}`,
+        { headers: AUTH },
+      );
+      await response.text();
+    }
+    expect(tails).toEqual([42, 500]);
+  });
+
+  it("distinguishes a missing container from a Docker fault", async () => {
+    const telemetry = (error: Error) =>
+      ({
+        snapshot: async () => telemetryStub("ok").snapshot(),
+        logs: async () => {
+          throw error;
+        },
+      }) as unknown as ForgeTelemetry;
+    const missing = await app({
+      telemetry: telemetry(new ForgeContainerNotFoundError()),
+    }).instance.request("/containers/missing/logs", { headers: AUTH });
+    expect(missing.status).toBe(404);
+
+    const unavailable = await app({
+      telemetry: telemetry(new Error("Docker socket closed")),
+    }).instance.request("/containers/dep-1/logs", { headers: AUTH });
+    expect(unavailable.status).toBe(502);
   });
 });
 

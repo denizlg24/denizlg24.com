@@ -34,6 +34,26 @@ function responseBody() {
   return { ...unsigned, signature: sign(JSON.stringify(unsigned)) };
 }
 
+function signedResponse(unsigned: Record<string, unknown>): Response {
+  return new Response(
+    JSON.stringify({
+      ...unsigned,
+      signature: sign(JSON.stringify(unsigned)),
+    }),
+    { headers: { "content-type": "application/json" } },
+  );
+}
+
+function clientFor(response: () => Response, now = NOW) {
+  return new ResourceAgentClient({
+    baseUrl: "https://forge-server.denizlg24.com",
+    nodeId: NODE_ID,
+    secret: SECRET,
+    now: () => now,
+    fetchImplementation: (async () => response()) as unknown as typeof fetch,
+  });
+}
+
 describe("ResourceAgentClient", () => {
   test("authenticates the request and verifies the signed response", async () => {
     let seen: Request | null = null;
@@ -72,5 +92,48 @@ describe("ResourceAgentClient", () => {
         })) as unknown as typeof fetch,
     });
     await expect(client.health()).rejects.toThrow("signature is invalid");
+  });
+
+  test("verifies reordered payloads before stripping unknown fields", async () => {
+    const standard = responseBody();
+    const unsigned = {
+      signature: "",
+      extra: { future: true },
+      services: standard.services,
+      system: standard.system,
+      timestamp: standard.timestamp,
+      status: standard.status,
+      nodeId: standard.nodeId,
+      version: standard.version,
+    };
+    const snapshot = await clientFor(() => signedResponse(unsigned)).health();
+    expect(snapshot.nodeId).toBe(NODE_ID);
+    expect("extra" in snapshot).toBe(false);
+  });
+
+  test("rejects a stale response", async () => {
+    const body = responseBody();
+    const unsigned = {
+      ...body,
+      timestamp: body.timestamp - 61,
+      signature: "",
+    };
+    await expect(
+      clientFor(() => signedResponse(unsigned)).health(),
+    ).rejects.toThrow("stale response");
+  });
+
+  test("rejects a response for another node", async () => {
+    const body = responseBody();
+    const unsigned = { ...body, nodeId: "other", signature: "" };
+    await expect(
+      clientFor(() => signedResponse(unsigned)).health(),
+    ).rejects.toThrow("wrong node ID");
+  });
+
+  test("rejects a non-success response", async () => {
+    await expect(
+      clientFor(() => new Response("unavailable", { status: 503 })).health(),
+    ).rejects.toThrow("returned 503");
   });
 });

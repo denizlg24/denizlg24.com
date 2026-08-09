@@ -159,9 +159,11 @@ export function TotpEnrollment({
 
 export function BackupCodes({
   codes,
+  busy = false,
   onContinue,
 }: {
   codes: string[];
+  busy?: boolean;
   onContinue: () => void;
 }) {
   const { copied, failed, copy } = useCopy(0);
@@ -204,8 +206,8 @@ export function BackupCodes({
         <Button type="button" variant="outline" onClick={download}>
           {downloaded ? "Downloaded" : "Download"}
         </Button>
-        <Button type="button" onClick={onContinue}>
-          Continue
+        <Button type="button" disabled={busy} onClick={onContinue}>
+          {busy ? "Continuing…" : "Continue"}
         </Button>
       </div>
     </div>

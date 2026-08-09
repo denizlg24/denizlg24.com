@@ -3,6 +3,27 @@ import type { ForgeAgentSnapshot, ForgeContainer } from "@repo/schemas/cloud";
 import type { DockerClient, ForgeDockerContainer } from "./docker";
 import type { HealthService } from "./health";
 
+const METRICS_CONCURRENCY = 4;
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  map: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+      while (next < values.length) {
+        const index = next++;
+        const value = values[index];
+        if (value !== undefined) results[index] = await map(value);
+      }
+    }),
+  );
+  return results;
+}
+
 export interface ForgeTelemetryOptions {
   docker: DockerClient;
   health: HealthService;
@@ -25,13 +46,24 @@ export class ForgeTelemetry {
   }
 
   async snapshot(): Promise<ForgeAgentSnapshot> {
-    const [health, containers] = await Promise.all([
-      this.#options.health.check(),
-      this.#options.docker.listForgeContainers(),
-    ]);
+    const healthPromise = this.#options.health.check();
+    const containers = await this.#options.docker
+      .listForgeContainers()
+      .catch(() => null);
+    const health = await healthPromise;
+    if (!containers) {
+      return {
+        timestamp: (this.#options.now?.() ?? new Date()).toISOString(),
+        health,
+        containers: [],
+        images: [],
+      };
+    }
     const [withMetrics, images] = await Promise.all([
-      Promise.all(containers.map((container) => this.#withMetrics(container))),
-      this.#options.docker.listForgeImages(containers),
+      mapWithConcurrency(containers, METRICS_CONCURRENCY, (container) =>
+        this.#withMetrics(container),
+      ),
+      this.#options.docker.listForgeImages(containers).catch(() => []),
     ]);
     return {
       timestamp: (this.#options.now?.() ?? new Date()).toISOString(),

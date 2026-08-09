@@ -27,5 +27,7 @@ COPY --from=build --chown=node:node /workspace/apps/forge/.next/static ./apps/fo
 
 USER node
 EXPOSE 3006
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:3006/',{redirect:'manual'}).then(r=>process.exit(r.status>=200&&r.status<400?0:1)).catch(()=>process.exit(1))"]
 
 CMD ["node", "apps/forge/server.js"]

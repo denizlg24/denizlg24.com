@@ -1,5 +1,5 @@
 export abstract class CloudCoreError extends Error {
-  abstract readonly status: 400 | 401 | 403 | 404 | 409;
+  abstract readonly status: 400 | 401 | 403 | 404 | 409 | 503;
 
   constructor(
     message: string,

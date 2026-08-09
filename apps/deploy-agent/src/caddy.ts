@@ -132,10 +132,12 @@ export function buildCaddyConfig(
       }
       return [
         serve,
-        ...[...byDestination.entries()].map(([destination, aliases]) => ({
-          match: [{ host: [...aliases].sort() }],
-          handle: [redirectHandler(destination)],
-        })),
+        ...[...byDestination.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([destination, aliases]) => ({
+            match: [{ host: [...aliases].sort() }],
+            handle: [redirectHandler(destination)],
+          })),
       ];
     });
 

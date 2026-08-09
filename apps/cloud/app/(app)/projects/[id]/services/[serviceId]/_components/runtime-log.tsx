@@ -19,29 +19,54 @@ export function RuntimeLog({ deployment }: { deployment: Deployment }) {
   const [closed, setClosed] = useState(false);
   const [open, setOpen] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
+  const viewport = useRef<HTMLDivElement>(null);
+  const keepAtBottom = useRef(true);
+  const buffered = useRef<string[]>([]);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (open !== "runtime" || !deployment.containerId) return;
     setLines([]);
     setClosed(false);
     setStreaming(false);
+    keepAtBottom.current = true;
+    buffered.current = [];
     const source = new EventSource(api.deploy.runtimeLogsUrl(deployment.id), {
       withCredentials: true,
     });
     source.onopen = () => setStreaming(true);
     source.onmessage = (event) => {
-      setLines((current) => [...current, event.data].slice(-MAX_LINES));
+      buffered.current.push(event.data);
+      if (buffered.current.length > MAX_LINES) {
+        buffered.current = buffered.current.slice(-MAX_LINES);
+      }
+      if (flushTimer.current !== null) return;
+      flushTimer.current = setTimeout(() => {
+        const batch = buffered.current;
+        buffered.current = [];
+        flushTimer.current = null;
+        if (batch.length > 0) {
+          setLines((current) => [...current, ...batch].slice(-MAX_LINES));
+        }
+      }, 100);
     };
     source.onerror = () => {
       setStreaming(false);
       setClosed(true);
       source.close();
     };
-    return () => source.close();
+    return () => {
+      source.close();
+      if (flushTimer.current !== null) clearTimeout(flushTimer.current);
+      flushTimer.current = null;
+      buffered.current = [];
+    };
   }, [deployment.containerId, deployment.id, open]);
 
   useEffect(() => {
-    if (open === "runtime") bottom.current?.scrollIntoView({ block: "end" });
+    if (open === "runtime" && keepAtBottom.current) {
+      bottom.current?.scrollIntoView({ block: "end" });
+    }
   }, [lines, open]);
 
   if (!deployment.containerId) return null;
@@ -65,7 +90,19 @@ export function RuntimeLog({ deployment }: { deployment: Deployment }) {
           </span>
         </AccordionTrigger>
         <AccordionContent>
-          <div className="max-h-[32rem] overflow-auto rounded bg-zinc-950 p-3 text-zinc-100">
+          <div
+            ref={viewport}
+            className="max-h-[32rem] overflow-auto rounded bg-zinc-950 p-3 text-zinc-100"
+            onScroll={() => {
+              const element = viewport.current;
+              if (!element) return;
+              keepAtBottom.current =
+                element.scrollHeight -
+                  element.scrollTop -
+                  element.clientHeight <
+                24;
+            }}
+          >
             <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed">
               {lines.length > 0
                 ? lines.join("\n")
