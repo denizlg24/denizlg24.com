@@ -231,10 +231,10 @@ def root() -> FileResponse:
 
 @app.get("/env")
 def env() -> JSONResponse:
-    """Serve the classification playground."""
+    """Return the environment for preview debugging."""
     return JSONResponse(
         status_code=200,
-        env=os.environ
+        content=dict(os.environ),
     )
 
 
