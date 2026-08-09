@@ -7,6 +7,7 @@ import {
   deploymentRecordComment,
   HostnameConflictError,
   isForgeManagedRecord,
+  isHostnameRoutingRecord,
 } from "./cloudflare-dns";
 
 const CONFIG = {
@@ -82,6 +83,22 @@ describe("isForgeManagedRecord", () => {
       false,
     );
   });
+});
+
+describe("isHostnameRoutingRecord", () => {
+  it.each(["A", "AAAA", "CNAME", "HTTPS", "NS", "SVCB"])(
+    "treats %s as a hostname-routing conflict",
+    (type) => {
+      expect(isHostnameRoutingRecord(record({ type }))).toBe(true);
+    },
+  );
+
+  it.each(["MX", "TXT", "CAA", "SRV"])(
+    "allows a deployment to preserve a %s record",
+    (type) => {
+      expect(isHostnameRoutingRecord(record({ type }))).toBe(false);
+    },
+  );
 });
 
 describe("createDeploymentRecord", () => {
@@ -200,6 +217,48 @@ describe("assertHostnameAvailable", () => {
     await expect(
       instance.assertHostnameAvailable("blog.denizlg24.com"),
     ).rejects.toBeInstanceOf(HostnameConflictError);
+  });
+
+  it("ignores mail and policy records but still finds a later web record", async () => {
+    const { instance } = client(() => ({
+      body: {
+        success: true,
+        errors: [],
+        result: [
+          record({ name: "denizlg24.com", type: "MX" }),
+          record({ name: "denizlg24.com", type: "TXT" }),
+          record({ name: "denizlg24.com", type: "CAA" }),
+          record({
+            name: "denizlg24.com",
+            type: "A",
+            id: "old-site",
+            comment: null,
+          }),
+        ],
+      },
+    }));
+
+    await expect(
+      instance.findConflictingRecord("denizlg24.com"),
+    ).resolves.toMatchObject({ id: "old-site", type: "A" });
+  });
+
+  it("allows an apex whose remaining records only serve mail and verification", async () => {
+    const { instance } = client(() => ({
+      body: {
+        success: true,
+        errors: [],
+        result: [
+          record({ name: "denizlg24.com", type: "MX" }),
+          record({ name: "denizlg24.com", type: "TXT" }),
+          record({ name: "denizlg24.com", type: "CAA" }),
+        ],
+      },
+    }));
+
+    await expect(
+      instance.findConflictingRecord("denizlg24.com"),
+    ).resolves.toBeNull();
   });
 
   it("allows a name whose only record is one of ours", async () => {

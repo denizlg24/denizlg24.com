@@ -31,6 +31,7 @@ import {
   claimQueuedDeployment,
   createDeployBindingResolvers,
   createDeployDomain,
+  createRepositoryChangeMatcher,
   DEPLOY_PRESETS,
   decryptDeployEnvValue,
   defaultDeployEnvBindings,
@@ -55,6 +56,7 @@ import {
   planPullRequestDeployment,
   planPushDeployment,
   pullRequestDeployments,
+  type RepositoryChangeMatcher,
   recordDeploymentStatus,
   recordGithubInstallation,
   refreshDeployDomain,
@@ -2061,6 +2063,71 @@ export function deployRoutes(options: DeployRouteOptions) {
 
   // ---- GitHub webhook ------------------------------------------------------
 
+  type WebhookChangeCache = Map<
+    string,
+    Promise<RepositoryChangeMatcher | null>
+  >;
+
+  async function targetChanged(
+    target: DeployTargetRow,
+    intent: WebhookDeployIntent,
+    cache: WebhookChangeCache,
+  ): Promise<boolean> {
+    // A repository-root target owns every path. A new branch or otherwise
+    // baseless event also builds because there is no complete diff to prove it
+    // is unaffected.
+    if (!target.rootDirectory || intent.baseSha === null) return true;
+    if (target.githubInstallationId === null) return true;
+    const installationId = target.githubInstallationId;
+    const baseSha = intent.baseSha;
+
+    const key = [
+      installationId,
+      target.repoOwner.toLowerCase(),
+      target.repoName.toLowerCase(),
+      baseSha,
+      intent.sha,
+    ].join(":");
+    let pending = cache.get(key);
+    if (!pending) {
+      pending = (async () => {
+        const github = options.github;
+        if (!github) return null;
+        const comparison = await github.client.compareFiles({
+          installationId,
+          owner: target.repoOwner,
+          repo: target.repoName,
+          base: baseSha,
+          head: intent.sha,
+        });
+        if (!comparison.complete) return null;
+        return createRepositoryChangeMatcher(
+          inspectorFor(
+            installationId,
+            target.repoOwner,
+            target.repoName,
+            intent.sha,
+          ),
+          comparison.paths,
+        );
+      })().catch((error: unknown) => {
+        // Change detection is an optimisation, never a reason to miss a
+        // deployment. Log once per comparison and let every target build.
+        console.error("[deploy] change detection failed; deploying", error);
+        return null;
+      });
+      cache.set(key, pending);
+    }
+
+    const matcher = await pending;
+    return (
+      matcher?.affectsTarget({
+        rootDirectory: target.rootDirectory,
+        dockerfilePath: target.dockerfilePath,
+      }) ?? true
+    );
+  }
+
   /**
    * Everything a webhook-driven build needs beyond what the event says. A
    * target with no installation id is not deployable from a hook — the App is
@@ -2069,8 +2136,10 @@ export function deployRoutes(options: DeployRouteOptions) {
   async function deployFromWebhook(
     target: DeployTargetRow,
     intent: WebhookDeployIntent,
+    changeCache: WebhookChangeCache,
   ): Promise<DeploymentRow | null> {
     if (target.githubInstallationId === null) return null;
+    if (!(await targetChanged(target, intent, changeCache))) return null;
     const project = await db.query.projects.findFirst({
       where: eq(projects.id, target.projectId),
     });
@@ -2189,17 +2258,20 @@ export function deployRoutes(options: DeployRouteOptions) {
         repo: parsed.data.repository.name,
       });
       const enqueued: string[] = [];
+      const changeCache: WebhookChangeCache = new Map();
       for (const target of targets) {
         const intent = planPushDeployment(parsed.data, target);
         if (!intent) continue;
-        const created = await deployFromWebhook(target, intent).catch(
-          (error: unknown) => {
-            // One target's bindings being unresolvable must not stop the
-            // others; the row it would have created is what reports it.
-            console.error("[deploy] webhook deployment failed", error);
-            return null;
-          },
-        );
+        const created = await deployFromWebhook(
+          target,
+          intent,
+          changeCache,
+        ).catch((error: unknown) => {
+          // One target's bindings being unresolvable must not stop the
+          // others; the row it would have created is what reports it.
+          console.error("[deploy] webhook deployment failed", error);
+          return null;
+        });
         if (created) enqueued.push(created.id);
       }
       return context.json({ data: { enqueued } });
@@ -2220,15 +2292,18 @@ export function deployRoutes(options: DeployRouteOptions) {
         return context.json({ data: { removed } });
       }
       const enqueued: string[] = [];
+      const changeCache: WebhookChangeCache = new Map();
       for (const target of targets) {
         const intent = planPullRequestDeployment(parsed.data, target);
         if (!intent) continue;
-        const created = await deployFromWebhook(target, intent).catch(
-          (error: unknown) => {
-            console.error("[deploy] webhook deployment failed", error);
-            return null;
-          },
-        );
+        const created = await deployFromWebhook(
+          target,
+          intent,
+          changeCache,
+        ).catch((error: unknown) => {
+          console.error("[deploy] webhook deployment failed", error);
+          return null;
+        });
         if (created) enqueued.push(created.id);
       }
       return context.json({ data: { enqueued } });

@@ -87,6 +87,13 @@ export interface GithubBranch {
   sha: string;
 }
 
+export interface GithubChangedFiles {
+  /** New and previous names are both present when a file was renamed. */
+  paths: string[];
+  /** False means GitHub hit its comparison file limit or returned bad data. */
+  complete: boolean;
+}
+
 export interface GithubTreeEntry {
   path: string;
   name: string;
@@ -102,6 +109,8 @@ const TOKEN_EXPIRY_SKEW_MS = 5 * 60 * 1_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 const PER_PAGE = 100;
+/** GitHub truncates the changed-file list here and offers no next page. */
+export const GITHUB_COMPARE_FILE_LIMIT = 300;
 
 export function installationTokenKey(installationId: number): string {
   return `forge:gh:inst:${installationId}`;
@@ -472,6 +481,57 @@ export class GithubAppClient {
       { method: "GET", token },
     );
     return { sha: commit.sha, message: commit.commit?.message ?? null };
+  }
+
+  /**
+   * The files between two immutable commits. A result at GitHub's hard limit is
+   * marked incomplete so callers can deploy conservatively instead of treating
+   * an absent path as proof that it did not change.
+   */
+  async compareFiles(input: {
+    installationId: number;
+    owner: string;
+    repo: string;
+    base: string;
+    head: string;
+  }): Promise<GithubChangedFiles> {
+    const token = await this.installationToken(input.installationId);
+    const basehead = `${encodeURIComponent(input.base)}...${encodeURIComponent(input.head)}`;
+    const body = await this.#json<unknown>(
+      `/repos/${input.owner}/${input.repo}/compare/${basehead}?per_page=1`,
+      { method: "GET", token },
+    );
+    if (body === null || typeof body !== "object" || !("files" in body)) {
+      return { paths: [], complete: false };
+    }
+    const rawFiles = (body as { files?: unknown }).files;
+    if (!Array.isArray(rawFiles)) return { paths: [], complete: false };
+
+    const paths = new Set<string>();
+    let malformed = false;
+    for (const value of rawFiles) {
+      if (value === null || typeof value !== "object") {
+        malformed = true;
+        continue;
+      }
+      const file = value as {
+        filename?: unknown;
+        previous_filename?: unknown;
+      };
+      if (typeof file.filename !== "string") {
+        malformed = true;
+        continue;
+      }
+      paths.add(file.filename);
+      if (typeof file.previous_filename === "string") {
+        paths.add(file.previous_filename);
+      }
+    }
+
+    return {
+      paths: [...paths],
+      complete: !malformed && rawFiles.length < GITHUB_COMPARE_FILE_LIMIT,
+    };
   }
 
   async createCheckRun(input: {

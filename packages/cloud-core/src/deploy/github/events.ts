@@ -15,6 +15,8 @@ export function branchFromRef(ref: string): string | null {
   return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : null;
 }
 
+const ZERO_SHA = /^0+$/;
+
 /**
  * A push either builds production or a preview or nothing, and which one is a
  * property of the branch and the target's two toggles. A tag push and a branch
@@ -33,6 +35,12 @@ export function planPushDeployment(
   return {
     kind: production ? "production" : "preview",
     ref: branch,
+    // A created ref has no meaningful previous tree. Building is the safe
+    // answer even if GitHub sends a zero SHA in `before` as expected.
+    baseSha:
+      event.created || event.forced || ZERO_SHA.test(event.before)
+        ? null
+        : event.before,
     sha: event.after,
     message: event.head_commit?.message ?? null,
     prNumber: null,
@@ -67,6 +75,12 @@ export function planPullRequestDeployment(
   return {
     kind: "preview",
     ref: event.pull_request.head.ref,
+    baseSha:
+      event.action === "synchronize" &&
+      event.before &&
+      event.after === event.pull_request.head.sha
+        ? event.before
+        : event.pull_request.base.sha,
     sha: event.pull_request.head.sha,
     message: event.pull_request.title ?? null,
     prNumber: event.number,

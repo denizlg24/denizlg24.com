@@ -13,8 +13,11 @@ const installationRefSchema = z.object({ id: z.number().int() });
 
 export const githubPushEventSchema = z.object({
   ref: z.string(),
+  before: z.string(),
   after: z.string(),
+  created: z.boolean().optional(),
   deleted: z.boolean().optional(),
+  forced: z.boolean().optional(),
   repository: repositorySchema,
   installation: installationRefSchema.optional(),
   head_commit: z.object({ message: z.string() }).nullish(),
@@ -23,10 +26,14 @@ export type GithubPushEvent = z.infer<typeof githubPushEventSchema>;
 
 export const githubPullRequestEventSchema = z.object({
   action: z.string(),
+  /** Present on synchronize; it scopes filtering to the latest head update. */
+  before: z.string().optional(),
+  after: z.string().optional(),
   number: z.number().int(),
   repository: repositorySchema,
   installation: installationRefSchema.optional(),
   pull_request: z.object({
+    base: z.object({ sha: z.string() }),
     head: z.object({ ref: z.string(), sha: z.string() }),
     title: z.string().nullish(),
     draft: z.boolean().optional(),
@@ -58,6 +65,8 @@ export type GithubInstallationEvent = z.infer<
 export interface WebhookDeployIntent {
   kind: "production" | "preview";
   ref: string;
+  /** Null when GitHub cannot name a safe comparison base, so deployment wins. */
+  baseSha: string | null;
   sha: string;
   message: string | null;
   prNumber: number | null;

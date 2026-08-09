@@ -55,6 +55,25 @@ export function isForgeManagedRecord(record: CloudflareDnsRecord): boolean {
   return record.comment?.startsWith(FORGE_RECORD_COMMENT_PREFIX) ?? false;
 }
 
+/**
+ * Records that can still own or delegate a hostname after Forge points it at
+ * the tunnel. Mail, verification, and certificate-policy records deliberately
+ * do not count: an apex commonly needs MX, TXT, and CAA records alongside its
+ * flattened Cloudflare CNAME.
+ */
+const HOSTNAME_ROUTING_RECORD_TYPES = new Set([
+  "A",
+  "AAAA",
+  "CNAME",
+  "HTTPS",
+  "NS",
+  "SVCB",
+]);
+
+export function isHostnameRoutingRecord(record: CloudflareDnsRecord): boolean {
+  return HOSTNAME_ROUTING_RECORD_TYPES.has(record.type.toUpperCase());
+}
+
 export interface CloudflareDeployConfig {
   apiToken: string;
   zoneId: string;
@@ -236,7 +255,12 @@ export class CloudflareDnsClient {
     hostname: string,
   ): Promise<CloudflareDnsRecord | null> {
     const records = await this.listRecordsByName(hostname);
-    return records.find((record) => !isForgeManagedRecord(record)) ?? null;
+    return (
+      records.find(
+        (record) =>
+          isHostnameRoutingRecord(record) && !isForgeManagedRecord(record),
+      ) ?? null
+    );
   }
 
   async assertHostnameAvailable(hostname: string): Promise<string> {

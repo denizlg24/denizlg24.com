@@ -5,7 +5,7 @@ import type {
   GithubPullRequestEvent,
   GithubPushEvent,
 } from "@repo/schemas/cloud";
-
+import { GithubAppClient } from "./client";
 import {
   branchFromRef,
   planPullRequestDeployment,
@@ -27,6 +27,7 @@ const target: WebhookTarget = {
 function push(overrides: Partial<GithubPushEvent> = {}): GithubPushEvent {
   return {
     ref: "refs/heads/main",
+    before: "0".repeat(40),
     after: "a".repeat(40),
     repository: { name: "site", owner: { login: "denizlg24" } },
     head_commit: { message: "ship it" },
@@ -42,6 +43,7 @@ function pullRequest(
     number: 7,
     repository: { name: "site", owner: { login: "denizlg24" } },
     pull_request: {
+      base: { sha: "a".repeat(40) },
       head: { ref: "feature", sha: "b".repeat(40) },
       title: "Add a thing",
     },
@@ -54,6 +56,7 @@ describe("planPushDeployment", () => {
     expect(planPushDeployment(push(), target)).toEqual({
       kind: "production",
       ref: "main",
+      baseSha: null,
       sha: "a".repeat(40),
       message: "ship it",
       prNumber: null,
@@ -67,6 +70,18 @@ describe("planPushDeployment", () => {
     );
     expect(intent?.kind).toBe("preview");
     expect(intent?.ref).toBe("feature/thing");
+  });
+
+  it("carries the previous commit as the change-detection base", () => {
+    const before = "c".repeat(40);
+    expect(planPushDeployment(push({ before }), target)?.baseSha).toBe(before);
+  });
+
+  it("builds without filtering when history was force-pushed", () => {
+    expect(
+      planPushDeployment(push({ before: "c".repeat(40), forced: true }), target)
+        ?.baseSha,
+    ).toBeNull();
   });
 
   it("ignores tags and branch deletions", () => {
@@ -96,10 +111,21 @@ describe("planPullRequestDeployment", () => {
     expect(planPullRequestDeployment(pullRequest(), target)).toEqual({
       kind: "preview",
       ref: "feature",
+      baseSha: "a".repeat(40),
       sha: "b".repeat(40),
       message: "Add a thing",
       prNumber: 7,
     });
+  });
+
+  it("filters synchronize against only the latest head update", () => {
+    const before = "c".repeat(40);
+    expect(
+      planPullRequestDeployment(
+        pullRequest({ before, after: "b".repeat(40) }),
+        target,
+      )?.baseSha,
+    ).toBe(before);
   });
 
   it("ignores actions that are not a new commit", () => {
@@ -111,7 +137,12 @@ describe("planPullRequestDeployment", () => {
   });
 
   it("skips a draft until it is marked ready", () => {
-    const draft = { head: { ref: "f", sha: "c" }, title: null, draft: true };
+    const draft = {
+      base: { sha: "a" },
+      head: { ref: "f", sha: "c" },
+      title: null,
+      draft: true,
+    };
     expect(
       planPullRequestDeployment(pullRequest({ pull_request: draft }), target),
     ).toBeNull();
@@ -121,6 +152,99 @@ describe("planPullRequestDeployment", () => {
         target,
       )?.kind,
     ).toBe("preview");
+  });
+});
+
+describe("GithubAppClient.compareFiles", () => {
+  it("returns both sides of a rename and reports a complete comparison", async () => {
+    let requested = "";
+    const client = new GithubAppClient({
+      config: {
+        appId: "1",
+        privateKey: "unused with a cached token",
+        webhookSecret: "secret",
+        slug: null,
+      },
+      cache: {
+        get: async () => "installation-token",
+        set: async () => {},
+        delete: async () => {},
+      },
+      fetchImplementation: Object.assign(
+        async (input: string | URL | Request) => {
+          requested = String(input);
+          return new Response(
+            JSON.stringify({
+              files: [
+                {
+                  filename: "apps/web/new.ts",
+                  previous_filename: "apps/web/old.ts",
+                },
+                { filename: "packages/ui/button.tsx" },
+              ],
+            }),
+            { headers: { "content-type": "application/json" } },
+          );
+        },
+        { preconnect: () => {} },
+      ),
+    });
+
+    await expect(
+      client.compareFiles({
+        installationId: 1,
+        owner: "denizlg24",
+        repo: "site",
+        base: "a".repeat(40),
+        head: "b".repeat(40),
+      }),
+    ).resolves.toEqual({
+      paths: ["apps/web/new.ts", "apps/web/old.ts", "packages/ui/button.tsx"],
+      complete: true,
+    });
+    expect(requested).toContain(
+      `/compare/${"a".repeat(40)}...${"b".repeat(40)}`,
+    );
+  });
+
+  it("marks GitHub's 300-file ceiling as incomplete", async () => {
+    const client = new GithubAppClient({
+      config: {
+        appId: "1",
+        privateKey: "unused with a cached token",
+        webhookSecret: "secret",
+        slug: null,
+      },
+      cache: {
+        get: async () => "installation-token",
+        set: async () => {},
+        delete: async () => {},
+      },
+      fetchImplementation: Object.assign(
+        async () =>
+          new Response(
+            JSON.stringify({
+              files: Array.from({ length: 300 }, (_, index) => ({
+                filename: `file-${index}`,
+              })),
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+        { preconnect: () => {} },
+      ),
+    });
+
+    expect(
+      (
+        await client.compareFiles({
+          installationId: 1,
+          owner: "denizlg24",
+          repo: "site",
+          base: "a",
+          head: "b",
+        })
+      ).complete,
+    ).toBe(false);
   });
 });
 
