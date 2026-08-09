@@ -12,6 +12,8 @@ export interface GcOptions {
   logRoot: string;
   cacheRoot: string;
   dockerDataRoot: string;
+  buildDataRoot?: string;
+  buildxBuilder?: string | null;
   /** Orphaned checkouts from a crashed build. Anything younger may be live. */
   buildMaxAgeMs?: number;
   now?: () => number;
@@ -73,9 +75,8 @@ export async function directorySizeBytes(path: string): Promise<number> {
 }
 
 function parseReclaimedBytes(output: string): number | null {
-  const match = /Total reclaimed space:\s*([\d.]+)\s*([KMGT]?i?B)/i.exec(
-    output,
-  );
+  const match =
+    /(?:Total reclaimed space|Total):\s*([\d.]+)\s*([KMGT]?i?B)/i.exec(output);
   if (!match) return null;
   const value = Number(match[1]);
   if (!Number.isFinite(value)) return null;
@@ -119,6 +120,7 @@ export async function runGarbageCollection(
 ): Promise<AgentGcReport> {
   const now = options.now ?? Date.now;
   const { exec, signal } = options;
+  const buildDataRoot = options.buildDataRoot ?? options.buildRoot;
   const failures: Failures = [];
   const report: AgentGcReport = {
     dryRun: request.dryRun,
@@ -130,6 +132,13 @@ export async function runGarbageCollection(
     builderCacheReclaimedBytes: null,
     disk: {
       path: options.dockerDataRoot,
+      totalBytes: null,
+      freeBytes: null,
+      usedPercent: null,
+      error: null,
+    },
+    buildDisk: {
+      path: buildDataRoot,
       totalBytes: null,
       freeBytes: null,
       usedPercent: null,
@@ -310,11 +319,12 @@ export async function runGarbageCollection(
   }
 
   if (!request.dryRun) {
+    const pruneCommand = options.buildxBuilder
+      ? ["docker", "buildx", "prune", "--builder", options.buildxBuilder]
+      : ["docker", "builder", "prune"];
     const pruned = await exec({
       command: [
-        "docker",
-        "builder",
-        "prune",
+        ...pruneCommand,
         "--filter",
         `until=${request.builderPruneHours}h`,
         "--force",
@@ -323,11 +333,13 @@ export async function runGarbageCollection(
       timeoutMs: 600_000,
     });
     if (pruned.exitCode === 0) {
-      report.builderCacheReclaimedBytes = parseReclaimedBytes(pruned.stdout);
+      report.builderCacheReclaimedBytes = parseReclaimedBytes(
+        `${pruned.stdout}\n${pruned.stderr}`,
+      );
     } else {
       failures.push({
         step: "builder-cache",
-        subject: "docker builder prune",
+        subject: pruneCommand.join(" "),
         error: pruned.stderr.trim() || `exit ${pruned.exitCode}`,
       });
     }
@@ -348,6 +360,22 @@ export async function runGarbageCollection(
     };
   } catch (error) {
     report.disk = { ...report.disk, error: errorMessage(error) };
+  }
+
+  try {
+    const usage = diskUsageFrom(await statfsImplementation(buildDataRoot));
+    report.buildDisk = {
+      path: buildDataRoot,
+      totalBytes: usage.totalBytes,
+      freeBytes: usage.freeBytes,
+      usedPercent: Number(usage.usedPercent.toFixed(2)),
+      error: null,
+    };
+  } catch (error) {
+    report.buildDisk = {
+      ...report.buildDisk!,
+      error: errorMessage(error),
+    };
   }
 
   return report;

@@ -83,6 +83,7 @@ export function allocatableMemoryMb(input: {
 export interface HealthServiceOptions {
   docker: DockerClient;
   dockerDataRoot: string;
+  buildDataRoot?: string;
   version: string;
   queue: () => AgentQueueSnapshot;
   /** Kept for the OS, dockerd, this agent and Caddy. */
@@ -119,27 +120,38 @@ export class HealthService {
   }
 
   async check(): Promise<AgentHealth> {
-    const [docker, disk, memory] = await Promise.all([
+    const [docker, disk, buildDisk, memory] = await Promise.all([
       this.#checkDocker(),
-      this.#checkDisk(),
+      this.#checkDisk(this.#options.dockerDataRoot),
+      this.#checkDisk(
+        this.#options.buildDataRoot ?? this.#options.dockerDataRoot,
+      ),
       this.#checkMemory(),
     ]);
+
+    const disks = [disk, buildDisk];
 
     let status: AgentHealth["status"] = "ok";
     if (
       !docker.reachable ||
-      disk.error !== null ||
+      disks.some((candidate) => candidate.error !== null) ||
       (memory.allocatableMb !== null && memory.allocatableMb < MIN_MEMORY_MB)
     ) {
       status = "unavailable";
     } else if (
-      disk.usedPercent !== null &&
-      disk.usedPercent >= DISK_UNAVAILABLE_PERCENT
+      disks.some(
+        (candidate) =>
+          candidate.usedPercent !== null &&
+          candidate.usedPercent >= DISK_UNAVAILABLE_PERCENT,
+      )
     ) {
       status = "unavailable";
     } else if (
-      disk.usedPercent !== null &&
-      disk.usedPercent >= DISK_DEGRADED_PERCENT
+      disks.some(
+        (candidate) =>
+          candidate.usedPercent !== null &&
+          candidate.usedPercent >= DISK_DEGRADED_PERCENT,
+      )
     ) {
       status = "degraded";
     }
@@ -150,6 +162,7 @@ export class HealthService {
       uptimeSeconds: Math.floor((this.#now() - this.#startedAt) / 1_000),
       docker,
       disk,
+      buildDisk,
       memory,
       queue: this.#options.queue(),
     };
@@ -212,8 +225,7 @@ export class HealthService {
     }
   }
 
-  async #checkDisk(): Promise<AgentHealth["disk"]> {
-    const path = this.#options.dockerDataRoot;
+  async #checkDisk(path: string): Promise<AgentHealth["disk"]> {
     try {
       const usage = diskUsageFrom(await this.#statfs(path));
       return {

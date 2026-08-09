@@ -5,21 +5,12 @@ and runs deployments, and reports back to the control plane in `apps/api`.
 
 Plan: `docs/internal/plans/deploy-platform.md`.
 
-## CI does not deploy this
+## Release
 
-Same as `apps/storage-metadata` and `apps/terminal`. Pushing to `main` rebuilds
-the API container and does nothing here. The binary is replaced by hand:
-
-```sh
-bun run build:host                      # → dist/forge-agent (linux-x64)
-dd if=dist/forge-agent of=/tmp/forge-agent bs=1M
-# copy to the host, then:
-sudo install -m 0755 /tmp/forge-agent /usr/local/bin/forge-agent
-sudo systemctl restart deploy-agent
-```
-
-Use `dd`, not a shell `cat` — piping a compiled binary through a shell can
-corrupt it, and the failure looks like a crash-loop with no useful message.
+`.github/workflows/release-deploy-agent.yml` builds and tests the host binary,
+then waits at the protected `forge` environment for approval. The approved job
+stages the binary and service assets over the tailnet, verifies the checksum,
+and invokes the host's narrowly scoped installer.
 
 ## Configuration
 
@@ -34,12 +25,14 @@ corrupt it, and the failure looks like a crash-loop with no useful message.
 | `MAX_CONCURRENT_BUILDS` | `1` | 1–4. A Next.js build peaks 2–4 GB. |
 | `CLAIM_POLL_MS` | `3000` | |
 | `HEARTBEAT_MS` | `30000` | Must stay well under the control plane's 15-minute interrupted-run threshold. |
-| `BUILD_ROOT` | `/srv/forge/builds` | Checkouts. Removed after every build, pass or fail. |
-| `LOG_ROOT` | `/srv/forge/logs` | One `<deployment-id>.log` per run. |
-| `CACHE_ROOT` | `/srv/forge/cache` | |
+| `BUILD_ROOT` | `/srv/forge/builds` | Checkouts. Production sets `/mnt/storage/forge/builds`; removed after every build, pass or fail. |
+| `LOG_ROOT` | `/srv/forge/logs` | One `<deployment-id>.log` per run. Production sets `/mnt/storage/forge/logs`. |
+| `CACHE_ROOT` | `/srv/forge/cache` | Exported cache fallback. Production sets `/mnt/storage/forge/cache`. |
 | `RUN_ENV_ROOT` | `/run/forge` | tmpfs. Holds a deployment's env file for the length of one `docker run`. |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | |
-| `DOCKER_DATA_ROOT` | `/var/lib/docker` | What `/healthz` stats for disk pressure. |
+| `DOCKER_DATA_ROOT` | `/var/lib/docker` | Runtime images and container layers; kept on SSD and reported separately by `/healthz`. |
+| `BUILDX_BUILDER` | `forge` | Production sets `forge-hdd`. GC prunes this exact builder. |
+| `BUILDKIT_ENDPOINT` | — | Production sets `docker-container://forge-buildkit`; only this managed transport is accepted. |
 | `DOCKER_NETWORK` | `forge-apps` | The network every deployment container joins. |
 | `CADDY_ADMIN_URL` | `http://127.0.0.1:2019` | Refused at startup unless it points at loopback. |
 | `CADDY_LISTEN` | `127.0.0.1:8080` | What cloudflared's catch-all ingress targets. Keep it on loopback. |
@@ -75,9 +68,9 @@ alive. Everything else needs `Authorization: Bearer $AGENT_TOKEN`.
 | `GET` | `/containers/:id/logs` | SSE stdout/stderr tail for a Forge-labelled container only |
 | `POST` | `/gc` | runs the reaper; body carries the keep set |
 
-`/healthz` pings the Docker daemon and stats the Docker data root on every call.
-A liveness probe that only proves the process is up reports green while every
-build fails, which is worse than having no probe at all.
+`/healthz` pings Docker and stats both the Docker data root and the build root
+on every call. Either disk being unreadable or critically full makes the agent
+unavailable.
 
 ## Queue
 
@@ -133,10 +126,11 @@ produce a Node-only image. A custom Python install command is run inside
 `/opt/venv`; replacing Nixpacks' install phase without recreating that
 virtualenv removes `pip` from the command path.
 
-Both paths tag `forge/<slug>:<sha>-<id8>` and the moving `forge/<slug>:latest`,
-and the Docker path passes `--cache-from forge/<slug>:latest` with
-`BUILDKIT_INLINE_CACHE=1`. **The moving tag must not be reaped** — it is the
-whole layer cache (§2.6/§7.2).
+Both paths tag `forge/<slug>:<sha>-<id8>` and the moving
+`forge/<slug>:latest`. With the production external builder, Nixpacks first
+generates its Dockerfile and both builder paths run through `forge-hdd`.
+BuildKit's content store and cache mounts stay on the HDD; `--load` copies the
+completed image into Docker's SSD-backed runtime store.
 
 The host's allocatable deployment memory is total RAM minus
 `MEMORY_HEADROOM_MB` and one `BUILD_MEMORY_LIMIT_MB` reserve for every build
@@ -148,21 +142,12 @@ its derived ceiling, but only the reservation is committed capacity.
 the effective cap is `buildkitd`'s own. Treat it as belt-and-braces, not as the
 control.
 
-The Dockerfile path additionally exports a per-target BuildKit cache to
-`$CACHE_ROOT/<targetId>/buildkit` (§2.6 layer 2). That needs a
-`docker-container` driver builder, which the agent creates once as `forge`; if
-it cannot, the build falls back to the plain `docker build` path with the
-inline cache and says so in the log. The two mechanisms do not compose — a
-container-driver builder cannot read the daemon's image store, so
-`--cache-from forge/<slug>:latest` is no use to it. The local cache supersedes
-it and additionally carries `RUN --mount=type=cache` mounts, which the image
-never held. `--load` is what copies the finished image back to the daemon, and
-it is the reason §2.4 insists on `output: "standalone"`.
-
-`--cache-to mode=max` grows without bound, so `POST /gc` deletes any per-target
-cache directory over `buildCacheMaxMb` (default 2048) or untouched for
-`buildCacheMaxAgeDays` (default 14). A deleted cache costs one slow build and
-nothing else, which is what makes capping it safe to do bluntly.
+When `BUILDKIT_ENDPOINT` is configured, an unavailable HDD builder fails the
+deployment instead of silently falling back to the SSD. The worker's own GC
+policy preserves 150 GB free, and `POST /gc` additionally runs
+`docker buildx prune --builder $BUILDX_BUILDER`. Without an external endpoint,
+the legacy per-target exported cache under `$CACHE_ROOT` remains available and
+is capped by the request's age and size settings.
 
 ### Running and the health gate
 
@@ -230,6 +215,11 @@ same reason.
 
 `forge/<slug>:latest` is never a candidate. It looks like a stale tag and it is
 the thing making the next build fast.
+
+BuildKit cache cleanup is sent to the configured named builder, so production
+GC reclaims `/mnt/storage/forge/buildkit`. Image cleanup still talks to the
+normal Docker daemon and reclaims `/var/lib/docker`. The report exposes both
+filesystems separately.
 
 ## Status
 

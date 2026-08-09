@@ -3,7 +3,7 @@ import {
   type DeployDomainMode,
   type DeploymentKind,
 } from "@repo/schemas/cloud";
-import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
 import { type DeployDomainRow, deployDomains, deployments } from "../db/schema";
@@ -631,7 +631,7 @@ export async function sweepDeployDomains(
   const retired = await context.db
     .select()
     .from(deployDomains)
-    .where(sql`${deployDomains.retiredAt} < ${graceCutoff}`);
+    .where(lt(deployDomains.retiredAt, graceCutoff));
   for (const row of retired) {
     try {
       await deleteDeployDomain(context, row);
@@ -653,7 +653,7 @@ export async function sweepDeployDomains(
     .where(
       and(
         eq(deployDomains.status, "verifying"),
-        sql`${deployDomains.createdAt} < ${verifyCutoff}`,
+        lt(deployDomains.createdAt, verifyCutoff),
       ),
     );
   for (const row of stalled) {

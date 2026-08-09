@@ -15,6 +15,8 @@ export interface AgentConfig {
   runEnvRoot: string;
   dockerSocket: string;
   dockerDataRoot: string;
+  buildxBuilder: string;
+  buildkitEndpoint: string | null;
   dockerNetwork: string;
   caddyAdminUrl: string;
   caddyListen: string;
@@ -78,6 +80,25 @@ function dockerNetworkEnv(): string {
   const value = process.env.DOCKER_NETWORK ?? "forge-apps";
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(value)) {
     throw new Error("DOCKER_NETWORK is not a valid docker network name");
+  }
+  return value;
+}
+
+function buildxBuilderEnv(): string {
+  const value = process.env.BUILDX_BUILDER?.trim() || "forge";
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(value)) {
+    throw new Error("BUILDX_BUILDER is not a valid buildx builder name");
+  }
+  return value;
+}
+
+function buildkitEndpointEnv(): string | null {
+  const value = process.env.BUILDKIT_ENDPOINT?.trim();
+  if (!value) return null;
+  if (!value.startsWith("docker-container://")) {
+    throw new Error(
+      "BUILDKIT_ENDPOINT must use the docker-container:// transport",
+    );
   }
   return value;
 }
@@ -153,6 +174,8 @@ export function agentConfigFromEnv(): AgentConfig {
     runEnvRoot: absolutePathEnv("RUN_ENV_ROOT", "/run/forge"),
     dockerSocket: absolutePathEnv("DOCKER_SOCKET", "/var/run/docker.sock"),
     dockerDataRoot: absolutePathEnv("DOCKER_DATA_ROOT", "/var/lib/docker"),
+    buildxBuilder: buildxBuilderEnv(),
+    buildkitEndpoint: buildkitEndpointEnv(),
     dockerNetwork: dockerNetworkEnv(),
     caddyAdminUrl: caddyAdminUrlEnv(),
     caddyListen: process.env.CADDY_LISTEN?.trim() || DEFAULT_LISTEN,

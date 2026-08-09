@@ -22,6 +22,8 @@ const TOUCHED = [
   "CACHE_ROOT",
   "DOCKER_SOCKET",
   "DOCKER_DATA_ROOT",
+  "BUILDX_BUILDER",
+  "BUILDKIT_ENDPOINT",
   "BUILD_MEMORY_LIMIT_MB",
   "MEMORY_HEADROOM_MB",
   "CADDY_LISTEN",
@@ -68,6 +70,8 @@ describe("agentConfigFromEnv", () => {
     expect(config.buildRoot).toBe("/srv/forge/builds");
     expect(config.dockerSocket).toBe("/var/run/docker.sock");
     expect(config.dockerDataRoot).toBe("/var/lib/docker");
+    expect(config.buildxBuilder).toBe("forge");
+    expect(config.buildkitEndpoint).toBeNull();
     expect(config.memoryHeadroomMb).toBe(1_024);
     expect(config.caddyListen).toBe(DEFAULT_LISTEN);
   });
@@ -142,5 +146,17 @@ describe("agentConfigFromEnv", () => {
     expect(() => configWith({ BUILD_ROOT: "relative/path" })).toThrow(
       /absolute path/,
     );
+  });
+
+  it("accepts only the managed BuildKit container transport", () => {
+    const config = configWith({
+      BUILDX_BUILDER: "forge-hdd",
+      BUILDKIT_ENDPOINT: "docker-container://forge-buildkit",
+    });
+    expect(config.buildxBuilder).toBe("forge-hdd");
+    expect(config.buildkitEndpoint).toBe("docker-container://forge-buildkit");
+    expect(() =>
+      configWith({ BUILDKIT_ENDPOINT: "tcp://127.0.0.1:1234" }),
+    ).toThrow(/docker-container/);
   });
 });

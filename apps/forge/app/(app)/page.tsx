@@ -61,6 +61,7 @@ export default function OverviewPage() {
   const host = agent?.host;
   const memory = host?.memory;
   const disk = agent?.health.disk;
+  const buildDisk = agent?.health.buildDisk;
   const running =
     agent?.containers.filter((container) => container.state === "running")
       .length ?? 0;
@@ -76,7 +77,7 @@ export default function OverviewPage() {
           {data.errors.agent}
         </div>
       ) : null}
-      <section className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
+      <section className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10">
         <Tile
           label="host"
           value={agent?.health.status ?? "offline"}
@@ -103,11 +104,20 @@ export default function OverviewPage() {
           }
         />
         <Tile
-          label="disk"
+          label="runtime disk"
           value={formatPercent(disk?.usedPercent)}
           detail={
             disk?.freeBytes !== null && disk?.freeBytes !== undefined
               ? `${formatBytes(disk.freeBytes)} free`
+              : undefined
+          }
+        />
+        <Tile
+          label="build disk"
+          value={formatPercent(buildDisk?.usedPercent)}
+          detail={
+            buildDisk?.freeBytes !== null && buildDisk?.freeBytes !== undefined
+              ? `${formatBytes(buildDisk.freeBytes)} free`
               : undefined
           }
         />

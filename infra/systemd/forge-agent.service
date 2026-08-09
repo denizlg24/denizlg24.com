@@ -1,8 +1,10 @@
 [Unit]
 Description=Forge deploy agent
-After=network-online.target tailscaled.service docker.service
+After=network-online.target tailscaled.service docker.service forge-buildkit.service
 Wants=network-online.target
-Requires=docker.service
+Requires=docker.service forge-buildkit.service
+RequiresMountsFor=/mnt/storage/forge/builds /mnt/storage/forge/logs /mnt/storage/forge/cache
+ConditionPathIsMountPoint=/mnt/storage
 
 [Service]
 Type=simple
@@ -51,7 +53,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/srv/forge
+ReadWritePaths=/srv/forge /mnt/storage/forge/builds /mnt/storage/forge/logs /mnt/storage/forge/cache
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

@@ -40,11 +40,13 @@ function service(
     docker?: DockerClient;
     statfsImplementation?: StatfsLike;
     readMeminfo?: () => Promise<string>;
+    buildDataRoot?: string;
   } = {},
 ) {
   return new HealthService({
     docker: overrides.docker ?? OK_DOCKER,
     dockerDataRoot: "/var/lib/docker",
+    buildDataRoot: overrides.buildDataRoot,
     version: "test",
     queue: () => ({ running: 0, capacity: 1, deploymentIds: [] }),
     memoryHeadroomMb: 1_024,
@@ -124,6 +126,22 @@ describe("HealthService", () => {
     expect(
       (await service({ statfsImplementation: at(0.98) }).check()).status,
     ).toBe("unavailable");
+  });
+
+  it("reports and gates on the separate build disk", async () => {
+    const health = await service({
+      buildDataRoot: "/mnt/storage/forge/builds",
+      statfsImplementation: async (path) => ({
+        bsize: 4_096,
+        blocks: 1_000,
+        bfree: path.startsWith("/mnt/storage") ? 20 : 800,
+        bavail: path.startsWith("/mnt/storage") ? 20 : 800,
+      }),
+    }).check();
+
+    expect(health.disk.path).toBe("/var/lib/docker");
+    expect(health.buildDisk?.path).toBe("/mnt/storage/forge/builds");
+    expect(health.status).toBe("unavailable");
   });
 });
 

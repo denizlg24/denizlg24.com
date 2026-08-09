@@ -150,7 +150,7 @@ function LogViewer() {
       {!overview && !deployments ? (
         <Skeleton className="min-h-96 flex-1" />
       ) : (
-        <div className="min-h-96 flex-1 overflow-auto rounded-md border bg-zinc-950 p-3 text-zinc-100">
+        <div className="min-h-96 max-h-96 flex-1 overflow-auto rounded-md border bg-zinc-950 p-3 text-zinc-100">
           <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-5">
             {lines.length > 0
               ? lines.join("\n")

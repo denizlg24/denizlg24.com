@@ -1,6 +1,14 @@
 import { describe, expect, it } from "bun:test";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 
-import { defaultDomainMode, isZoneHostname, planRouting } from "./domains";
+import type { Database } from "../db";
+import {
+  defaultDomainMode,
+  isZoneHostname,
+  planRouting,
+  sweepDeployDomains,
+} from "./domains";
 
 const ZONE = "denizlg24.com";
 
@@ -36,6 +44,41 @@ describe("defaultDomainMode", () => {
 
   it("routes a foreign name through a custom hostname", () => {
     expect(defaultDomainMode("shop.example.com", ZONE)).toBe("custom_hostname");
+  });
+});
+
+describe("sweepDeployDomains", () => {
+  it("encodes timestamp cutoffs through their columns", async () => {
+    const conditions: SQL[] = [];
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: async (condition: SQL) => {
+            conditions.push(condition);
+            return [];
+          },
+        }),
+      }),
+    } as unknown as Database;
+
+    await sweepDeployDomains(
+      {
+        db,
+        dns: null,
+        customHostnames: null,
+        zoneName: ZONE,
+      },
+      { now: () => Date.parse("2026-08-09T19:14:54.000Z") },
+    );
+
+    const dialect = new PgDialect();
+    expect(
+      conditions.flatMap((condition) =>
+        dialect
+          .sqlToQuery(condition)
+          .params.filter((value) => String(value).includes("2026-08-08")),
+      ),
+    ).toEqual(["2026-08-08T19:14:54.000Z", "2026-08-08T19:14:54.000Z"]);
   });
 });
 

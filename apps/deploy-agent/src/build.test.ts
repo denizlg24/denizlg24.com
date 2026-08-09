@@ -46,6 +46,11 @@ async function build(
   files: Record<string, string>,
   makeResponder: (request: AgentDeploymentRequest) => ExecResponder = () =>
     checkoutWriter(files),
+  agentOptions: {
+    cacheRoot?: string;
+    buildxBuilder?: string;
+    buildkitEndpoint?: string;
+  } = {},
 ) {
   const request = deploymentRequest(overrides);
   const exec = fakeExec(makeResponder(request));
@@ -58,6 +63,7 @@ async function build(
     buildRoot: join(dir, "builds"),
     buildMemoryLimit: "6144m",
     cloneToken: TOKEN,
+    ...agentOptions,
   });
   await buildLog.close();
   return { request, exec, outcome, text: buildLog.text };
@@ -190,6 +196,28 @@ describe("runBuild", () => {
       // The moving tag has to exist on this path too or the next build's
       // --cache-from finds nothing.
       expect(exec.find("docker tag")?.command).toContain(outcome.latestTag);
+    });
+  });
+
+  it("generates a Nixpacks Dockerfile and builds it on external BuildKit", async () => {
+    await withTempDir(async (dir) => {
+      const { exec, outcome } = await build(
+        dir,
+        {},
+        { "package.json": "{}" },
+        () => checkoutWriter({ "package.json": "{}" }),
+        {
+          buildxBuilder: "forge-hdd",
+          buildkitEndpoint: "docker-container://forge-buildkit",
+        },
+      );
+
+      expect(exec.find("nixpacks build")?.command).toContain("--out");
+      const command = exec.find("docker buildx build")?.command ?? [];
+      expect(command).toContain("forge-hdd");
+      expect(command).toContain("--load");
+      expect(command).toContain(outcome.latestTag);
+      expect(exec.find("docker tag")).toBeUndefined();
     });
   });
 

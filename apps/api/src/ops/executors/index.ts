@@ -179,12 +179,18 @@ export function forgeGcSummary(report: ForgeGcReport): string {
     report.failures.length > 0 ? `${report.failures.length} failed` : null,
     agent === null ? "the agent did not answer" : null,
   ].filter(Boolean);
-  const disk = agent?.disk;
-  const free =
-    disk?.usedPercent === null || disk?.usedPercent === undefined
-      ? null
-      : `; disk at ${disk.usedPercent.toFixed(1)}%`;
-  return `Forge GC ${report.dryRun ? "dry run" : "completed"}: ${parts.join(", ")}${extras.length > 0 ? ` (${extras.join(", ")})` : ""}${free ?? ""}`;
+  const disks = [
+    ["runtime disk", agent?.disk],
+    ["build disk", agent?.buildDisk],
+  ] as const;
+  const usage = disks
+    .flatMap(([label, disk]) =>
+      disk?.usedPercent === null || disk?.usedPercent === undefined
+        ? []
+        : [`${label} at ${disk.usedPercent.toFixed(1)}%`],
+    )
+    .join(", ");
+  return `Forge GC ${report.dryRun ? "dry run" : "completed"}: ${parts.join(", ")}${extras.length > 0 ? ` (${extras.join(", ")})` : ""}${usage ? `; ${usage}` : ""}`;
 }
 
 function requireForge(context: ExecutorContext): ForgeOps {
@@ -206,21 +212,23 @@ async function notifyForgeDisk(
   report: ForgeGcReport,
   diskLowPercent: number,
 ): Promise<void> {
-  const disk = report.agent?.disk;
-  if (!disk || disk.usedPercent === null) return;
-  const freePercent = 100 - disk.usedPercent;
-  if (freePercent >= diskLowPercent) return;
-  await context.notifications.dispatch({
-    type: "forge_disk_low",
-    severity: freePercent < diskLowPercent / 2 ? "error" : "warn",
-    subjectKey: disk.path,
-    title: "Deploy host filling up",
-    message: `${disk.path} is ${disk.usedPercent.toFixed(1)}% full after the sweep (threshold ${diskLowPercent}% free)`,
-    details:
-      disk.freeBytes === null
-        ? undefined
-        : { free: formatBytes(disk.freeBytes) },
-  });
+  const disks = [report.agent?.disk, report.agent?.buildDisk];
+  for (const disk of disks) {
+    if (!disk || disk.usedPercent === null) continue;
+    const freePercent = 100 - disk.usedPercent;
+    if (freePercent >= diskLowPercent) continue;
+    await context.notifications.dispatch({
+      type: "forge_disk_low",
+      severity: freePercent < diskLowPercent / 2 ? "error" : "warn",
+      subjectKey: disk.path,
+      title: "Deploy host filling up",
+      message: `${disk.path} is ${disk.usedPercent.toFixed(1)}% full after the sweep (threshold ${diskLowPercent}% free)`,
+      details:
+        disk.freeBytes === null
+          ? undefined
+          : { free: formatBytes(disk.freeBytes) },
+    });
+  }
 }
 
 export function assertApiFilesBackupAllowed(

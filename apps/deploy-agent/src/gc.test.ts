@@ -255,5 +255,30 @@ describe("runGarbageCollection", () => {
 
     expect(report.disk.freeBytes).toBe(300 * 4_096);
     expect(report.disk.error).toBeNull();
+    expect(report.buildDisk?.freeBytes).toBe(300 * 4_096);
+  });
+
+  it("prunes the configured HDD-backed buildx builder", async () => {
+    const { exec, commands } = scriptedExec({
+      "docker buildx prune": { stderr: "Total: 1.5GB" },
+    });
+
+    const report = await withRoots((roots) =>
+      runGarbageCollection(request(), {
+        exec,
+        ...roots,
+        dockerDataRoot: "/var/lib/docker",
+        buildDataRoot: roots.buildRoot,
+        buildxBuilder: "forge-hdd",
+        statfsImplementation: NO_DISK,
+      }),
+    );
+
+    const prune = commands.find(
+      (command) => command[0] === "docker" && command[1] === "buildx",
+    );
+    expect(prune).toContain("--builder");
+    expect(prune).toContain("forge-hdd");
+    expect(report.builderCacheReclaimedBytes).toBe(1_500_000_000);
   });
 });

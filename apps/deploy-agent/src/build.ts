@@ -7,7 +7,7 @@ import type {
 } from "@repo/schemas/cloud";
 
 import type { BuildLog } from "./build-log";
-import { BUILDER_NAME, ensureBuildxBuilder } from "./buildx";
+import { DEFAULT_BUILDER_NAME, ensureBuildxBuilder } from "./buildx";
 import { type Exec, execOrThrow } from "./exec";
 
 export type ResolvedBuilder = "dockerfile" | "nixpacks";
@@ -23,6 +23,10 @@ export interface BuildOptions {
    * `docker build` path, which cannot export one.
    */
   cacheRoot?: string | null;
+  /** Named buildx builder used for builds and pruned by Forge GC. */
+  buildxBuilder?: string;
+  /** Externally managed BuildKit daemon. When set, builds never fall back. */
+  buildkitEndpoint?: string | null;
   /** Passed to `docker run`-style flags, e.g. `6144m`. */
   buildMemoryLimit: string;
   cloneToken?: string | null;
@@ -401,9 +405,19 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         ? join(options.cacheRoot, request.targetId, "buildkit")
         : null;
       // A builder we cannot create is a slower build, never a failed one.
+      const builderName = options.buildxBuilder ?? DEFAULT_BUILDER_NAME;
+      const usesExternalBuildkit = Boolean(options.buildkitEndpoint);
       const exportsCache =
-        cacheDirectory !== null &&
-        (await ensureBuildxBuilder(exec, signal).catch(() => false));
+        (cacheDirectory !== null || usesExternalBuildkit) &&
+        (await ensureBuildxBuilder(exec, signal, {
+          name: builderName,
+          endpoint: options.buildkitEndpoint,
+        }).catch(() => false));
+      if (usesExternalBuildkit && !exportsCache) {
+        throw new Error(
+          `BuildKit builder ${builderName} is unavailable; refusing to build on the runtime disk`,
+        );
+      }
       if (cacheDirectory !== null && !exportsCache) {
         log.note(
           "no docker-container builder available; building without the cache-mount export",
@@ -417,7 +431,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
               "buildx",
               "build",
               "--builder",
-              BUILDER_NAME,
+              builderName,
               "--file",
               dockerfile ?? join(contextDirectory, "Dockerfile"),
               "--tag",
@@ -429,10 +443,14 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
               // store, so the previous image is no use to it as a cache source
               // — the local cache below supersedes it and carries the cache
               // mounts the image never held.
-              "--cache-from",
-              `type=local,src=${cacheDirectory}`,
-              "--cache-to",
-              `type=local,dest=${cacheDirectory},mode=max`,
+              ...(usesExternalBuildkit
+                ? []
+                : [
+                    "--cache-from",
+                    `type=local,src=${cacheDirectory}`,
+                    "--cache-to",
+                    `type=local,dest=${cacheDirectory},mode=max`,
+                  ]),
               // Without this the image stays in the builder and `docker run`
               // reports it as missing.
               "--load",
@@ -479,6 +497,26 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         installCommand && (await isPythonWorkspace(workingDirectory))
           ? pythonInstallCommand(installCommand)
           : installCommand;
+      const nixpacksEnv = {
+        PORT: "3000",
+        ...(nodeVersion && !("NIXPACKS_NODE_VERSION" in buildEnv)
+          ? { NIXPACKS_NODE_VERSION: nodeVersion }
+          : {}),
+        ...buildEnv,
+      };
+      const usesExternalBuildkit = Boolean(options.buildkitEndpoint);
+      const builderName = options.buildxBuilder ?? DEFAULT_BUILDER_NAME;
+      if (usesExternalBuildkit) {
+        const available = await ensureBuildxBuilder(exec, signal, {
+          name: builderName,
+          endpoint: options.buildkitEndpoint,
+        }).catch(() => false);
+        if (!available) {
+          throw new Error(
+            `BuildKit builder ${builderName} is unavailable; refusing to build on the runtime disk`,
+          );
+        }
+      }
       await execOrThrow(exec, "nixpacks build", {
         command: [
           "nixpacks",
@@ -486,6 +524,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
           ".",
           "--name",
           imageTag,
+          ...(usesExternalBuildkit ? ["--out", "."] : []),
           // Scoped per target so two projects never poison each other's layers.
           "--cache-key",
           request.targetId,
@@ -512,13 +551,45 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         timeoutMs: request.timeouts.buildMs,
         onOutput: (chunk) => log.write(chunk),
       });
-      // Nixpacks tags one name; the moving tag is what makes the next build's
-      // layer cache hit, so it is applied here rather than left to the builder.
-      await execOrThrow(exec, "docker tag", {
-        command: ["docker", "tag", imageTag, latestTag],
-        signal,
-        timeoutMs: 30_000,
-      });
+      if (usesExternalBuildkit) {
+        // `nixpacks --out .` writes its generated Dockerfile and supporting
+        // files into this disposable checkout without invoking Docker. This
+        // explicit build is what keeps Nix/NPM/Bun cache mounts in the HDD
+        // worker while `--load` places only the completed image on the SSD.
+        await execOrThrow(exec, "docker buildx build", {
+          command: [
+            "docker",
+            "buildx",
+            "build",
+            "--builder",
+            builderName,
+            "--file",
+            "Dockerfile",
+            "--tag",
+            imageTag,
+            "--tag",
+            latestTag,
+            ...envFlags("--build-arg", nixpacksEnv),
+            "--load",
+            "--progress",
+            "plain",
+            ".",
+          ],
+          cwd: contextDirectory,
+          env: { DOCKER_BUILDKIT: "1" },
+          signal,
+          timeoutMs: request.timeouts.buildMs,
+          onOutput: (chunk) => log.write(chunk),
+        });
+      } else {
+        // Nixpacks tags one name; the moving tag is what makes the next build's
+        // layer cache hit, so it is applied here rather than left to the builder.
+        await execOrThrow(exec, "docker tag", {
+          command: ["docker", "tag", imageTag, latestTag],
+          signal,
+          timeoutMs: 30_000,
+        });
+      }
     }
 
     const buildDurationMs = (options.now ?? Date.now)() - started;

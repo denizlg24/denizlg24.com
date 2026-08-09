@@ -191,6 +191,17 @@ export class ForgeMonitor {
           value: agent.health.disk.usedPercent,
         });
       }
+      if (
+        agent.health.buildDisk?.usedPercent !== null &&
+        agent.health.buildDisk?.usedPercent !== undefined
+      ) {
+        samples.push({
+          ts,
+          kind: "forge-host",
+          key: "build_disk.usage_percent",
+          value: agent.health.buildDisk.usedPercent,
+        });
+      }
       const seenNetworkKeys = new Set<string>();
       for (const container of agent.containers) {
         if (!container.metrics) continue;

@@ -44,6 +44,8 @@ export interface PipelineOptions {
   routes: RouteManager;
   buildRoot: string;
   cacheRoot?: string | null;
+  buildxBuilder?: string;
+  buildkitEndpoint?: string | null;
   envRoot: string;
   network: string;
   buildMemoryLimit: string;
@@ -79,6 +81,8 @@ export function createDeploymentRunner(
         exec: options.exec,
         buildRoot: options.buildRoot,
         cacheRoot: options.cacheRoot,
+        buildxBuilder: options.buildxBuilder,
+        buildkitEndpoint: options.buildkitEndpoint,
         buildMemoryLimit: options.buildMemoryLimit,
         cloneToken: resolved.cloneToken,
         env: resolved.env,

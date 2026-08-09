@@ -15,6 +15,7 @@ set -euo pipefail
 STAGED=/var/lib/forge-agent/staging/forge-agent
 TARGET=/usr/local/bin/forge-agent
 PREVIOUS=/var/lib/forge-agent/forge-agent.prev
+STAGING_DIR=/var/lib/forge-agent/staging
 
 [ -f "$STAGED" ] || { echo "nothing staged at $STAGED" >&2; exit 1; }
 [ -s "$STAGED" ] || { echo "staged binary is empty" >&2; exit 1; }
@@ -33,16 +34,45 @@ if ! "$STAGED" --version >/dev/null 2>&1; then
   fi
 fi
 
+# Service definitions travel with the binary so a deploy cannot introduce a
+# config field before the host knows how to provide it. Missing files are
+# accepted for compatibility with older staged releases.
+if [ -f "$STAGING_DIR/forge-agent.service" ]; then
+  install -m 0644 -o root -g root \
+    "$STAGING_DIR/forge-agent.service" /etc/systemd/system/forge-agent.service
+  rm -f "$STAGING_DIR/forge-agent.service"
+fi
+if [ -f "$STAGING_DIR/forge-buildkit.service" ]; then
+  install -m 0644 -o root -g root \
+    "$STAGING_DIR/forge-buildkit.service" /etc/systemd/system/forge-buildkit.service
+  rm -f "$STAGING_DIR/forge-buildkit.service"
+fi
+if [ -f "$STAGING_DIR/forge-buildkitd.toml" ]; then
+  install -m 0644 -o root -g root \
+    "$STAGING_DIR/forge-buildkitd.toml" /etc/forge/buildkitd.toml
+  rm -f "$STAGING_DIR/forge-buildkitd.toml"
+fi
+if [ -f "$STAGING_DIR/forge-agent-install" ]; then
+  install -m 0755 -o root -g root \
+    "$STAGING_DIR/forge-agent-install" /usr/local/sbin/forge-agent-install
+  rm -f "$STAGING_DIR/forge-agent-install"
+fi
+
+systemctl daemon-reload
+systemctl enable forge-buildkit.service >/dev/null
+systemctl restart forge-buildkit.service
+
 [ -f "$TARGET" ] && cp -f "$TARGET" "$PREVIOUS"
 
 # rename(2), not a write. Overwriting a running executable in place fails with
 # ETXTBSY; renaming over it leaves the old inode alive for the running process
-# and is atomic for anything starting after.
+# and is atomic for anything starting after. The worker is started first so a
+# bad host migration leaves the current agent binary untouched and running.
 install -m 0755 -o root -g root "$STAGED" "${TARGET}.new"
 mv -f "${TARGET}.new" "$TARGET"
 rm -f "$STAGED"
 
-systemctl restart forge-agent
+systemctl restart forge-agent.service
 
 for _ in $(seq 1 30); do
   if systemctl is-active --quiet forge-agent; then

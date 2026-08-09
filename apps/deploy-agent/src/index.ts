@@ -66,6 +66,8 @@ const queue = new DeploymentQueue({
     routes: caddy,
     buildRoot: config.buildRoot,
     cacheRoot: config.cacheRoot,
+    buildxBuilder: config.buildxBuilder,
+    buildkitEndpoint: config.buildkitEndpoint,
     envRoot: config.runEnvRoot,
     network: config.dockerNetwork,
     buildMemoryLimit: `${config.buildMemoryLimitMb}m`,
@@ -82,6 +84,7 @@ const queue = new DeploymentQueue({
 const health = new HealthService({
   docker,
   dockerDataRoot: config.dockerDataRoot,
+  buildDataRoot: config.buildRoot,
   version: VERSION,
   queue: () => queue.snapshot(),
   memoryHeadroomMb: config.memoryHeadroomMb,
@@ -125,6 +128,8 @@ const app = createAgentApp({
       logRoot: config.logRoot,
       cacheRoot: config.cacheRoot,
       dockerDataRoot: config.dockerDataRoot,
+      buildDataRoot: config.buildRoot,
+      buildxBuilder: config.buildxBuilder,
     }),
 });
 

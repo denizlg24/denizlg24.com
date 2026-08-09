@@ -10,7 +10,8 @@
 # Afterwards, from the laptop:
 #   bun scripts/forge-agent-env.mjs --bind=<this host's tailscale ip>
 #   scp infra/systemd/forge-agent.env      <host>:/tmp/agent.env
-#   scp infra/systemd/forge-agent.service  <host>:/tmp/
+#   scp infra/systemd/forge-agent.service infra/systemd/forge-buildkit.service \
+#     infra/systemd/forge-buildkitd.toml <host>:/tmp/
 #   scp infra/systemd/forge-caddy.service  <host>:/tmp/
 #   scp apps/deploy-agent/dist/forge-agent <host>:/tmp/
 # then run the "install" section printed at the end.
@@ -138,6 +139,16 @@ echo "==> directories"
 mkdir -p /srv/forge/{builds,logs,cache,caddy} /etc/forge
 chown -R forge:forge /srv/forge
 chmod 0750 /srv/forge
+if ! mountpoint -q /mnt/storage; then
+  echo "/mnt/storage must be a mounted filesystem; refusing to create build paths on the SSD underneath it" >&2
+  exit 1
+fi
+install -d -o root -g root -m 0755 /mnt/storage/forge
+install -d -o forge -g forge -m 0750 \
+  /mnt/storage/forge/builds \
+  /mnt/storage/forge/logs \
+  /mnt/storage/forge/cache
+install -d -o root -g root -m 0700 /mnt/storage/forge/buildkit
 # /run is already a tmpfs; systemd's RuntimeDirectory=forge creates and wipes
 # /run/forge on each start, which is what keeps a resolved env set off disk.
 
@@ -201,9 +212,11 @@ cat <<'NEXT'
      install -o root -g forge -m 0640 /tmp/agent.env /etc/forge/agent.env
      install -o root -g root  -m 0755 /tmp/forge-agent /usr/local/bin/forge-agent
      install -o root -g root  -m 0644 /tmp/forge-agent.service /etc/systemd/system/
+     install -o root -g root  -m 0644 /tmp/forge-buildkit.service /etc/systemd/system/
+     install -o root -g root  -m 0644 /tmp/forge-buildkitd.toml /etc/forge/buildkitd.toml
      install -o root -g root  -m 0644 /tmp/forge-caddy.service /etc/systemd/system/
      systemctl daemon-reload
-     systemctl enable --now forge-caddy forge-agent
+     systemctl enable --now forge-caddy forge-buildkit forge-agent
 
   4. verify:
      curl -s localhost:2019/config/ | head -c 80        # caddy admin

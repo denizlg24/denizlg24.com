@@ -9,6 +9,8 @@ on:
       - "packages/schemas/**"
       - "infra/systemd/forge-agent.service"
       - "infra/systemd/forge-agent-install"
+      - "infra/systemd/forge-buildkit.service"
+      - "infra/systemd/forge-buildkitd.toml"
       - ".github/workflows/release-deploy-agent.yml"
       - "bun.lock"
   workflow_dispatch:
@@ -83,6 +85,11 @@ jobs:
       FORGE_HOST: ${{ vars.FORGE_TAILNET_HOST }}
       DEPLOY_MODE: ${{ inputs.mode || 'deploy' }}
     steps:
+      - name: Check out service assets
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
       - uses: actions/download-artifact@v4
         with:
           name: forge-agent
@@ -118,6 +125,14 @@ jobs:
             -o BatchMode=yes \
             dist/forge-agent \
             "denizlg24@${FORGE_ADDR}:/var/lib/forge-agent/staging/forge-agent"
+          scp \
+            -o StrictHostKeyChecking=accept-new \
+            -o BatchMode=yes \
+            infra/systemd/forge-agent.service \
+            infra/systemd/forge-buildkit.service \
+            infra/systemd/forge-buildkitd.toml \
+            infra/systemd/forge-agent-install \
+            "denizlg24@${FORGE_ADDR}:/var/lib/forge-agent/staging/"
 
       # scp reports success on a short write often enough to be worth one
       # round trip. The install script refuses an empty file; this catches a
@@ -165,7 +180,7 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
             "denizlg24@${FORGE_ADDR}" \
-            "rm -f /var/lib/forge-agent/staging/forge-agent"
+            "rm -f /var/lib/forge-agent/staging/forge-agent /var/lib/forge-agent/staging/forge-agent.service /var/lib/forge-agent/staging/forge-buildkit.service /var/lib/forge-agent/staging/forge-buildkitd.toml /var/lib/forge-agent/staging/forge-agent-install"
           {
             echo "### Validate-only run"
             echo

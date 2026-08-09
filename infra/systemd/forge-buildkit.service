@@ -1,0 +1,21 @@
+[Unit]
+Description=Forge HDD-backed BuildKit worker
+After=docker.service
+Requires=docker.service
+RequiresMountsFor=/mnt/storage/forge/buildkit
+ConditionPathIsMountPoint=/mnt/storage
+
+[Service]
+Type=simple
+# The worker is disposable; all durable cache state is the bind mount below.
+ExecStartPre=-/usr/bin/docker rm --force forge-buildkit
+ExecStart=/usr/bin/docker run --rm --name forge-buildkit --privileged --pull=missing --volume /mnt/storage/forge/buildkit:/var/lib/buildkit --volume /etc/forge/buildkitd.toml:/etc/buildkit/buildkitd.toml:ro moby/buildkit:v0.32.2 --config /etc/buildkit/buildkitd.toml
+ExecStop=-/usr/bin/docker stop --time 30 forge-buildkit
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

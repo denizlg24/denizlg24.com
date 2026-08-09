@@ -71,14 +71,18 @@ CONTROL_PLANE_URL=${controlPlane}
 MAX_CONCURRENT_BUILDS=${env.MAX_CONCURRENT_BUILDS || "1"}
 
 # Production paths. Deliberately not taken from .env: those are this laptop's.
-BUILD_ROOT=/srv/forge/builds
-LOG_ROOT=/srv/forge/logs
-CACHE_ROOT=/srv/forge/cache
+BUILD_ROOT=/mnt/storage/forge/builds
+LOG_ROOT=/mnt/storage/forge/logs
+CACHE_ROOT=/mnt/storage/forge/cache
 # tmpfs — a resolved env set must never reach the disk.
 RUN_ENV_ROOT=/run/forge
 DOCKER_SOCKET=/var/run/docker.sock
 # statfs'd by /healthz.
 DOCKER_DATA_ROOT=/var/lib/docker
+# External worker: BuildKit cache stays on the HDD; --load puts completed images
+# in DOCKER_DATA_ROOT for fast container startup.
+BUILDX_BUILDER=forge-hdd
+BUILDKIT_ENDPOINT=docker-container://forge-buildkit
 DOCKER_NETWORK=${env.DOCKER_NETWORK || "forge-apps"}
 
 # Caddy's admin API is unauthenticated code execution; loopback is enforced.

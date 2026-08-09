@@ -439,7 +439,10 @@ export const agentHealthSchema = z.object({
   version: z.string(),
   uptimeSeconds: z.number().int().min(0),
   docker: agentDockerHealthSchema,
+  /** Docker image store and writable container layers (normally the SSD). */
   disk: agentDiskHealthSchema,
+  /** Checkouts and BuildKit state (normally the larger build disk). */
+  buildDisk: agentDiskHealthSchema.optional(),
   // Optional so a control plane deployed ahead of the agent binary reads a
   // missing report as "unknown" and skips admission, rather than as a host with
   // no memory that refuses every deploy.
@@ -585,6 +588,7 @@ export const agentGcReportSchema = z.object({
   cacheDirsRemoved: z.array(z.string()),
   builderCacheReclaimedBytes: z.number().int().min(0).nullable(),
   disk: agentDiskHealthSchema,
+  buildDisk: agentDiskHealthSchema.optional(),
   failures: z.array(agentGcFailureSchema),
 });
 export type AgentGcReport = z.infer<typeof agentGcReportSchema>;

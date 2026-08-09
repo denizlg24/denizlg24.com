@@ -1,0 +1,16 @@
+# BuildKit's content store, snapshots and cache all resolve beneath this root.
+# The service bind-mounts it from /mnt/storage/forge/buildkit.
+root = "/var/lib/buildkit"
+
+[worker.oci]
+  enabled = true
+  gc = true
+  # Retain enough hot cache to make GC useful, but preserve a large emergency
+  # reserve for checkouts, logs and future builds on the 1 TB disk.
+  reservedSpace = "20GB"
+  maxUsedSpace = "75%"
+  minFreeSpace = "150GB"
+  max-parallelism = 2
+
+[worker.containerd]
+  enabled = false
