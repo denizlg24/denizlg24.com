@@ -16,6 +16,7 @@ import {
   DEPLOYMENT_KINDS,
   DEPLOYMENT_PHASES,
   DEPLOYMENT_STATUSES,
+  type DeploymentBuildSpec,
   type DomainVerificationRecords,
   NOTIFICATION_TYPES,
   type NotificationPayload,
@@ -1026,7 +1027,15 @@ export const deployTargets = pgTable(
     buildCommand: text("build_command"),
     startCommand: text("start_command"),
     healthPath: text("health_path").notNull().default("/"),
-    memoryLimitMb: integer("memory_limit_mb").notNull().default(512),
+    /**
+     * The working set this target is planned around, and the only number
+     * admission control adds up. Nullable ceiling below is the burst rope.
+     */
+    memoryReservationMb: integer("memory_reservation_mb")
+      .notNull()
+      .default(256),
+    /** Null adopts `deriveMemoryCeilingMb(memoryReservationMb)`. */
+    memoryLimitMb: integer("memory_limit_mb"),
     cpuLimit: numeric("cpu_limit", { precision: 4, scale: 2 })
       .notNull()
       .default("1.0"),
@@ -1095,6 +1104,23 @@ export const deployments = pgTable(
     imageTag: text("image_tag"),
     containerId: varchar("container_id", { length: 64 }),
     imageSizeBytes: bigint("image_size_bytes", { mode: "number" }),
+    /** The admitted working set, frozen when this row is enqueued. */
+    memoryReservationMb: integer("memory_reservation_mb").notNull(),
+    /** The derived (or explicitly stored) hard ceiling for this exact run. */
+    memoryCeilingMb: integer("memory_ceiling_mb").notNull(),
+    /**
+     * What this run was told to build, resolved from the preset and the
+     * target's overrides at enqueue.
+     *
+     * Frozen here rather than re-read from the target when the agent claims the
+     * row, for three reasons: resolution needs GitHub and the claim is a poll
+     * that must not depend on it; editing a target mid-queue would otherwise
+     * change what an already-queued build does; and a finished deployment can
+     * say exactly what it ran instead of what the target says today. Null for
+     * rows queued before this column existed — `toAgentRequest` still derives
+     * those from the target.
+     */
+    buildSpec: jsonb("build_spec").$type<DeploymentBuildSpec>(),
     buildDurationMs: integer("build_duration_ms"),
     error: text("error"),
     triggeredBy: deployTriggerEnum("triggered_by").notNull(),

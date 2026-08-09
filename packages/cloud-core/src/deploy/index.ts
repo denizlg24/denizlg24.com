@@ -1,4 +1,5 @@
 export * from "./bindings";
+export * from "./capacity";
 export * from "./cloudflare-dns";
 export * from "./custom-hostnames";
 export * from "./deployments";

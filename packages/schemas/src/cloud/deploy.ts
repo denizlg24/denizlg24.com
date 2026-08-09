@@ -86,6 +86,99 @@ export function isDeployNodeVersion(
   );
 }
 
+const repoSegmentSchema = z.string().min(1).max(128);
+
+/**
+ * A preset is the framework table's row, addressable by id. It is stored in the
+ * target's `framework` column, which used to be a label nothing branched on —
+ * now it decides which commands the resolver produces, so a target whose preset
+ * disagrees with its commands is a target with overrides, not a broken row.
+ *
+ * The canonical table lives in `@repo/cloud-core/deploy` and is served to the
+ * UI by the detect route. Kept loose here on purpose: two copies of the list
+ * drift, and the one in cloud-core is the one that can actually build.
+ */
+export const deployPresetIdSchema = z.string().min(1).max(64);
+export type DeployPresetId = z.infer<typeof deployPresetIdSchema>;
+
+export const deployPresetSchema = z.object({
+  id: deployPresetIdSchema,
+  label: z.string().min(1).max(64),
+});
+export type DeployPreset = z.infer<typeof deployPresetSchema>;
+
+/**
+ * Where a resolved value came from. The UI needs this and not just the value:
+ * a field showing `bun install` has to say whether clearing the box restores
+ * that same string or something else entirely.
+ */
+export const DEPLOY_VALUE_SOURCES = ["preset", "override"] as const;
+export const deployValueSourceSchema = z.enum(DEPLOY_VALUE_SOURCES);
+export type DeployValueSource = z.infer<typeof deployValueSourceSchema>;
+
+export function resolvedFieldSchema<T extends z.ZodTypeAny>(value: T) {
+  return z.object({ value, source: deployValueSourceSchema });
+}
+
+const resolvedCommandSchema = resolvedFieldSchema(z.string().nullable());
+
+/**
+ * What will actually run, field by field, with the preset's answer visible even
+ * where an override replaced it. Produced by one function in cloud-core and
+ * consumed by both the import form and the enqueue path — if the form resolved
+ * separately it would eventually show commands that are not the ones executed.
+ */
+export const resolvedBuildConfigSchema = z.object({
+  framework: deployPresetIdSchema,
+  frameworkLabel: z.string(),
+  builder: resolvedFieldSchema(deployBuilderSchema),
+  dockerfilePath: resolvedCommandSchema,
+  installCommand: resolvedCommandSchema,
+  buildCommand: resolvedCommandSchema,
+  startCommand: resolvedCommandSchema,
+  nodeVersion: resolvedFieldSchema(deployNodeVersionSchema.nullable()),
+  healthPath: resolvedFieldSchema(z.string()),
+});
+export type ResolvedBuildConfig = z.infer<typeof resolvedBuildConfigSchema>;
+
+/** What the repository is, independent of which directory was selected. */
+export const repoWorkspaceContextSchema = z.object({
+  packageManager: z.enum(["bun", "pnpm", "yarn", "npm"]),
+  isTurbo: z.boolean(),
+  isMonorepo: z.boolean(),
+  workspaces: z.array(z.object({ path: z.string(), name: z.string() })),
+});
+export type RepoWorkspaceContext = z.infer<typeof repoWorkspaceContextSchema>;
+
+export const detectBuildResponseSchema = z.object({
+  resolved: resolvedBuildConfigSchema,
+  presets: z.array(deployPresetSchema),
+  workspace: repoWorkspaceContextSchema,
+});
+export type DetectBuildResponse = z.infer<typeof detectBuildResponseSchema>;
+
+/**
+ * The picker's badge, for the repositories on screen only. Peeking at every
+ * repository an installation exposes costs one Contents call each against the
+ * installation's rate limit, for a badge nobody is looking at.
+ */
+export const repoBadgeRequestSchema = z.object({
+  repos: z
+    .array(z.object({ owner: repoSegmentSchema, name: repoSegmentSchema }))
+    .min(1)
+    .max(30),
+});
+export type RepoBadgeRequest = z.infer<typeof repoBadgeRequestSchema>;
+
+export const repoBadgeSchema = z.object({
+  owner: z.string(),
+  name: z.string(),
+  framework: deployPresetIdSchema.nullable(),
+  frameworkLabel: z.string().nullable(),
+  isTurbo: z.boolean(),
+});
+export type RepoBadge = z.infer<typeof repoBadgeSchema>;
+
 export const DEPLOY_ENV_SOURCES = ["literal", "binding", "template"] as const;
 export const deployEnvSourceSchema = z.enum(DEPLOY_ENV_SOURCES);
 export type DeployEnvSource = z.infer<typeof deployEnvSourceSchema>;
@@ -165,12 +258,50 @@ export const deploymentBuildSpecSchema = z.object({
 });
 export type DeploymentBuildSpec = z.infer<typeof deploymentBuildSpecSchema>;
 
-export const deploymentRuntimeSpecSchema = z.object({
-  healthPath: z.string().min(1).max(1_024).default("/"),
-  memoryLimitMb: z.number().int().min(64).max(32_768).default(512),
-  cpuLimit: z.number().min(0.1).max(32).default(1),
-  containerPort: z.number().int().min(1).max(65_535).optional(),
-});
+/**
+ * How much rope a burst gets, as a multiple of the reservation.
+ *
+ * The two numbers do different jobs and only one of them is a promise. The
+ * reservation is the working set the platform plans around and the only figure
+ * admission control counts; the ceiling is where a runaway process is killed.
+ * Setting them equal — which is what a single `memoryLimitMb` did — means an app
+ * that is briefly 10 MB over its typical usage is OOM-killed, so every target
+ * has to be provisioned for its worst minute and the host is sized for the sum
+ * of worst minutes that never happen at once.
+ */
+export const MEMORY_BURST_MULTIPLIER = 4;
+export const MIN_MEMORY_MB = 64;
+export const MAX_MEMORY_MB = 32_768;
+
+/** The ceiling a target gets when it has not overridden one. */
+export function deriveMemoryCeilingMb(reservationMb: number): number {
+  return Math.min(reservationMb * MEMORY_BURST_MULTIPLIER, MAX_MEMORY_MB);
+}
+
+const memoryMbSchema = z.number().int().min(MIN_MEMORY_MB).max(MAX_MEMORY_MB);
+
+export const deploymentRuntimeSpecSchema = z
+  .object({
+    healthPath: z.string().min(1).max(1_024).default("/"),
+    /**
+     * The hard ceiling: `docker run --memory`. Exceeding it is an OOM kill, so it
+     * is deliberately generous — see MEMORY_BURST_MULTIPLIER.
+     */
+    memoryLimitMb: memoryMbSchema.default(1_024),
+    /**
+     * The planned working set: `docker run --memory-reservation`, which is
+     * `memory.low` on cgroups v2. Not a kernel guarantee — it biases reclaim so a
+     * container inside its reservation is the last to be squeezed — which is why
+     * the platform also refuses to commit more of these than the host has.
+     */
+    memoryReservationMb: memoryMbSchema.default(256),
+    cpuLimit: z.number().min(0.1).max(32).default(1),
+    containerPort: z.number().int().min(1).max(65_535).optional(),
+  })
+  .refine((runtime) => runtime.memoryLimitMb >= runtime.memoryReservationMb, {
+    message: "Memory ceiling must be at least the reservation",
+    path: ["memoryLimitMb"],
+  });
 export type DeploymentRuntimeSpec = z.infer<typeof deploymentRuntimeSpecSchema>;
 
 export const deploymentTimeoutsSchema = z.object({
@@ -265,6 +396,40 @@ export const agentDiskHealthSchema = z.object({
 });
 
 /**
+ * What the host actually has, so the control plane stops guessing.
+ *
+ * `allocatableMb` is the only figure admission control reads, and it is
+ * deliberately smaller than free memory: the OS, dockerd, the agent and Caddy
+ * need headroom, and a build needs several gigabytes it does not hold yet.
+ * Budgeting against free memory instead schedules an app into the space the
+ * next build is about to occupy.
+ */
+export const agentMemoryHealthSchema = z.object({
+  totalMb: z.number().int().min(0).nullable(),
+  /** MemAvailable — reclaimable cache included, which is what can really be had. */
+  availableMb: z.number().int().min(0).nullable(),
+  /** total − headroom − (build limit × concurrent builds). Never negative. */
+  allocatableMb: z.number().int().min(0).nullable(),
+  headroomMb: z.number().int().min(0),
+  buildReserveMb: z.number().int().min(0),
+  error: z.string().nullable(),
+});
+export type AgentMemoryHealth = z.infer<typeof agentMemoryHealthSchema>;
+
+/**
+ * Reservations already spoken for, against what the host can offer. Assembled
+ * by the control plane, which is the only side that knows the targets.
+ */
+export const deployCapacitySchema = z.object({
+  allocatableMb: z.number().int().min(0).nullable(),
+  committedMb: z.number().int().min(0),
+  targets: z.number().int().min(0),
+  /** Null when the agent cannot be reached, which is not the same as zero. */
+  availableMb: z.number().int().min(0).nullable(),
+});
+export type DeployCapacity = z.infer<typeof deployCapacitySchema>;
+
+/**
  * `unavailable` means the agent is up and cannot deploy — the case a plain
  * liveness probe reports as healthy while every build fails. Docker being
  * unreachable is exactly that, so it is a status, not a field nobody reads.
@@ -275,6 +440,10 @@ export const agentHealthSchema = z.object({
   uptimeSeconds: z.number().int().min(0),
   docker: agentDockerHealthSchema,
   disk: agentDiskHealthSchema,
+  // Optional so a control plane deployed ahead of the agent binary reads a
+  // missing report as "unknown" and skips admission, rather than as a host with
+  // no memory that refuses every deploy.
+  memory: agentMemoryHealthSchema.optional(),
   queue: agentQueueSnapshotSchema,
 });
 export type AgentHealth = z.infer<typeof agentHealthSchema>;
@@ -287,10 +456,40 @@ export const DISK_UNAVAILABLE_PERCENT = 97;
  * rollback and a domain rename all end up here, and each of them is "these are
  * the names now" — expressing it as an add or a remove would leave the agent
  * reconstructing a set the control plane already knows.
+ *
+ * `redirectHostnames` is the same statement for the names that must answer with
+ * a 308 to `canonical` rather than serve. It is optional so an agent running
+ * ahead of a control plane that does not send it keeps serving every name, which
+ * is the old behaviour and not an outage.
  */
-export const agentPromoteRequestSchema = z.object({
-  hostnames: z.array(hostnameSchema).min(1).max(64),
-});
+export const agentPromoteRequestSchema = z
+  .object({
+    hostnames: z.array(hostnameSchema).min(1).max(64),
+    redirectHostnames: z.array(hostnameSchema).max(64).default([]),
+    canonical: hostnameSchema.nullish(),
+  })
+  .refine(
+    (value) =>
+      value.redirectHostnames.length === 0 ||
+      (value.canonical !== null && value.canonical !== undefined),
+    {
+      message: "redirectHostnames requires a canonical hostname to point at",
+      path: ["canonical"],
+    },
+  )
+  .refine(
+    (value) =>
+      !value.redirectHostnames.some((hostname) =>
+        value.hostnames.includes(hostname),
+      ),
+    {
+      // A name in both sets is a route Caddy resolves by whichever entry it
+      // matched first, which is the "one hostname silently serving another app"
+      // failure the router's own comment warns about.
+      message: "A hostname cannot both serve and redirect",
+      path: ["redirectHostnames"],
+    },
+  );
 export type AgentPromoteRequest = z.infer<typeof agentPromoteRequestSchema>;
 
 /**
@@ -427,7 +626,6 @@ export function previewHostnameLabel(options: {
   return branch ? `${slug}-${branch}-${suffix}` : `${slug}-${suffix}`;
 }
 
-const repoSegmentSchema = z.string().min(1).max(128);
 const branchSchema = z.string().min(1).max(128);
 
 export const createDeployTargetInputSchema = z.object({
@@ -456,7 +654,13 @@ export const createDeployTargetInputSchema = z.object({
   buildCommand: commandSchema.nullish(),
   startCommand: commandSchema.nullish(),
   healthPath: z.string().min(1).max(1_024).default("/"),
-  memoryLimitMb: z.number().int().min(64).max(32_768).default(512),
+  /** The planned working set, and the only figure counted against the host. */
+  memoryReservationMb: memoryMbSchema.default(256),
+  /**
+   * The burst ceiling. Null adopts `deriveMemoryCeilingMb`, so the common case
+   * is one number and the ceiling moves with it.
+   */
+  memoryLimitMb: memoryMbSchema.nullish(),
   cpuLimit: z.number().min(0.1).max(32).default(1),
   autoDeploy: z.boolean().default(true),
   previewDeploys: z.boolean().default(true),
@@ -515,7 +719,10 @@ export const deployTargetSchema = z.object({
   buildCommand: z.string().nullable(),
   startCommand: z.string().nullable(),
   healthPath: z.string(),
-  memoryLimitMb: z.number().int(),
+  memoryReservationMb: z.number().int(),
+  /** Null means derived; `memoryCeilingMb` is what will actually be applied. */
+  memoryLimitMb: z.number().int().nullable(),
+  memoryCeilingMb: z.number().int(),
   cpuLimit: z.number(),
   autoDeploy: z.boolean(),
   previewDeploys: z.boolean(),
@@ -593,6 +800,28 @@ export type UpdateDeployDomainInput = z.infer<
   typeof updateDeployDomainInputSchema
 >;
 
+/**
+ * What a domain does once it is live, as distinct from whether its DNS record
+ * exists. `status: "active"` only ever meant the latter, which is why a panel
+ * showing five active domains could not say which one the app is on.
+ *
+ * - `canonical` — serves, and every other name points here.
+ * - `serves` — serves directly; the state of every domain when none is primary.
+ * - `redirects` — 308s to the canonical name.
+ * - `pending` — not routing yet, because the domain is not active.
+ * - `retired` — superseded by a rename, still answering until the grace period
+ *   is up.
+ */
+export const DEPLOY_DOMAIN_ROLES = [
+  "canonical",
+  "serves",
+  "redirects",
+  "pending",
+  "retired",
+] as const;
+export const deployDomainRoleSchema = z.enum(DEPLOY_DOMAIN_ROLES);
+export type DeployDomainRole = z.infer<typeof deployDomainRoleSchema>;
+
 export const deployDomainSchema = z.object({
   id: z.uuid(),
   targetId: z.uuid(),
@@ -601,6 +830,9 @@ export const deployDomainSchema = z.object({
   mode: deployDomainModeSchema,
   status: deployDomainStatusSchema,
   isPrimary: z.boolean(),
+  role: deployDomainRoleSchema,
+  /** Set only when `role` is `redirects`. */
+  redirectsTo: z.string().nullable(),
   verification: domainVerificationRecordsSchema.nullable(),
   lastCheckedAt: z.iso.datetime().nullable(),
   retiredAt: z.iso.datetime().nullable(),

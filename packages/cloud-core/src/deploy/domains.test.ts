@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { defaultDomainMode, isZoneHostname } from "./domains";
+import { defaultDomainMode, isZoneHostname, planRouting } from "./domains";
 
 const ZONE = "denizlg24.com";
 
@@ -36,5 +36,63 @@ describe("defaultDomainMode", () => {
 
   it("routes a foreign name through a custom hostname", () => {
     expect(defaultDomainMode("shop.example.com", ZONE)).toBe("custom_hostname");
+  });
+});
+
+describe("planRouting", () => {
+  const preview = { hostname: "pr-4.denizlg24.com", kind: "preview" } as const;
+  const production = {
+    hostname: "app.denizlg24.com",
+    kind: "production",
+  } as const;
+
+  it("serves every stable domain when none is primary", () => {
+    // The behaviour every target had before primary meant anything. A repo
+    // that never picks one must not lose its domains.
+    const routing = planRouting(production, [
+      { hostname: "a.denizlg24.com", isPrimary: false },
+      { hostname: "b.denizlg24.com", isPrimary: false },
+    ]);
+
+    expect(routing.serve).toEqual([
+      "app.denizlg24.com",
+      "a.denizlg24.com",
+      "b.denizlg24.com",
+    ]);
+    expect(routing.redirect).toEqual([]);
+    expect(routing.canonical).toBeNull();
+  });
+
+  it("redirects the rest to the primary", () => {
+    const routing = planRouting(production, [
+      { hostname: "www.denizlg24.com", isPrimary: false },
+      { hostname: "denizlg24.com", isPrimary: true },
+    ]);
+
+    expect(routing.canonical).toBe("denizlg24.com");
+    expect(routing.serve).toEqual(["app.denizlg24.com", "denizlg24.com"]);
+    expect(routing.redirect).toEqual(["www.denizlg24.com"]);
+  });
+
+  it("always serves the deployment's own hostname", () => {
+    // It is the only name that exists before any domain is attached, and it is
+    // what the build log links to — redirecting it would break the one URL
+    // that is guaranteed to work.
+    const routing = planRouting(production, [
+      { hostname: "app.denizlg24.com", isPrimary: false },
+      { hostname: "denizlg24.com", isPrimary: true },
+    ]);
+
+    expect(routing.serve).toContain("app.denizlg24.com");
+    expect(routing.redirect).not.toContain("app.denizlg24.com");
+  });
+
+  it("gives a preview no stable domains at all", () => {
+    const routing = planRouting(preview, [
+      { hostname: "denizlg24.com", isPrimary: true },
+    ]);
+
+    expect(routing.serve).toEqual(["pr-4.denizlg24.com"]);
+    expect(routing.canonical).toBeNull();
   });
 });

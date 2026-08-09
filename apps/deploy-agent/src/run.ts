@@ -182,17 +182,47 @@ export async function resolveContainerPort(
   return DEFAULT_CONTAINER_PORT;
 }
 
-async function containerRunning(
+export interface ContainerState {
+  running: boolean;
+  /** The cgroup killed it for exceeding `--memory`. */
+  oomKilled: boolean;
+  exitCode: number | null;
+}
+
+/**
+ * Running, plus why it is not.
+ *
+ * `OOMKilled` is the field worth the extra parsing: a container over its
+ * ceiling is killed with SIGKILL and exits 137, which is indistinguishable from
+ * any other hard stop unless this is read. Reporting it as "exited before it
+ * became healthy" sends you to the application logs for a limit problem, and
+ * the logs show nothing because the process was never told anything.
+ */
+async function containerState(
   exec: Exec,
   name: string,
   signal: AbortSignal,
-): Promise<boolean> {
+): Promise<ContainerState> {
   const result = await exec({
-    command: ["docker", "inspect", "--format", "{{.State.Running}}", name],
+    command: [
+      "docker",
+      "inspect",
+      "--format",
+      "{{.State.Running}} {{.State.OOMKilled}} {{.State.ExitCode}}",
+      name,
+    ],
     signal,
     timeoutMs: 15_000,
   });
-  return result.exitCode === 0 && result.stdout.trim() === "true";
+  if (result.exitCode !== 0) {
+    return { running: false, oomKilled: false, exitCode: null };
+  }
+  const [running, oomKilled, exitCode] = result.stdout.trim().split(/\s+/);
+  return {
+    running: running === "true",
+    oomKilled: oomKilled === "true",
+    exitCode: Number.isFinite(Number(exitCode)) ? Number(exitCode) : null,
+  };
 }
 
 async function captureContainerLogs(
@@ -250,10 +280,25 @@ export async function startContainer(options: RunOptions): Promise<RunOutcome> {
         options.network,
         "--restart",
         "unless-stopped",
+        // The hard ceiling. Equal to --memory-swap so swap stays off: on this
+        // host a container thrashing swap degrades every other container and
+        // the tunnel with it, which is worse than one clean kill.
         "--memory",
         memory,
         "--memory-swap",
         memory,
+        // The soft limit (memory.low). Under host pressure the kernel reclaims
+        // from containers above their reservation first, so an app inside its
+        // planned working set is the last to be squeezed. This is what makes
+        // the gap up to --memory usable rather than theoretical.
+        "--memory-reservation",
+        `${request.runtime.memoryReservationMb}m`,
+        // When the host itself runs out, the kernel picks a victim by badness
+        // score and would happily choose dockerd, this agent, or Caddy —
+        // killing Caddy takes every deployment down at once. A positive
+        // adjustment makes a deployed app always the cheaper target.
+        "--oom-score-adj",
+        "500",
         "--cpus",
         String(request.runtime.cpuLimit),
         "--pids-limit",
@@ -335,14 +380,17 @@ export async function awaitHealthy(
     }
     lastStatus = status;
 
-    if (
-      !(await containerRunning(
-        options.exec,
-        outcome.containerName,
-        options.signal,
-      ))
-    ) {
-      throw new RunError("Container exited before it became healthy");
+    const state = await containerState(
+      options.exec,
+      outcome.containerName,
+      options.signal,
+    );
+    if (!state.running) {
+      throw new RunError(
+        state.oomKilled
+          ? `Container exceeded its ${options.request.runtime.memoryLimitMb} MB memory ceiling and was killed`
+          : "Container exited before it became healthy",
+      );
     }
     await sleep(pollMs);
   }

@@ -21,6 +21,8 @@ const TOUCHED = [
   "CACHE_ROOT",
   "DOCKER_SOCKET",
   "DOCKER_DATA_ROOT",
+  "BUILD_MEMORY_LIMIT_MB",
+  "MEMORY_HEADROOM_MB",
 ];
 
 function configWith(overrides: Record<string, string | undefined> = {}) {
@@ -64,6 +66,7 @@ describe("agentConfigFromEnv", () => {
     expect(config.buildRoot).toBe("/srv/forge/builds");
     expect(config.dockerSocket).toBe("/var/run/docker.sock");
     expect(config.dockerDataRoot).toBe("/var/lib/docker");
+    expect(config.memoryHeadroomMb).toBe(1_024);
   });
 
   it("refuses a wildcard bind address", () => {
@@ -114,6 +117,15 @@ describe("agentConfigFromEnv", () => {
     );
     expect(() => configWith({ MAX_CONCURRENT_BUILDS: "9" })).toThrow(
       /integer from 1 to 4/,
+    );
+  });
+
+  it("bounds host memory headroom", () => {
+    expect(configWith({ MEMORY_HEADROOM_MB: "2048" }).memoryHeadroomMb).toBe(
+      2_048,
+    );
+    expect(() => configWith({ MEMORY_HEADROOM_MB: "64" })).toThrow(
+      /integer from 128/,
     );
   });
 

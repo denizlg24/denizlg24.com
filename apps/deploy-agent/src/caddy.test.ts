@@ -61,6 +61,71 @@ describe("buildCaddyConfig", () => {
     expect(routes.at(-1)?.handle[0]?.status_code).toBe(404);
   });
 
+  it("redirects aliases to the canonical hostname", () => {
+    const config = buildCaddyConfig([
+      {
+        deploymentId: "a",
+        projectSlug: "app",
+        hostnames: ["denizlg24.com"],
+        redirectHostnames: ["www.denizlg24.com", "old.denizlg24.com"],
+        canonical: "denizlg24.com",
+        upstream: "127.0.0.1:24817",
+      },
+    ]);
+    const routes = config.apps.http.servers.forge?.routes ?? [];
+    const redirect = routes[1];
+
+    expect(redirect?.match?.[0]?.host).toEqual([
+      "old.denizlg24.com",
+      "www.denizlg24.com",
+    ]);
+    // 308 keeps the method, so a POST to an alias is not silently turned into
+    // a GET, and the URI is carried across so deep links survive.
+    const handler = redirect?.handle[0] as
+      | { status_code: number; headers: { Location: string[] } }
+      | undefined;
+    expect(handler?.status_code).toBe(308);
+    expect(handler?.headers.Location).toEqual([
+      "https://denizlg24.com{http.request.uri}",
+    ]);
+  });
+
+  it("serves every name when there is no canonical to redirect to", () => {
+    // The shape an entry restored from a pre-redirect state file has. Serving
+    // is the old behaviour; 308ing to nowhere would be an outage.
+    const config = buildCaddyConfig([
+      {
+        deploymentId: "a",
+        projectSlug: "app",
+        hostnames: ["a.denizlg24.com"],
+        redirectHostnames: ["www.denizlg24.com"],
+        canonical: null,
+        upstream: "127.0.0.1:24817",
+      },
+    ]);
+
+    expect(config.apps.http.servers.forge?.routes).toHaveLength(2);
+  });
+
+  it("never both serves and redirects the same hostname", () => {
+    const config = buildCaddyConfig([
+      {
+        deploymentId: "a",
+        projectSlug: "app",
+        hostnames: ["a.denizlg24.com", "denizlg24.com"],
+        redirectHostnames: ["a.denizlg24.com"],
+        canonical: "denizlg24.com",
+        upstream: "127.0.0.1:24817",
+      },
+    ]);
+    const routes = config.apps.http.servers.forge?.routes ?? [];
+
+    // A name in both sets resolves to whichever route matched first, which is
+    // the "one hostname silently serving another app" failure mode.
+    expect(routes).toHaveLength(2);
+    expect(routes[0]?.match?.[0]?.host).toContain("a.denizlg24.com");
+  });
+
   it("tells the app it is behind HTTPS", () => {
     const config = buildCaddyConfig([
       {

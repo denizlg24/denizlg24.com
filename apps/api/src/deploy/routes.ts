@@ -24,16 +24,20 @@ import {
 } from "@repo/cloud-core/db/schema";
 import {
   assertBindingsResolvable,
+  assertCapacityAvailable,
   BindingUnresolvableError,
+  buildSpecFromTarget,
   claimQueuedDeployment,
   createDeployBindingResolvers,
   createDeployDomain,
+  DEPLOY_PRESETS,
   decryptDeployEnvValue,
   deleteDeployDomain,
+  deployCapacity,
   deployNamespaceAvailability,
   describeBindings,
   detectBuildConfig,
-  detectWorkspaces,
+  detectWorkspaceContext,
   type EnvoyEnvSource,
   encryptDeployEnvValue,
   envoyLinkFor,
@@ -44,6 +48,8 @@ import {
   isPullRequestTeardown,
   listDeployDomains,
   loadDeployDomain,
+  lockDeployCapacity,
+  memoryCeilingMb,
   planPullRequestDeployment,
   planPushDeployment,
   pullRequestDeployments,
@@ -52,6 +58,7 @@ import {
   refreshDeployDomain,
   releaseDeployDomain,
   renameDeployDomain,
+  resolveBuildConfig,
   resolveDeploymentEnv,
   resolveEnvoyEnv,
   setPrimaryDeployDomain,
@@ -67,8 +74,10 @@ import {
   createDeployDomainInputSchema,
   createDeploymentInputSchema,
   createDeployTargetRequestSchema,
+  type DeployDomainRole,
   type DeployEnvVarInput,
   DeployHostnameError,
+  type DeploymentBuildSpec,
   deploymentStatusUpdateSchema,
   githubInstallationEventSchema,
   githubPullRequestEventSchema,
@@ -78,6 +87,7 @@ import {
   linkEnvoyProjectInputSchema,
   previewHostnameLabel,
   replaceDeployEnvInputSchema,
+  repoBadgeRequestSchema,
   slugifyHostnameLabel,
   updateDeployDomainInputSchema,
   updateDeployTargetInputSchema,
@@ -217,7 +227,9 @@ function serializeTarget(
     buildCommand: target.buildCommand,
     startCommand: target.startCommand,
     healthPath: target.healthPath,
+    memoryReservationMb: target.memoryReservationMb,
     memoryLimitMb: target.memoryLimitMb,
+    memoryCeilingMb: memoryCeilingMb(target),
     cpuLimit: Number(target.cpuLimit),
     autoDeploy: target.autoDeploy,
     previewDeploys: target.previewDeploys,
@@ -253,7 +265,25 @@ function serializeDeployment(row: DeploymentRow) {
   };
 }
 
-function serializeDomain(row: DeployDomainRow) {
+/**
+ * What this domain does, given the others on the same target. Computed from the
+ * rows rather than asked of the agent: this is the intent, and the drift check
+ * in `ForgeOps.unroutedTargets` is what reconciles the agent to it.
+ */
+function domainRole(
+  row: DeployDomainRow,
+  canonical: string | null,
+): { role: DeployDomainRole; redirectsTo: string | null } {
+  if (row.retiredAt !== null) return { role: "retired", redirectsTo: null };
+  if (row.status !== "active") return { role: "pending", redirectsTo: null };
+  if (!canonical) return { role: "serves", redirectsTo: null };
+  if (row.hostname === canonical) {
+    return { role: "canonical", redirectsTo: null };
+  }
+  return { role: "redirects", redirectsTo: canonical };
+}
+
+function serializeDomain(row: DeployDomainRow, canonical: string | null) {
   return {
     id: row.id,
     targetId: row.targetId,
@@ -262,11 +292,27 @@ function serializeDomain(row: DeployDomainRow) {
     mode: row.mode,
     status: row.status,
     isPrimary: row.isPrimary,
+    ...domainRole(row, canonical),
     verification: row.verification ?? null,
     lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
     retiredAt: row.retiredAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+/** The name every other domain on the target points at, if one is chosen. */
+function canonicalHostname(rows: readonly DeployDomainRow[]): string | null {
+  return (
+    rows.find(
+      (row) =>
+        row.isPrimary && row.status === "active" && row.retiredAt === null,
+    )?.hostname ?? null
+  );
+}
+
+function serializeDomains(rows: readonly DeployDomainRow[]) {
+  const canonical = canonicalHostname(rows);
+  return rows.map((row) => serializeDomain(row, canonical));
 }
 
 /** A literal's value is never returned; only that one is stored. */
@@ -568,15 +614,84 @@ export function deployRoutes(options: DeployRouteOptions) {
       const installationId = await installationFor(repoOwner, repoName);
       const ref = context.req.query("ref");
       const inspector = inspectorFor(installationId, repoOwner, repoName, ref);
-      const [config, workspaces] = await Promise.all([
-        detectBuildConfig(inspector, context.req.query("dir") ?? ""),
-        detectWorkspaces(inspector),
-      ]);
-      return context.json({ data: { ...config, workspaces } });
+      const workspace = await detectWorkspaceContext(inspector);
+      // Resolved with no overrides: this is the form's placeholder set, which
+      // is what the build runs when every override is off. The same function
+      // resolves the real thing at enqueue, so the two cannot disagree.
+      const resolved = await resolveBuildConfig(inspector, {
+        rootDirectory: context.req.query("dir") ?? "",
+        framework: context.req.query("framework") ?? null,
+        workspace,
+      });
+      return context.json({
+        data: { resolved, presets: DEPLOY_PRESETS, workspace },
+      });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
     }
+  });
+
+  /**
+   * Badges for the repositories the picker is showing, not every repository the
+   * installation exposes: this is one Contents call per repository against the
+   * installation's rate limit, for a badge nobody is looking at until they
+   * scroll to it.
+   */
+  owner.post("/github/repos/badges", async (context) => {
+    const parsed = repoBadgeRequestSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid repository list",
+            issues: parsed.error.issues,
+          },
+        },
+        400,
+      );
+    }
+
+    const badges = await Promise.all(
+      parsed.data.repos.map(async (repo) => {
+        // One repository the App cannot see must not fail the whole list — the
+        // picker would then show no badges at all rather than the ones it has.
+        try {
+          const installationId = await installationFor(repo.owner, repo.name);
+          const inspector = inspectorFor(
+            installationId,
+            repo.owner,
+            repo.name,
+            undefined,
+          );
+          const workspace = await detectWorkspaceContext(inspector);
+          const detected = await detectBuildConfig(inspector, "", {
+            workspace,
+          });
+          return {
+            owner: repo.owner,
+            name: repo.name,
+            framework:
+              detected.framework === "unknown" ? null : detected.framework,
+            frameworkLabel:
+              detected.framework === "unknown" ? null : detected.frameworkLabel,
+            isTurbo: workspace.isTurbo,
+          };
+        } catch {
+          return {
+            owner: repo.owner,
+            name: repo.name,
+            framework: null,
+            frameworkLabel: null,
+            isTurbo: false,
+          };
+        }
+      }),
+    );
+    return context.json({ data: badges });
   });
 
   owner.get("/targets", async (context) => {
@@ -605,6 +720,11 @@ export function deployRoutes(options: DeployRouteOptions) {
     return context.json({ data: listed });
   });
 
+  owner.get("/capacity", async (context) => {
+    const capacity = await deployCapacity(db, await allocatableMemoryMb());
+    return context.json({ data: capacity });
+  });
+
   owner.post("/targets", async (context) => {
     const parsed = createDeployTargetRequestSchema.safeParse(
       await context.req.json().catch(() => null),
@@ -623,6 +743,16 @@ export function deployRoutes(options: DeployRouteOptions) {
     }
     const input = parsed.data;
     try {
+      if (
+        input.memoryLimitMb !== null &&
+        input.memoryLimitMb !== undefined &&
+        input.memoryLimitMb < input.memoryReservationMb
+      ) {
+        throw new ValidationError(
+          "Memory ceiling must be at least the reservation",
+          "INVALID_MEMORY_LIMIT",
+        );
+      }
       const existingProject = input.projectId
         ? await db.query.projects.findFirst({
             where: eq(projects.id, input.projectId),
@@ -691,6 +821,7 @@ export function deployRoutes(options: DeployRouteOptions) {
             buildCommand: input.buildCommand ?? null,
             startCommand: input.startCommand ?? null,
             healthPath: input.healthPath,
+            memoryReservationMb: input.memoryReservationMb,
             memoryLimitMb: input.memoryLimitMb,
             cpuLimit: input.cpuLimit.toFixed(2),
             autoDeploy: input.autoDeploy,
@@ -814,6 +945,18 @@ export function deployRoutes(options: DeployRouteOptions) {
     }
     try {
       const target = await loadTarget(context.req.param("id"));
+      const nextReservation =
+        parsed.data.memoryReservationMb ?? target.memoryReservationMb;
+      const nextCeiling =
+        parsed.data.memoryLimitMb === undefined
+          ? target.memoryLimitMb
+          : parsed.data.memoryLimitMb;
+      if (nextCeiling !== null && nextCeiling < nextReservation) {
+        throw new ValidationError(
+          "Memory ceiling must be at least the reservation",
+          "INVALID_MEMORY_LIMIT",
+        );
+      }
       const { cpuLimit, ...input } = parsed.data;
       const [updated] = await db
         .update(deployTargets)
@@ -1117,6 +1260,93 @@ export function deployRoutes(options: DeployRouteOptions) {
     }
   });
 
+  /**
+   * What this run will build, resolved from the target's preset and overrides
+   * against the exact commit being deployed. Frozen onto the deployment row, so
+   * a target edited while a build is queued does not change that build.
+   *
+   * Falls back to the target's own columns when the App cannot be reached. The
+   * alternative is refusing to deploy because GitHub is down, and the fallback
+   * is exactly what every deployment used before presets existed.
+   */
+  async function resolveBuildSpec(
+    target: DeployTargetRow,
+    sha: string,
+  ): Promise<DeploymentBuildSpec> {
+    if (!options.github || target.githubInstallationId === null) {
+      return buildSpecFromTarget(target);
+    }
+    try {
+      const inspector = inspectorFor(
+        target.githubInstallationId,
+        target.repoOwner,
+        target.repoName,
+        sha,
+      );
+      const resolved = await resolveBuildConfig(inspector, {
+        rootDirectory: target.rootDirectory,
+        framework: target.framework,
+        overrides: {
+          builder: target.builder,
+          dockerfilePath: target.dockerfilePath,
+          installCommand: target.installCommand,
+          buildCommand: target.buildCommand,
+          startCommand: target.startCommand,
+          nodeVersion: isDeployNodeVersion(target.nodeVersion)
+            ? target.nodeVersion
+            : null,
+        },
+      });
+      return {
+        builder: resolved.builder.value,
+        ...(target.rootDirectory
+          ? { rootDirectory: target.rootDirectory }
+          : {}),
+        ...(resolved.dockerfilePath.value
+          ? { dockerfilePath: resolved.dockerfilePath.value }
+          : {}),
+        ...(resolved.installCommand.value
+          ? { installCommand: resolved.installCommand.value }
+          : {}),
+        ...(resolved.buildCommand.value
+          ? { buildCommand: resolved.buildCommand.value }
+          : {}),
+        ...(resolved.startCommand.value
+          ? { startCommand: resolved.startCommand.value }
+          : {}),
+        ...(resolved.nodeVersion.value
+          ? { nodeVersion: resolved.nodeVersion.value }
+          : {}),
+      };
+    } catch (error) {
+      console.error("[deploy] build config resolution failed", {
+        targetId: target.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return buildSpecFromTarget(target);
+    }
+  }
+
+  /**
+   * The host's memory budget, as the agent last reported it.
+   *
+   * Null on every failure path — an unreachable agent, an older binary that
+   * does not report memory, a host whose `/proc/meminfo` could not be read.
+   * Admission treats null as unknown and allows the deploy: refusing every
+   * deployment because the agent is briefly down is a worse outage than the
+   * overcommit this guards against.
+   */
+  async function allocatableMemoryMb(): Promise<number | null> {
+    try {
+      const health = await forge.agent.json<{
+        memory?: { allocatableMb?: number | null };
+      }>("/healthz", { method: "GET" });
+      return health.body.memory?.allocatableMb ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async function enqueueDeployment(input: {
     target: DeployTargetRow;
     projectSlug: string;
@@ -1151,24 +1381,48 @@ export function deployRoutes(options: DeployRouteOptions) {
       zoneName,
     );
 
+    // Both calls may cross the network, so finish them before taking the
+    // capacity lock. Only the check and insert need serialization.
+    const [buildSpec, allocatableMb] = await Promise.all([
+      resolveBuildSpec(input.target, input.sha),
+      allocatableMemoryMb(),
+    ]);
+
     // Insert first, then call Cloudflare. The reverse leaves an orphan record
     // nothing knows about if the insert loses a race; this leaves a row with
     // no record, which the deployment itself repairs or fails on.
-    const [created] = await db
-      .insert(deployments)
-      .values({
+    const created = await db.transaction(async (tx) => {
+      await lockDeployCapacity(tx);
+      // Same reasoning as the bindings check above: refusing here costs a
+      // request, and finding out after the build costs three minutes, a
+      // container, and possibly the host. The advisory lock makes two
+      // simultaneous enqueues observe one another's rows.
+      await assertCapacityAvailable(tx, {
         targetId: input.target.id,
         kind: input.kind,
-        gitRef: input.ref,
-        gitSha: input.sha,
-        gitMessage: input.message,
-        hostname,
-        triggeredBy: input.triggeredBy,
-        createdBy: input.createdBy,
-        prNumber: input.prNumber ?? null,
-      })
-      .returning();
-    if (!created) throw new Error("Deployment insert returned no row");
+        requestedMb: input.target.memoryReservationMb,
+        allocatableMb,
+      });
+      const [row] = await tx
+        .insert(deployments)
+        .values({
+          targetId: input.target.id,
+          kind: input.kind,
+          gitRef: input.ref,
+          gitSha: input.sha,
+          gitMessage: input.message,
+          hostname,
+          triggeredBy: input.triggeredBy,
+          createdBy: input.createdBy,
+          prNumber: input.prNumber ?? null,
+          buildSpec,
+          memoryReservationMb: input.target.memoryReservationMb,
+          memoryCeilingMb: memoryCeilingMb(input.target),
+        })
+        .returning();
+      if (!row) throw new Error("Deployment insert returned no row");
+      return row;
+    });
 
     if (forge.dns) {
       try {
@@ -1510,11 +1764,24 @@ export function deployRoutes(options: DeployRouteOptions) {
 
   // ---- Domains -------------------------------------------------------------
 
+  /**
+   * A domain's role is a property of the set it belongs to, not of the row, so
+   * a mutation that returns one row still has to read its siblings to know
+   * whether it is now the canonical name or points at it.
+   */
+  async function serializeDomainInTarget(row: DeployDomainRow) {
+    const siblings = await listDeployDomains(db, row.targetId);
+    // The mutation's own row is authoritative over the copy just read back,
+    // which may predate it on a replica.
+    const rows = siblings.map((entry) => (entry.id === row.id ? row : entry));
+    return serializeDomain(row, canonicalHostname(rows));
+  }
+
   owner.get("/targets/:id/domains", async (context) => {
     try {
       const target = await loadTarget(context.req.param("id"));
       const rows = await listDeployDomains(db, target.id);
-      return context.json({ data: rows.map(serializeDomain) });
+      return context.json({ data: serializeDomains(rows) });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1543,7 +1810,10 @@ export function deployRoutes(options: DeployRouteOptions) {
       // nothing to publish yet and the verification task does it later.
       if (created.status === "active")
         await forge.republishTargetRoutes(target.id);
-      return context.json({ data: serializeDomain(created) }, 201);
+      return context.json(
+        { data: await serializeDomainInTarget(created) },
+        201,
+      );
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1571,10 +1841,10 @@ export function deployRoutes(options: DeployRouteOptions) {
         // Both names route until the grace period expires, which is the whole
         // point of add-swap-remove — the old links keep working.
         await forge.republishTargetRoutes(row.targetId);
-        return context.json({ data: serializeDomain(created) });
+        return context.json({ data: await serializeDomainInTarget(created) });
       }
       const updated = await setPrimaryDeployDomain(domainContext, row);
-      return context.json({ data: serializeDomain(updated) });
+      return context.json({ data: await serializeDomainInTarget(updated) });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1600,7 +1870,7 @@ export function deployRoutes(options: DeployRouteOptions) {
       if (refreshed.status === "active" && row.status !== "active") {
         await forge.republishTargetRoutes(refreshed.targetId);
       }
-      return context.json({ data: serializeDomain(refreshed) });
+      return context.json({ data: await serializeDomainInTarget(refreshed) });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);

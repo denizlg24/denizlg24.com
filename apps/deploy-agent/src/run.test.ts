@@ -134,8 +134,8 @@ describe("runDeployment", () => {
     const request = deploymentRequest(options.overrides);
     const exec = fakeExec((call) => {
       if (call.command.includes("run")) return { stdout: "container-abc\n" };
-      if (call.command.includes("{{.State.Running}}")) {
-        return { stdout: "true\n" };
+      if (call.command.some((part) => part.includes("{{.State.Running}}"))) {
+        return { stdout: "true false 0\n" };
       }
       return undefined;
     });
@@ -192,6 +192,19 @@ describe("runDeployment", () => {
       expect(run).toContain(`forge.deployment=${request.deploymentId}`);
       expect(run).toContain(`forge.target=${request.targetId}`);
       expect(run).toContain("no-new-privileges");
+      expect(
+        run.slice(run.indexOf("--memory"), run.indexOf("--memory") + 2),
+      ).toEqual(["--memory", `${request.runtime.memoryLimitMb}m`]);
+      expect(
+        run.slice(
+          run.indexOf("--memory-reservation"),
+          run.indexOf("--memory-reservation") + 2,
+        ),
+      ).toEqual([
+        "--memory-reservation",
+        `${request.runtime.memoryReservationMb}m`,
+      ]);
+      expect(run).toContain("--oom-score-adj");
     });
   });
 
@@ -243,8 +256,8 @@ describe("runDeployment", () => {
       const request = deploymentRequest();
       const exec = fakeExec((call) => {
         if (call.command.includes("run")) return { stdout: "container-abc\n" };
-        if (call.command.includes("{{.State.Running}}")) {
-          return { stdout: "false\n" };
+        if (call.command.some((part) => part.includes("{{.State.Running}}"))) {
+          return { stdout: "false false 1\n" };
         }
         return undefined;
       });
@@ -267,6 +280,41 @@ describe("runDeployment", () => {
           sleep: noSleep,
         }),
       ).rejects.toThrow(/exited before it became healthy/);
+    });
+  });
+
+  it("names the memory ceiling when the cgroup killed the container", async () => {
+    await withTempDir(async (dir) => {
+      // An OOM kill is a SIGKILL and exit 137, indistinguishable from any other
+      // hard stop unless State.OOMKilled is read — and the application logs are
+      // empty, because the process was never told anything.
+      const request = deploymentRequest();
+      const exec = fakeExec((call) => {
+        if (call.command.includes("run")) return { stdout: "container-abc\n" };
+        if (call.command.some((part) => part.includes("{{.State.Running}}"))) {
+          return { stdout: "false true 137\n" };
+        }
+        return undefined;
+      });
+      const log = new BuildLog({ path: join(dir, "run.log") });
+
+      await expect(
+        runDeployment({
+          request,
+          builder: "dockerfile",
+          imageTag: "forge/app:1",
+          port: 24_817,
+          log,
+          signal: new AbortController().signal,
+          exec: exec.exec,
+          routes: loopbackOnlyRouteManager(),
+          envRoot: join(dir, "env"),
+          network: "forge-apps",
+          healthProbe: async () => null,
+          healthPollMs: 1,
+          sleep: noSleep,
+        }),
+      ).rejects.toThrow(/memory ceiling/);
     });
   });
 

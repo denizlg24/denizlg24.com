@@ -55,7 +55,60 @@ function VerificationRecords({ domain }: { domain: DeployDomain }) {
   );
 }
 
-export function DomainsPanel({ targetId }: { targetId: string }) {
+/**
+ * What the domain does, which is the question the panel exists to answer. The
+ * DNS status alone never did: five rows reading `active` say five records
+ * exist, not which name the app is on.
+ */
+function RoleBadge({ domain }: { domain: DeployDomain }) {
+  switch (domain.role) {
+    case "canonical":
+      return <Badge>canonical</Badge>;
+    case "serves":
+      return <Badge variant="secondary">serving</Badge>;
+    case "redirects":
+      return (
+        <Badge variant="outline" className="font-normal">
+          → {domain.redirectsTo}
+        </Badge>
+      );
+    case "retired":
+      return <Badge variant="secondary">retiring</Badge>;
+    default:
+      return null;
+  }
+}
+
+/**
+ * The name the platform gave the target. It is not a `deploy_domains` row, so
+ * it never appeared in this list — and it is the one hostname that is always
+ * live, which made its absence the most confusing thing on the page.
+ */
+function AutoHostnameRow({ hostname }: { hostname: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3">
+      <StatusDot tone="good" label="active" />
+      <a
+        href={`https://${hostname}`}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="truncate font-mono text-xs hover:underline"
+      >
+        {hostname}
+      </a>
+      <Badge variant="outline">automatic</Badge>
+      <Badge variant="secondary">serving</Badge>
+    </div>
+  );
+}
+
+export function DomainsPanel({
+  targetId,
+  autoHostname,
+}: {
+  targetId: string;
+  autoHostname?: string | null;
+}) {
   const fetchDomains = useCallback(
     () => api.deploy.domains(targetId),
     [targetId],
@@ -109,92 +162,95 @@ export function DomainsPanel({ targetId }: { targetId: string }) {
         </Button>
       </div>
 
-      {(data ?? []).length === 0 ? (
-        <p className="text-xs text-muted-foreground">—</p>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {(data ?? []).map((domain) => (
-            <div
-              key={domain.id}
-              className="flex flex-col gap-2 rounded-lg border p-3"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-2">
-                  <StatusDot
-                    tone={domainTone(domain.status)}
-                    label={domain.status}
-                  />
-                  <a
-                    href={domain.url}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="truncate font-mono text-xs hover:underline"
+      <div className="flex flex-col gap-3">
+        {autoHostname && <AutoHostnameRow hostname={autoHostname} />}
+        {(data ?? []).map((domain) => (
+          <div
+            key={domain.id}
+            className="flex flex-col gap-2 rounded-lg border p-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-2">
+                <StatusDot
+                  tone={domainTone(domain.status)}
+                  label={domain.status}
+                />
+                <a
+                  href={domain.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="truncate font-mono text-xs hover:underline"
+                >
+                  {domain.hostname}
+                </a>
+                <Badge variant="outline">{domain.mode}</Badge>
+                <RoleBadge domain={domain} />
+              </span>
+              <span className="flex items-center gap-1">
+                {domain.status === "verifying" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() =>
+                      void act("Checked", () =>
+                        api.deploy.verifyDomain(domain.id),
+                      )
+                    }
                   >
-                    {domain.hostname}
-                  </a>
-                  <Badge variant="outline">{domain.mode}</Badge>
-                  {domain.isPrimary && <Badge>primary</Badge>}
-                  {/* A retired row still routes for the rename grace period —
-                      it is not dead, and showing it as gone would be a lie. */}
-                  {domain.retiredAt && (
-                    <Badge variant="secondary">retiring</Badge>
-                  )}
-                </span>
-                <span className="flex items-center gap-1">
-                  {domain.status === "verifying" && (
+                    Check
+                  </Button>
+                )}
+                {domain.status === "active" &&
+                  !domain.isPrimary &&
+                  domain.retiredAt === null && (
                     <Button
                       variant="ghost"
                       size="sm"
                       disabled={busy}
                       onClick={() =>
-                        void act("Checked", () =>
-                          api.deploy.verifyDomain(domain.id),
-                        )
-                      }
-                    >
-                      Check
-                    </Button>
-                  )}
-                  {domain.status === "active" && !domain.isPrimary && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() =>
-                        void act("Primary set", () =>
+                        void act("Canonical set", () =>
                           api.deploy.updateDomain(domain.id, {
                             isPrimary: true,
                           }),
                         )
                       }
                     >
-                      Make primary
+                      Make canonical
                     </Button>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() =>
-                      void act("Domain removed", () =>
-                        api.deploy.removeDomain(domain.id),
-                      )
-                    }
-                  >
-                    <Trash2 className="size-3" />
-                  </Button>
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                checked {formatRelative(domain.lastCheckedAt)}
-              </p>
-              {domain.status === "verifying" && (
-                <VerificationRecords domain={domain} />
-              )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() =>
+                    void act("Domain removed", () =>
+                      api.deploy.removeDomain(domain.id),
+                    )
+                  }
+                >
+                  <Trash2 className="size-3" />
+                </Button>
+              </span>
             </div>
-          ))}
-        </div>
-      )}
+            <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+              <span>checked {formatRelative(domain.lastCheckedAt)}</span>
+              {/* A retired row keeps answering until the GC pass finishes the
+                    rename, so when it stops is the useful fact, not that it is
+                    going. */}
+              {domain.retiredAt && (
+                <span>stops {formatRelative(domain.retiredAt)}</span>
+              )}
+            </p>
+            {domain.status === "verifying" && (
+              <VerificationRecords domain={domain} />
+            )}
+          </div>
+        ))}
+        {!autoHostname && (data ?? []).length === 0 && (
+          <p className="text-xs text-muted-foreground">—</p>
+        )}
+      </div>
     </div>
   );
 }

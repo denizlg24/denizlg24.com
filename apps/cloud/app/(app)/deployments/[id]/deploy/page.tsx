@@ -17,11 +17,13 @@ import {
   buildConfigFromTarget,
   buildConfigPatch,
 } from "@/components/deploy/build-config-fields";
+import { useResolvedBuildConfig } from "@/components/deploy/repo-import";
 import { api, errorMessage } from "@/lib/api";
 import { useTarget } from "../_components/target-context";
 
 export default function CreateDeploymentPage() {
   const { target, reload } = useTarget();
+  const resolved = useResolvedBuildConfig(target);
   const router = useRouter();
 
   const [ref, setRef] = useState(target.productionBranch);
@@ -146,6 +148,7 @@ export default function CreateDeploymentPage() {
       >
         <BuildFields
           form={form}
+          resolved={resolved}
           onChange={(changes) =>
             setForm((current) => ({ ...current, ...changes }))
           }

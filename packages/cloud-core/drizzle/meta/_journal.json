@@ -148,6 +148,34 @@
       "when": 1786185459937,
       "tag": "0020_legal_franklin_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786275606122,
+      "tag": "0021_nervous_killraven",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786275623303,
+      "tag": "0022_backfill_workspace_command_paths",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786277882728,
+      "tag": "0023_cool_blackheart",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786280699832,
+      "tag": "0024_glorious_oracle",
+      "breakpoints": true
     }
   ]
 }

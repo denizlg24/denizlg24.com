@@ -81,9 +81,14 @@ export class ForgeOps {
    * previous release rather than taking the site down.
    */
   async publishRoutes(row: DeploymentRow): Promise<boolean> {
-    const hostnames = await routeHostnames(this.db, row);
+    const routing = await routeHostnames(this.db, row);
+    const hostnames = routing.serve;
     const response = await this.agent
-      .post(`/deployments/${row.id}/promote`, { hostnames })
+      .post(`/deployments/${row.id}/promote`, {
+        hostnames,
+        redirectHostnames: routing.redirect,
+        canonical: routing.canonical,
+      })
       .catch((error: unknown) => {
         console.error("[deploy] route publish failed", error);
         return null;
@@ -137,10 +142,14 @@ export class ForgeOps {
     if (targetIds.length === 0) return [];
 
     const live = await this.agent
-      .json<{ routes?: { deploymentId?: string; hostnames?: string[] }[] }>(
-        "/routes",
-        { method: "GET" },
-      )
+      .json<{
+        routes?: {
+          deploymentId?: string;
+          hostnames?: string[];
+          redirectHostnames?: string[];
+          canonical?: string | null;
+        }[];
+      }>("/routes", { method: "GET" })
       .catch((error: unknown) => {
         failures.push({
           step: "publish",
@@ -151,10 +160,21 @@ export class ForgeOps {
       });
     if (!live || !Array.isArray(live.body.routes)) return [];
 
-    const served = new Map<string, Set<string>>();
+    const served = new Map<
+      string,
+      {
+        hostnames: Set<string>;
+        redirects: Set<string>;
+        canonical: string | null;
+      }
+    >();
     for (const route of live.body.routes) {
       if (typeof route?.deploymentId !== "string") continue;
-      served.set(route.deploymentId, new Set(route.hostnames ?? []));
+      served.set(route.deploymentId, {
+        hostnames: new Set(route.hostnames ?? []),
+        redirects: new Set(route.redirectHostnames ?? []),
+        canonical: route.canonical ?? null,
+      });
     }
 
     const stale: string[] = [];
@@ -167,9 +187,14 @@ export class ForgeOps {
       // refuse the promote, so republishing cannot fix it and would only
       // report a failure every two minutes.
       if (!actual) continue;
-      if (expected.some((hostname) => !actual.has(hostname))) {
-        stale.push(targetId);
-      }
+      // A lost redirect is repaired like a lost host: without this, changing
+      // which domain is primary would leave the old one serving the app
+      // directly and nothing would ever notice.
+      const drifted =
+        expected.serve.some((hostname) => !actual.hostnames.has(hostname)) ||
+        expected.redirect.some((hostname) => !actual.redirects.has(hostname)) ||
+        expected.canonical !== actual.canonical;
+      if (drifted) stale.push(targetId);
     }
     return stale;
   }

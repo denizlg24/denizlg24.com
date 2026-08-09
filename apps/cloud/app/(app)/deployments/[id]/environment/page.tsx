@@ -14,6 +14,7 @@ import { Skeleton } from "@repo/ui/skeleton";
 import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { TemplateInput } from "@/components/deploy/template-input";
 import { api, errorMessage } from "@/lib/api";
 import { useTarget } from "../_components/target-context";
 
@@ -144,7 +145,6 @@ export default function EnvironmentPage() {
         </div>
         {rows.map((draft, index) => (
           <div
-            // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and reorderable
             key={index}
             className="grid grid-cols-1 gap-2 border-b py-2 md:grid-cols-[minmax(0,1fr)_7rem_minmax(0,1.4fr)_7rem_2rem] md:gap-3"
           >
@@ -197,23 +197,20 @@ export default function EnvironmentPage() {
                   </option>
                 ))}
               </NativeSelect>
+            ) : draft.source === "template" ? (
+              <TemplateInput
+                value={draft.template}
+                bindings={bindings?.bindings ?? []}
+                onChange={(template) => patch(index, { template })}
+              />
             ) : (
               <Input
-                value={
-                  draft.source === "template" ? draft.template : draft.value
-                }
-                type={draft.source === "literal" ? "password" : "text"}
-                placeholder={
-                  draft.source === "literal" && draft.keepStored ? "stored" : ""
-                }
+                value={draft.value}
+                type="password"
+                placeholder={draft.keepStored ? "stored" : ""}
                 className="h-8 font-mono text-xs"
                 onChange={(event) =>
-                  patch(
-                    index,
-                    draft.source === "template"
-                      ? { template: event.target.value }
-                      : { value: event.target.value },
-                  )
+                  patch(index, { value: event.target.value })
                 }
               />
             )}

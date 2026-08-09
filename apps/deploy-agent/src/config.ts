@@ -19,6 +19,8 @@ export interface AgentConfig {
   caddyListen: string;
   caddyStatePath: string;
   buildMemoryLimitMb: number;
+  /** Held back for the OS, dockerd, this agent and Caddy. */
+  memoryHeadroomMb: number;
   healthPollMs: number;
   drainMs: number;
 }
@@ -163,6 +165,10 @@ export function agentConfigFromEnv(): AgentConfig {
       512,
       131_072,
     ),
+    // Deliberately generous. Under-reserving here does not show up as a tidy
+    // rejection — it shows up as the kernel picking something to kill while
+    // every container is inside its own limit.
+    memoryHeadroomMb: integerEnv("MEMORY_HEADROOM_MB", 1_024, 128, 131_072),
     healthPollMs: integerEnv("HEALTH_POLL_MS", 2_000, 250, 60_000),
     drainMs: integerEnv("CONTAINER_DRAIN_MS", 10_000, 0, 300_000),
   };

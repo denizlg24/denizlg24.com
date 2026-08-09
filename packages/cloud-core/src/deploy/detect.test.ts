@@ -3,8 +3,10 @@ import { describe, expect, it } from "bun:test";
 import {
   type DetectDirEntry,
   detectBuildConfig,
+  detectWorkspaceContext,
   detectWorkspaces,
   type RepoInspector,
+  resolveBuildConfig,
 } from "./detect";
 
 /**
@@ -96,8 +98,78 @@ describe("detectBuildConfig", () => {
     );
 
     expect(detected.framework).toBe("vite");
+    // Install is never wrapped: the lockfile and the linked workspace packages
+    // are both at the root, which is where the build context now starts.
     expect(detected.installCommand).toBe("bun install");
-    expect(detected.buildCommand).toBe("bun run build");
+    expect(detected.buildCommand).toBe("cd apps/web && bun run build");
+  });
+
+  it("hands the build to turbo when the repository has it", async () => {
+    const detected = await detectBuildConfig(
+      repo({
+        "": ["package.json", "bun.lock", "turbo.json", "apps/"],
+        "package.json": pkg({ workspaces: ["apps/*"] }),
+        "turbo.json": JSON.stringify({ tasks: { build: {} } }),
+        apps: ["web/"],
+        "apps/web": ["package.json"],
+        "apps/web/package.json": pkg({
+          name: "web",
+          scripts: { build: "next build", start: "next start" },
+          dependencies: { next: "15.0.0" },
+        }),
+      }),
+      "apps/web",
+    );
+
+    expect(detected.framework).toBe("nextjs");
+    expect(detected.installCommand).toBe("bun install");
+    // Turbo builds the workspace's dependencies first, which running the app's
+    // own build script from its directory does not.
+    expect(detected.buildCommand).toBe(
+      "bunx --bun turbo run build --filter=web",
+    );
+    // Start is still the app's own, and still needs the working directory.
+    expect(detected.startCommand).toBe("cd apps/web && bun run start");
+  });
+
+  it("does not filter turbo to a package with no build task", async () => {
+    // `turbo run build --filter=x` where x declares no build script exits 0
+    // having built nothing, which is a green deploy serving a stale image.
+    const detected = await detectBuildConfig(
+      repo({
+        "": ["package.json", "bun.lock", "turbo.json", "apps/"],
+        "package.json": pkg({ workspaces: ["apps/*"] }),
+        "turbo.json": JSON.stringify({ tasks: { build: {} } }),
+        apps: ["api/"],
+        "apps/api": ["package.json"],
+        "apps/api/package.json": pkg({
+          name: "api",
+          scripts: { start: "bun run src/index.ts" },
+          dependencies: { hono: "4.0.0" },
+        }),
+      }),
+      "apps/api",
+    );
+
+    expect(detected.framework).toBe("hono");
+    expect(detected.buildCommand).toBeNull();
+    expect(detected.startCommand).toBe("cd apps/api && bun run start");
+  });
+
+  it("points the Dockerfile path at the repository root", async () => {
+    const detected = await detectBuildConfig(
+      repo({
+        "": ["package.json", "bun.lock", "apps/"],
+        "package.json": pkg({ workspaces: ["apps/*"] }),
+        apps: ["api/"],
+        "apps/api": ["Dockerfile", "package.json"],
+      }),
+      "apps/api",
+    );
+
+    // The build context is the repository root, and `--file` is resolved
+    // against it — a path relative to the app directory would not be found.
+    expect(detected.dockerfilePath).toBe("apps/api/Dockerfile");
   });
 
   it("serves a Vite SPA from its build output", async () => {
@@ -252,7 +324,7 @@ describe("detectBuildConfig", () => {
         "": ["package.json"],
         "package.json": pkg({
           scripts: { start: "node server.js" },
-          dependencies: { hono: "4.0.0" },
+          dependencies: { express: "4.0.0" },
         }),
       }),
     );
@@ -260,6 +332,100 @@ describe("detectBuildConfig", () => {
     expect(detected.framework).toBe("node");
     expect(detected.startCommand).toBe("npm run start");
     expect(detected.buildCommand).toBeNull();
+  });
+
+  it("uses the forced preset instead of matching one", async () => {
+    // A repository whose dependencies do not say what it is still has to be
+    // deployable, which is what the form's preset picker is for.
+    const detected = await detectBuildConfig(
+      repo({
+        "": ["package.json", "bun.lock"],
+        "package.json": pkg({ dependencies: { express: "4.0.0" } }),
+      }),
+      "",
+      { framework: "vite" },
+    );
+
+    expect(detected.framework).toBe("vite");
+    expect(detected.buildCommand).toBe("bunx --bun vite build");
+  });
+});
+
+describe("resolveBuildConfig", () => {
+  const tree = repo({
+    "": ["package.json", "bun.lock"],
+    "package.json": pkg({
+      scripts: { build: "next build", start: "next start" },
+      dependencies: { next: "15.0.0" },
+    }),
+  });
+
+  it("reports the preset's answer when nothing overrides it", async () => {
+    const resolved = await resolveBuildConfig(tree);
+
+    expect(resolved.framework).toBe("nextjs");
+    expect(resolved.buildCommand).toEqual({
+      value: "bun run build",
+      source: "preset",
+    });
+  });
+
+  it("keeps the preset value visible beside an override", async () => {
+    const resolved = await resolveBuildConfig(tree, {
+      overrides: { startCommand: "node server.js" },
+    });
+
+    expect(resolved.startCommand).toEqual({
+      value: "node server.js",
+      source: "override",
+    });
+    // Untouched fields stay the preset's, so clearing one override does not
+    // strand the others.
+    expect(resolved.buildCommand.source).toBe("preset");
+  });
+
+  it("reads builder 'auto' as the absence of a choice", async () => {
+    // It is the column default every target starts with. Treating it as an
+    // override would pin every target to whatever its first import resolved.
+    const resolved = await resolveBuildConfig(tree, {
+      overrides: { builder: "auto" },
+    });
+
+    expect(resolved.builder).toEqual({ value: "nixpacks", source: "preset" });
+  });
+});
+
+describe("detectWorkspaceContext", () => {
+  it("reads the package manager, turbo and the workspace list from the root", async () => {
+    const context = await detectWorkspaceContext(
+      repo({
+        "": ["package.json", "bun.lock", "turbo.json", "apps/"],
+        "package.json": pkg({ workspaces: ["apps/*"] }),
+        "turbo.json": JSON.stringify({ tasks: {} }),
+        apps: ["api/", "web/"],
+      }),
+    );
+
+    expect(context.packageManager).toBe("bun");
+    expect(context.isTurbo).toBe(true);
+    expect(context.isMonorepo).toBe(true);
+    expect(context.workspaces.map((entry) => entry.path)).toEqual([
+      "apps/api",
+      "apps/web",
+    ]);
+  });
+
+  it("reports a plain repository as neither", async () => {
+    const context = await detectWorkspaceContext(
+      repo({
+        "": ["package.json", "package-lock.json"],
+        "package.json": pkg({ dependencies: { next: "15.0.0" } }),
+      }),
+    );
+
+    expect(context.isTurbo).toBe(false);
+    expect(context.isMonorepo).toBe(false);
+    expect(context.packageManager).toBe("npm");
   });
 });
 

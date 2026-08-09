@@ -116,10 +116,16 @@ async function exists(path: string): Promise<boolean> {
  * `auto` is a default, not the whole story. Detection's failure mode is silent:
  * a stray Dockerfile in a repo root produces a baffling build with nothing
  * saying detection chose it — hence the log line, and hence the enum.
+ *
+ * Every path here is relative to the build context, which is the repository
+ * root. `dockerfilePath` is therefore repository-relative — `apps/api/Dockerfile`,
+ * not `Dockerfile` — because that is what `docker build --file` resolves against
+ * once the context is the root.
  */
 export async function resolveBuilder(
   request: AgentDeploymentRequest,
   contextDirectory: string,
+  workingDirectory: string = contextDirectory,
 ): Promise<{ builder: ResolvedBuilder; dockerfile: string | null }> {
   const { builder, dockerfilePath } = request.build;
   const declared = dockerfilePath
@@ -128,8 +134,14 @@ export async function resolveBuilder(
 
   if (builder === "nixpacks") return { builder: "nixpacks", dockerfile: null };
 
+  // The app's own Dockerfile before the repository's. A monorepo commonly has
+  // both, and the one beside the app is the one that builds it.
+  const conventional = join(workingDirectory, "Dockerfile");
+  const rootLevel = join(contextDirectory, "Dockerfile");
+
   if (builder === "dockerfile") {
-    const path = declared ?? join(contextDirectory, "Dockerfile");
+    const path =
+      declared ?? ((await exists(conventional)) ? conventional : rootLevel);
     if (!(await exists(path))) {
       throw new BuildConfigError(
         `builder is "dockerfile" but ${dockerfilePath ?? "Dockerfile"} does not exist`,
@@ -147,9 +159,8 @@ export async function resolveBuilder(
     return { builder: "dockerfile", dockerfile: declared };
   }
 
-  const conventional = join(contextDirectory, "Dockerfile");
-  if (await exists(conventional)) {
-    return { builder: "dockerfile", dockerfile: conventional };
+  for (const path of [conventional, rootLevel]) {
+    if (await exists(path)) return { builder: "dockerfile", dockerfile: path };
   }
   return { builder: "nixpacks", dockerfile: null };
 }
@@ -305,8 +316,14 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
       onOutput: (chunk) => log.write(chunk),
     });
 
-    const contextDirectory = resolveInside(source, request.build.rootDirectory);
-    if (!(await exists(contextDirectory))) {
+    // The build context is the checkout root, never the selected directory.
+    // A workspace's lockfile, its `turbo.json` and every package it depends on
+    // live above it, so a context scoped to the app cannot install, let alone
+    // build. `rootDirectory` instead selects where the commands run, and the
+    // control plane has already written that into them as a `cd` prefix.
+    const contextDirectory = source;
+    const workingDirectory = resolveInside(source, request.build.rootDirectory);
+    if (!(await exists(workingDirectory))) {
       throw new BuildConfigError(
         `rootDirectory ${request.build.rootDirectory} does not exist in the repository`,
       );
@@ -315,6 +332,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
     const { builder, dockerfile } = await resolveBuilder(
       request,
       contextDirectory,
+      workingDirectory,
     );
     assertCommandsSupported(request, builder);
 
@@ -328,6 +346,14 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
     log.note(
       `building with ${builder}${dockerfile ? ` (${dockerfile})` : ""} → ${imageTag}`,
     );
+    // Which directory the commands assume is not visible in the commands the
+    // owner typed, and a build that installs in the wrong place fails several
+    // minutes later in a package manager's own words.
+    if (request.build.rootDirectory) {
+      log.note(
+        `context is the repository root; commands run in ${request.build.rootDirectory}`,
+      );
+    }
 
     if (builder === "dockerfile") {
       const cacheDirectory = options.cacheRoot

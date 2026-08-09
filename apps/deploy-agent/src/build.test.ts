@@ -216,14 +216,59 @@ describe("runBuild", () => {
     });
   });
 
-  it("builds from rootDirectory", async () => {
+  it("builds a workspace from the repository root, not from rootDirectory", async () => {
     await withTempDir(async (dir) => {
       const { exec } = await build(
         dir,
         { build: { rootDirectory: "apps/web" } },
-        { "apps/web/Dockerfile": "FROM scratch" },
+        { "apps/web/Dockerfile": "FROM scratch", "bun.lock": "" },
       );
-      expect(exec.find("docker build")?.cwd).toContain(join("apps", "web"));
+      const command = exec.find("docker build");
+      // A context scoped to apps/web leaves the root lockfile and every
+      // workspace package it depends on outside the build entirely.
+      expect(command?.cwd).not.toContain(join("apps", "web"));
+      expect(command?.cwd?.endsWith("src")).toBe(true);
+      // ...while the Dockerfile beside the app is still the one used.
+      expect(command?.command.join(" ")).toContain(
+        join("apps", "web", "Dockerfile"),
+      );
+    });
+  });
+
+  it("finds the app's Dockerfile before the repository's", async () => {
+    await withTempDir(async (dir) => {
+      const { exec } = await build(
+        dir,
+        { build: { rootDirectory: "apps/web" } },
+        { "apps/web/Dockerfile": "FROM scratch", Dockerfile: "FROM busybox" },
+      );
+      expect(exec.find("docker build")?.command.join(" ")).toContain(
+        join("apps", "web", "Dockerfile"),
+      );
+    });
+  });
+
+  it("runs nixpacks from the repository root", async () => {
+    await withTempDir(async (dir) => {
+      const { exec } = await build(
+        dir,
+        {
+          build: {
+            builder: "nixpacks",
+            rootDirectory: "apps/web",
+            installCommand: "bun install",
+            buildCommand: "cd apps/web && bun run build",
+          },
+        },
+        { "apps/web/package.json": "{}", "bun.lock": "" },
+      );
+      const command = exec.find("nixpacks build");
+      expect(command?.cwd?.endsWith("src")).toBe(true);
+      // The working directory arrives inside the command, written there by the
+      // control plane's resolver — the agent holds no second notion of it.
+      expect(command?.command.join(" ")).toContain(
+        "cd apps/web && bun run build",
+      );
     });
   });
 

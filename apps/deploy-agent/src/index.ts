@@ -83,6 +83,10 @@ const health = new HealthService({
   dockerDataRoot: config.dockerDataRoot,
   version: VERSION,
   queue: () => queue.snapshot(),
+  memoryHeadroomMb: config.memoryHeadroomMb,
+  // Every build slot is reserved, not just the running one: the budget has to
+  // hold when the queue is full, not only when it is idle.
+  buildReserveMb: config.buildMemoryLimitMb * config.maxConcurrentBuilds,
 });
 
 /** The live routing table is the only honest source for a running port. */
@@ -109,7 +113,8 @@ const app = createAgentApp({
       port: routedPort(deploymentId),
       healthPollMs: config.healthPollMs,
     }),
-  rehost: (deploymentId, hostnames) => caddy.rehost(deploymentId, hostnames),
+  rehost: (deploymentId, hostnames, options) =>
+    caddy.rehost(deploymentId, hostnames, options),
   collectGarbage: (request) =>
     runGarbageCollection(request, {
       exec,

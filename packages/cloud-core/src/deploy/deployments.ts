@@ -1,5 +1,6 @@
 import {
   type AgentDeploymentRequest,
+  type DeploymentBuildSpec,
   type DeploymentKind,
   type DeploymentStatus,
   type DeploymentStatusUpdate,
@@ -53,6 +54,27 @@ export async function claimQueuedDeployment(
   return row ?? null;
 }
 
+/**
+ * The build spec a target's own columns describe, with no preset resolved into
+ * it. Used only for deployments queued before the spec was frozen on the row —
+ * every new one carries what the resolver produced at enqueue.
+ */
+export function buildSpecFromTarget(
+  target: DeployTargetRow,
+): DeploymentBuildSpec {
+  return {
+    builder: target.builder,
+    ...(target.rootDirectory ? { rootDirectory: target.rootDirectory } : {}),
+    ...(target.dockerfilePath ? { dockerfilePath: target.dockerfilePath } : {}),
+    ...(target.installCommand ? { installCommand: target.installCommand } : {}),
+    ...(target.buildCommand ? { buildCommand: target.buildCommand } : {}),
+    ...(target.startCommand ? { startCommand: target.startCommand } : {}),
+    ...(isDeployNodeVersion(target.nodeVersion)
+      ? { nodeVersion: target.nodeVersion }
+      : {}),
+  };
+}
+
 export function toAgentRequest(input: {
   deployment: DeploymentRow;
   target: DeployTargetRow;
@@ -71,24 +93,15 @@ export function toAgentRequest(input: {
       ref: deployment.gitRef,
       sha: deployment.gitSha,
     },
-    build: {
-      builder: target.builder,
-      ...(target.rootDirectory ? { rootDirectory: target.rootDirectory } : {}),
-      ...(target.dockerfilePath
-        ? { dockerfilePath: target.dockerfilePath }
-        : {}),
-      ...(target.installCommand
-        ? { installCommand: target.installCommand }
-        : {}),
-      ...(target.buildCommand ? { buildCommand: target.buildCommand } : {}),
-      ...(target.startCommand ? { startCommand: target.startCommand } : {}),
-      ...(isDeployNodeVersion(target.nodeVersion)
-        ? { nodeVersion: target.nodeVersion }
-        : {}),
-    },
+    // What the row was queued with, not what the target says now: editing a
+    // target must not change a build that is already in the queue.
+    build: deployment.buildSpec ?? buildSpecFromTarget(target),
     runtime: {
       healthPath: target.healthPath,
-      memoryLimitMb: target.memoryLimitMb,
+      // Frozen on the deployment at enqueue. Target settings edited while the
+      // row waits in the queue cannot change what was admitted.
+      memoryLimitMb: deployment.memoryCeilingMb,
+      memoryReservationMb: deployment.memoryReservationMb,
       cpuLimit: Number(target.cpuLimit),
     },
     timeouts: { buildMs: 20 * 60_000, healthMs: 90_000 },

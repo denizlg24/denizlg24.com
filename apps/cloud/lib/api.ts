@@ -28,21 +28,23 @@ import {
   containerSnapshotSchema,
   createdApiKeySchema,
   type DeployBindings,
+  type DeployCapacity,
   type DeployDomain,
   type DeployEnvVar,
   type Deployment,
   type DeployTarget,
   type DeployTargetListEntry,
-  type DetectedBuildConfigResponse,
+  type DetectBuildResponse,
   type DiscoverFieldsInput,
   type DiscoverFieldsResult,
   deployBindingsSchema,
+  deployCapacitySchema,
   deployDomainSchema,
   deployEnvVarSchema,
   deploymentSchema,
   deployTargetListEntrySchema,
   deployTargetSchema,
-  detectedBuildConfigSchema,
+  detectBuildResponseSchema,
   discoverFieldsResultSchema,
   type FindMongoDocumentsInput,
   type GenerateSearchTokenInput,
@@ -102,6 +104,8 @@ import {
   projectVectorIndexSchema,
   projectVectorSearchOverviewSchema,
   type ReplaceDeployEnvInput,
+  type RepoBadge,
+  repoBadgeSchema,
   type S3BucketUsage,
   type S3CredentialMetadata,
   type SafeActivityEntry,
@@ -140,7 +144,6 @@ import {
   type UpdateTaskInput,
   type UserStorageStat,
   userStorageStatSchema,
-  workspaceCandidateSchema,
 } from "@repo/schemas/cloud";
 import { z } from "zod";
 import { API_BASE_URL } from "./env";
@@ -745,6 +748,8 @@ export const api = {
   },
 
   deploy: {
+    capacity: (): Promise<DeployCapacity> =>
+      requestData(deployCapacitySchema, "/api/deploy/capacity"),
     github: {
       connection: (): Promise<GithubConnection> =>
         requestData(githubConnectionSchema, "/api/deploy/github/connection"),
@@ -784,18 +789,25 @@ export const api = {
       detect: (
         owner: string,
         repo: string,
-        query: { ref?: string; dir?: string },
-      ): Promise<
-        DetectedBuildConfigResponse & {
-          workspaces: { path: string; name: string }[];
-        }
-      > =>
+        query: { ref?: string; dir?: string; framework?: string },
+      ): Promise<DetectBuildResponse> =>
         requestData(
-          detectedBuildConfigSchema.extend({
-            workspaces: z.array(workspaceCandidateSchema),
-          }),
+          detectBuildResponseSchema,
           `/api/deploy/github/repos/${owner}/${repo}/detect`,
           { query, timeoutMs: SLOW_TIMEOUT_MS },
+        ),
+      badges: (
+        repos: { owner: string; name: string }[],
+      ): Promise<RepoBadge[]> =>
+        requestData(
+          z.array(repoBadgeSchema),
+          "/api/deploy/github/repos/badges",
+          {
+            method: "POST",
+            body: { repos },
+            // One Contents call per repository, run concurrently.
+            timeoutMs: SLOW_TIMEOUT_MS,
+          },
         ),
     },
 

@@ -15,6 +15,7 @@ import {
   buildConfigPatch,
   RuntimeFields,
 } from "@/components/deploy/build-config-fields";
+import { useResolvedBuildConfig } from "@/components/deploy/repo-import";
 import { api, errorMessage } from "@/lib/api";
 import { useTarget } from "../_components/target-context";
 
@@ -26,6 +27,7 @@ export default function SettingsPage() {
   const [autoDeploy, setAutoDeploy] = useState(target.autoDeploy);
   const [previewDeploys, setPreviewDeploys] = useState(target.previewDeploys);
   const [busy, setBusy] = useState(false);
+  const resolved = useResolvedBuildConfig(target);
 
   function patch(changes: Partial<BuildConfigForm>) {
     setForm((current) => ({ ...current, ...changes }));
@@ -58,7 +60,7 @@ export default function SettingsPage() {
           </Button>
         }
       >
-        <BuildFields form={form} onChange={patch} />
+        <BuildFields form={form} resolved={resolved} onChange={patch} />
       </Section>
 
       <Section title="Runtime">
@@ -143,6 +145,7 @@ function EnvoySection({
   const [projectId, setProjectId] = useState(target.envoyProjectId ?? "");
   const [passphrase, setPassphrase] = useState("");
   const [busy, setBusy] = useState(false);
+  const resolved = useResolvedBuildConfig(target);
 
   async function run(label: string, action: () => Promise<unknown>) {
     setBusy(true);

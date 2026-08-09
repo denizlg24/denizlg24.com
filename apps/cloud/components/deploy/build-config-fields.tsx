@@ -5,50 +5,62 @@ import {
   type DeployBuilder,
   type DeployNodeVersion,
   type DeployTarget,
+  deriveMemoryCeilingMb,
+  MAX_MEMORY_MB,
+  MIN_MEMORY_MB,
+  type ResolvedBuildConfig,
   type UpdateDeployTargetInput,
 } from "@repo/schemas/cloud";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
-import { NativeSelect } from "@repo/ui/native-select";
+import {
+  OverrideField,
+  OverrideSelect,
+} from "@/components/deploy/override-field";
 
 /**
- * The target's build configuration as strings, because every one of these is a
- * text box and an empty box has to mean "unset" rather than "zero". Shared by
- * Settings and the deploy page — deploying with different build settings is
- * editing the target, so both surfaces write the same fields.
+ * The target's build configuration as overrides, where `null` means "whatever
+ * the preset resolves". That is the same thing the columns mean, so the form
+ * and the row hold the same values — a blank box is not an empty command, it is
+ * the absence of an opinion, and the preset fills it at deploy time.
+ *
+ * Shared by Settings and the deploy page, because deploying with different
+ * build settings *is* editing the target and both surfaces write these fields.
  */
 export interface BuildConfigForm {
   productionBranch: string;
   rootDirectory: string;
-  builder: DeployBuilder;
-  /** Empty means "whatever the repository says". See DEPLOY_NODE_VERSIONS. */
-  nodeVersion: DeployNodeVersion | "";
-  dockerfilePath: string;
-  installCommand: string;
-  buildCommand: string;
-  startCommand: string;
+  /** The preset id. Null until detection has run. */
+  framework: string | null;
+  builder: DeployBuilder | null;
+  nodeVersion: DeployNodeVersion | null;
+  dockerfilePath: string | null;
+  installCommand: string | null;
+  buildCommand: string | null;
+  startCommand: string | null;
   healthPath: string;
-  memoryLimitMb: string;
+  memoryReservationMb: string;
   cpuLimit: string;
 }
 
 /**
- * What a target is created with. Kept here beside the form rather than at the
- * call site so "the defaults" is one thing — the API applies the same values
- * when a field is omitted, and two copies of them drift.
+ * What a target is created with. Kept beside the form rather than at the call
+ * site so "the defaults" is one thing — the API applies the same values when a
+ * field is omitted, and two copies of them drift.
  */
 export function defaultBuildConfig(): BuildConfigForm {
   return {
     productionBranch: "main",
     rootDirectory: "",
-    builder: "auto",
-    nodeVersion: "",
-    dockerfilePath: "",
-    installCommand: "",
-    buildCommand: "",
-    startCommand: "",
+    framework: null,
+    builder: null,
+    nodeVersion: null,
+    dockerfilePath: null,
+    installCommand: null,
+    buildCommand: null,
+    startCommand: null,
     healthPath: "/",
-    memoryLimitMb: "512",
+    memoryReservationMb: "256",
     cpuLimit: "1",
   };
 }
@@ -57,20 +69,24 @@ export function buildConfigFromTarget(target: DeployTarget): BuildConfigForm {
   return {
     productionBranch: target.productionBranch,
     rootDirectory: target.rootDirectory ?? "",
-    builder: target.builder,
-    nodeVersion: target.nodeVersion ?? "",
-    dockerfilePath: target.dockerfilePath ?? "",
-    installCommand: target.installCommand ?? "",
-    buildCommand: target.buildCommand ?? "",
-    startCommand: target.startCommand ?? "",
+    framework: target.framework,
+    // "auto" is the column default every target starts with, which is the
+    // absence of a choice — the same thing the resolver reads it as.
+    builder: target.builder === "auto" ? null : target.builder,
+    nodeVersion: target.nodeVersion,
+    dockerfilePath: target.dockerfilePath,
+    installCommand: target.installCommand,
+    buildCommand: target.buildCommand,
+    startCommand: target.startCommand,
     healthPath: target.healthPath,
-    memoryLimitMb: String(target.memoryLimitMb),
+    memoryReservationMb: String(target.memoryReservationMb),
     cpuLimit: String(target.cpuLimit),
   };
 }
 
-/** Blank clears the override; the API takes null for "unset". */
-function optional(value: string): string | null {
+/** An override the owner turned on and then emptied is not an override. */
+function optional(value: string | null): string | null {
+  if (value === null) return null;
   return value.trim().length === 0 ? null : value.trim();
 }
 
@@ -80,14 +96,15 @@ export function buildConfigPatch(
   return {
     productionBranch: form.productionBranch,
     rootDirectory: optional(form.rootDirectory),
-    builder: form.builder,
-    nodeVersion: form.nodeVersion === "" ? null : form.nodeVersion,
+    framework: form.framework,
+    builder: form.builder ?? "auto",
+    nodeVersion: form.nodeVersion,
     dockerfilePath: optional(form.dockerfilePath),
     installCommand: optional(form.installCommand),
     buildCommand: optional(form.buildCommand),
     startCommand: optional(form.startCommand),
     healthPath: form.healthPath,
-    memoryLimitMb: Number(form.memoryLimitMb),
+    memoryReservationMb: Number(form.memoryReservationMb),
     cpuLimit: Number(form.cpuLimit),
   };
 }
@@ -105,19 +122,108 @@ export function buildConfigChanged(
 
 type FieldChange = (changes: Partial<BuildConfigForm>) => void;
 
+const BUILDER_OPTIONS: readonly { value: DeployBuilder; label: string }[] = [
+  { value: "nixpacks", label: "nixpacks" },
+  { value: "dockerfile", label: "dockerfile" },
+];
+
+const NODE_OPTIONS = DEPLOY_NODE_VERSIONS.map((version) => ({
+  value: version,
+  label: version,
+}));
+
+/**
+ * What decides how the image is produced.
+ *
+ * `resolved` is what detection made of the repository at the currently selected
+ * directory. Without it every field would show a blank box and the owner would
+ * have to deploy to find out what runs.
+ */
+export function BuildFields({
+  form,
+  resolved,
+  onChange,
+}: {
+  form: BuildConfigForm;
+  resolved: ResolvedBuildConfig | null;
+  onChange: FieldChange;
+}) {
+  // The resolved builder, not the override, decides which fields are relevant:
+  // with the override off, what runs is whatever the preset picked.
+  const builder = form.builder ?? resolved?.builder.value ?? "auto";
+  const dockerfile = builder === "dockerfile";
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <OverrideSelect
+        label="Builder"
+        preset={resolved?.builder.value ?? null}
+        value={form.builder}
+        options={BUILDER_OPTIONS}
+        onChange={(value) => onChange({ builder: value })}
+      />
+      {dockerfile ? (
+        <OverrideField
+          label="Dockerfile path"
+          preset={resolved?.dockerfilePath.value ?? null}
+          value={form.dockerfilePath}
+          onChange={(value) => onChange({ dockerfilePath: value })}
+        />
+      ) : (
+        <OverrideSelect
+          label="Node version"
+          preset={resolved?.nodeVersion.value ?? null}
+          value={form.nodeVersion}
+          options={NODE_OPTIONS}
+          onChange={(value) => onChange({ nodeVersion: value })}
+        />
+      )}
+      {/* A Dockerfile states its own install and build steps — and its own base
+          image — so the agent refuses all of these rather than accepting and
+          ignoring them. */}
+      {!dockerfile && (
+        <>
+          <OverrideField
+            label="Install command"
+            preset={resolved?.installCommand.value ?? null}
+            value={form.installCommand}
+            onChange={(value) => onChange({ installCommand: value })}
+          />
+          <OverrideField
+            label="Build command"
+            preset={resolved?.buildCommand.value ?? null}
+            value={form.buildCommand}
+            onChange={(value) => onChange({ buildCommand: value })}
+          />
+          <OverrideField
+            label="Start command"
+            preset={resolved?.startCommand.value ?? null}
+            value={form.startCommand}
+            onChange={(value) => onChange({ startCommand: value })}
+          />
+        </>
+      )}
+      {dockerfile && (
+        <OverrideField
+          label="Start command"
+          preset={resolved?.startCommand.value ?? null}
+          value={form.startCommand}
+          onChange={(value) => onChange({ startCommand: value })}
+        />
+      )}
+    </div>
+  );
+}
+
 function TextField({
   id,
   label,
   value,
-  placeholder,
-  mono,
   onChange,
 }: {
   id: keyof BuildConfigForm;
   label: string;
   value: string;
-  placeholder?: string;
-  mono?: boolean;
   onChange: FieldChange;
 }) {
   return (
@@ -128,124 +234,8 @@ function TextField({
       <Input
         id={id}
         value={value}
-        placeholder={placeholder}
-        className={mono ? "font-mono text-xs" : "text-xs"}
+        className="font-mono text-xs"
         onChange={(event) => onChange({ [id]: event.target.value })}
-      />
-    </div>
-  );
-}
-
-/** What decides how the image is produced. */
-export function BuildFields({
-  form,
-  onChange,
-  /**
-   * The new-target flow owns the root directory in its own section, because
-   * changing it there re-runs detection. Two boxes for one value would let the
-   * second one move it without anything re-detecting.
-   */
-  hideRootDirectory,
-}: {
-  form: BuildConfigForm;
-  onChange: FieldChange;
-  hideRootDirectory?: boolean;
-}) {
-  const dockerfile = form.builder !== "nixpacks";
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="builder" className="text-xs text-muted-foreground">
-          Builder
-        </Label>
-        <NativeSelect
-          id="builder"
-          value={form.builder}
-          className="w-full text-xs"
-          onChange={(event) =>
-            onChange({ builder: event.target.value as DeployBuilder })
-          }
-        >
-          <option value="auto">auto</option>
-          <option value="nixpacks">nixpacks</option>
-          <option value="dockerfile">dockerfile</option>
-        </NativeSelect>
-      </div>
-      {!hideRootDirectory && (
-        <TextField
-          id="rootDirectory"
-          label="Root directory"
-          value={form.rootDirectory}
-          placeholder="./"
-          mono
-          onChange={onChange}
-        />
-      )}
-      {dockerfile && (
-        <TextField
-          id="dockerfilePath"
-          label="Dockerfile path"
-          value={form.dockerfilePath}
-          placeholder="Dockerfile"
-          mono
-          onChange={onChange}
-        />
-      )}
-      {/* A Dockerfile states its own install and build steps — and its own
-          base image — so the agent refuses all of these rather than accepting
-          and ignoring them. */}
-      {form.builder === "nixpacks" && (
-        <>
-          <div className="flex flex-col gap-1.5">
-            <Label
-              htmlFor="nodeVersion"
-              className="text-xs text-muted-foreground"
-            >
-              Node version
-            </Label>
-            <NativeSelect
-              id="nodeVersion"
-              value={form.nodeVersion}
-              className="w-full text-xs"
-              onChange={(event) =>
-                onChange({
-                  nodeVersion: event.target.value as DeployNodeVersion | "",
-                })
-              }
-            >
-              {/* Not the safe-looking default it appears to be: nixpacks
-                  resolves engines.node to the range floor, so ">=18" asks for
-                  a Node nixpkgs has removed. */}
-              <option value="">from the repo</option>
-              {DEPLOY_NODE_VERSIONS.map((version) => (
-                <option key={version} value={version}>
-                  {version}
-                </option>
-              ))}
-            </NativeSelect>
-          </div>
-          <TextField
-            id="installCommand"
-            label="Install command"
-            value={form.installCommand}
-            mono
-            onChange={onChange}
-          />
-          <TextField
-            id="buildCommand"
-            label="Build command"
-            value={form.buildCommand}
-            mono
-            onChange={onChange}
-          />
-        </>
-      )}
-      <TextField
-        id="startCommand"
-        label="Start command"
-        value={form.startCommand}
-        mono
-        onChange={onChange}
       />
     </div>
   );
@@ -259,19 +249,26 @@ export function RuntimeFields({
   form: BuildConfigForm;
   onChange: FieldChange;
 }) {
+  const reservationMb = Number(form.memoryReservationMb);
+  const ceilingMb =
+    Number.isInteger(reservationMb) &&
+    reservationMb >= MIN_MEMORY_MB &&
+    reservationMb <= MAX_MEMORY_MB
+      ? deriveMemoryCeilingMb(reservationMb)
+      : null;
+
   return (
     <div className="grid gap-4 sm:grid-cols-3">
       <TextField
         id="healthPath"
         label="Health path"
         value={form.healthPath}
-        mono
         onChange={onChange}
       />
       <TextField
-        id="memoryLimitMb"
-        label="Memory (MB)"
-        value={form.memoryLimitMb}
+        id="memoryReservationMb"
+        label="Reserved memory (MB)"
+        value={form.memoryReservationMb}
         onChange={onChange}
       />
       <TextField
@@ -280,6 +277,12 @@ export function RuntimeFields({
         value={form.cpuLimit}
         onChange={onChange}
       />
+      {ceilingMb !== null && (
+        <p className="text-xs text-muted-foreground sm:col-span-3">
+          May burst to {ceilingMb.toLocaleString()} MB before it is stopped.
+          Admission control counts only the reservation.
+        </p>
+      )}
     </div>
   );
 }

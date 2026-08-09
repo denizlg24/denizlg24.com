@@ -400,22 +400,77 @@ export async function targetsWithActiveDomains(
   return rows.map((row) => row.targetId);
 }
 
+export interface DeploymentRouting {
+  /** Names that reach the container. */
+  serve: string[];
+  /** Names that answer 308 to `canonical`. */
+  redirect: string[];
+  canonical: string | null;
+}
+
 /**
- * What Caddy should serve for a deployment: its own ephemeral hostname always,
- * plus the target's stable domains when it is the production one. A preview
- * never carries a stable domain — that is what makes promote a real operation
- * rather than a relabelling.
+ * What Caddy should do for a deployment: its own ephemeral hostname always
+ * serves, plus the target's stable domains when it is the production one. A
+ * preview never carries a stable domain — that is what makes promote a real
+ * operation rather than a relabelling.
+ *
+ * When the target names a primary domain, that one serves and the rest redirect
+ * to it, so "which domain is this app on" has a single answer. Two rules keep
+ * that from taking a deployment down:
+ *
+ * - The deployment's own hostname always serves. It is the only name that
+ *   exists before any domain is attached, and it is what the build log links to.
+ * - With no primary, every stable domain serves, which is the behaviour every
+ *   target had before primary meant anything.
  */
+export function planRouting(
+  deployment: { hostname: string; kind: DeploymentKind },
+  domains: readonly { hostname: string; isPrimary: boolean }[],
+): DeploymentRouting {
+  if (deployment.kind !== "production") {
+    return { serve: [deployment.hostname], redirect: [], canonical: null };
+  }
+
+  const stable = domains
+    .map((row) => row.hostname)
+    .filter((hostname) => hostname !== deployment.hostname);
+  const canonical =
+    domains.find((row) => row.isPrimary && row.hostname !== deployment.hostname)
+      ?.hostname ?? null;
+
+  if (!canonical) {
+    return { serve: [deployment.hostname, ...stable], redirect: [], canonical };
+  }
+  return {
+    serve: [deployment.hostname, canonical],
+    redirect: stable.filter((hostname) => hostname !== canonical),
+    canonical,
+  };
+}
+
 export async function routeHostnames(
   db: Database,
   deployment: { targetId: string; hostname: string; kind: DeploymentKind },
-): Promise<string[]> {
-  if (deployment.kind !== "production") return [deployment.hostname];
-  const stable = await activeDomainHostnames(db, deployment.targetId);
-  return [
-    deployment.hostname,
-    ...stable.filter((h) => h !== deployment.hostname),
-  ];
+): Promise<DeploymentRouting> {
+  if (deployment.kind !== "production") {
+    return planRouting(deployment, []);
+  }
+
+  const rows = await db
+    .select({
+      hostname: deployDomains.hostname,
+      isPrimary: deployDomains.isPrimary,
+    })
+    .from(deployDomains)
+    .where(
+      and(
+        eq(deployDomains.targetId, deployment.targetId),
+        eq(deployDomains.status, "active"),
+      ),
+    )
+    .orderBy(asc(deployDomains.createdAt));
+
+  return planRouting(deployment, rows);
 }
 
 export interface DomainSweepReport {

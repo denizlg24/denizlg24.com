@@ -12,6 +12,13 @@ export interface CaddyRouteEntry {
   projectSlug: string;
   hostnames: string[];
   upstream: string;
+  /**
+   * Names that answer with a 308 to `canonical` instead of serving. Optional
+   * so an entry restored from a state file written before redirects existed
+   * keeps serving every name rather than losing them.
+   */
+  redirectHostnames?: string[];
+  canonical?: string | null;
 }
 
 interface CaddyConfigRoute {
@@ -71,6 +78,23 @@ function proxyHandler(upstream: string): Record<string, unknown> {
   };
 }
 
+/**
+ * 308 rather than 301: it is the only redirect status that forbids rewriting
+ * the method, so a POST to an alias reaches the canonical name as a POST. A 301
+ * turns it into a GET and the request is silently lost.
+ *
+ * The path and query are carried across whole — a redirect that drops them
+ * sends every deep link to the front page, which reads as the alias being
+ * broken rather than aliased.
+ */
+function redirectHandler(canonical: string): Record<string, unknown> {
+  return {
+    handler: "static_response",
+    status_code: 308,
+    headers: { Location: [`https://${canonical}{http.request.uri}`] },
+  };
+}
+
 export function buildCaddyConfig(
   entries: readonly CaddyRouteEntry[],
   listen: string = DEFAULT_LISTEN,
@@ -82,10 +106,27 @@ export function buildCaddyConfig(
   );
   const routes: CaddyConfigRoute[] = sorted
     .filter((entry) => entry.hostnames.length > 0)
-    .map((entry) => ({
-      match: [{ host: [...entry.hostnames].sort() }],
-      handle: [proxyHandler(entry.upstream)],
-    }));
+    .flatMap((entry) => {
+      const serve: CaddyConfigRoute = {
+        match: [{ host: [...entry.hostnames].sort() }],
+        handle: [proxyHandler(entry.upstream)],
+      };
+      // Aliases redirect to the canonical name rather than serving it a second
+      // time, so "which domain is this app on" has one answer. A redirect set
+      // with no canonical is dropped: serving the alias is wrong, and 308ing it
+      // to nowhere is worse.
+      const aliases = (entry.redirectHostnames ?? []).filter(
+        (hostname) => !entry.hostnames.includes(hostname),
+      );
+      if (aliases.length === 0 || !entry.canonical) return [serve];
+      return [
+        serve,
+        {
+          match: [{ host: [...aliases].sort() }],
+          handle: [redirectHandler(entry.canonical)],
+        },
+      ];
+    });
 
   routes.push({
     handle: [
@@ -204,10 +245,22 @@ export class CaddyRouter implements RouteManager {
    * republishing keeps the port out of the caller's hands, which matters
    * because the control plane's copy of it can be a deploy behind.
    */
-  async rehost(deploymentId: string, hostnames: string[]): Promise<boolean> {
+  async rehost(
+    deploymentId: string,
+    hostnames: string[],
+    options: { redirectHostnames?: string[]; canonical?: string | null } = {},
+  ): Promise<boolean> {
     const existing = this.#entries.get(deploymentId);
     if (!existing) return false;
-    await this.publishEntry({ ...existing, hostnames: [...hostnames] });
+    await this.publishEntry({
+      ...existing,
+      hostnames: [...hostnames],
+      // Always replaced, never merged. Every caller sends the complete set, so
+      // merging would leave a name redirecting after the domain that created
+      // it was deleted.
+      redirectHostnames: [...(options.redirectHostnames ?? [])],
+      canonical: options.canonical ?? null,
+    });
     return true;
   }
 

@@ -45,6 +45,7 @@ corrupt it, and the failure looks like a crash-loop with no useful message.
 | `CADDY_LISTEN` | `:8080` | What cloudflared's catch-all ingress targets. |
 | `CADDY_STATE_PATH` | `/srv/forge/caddy/config.json` | The route table replayed at agent start. |
 | `BUILD_MEMORY_LIMIT_MB` | `6144` | See the caveat under Building. |
+| `MEMORY_HEADROOM_MB` | `1024` | Kept for Linux, Docker, the agent and Caddy; excluded from deploy capacity. |
 | `HEALTH_POLL_MS` | `2000` | The gate's poll interval; the budget comes from the request. |
 | `CONTAINER_DRAIN_MS` | `10000` | How long a superseded container keeps serving after the route flips. |
 
@@ -126,6 +127,12 @@ Both paths tag `forge/<slug>:<sha>-<id8>` and the moving `forge/<slug>:latest`,
 and the Docker path passes `--cache-from forge/<slug>:latest` with
 `BUILDKIT_INLINE_CACHE=1`. **The moving tag must not be reaped** — it is the
 whole layer cache (§2.6/§7.2).
+
+The host's allocatable deployment memory is total RAM minus
+`MEMORY_HEADROOM_MB` and one `BUILD_MEMORY_LIMIT_MB` reserve for every build
+slot. The control plane compares target reservations with that fixed budget
+before enqueueing a deployment. A target may burst above its reservation up to
+its derived ceiling, but only the reservation is committed capacity.
 
 `BUILD_MEMORY_LIMIT_MB` is passed as `--memory`, but BuildKit ignores that flag:
 the effective cap is `buildkitd`'s own. Treat it as belt-and-braces, not as the

@@ -22,7 +22,11 @@ export interface AgentRouteOptions {
   routes: () => CaddyRouteEntry[];
   teardown: (deploymentId: string) => Promise<TeardownResult>;
   restart: (deploymentId: string) => Promise<RestartResult>;
-  rehost: (deploymentId: string, hostnames: string[]) => Promise<boolean>;
+  rehost: (
+    deploymentId: string,
+    hostnames: string[],
+    options: { redirectHostnames?: string[]; canonical?: string | null },
+  ) => Promise<boolean>;
   collectGarbage: (request: AgentGcRequest) => Promise<AgentGcReport>;
 }
 
@@ -162,6 +166,10 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
     const rehosted = await options.rehost(
       context.req.param("id"),
       parsed.data.hostnames,
+      {
+        redirectHostnames: parsed.data.redirectHostnames,
+        canonical: parsed.data.canonical,
+      },
     );
     if (!rehosted) {
       return context.json(
@@ -174,7 +182,11 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
         409,
       );
     }
-    return context.json({ hostnames: parsed.data.hostnames });
+    return context.json({
+      hostnames: parsed.data.hostnames,
+      redirectHostnames: parsed.data.redirectHostnames,
+      canonical: parsed.data.canonical ?? null,
+    });
   });
 
   guarded.post("/gc", async (context) => {

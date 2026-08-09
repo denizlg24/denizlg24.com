@@ -1,10 +1,6 @@
 import { z } from "zod";
 
-import {
-  createDeployTargetInputSchema,
-  deployBuilderSchema,
-  deployNodeVersionSchema,
-} from "./deploy";
+import { createDeployTargetInputSchema } from "./deploy";
 import { deployEnvVarInputSchema } from "./deploy-env";
 import { createProjectInputSchema } from "./projects";
 
@@ -72,26 +68,6 @@ export const githubTreeEntrySchema = z.object({
   path: z.string(),
   name: z.string(),
   type: z.enum(["file", "dir"]),
-});
-
-export const detectedBuildConfigSchema = z.object({
-  framework: z.string(),
-  frameworkLabel: z.string(),
-  builder: deployBuilderSchema,
-  dockerfilePath: z.string().nullable(),
-  installCommand: z.string().nullable(),
-  buildCommand: z.string().nullable(),
-  startCommand: z.string().nullable(),
-  nodeVersion: deployNodeVersionSchema.nullable(),
-  healthPath: z.string(),
-});
-export type DetectedBuildConfigResponse = z.infer<
-  typeof detectedBuildConfigSchema
->;
-
-export const workspaceCandidateSchema = z.object({
-  path: z.string(),
-  name: z.string(),
 });
 
 export const githubConnectionSchema = z.object({
