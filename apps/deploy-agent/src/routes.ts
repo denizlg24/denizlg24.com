@@ -13,10 +13,12 @@ import type { CaddyRouteEntry } from "./caddy";
 import type { HealthService } from "./health";
 import { type DeploymentQueue, QueueAtCapacityError } from "./queue";
 import type { RestartResult, TeardownResult } from "./run";
+import type { ForgeTelemetry } from "./telemetry";
 
 export interface AgentRouteOptions {
   token: string;
   health: HealthService;
+  telemetry: ForgeTelemetry;
   queue: DeploymentQueue;
   logs: BuildLogStore;
   routes: () => CaddyRouteEntry[];
@@ -25,7 +27,7 @@ export interface AgentRouteOptions {
   rehost: (
     deploymentId: string,
     hostnames: string[],
-    options: { redirectHostnames?: string[]; canonical?: string | null },
+    options: { redirects?: { hostname: string; to: string }[] },
   ) => Promise<boolean>;
   collectGarbage: (request: AgentGcRequest) => Promise<AgentGcReport>;
 }
@@ -136,6 +138,40 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
     context.json({ routes: options.routes() }),
   );
 
+  guarded.get("/telemetry", async (context) =>
+    context.json({ snapshot: await options.telemetry.snapshot() }),
+  );
+
+  guarded.get("/containers/:id/logs", async (context) => {
+    const requestedTail = Number(context.req.query("tail") ?? 500);
+    const tail = Number.isInteger(requestedTail) ? requestedTail : 500;
+    let lines: AsyncGenerator<string>;
+    try {
+      lines = await options.telemetry.logs(context.req.param("id"), {
+        tail,
+        signal: context.req.raw.signal,
+      });
+    } catch {
+      return context.json(
+        {
+          error: {
+            code: "NOT_FOUND",
+            message: "Forge container was not found",
+          },
+        },
+        404,
+      );
+    }
+    return streamSSE(context, async (stream) => {
+      for await (const line of lines) {
+        await stream.writeSSE({ event: "log", data: line });
+      }
+      if (!context.req.raw.signal.aborted) {
+        await stream.writeSSE({ event: "end", data: "" });
+      }
+    });
+  });
+
   guarded.post("/deployments/:id/restart", async (context) => {
     const result = await options.restart(context.req.param("id"));
     return context.json(result, result.restarted ? 200 : 409);
@@ -167,8 +203,7 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
       context.req.param("id"),
       parsed.data.hostnames,
       {
-        redirectHostnames: parsed.data.redirectHostnames,
-        canonical: parsed.data.canonical,
+        redirects: parsed.data.redirects,
       },
     );
     if (!rehosted) {
@@ -184,8 +219,7 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
     }
     return context.json({
       hostnames: parsed.data.hostnames,
-      redirectHostnames: parsed.data.redirectHostnames,
-      canonical: parsed.data.canonical ?? null,
+      redirects: parsed.data.redirects,
     });
   });
 

@@ -10,6 +10,7 @@ import { deploymentRequest } from "./fixtures";
 import type { HealthService } from "./health";
 import { DeploymentQueue } from "./queue";
 import { createAgentApp } from "./routes";
+import type { ForgeTelemetry } from "./telemetry";
 
 const TOKEN = "t".repeat(32);
 const AUTH = { authorization: `Bearer ${TOKEN}` };
@@ -38,6 +39,21 @@ function healthStub(status: AgentHealth["status"]): HealthService {
   } as unknown as HealthService;
 }
 
+function telemetryStub(status: AgentHealth["status"]): ForgeTelemetry {
+  return {
+    snapshot: async () => ({
+      timestamp: "2026-08-09T12:00:00.000Z",
+      health: await healthStub(status).check(),
+      containers: [],
+      images: [],
+    }),
+    logs: async () =>
+      (async function* () {
+        yield "2026-08-09T12:00:00Z ready";
+      })(),
+  } as unknown as ForgeTelemetry;
+}
+
 function app(
   options: { status?: AgentHealth["status"]; logRoot?: string } = {},
 ) {
@@ -54,7 +70,11 @@ function app(
   });
   const torndown: string[] = [];
   const restarted: string[] = [];
-  const rehosted: { deploymentId: string; hostnames: string[] }[] = [];
+  const rehosted: {
+    deploymentId: string;
+    hostnames: string[];
+    redirects: { hostname: string; to: string }[];
+  }[] = [];
   const collected: AgentGcRequest[] = [];
   const routes: CaddyRouteEntry[] = [
     {
@@ -75,6 +95,7 @@ function app(
     instance: createAgentApp({
       token: TOKEN,
       health: healthStub(options.status ?? "ok"),
+      telemetry: telemetryStub(options.status ?? "ok"),
       queue,
       logs,
       routes: () => routes,
@@ -86,11 +107,15 @@ function app(
         restarted.push(deploymentId);
         return { restarted: true, healthy: true, error: null };
       },
-      rehost: async (deploymentId, hostnames) => {
+      rehost: async (deploymentId, hostnames, routeOptions) => {
         if (!routes.some((route) => route.deploymentId === deploymentId)) {
           return false;
         }
-        rehosted.push({ deploymentId, hostnames });
+        rehosted.push({
+          deploymentId,
+          hostnames,
+          redirects: routeOptions.redirects ?? [],
+        });
         return true;
       },
       collectGarbage: async (request) => {
@@ -145,6 +170,8 @@ describe("authentication", () => {
     for (const path of [
       "/deployments",
       "/routes",
+      "/telemetry",
+      "/containers/dep-1/logs",
       `/deployments/${crypto.randomUUID()}`,
       `/deployments/${crypto.randomUUID()}/logs`,
     ]) {
@@ -274,6 +301,30 @@ describe("GET /routes", () => {
   });
 });
 
+describe("GET /telemetry", () => {
+  it("returns a Forge-scoped snapshot", async () => {
+    const response = await app().instance.request("/telemetry", {
+      headers: AUTH,
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).snapshot.containers).toEqual([]);
+  });
+});
+
+describe("GET /containers/:id/logs", () => {
+  it("streams runtime logs as SSE", async () => {
+    const response = await app().instance.request("/containers/dep-1/logs", {
+      headers: AUTH,
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const body = await response.text();
+    expect(body).toContain("event: log");
+    expect(body).toContain("ready");
+    expect(body).toContain("event: end");
+  });
+});
+
 describe("DELETE /deployments/:id", () => {
   it("tears down without caring whether anything was there", async () => {
     const { instance, torndown } = app();
@@ -340,7 +391,8 @@ describe("POST /deployments/:id/promote", () => {
       method: "POST",
       headers: { ...AUTH, "content-type": "application/json" },
       body: JSON.stringify({
-        hostnames: ["app.denizlg24.com", "www.clientsite.com"],
+        hostnames: ["app.denizlg24.com", "clientsite.com"],
+        redirects: [{ hostname: "www.clientsite.com", to: "clientsite.com" }],
       }),
     });
 
@@ -348,8 +400,27 @@ describe("POST /deployments/:id/promote", () => {
     expect(rehosted).toEqual([
       {
         deploymentId: "dep-1",
-        hostnames: ["app.denizlg24.com", "www.clientsite.com"],
+        hostnames: ["app.denizlg24.com", "clientsite.com"],
+        redirects: [{ hostname: "www.clientsite.com", to: "clientsite.com" }],
       },
+    ]);
+  });
+
+  it("accepts the previous control plane's canonical redirect payload", async () => {
+    const { instance, rehosted } = app();
+    const response = await instance.request("/deployments/dep-1/promote", {
+      method: "POST",
+      headers: { ...AUTH, "content-type": "application/json" },
+      body: JSON.stringify({
+        hostnames: ["app.denizlg24.com", "clientsite.com"],
+        redirectHostnames: ["www.clientsite.com"],
+        canonical: "clientsite.com",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(rehosted[0]?.redirects).toEqual([
+      { hostname: "www.clientsite.com", to: "clientsite.com" },
     ]);
   });
 
@@ -372,6 +443,23 @@ describe("POST /deployments/:id/promote", () => {
         method: "POST",
         headers: { ...AUTH, "content-type": "application/json" },
         body: JSON.stringify({ hostnames: [] }),
+      },
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects a redirect to a domain the deployment does not serve", async () => {
+    const response = await app().instance.request(
+      "/deployments/dep-1/promote",
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body: JSON.stringify({
+          hostnames: ["app.denizlg24.com"],
+          redirects: [
+            { hostname: "www.clientsite.com", to: "unrelated.example" },
+          ],
+        }),
       },
     );
     expect(response.status).toBe(400);

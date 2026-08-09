@@ -6,6 +6,7 @@ import {
   BindingUnresolvableError,
   collectReferences,
   type DeployBindingResolvers,
+  defaultDeployEnvBindings,
   describeBindings,
   resolveDeploymentEnv,
 } from "./env";
@@ -59,6 +60,21 @@ function resolvers(
 }
 
 const decrypt = (candidate: DeployEnvVarRow) => `plain:${candidate.key}`;
+
+describe("defaultDeployEnvBindings", () => {
+  test("seeds provisioned databases but never grants S3 implicitly", () => {
+    expect(
+      defaultDeployEnvBindings({
+        postgres: true,
+        mongodb: false,
+        redis: true,
+      }),
+    ).toEqual([
+      { key: "DATABASE_URL", reference: "database.postgres.url" },
+      { key: "REDIS_URL", reference: "database.redis.url" },
+    ]);
+  });
+});
 
 describe("collectReferences", () => {
   test("gathers binding and template references with their keys", () => {

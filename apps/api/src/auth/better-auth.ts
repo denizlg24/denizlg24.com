@@ -8,16 +8,19 @@ import { eq } from "drizzle-orm";
 const SESSION_EXPIRES_IN_SECONDS = 24 * 60 * 60;
 const SESSION_UPDATE_AGE_SECONDS = 60 * 60;
 
-// Dev ports, one per app: 3000 web, 3001 api, 3002 cloud, 3005 storage.
+// Dev ports, one per app: 3000 web, 3001 api, 3002 cloud, 3005 storage,
+// 3006 forge.
 // (3003 is the terminal service, 3004 the desktop shell's Next server —
 // neither talks to better-auth from a browser origin.)
 export const CLOUD_AUTH_TRUSTED_ORIGINS = [
   "https://cloud.denizlg24.com",
+  "https://forge.denizlg24.com",
   "https://storage.denizlg24.com",
   "http://localhost:3000",
   "http://localhost:3001",
   "http://localhost:3002",
   "http://localhost:3005",
+  "http://localhost:3006",
 ] as const;
 
 export interface CloudAuthOptions {

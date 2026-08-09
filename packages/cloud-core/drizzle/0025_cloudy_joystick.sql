@@ -1,0 +1,1 @@
+ALTER TABLE "deploy_domains" ADD COLUMN "redirect_to" varchar(255);

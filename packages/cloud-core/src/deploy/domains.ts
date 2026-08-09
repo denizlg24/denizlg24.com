@@ -132,6 +132,7 @@ export async function createDeployDomain(
     hostname: string;
     mode?: DeployDomainMode;
     isPrimary?: boolean;
+    redirectTo?: string | null;
   },
 ): Promise<DeployDomainRow> {
   const hostname = await assertDomainAvailable(context, input.hostname);
@@ -154,6 +155,7 @@ export async function createDeployDomain(
       hostname,
       mode,
       isPrimary: input.isPrimary ?? false,
+      redirectTo: input.redirectTo ?? null,
       status: "pending",
     })
     .returning();
@@ -288,7 +290,20 @@ export async function deleteDeployDomain(
   row: DeployDomainRow,
 ): Promise<void> {
   await releaseDeployDomain(context, row);
-  await context.db.delete(deployDomains).where(eq(deployDomains.id, row.id));
+  await context.db.transaction(async (tx) => {
+    // A deleted redirect destination must make its aliases serve, never leave
+    // them pointing at a hostname the target no longer owns.
+    await tx
+      .update(deployDomains)
+      .set({ redirectTo: null })
+      .where(
+        and(
+          eq(deployDomains.targetId, row.targetId),
+          eq(deployDomains.redirectTo, row.hostname),
+        ),
+      );
+    await tx.delete(deployDomains).where(eq(deployDomains.id, row.id));
+  });
 }
 
 /**
@@ -305,12 +320,27 @@ export async function renameDeployDomain(
     targetId: row.targetId,
     hostname,
     isPrimary: row.isPrimary,
+    redirectTo: row.redirectTo,
   });
-  const [retired] = await context.db
-    .update(deployDomains)
-    .set({ isPrimary: false, retiredAt: new Date() })
-    .where(eq(deployDomains.id, row.id))
-    .returning();
+  const retired = await context.db.transaction(async (tx) => {
+    // Redirects aimed at the renamed domain follow it. Keeping the old text
+    // would create a redirect to a hostname scheduled for retirement.
+    await tx
+      .update(deployDomains)
+      .set({ redirectTo: created.hostname })
+      .where(
+        and(
+          eq(deployDomains.targetId, row.targetId),
+          eq(deployDomains.redirectTo, row.hostname),
+        ),
+      );
+    const [updated] = await tx
+      .update(deployDomains)
+      .set({ isPrimary: false, retiredAt: new Date() })
+      .where(eq(deployDomains.id, row.id))
+      .returning();
+    return updated ?? row;
+  });
   return { created, retired: retired ?? row };
 }
 
@@ -327,7 +357,74 @@ export async function setPrimaryDeployDomain(
   await clearPrimary(context.db, row.targetId, row.id);
   const [updated] = await context.db
     .update(deployDomains)
-    .set({ isPrimary: true, retiredAt: null })
+    .set({ isPrimary: true, redirectTo: null, retiredAt: null })
+    .where(eq(deployDomains.id, row.id))
+    .returning();
+  return updated ?? row;
+}
+
+/**
+ * Select what one domain does without changing any sibling. Redirect targets
+ * must be active, serving domains on the same target. This prevents loops and
+ * redirect chains at write time instead of asking Caddy to guess at runtime.
+ */
+export async function setDeployDomainRedirect(
+  context: DomainContext,
+  row: DeployDomainRow,
+  redirectTo: string | null,
+): Promise<DeployDomainRow> {
+  if (row.status !== "active" || row.retiredAt !== null) {
+    throw new ValidationError(
+      `${row.hostname} is not active`,
+      "DOMAIN_NOT_ACTIVE",
+    );
+  }
+  if (redirectTo === row.hostname) {
+    throw new ValidationError(
+      "A domain cannot redirect to itself",
+      "INVALID_DOMAIN_REDIRECT",
+    );
+  }
+
+  if (redirectTo !== null) {
+    const destination = await context.db.query.deployDomains.findFirst({
+      where: and(
+        eq(deployDomains.targetId, row.targetId),
+        eq(deployDomains.hostname, redirectTo),
+        eq(deployDomains.status, "active"),
+        isNull(deployDomains.retiredAt),
+      ),
+    });
+    if (!destination) {
+      throw new ValidationError(
+        "Redirect target must be an active domain on this deployment",
+        "INVALID_DOMAIN_REDIRECT",
+      );
+    }
+    if (destination.redirectTo !== null) {
+      throw new ValidationError(
+        "Redirect target must serve the deployment directly",
+        "INVALID_DOMAIN_REDIRECT",
+      );
+    }
+    const inbound = await context.db.query.deployDomains.findFirst({
+      where: and(
+        eq(deployDomains.targetId, row.targetId),
+        eq(deployDomains.redirectTo, row.hostname),
+        ne(deployDomains.id, row.id),
+      ),
+    });
+    if (inbound) {
+      throw new ValidationError(
+        `${row.hostname} is already a redirect destination`,
+        "INVALID_DOMAIN_REDIRECT",
+      );
+    }
+  }
+
+  const [updated] = await context.db
+    .update(deployDomains)
+    .set({ redirectTo, ...(redirectTo === null ? {} : { isPrimary: false }) })
     .where(eq(deployDomains.id, row.id))
     .returning();
   return updated ?? row;
@@ -403,9 +500,8 @@ export async function targetsWithActiveDomains(
 export interface DeploymentRouting {
   /** Names that reach the container. */
   serve: string[];
-  /** Names that answer 308 to `canonical`. */
-  redirect: string[];
-  canonical: string | null;
+  /** Explicit source/destination pairs that answer with a 308. */
+  redirects: { hostname: string; to: string }[];
 }
 
 /**
@@ -414,37 +510,42 @@ export interface DeploymentRouting {
  * preview never carries a stable domain — that is what makes promote a real
  * operation rather than a relabelling.
  *
- * When the target names a primary domain, that one serves and the rest redirect
- * to it, so "which domain is this app on" has a single answer. Two rules keep
- * that from taking a deployment down:
+ * A primary domain is only the preferred URL displayed by the control plane.
+ * Redirects are explicit per-domain choices. Two rules keep routing safe:
  *
  * - The deployment's own hostname always serves. It is the only name that
  *   exists before any domain is attached, and it is what the build log links to.
- * - With no primary, every stable domain serves, which is the behaviour every
- *   target had before primary meant anything.
+ * - With no explicit redirect, every stable domain serves.
  */
 export function planRouting(
   deployment: { hostname: string; kind: DeploymentKind },
-  domains: readonly { hostname: string; isPrimary: boolean }[],
+  domains: readonly { hostname: string; redirectTo: string | null }[],
 ): DeploymentRouting {
   if (deployment.kind !== "production") {
-    return { serve: [deployment.hostname], redirect: [], canonical: null };
+    return { serve: [deployment.hostname], redirects: [] };
   }
 
-  const stable = domains
-    .map((row) => row.hostname)
-    .filter((hostname) => hostname !== deployment.hostname);
-  const canonical =
-    domains.find((row) => row.isPrimary && row.hostname !== deployment.hostname)
-      ?.hostname ?? null;
-
-  if (!canonical) {
-    return { serve: [deployment.hostname, ...stable], redirect: [], canonical };
-  }
+  const available = new Set(domains.map((row) => row.hostname));
+  const redirects = domains
+    .filter(
+      (row) =>
+        row.hostname !== deployment.hostname &&
+        row.redirectTo !== null &&
+        available.has(row.redirectTo),
+    )
+    .map((row) => ({ hostname: row.hostname, to: row.redirectTo as string }));
+  const redirectSources = new Set(redirects.map((entry) => entry.hostname));
   return {
-    serve: [deployment.hostname, canonical],
-    redirect: stable.filter((hostname) => hostname !== canonical),
-    canonical,
+    serve: [
+      deployment.hostname,
+      ...domains
+        .map((row) => row.hostname)
+        .filter(
+          (hostname) =>
+            hostname !== deployment.hostname && !redirectSources.has(hostname),
+        ),
+    ],
+    redirects,
   };
 }
 
@@ -459,7 +560,7 @@ export async function routeHostnames(
   const rows = await db
     .select({
       hostname: deployDomains.hostname,
-      isPrimary: deployDomains.isPrimary,
+      redirectTo: deployDomains.redirectTo,
     })
     .from(deployDomains)
     .where(

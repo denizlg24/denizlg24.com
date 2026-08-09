@@ -52,6 +52,7 @@ import type {
   postgresDbAdminRoutes,
 } from "./db-admin/routes";
 import type { deployRoutes } from "./deploy/routes";
+import type { forgeManagementRoutes } from "./forge/routes";
 import type { opsRoutes } from "./ops/routes";
 import { type OpsToolsConfig, toolsProxyRoutes } from "./ops/tools-proxy";
 import type { projectRoutes } from "./projects/routes";
@@ -118,6 +119,8 @@ export interface CloudApiOptions {
   opsTools?: OpsToolsConfig;
   /** Absent when the host has no deploy agent configured. */
   deploy?: ReturnType<typeof deployRoutes>;
+  /** Superuser-only Forge host management and telemetry. */
+  forge?: ReturnType<typeof forgeManagementRoutes>;
   activity?: {
     recorder: ActivityRecorder;
     slowRequestMs?: number;
@@ -743,6 +746,22 @@ export function createCloudApiApp(options: CloudApiOptions) {
       return authenticate(context, next);
     });
     app.route("/api/deploy", options.deploy);
+  }
+
+  if (options.forge) {
+    app.use(
+      "/api/forge",
+      authenticate,
+      requireSession(),
+      requireRole("superuser"),
+    );
+    app.use(
+      "/api/forge/*",
+      authenticate,
+      requireSession(),
+      requireRole("superuser"),
+    );
+    app.route("/api/forge", options.forge);
   }
 
   app.on(["GET", "POST"], "/api/auth/*", (context) =>

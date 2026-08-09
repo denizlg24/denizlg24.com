@@ -20,7 +20,6 @@ import {
   deployments,
   deployTargets,
   projects,
-  s3Credentials,
 } from "@repo/cloud-core/db/schema";
 import {
   assertBindingsResolvable,
@@ -32,6 +31,7 @@ import {
   createDeployDomain,
   DEPLOY_PRESETS,
   decryptDeployEnvValue,
+  defaultDeployEnvBindings,
   deleteDeployDomain,
   deployCapacity,
   deployNamespaceAvailability,
@@ -61,6 +61,7 @@ import {
   resolveBuildConfig,
   resolveDeploymentEnv,
   resolveEnvoyEnv,
+  setDeployDomainRedirect,
   setPrimaryDeployDomain,
   supersedeOlderDeployments,
   supersedeQueuedDeployments,
@@ -93,7 +94,7 @@ import {
   updateDeployTargetInputSchema,
   type WebhookDeployIntent,
 } from "@repo/schemas/cloud";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -254,6 +255,7 @@ function serializeDeployment(row: DeploymentRow) {
     url: `https://${row.hostname}`,
     port: row.port,
     imageTag: row.imageTag,
+    containerId: row.containerId,
     imageSizeBytes: row.imageSizeBytes,
     buildDurationMs: row.buildDurationMs,
     error: row.error,
@@ -270,20 +272,22 @@ function serializeDeployment(row: DeploymentRow) {
  * rows rather than asked of the agent: this is the intent, and the drift check
  * in `ForgeOps.unroutedTargets` is what reconciles the agent to it.
  */
-function domainRole(
-  row: DeployDomainRow,
-  canonical: string | null,
-): { role: DeployDomainRole; redirectsTo: string | null } {
+function domainRole(row: DeployDomainRow): {
+  role: DeployDomainRole;
+  redirectsTo: string | null;
+} {
   if (row.retiredAt !== null) return { role: "retired", redirectsTo: null };
   if (row.status !== "active") return { role: "pending", redirectsTo: null };
-  if (!canonical) return { role: "serves", redirectsTo: null };
-  if (row.hostname === canonical) {
-    return { role: "canonical", redirectsTo: null };
+  if (row.redirectTo) {
+    return { role: "redirects", redirectsTo: row.redirectTo };
   }
-  return { role: "redirects", redirectsTo: canonical };
+  return {
+    role: row.isPrimary ? "canonical" : "serves",
+    redirectsTo: null,
+  };
 }
 
-function serializeDomain(row: DeployDomainRow, canonical: string | null) {
+function serializeDomain(row: DeployDomainRow) {
   return {
     id: row.id,
     targetId: row.targetId,
@@ -292,7 +296,7 @@ function serializeDomain(row: DeployDomainRow, canonical: string | null) {
     mode: row.mode,
     status: row.status,
     isPrimary: row.isPrimary,
-    ...domainRole(row, canonical),
+    ...domainRole(row),
     verification: row.verification ?? null,
     lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
     retiredAt: row.retiredAt?.toISOString() ?? null,
@@ -300,19 +304,8 @@ function serializeDomain(row: DeployDomainRow, canonical: string | null) {
   };
 }
 
-/** The name every other domain on the target points at, if one is chosen. */
-function canonicalHostname(rows: readonly DeployDomainRow[]): string | null {
-  return (
-    rows.find(
-      (row) =>
-        row.isPrimary && row.status === "active" && row.retiredAt === null,
-    )?.hostname ?? null
-  );
-}
-
 function serializeDomains(rows: readonly DeployDomainRow[]) {
-  const canonical = canonicalHostname(rows);
-  return rows.map((row) => serializeDomain(row, canonical));
+  return rows.map(serializeDomain);
 }
 
 /** A literal's value is never returned; only that one is stored. */
@@ -791,17 +784,6 @@ export function deployRoutes(options: DeployRouteOptions) {
         }));
 
       const availability = await deployNamespaceAvailability(db, project.id);
-      const [storageCredential] = await db
-        .select({ id: s3Credentials.id })
-        .from(s3Credentials)
-        .where(
-          and(
-            eq(s3Credentials.projectId, project.id),
-            isNull(s3Credentials.revokedAt),
-          ),
-        )
-        .limit(1);
-
       const created = await db.transaction(async (tx) => {
         const [target] = await tx
           .insert(deployTargets)
@@ -830,33 +812,12 @@ export function deployRoutes(options: DeployRouteOptions) {
           .returning();
         if (!target) throw new Error("Deploy target insert returned no row");
 
-        // Conventional names for what the project has actually provisioned.
-        // These are ordinary rows: rename them, retarget them or delete them.
-        // Storage is seeded only when the project already holds a credential —
-        // seeding it unconditionally would make every target ask for an S3
-        // credential per deployment, which is the thing the resolver exists to
-        // avoid.
-        const seeds: Array<{ key: string; reference: string }> = [];
-        if (availability.postgres) {
-          seeds.push({
-            key: "DATABASE_URL",
-            reference: "database.postgres.url",
-          });
-        }
-        if (availability.mongodb) {
-          seeds.push({ key: "MONGODB_URI", reference: "database.mongodb.url" });
-        }
-        if (availability.redis) {
-          seeds.push({ key: "REDIS_URL", reference: "database.redis.url" });
-        }
-        if (storageCredential) {
-          seeds.push(
-            { key: "S3_ENDPOINT", reference: "s3.endpoint" },
-            { key: "S3_BUCKET", reference: "s3.bucket" },
-            { key: "S3_ACCESS_KEY_ID", reference: "s3.accessKeyId" },
-            { key: "S3_SECRET_ACCESS_KEY", reference: "s3.secretAccessKey" },
-          );
-        }
+        // Conventional names for provisioned databases. These are ordinary
+        // rows: rename them, retarget them or delete them. S3 is deliberately
+        // absent — issuing a deployment credential remains supported, but it
+        // only happens after the owner explicitly adds an s3.* binding or
+        // template in the environment editor.
+        const seeds = defaultDeployEnvBindings(availability);
         // Anything the request carried at the same key and scope replaces the
         // seed rather than sitting beside it: a pasted DATABASE_URL is a
         // deliberate override of the project's own Postgres, and two rows for
@@ -1540,6 +1501,31 @@ export function deployRoutes(options: DeployRouteOptions) {
     }
   });
 
+  /** Live stdout/stderr for the container that belongs to this deployment. */
+  owner.get("/deployments/:id/runtime-logs", async (context) => {
+    try {
+      const row = await loadDeployment(context.req.param("id"));
+      if (!row.containerId) {
+        return context.json(
+          {
+            error: {
+              code: "RUNTIME_LOGS_UNAVAILABLE",
+              message: "This deployment has no runtime container",
+            },
+          },
+          409,
+        );
+      }
+      return await agentProxy.stream(
+        `/containers/${encodeURIComponent(row.containerId)}/logs`,
+        context.req.raw.signal,
+      );
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
   owner.post("/deployments/:id/cancel", async (context) => {
     try {
       const row = await loadDeployment(context.req.param("id"));
@@ -1764,17 +1750,9 @@ export function deployRoutes(options: DeployRouteOptions) {
 
   // ---- Domains -------------------------------------------------------------
 
-  /**
-   * A domain's role is a property of the set it belongs to, not of the row, so
-   * a mutation that returns one row still has to read its siblings to know
-   * whether it is now the canonical name or points at it.
-   */
+  /** Serialize the row returned by a mutation without a second database read. */
   async function serializeDomainInTarget(row: DeployDomainRow) {
-    const siblings = await listDeployDomains(db, row.targetId);
-    // The mutation's own row is authoritative over the copy just read back,
-    // which may predate it on a replica.
-    const rows = siblings.map((entry) => (entry.id === row.id ? row : entry));
-    return serializeDomain(row, canonicalHostname(rows));
+    return serializeDomain(row);
   }
 
   owner.get("/targets/:id/domains", async (context) => {
@@ -1843,7 +1821,17 @@ export function deployRoutes(options: DeployRouteOptions) {
         await forge.republishTargetRoutes(row.targetId);
         return context.json({ data: await serializeDomainInTarget(created) });
       }
+      if (parsed.data.redirectTo !== undefined) {
+        const updated = await setDeployDomainRedirect(
+          domainContext,
+          row,
+          parsed.data.redirectTo,
+        );
+        await forge.republishTargetRoutes(row.targetId);
+        return context.json({ data: await serializeDomainInTarget(updated) });
+      }
       const updated = await setPrimaryDeployDomain(domainContext, row);
+      await forge.republishTargetRoutes(row.targetId);
       return context.json({ data: await serializeDomainInTarget(updated) });
     } catch (error) {
       const response = errorResponse(error);

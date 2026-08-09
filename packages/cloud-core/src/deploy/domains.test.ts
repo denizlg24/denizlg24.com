@@ -46,12 +46,10 @@ describe("planRouting", () => {
     kind: "production",
   } as const;
 
-  it("serves every stable domain when none is primary", () => {
-    // The behaviour every target had before primary meant anything. A repo
-    // that never picks one must not lose its domains.
+  it("serves every stable domain unless a redirect is explicit", () => {
     const routing = planRouting(production, [
-      { hostname: "a.denizlg24.com", isPrimary: false },
-      { hostname: "b.denizlg24.com", isPrimary: false },
+      { hostname: "a.denizlg24.com", redirectTo: null },
+      { hostname: "b.denizlg24.com", redirectTo: null },
     ]);
 
     expect(routing.serve).toEqual([
@@ -59,19 +57,33 @@ describe("planRouting", () => {
       "a.denizlg24.com",
       "b.denizlg24.com",
     ]);
-    expect(routing.redirect).toEqual([]);
-    expect(routing.canonical).toBeNull();
+    expect(routing.redirects).toEqual([]);
   });
 
-  it("redirects the rest to the primary", () => {
+  it("redirects only the domain with an explicit destination", () => {
     const routing = planRouting(production, [
-      { hostname: "www.denizlg24.com", isPrimary: false },
-      { hostname: "denizlg24.com", isPrimary: true },
+      { hostname: "www.denizlg24.com", redirectTo: "denizlg24.com" },
+      { hostname: "denizlg24.com", redirectTo: null },
     ]);
 
-    expect(routing.canonical).toBe("denizlg24.com");
     expect(routing.serve).toEqual(["app.denizlg24.com", "denizlg24.com"]);
-    expect(routing.redirect).toEqual(["www.denizlg24.com"]);
+    expect(routing.redirects).toEqual([
+      { hostname: "www.denizlg24.com", to: "denizlg24.com" },
+    ]);
+  });
+
+  it("supports independent redirect destinations", () => {
+    const routing = planRouting(production, [
+      { hostname: "www.denizlg24.com", redirectTo: "denizlg24.com" },
+      { hostname: "old.denizlg24.com", redirectTo: "docs.denizlg24.com" },
+      { hostname: "denizlg24.com", redirectTo: null },
+      { hostname: "docs.denizlg24.com", redirectTo: null },
+    ]);
+
+    expect(routing.redirects).toEqual([
+      { hostname: "www.denizlg24.com", to: "denizlg24.com" },
+      { hostname: "old.denizlg24.com", to: "docs.denizlg24.com" },
+    ]);
   });
 
   it("always serves the deployment's own hostname", () => {
@@ -79,20 +91,23 @@ describe("planRouting", () => {
     // what the build log links to — redirecting it would break the one URL
     // that is guaranteed to work.
     const routing = planRouting(production, [
-      { hostname: "app.denizlg24.com", isPrimary: false },
-      { hostname: "denizlg24.com", isPrimary: true },
+      { hostname: "app.denizlg24.com", redirectTo: "denizlg24.com" },
+      { hostname: "denizlg24.com", redirectTo: null },
     ]);
 
     expect(routing.serve).toContain("app.denizlg24.com");
-    expect(routing.redirect).not.toContain("app.denizlg24.com");
+    expect(routing.redirects).not.toContainEqual({
+      hostname: "app.denizlg24.com",
+      to: "denizlg24.com",
+    });
   });
 
   it("gives a preview no stable domains at all", () => {
     const routing = planRouting(preview, [
-      { hostname: "denizlg24.com", isPrimary: true },
+      { hostname: "denizlg24.com", redirectTo: null },
     ]);
 
     expect(routing.serve).toEqual(["pr-4.denizlg24.com"]);
-    expect(routing.canonical).toBeNull();
+    expect(routing.redirects).toEqual([]);
   });
 });

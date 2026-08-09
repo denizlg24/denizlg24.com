@@ -1,0 +1,7 @@
+# Forge builds from the monorepo root so workspace dependencies remain in the
+# Docker context. Force the provider for this selected service; otherwise the
+# root package.json makes Nixpacks produce a Bun-only image with no Python/pip.
+providers = ["python"]
+
+[variables]
+NIXPACKS_PYTHON_VERSION = "3.12"

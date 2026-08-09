@@ -61,14 +61,16 @@ describe("buildCaddyConfig", () => {
     expect(routes.at(-1)?.handle[0]?.status_code).toBe(404);
   });
 
-  it("redirects aliases to the canonical hostname", () => {
+  it("redirects configured aliases to their destination", () => {
     const config = buildCaddyConfig([
       {
         deploymentId: "a",
         projectSlug: "app",
         hostnames: ["denizlg24.com"],
-        redirectHostnames: ["www.denizlg24.com", "old.denizlg24.com"],
-        canonical: "denizlg24.com",
+        redirects: [
+          { hostname: "www.denizlg24.com", to: "denizlg24.com" },
+          { hostname: "old.denizlg24.com", to: "denizlg24.com" },
+        ],
         upstream: "127.0.0.1:24817",
       },
     ]);
@@ -88,6 +90,31 @@ describe("buildCaddyConfig", () => {
     expect(handler?.headers.Location).toEqual([
       "https://denizlg24.com{http.request.uri}",
     ]);
+  });
+
+  it("supports a different destination for each domain", () => {
+    const config = buildCaddyConfig([
+      {
+        deploymentId: "a",
+        projectSlug: "app",
+        hostnames: ["denizlg24.com", "docs.denizlg24.com"],
+        redirects: [
+          { hostname: "www.denizlg24.com", to: "denizlg24.com" },
+          { hostname: "old.denizlg24.com", to: "docs.denizlg24.com" },
+        ],
+        upstream: "127.0.0.1:24817",
+      },
+    ]);
+    const routes = config.apps.http.servers.forge?.routes ?? [];
+
+    expect(routes[1]?.match?.[0]?.host).toEqual(["www.denizlg24.com"]);
+    expect(routes[1]?.handle[0]?.headers).toEqual({
+      Location: ["https://denizlg24.com{http.request.uri}"],
+    });
+    expect(routes[2]?.match?.[0]?.host).toEqual(["old.denizlg24.com"]);
+    expect(routes[2]?.handle[0]?.headers).toEqual({
+      Location: ["https://docs.denizlg24.com{http.request.uri}"],
+    });
   });
 
   it("serves every name when there is no canonical to redirect to", () => {
@@ -113,8 +140,7 @@ describe("buildCaddyConfig", () => {
         deploymentId: "a",
         projectSlug: "app",
         hostnames: ["a.denizlg24.com", "denizlg24.com"],
-        redirectHostnames: ["a.denizlg24.com"],
-        canonical: "denizlg24.com",
+        redirects: [{ hostname: "a.denizlg24.com", to: "denizlg24.com" }],
         upstream: "127.0.0.1:24817",
       },
     ]);

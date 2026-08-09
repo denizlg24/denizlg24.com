@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import type { DeploymentRoute, RouteManager } from "./run";
 
 export const DEFAULT_ADMIN_URL = "http://127.0.0.1:2019";
-export const DEFAULT_LISTEN = ":8080";
+export const DEFAULT_LISTEN = "127.0.0.1:8080";
 export const SERVER_NAME = "forge";
 
 export interface CaddyRouteEntry {
@@ -19,6 +19,8 @@ export interface CaddyRouteEntry {
    */
   redirectHostnames?: string[];
   canonical?: string | null;
+  /** Explicit per-domain redirects. Missing on state written by older agents. */
+  redirects?: { hostname: string; to: string }[];
 }
 
 interface CaddyConfigRoute {
@@ -111,20 +113,29 @@ export function buildCaddyConfig(
         match: [{ host: [...entry.hostnames].sort() }],
         handle: [proxyHandler(entry.upstream)],
       };
-      // Aliases redirect to the canonical name rather than serving it a second
-      // time, so "which domain is this app on" has one answer. A redirect set
-      // with no canonical is dropped: serving the alias is wrong, and 308ing it
-      // to nowhere is worse.
-      const aliases = (entry.redirectHostnames ?? []).filter(
-        (hostname) => !entry.hostnames.includes(hostname),
-      );
-      if (aliases.length === 0 || !entry.canonical) return [serve];
+      // Read legacy state as one canonical group, but every newly published
+      // route carries independent source/destination pairs.
+      const configured =
+        entry.redirects ??
+        (entry.canonical
+          ? (entry.redirectHostnames ?? []).map((hostname) => ({
+              hostname,
+              to: entry.canonical as string,
+            }))
+          : []);
+      const byDestination = new Map<string, string[]>();
+      for (const redirect of configured) {
+        if (entry.hostnames.includes(redirect.hostname)) continue;
+        const aliases = byDestination.get(redirect.to) ?? [];
+        aliases.push(redirect.hostname);
+        byDestination.set(redirect.to, aliases);
+      }
       return [
         serve,
-        {
+        ...[...byDestination.entries()].map(([destination, aliases]) => ({
           match: [{ host: [...aliases].sort() }],
-          handle: [redirectHandler(entry.canonical)],
-        },
+          handle: [redirectHandler(destination)],
+        })),
       ];
     });
 
@@ -248,18 +259,25 @@ export class CaddyRouter implements RouteManager {
   async rehost(
     deploymentId: string,
     hostnames: string[],
-    options: { redirectHostnames?: string[]; canonical?: string | null } = {},
+    options: { redirects?: { hostname: string; to: string }[] } = {},
   ): Promise<boolean> {
     const existing = this.#entries.get(deploymentId);
     if (!existing) return false;
+    const redirects = (options.redirects ?? []).map((entry) => ({ ...entry }));
+    const destinations = new Set(redirects.map((entry) => entry.to));
+    const legacyCanonical =
+      destinations.size === 1 ? [...destinations][0] : null;
     await this.publishEntry({
       ...existing,
       hostnames: [...hostnames],
       // Always replaced, never merged. Every caller sends the complete set, so
       // merging would leave a name redirecting after the domain that created
       // it was deleted.
-      redirectHostnames: [...(options.redirectHostnames ?? [])],
-      canonical: options.canonical ?? null,
+      redirects,
+      redirectHostnames: legacyCanonical
+        ? redirects.map((entry) => entry.hostname)
+        : [],
+      canonical: legacyCanonical,
     });
     return true;
   }

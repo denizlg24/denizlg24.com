@@ -107,6 +107,37 @@ export interface DeployNamespaceAvailability {
   redis: boolean;
 }
 
+export interface DefaultDeployEnvBinding {
+  key: string;
+  reference: string;
+}
+
+/**
+ * Conventional database bindings for a newly created target.
+ *
+ * S3 stays opt-in even when project storage exists: referencing `s3.*` mints a
+ * real per-deployment credential, so silently adding those rows would silently
+ * grant every service storage access.
+ */
+export function defaultDeployEnvBindings(
+  availability: DeployNamespaceAvailability,
+): DefaultDeployEnvBinding[] {
+  const bindings: DefaultDeployEnvBinding[] = [];
+  if (availability.postgres) {
+    bindings.push({
+      key: "DATABASE_URL",
+      reference: "database.postgres.url",
+    });
+  }
+  if (availability.mongodb) {
+    bindings.push({ key: "MONGODB_URI", reference: "database.mongodb.url" });
+  }
+  if (availability.redis) {
+    bindings.push({ key: "REDIS_URL", reference: "database.redis.url" });
+  }
+  return bindings;
+}
+
 function isAvailable(
   namespace: DeployBindingNamespace,
   availability: DeployNamespaceAvailability,

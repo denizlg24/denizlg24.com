@@ -54,6 +54,9 @@ import { GithubSurfaces } from "./deploy/github-surfaces";
 import { ForgeOps } from "./deploy/ops";
 import { DeployAgentProxy } from "./deploy/proxy";
 import { deployRoutes } from "./deploy/routes";
+import { ForgeMonitor } from "./forge/monitor";
+import { resourceAgentClientFromEnv } from "./forge/resource-agent";
+import { forgeManagementRoutes } from "./forge/routes";
 import { OpsHealthService } from "./ops/health";
 import type { DiskDevice } from "./ops/host";
 import {
@@ -325,32 +328,44 @@ export async function createRuntimeApp() {
     }
     const deployAgentUrl = process.env.DEPLOY_AGENT_URL?.trim();
     const deployAgentToken = process.env.DEPLOY_AGENT_TOKEN?.trim();
-    const forge =
+    const deployAgent =
       deployAgentUrl && deployAgentToken
-        ? new ForgeOps({
-            db,
-            agent: new DeployAgentProxy({
-              baseUrl: deployAgentUrl,
-              token: deployAgentToken,
-            }),
-            // Cloudflare is configured separately. Without it a deployment
-            // still builds, runs and routes through Caddy — it just has no
-            // public name, which is a better failure than refusing to deploy.
-            dns: cloudflareDeployConfig
-              ? new CloudflareDnsClient({ config: cloudflareDeployConfig })
-              : null,
-            // Same credentials, separate client: a zone record and a custom
-            // hostname are different mechanisms and only one of them is
-            // quota-limited, so nothing should be able to reach for the wrong
-            // one by accident.
-            customHostnames: cloudflareDeployConfig
-              ? new CloudflareCustomHostnameClient({
-                  config: cloudflareDeployConfig,
-                })
-              : null,
-            zoneName: cloudflareDeployConfig?.zoneName ?? "denizlg24.com",
+        ? new DeployAgentProxy({
+            baseUrl: deployAgentUrl,
+            token: deployAgentToken,
           })
         : null;
+    const forge = deployAgent
+      ? new ForgeOps({
+          db,
+          agent: deployAgent,
+          // Cloudflare is configured separately. Without it a deployment
+          // still builds, runs and routes through Caddy — it just has no
+          // public name, which is a better failure than refusing to deploy.
+          dns: cloudflareDeployConfig
+            ? new CloudflareDnsClient({ config: cloudflareDeployConfig })
+            : null,
+          // Same credentials, separate client: a zone record and a custom
+          // hostname are different mechanisms and only one of them is
+          // quota-limited, so nothing should be able to reach for the wrong
+          // one by accident.
+          customHostnames: cloudflareDeployConfig
+            ? new CloudflareCustomHostnameClient({
+                config: cloudflareDeployConfig,
+              })
+            : null,
+          zoneName: cloudflareDeployConfig?.zoneName ?? "denizlg24.com",
+        })
+      : null;
+    const resourceAgent = resourceAgentClientFromEnv();
+    const forgeMonitor =
+      deployAgent || resourceAgent
+        ? new ForgeMonitor({ db, deployAgent, resourceAgent })
+        : null;
+    if (forgeMonitor) {
+      cleanupActions.push(() => forgeMonitor.stop());
+      await forgeMonitor.start();
+    }
 
     const health = new OpsHealthService({
       db,
@@ -592,6 +607,9 @@ export async function createRuntimeApp() {
         terminal,
       }),
       deploy,
+      forge: forgeMonitor
+        ? forgeManagementRoutes({ db, monitor: forgeMonitor })
+        : undefined,
       opsTools: {
         adminerUrl:
           process.env.ADMINER_URL ??
