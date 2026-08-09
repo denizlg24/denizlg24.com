@@ -18,6 +18,7 @@ app.use("*", requestTracker);
 // Enhanced health check - tests DB, R2, GitHub
 app.get("/health", async (c) => {
   const result = await performHealthCheck();
+  console.log(process.env);
   return c.json(result, result.healthy ? 200 : 503);
 });
 
