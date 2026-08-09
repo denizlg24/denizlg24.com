@@ -229,8 +229,8 @@ def root() -> FileResponse:
         headers={"Cache-Control": "public, max-age=0, must-revalidate"},
     )
 
-@app.get("/env", response_class=HTMLResponse, include_in_schema=False)
-def env() -> FileResponse:
+@app.get("/env")
+def env() -> JSONResponse:
     """Serve the classification playground."""
     return JSONResponse(
         status_code=200,
