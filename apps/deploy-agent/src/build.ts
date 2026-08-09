@@ -552,10 +552,20 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         onOutput: (chunk) => log.write(chunk),
       });
       if (usesExternalBuildkit) {
-        // `nixpacks --out .` writes its generated Dockerfile and supporting
-        // files into this disposable checkout without invoking Docker. This
-        // explicit build is what keeps Nix/NPM/Bun cache mounts in the HDD
-        // worker while `--load` places only the completed image on the SSD.
+        // `nixpacks --out .` writes generated assets under `.nixpacks/` in
+        // this disposable checkout without invoking Docker. The build context
+        // must remain the repository root because the generated Dockerfile
+        // copies application files from it.
+        const generatedDockerfile = join(
+          contextDirectory,
+          ".nixpacks",
+          "Dockerfile",
+        );
+        if (!(await exists(generatedDockerfile))) {
+          throw new Error(
+            "Nixpacks completed without generating .nixpacks/Dockerfile",
+          );
+        }
         await execOrThrow(exec, "docker buildx build", {
           command: [
             "docker",
@@ -564,7 +574,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
             "--builder",
             builderName,
             "--file",
-            "Dockerfile",
+            join(".nixpacks", "Dockerfile"),
             "--tag",
             imageTag,
             "--tag",

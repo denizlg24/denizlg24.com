@@ -205,7 +205,18 @@ describe("runBuild", () => {
         dir,
         {},
         { "package.json": "{}" },
-        () => checkoutWriter({ "package.json": "{}" }),
+        () => {
+          const checkout = checkoutWriter({ "package.json": "{}" });
+          return async (options) => {
+            await checkout(options);
+            if (options.command[0] === "nixpacks" && options.cwd) {
+              const output = join(options.cwd, ".nixpacks");
+              await mkdir(output, { recursive: true });
+              await writeFile(join(output, "Dockerfile"), "FROM scratch");
+            }
+            return undefined;
+          };
+        },
         {
           buildxBuilder: "forge-hdd",
           buildkitEndpoint: "docker-container://forge-buildkit",
@@ -217,6 +228,7 @@ describe("runBuild", () => {
       expect(command).toContain("forge-hdd");
       expect(command).toContain("--load");
       expect(command).toContain(outcome.latestTag);
+      expect(command.join(" ")).toContain(".nixpacks/Dockerfile");
       expect(exec.find("docker tag")).toBeUndefined();
     });
   });
