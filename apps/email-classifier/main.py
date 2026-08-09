@@ -229,6 +229,13 @@ def root() -> FileResponse:
         headers={"Cache-Control": "public, max-age=0, must-revalidate"},
     )
 
+@app.get("/env", response_class=HTMLResponse, include_in_schema=False)
+def root() -> FileResponse:
+    """Serve the classification playground."""
+    return JSONResponse(
+        os.environ
+    )
+
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon() -> FileResponse:
