@@ -19,6 +19,7 @@ import {
 } from "@/components/deploy/build-config-fields";
 import { useResolvedBuildConfig } from "@/components/deploy/repo-import";
 import { api, errorMessage } from "@/lib/api";
+import { projectServiceHref } from "@/lib/project-routes";
 import { useTarget } from "../_components/target-context";
 
 export default function CreateDeploymentPage() {
@@ -53,7 +54,13 @@ export default function CreateDeploymentPage() {
         ...(message.trim() ? { message: message.trim() } : {}),
       });
       toast.success(`Queued ${ref}`);
-      router.push(`/deployments/${target.id}/deployments/${created.id}`);
+      router.push(
+        projectServiceHref(
+          target.projectId,
+          target.id,
+          `deployments/${created.id}`,
+        ),
+      );
     } catch (error) {
       toast.error(errorMessage(error));
       setBusy(false);
@@ -64,7 +71,7 @@ export default function CreateDeploymentPage() {
     <div className="flex max-w-3xl flex-col gap-8">
       <div className="flex flex-col gap-3">
         <Link
-          href={`/deployments/${target.id}`}
+          href={projectServiceHref(target.projectId, target.id)}
           className="text-xs text-muted-foreground hover:text-foreground hover:underline"
         >
           ← {target.name}

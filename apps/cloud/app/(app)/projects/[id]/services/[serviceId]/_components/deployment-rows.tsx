@@ -7,6 +7,7 @@ import { cn } from "@repo/ui/utils";
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { deploymentLabel, deploymentTone } from "@/components/deploy/status";
+import { projectServiceHref } from "@/lib/project-routes";
 
 /**
  * One deployment as a row of hairline-separated text. Everything actionable
@@ -15,14 +16,20 @@ import { deploymentLabel, deploymentTone } from "@/components/deploy/status";
  */
 export function DeploymentRow({
   deployment,
+  projectId,
   targetId,
 }: {
   deployment: Deployment;
+  projectId: string;
   targetId: string;
 }) {
   return (
     <Link
-      href={`/deployments/${targetId}/deployments/${deployment.id}`}
+      href={projectServiceHref(
+        projectId,
+        targetId,
+        `deployments/${deployment.id}`,
+      )}
       className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b py-2.5 text-xs transition-colors last:border-b-0 hover:bg-muted/40"
     >
       <span className="flex w-32 shrink-0 items-center gap-1.5">
@@ -55,9 +62,11 @@ export function DeploymentRow({
 
 export function DeploymentRows({
   deployments,
+  projectId,
   targetId,
 }: {
   deployments: readonly Deployment[];
+  projectId: string;
   targetId: string;
 }) {
   if (deployments.length === 0) {
@@ -69,6 +78,7 @@ export function DeploymentRows({
         <DeploymentRow
           key={deployment.id}
           deployment={deployment}
+          projectId={projectId}
           targetId={targetId}
         />
       ))}
@@ -79,9 +89,11 @@ export function DeploymentRows({
 /** The live production deployment, rendered as the thing the page is about. */
 export function ProductionSummary({
   deployment,
+  projectId,
   targetId,
 }: {
   deployment: Deployment | null;
+  projectId: string;
   targetId: string;
 }) {
   if (!deployment) {
@@ -121,7 +133,11 @@ export function ProductionSummary({
         <Fact label="deployed" value={formatRelative(deployment.createdAt)} />
       </dl>
       <Link
-        href={`/deployments/${targetId}/deployments/${deployment.id}`}
+        href={projectServiceHref(
+          projectId,
+          targetId,
+          `deployments/${deployment.id}`,
+        )}
         className="text-xs text-muted-foreground hover:text-foreground hover:underline"
       >
         Build logs

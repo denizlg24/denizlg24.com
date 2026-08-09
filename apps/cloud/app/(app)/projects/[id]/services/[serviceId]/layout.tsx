@@ -13,6 +13,7 @@ import type { ReactNode } from "react";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
+import { projectServiceHref } from "@/lib/project-routes";
 import { TargetContext } from "./_components/target-context";
 
 const SECTIONS = [
@@ -23,10 +24,12 @@ const SECTIONS = [
   { segment: "settings", label: "Settings" },
 ] as const;
 
-function sectionHref(targetId: string, segment: string): string {
-  return segment
-    ? `/deployments/${targetId}/${segment}`
-    : `/deployments/${targetId}`;
+function sectionHref(
+  projectId: string,
+  targetId: string,
+  segment: string,
+): string {
+  return projectServiceHref(projectId, targetId, segment);
 }
 
 /**
@@ -38,15 +41,15 @@ function isActive(pathname: string, href: string, segment: string): boolean {
   return segment === "" ? pathname === href : pathname.startsWith(href);
 }
 
-export default function DeployTargetLayout({
+export default function ProjectServiceLayout({
   children,
 }: {
   children: ReactNode;
 }) {
-  const params = useParams<{ id: string }>();
+  const params = useParams<{ serviceId: string }>();
   const pathname = usePathname();
   const router = useRouter();
-  const targetId = params.id;
+  const targetId = params.serviceId;
 
   const fetchTarget = useCallback(
     () => api.deploy.target(targetId),
@@ -76,14 +79,25 @@ export default function DeployTargetLayout({
   return (
     <TargetContext.Provider value={{ target, reload }}>
       <div className="flex flex-col gap-6">
-        <div className="flex flex-wrap items-center gap-3 border-b pb-4">
+        <div className="flex flex-wrap items-end gap-3 border-b pb-4">
           <div className="min-w-0 flex-1">
+            <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
+              <Link href="/projects" className="hover:text-foreground">
+                Projects
+              </Link>
+              <span>/</span>
+              <Link
+                href={`/projects/${target.projectId}`}
+                className="truncate hover:text-foreground"
+              >
+                {target.projectSlug}
+              </Link>
+            </p>
             <h1 className="text-base font-semibold leading-tight">
               {target.name}
             </h1>
             <p className="truncate text-xs text-muted-foreground">
-              {target.projectSlug} · {target.repoOwner}/{target.repoName} ·{" "}
-              {target.productionBranch}
+              {target.repoOwner}/{target.repoName} · {target.productionBranch}
             </p>
           </div>
           {target.primaryHostname && (
@@ -99,7 +113,11 @@ export default function DeployTargetLayout({
             </Button>
           )}
           <Button asChild size="sm">
-            <Link href={`/deployments/${target.id}/deploy`}>Deploy</Link>
+            <Link
+              href={projectServiceHref(target.projectId, target.id, "deploy")}
+            >
+              Deploy
+            </Link>
           </Button>
           <TypedConfirmDialog
             title={`Delete ${target.name}`}
@@ -109,7 +127,7 @@ export default function DeployTargetLayout({
               try {
                 await api.deploy.removeTarget(target.id);
                 toast.success("Target deleted");
-                router.push("/deployments");
+                router.push(`/projects/${target.projectId}`);
               } catch (err) {
                 toast.error(errorMessage(err));
               }
@@ -125,7 +143,11 @@ export default function DeployTargetLayout({
         <div className="flex flex-col gap-6 md:flex-row md:gap-8">
           <nav className="flex gap-1 overflow-x-auto md:w-44 md:shrink-0 md:flex-col md:overflow-visible">
             {SECTIONS.map((section) => {
-              const href = sectionHref(target.id, section.segment);
+              const href = sectionHref(
+                target.projectId,
+                target.id,
+                section.segment,
+              );
               const active = isActive(pathname, href, section.segment);
               return (
                 <Link

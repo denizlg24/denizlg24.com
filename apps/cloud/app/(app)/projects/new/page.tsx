@@ -19,6 +19,7 @@ import {
 } from "@/components/deploy/repo-import";
 import { RepoPicker } from "@/components/deploy/repo-picker";
 import { api, errorMessage } from "@/lib/api";
+import { projectServiceHref } from "@/lib/project-routes";
 
 const DATABASES = ["postgres", "mongodb", "redis"] as const;
 type DatabaseType = (typeof DATABASES)[number];
@@ -35,20 +36,18 @@ function slugify(value: string): string {
  * project that only carries a database and an S3 credential is a real thing
  * here — skipping the import creates the project and no deploy target.
  *
- * Unlike /deployments/new this cannot let the target create its own project:
- * the databases have to exist before the target is inserted, because that
- * insert is what seeds DATABASE_URL and friends from whatever the project has
+ * Databases are created before the service is inserted, because that insert is
+ * what seeds DATABASE_URL and friends from whatever the project has
  * provisioned at that moment.
  */
 export default function NewProjectPage() {
   const router = useRouter();
   const source = useRepoImport();
-  const [importing, setImporting] = useState(false);
+  const [importing, setImporting] = useState(true);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [touched, setTouched] = useState({ name: false, slug: false });
   const [description, setDescription] = useState("");
-  const [targetName, setTargetName] = useState("web");
   const [databases, setDatabases] = useState<DatabaseType[]>([]);
   const [env, setEnv] = useState<EnvDraftRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -99,7 +98,7 @@ export default function NewProjectPage() {
       const target = await api.deploy.createTarget({
         ...buildConfigPatch(source.form),
         projectId: project.id,
-        name: targetName.trim(),
+        name: "web",
         repoOwner: repo.owner,
         repoName: repo.name,
         githubInstallationId: repo.installationId,
@@ -121,7 +120,7 @@ export default function NewProjectPage() {
           })),
       });
       toast.success(`Imported ${repo.fullName}`);
-      router.push(`/deployments/${target.id}`);
+      router.push(projectServiceHref(project.id, target.id));
     } catch (error) {
       toast.error(errorMessage(error));
       router.push(`/projects/${project.id}`);
@@ -183,22 +182,6 @@ export default function NewProjectPage() {
               <p className="font-mono text-xs leading-8">{repo.fullName}</p>
             </div>
             <RepoImportFields state={source} />
-            <div className="flex flex-col gap-1.5">
-              {/* Permanent: a target's name is not updatable, and "web" is
-                  the one that takes the project slug as its hostname. */}
-              <Label
-                htmlFor="targetName"
-                className="text-xs text-muted-foreground"
-              >
-                Target name
-              </Label>
-              <Input
-                id="targetName"
-                value={targetName}
-                className="text-xs"
-                onChange={(event) => setTargetName(event.target.value)}
-              />
-            </div>
           </div>
         ) : importing ? (
           <RepoPicker onSelect={source.select} />

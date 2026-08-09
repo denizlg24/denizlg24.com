@@ -23,7 +23,11 @@ export default function DeploymentsListPage() {
 
   return (
     <Section title="Deployments" count={data?.pagination.total}>
-      <DeploymentRows deployments={data?.items ?? []} targetId={target.id} />
+      <DeploymentRows
+        deployments={data?.items ?? []}
+        projectId={target.projectId}
+        targetId={target.id}
+      />
     </Section>
   );
 }

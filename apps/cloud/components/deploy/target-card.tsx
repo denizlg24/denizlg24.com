@@ -6,6 +6,7 @@ import { Button } from "@repo/ui/button";
 import { StatusDot } from "@repo/ui/status-dot";
 import { ArrowUpRight, GitBranch } from "lucide-react";
 import Link from "next/link";
+import { projectServiceHref } from "@/lib/project-routes";
 import { deploymentLabel, deploymentTone } from "./status";
 
 /**
@@ -23,7 +24,7 @@ export function TargetCard({ target }: { target: DeployTargetListEntry }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <Link
-            href={`/deployments/${target.id}`}
+            href={projectServiceHref(target.projectId, target.id)}
             className="text-sm font-medium hover:underline"
           >
             {target.name}

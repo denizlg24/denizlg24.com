@@ -18,39 +18,74 @@ import { api, errorMessage } from "@/lib/api";
 /** Long enough to catch a validation, short enough not to hammer Cloudflare. */
 const POLL_MS = 15_000;
 
-function VerificationRecords({ domain }: { domain: DeployDomain }) {
+function DnsRecord({
+  type,
+  name,
+  value,
+}: {
+  type: string;
+  name: string;
+  value: string;
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-[5rem_minmax(0,1fr)_minmax(0,1.3fr)]">
+      <div className="flex h-9 items-center font-mono text-xs">{type}</div>
+      <div className="flex items-center gap-1">
+        <Input readOnly value={name} className="font-mono text-xs" />
+        <CopyButton value={name} label="record name" />
+      </div>
+      <div className="flex items-center gap-1">
+        <Input readOnly value={value} className="font-mono text-xs" />
+        <CopyButton value={value} label="record value" />
+      </div>
+    </div>
+  );
+}
+
+function VerificationRecords({
+  domain,
+  cnameTarget,
+}: {
+  domain: DeployDomain;
+  cnameTarget: string | null;
+}) {
   const records = [
     ...(domain.verification?.ownership ?? []),
     ...(domain.verification?.ssl ?? []),
   ];
-  if (domain.verification?.error) {
-    return (
-      <p className="text-xs text-destructive">{domain.verification.error}</p>
-    );
-  }
-  if (records.length === 0) return null;
+
   return (
-    <div className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3">
+    <div className="flex flex-col gap-3 rounded-md border bg-muted/30 p-3">
+      <div>
+        <p className="text-xs font-medium">Configure DNS at your provider</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          This platform cannot change DNS outside its managed zone. Add the
+          records below, wait for propagation, then check DNS again.
+        </p>
+      </div>
+      {cnameTarget ? (
+        <DnsRecord type="CNAME" name={domain.hostname} value={cnameTarget} />
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Deploy once to generate the managed hostname used as your CNAME
+          target.
+        </p>
+      )}
       {records.map((record) => (
-        <div
-          key={`${record.name}:${record.value}`}
-          className="flex flex-col gap-1"
-        >
-          <span className="text-xs text-muted-foreground">{record.type}</span>
-          <div className="flex items-center gap-1">
-            <Input readOnly value={record.name} className="font-mono text-xs" />
-            <CopyButton value={record.name} label="record name" />
-          </div>
-          <div className="flex items-center gap-1">
-            <Input
-              readOnly
-              value={record.value}
-              className="font-mono text-xs"
-            />
-            <CopyButton value={record.value} label="record value" />
-          </div>
-        </div>
+        <DnsRecord
+          key={`${record.type}:${record.name}:${record.value}`}
+          type={record.type}
+          name={record.name}
+          value={record.value}
+        />
       ))}
+      <p className="text-[11px] text-muted-foreground">
+        Root domains may require ALIAS, ANAME, or CNAME flattening, depending on
+        your DNS provider.
+      </p>
+      {domain.verification?.error && (
+        <p className="text-xs text-destructive">{domain.verification.error}</p>
+      )}
     </div>
   );
 }
@@ -77,29 +112,6 @@ function RoleBadge({ domain }: { domain: DeployDomain }) {
     default:
       return null;
   }
-}
-
-/**
- * The name the platform gave the target. It is not a `deploy_domains` row, so
- * it never appeared in this list — and it is the one hostname that is always
- * live, which made its absence the most confusing thing on the page.
- */
-function AutoHostnameRow({ hostname }: { hostname: string }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3">
-      <StatusDot tone="good" label="active" />
-      <a
-        href={`https://${hostname}`}
-        target="_blank"
-        rel="noreferrer noopener"
-        className="truncate font-mono text-xs hover:underline"
-      >
-        {hostname}
-      </a>
-      <Badge variant="outline">automatic</Badge>
-      <Badge variant="secondary">serving</Badge>
-    </div>
-  );
 }
 
 export function DomainsPanel({
@@ -136,6 +148,13 @@ export function DomainsPanel({
   if (error) return <p className="text-xs text-destructive">{error}</p>;
   if (!data && loading) return <Skeleton className="h-32 w-full" />;
 
+  const cnameTarget =
+    (data ?? []).find(
+      (domain) => domain.mode === "zone_record" && domain.retiredAt === null,
+    )?.hostname ??
+    autoHostname ??
+    null;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex gap-2">
@@ -163,7 +182,6 @@ export function DomainsPanel({
       </div>
 
       <div className="flex flex-col gap-3">
-        {autoHostname && <AutoHostnameRow hostname={autoHostname} />}
         {(data ?? []).map((domain) => (
           <div
             key={domain.id}
@@ -183,7 +201,11 @@ export function DomainsPanel({
                 >
                   {domain.hostname}
                 </a>
-                <Badge variant="outline">{domain.mode}</Badge>
+                <Badge variant="outline">
+                  {domain.mode === "zone_record"
+                    ? "managed DNS"
+                    : "external DNS"}
+                </Badge>
                 <RoleBadge domain={domain} />
               </span>
               <span className="flex items-center gap-1">
@@ -198,7 +220,7 @@ export function DomainsPanel({
                       )
                     }
                   >
-                    Check
+                    Check DNS
                   </Button>
                 )}
                 {domain.status === "active" &&
@@ -242,12 +264,12 @@ export function DomainsPanel({
                 <span>stops {formatRelative(domain.retiredAt)}</span>
               )}
             </p>
-            {domain.status === "verifying" && (
-              <VerificationRecords domain={domain} />
+            {domain.mode === "custom_hostname" && (
+              <VerificationRecords domain={domain} cnameTarget={cnameTarget} />
             )}
           </div>
         ))}
-        {!autoHostname && (data ?? []).length === 0 && (
+        {(data ?? []).length === 0 && (
           <p className="text-xs text-muted-foreground">—</p>
         )}
       </div>

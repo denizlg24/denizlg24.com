@@ -17,6 +17,7 @@ import {
   isDeploymentRetryable,
 } from "@/components/deploy/status";
 import { api, errorMessage } from "@/lib/api";
+import { projectServiceHref } from "@/lib/project-routes";
 import { BuildLog } from "../../_components/build-log";
 import { useTarget } from "../../_components/target-context";
 
@@ -59,7 +60,13 @@ export default function DeploymentPage() {
     try {
       const created = await api.deploy.retry(deploymentId);
       toast.success("Retry queued");
-      router.push(`/deployments/${target.id}/deployments/${created.id}`);
+      router.push(
+        projectServiceHref(
+          target.projectId,
+          target.id,
+          `deployments/${created.id}`,
+        ),
+      );
     } catch (err) {
       toast.error(errorMessage(err));
       setBusy(false);
@@ -76,7 +83,7 @@ export default function DeploymentPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
         <Link
-          href={`/deployments/${target.id}/deployments`}
+          href={projectServiceHref(target.projectId, target.id, "deployments")}
           className="text-xs text-muted-foreground hover:text-foreground hover:underline"
         >
           ← Deployments

@@ -5,6 +5,7 @@ import { Section } from "@repo/ui/section";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { TargetGrid } from "@/components/deploy/target-grid";
+import { newProjectServiceHref } from "@/lib/project-routes";
 
 /**
  * Creating a target is a page, not a dialog: the repository is only the half of
@@ -14,17 +15,20 @@ import { TargetGrid } from "@/components/deploy/target-grid";
 export function DeploySection({ projectId }: { projectId: string }) {
   return (
     <Section
-      title="Deployments"
+      title="Services"
       actions={
-        <Button asChild variant="outline" size="sm">
-          <Link href={`/deployments/new?projectId=${projectId}`}>
+        <Button asChild size="sm">
+          <Link href={newProjectServiceHref(projectId)}>
             <Plus className="size-3" />
-            New target
+            Import repository
           </Link>
         </Button>
       }
     >
-      <TargetGrid projectId={projectId} />
+      <TargetGrid
+        projectId={projectId}
+        emptyLabel="No repository connected. Import one to deploy this project."
+      />
     </Section>
   );
 }

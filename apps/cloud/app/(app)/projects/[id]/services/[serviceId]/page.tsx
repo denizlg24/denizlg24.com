@@ -6,6 +6,7 @@ import { Skeleton } from "@repo/ui/skeleton";
 import Link from "next/link";
 import { useCallback } from "react";
 import { api } from "@/lib/api";
+import { projectServiceHref } from "@/lib/project-routes";
 import {
   DeploymentRows,
   ProductionSummary,
@@ -37,14 +38,22 @@ export default function DeployTargetOverviewPage() {
   return (
     <div className="flex flex-col gap-8">
       <Section title="Production">
-        <ProductionSummary deployment={production} targetId={target.id} />
+        <ProductionSummary
+          deployment={production}
+          projectId={target.projectId}
+          targetId={target.id}
+        />
       </Section>
       <Section
         title="Recent deployments"
         actions={
           rows.length > RECENT && (
             <Link
-              href={`/deployments/${target.id}/deployments`}
+              href={projectServiceHref(
+                target.projectId,
+                target.id,
+                "deployments",
+              )}
               className="text-xs text-muted-foreground hover:text-foreground hover:underline"
             >
               All {data?.pagination.total ?? rows.length}
@@ -54,6 +63,7 @@ export default function DeployTargetOverviewPage() {
       >
         <DeploymentRows
           deployments={rows.slice(0, RECENT)}
+          projectId={target.projectId}
           targetId={target.id}
         />
       </Section>
