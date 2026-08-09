@@ -42,7 +42,7 @@ corrupt it, and the failure looks like a crash-loop with no useful message.
 | `DOCKER_DATA_ROOT` | `/var/lib/docker` | What `/healthz` stats for disk pressure. |
 | `DOCKER_NETWORK` | `forge-apps` | The network every deployment container joins. |
 | `CADDY_ADMIN_URL` | `http://127.0.0.1:2019` | Refused at startup unless it points at loopback. |
-| `CADDY_LISTEN` | `:8080` | What cloudflared's catch-all ingress targets. |
+| `CADDY_LISTEN` | `127.0.0.1:8080` | What cloudflared's catch-all ingress targets. Keep it on loopback. |
 | `CADDY_STATE_PATH` | `/srv/forge/caddy/config.json` | The route table replayed at agent start. |
 | `BUILD_MEMORY_LIMIT_MB` | `6144` | See the caveat under Building. |
 | `MEMORY_HEADROOM_MB` | `1024` | Kept for Linux, Docker, the agent and Caddy; excluded from deploy capacity. |
@@ -71,6 +71,8 @@ alive. Everything else needs `Authorization: Bearer $AGENT_TOKEN`.
 | `POST` | `/deployments/:id/promote` | replaces the deployment's hostname set; 409 if it has no live route |
 | `DELETE` | `/deployments/:id` | route, container and image; idempotent, never 404s |
 | `GET` | `/routes` | the live Caddy routing table |
+| `GET` | `/telemetry` | Forge-labelled containers, per-container stats, Forge images, and host capacity |
+| `GET` | `/containers/:id/logs` | SSE stdout/stderr tail for a Forge-labelled container only |
 | `POST` | `/gc` | runs the reaper; body carries the keep set |
 
 `/healthz` pings the Docker daemon and stats the Docker data root on every call.
@@ -115,13 +117,21 @@ credential prompt until the build timeout, which looks nothing like "no access".
 ### Building
 
 `auto` picks Dockerfile when one is present in the build context, Nixpacks
-otherwise; `dockerfile` and `nixpacks` pin it. `rootDirectory` is the build
-context and `dockerfilePath` is resolved inside it.
+otherwise; `dockerfile` and `nixpacks` pin it. The repository root is the build
+context, `rootDirectory` selects the service, and `dockerfilePath` is resolved
+from the repository root.
 
 `installCommand` and `buildCommand` are **rejected** on the Dockerfile path
 rather than accepted and ignored. `startCommand` is allowed there as a run-time
 `CMD` override, and is passed to Nixpacks at build time on the other path — so
 it is never passed twice.
+
+For Nixpacks monorepo targets, the agent passes `nixpacks.toml` or
+`nixpacks.json` from the selected `rootDirectory`. This lets a Python workspace
+force the Python provider even when a root `package.json` would otherwise
+produce a Node-only image. A custom Python install command is run inside
+`/opt/venv`; replacing Nixpacks' install phase without recreating that
+virtualenv removes `pip` from the command path.
 
 Both paths tag `forge/<slug>:<sha>-<id8>` and the moving `forge/<slug>:latest`,
 and the Docker path passes `--cache-from forge/<slug>:latest` with

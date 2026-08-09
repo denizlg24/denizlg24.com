@@ -19,6 +19,7 @@ import {
 import { api, errorMessage } from "@/lib/api";
 import { projectServiceHref } from "@/lib/project-routes";
 import { BuildLog } from "../../_components/build-log";
+import { RuntimeLog } from "../../_components/runtime-log";
 import { useTarget } from "../../_components/target-context";
 
 const LIVE_POLL_MS = 3_000;
@@ -215,6 +216,7 @@ export default function DeploymentPage() {
       </div>
 
       <BuildLog deployment={data} />
+      <RuntimeLog deployment={data} />
     </div>
   );
 }

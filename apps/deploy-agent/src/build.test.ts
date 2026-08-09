@@ -272,6 +272,34 @@ describe("runBuild", () => {
     });
   });
 
+  it("uses a selected workspace's Nixpacks provider config", async () => {
+    await withTempDir(async (dir) => {
+      const { exec } = await build(
+        dir,
+        {
+          build: {
+            builder: "nixpacks",
+            rootDirectory: "apps/classifier",
+            installCommand: "cd apps/classifier && pip install .",
+          },
+        },
+        {
+          "apps/classifier/pyproject.toml": "[project]\nname='classifier'",
+          "apps/classifier/nixpacks.toml": 'providers = ["python"]',
+          "package.json": "{}",
+        },
+      );
+      const command = exec.find("nixpacks build")?.command ?? [];
+      expect(command).toContain("--config");
+      expect(command).toContain("apps/classifier/nixpacks.toml");
+      const installIndex = command.indexOf("--install-cmd");
+      expect(installIndex).toBeGreaterThanOrEqual(0);
+      expect(command[installIndex + 1]).toBe(
+        "python -m venv --copies /opt/venv && . /opt/venv/bin/activate && cd apps/classifier && pip install .",
+      );
+    });
+  });
+
   it("fails when rootDirectory is not in the repository", async () => {
     await withTempDir(async (dir) => {
       await expect(

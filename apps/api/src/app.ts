@@ -52,6 +52,7 @@ import type {
   postgresDbAdminRoutes,
 } from "./db-admin/routes";
 import type { deployRoutes } from "./deploy/routes";
+import type { forgeManagementRoutes } from "./forge/routes";
 import type { opsRoutes } from "./ops/routes";
 import { type OpsToolsConfig, toolsProxyRoutes } from "./ops/tools-proxy";
 import type { projectRoutes } from "./projects/routes";
@@ -118,6 +119,8 @@ export interface CloudApiOptions {
   opsTools?: OpsToolsConfig;
   /** Absent when the host has no deploy agent configured. */
   deploy?: ReturnType<typeof deployRoutes>;
+  /** Superuser-only Forge host management and telemetry. */
+  forge?: ReturnType<typeof forgeManagementRoutes>;
   activity?: {
     recorder: ActivityRecorder;
     slowRequestMs?: number;
@@ -208,6 +211,11 @@ export function createCloudApiApp(options: CloudApiOptions) {
       };
     },
   });
+  const guardSuperuser = (prefix: string) => {
+    for (const path of [prefix, `${prefix}/*`]) {
+      app.use(path, authenticate, requireSession(), requireRole("superuser"));
+    }
+  };
 
   app.use(
     "/api/*",
@@ -698,35 +706,13 @@ export function createCloudApiApp(options: CloudApiOptions) {
     app.use("/api/projects/*", authenticate);
     app.route("/api/projects", options.platform.projects);
 
-    app.use(
-      "/api/db",
-      authenticate,
-      requireSession(),
-      requireRole("superuser"),
-    );
-    app.use(
-      "/api/db/*",
-      authenticate,
-      requireSession(),
-      requireRole("superuser"),
-    );
+    guardSuperuser("/api/db");
     app.route("/api/db/postgres", options.platform.postgres);
     app.route("/api/db/mongodb", options.platform.mongodb);
   }
 
   if (options.ops) {
-    app.use(
-      "/api/ops",
-      authenticate,
-      requireSession(),
-      requireRole("superuser"),
-    );
-    app.use(
-      "/api/ops/*",
-      authenticate,
-      requireSession(),
-      requireRole("superuser"),
-    );
+    guardSuperuser("/api/ops");
     app.route("/api/ops/tools", toolsProxyRoutes(options.opsTools ?? {}));
     app.route("/api/ops", options.ops);
   }
@@ -743,6 +729,11 @@ export function createCloudApiApp(options: CloudApiOptions) {
       return authenticate(context, next);
     });
     app.route("/api/deploy", options.deploy);
+  }
+
+  if (options.forge) {
+    guardSuperuser("/api/forge");
+    app.route("/api/forge", options.forge);
   }
 
   app.on(["GET", "POST"], "/api/auth/*", (context) =>

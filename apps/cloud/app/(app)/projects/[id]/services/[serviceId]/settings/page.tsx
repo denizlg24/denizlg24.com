@@ -24,10 +24,14 @@ export default function SettingsPage() {
   const [form, setForm] = useState<BuildConfigForm>(() =>
     buildConfigFromTarget(target),
   );
+  const [name, setName] = useState(target.name);
   const [autoDeploy, setAutoDeploy] = useState(target.autoDeploy);
   const [previewDeploys, setPreviewDeploys] = useState(target.previewDeploys);
   const [busy, setBusy] = useState(false);
   const resolved = useResolvedBuildConfig(target);
+  const normalizedName = name.trim();
+  const nameValid =
+    normalizedName.length <= 128 && /^[a-z0-9][a-z0-9-]*$/.test(normalizedName);
 
   function patch(changes: Partial<BuildConfigForm>) {
     setForm((current) => ({ ...current, ...changes }));
@@ -37,6 +41,7 @@ export default function SettingsPage() {
     setBusy(true);
     try {
       await api.deploy.updateTarget(target.id, {
+        name: normalizedName,
         ...buildConfigPatch(form),
         autoDeploy,
         previewDeploys,
@@ -53,13 +58,38 @@ export default function SettingsPage() {
   return (
     <div className="flex max-w-3xl flex-col gap-8">
       <Section
-        title="Build"
+        title="General"
         actions={
-          <Button size="sm" disabled={busy} onClick={() => void save()}>
+          <Button
+            size="sm"
+            disabled={busy || !nameValid}
+            onClick={() => void save()}
+          >
             Save
           </Button>
         }
       >
+        <div className="flex max-w-sm flex-col gap-1.5">
+          <Label
+            htmlFor="deployment-name"
+            className="text-xs text-muted-foreground"
+          >
+            Deployment name
+          </Label>
+          <Input
+            id="deployment-name"
+            value={name}
+            pattern="[a-z0-9][a-z0-9-]*"
+            className="text-xs"
+            onChange={(event) => setName(event.target.value)}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            GitHub checks use forge / {normalizedName || "deployment"}.
+          </p>
+        </div>
+      </Section>
+
+      <Section title="Build">
         <BuildFields form={form} resolved={resolved} onChange={patch} />
       </Section>
 

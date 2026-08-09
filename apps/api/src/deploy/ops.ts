@@ -83,11 +83,20 @@ export class ForgeOps {
   async publishRoutes(row: DeploymentRow): Promise<boolean> {
     const routing = await routeHostnames(this.db, row);
     const hostnames = routing.serve;
+    // Let either side of a rolling upgrade go first. The previous agent can
+    // express one destination; independent destinations activate once the new
+    // binary is installed.
+    const destinations = new Set(routing.redirects.map((entry) => entry.to));
+    const legacyCanonical =
+      destinations.size === 1 ? [...destinations][0] : null;
     const response = await this.agent
       .post(`/deployments/${row.id}/promote`, {
         hostnames,
-        redirectHostnames: routing.redirect,
-        canonical: routing.canonical,
+        redirects: routing.redirects,
+        redirectHostnames: legacyCanonical
+          ? routing.redirects.map((entry) => entry.hostname)
+          : [],
+        canonical: legacyCanonical,
       })
       .catch((error: unknown) => {
         console.error("[deploy] route publish failed", error);
@@ -146,8 +155,7 @@ export class ForgeOps {
         routes?: {
           deploymentId?: string;
           hostnames?: string[];
-          redirectHostnames?: string[];
-          canonical?: string | null;
+          redirects?: { hostname?: string; to?: string }[];
         }[];
       }>("/routes", { method: "GET" })
       .catch((error: unknown) => {
@@ -165,15 +173,19 @@ export class ForgeOps {
       {
         hostnames: Set<string>;
         redirects: Set<string>;
-        canonical: string | null;
       }
     >();
     for (const route of live.body.routes) {
       if (typeof route?.deploymentId !== "string") continue;
       served.set(route.deploymentId, {
         hostnames: new Set(route.hostnames ?? []),
-        redirects: new Set(route.redirectHostnames ?? []),
-        canonical: route.canonical ?? null,
+        redirects: new Set(
+          (route.redirects ?? []).flatMap((entry) =>
+            typeof entry.hostname === "string" && typeof entry.to === "string"
+              ? [`${entry.hostname}\0${entry.to}`]
+              : [],
+          ),
+        ),
       });
     }
 
@@ -187,13 +199,12 @@ export class ForgeOps {
       // refuse the promote, so republishing cannot fix it and would only
       // report a failure every two minutes.
       if (!actual) continue;
-      // A lost redirect is repaired like a lost host: without this, changing
-      // which domain is primary would leave the old one serving the app
-      // directly and nothing would ever notice.
+      // A lost or retargeted redirect is repaired like a lost host.
       const drifted =
         expected.serve.some((hostname) => !actual.hostnames.has(hostname)) ||
-        expected.redirect.some((hostname) => !actual.redirects.has(hostname)) ||
-        expected.canonical !== actual.canonical;
+        expected.redirects.some(
+          (entry) => !actual.redirects.has(`${entry.hostname}\0${entry.to}`),
+        );
       if (drifted) stale.push(targetId);
     }
     return stale;

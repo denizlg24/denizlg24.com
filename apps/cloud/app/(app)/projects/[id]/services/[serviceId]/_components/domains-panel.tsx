@@ -7,6 +7,13 @@ import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { CopyButton } from "@repo/ui/copy-button";
 import { Input } from "@repo/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/select";
 import { Skeleton } from "@repo/ui/skeleton";
 import { StatusDot } from "@repo/ui/status-dot";
 import { Trash2 } from "lucide-react";
@@ -17,6 +24,7 @@ import { api, errorMessage } from "@/lib/api";
 
 /** Long enough to catch a validation, short enough not to hammer Cloudflare. */
 const POLL_MS = 15_000;
+const SERVE_DEPLOYMENT = "__serve_deployment__";
 
 function DnsRecord({
   type,
@@ -182,93 +190,146 @@ export function DomainsPanel({
       </div>
 
       <div className="flex flex-col gap-3">
-        {(data ?? []).map((domain) => (
-          <div
-            key={domain.id}
-            className="flex flex-col gap-2 rounded-lg border p-3"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="flex min-w-0 items-center gap-2">
-                <StatusDot
-                  tone={domainTone(domain.status)}
-                  label={domain.status}
-                />
-                <a
-                  href={domain.url}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="truncate font-mono text-xs hover:underline"
-                >
-                  {domain.hostname}
-                </a>
-                <Badge variant="outline">
-                  {domain.mode === "zone_record"
-                    ? "managed DNS"
-                    : "external DNS"}
-                </Badge>
-                <RoleBadge domain={domain} />
-              </span>
-              <span className="flex items-center gap-1">
-                {domain.status === "verifying" && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() =>
-                      void act("Checked", () =>
-                        api.deploy.verifyDomain(domain.id),
-                      )
-                    }
+        {(data ?? []).map((domain) => {
+          const redirectTargets = (data ?? []).filter(
+            (candidate) =>
+              candidate.id !== domain.id &&
+              candidate.retiredAt === null &&
+              candidate.role !== "redirects" &&
+              (candidate.status === "active" ||
+                candidate.hostname === domain.redirectsTo),
+          );
+          return (
+            <div
+              key={domain.id}
+              className="flex flex-col gap-2 rounded-lg border p-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-2">
+                  <StatusDot
+                    tone={domainTone(domain.status)}
+                    label={domain.status}
+                  />
+                  <a
+                    href={domain.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="truncate font-mono text-xs hover:underline"
                   >
-                    Check DNS
-                  </Button>
-                )}
-                {domain.status === "active" &&
-                  !domain.isPrimary &&
-                  domain.retiredAt === null && (
+                    {domain.hostname}
+                  </a>
+                  <Badge variant="outline">
+                    {domain.mode === "zone_record"
+                      ? "managed DNS"
+                      : "external DNS"}
+                  </Badge>
+                  <RoleBadge domain={domain} />
+                </span>
+                <span className="flex flex-wrap items-center gap-1">
+                  {domain.status === "active" && domain.retiredAt === null && (
+                    <Select
+                      value={domain.redirectsTo ?? SERVE_DEPLOYMENT}
+                      disabled={busy}
+                      onValueChange={(value) =>
+                        void act(
+                          value === SERVE_DEPLOYMENT
+                            ? "Domain now serves the deployment"
+                            : `Domain redirects to ${value}`,
+                          () =>
+                            api.deploy.updateDomain(domain.id, {
+                              redirectTo:
+                                value === SERVE_DEPLOYMENT ? null : value,
+                            }),
+                        )
+                      }
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="h-8 w-[15rem] font-mono text-xs"
+                        aria-label={`Routing for ${domain.hostname}`}
+                      >
+                        <SelectValue placeholder="Select routing" />
+                      </SelectTrigger>
+                      <SelectContent align="end">
+                        <SelectItem value={SERVE_DEPLOYMENT}>
+                          Serve deployment
+                        </SelectItem>
+                        {redirectTargets.map((candidate) => (
+                          <SelectItem
+                            key={candidate.id}
+                            value={candidate.hostname}
+                            className="font-mono text-xs"
+                          >
+                            Redirect to {candidate.hostname}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {domain.status === "verifying" && (
                     <Button
                       variant="ghost"
                       size="sm"
                       disabled={busy}
                       onClick={() =>
-                        void act("Canonical set", () =>
-                          api.deploy.updateDomain(domain.id, {
-                            isPrimary: true,
-                          }),
+                        void act("Checked", () =>
+                          api.deploy.verifyDomain(domain.id),
                         )
                       }
                     >
-                      Make canonical
+                      Check DNS
                     </Button>
                   )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() =>
-                    void act("Domain removed", () =>
-                      api.deploy.removeDomain(domain.id),
-                    )
-                  }
-                >
-                  <Trash2 className="size-3" />
-                </Button>
-              </span>
-            </div>
-            <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-              <span>checked {formatRelative(domain.lastCheckedAt)}</span>
-              {/* A retired row keeps answering until the GC pass finishes the
+                  {domain.status === "active" &&
+                    !domain.isPrimary &&
+                    domain.retiredAt === null && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() =>
+                          void act("Canonical set", () =>
+                            api.deploy.updateDomain(domain.id, {
+                              isPrimary: true,
+                            }),
+                          )
+                        }
+                      >
+                        Make canonical
+                      </Button>
+                    )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() =>
+                      void act("Domain removed", () =>
+                        api.deploy.removeDomain(domain.id),
+                      )
+                    }
+                  >
+                    <Trash2 className="size-3" />
+                  </Button>
+                </span>
+              </div>
+              <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                <span>checked {formatRelative(domain.lastCheckedAt)}</span>
+                {/* A retired row keeps answering until the GC pass finishes the
                     rename, so when it stops is the useful fact, not that it is
                     going. */}
-              {domain.retiredAt && (
-                <span>stops {formatRelative(domain.retiredAt)}</span>
+                {domain.retiredAt && (
+                  <span>stops {formatRelative(domain.retiredAt)}</span>
+                )}
+              </p>
+              {domain.mode === "custom_hostname" && (
+                <VerificationRecords
+                  domain={domain}
+                  cnameTarget={cnameTarget}
+                />
               )}
-            </p>
-            {domain.mode === "custom_hostname" && (
-              <VerificationRecords domain={domain} cnameTarget={cnameTarget} />
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
         {(data ?? []).length === 0 && (
           <p className="text-xs text-muted-foreground">—</p>
         )}

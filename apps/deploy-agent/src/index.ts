@@ -11,6 +11,7 @@ import { PortAllocator } from "./ports";
 import { DeploymentQueue, type QueueLogger } from "./queue";
 import { createAgentApp } from "./routes";
 import { restartDeployment, teardownDeployment } from "./run";
+import { ForgeTelemetry } from "./telemetry";
 
 const VERSION = process.env.APP_VERSION ?? "dev";
 
@@ -88,6 +89,7 @@ const health = new HealthService({
   // hold when the queue is full, not only when it is idle.
   buildReserveMb: config.buildMemoryLimitMb * config.maxConcurrentBuilds,
 });
+const telemetry = new ForgeTelemetry({ docker, health });
 
 /** The live routing table is the only honest source for a running port. */
 function routedPort(deploymentId: string): number | null {
@@ -101,6 +103,7 @@ function routedPort(deploymentId: string): number | null {
 const app = createAgentApp({
   token: config.token,
   health,
+  telemetry,
   queue,
   logs,
   routes: () => caddy.routes(),

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
+import { DEFAULT_LISTEN } from "./caddy";
 import { agentConfigFromEnv, isPrivateBindAddress } from "./config";
 
 const BASE_ENV: Record<string, string> = {
@@ -23,6 +24,7 @@ const TOUCHED = [
   "DOCKER_DATA_ROOT",
   "BUILD_MEMORY_LIMIT_MB",
   "MEMORY_HEADROOM_MB",
+  "CADDY_LISTEN",
 ];
 
 function configWith(overrides: Record<string, string | undefined> = {}) {
@@ -67,6 +69,13 @@ describe("agentConfigFromEnv", () => {
     expect(config.dockerSocket).toBe("/var/run/docker.sock");
     expect(config.dockerDataRoot).toBe("/var/lib/docker");
     expect(config.memoryHeadroomMb).toBe(1_024);
+    expect(config.caddyListen).toBe(DEFAULT_LISTEN);
+  });
+
+  it("treats a whitespace Caddy listen address as unset", () => {
+    expect(configWith({ CADDY_LISTEN: "   " }).caddyListen).toBe(
+      DEFAULT_LISTEN,
+    );
   });
 
   it("refuses a wildcard bind address", () => {

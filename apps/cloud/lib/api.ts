@@ -907,6 +907,11 @@ export const api = {
       }),
     logsUrl: (id: string): string =>
       buildUrl(`/api/deploy/deployments/${id}/logs`, undefined).toString(),
+    runtimeLogsUrl: (id: string): string =>
+      buildUrl(
+        `/api/deploy/deployments/${id}/runtime-logs`,
+        undefined,
+      ).toString(),
 
     /** Opt in to pulling env from Envoy. Sends a passphrase; nothing reads it back. */
     linkEnvoy: (

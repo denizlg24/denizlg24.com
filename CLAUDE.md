@@ -31,6 +31,8 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
 - `apps/desktop/` (formerly `denizlg24-app/`) — Tauri + Next.js desktop app (client). Consumes the web app's API. Minimalist/editorial design.
 - `apps/api/` — Hono + Bun API for the self-hosted cloud. Runs on the Pi, not Vercel.
 - `apps/cloud/` — Next.js admin panel for the cloud (Vercel).
+- `apps/forge/` — Next.js Forge host and deployment dashboard (Vercel first;
+  deployable by Forge through its Dockerfile).
 - `apps/storage/` — Next.js file browser (Vercel).
 - `apps/envoy/` — Next.js public site and Hono/Prisma API for the Envoy CLI
   (Vercel). Uses project-scoped denizlg24 cloud S3 credentials; canonical wire
@@ -66,7 +68,7 @@ Tasks run through turbo: `bunx turbo build | typecheck | test | dev [--filter=we
   a build with the new update endpoint. Older installed binaries only poll that
   repository and otherwise cannot discover the monorepo release feed.
 
-## The self-hosted cloud (apps/api, apps/cloud, apps/storage, apps/terminal)
+## The self-hosted cloud (apps/api, apps/cloud, apps/forge, apps/storage, apps/terminal)
 
 Cut over to production on 2026-07-25, replacing the old standalone `deniz-cloud`
 repo. That repo is gone: submodule removed, containers and images deleted, the
@@ -78,6 +80,7 @@ directory archived to the Pi's `BACKUP_DIR` as `decommission-*/deniz-cloud-repo.
 |---|---|
 | `api.denizlg24.com` | Pi, `apps/api` in Docker behind a Cloudflare tunnel. Serves `/api/*`, `/v2` (S3), `/healthz` |
 | `cloud.denizlg24.com` | Vercel, `apps/cloud` |
+| `forge.denizlg24.com` | Vercel initially; `apps/forge` can later run on the Forge host |
 | `storage.denizlg24.com` | Vercel, `apps/storage` |
 | `search.denizlg24.com` | Pi, Meilisearch published on loopback for legacy consumers |
 | Postgres 5433 / Mongo 27018 / Redis 6380 | Pi, published publicly for dependent projects |

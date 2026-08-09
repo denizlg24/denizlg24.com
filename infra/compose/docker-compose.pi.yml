@@ -337,6 +337,11 @@ services:
       DEPLOY_AGENT_URL: ${DEPLOY_AGENT_URL:-}
       DEPLOY_AGENT_TOKEN: ${DEPLOY_AGENT_TOKEN:-}
       DEPLOY_ENV_ENCRYPTION_KEY: ${DEPLOY_ENV_ENCRYPTION_KEY:-}
+      # Host-level telemetry comes from the separately tunnelled resource-agent.
+      # All three are required together; the shared secret never reaches a UI.
+      FORGE_RESOURCE_AGENT_URL: ${FORGE_RESOURCE_AGENT_URL:-}
+      FORGE_RESOURCE_AGENT_NODE_ID: ${FORGE_RESOURCE_AGENT_NODE_ID:-}
+      FORGE_RESOURCE_AGENT_SECRET: ${FORGE_RESOURCE_AGENT_SECRET:-}
       DEPLOY_S3_ENDPOINT: ${DEPLOY_S3_ENDPOINT:-https://api.denizlg24.com/v2}
       DEPLOY_S3_REGION: ${DEPLOY_S3_REGION:-auto}
       DISK_MIN_HEADROOM_PERCENT: ${DISK_MIN_HEADROOM_PERCENT:-10}

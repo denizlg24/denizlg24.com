@@ -457,39 +457,94 @@ export const DISK_UNAVAILABLE_PERCENT = 97;
  * the names now" — expressing it as an add or a remove would leave the agent
  * reconstructing a set the control plane already knows.
  *
- * `redirectHostnames` is the same statement for the names that must answer with
- * a 308 to `canonical` rather than serve. It is optional so an agent running
- * ahead of a control plane that does not send it keeps serving every name, which
- * is the old behaviour and not an outage.
+ * `redirects` is the complete set of explicit source/destination pairs. The
+ * legacy fields remain accepted during a rolling agent/control-plane update;
+ * the parsed result always has the new shape.
  */
+const agentDomainRedirectSchema = z.object({
+  hostname: hostnameSchema,
+  to: hostnameSchema,
+});
+
+interface RedirectCompatibilityInput {
+  redirects?: { hostname: string; to: string }[];
+  redirectHostnames?: string[];
+  canonical?: string | null;
+}
+
+function resolveRedirects(value: RedirectCompatibilityInput) {
+  if (value.redirects !== undefined) return value.redirects;
+  const canonical = value.canonical;
+  return canonical
+    ? (value.redirectHostnames ?? []).map((hostname) => ({
+        hostname,
+        to: canonical,
+      }))
+    : [];
+}
+
 export const agentPromoteRequestSchema = z
   .object({
     hostnames: z.array(hostnameSchema).min(1).max(64),
-    redirectHostnames: z.array(hostnameSchema).max(64).default([]),
+    redirects: z.array(agentDomainRedirectSchema).max(64).optional(),
+    /** @deprecated Rolling-upgrade compatibility for the previous agent. */
+    redirectHostnames: z.array(hostnameSchema).max(64).optional(),
+    /** @deprecated Rolling-upgrade compatibility for the previous agent. */
     canonical: hostnameSchema.nullish(),
   })
-  .refine(
-    (value) =>
-      value.redirectHostnames.length === 0 ||
-      (value.canonical !== null && value.canonical !== undefined),
-    {
-      message: "redirectHostnames requires a canonical hostname to point at",
-      path: ["canonical"],
-    },
-  )
-  .refine(
-    (value) =>
-      !value.redirectHostnames.some((hostname) =>
-        value.hostnames.includes(hostname),
-      ),
-    {
+  .superRefine((value, context) => {
+    if (
+      value.redirects === undefined &&
+      (value.redirectHostnames?.length ?? 0) > 0 &&
+      !value.canonical
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Legacy redirect hostnames require a canonical hostname",
+        path: ["canonical"],
+      });
+      return;
+    }
+    const redirects = resolveRedirects(value);
+    if (redirects.some((entry) => entry.hostname === entry.to)) {
+      context.addIssue({
+        code: "custom",
+        message: "A hostname cannot redirect to itself",
+        path: ["redirects"],
+      });
+    }
+    if (redirects.some((entry) => value.hostnames.includes(entry.hostname))) {
       // A name in both sets is a route Caddy resolves by whichever entry it
       // matched first, which is the "one hostname silently serving another app"
       // failure the router's own comment warns about.
-      message: "A hostname cannot both serve and redirect",
-      path: ["redirectHostnames"],
-    },
-  );
+      context.addIssue({
+        code: "custom",
+        message: "A hostname cannot both serve and redirect",
+        path: ["redirects"],
+      });
+    }
+    if (redirects.some((entry) => !value.hostnames.includes(entry.to))) {
+      context.addIssue({
+        code: "custom",
+        message: "A redirect destination must serve this deployment",
+        path: ["redirects"],
+      });
+    }
+    if (
+      new Set(redirects.map((entry) => entry.hostname)).size !==
+      redirects.length
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "A hostname can have only one redirect destination",
+        path: ["redirects"],
+      });
+    }
+  })
+  .transform((value) => ({
+    hostnames: value.hostnames,
+    redirects: resolveRedirects(value),
+  }));
 export type AgentPromoteRequest = z.infer<typeof agentPromoteRequestSchema>;
 
 /**
@@ -675,8 +730,20 @@ export type CreateDeployTargetInput = z.infer<
 >;
 
 export const updateDeployTargetInputSchema = createDeployTargetInputSchema
-  .omit({ projectId: true, name: true, hostname: true })
-  .partial();
+  .omit({ projectId: true, hostname: true })
+  .partial()
+  // Zod keeps defaults inside optional fields. Override every create-time
+  // default so PATCH parses only what the caller actually sent instead of
+  // resetting unrelated settings during a rename.
+  .extend({
+    productionBranch: branchSchema.optional(),
+    builder: deployBuilderSchema.optional(),
+    healthPath: z.string().min(1).max(1_024).optional(),
+    memoryReservationMb: memoryMbSchema.optional(),
+    cpuLimit: z.number().min(0.1).max(32).optional(),
+    autoDeploy: z.boolean().optional(),
+    previewDeploys: z.boolean().optional(),
+  });
 export type UpdateDeployTargetInput = z.infer<
   typeof updateDeployTargetInputSchema
 >;
@@ -747,6 +814,7 @@ export const deploymentSchema = z.object({
   url: z.string(),
   port: z.number().int().nullable(),
   imageTag: z.string().nullable(),
+  containerId: z.string().max(64).nullable(),
   imageSizeBytes: z.number().int().nullable(),
   buildDurationMs: z.number().int().nullable(),
   error: z.string().nullable(),
@@ -791,10 +859,22 @@ export const updateDeployDomainInputSchema = z
   .object({
     hostname: hostnameSchema.optional(),
     isPrimary: z.literal(true).optional(),
+    /** Null means serve this domain; a hostname means redirect to that sibling. */
+    redirectTo: hostnameSchema.nullable().optional(),
   })
   .refine(
-    (value) => value.hostname !== undefined || value.isPrimary !== undefined,
+    (value) =>
+      value.hostname !== undefined ||
+      value.isPrimary !== undefined ||
+      value.redirectTo !== undefined,
     "Nothing to update",
+  )
+  .refine(
+    (value) => value.isPrimary === undefined || value.redirectTo === undefined,
+    {
+      message: "Choose either a primary domain or a redirect, not both",
+      path: ["redirectTo"],
+    },
   );
 export type UpdateDeployDomainInput = z.infer<
   typeof updateDeployDomainInputSchema
@@ -805,9 +885,9 @@ export type UpdateDeployDomainInput = z.infer<
  * exists. `status: "active"` only ever meant the latter, which is why a panel
  * showing five active domains could not say which one the app is on.
  *
- * - `canonical` — serves, and every other name points here.
- * - `serves` — serves directly; the state of every domain when none is primary.
- * - `redirects` — 308s to the canonical name.
+ * - `canonical` — serves and is the preferred URL shown for the target.
+ * - `serves` — serves directly.
+ * - `redirects` — 308s to the explicitly selected sibling domain.
  * - `pending` — not routing yet, because the domain is not active.
  * - `retired` — superseded by a rename, still answering until the grace period
  *   is up.

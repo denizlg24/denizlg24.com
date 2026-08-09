@@ -1210,6 +1210,12 @@ export const deployDomains = pgTable(
     hostname: varchar("hostname", { length: 255 }).notNull().unique(),
     mode: deployDomainModeEnum("mode").notNull(),
     isPrimary: boolean("is_primary").notNull().default(false),
+    /**
+     * Null serves the deployment. A hostname here is an explicit per-domain
+     * redirect choice; `isPrimary` only selects the URL shown for the target
+     * and no longer makes every sibling redirect implicitly.
+     */
+    redirectTo: varchar("redirect_to", { length: 255 }),
     zoneId: varchar("zone_id", { length: 64 }),
     dnsRecordId: varchar("dns_record_id", { length: 64 }),
     customHostnameId: varchar("custom_hostname_id", { length: 64 }),

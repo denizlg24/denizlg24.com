@@ -1,10 +1,11 @@
 # Vercel projects
 
-Two projects build from `denizlg24/denizlg24.com`, both live.
+Three projects build from `denizlg24/denizlg24.com`.
 
 | Project | Root directory | Domain |
 |---|---|---|
 | `cloud-denizlg24` | `apps/cloud` | `cloud.denizlg24.com` |
+| `forge-denizlg24` | `apps/forge` | `forge.denizlg24.com` |
 | `storage-denizlg24` | `apps/storage` | `storage.denizlg24.com` |
 
 ## Environment variables
@@ -30,17 +31,23 @@ data.
 | `NEXT_PUBLIC_CLOUD_API_URL` | `https://api.denizlg24.com` |
 | `NEXT_PUBLIC_STORAGE_APP_URL` | `https://storage.denizlg24.com` |
 
+`forge-denizlg24`:
+
+| Variable | Value |
+|---|---|
+| `NEXT_PUBLIC_CLOUD_API_URL` | `https://api.denizlg24.com` |
+
 `NEXT_PUBLIC_STORAGE_APP_URL` must match the domain users actually visit and be
 identical in both projects: share links are built from it, and the admin app
 deep-links into `/folders/:id`.
 
-Neither project has database or secret access. `DATABASE_URL`,
+None of these projects has database or secret access. `DATABASE_URL`,
 `BETTER_AUTH_SECRET`, `JWT_SECRET`, S3 and terminal secrets all belong to the
 self-hosted `apps/api`.
 
 ## CORS
 
-The API must list both domains in `CLOUD_AUTH_TRUSTED_ORIGINS`
+The API must list all three domains in `CLOUD_AUTH_TRUSTED_ORIGINS`
 (`apps/api/src/auth/better-auth.ts`) or sign-in and every API call fails CORS.
 Preview deployments get generated `*.vercel.app` origins that are **not** on
 that list, so API-backed flows only work against the production domains unless

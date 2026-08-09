@@ -1,5 +1,5 @@
 import { mkdir, rm, stat } from "node:fs/promises";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import type {
   AgentDeploymentRequest,
@@ -110,6 +110,47 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function nixpacksConfigPath(
+  contextDirectory: string,
+  workingDirectory: string,
+): Promise<string | null> {
+  for (const filename of ["nixpacks.toml", "nixpacks.json"]) {
+    const path = join(workingDirectory, filename);
+    if (await exists(path)) return relative(contextDirectory, path);
+  }
+  return null;
+}
+
+async function isPythonWorkspace(workingDirectory: string): Promise<boolean> {
+  for (const filename of [
+    "pyproject.toml",
+    "requirements.txt",
+    "Pipfile",
+    "main.py",
+  ]) {
+    if (await exists(join(workingDirectory, filename))) return true;
+  }
+  return false;
+}
+
+function pythonInstallCommand(command: string): string {
+  const createsOptVenv =
+    /python(?:3(?:\.\d+)?)?\s+-m\s+venv(?:\s+--\S+)*\s+\/opt\/venv/.test(
+      command,
+    );
+  const activatesOptVenv =
+    /(?:^|[;&|]\s*)(?:source|\.)\s+\/opt\/venv\/bin\/activate(?:\s|$)/.test(
+      command,
+    );
+  if (createsOptVenv && activatesOptVenv) {
+    return command;
+  }
+  // A CLI install override replaces Nixpacks' whole Python install phase,
+  // including the virtualenv creation that makes pip available. Restore that
+  // provider invariant before running the target's command.
+  return `python -m venv --copies /opt/venv && . /opt/venv/bin/activate && ${command}`;
 }
 
 /**
@@ -430,6 +471,14 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
     } else {
       const { installCommand, buildCommand, startCommand, nodeVersion } =
         request.build;
+      const nixpacksConfig = await nixpacksConfigPath(
+        contextDirectory,
+        workingDirectory,
+      );
+      const effectiveInstallCommand =
+        installCommand && (await isPythonWorkspace(workingDirectory))
+          ? pythonInstallCommand(installCommand)
+          : installCommand;
       await execOrThrow(exec, "nixpacks build", {
         command: [
           "nixpacks",
@@ -440,6 +489,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
           // Scoped per target so two projects never poison each other's layers.
           "--cache-key",
           request.targetId,
+          ...(nixpacksConfig ? ["--config", nixpacksConfig] : []),
           "--env",
           "PORT=3000",
           // Skipped outright when the target already sets the variable by
@@ -450,7 +500,9 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
             ? ["--env", `NIXPACKS_NODE_VERSION=${nodeVersion}`]
             : []),
           ...envFlags("--env", buildEnv),
-          ...(installCommand ? ["--install-cmd", installCommand] : []),
+          ...(effectiveInstallCommand
+            ? ["--install-cmd", effectiveInstallCommand]
+            : []),
           ...(buildCommand ? ["--build-cmd", buildCommand] : []),
           ...(startCommand ? ["--start-cmd", startCommand] : []),
         ],
