@@ -40,7 +40,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import pkg from "../package.json";
-import type { CloudAuth } from "./auth/better-auth";
+import { type CloudAuth, isCloudAuthTrustedOrigin } from "./auth/better-auth";
 import {
   completePendingSignup,
   createPendingAuthUser,
@@ -175,7 +175,6 @@ function mfaEnrollmentRequiredError() {
 
 export function createCloudApiApp(options: CloudApiOptions) {
   const app = new Hono<{ Variables: AuthVariables }>();
-  const trustedOrigins = new Set(options.trustedOrigins);
   const authenticate = unifiedAuth({
     resolveApiKey: async (key) => {
       const result = await validateApiKey(options.db, key);
@@ -248,7 +247,10 @@ export function createCloudApiApp(options: CloudApiOptions) {
         "Upload-Offset",
       ],
       maxAge: 600,
-      origin: (origin) => (trustedOrigins.has(origin) ? origin : undefined),
+      origin: (origin) =>
+        isCloudAuthTrustedOrigin(origin, options.trustedOrigins)
+          ? origin
+          : undefined,
     }),
   );
 

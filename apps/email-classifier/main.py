@@ -67,6 +67,12 @@ class ReadinessResponse(BaseModel):
     model_version: str
 
 
+class HealthResponse(BaseModel):
+    """Process liveness contract that does not load the classifier model."""
+
+    status: str
+
+
 class APIError(Exception):
     """An expected API failure safe to return to clients."""
 
@@ -195,6 +201,12 @@ def readiness() -> ReadinessResponse:
         status="ready",
         model_version=classifier.model_version,
     )
+
+
+@app.get("/healthz", response_model=HealthResponse, include_in_schema=False)
+def healthz() -> HealthResponse:
+    """Report liveness without downloading or deserializing the model."""
+    return HealthResponse(status="ok")
 
 
 @app.post(

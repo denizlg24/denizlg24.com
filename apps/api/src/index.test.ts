@@ -38,6 +38,26 @@ describe("GET /healthz", () => {
     expect(res.headers.get("access-control-allow-credentials")).toBeNull();
   });
 
+  it("allows the Forge dashboard on its generated deployment hostname", async () => {
+    const origin = "https://forge-server-main-tvsjfx.denizlg24.com";
+    const res = await app.request("/healthz", {
+      headers: { Origin: origin },
+    });
+
+    expect(res.headers.get("access-control-allow-origin")).toBe(origin);
+    expect(res.headers.get("access-control-allow-credentials")).toBe("true");
+  });
+
+  it("does not let a lookalike hostname through the Forge wildcard", async () => {
+    const res = await app.request("/healthz", {
+      headers: {
+        Origin: "https://forge-server-main.evil.denizlg24.com",
+      },
+    });
+
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
   it("reports the deployed image version", async () => {
     const previousVersion = process.env.APP_VERSION;
     process.env.APP_VERSION = "test-sha";

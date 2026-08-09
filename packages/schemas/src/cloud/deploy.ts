@@ -946,7 +946,7 @@ export class DeployHostnameError extends Error {
 export function assertDeployHostname(
   hostname: string,
   zone: string,
-  options: { allowApex?: boolean } = {},
+  options: { allowApex?: boolean; allowReserved?: boolean } = {},
 ): string {
   const value = hostname.trim().toLowerCase();
   if (value.length === 0 || value.length > 253) {
@@ -983,7 +983,7 @@ export function assertDeployHostname(
         `${value} is more than one level under ${zone}; Universal SSL does not cover it`,
       );
     }
-    if (isReservedDeployLabel(subdomain)) {
+    if (isReservedDeployLabel(subdomain) && !options.allowReserved) {
       throw new DeployHostnameError(`"${subdomain}" is a reserved name`);
     }
   }

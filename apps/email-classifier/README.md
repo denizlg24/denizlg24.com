@@ -12,8 +12,9 @@ Labels: `spam`, `newsletter`, `promo`, `purchases`, `fyi`,
 
 Deploy with `apps/email-classifier` as the root directory and the Nixpacks
 builder. The workspace's `nixpacks.toml` forces Python 3.12 while Forge keeps
-the monorepo root as the Docker context. The start command is:
+the monorepo root as the Docker context. Use `/healthz` as the health path. The
+resolved start command must therefore include the selected directory:
 
 ```sh
-uvicorn main:app --host 0.0.0.0 --port ${PORT:-3000}
+cd apps/email-classifier && uvicorn main:app --host 0.0.0.0 --port ${PORT:-3000}
 ```

@@ -71,6 +71,12 @@ export async function assertDomainAvailable(
   // else. Check 5 below is what keeps that safe.
   const normalised = assertDeployHostname(hostname, context.zoneName, {
     allowApex: true,
+    // Stable domains are an explicit superuser action and still pass the
+    // database collision plus live Cloudflare-record checks below. Generated
+    // target and preview hostnames never opt in, so a project slug cannot take
+    // an infrastructure name accidentally. This is also what permits the
+    // Forge dashboard to migrate onto forge.denizlg24.com.
+    allowReserved: true,
   });
 
   const existing = await context.db.query.deployDomains.findFirst({

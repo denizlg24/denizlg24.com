@@ -52,6 +52,15 @@ describe("assertDeployHostname", () => {
     ).toThrow(/reserved/);
   });
 
+  it("allows a reserved stable domain only when the caller opts in", () => {
+    expect(
+      assertDeployHostname(`forge.${ZONE}`, ZONE, { allowReserved: true }),
+    ).toBe(`forge.${ZONE}`);
+    expect(() => assertDeployHostname(`forge.${ZONE}`, ZONE)).toThrow(
+      /reserved/,
+    );
+  });
+
   it("refuses a second level, which Universal SSL does not cover", () => {
     expect(() => assertDeployHostname(`app.dpl.${ZONE}`, ZONE)).toThrow(
       /Universal SSL/,

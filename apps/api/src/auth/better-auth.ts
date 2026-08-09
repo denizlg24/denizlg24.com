@@ -15,6 +15,11 @@ const SESSION_UPDATE_AGE_SECONDS = 60 * 60;
 export const CLOUD_AUTH_TRUSTED_ORIGINS = [
   "https://cloud.denizlg24.com",
   "https://forge.denizlg24.com",
+  // The Forge dashboard has to authenticate on its generated hostname before
+  // it can take over forge.denizlg24.com. Scope the wildcard to this one
+  // project; trusting every deployment hostname would let unrelated preview
+  // code make credentialed requests to the cloud API.
+  "https://forge-server-*.denizlg24.com",
   "https://storage.denizlg24.com",
   "http://localhost:3000",
   "http://localhost:3001",
@@ -22,6 +27,28 @@ export const CLOUD_AUTH_TRUSTED_ORIGINS = [
   "http://localhost:3005",
   "http://localhost:3006",
 ] as const;
+
+const FORGE_DEPLOYMENT_ORIGIN =
+  /^https:\/\/forge-server-[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.denizlg24\.com$/;
+const FORGE_DEPLOYMENT_ORIGIN_PATTERN = "https://forge-server-*.denizlg24.com";
+
+/** Mirror Better Auth's one intentional wildcard for the API CORS layer. */
+export function isCloudAuthTrustedOrigin(
+  origin: string,
+  trustedOrigins: readonly string[] = CLOUD_AUTH_TRUSTED_ORIGINS,
+): boolean {
+  if (
+    trustedOrigins.some(
+      (trusted) => !trusted.includes("*") && trusted === origin,
+    )
+  ) {
+    return true;
+  }
+  return (
+    trustedOrigins.includes(FORGE_DEPLOYMENT_ORIGIN_PATTERN) &&
+    FORGE_DEPLOYMENT_ORIGIN.test(origin)
+  );
+}
 
 export interface CloudAuthOptions {
   db: Database;

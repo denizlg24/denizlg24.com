@@ -24,8 +24,9 @@ NEXT_PUBLIC_CLOUD_API_URL=https://api.denizlg24.com
 ```
 
 Production uses `forge.denizlg24.com`. Generated Vercel preview origins are not
-trusted by the API, so authenticated data is intentionally limited to the
-production domain unless a specific preview origin is added temporarily.
+trusted by the API. Forge-hosted `forge-server-*` deployment origins are trusted
+so the app can authenticate during its bootstrap and domain migration; the
+allowlist does not extend to other hosted projects.
 
 ## Deploying through Forge
 

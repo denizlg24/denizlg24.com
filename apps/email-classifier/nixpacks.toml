@@ -5,3 +5,10 @@ providers = ["python"]
 
 [variables]
 NIXPACKS_PYTHON_VERSION = "3.12"
+
+[phases.install]
+# Forge supplies the monorepo-aware install command through `--install-cmd`.
+# Nixpacks replaces the whole detected install phase when that flag is used,
+# including the path that exposes console scripts from the virtualenv at run
+# time. Keep it in the merged plan so `uvicorn` is available to the start phase.
+paths = ["/opt/venv/bin"]
