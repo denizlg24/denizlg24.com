@@ -28,6 +28,7 @@ import {
   assertCapacityAvailable,
   BindingUnresolvableError,
   buildSpecFromTarget,
+  type ChangeDecision,
   claimQueuedDeployment,
   createDeployBindingResolvers,
   createDeployDomain,
@@ -76,6 +77,7 @@ import {
 } from "@repo/cloud-core/deploy";
 import {
   type AgentApplyEnvResult,
+  agentModuleGraphReportSchema,
   assertDeployHostname,
   createDeployDomainInputSchema,
   createDeploymentInputSchema,
@@ -2187,6 +2189,54 @@ export function deployRoutes(options: DeployRouteOptions) {
   });
 
   /**
+   * The import graph the build resolved from its checkout, stored on the target
+   * so the next webhook can tell a change to a shared package that this target
+   * reads from one it does not.
+   *
+   * Written unconditionally rather than only for the newest commit: the agent
+   * reports one per build, and a graph resolved from any recent commit is a
+   * better answer than none. It also cannot go stale in the dangerous
+   * direction — a new import edits a file the target already watches.
+   */
+  agent.post("/deployments/:id/module-graph", async (context) => {
+    const parsed = agentModuleGraphReportSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        { error: { code: "INVALID_INPUT", message: "Invalid module graph" } },
+        400,
+      );
+    }
+    const id = context.req.param("id");
+    if (!uuidParam.safeParse(id).success) {
+      return context.json(
+        { error: { code: "NOT_FOUND", message: "Unknown deployment" } },
+        404,
+      );
+    }
+    const row = await db.query.deployments.findFirst({
+      where: eq(deployments.id, id),
+    });
+    if (!row) {
+      return context.json(
+        { error: { code: "NOT_FOUND", message: "Unknown deployment" } },
+        404,
+      );
+    }
+    await db
+      .update(deployTargets)
+      .set({
+        moduleGraph: {
+          ...parsed.data.moduleGraph,
+          resolvedAt: new Date().toISOString(),
+        },
+      })
+      .where(eq(deployTargets.id, row.targetId));
+    return context.body(null, 204);
+  });
+
+  /**
    * The one route that returns plaintext env, and the same shape of surface as
    * `/authenticator/export`: agent-token only, never called from a browser,
    * never logged. Only the key lists are safe to record.
@@ -2284,12 +2334,16 @@ export function deployRoutes(options: DeployRouteOptions) {
     target: DeployTargetRow,
     intent: WebhookDeployIntent,
     cache: WebhookChangeCache,
-  ): Promise<boolean> {
+  ): Promise<ChangeDecision> {
     // A repository-root target owns every path. A new branch or otherwise
     // baseless event also builds because there is no complete diff to prove it
     // is unaffected.
-    if (!target.rootDirectory || intent.baseSha === null) return true;
-    if (target.githubInstallationId === null) return true;
+    if (!target.rootDirectory || intent.baseSha === null) {
+      return { deploy: true, reason: "root-target", files: [] };
+    }
+    if (target.githubInstallationId === null) {
+      return { deploy: true, reason: "root-target", files: [] };
+    }
     const installationId = target.githubInstallationId;
     const baseSha = intent.baseSha;
 
@@ -2333,10 +2387,11 @@ export function deployRoutes(options: DeployRouteOptions) {
 
     const matcher = await pending;
     return (
-      matcher?.affectsTarget({
+      matcher?.decide({
         rootDirectory: target.rootDirectory,
         dockerfilePath: target.dockerfilePath,
-      }) ?? true
+        moduleGraph: target.moduleGraph,
+      }) ?? { deploy: true, reason: "dependency-unresolved", files: [] }
     );
   }
 
@@ -2351,7 +2406,14 @@ export function deployRoutes(options: DeployRouteOptions) {
     changeCache: WebhookChangeCache,
   ): Promise<DeploymentRow | null> {
     if (target.githubInstallationId === null) return null;
-    if (!(await targetChanged(target, intent, changeCache))) return null;
+    const decision = await targetChanged(target, intent, changeCache);
+    if (!decision.deploy) {
+      // Vercel's behaviour, and for the same reason: a commit whose checks show
+      // nothing for a project is indistinguishable from one where the webhook
+      // never arrived. The skipped run says which it was.
+      await options.github?.surfaces.onSkipped(target, intent, decision);
+      return null;
+    }
     const project = await db.query.projects.findFirst({
       where: eq(projects.id, target.projectId),
     });

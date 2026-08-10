@@ -10,3 +10,4 @@ export * from "./envoy-env";
 export * from "./gc";
 export * from "./github";
 export * from "./metrics";
+export * from "./module-graph";

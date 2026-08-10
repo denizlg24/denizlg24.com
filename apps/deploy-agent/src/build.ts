@@ -37,6 +37,12 @@ export interface BuildOptions {
    */
   env?: Record<string, string>;
   onPhase?: (phase: DeploymentPhase) => Promise<void>;
+  /**
+   * The checkout, handed over once it is on disk and before anything is built.
+   * Called for its side effects only — a build never fails because whatever
+   * inspected the source did.
+   */
+  onCheckout?: (sourceDirectory: string) => Promise<void>;
   now?: () => number;
 }
 
@@ -359,6 +365,12 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
       signal,
       timeoutMs: 120_000,
       onOutput: (chunk) => log.write(chunk),
+    });
+
+    await options.onCheckout?.(source).catch((error: unknown) => {
+      log.note(
+        `post-checkout inspection failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     });
 
     // The build context is the checkout root, never the selected directory.

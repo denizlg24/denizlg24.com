@@ -84,6 +84,17 @@ const queue = new DeploymentQueue({
       const resolved = await controlPlane.env(request.deploymentId, signal);
       return { cloneToken: resolved.cloneToken, env: resolved.env };
     },
+    moduleGraph: async (request, graph) => {
+      // Decoration for the next push, never a reason to fail this build.
+      await controlPlane
+        .reportModuleGraph(request.deploymentId, graph)
+        .catch((error: unknown) =>
+          logger.error("module graph report failed", {
+            deploymentId: request.deploymentId,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+    },
   }),
   logger,
 });

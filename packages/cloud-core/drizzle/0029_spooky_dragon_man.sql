@@ -1,0 +1,1 @@
+ALTER TABLE "deploy_targets" ADD COLUMN "module_graph" jsonb;

@@ -1,11 +1,13 @@
 import type {
   AgentDeploymentRequest,
+  DeployModuleGraph,
   DeploymentStatusUpdate,
 } from "@repo/schemas/cloud";
 
 import { runBuild } from "./build";
 import type { BuildLogStore } from "./build-log";
 import type { Exec } from "./exec";
+import { resolveCheckoutModuleGraph } from "./module-graph";
 import type { PortAllocator } from "./ports";
 import type { DeploymentRunner } from "./queue";
 import {
@@ -37,6 +39,16 @@ export const noSecrets: SecretsProvider = async () => ({
   env: {},
 });
 
+/**
+ * Where the import graph resolved from the checkout goes. Optional because the
+ * pipeline runs against no control plane in tests, and because nothing about a
+ * deployment depends on it: it only decides whether a *later* push builds.
+ */
+export type ModuleGraphReporter = (
+  request: AgentDeploymentRequest,
+  graph: DeployModuleGraph,
+) => Promise<void>;
+
 export interface PipelineOptions {
   exec: Exec;
   logs: BuildLogStore;
@@ -51,6 +63,7 @@ export interface PipelineOptions {
   drainMs: number;
   healthPollMs?: number;
   secrets?: SecretsProvider;
+  moduleGraph?: ModuleGraphReporter;
   healthProbe?: HealthProbe;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -86,6 +99,17 @@ export function createDeploymentRunner(
         cloneToken: resolved.cloneToken,
         env: resolved.env,
         onPhase: (phase) => context.report({ status: "building", phase }),
+        onCheckout: options.moduleGraph
+          ? async (source) => {
+              const graph = await resolveCheckoutModuleGraph({
+                source,
+                rootDirectory: request.build.rootDirectory ?? "",
+                sha: request.repository.sha,
+                log,
+              });
+              if (graph) await options.moduleGraph?.(request, graph);
+            }
+          : undefined,
         now: options.now,
       });
 

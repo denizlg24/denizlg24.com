@@ -17,6 +17,7 @@ import {
   DEPLOYMENT_KINDS,
   DEPLOYMENT_PHASES,
   DEPLOYMENT_STATUSES,
+  type DeployModuleGraph,
   type DeploymentBuildSpec,
   type DomainVerificationRecords,
   NOTIFICATION_TYPES,
@@ -1061,6 +1062,12 @@ export const deployTargets = pgTable(
     envoyPassphrase: text("envoy_passphrase"),
     envoyPassphraseIv: text("envoy_passphrase_iv"),
     envoyPassphraseAuthTag: text("envoy_passphrase_auth_tag"),
+    /**
+     * What the last build found this target imports, used by the webhook to
+     * skip a push that only touched files it does not read. Null until a build
+     * has reported one, and a null graph never skips anything.
+     */
+    moduleGraph: jsonb("module_graph").$type<DeployModuleGraph>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
