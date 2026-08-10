@@ -291,14 +291,12 @@ export class ForgeMonitor {
               kind: "forge-container",
               key: `${key}:network.rx_bytes_per_second`,
               value: (current.rxBytes - previous.rxBytes) / elapsedSeconds,
-              intervalSeconds: elapsedSeconds,
             },
             {
               ts,
               kind: "forge-container",
               key: `${key}:network.tx_bytes_per_second`,
               value: (current.txBytes - previous.txBytes) / elapsedSeconds,
-              intervalSeconds: elapsedSeconds,
             },
           );
         }

@@ -9,11 +9,13 @@ import {
   pendingVerificationDomains,
   reconcileForgeDnsRecords,
   refreshDeployDomain,
+  releaseDeploymentDnsRecord,
   releaseDeploymentResources,
   routeHostnames,
   type SupersededDeployment,
   sweepDeployDomains,
   targetsWithActiveDomains,
+  unneededDeploymentDnsRecords,
 } from "@repo/cloud-core/deploy";
 import {
   type AgentGcReport,
@@ -304,16 +306,16 @@ export class ForgeOps {
     // Before the DNS reconcile, not after: the sweep deletes domain rows and
     // their records together, and the reconcile is what catches the ones whose
     // record delete failed.
-    const sweep = await sweepDeployDomains(this.domainContext).catch(
-      (error: unknown) => {
-        failures.push({
-          step: "domains",
-          subject: "sweep",
-          error: describe(error),
-        });
-        return null;
-      },
-    );
+    const sweep = await sweepDeployDomains(this.domainContext, {
+      dryRun,
+    }).catch((error: unknown) => {
+      failures.push({
+        step: "domains",
+        subject: "sweep",
+        error: describe(error),
+      });
+      return null;
+    });
     for (const failure of sweep?.failures ?? []) {
       failures.push({
         step: "domains",
@@ -322,8 +324,27 @@ export class ForgeOps {
       });
     }
 
-    let dnsRecordsRemoved: string[] = [];
+    const dnsRecordsRemoved: string[] = [];
     if (this.dns) {
+      const unneeded = await unneededDeploymentDnsRecords(this.db);
+      for (const row of unneeded) {
+        if (dryRun) {
+          dnsRecordsRemoved.push(row.hostname);
+          continue;
+        }
+        await releaseDeploymentDnsRecord(this.db, this.dns, row)
+          .then((removed) => {
+            if (removed) dnsRecordsRemoved.push(row.hostname);
+          })
+          .catch((error: unknown) => {
+            failures.push({
+              step: "dns",
+              subject: row.hostname,
+              error: describe(error),
+            });
+          });
+      }
+
       const reconciled = await reconcileForgeDnsRecords(
         { db: this.db, dns: this.dns },
         { dryRun },
@@ -331,7 +352,7 @@ export class ForgeOps {
         failures.push({ step: "dns", subject: "list", error: describe(error) });
         return null;
       });
-      dnsRecordsRemoved = reconciled?.removed ?? [];
+      dnsRecordsRemoved.push(...(reconciled?.removed ?? []));
       for (const failure of reconciled?.failures ?? []) {
         failures.push({ step: "dns", ...failure });
       }

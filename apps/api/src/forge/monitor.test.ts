@@ -157,16 +157,23 @@ describe("ForgeMonitor", () => {
 
     await monitor.sample();
     bytes = 160;
-    now = new Date("2026-08-09T12:00:30.000Z");
+    // Real timers drift by a millisecond or two. The elapsed float belongs in
+    // the rate calculation, while persistence stays in the canonical 30s
+    // bucket because interval_seconds is a smallint rollup key.
+    now = new Date("2026-08-09T12:00:30.001Z");
     await monitor.sample();
 
     const second = batches[1] ?? [];
-    expect(
-      second.find((row) => row.key.endsWith("network.rx_bytes_per_second")),
-    ).toMatchObject({ value: 2, intervalSeconds: 30 });
-    expect(
-      second.find((row) => row.key.endsWith("network.tx_bytes_per_second")),
-    ).toMatchObject({ value: 4, intervalSeconds: 30 });
+    const rx = second.find((row) =>
+      row.key.endsWith("network.rx_bytes_per_second"),
+    );
+    const tx = second.find((row) =>
+      row.key.endsWith("network.tx_bytes_per_second"),
+    );
+    expect(rx?.value).toBeCloseTo(60 / 30.001);
+    expect(tx?.value).toBeCloseTo(120 / 30.001);
+    expect(rx?.intervalSeconds).toBe(30);
+    expect(tx?.intervalSeconds).toBe(30);
     expect(second.some((row) => row.key.endsWith("network.rx_bytes"))).toBe(
       false,
     );

@@ -5,7 +5,9 @@ import {
   parseForgeRecordComment,
 } from "./cloudflare-dns";
 import {
+  type DeploymentDnsCandidate,
   type ForgeKeepCandidate,
+  planDeploymentDnsCleanup,
   planForgeDnsReconciliation,
   selectForgeKeepSet,
 } from "./gc";
@@ -197,6 +199,43 @@ describe("selectForgeKeepSet", () => {
       3,
     );
     expect(keep.keepImageTags).toEqual([]);
+  });
+});
+
+describe("planDeploymentDnsCleanup", () => {
+  function deployment(
+    overrides: Partial<DeploymentDnsCandidate> & { id: string },
+  ): DeploymentDnsCandidate {
+    return {
+      targetId: "target-a",
+      hostname: `${overrides.id}.denizlg24.com`,
+      kind: "production",
+      status: "ready",
+      dnsRecordId: `record-${overrides.id}`,
+      ...overrides,
+    };
+  }
+
+  it("removes terminal records and production records replaced by stable domains", () => {
+    const candidates = planDeploymentDnsCleanup(
+      [
+        deployment({ id: "production" }),
+        deployment({ id: "preview", kind: "preview" }),
+        deployment({ id: "superseded", status: "superseded" }),
+      ],
+      new Set(["target-a"]),
+    );
+
+    expect(candidates.map((row) => row.id)).toEqual([
+      "production",
+      "superseded",
+    ]);
+  });
+
+  it("keeps the production record until a stable domain is active", () => {
+    expect(
+      planDeploymentDnsCleanup([deployment({ id: "production" })], new Set()),
+    ).toEqual([]);
   });
 });
 

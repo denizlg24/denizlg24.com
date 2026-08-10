@@ -1,5 +1,5 @@
-import type { DeploymentStatus } from "@repo/schemas/cloud";
-import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import type { DeploymentKind, DeploymentStatus } from "@repo/schemas/cloud";
+import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
 import { type DeploymentRow, deployDomains, deployments } from "../db/schema";
@@ -140,6 +140,86 @@ export async function markInterruptedDeployments(
     .returning();
 }
 
+export interface DeploymentDnsCandidate {
+  id: string;
+  targetId: string;
+  hostname: string;
+  kind: DeploymentKind;
+  status: DeploymentStatus;
+  dnsRecordId: string;
+}
+
+/**
+ * A live preview is reached only through its deployment hostname. Production
+ * needs that record only until the target has a stable domain; terminal rows
+ * never need one. Kept pure so the nightly drift repair is independently
+ * testable from its database reads.
+ */
+export function planDeploymentDnsCleanup(
+  rows: readonly DeploymentDnsCandidate[],
+  targetsWithActiveDomains: ReadonlySet<string>,
+): DeploymentDnsCandidate[] {
+  return rows.filter((row) => {
+    if (!KEEP_STATUSES.includes(row.status)) return true;
+    return (
+      row.kind === "production" && targetsWithActiveDomains.has(row.targetId)
+    );
+  });
+}
+
+/** Records which the control plane still references but no longer needs. */
+export async function unneededDeploymentDnsRecords(
+  db: Database,
+): Promise<DeploymentDnsCandidate[]> {
+  const [rows, activeDomains] = await Promise.all([
+    db
+      .select({
+        id: deployments.id,
+        targetId: deployments.targetId,
+        hostname: deployments.hostname,
+        kind: deployments.kind,
+        status: deployments.status,
+        dnsRecordId: deployments.dnsRecordId,
+      })
+      .from(deployments)
+      .where(sql`${deployments.dnsRecordId} IS NOT NULL`),
+    db
+      .select({ targetId: deployDomains.targetId })
+      .from(deployDomains)
+      .where(eq(deployDomains.status, "active")),
+  ]);
+  const candidates = rows.flatMap((row) =>
+    row.dnsRecordId ? [{ ...row, dnsRecordId: row.dnsRecordId }] : [],
+  );
+  return planDeploymentDnsCleanup(
+    candidates,
+    new Set(activeDomains.map((row) => row.targetId)),
+  );
+}
+
+/**
+ * Deletes first and clears the reference only after Cloudflare confirms it.
+ * Retaining the id on failure lets the next GC pass retry the same record.
+ */
+export async function releaseDeploymentDnsRecord(
+  db: Database,
+  dns: CloudflareDnsClient | null,
+  row: Pick<DeploymentRow, "id" | "dnsRecordId">,
+): Promise<boolean> {
+  if (!row.dnsRecordId || !dns) return false;
+  await dns.deleteRecord(row.dnsRecordId);
+  await db
+    .update(deployments)
+    .set({ dnsRecordId: null })
+    .where(
+      and(
+        eq(deployments.id, row.id),
+        eq(deployments.dnsRecordId, row.dnsRecordId),
+      ),
+    );
+  return true;
+}
+
 /**
  * Releases everything a deployment holds outside its own row: the DNS record,
  * and any S3 credential the resolver issued for it. Idempotent — it runs on
@@ -151,14 +231,9 @@ export async function releaseDeploymentResources(
   row: Pick<DeploymentRow, "id" | "dnsRecordId">,
 ): Promise<void> {
   await revokeDeploymentS3Credentials(db, row.id);
-  if (!row.dnsRecordId || !dns) return;
-  await dns.deleteRecord(row.dnsRecordId).catch((error: unknown) => {
+  await releaseDeploymentDnsRecord(db, dns, row).catch((error: unknown) => {
     console.error("[deploy] DNS record delete failed", error);
   });
-  await db
-    .update(deployments)
-    .set({ dnsRecordId: null })
-    .where(eq(deployments.id, row.id));
 }
 
 export interface ForgeDnsKnownSubjects {
@@ -167,7 +242,7 @@ export interface ForgeDnsKnownSubjects {
 }
 
 /**
- * Which managed records name a row that no longer exists. Records whose
+ * Which managed records no longer have a database reference. Records whose
  * comment does not parse are never returned — see `parseForgeRecordComment`.
  */
 export function planForgeDnsReconciliation(
@@ -205,6 +280,7 @@ export async function reconcileForgeDnsRecords(
     context.db
       .select({ id: deployments.id })
       .from(deployments)
+      .where(sql`${deployments.dnsRecordId} IS NOT NULL`)
       .then((rows) => new Set(rows.map((row) => row.id))),
     context.db
       .select({ id: deployDomains.id })

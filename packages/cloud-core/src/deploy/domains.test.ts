@@ -55,9 +55,11 @@ describe("sweepDeployDomains", () => {
     const db = {
       select: () => ({
         from: () => ({
-          where: async (condition: SQL) => {
+          where: (condition: SQL) => {
             conditions.push(condition);
-            return [];
+            return conditions.length === 1
+              ? { orderBy: async () => [] }
+              : Promise.resolve([]);
           },
         }),
       }),

@@ -4,7 +4,7 @@ import {
   type DeployDomainOrigin,
   type DeploymentKind,
 } from "@repo/schemas/cloud";
-import { and, asc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
 import { type DeployDomainRow, deployDomains, deployments } from "../db/schema";
@@ -714,6 +714,7 @@ export async function sweepDeployDomains(
     graceMs?: number;
     verificationTimeoutMs?: number;
     now?: () => number;
+    dryRun?: boolean;
   } = {},
 ): Promise<DomainSweepReport> {
   const now = options.now ?? Date.now;
@@ -723,6 +724,33 @@ export async function sweepDeployDomains(
     failures: [],
   };
 
+  // Repair a missed transition as well as processing new ones. This matters
+  // after the origin backfill: an active custom domain may predate the column,
+  // so it will never pass through create/refresh again to retire the generated
+  // name which was serving before it.
+  const activeManualDomains = await context.db
+    .select()
+    .from(deployDomains)
+    .where(
+      and(
+        eq(deployDomains.origin, "manual"),
+        eq(deployDomains.status, "active"),
+        isNull(deployDomains.retiredAt),
+      ),
+    )
+    // If the target already has a manual primary, preserve it. Otherwise the
+    // oldest active manual domain wins deterministically rather than whichever
+    // row PostgreSQL happened to return first.
+    .orderBy(desc(deployDomains.isPrimary), asc(deployDomains.createdAt));
+  if (!options.dryRun) {
+    const reconciledTargets = new Set<string>();
+    for (const row of activeManualDomains) {
+      if (reconciledTargets.has(row.targetId)) continue;
+      reconciledTargets.add(row.targetId);
+      await supersedeGeneratedDomains(context.db, row);
+    }
+  }
+
   const graceCutoff = new Date(
     now() - (options.graceMs ?? DEFAULT_DOMAIN_GRACE_MS),
   );
@@ -731,6 +759,10 @@ export async function sweepDeployDomains(
     .from(deployDomains)
     .where(lt(deployDomains.retiredAt, graceCutoff));
   for (const row of retired) {
+    if (options.dryRun) {
+      report.retiredRemoved.push(row.hostname);
+      continue;
+    }
     try {
       await deleteDeployDomain(context, row);
       report.retiredRemoved.push(row.hostname);
@@ -755,17 +787,19 @@ export async function sweepDeployDomains(
       ),
     );
   for (const row of stalled) {
-    await context.db
-      .update(deployDomains)
-      .set({
-        status: "failed",
-        verification: {
-          ownership: row.verification?.ownership ?? [],
-          ssl: row.verification?.ssl ?? [],
-          error: "Not validated within 24 hours",
-        },
-      })
-      .where(eq(deployDomains.id, row.id));
+    if (!options.dryRun) {
+      await context.db
+        .update(deployDomains)
+        .set({
+          status: "failed",
+          verification: {
+            ownership: row.verification?.ownership ?? [],
+            ssl: row.verification?.ssl ?? [],
+            error: "Not validated within 24 hours",
+          },
+        })
+        .where(eq(deployDomains.id, row.id));
+    }
     report.verificationTimedOut.push(row.hostname);
   }
 
