@@ -1,4 +1,7 @@
-import type { MetricSeries } from "@repo/schemas/cloud";
+import type {
+  ForgeProjectMetricName,
+  ForgeProjectMetricsResponse,
+} from "@repo/schemas/cloud";
 import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
@@ -24,9 +27,13 @@ import {
  * either — `memory.bytes` is the series to sum when you want the project total.
  *
  * Doubling as the allowlist: a caller cannot ask for a key that has no defined
- * way to combine.
+ * way to combine. Typed against the wire enum so adding a metric to one and not
+ * the other fails to compile rather than 400ing at runtime.
  */
-export const PROJECT_METRIC_AGGREGATES = {
+export const PROJECT_METRIC_AGGREGATES: Record<
+  ForgeProjectMetricName,
+  "sum" | "max"
+> = {
   "requests.count": "sum",
   "requests.2xx": "sum",
   "requests.3xx": "sum",
@@ -40,9 +47,9 @@ export const PROJECT_METRIC_AGGREGATES = {
   "memory.usage_percent": "max",
   "network.rx_bytes_per_second": "sum",
   "network.tx_bytes_per_second": "sum",
-} as const;
+};
 
-export type ProjectMetricName = keyof typeof PROJECT_METRIC_AGGREGATES;
+export type ProjectMetricName = ForgeProjectMetricName;
 
 export function isProjectMetricName(value: string): value is ProjectMetricName {
   return Object.hasOwn(PROJECT_METRIC_AGGREGATES, value);
@@ -113,7 +120,7 @@ async function deploymentKeysFor(
 export async function queryProjectMetrics(
   db: Database,
   query: ProjectMetricsQuery,
-): Promise<MetricSeries[]> {
+): Promise<ForgeProjectMetricsResponse["series"]> {
   const ids = await deploymentKeysFor(db, query);
   if (ids.length === 0) {
     return query.metrics.map((metric) => ({ name: metric, points: [] }));

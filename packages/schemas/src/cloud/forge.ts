@@ -7,6 +7,7 @@ import {
   deploymentPhaseSchema,
   deploymentStatusSchema,
 } from "./deploy";
+import { metricPointSchema } from "./ops";
 
 export const forgeContainerMetricsSchema = z.object({
   cpuPercent: z.number().nonnegative(),
@@ -81,6 +82,69 @@ export const forgeRequestLogRecordSchema = z.object({
 export type ForgeRequestLogRecord = z.infer<typeof forgeRequestLogRecordSchema>;
 
 /**
+ * Status buckets rather than exact codes.
+ *
+ * Nobody filters an access log for 418; the question is always "what is
+ * failing", and a bucket answers it without the caller having to know which
+ * codes the app actually emits. An exact code stays reachable through `search`,
+ * which matches the status too.
+ */
+export const FORGE_REQUEST_STATUS_CLASSES = [
+  "2xx",
+  "3xx",
+  "4xx",
+  "5xx",
+] as const;
+export const forgeRequestStatusClassSchema = z.enum(
+  FORGE_REQUEST_STATUS_CLASSES,
+);
+export type ForgeRequestStatusClass = z.infer<
+  typeof forgeRequestStatusClassSchema
+>;
+
+export const FORGE_REQUEST_METHODS = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+] as const;
+
+/**
+ * Pushed all the way down to the agent rather than applied to the fetched page.
+ *
+ * The access log is a file read backwards from its end, so filtering after the
+ * fact only ever searches the last `limit` lines — ask for the 5xx responses of
+ * a healthy deployment and you reliably get nothing, because the errors are
+ * further back than the window. The agent instead keeps reading until it has
+ * `limit` matches or hits its scan cap.
+ */
+export const forgeRequestLogQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+  method: z.array(z.string().min(1).max(16)).default([]),
+  status: z.array(forgeRequestStatusClassSchema).default([]),
+  /** Matched against the path, the client, the user agent and the status. */
+  search: z.string().min(1).max(200).nullable().default(null),
+  /** Slow-request hunting: keeps only what took at least this long. */
+  minDurationMs: z.coerce.number().nonnegative().nullable().default(null),
+});
+export type ForgeRequestLogQuery = z.infer<typeof forgeRequestLogQuerySchema>;
+
+/**
+ * `scanned` is what makes an empty list readable: no matches in 40 000 lines is
+ * a different answer from no matches because the deployment has served 12
+ * requests, and `truncated` says which of the two happened.
+ */
+export const forgeRequestLogPageSchema = z.object({
+  requests: z.array(forgeRequestLogRecordSchema),
+  scanned: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+});
+export type ForgeRequestLogPage = z.infer<typeof forgeRequestLogPageSchema>;
+
+/**
  * What one telemetry interval saw, per deployment. Deltas rather than totals: the
  * agent keeps no history, so a counter that only ever grew would reset to zero
  * whenever the agent restarted and read as a traffic collapse.
@@ -101,6 +165,52 @@ export const forgeRequestStatsSchema = z.object({
   durationP95Ms: z.number().nonnegative(),
 });
 export type ForgeRequestStats = z.infer<typeof forgeRequestStatsSchema>;
+
+/**
+ * The metrics a project's history can be charted from, and the canonical spelling
+ * of each.
+ *
+ * These are *not* raw series names. A raw sample is keyed
+ * `forge-container:<deploymentId>:<metric>`, and the project route aggregates
+ * across every deployment the project had in the window — so what comes back is
+ * keyed by the bare metric with no namespace, which is why it cannot be parsed
+ * with `metricsResponseSchema`. Its `prefix:name` pattern describes a stored
+ * series; this describes a derived one.
+ */
+export const FORGE_PROJECT_METRICS = [
+  "requests.count",
+  "requests.2xx",
+  "requests.3xx",
+  "requests.4xx",
+  "requests.5xx",
+  "response.bytes",
+  "request.duration_ms.p50",
+  "request.duration_ms.p95",
+  "cpu.usage_percent",
+  "memory.bytes",
+  "memory.usage_percent",
+  "network.rx_bytes_per_second",
+  "network.tx_bytes_per_second",
+] as const;
+export const forgeProjectMetricNameSchema = z.enum(FORGE_PROJECT_METRICS);
+export type ForgeProjectMetricName = z.infer<
+  typeof forgeProjectMetricNameSchema
+>;
+
+export const forgeProjectMetricSeriesSchema = z.object({
+  name: forgeProjectMetricNameSchema,
+  points: z.array(metricPointSchema),
+});
+
+export const forgeProjectMetricsResponseSchema = z.object({
+  series: z.array(forgeProjectMetricSeriesSchema),
+  from: cloudDateTimeSchema,
+  to: cloudDateTimeSchema,
+  step: z.number().int(),
+});
+export type ForgeProjectMetricsResponse = z.infer<
+  typeof forgeProjectMetricsResponseSchema
+>;
 
 /** Host utilization collected by the deploy agent itself. */
 export const forgeHostSnapshotSchema = z.object({

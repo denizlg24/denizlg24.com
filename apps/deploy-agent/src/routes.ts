@@ -233,11 +233,21 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
       );
     }
     const limit = Number.parseInt(context.req.query("limit") ?? "200", 10);
-    const records = await options.telemetry.requests(
-      id,
-      Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 2_000) : 200,
+    const minDuration = Number.parseFloat(
+      context.req.query("minDurationMs") ?? "",
     );
-    return context.json({ requests: records });
+    return context.json(
+      await options.telemetry.requests(
+        id,
+        Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 2_000) : 200,
+        {
+          methods: context.req.queries("method") ?? [],
+          statusClasses: context.req.queries("status") ?? [],
+          search: context.req.query("search") ?? null,
+          minDurationMs: Number.isFinite(minDuration) ? minDuration : null,
+        },
+      ),
+    );
   });
 
   guarded.post("/deployments/:id/restart", async (context) => {

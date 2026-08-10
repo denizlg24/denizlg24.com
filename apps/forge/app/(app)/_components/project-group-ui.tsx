@@ -4,6 +4,7 @@ import { TableCell, TableRow } from "@repo/ui/table";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ProjectGroup } from "./project-groups";
+import { ProjectPicker } from "./project-picker";
 
 /**
  * The project filter and the collapsible group header, shared by every grouped
@@ -36,6 +37,14 @@ export function activeProject<T>(
     : null;
 }
 
+/**
+ * Above this many projects the pills stop being a filter and start being a
+ * wall: they wrap into several rows that push the data off the fold, and
+ * finding one slug means reading every slug. Below it, pills are strictly
+ * better than a picker — one click, everything visible, nothing to open.
+ */
+export const MAX_PILLS = 6;
+
 export function ProjectFilter<T>({
   groups,
   selected,
@@ -47,6 +56,32 @@ export function ProjectFilter<T>({
 }) {
   if (groups.length < 2) return null;
   const active = activeProject(groups, selected);
+
+  if (groups.length > MAX_PILLS) {
+    return (
+      <div className="flex items-center gap-2">
+        <ProjectPicker
+          options={groups.map((group) => ({
+            slug: group.projectSlug,
+            detail: String(group.all.length),
+          }))}
+          selected={active}
+          onSelect={onSelect}
+          allLabel={`all projects · ${groups.length}`}
+        />
+        {active === null ? null : (
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className="text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+          >
+            clear
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-1">
       <button

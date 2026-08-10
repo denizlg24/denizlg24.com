@@ -7,8 +7,10 @@ import {
 import {
   type ForgeAgentSnapshot,
   type ForgeOverview,
-  type ForgeRequestLogRecord,
+  type ForgeRequestLogPage,
+  type ForgeRequestLogQuery,
   forgeAgentSnapshotSchema,
+  forgeRequestLogPageSchema,
   forgeRequestLogRecordSchema,
 } from "@repo/schemas/cloud";
 import { z } from "zod";
@@ -122,13 +124,23 @@ export class ForgeMonitor {
 
   async requestLogs(
     deploymentId: string,
-    limit: number,
-  ): Promise<ForgeRequestLogRecord[]> {
+    query: ForgeRequestLogQuery,
+  ): Promise<ForgeRequestLogPage> {
     if (!this.#options.deployAgent) {
       throw new ForgeAgentUnavailableError();
     }
+    // Forwarded rather than applied here: the agent reads the log backwards and
+    // stops at `limit`, so filtering on this side would only ever search the
+    // last page of a file and report "no 5xx" for a deployment full of them.
+    const search = new URLSearchParams({ limit: String(query.limit) });
+    for (const method of query.method) search.append("method", method);
+    for (const status of query.status) search.append("status", status);
+    if (query.search !== null) search.set("search", query.search);
+    if (query.minDurationMs !== null) {
+      search.set("minDurationMs", String(query.minDurationMs));
+    }
     const response = await this.#options.deployAgent.json<unknown>(
-      `/deployments/${encodeURIComponent(deploymentId)}/requests?limit=${limit}`,
+      `/deployments/${encodeURIComponent(deploymentId)}/requests?${search}`,
     );
     // A non-2xx body is an error envelope, not a record list. Parsing it would
     // surface as a zod failure naming fields the caller never sent, so the status
@@ -142,9 +154,18 @@ export class ForgeMonitor {
           : `status ${response.status}`,
       );
     }
-    return z
-      .object({ requests: z.array(forgeRequestLogRecordSchema) })
-      .parse(response.body).requests;
+    // `.catch` rather than a required field: an agent deployed behind this one
+    // answers with the bare record list, and losing the scan counters is a
+    // cosmetically poorer empty state, not a reason to fail the request.
+    return forgeRequestLogPageSchema
+      .catch((issue) => ({
+        requests: z
+          .object({ requests: z.array(forgeRequestLogRecordSchema) })
+          .parse(issue.value).requests,
+        scanned: 0,
+        truncated: false,
+      }))
+      .parse(response.body);
   }
 
   async #agentSnapshot(): Promise<ForgeAgentSnapshot> {

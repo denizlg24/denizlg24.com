@@ -148,6 +148,7 @@ function app(
         return {
           dryRun: request.dryRun,
           imagesRemoved: [],
+          imagesSkipped: [],
           containersRemoved: [],
           buildsRemoved: [],
           logsRemoved: [],
