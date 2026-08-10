@@ -3,7 +3,7 @@
 import { errorMessage } from "@repo/cloud-ui/api-error";
 import { formatBytes } from "@repo/cloud-ui/format";
 import type { ForgeRequestLogRecord } from "@repo/schemas/cloud";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 
 function statusTone(status: number): string {
@@ -25,20 +25,34 @@ export function RequestTable({ deploymentId }: { deploymentId: string }) {
   const [records, setRecords] = useState<ForgeRequestLogRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setRecords(await api.forge.requests(deploymentId, 200));
-      setError(null);
-    } catch (requestError) {
-      setError(errorMessage(requestError));
-    }
-  }, [deploymentId]);
-
   useEffect(() => {
+    // A poll in flight when the id changes would otherwise land on the new
+    // deployment's view and show the previous one's requests — which happens
+    // whenever an open container panel or the project picker moves. The flag is
+    // per-effect, so only the current deployment's responses are accepted.
+    let live = true;
+    setRecords(null);
+    setError(null);
+
+    const load = async () => {
+      try {
+        const next = await api.forge.requests(deploymentId, 200);
+        if (!live) return;
+        setRecords(next);
+        setError(null);
+      } catch (requestError) {
+        if (!live) return;
+        setError(errorMessage(requestError));
+      }
+    };
+
     void load();
     const timer = setInterval(() => void load(), 10_000);
-    return () => clearInterval(timer);
-  }, [load]);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [deploymentId]);
 
   if (error) return <p className="text-xs text-destructive">{error}</p>;
   if (!records) {

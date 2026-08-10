@@ -39,6 +39,9 @@ export interface AgentRouteOptions {
   collectGarbage: (request: AgentGcRequest) => Promise<AgentGcReport>;
 }
 
+const DEPLOYMENT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function createAgentApp(options: AgentRouteOptions): Hono {
   const app = new Hono();
 
@@ -213,9 +216,25 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
    * access logging has only just been turned on.
    */
   guarded.get("/deployments/:id/requests", async (context) => {
+    const id = context.req.param("id");
+    // This id becomes a path segment under the access-log root. Without the
+    // check, `..%2F..%2Fvar%2Flog%2Fsyslog` reads any `.log` file on the host
+    // once Hono has decoded it — the token bounds who can ask, not what they can
+    // read. Every deployment id in this system is a uuid.
+    if (!DEPLOYMENT_ID.test(id)) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_DEPLOYMENT_ID",
+            message: "A deployment id must be a uuid",
+          },
+        },
+        400,
+      );
+    }
     const limit = Number.parseInt(context.req.query("limit") ?? "200", 10);
     const records = await options.telemetry.requests(
-      context.req.param("id"),
+      id,
       Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 2_000) : 200,
     );
     return context.json({ requests: records });
@@ -238,12 +257,26 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
     );
     if (!parsed.success) {
       return context.json(
-        { error: "INVALID_REQUEST", detail: parsed.error.issues },
+        {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "Invalid environment apply request",
+            issues: parsed.error.issues,
+          },
+        },
         400,
       );
     }
     if (parsed.data.request.deploymentId !== context.req.param("id")) {
-      return context.json({ error: "DEPLOYMENT_ID_MISMATCH" }, 400);
+      return context.json(
+        {
+          error: {
+            code: "DEPLOYMENT_ID_MISMATCH",
+            message: "The body names a different deployment than the path",
+          },
+        },
+        400,
+      );
     }
     const result = await options.applyEnv(parsed.data);
     return context.json(result, result.recreated ? 200 : 409);

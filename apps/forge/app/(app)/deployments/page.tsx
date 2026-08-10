@@ -46,6 +46,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageHeading } from "@/components/page-heading";
 import { api, errorMessage } from "@/lib/api";
+import { ProjectGroupRow } from "../_components/project-group-ui";
 import { groupByProject } from "../_components/project-groups";
 
 const PAGE_SIZES = [25, 50, 100, 200];
@@ -102,10 +103,16 @@ function DeploymentsTable() {
   const { data, error, loading, reload } = usePoll(fetchPage, 30_000);
   const groups = useMemo(
     () =>
-      groupByProject(data?.deployments ?? [], (deployment) => ({
-        projectSlug: deployment.projectSlug,
-        kind: deployment.kind,
-      })),
+      groupByProject(
+        data?.deployments ?? [],
+        (deployment) => ({
+          projectSlug: deployment.projectSlug,
+          kind: deployment.kind,
+        }),
+        // The server already ordered this page by the selected sort; regrouping
+        // alphabetically would make the sort control look broken.
+        "input",
+      ),
     [data],
   );
 
@@ -249,19 +256,12 @@ function DeploymentsTable() {
             </TableHeader>
             <TableBody>
               {groups.flatMap((group) => [
-                <TableRow
+                <ProjectGroupRow
                   key={`${group.projectSlug}-group`}
-                  className="bg-muted/30 hover:bg-muted/30"
-                >
-                  <TableCell colSpan={8} className="py-1.5">
-                    <span className="flex items-center gap-1.5 text-xs font-medium">
-                      {group.projectSlug}
-                      <span className="text-[11px] font-normal text-muted-foreground tabular-nums">
-                        {group.all.length}
-                      </span>
-                    </span>
-                  </TableCell>
-                </TableRow>,
+                  slug={group.projectSlug}
+                  detail={group.all.length}
+                  columns={8}
+                />,
                 // Production first, previews inset beneath it. Grouping is within
                 // the page only: paging is server-side `limit/offset`, so a
                 // project with many deployments genuinely does continue onto the

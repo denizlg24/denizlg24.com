@@ -205,47 +205,59 @@ export async function supersedeGeneratedDomains(
   if (arrival.origin !== "manual" || arrival.status !== "active")
     return arrival;
 
-  const generated = await db
-    .select({ id: deployDomains.id, isPrimary: deployDomains.isPrimary })
-    .from(deployDomains)
-    .where(
-      and(
-        eq(deployDomains.targetId, arrival.targetId),
-        eq(deployDomains.origin, "generated"),
-        isNull(deployDomains.retiredAt),
-      ),
-    );
-  if (generated.length === 0) return arrival;
+  // One transaction, because the read decides the write. Two domains for one
+  // target can go active in the same verification pass; run concurrently, each
+  // call would see the same generated row still holding primary, each would
+  // promote its own arrival, and the target would end with two primary rows —
+  // which `primaryHostname` resolves with `findFirst`, so it would then return an
+  // arbitrary one of them.
+  return db.transaction(async (transaction) => {
+    const generated = await transaction
+      .select({ id: deployDomains.id, isPrimary: deployDomains.isPrimary })
+      .from(deployDomains)
+      .where(
+        and(
+          eq(deployDomains.targetId, arrival.targetId),
+          eq(deployDomains.origin, "generated"),
+          isNull(deployDomains.retiredAt),
+        ),
+      );
+    if (generated.length === 0) return arrival;
 
-  let updated = arrival;
-  if (generated.some((row) => row.isPrimary) && !arrival.isPrimary) {
-    await db
+    let updated = arrival;
+    if (generated.some((row) => row.isPrimary) && !arrival.isPrimary) {
+      // Clears every other primary on the target, not just the generated ones, so
+      // the single-primary invariant the partial unique index enforces cannot be
+      // violated by a row this function never looked at.
+      await transaction
+        .update(deployDomains)
+        .set({ isPrimary: false })
+        .where(
+          and(
+            eq(deployDomains.targetId, arrival.targetId),
+            ne(deployDomains.id, arrival.id),
+            eq(deployDomains.isPrimary, true),
+          ),
+        );
+      const [promoted] = await transaction
+        .update(deployDomains)
+        .set({ isPrimary: true })
+        .where(eq(deployDomains.id, arrival.id))
+        .returning();
+      if (promoted) updated = promoted;
+    }
+
+    await transaction
       .update(deployDomains)
-      .set({ isPrimary: false })
+      .set({ retiredAt: new Date(), isPrimary: false })
       .where(
         inArray(
           deployDomains.id,
           generated.map((row) => row.id),
         ),
       );
-    const [promoted] = await db
-      .update(deployDomains)
-      .set({ isPrimary: true })
-      .where(eq(deployDomains.id, arrival.id))
-      .returning();
-    if (promoted) updated = promoted;
-  }
-
-  await db
-    .update(deployDomains)
-    .set({ retiredAt: new Date(), isPrimary: false })
-    .where(
-      inArray(
-        deployDomains.id,
-        generated.map((row) => row.id),
-      ),
-    );
-  return updated;
+    return updated;
+  });
 }
 
 /**
@@ -302,13 +314,9 @@ export async function refreshDeployDomain(
   context: DomainContext,
   row: DeployDomainRow,
 ): Promise<DeployDomainRow> {
-  if (row.mode === "zone_record") {
-    return supersedeGeneratedDomains(
-      context.db,
-      await provisionDeployDomain(context, row),
-    );
-  }
-  if (!row.customHostnameId) {
+  // A zone record needs no polling, and a custom hostname with no id was never
+  // created — both cases are "provision it", not "check on it".
+  if (row.mode === "zone_record" || !row.customHostnameId) {
     return supersedeGeneratedDomains(
       context.db,
       await provisionDeployDomain(context, row),

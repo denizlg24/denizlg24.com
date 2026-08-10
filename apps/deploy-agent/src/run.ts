@@ -107,28 +107,62 @@ export function containerNameFor(deploymentId: string): string {
  * One `--env KEY=VALUE` argv entry per variable, rather than the `--env-file`
  * this used to write.
  *
- * argv is a list of byte strings with no line structure, and `spawnExec` never
- * goes through a shell, so a value carrying a newline, a quote, a `$` or a `#`
- * reaches the container exactly as it was stored. `docker --env-file` parses
- * `KEY=VALUE` lines and nothing else: it could not represent a newline at all,
- * so the only safe thing available was to refuse the deployment — which is how
- * a PEM key or a service-account JSON used to fail *after* its build had
- * already succeeded, while the same value had passed the build fine as a
- * `--build-arg`.
+ * `docker --env-file` parses `KEY=VALUE` lines and nothing else: it could not
+ * represent a newline at all, so the only thing available was to refuse the
+ * deployment — which is how a PEM key or a service-account JSON used to fail
+ * *after* its build had already succeeded, while the same value had passed the
+ * build fine as a `--build-arg`.
  *
- * The cost is that values are now visible in `ps` on the Forge host. They were
- * already readable there via `docker inspect`, and the host runs nothing but
- * this agent and the containers it starts.
+ * Names go in argv, values do not. `docker run --env KEY` with no `=` tells the
+ * client to read `KEY` from its own environment, so the value travels through the
+ * child process's environment block instead of its command line. That distinction
+ * is the whole point: `/proc/<pid>/cmdline` is world-readable, so `KEY=secret` in
+ * argv is legible to every local account and to anything that can see the host
+ * `/proc` — whereas `/proc/<pid>/environ` is readable only by the process owner
+ * and root. `docker inspect` is not an equivalent exposure either; it needs
+ * membership of the `docker` group.
+ *
+ * `spawnExec` never goes through a shell, so nothing re-interprets a value on the
+ * way either.
  */
-export function renderEnvArgs(env: Record<string, string>): string[] {
+export interface RenderedEnv {
+  /** `--env KEY` pairs. Never carries a value. */
+  args: string[];
+  /** Merged into the docker client's own environment. */
+  env: Record<string, string>;
+}
+
+/**
+ * Names that would reconfigure the docker client itself rather than the
+ * container. `spawnExec` merges the caller's env over the agent's, so a
+ * deployment variable called `DOCKER_HOST` would silently point this build at
+ * another daemon.
+ */
+const RESERVED_CLIENT_ENV = new Set([
+  "DOCKER_API_VERSION",
+  "DOCKER_CERT_PATH",
+  "DOCKER_CONFIG",
+  "DOCKER_CONTEXT",
+  "DOCKER_HOST",
+  "DOCKER_TLS_VERIFY",
+]);
+
+export function renderEnvArgs(env: Record<string, string>): RenderedEnv {
   const args: string[] = [];
+  const passthrough: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
     if (!ENV_KEY_PATTERN.test(key)) {
       throw new RunError(`Environment key is not a valid identifier: ${key}`);
     }
-    args.push("--env", `${key}=${value}`);
+    if (RESERVED_CLIENT_ENV.has(key)) {
+      throw new RunError(
+        `Environment key ${key} would reconfigure the docker client`,
+      );
+    }
+    args.push("--env", key);
+    passthrough[key] = value;
   }
-  return args;
+  return { args, env: passthrough };
 }
 
 export function healthUrl(port: number, healthPath: string): string {
@@ -264,10 +298,11 @@ export function containerCreateArgs(options: {
    * start command was already baked in at build time as `--start-cmd`.
    */
   command?: readonly string[];
-}): string[] {
+}): { command: string[]; env: Record<string, string> } {
   const { request } = options;
   const memory = `${request.runtime.memoryLimitMb}m`;
-  return [
+  const rendered = renderEnvArgs({ ...RUN_DEFAULT_ENV, ...options.env });
+  const command = [
     "docker",
     "run",
     "--detach",
@@ -306,9 +341,10 @@ export function containerCreateArgs(options: {
     "max-size=10m",
     "--log-opt",
     "max-file=3",
-    ...renderEnvArgs({ ...RUN_DEFAULT_ENV, ...options.env }),
+    ...rendered.args,
     // After the deployment's own vars, so the resolved container port wins over
-    // anything stored under the same name.
+    // anything stored under the same name. Inline because a port is not a secret
+    // and this must beat whatever the passthrough set.
     "--env",
     `PORT=${options.containerPort}`,
     "--publish",
@@ -324,6 +360,7 @@ export function containerCreateArgs(options: {
     options.imageTag,
     ...(options.command ?? []),
   ];
+  return { command, env: rendered.env };
 }
 
 /**
@@ -356,17 +393,19 @@ export async function startContainer(options: RunOptions): Promise<RunOutcome> {
   log.note(
     `starting ${name} on 127.0.0.1:${options.port} → container port ${containerPort}`,
   );
+  const create = containerCreateArgs({
+    request,
+    imageTag: options.imageTag,
+    port: options.port,
+    containerPort,
+    network: options.network,
+    env: options.env,
+    name,
+    command: startCommandArgs(request, options.builder),
+  });
   const created = await execOrThrow(exec, "docker run", {
-    command: containerCreateArgs({
-      request,
-      imageTag: options.imageTag,
-      port: options.port,
-      containerPort,
-      network: options.network,
-      env: options.env,
-      name,
-      command: startCommandArgs(request, options.builder),
-    }),
+    command: create.command,
+    env: create.env,
     signal,
     timeoutMs: 120_000,
   });
@@ -767,24 +806,36 @@ export async function applyDeploymentEnv(
     timeoutMs: 60_000,
   });
 
+  // The inspect above proved a container exists under `name`, so a rename that
+  // fails here is a real fault — a leftover `-prev` that would not remove, or a
+  // daemon problem — not "there was nothing to replace". Continuing would create
+  // the replacement with no rollback available, so this stops instead. Nothing
+  // has been touched at this point, so the running container is still serving.
   const renamed = await exec({
     command: ["docker", "rename", name, previous],
     signal,
     timeoutMs: 30_000,
   });
-  const hadPrevious = renamed.exitCode === 0;
-  if (hadPrevious) {
-    // Both containers publish the same loopback port, so the old one has to let
-    // go of it before the new one can bind.
-    await exec({
-      command: ["docker", "stop", "--time", "10", previous],
-      signal,
-      timeoutMs: 120_000,
-    });
+  if (renamed.exitCode !== 0) {
+    return {
+      recreated: false,
+      containerId: null,
+      healthy: false,
+      rolledBack: false,
+      error:
+        renamed.stderr.trim() ||
+        `Could not set the current container aside (docker rename exited ${renamed.exitCode})`,
+    };
   }
+  // Both containers publish the same loopback port, so the old one has to let go
+  // of it before the new one can bind.
+  await exec({
+    command: ["docker", "stop", "--time", "10", previous],
+    signal,
+    timeoutMs: 120_000,
+  });
 
   const restorePrevious = async (): Promise<boolean> => {
-    if (!hadPrevious) return false;
     await exec({
       command: ["docker", "rm", "--force", name],
       signal,
@@ -808,17 +859,19 @@ export async function applyDeploymentEnv(
     note(
       `recreating ${name} on 127.0.0.1:${options.port} → container port ${spec.containerPort}`,
     );
+    const create = containerCreateArgs({
+      request,
+      imageTag: spec.imageTag,
+      port: options.port,
+      containerPort: spec.containerPort,
+      network: options.network,
+      env: options.env,
+      name,
+      command: spec.command,
+    });
     const created = await execOrThrow(exec, "docker run", {
-      command: containerCreateArgs({
-        request,
-        imageTag: spec.imageTag,
-        port: options.port,
-        containerPort: spec.containerPort,
-        network: options.network,
-        env: options.env,
-        name,
-        command: spec.command,
-      }),
+      command: create.command,
+      env: create.env,
       signal,
       timeoutMs: 120_000,
     });
@@ -842,13 +895,11 @@ export async function applyDeploymentEnv(
       cancelledMessage: "Environment apply cancelled",
     });
 
-    if (hadPrevious) {
-      await exec({
-        command: ["docker", "rm", "--force", previous],
-        signal,
-        timeoutMs: 60_000,
-      });
-    }
+    await exec({
+      command: ["docker", "rm", "--force", previous],
+      signal,
+      timeoutMs: 60_000,
+    });
     return {
       recreated: true,
       containerId,
@@ -867,9 +918,7 @@ export async function applyDeploymentEnv(
       rolledBack,
       error: rolledBack
         ? `${message}. The previous container was restored.`
-        : hadPrevious
-          ? `${message}. The previous container could not be restored.`
-          : message,
+        : `${message}. The previous container could not be restored.`,
     };
   }
 }

@@ -37,50 +37,47 @@ function recordingRoutes(): RouteManager & { published: string[] } {
 const noSleep = async (): Promise<void> => {};
 
 describe("renderEnvArgs", () => {
-  it("emits one --env flag per variable", () => {
-    expect(renderEnvArgs({ A: "1", B: "two words" })).toEqual([
-      "--env",
-      "A=1",
-      "--env",
-      "B=two words",
-    ]);
+  it("puts names in argv and values in the child environment", () => {
+    // `/proc/<pid>/cmdline` is world-readable and `/proc/<pid>/environ` is not,
+    // so a value must never reach the command line.
+    expect(renderEnvArgs({ A: "1", B: "two words" })).toEqual({
+      args: ["--env", "A", "--env", "B"],
+      env: { A: "1", B: "two words" },
+    });
   });
 
   // Every one of these either failed the deployment outright or arrived at the
   // container altered, back when this rendered a `docker --env-file`.
-  it("carries values argv cannot misread", () => {
+  it("carries values a line-based format cannot represent", () => {
     const pem = "-----BEGIN KEY-----\nabc\ndef\n-----END KEY-----\n";
-    expect(renderEnvArgs({ PEM: pem })).toEqual(["--env", `PEM=${pem}`]);
-    expect(
-      renderEnvArgs({
-        QUOTED: '"quoted"',
-        DOLLAR: "$HOME and ${OTHER}",
-        HASH: "value # not a comment",
-        EQUALS: "a=b=c",
-        SPACED: "  leading and trailing  ",
-        UNICODE: "café 🚀",
-        EMPTY: "",
-      }),
-    ).toEqual([
-      "--env",
-      'QUOTED="quoted"',
-      "--env",
-      "DOLLAR=$HOME and ${OTHER}",
-      "--env",
-      "HASH=value # not a comment",
-      "--env",
-      "EQUALS=a=b=c",
-      "--env",
-      "SPACED=  leading and trailing  ",
-      "--env",
-      "UNICODE=café 🚀",
-      "--env",
-      "EMPTY=",
-    ]);
+    expect(renderEnvArgs({ PEM: pem })).toEqual({
+      args: ["--env", "PEM"],
+      env: { PEM: pem },
+    });
+    const awkward = {
+      QUOTED: '"quoted"',
+      DOLLAR: "$HOME and ${OTHER}",
+      HASH: "value # not a comment",
+      EQUALS: "a=b=c",
+      SPACED: "  leading and trailing  ",
+      UNICODE: "café 🚀",
+      EMPTY: "",
+    };
+    const rendered = renderEnvArgs(awkward);
+    expect(rendered.env).toEqual(awkward);
+    expect(rendered.args).not.toContain("a=b=c");
   });
 
   it("refuses a key that is not an identifier", () => {
     expect(() => renderEnvArgs({ "not-a-key": "x" })).toThrow(RunError);
+  });
+
+  // The child env is merged over the agent's, so this would point the build at
+  // another daemon.
+  it("refuses a key that would reconfigure the docker client", () => {
+    expect(() => renderEnvArgs({ DOCKER_HOST: "tcp://evil:2375" })).toThrow(
+      /reconfigure the docker client/,
+    );
   });
 });
 
@@ -243,17 +240,20 @@ describe("runDeployment", () => {
     });
   });
 
-  it("passes env as argv, with the resolved port winning over a stored one", async () => {
+  it("keeps env values out of argv and passes them through the child env", async () => {
     await withTempDir(async (dir) => {
       const { promise, exec } = deploy(dir);
       await promise;
-      const run = exec.find("docker run")?.command ?? [];
+      const call = exec.find("docker run");
+      const run = call?.command ?? [];
       expect(run).not.toContain("--env-file");
-      expect(run).toContain("DATABASE_URL=postgres://x");
+      expect(run).toContain("DATABASE_URL");
+      expect(run.join(" ")).not.toContain("postgres://x");
+      expect(call?.env).toMatchObject({ DATABASE_URL: "postgres://x" });
       // Last --env wins in docker, so PORT has to come after the deployment's
       // own variables or an app is told to listen on the wrong one.
       expect(run.lastIndexOf("PORT=3000")).toBeGreaterThan(
-        run.indexOf("DATABASE_URL=postgres://x"),
+        run.indexOf("DATABASE_URL"),
       );
     });
   });
@@ -440,8 +440,11 @@ describe("applyDeploymentEnv", () => {
     // Renamed aside, then stopped, before anything is created.
     expect(exec.commands).toContain(`docker rename ${name} ${name}-prev`);
     expect(exec.commands).toContain(`docker stop --time 10 ${name}-prev`);
-    const run = exec.find("docker run")?.command ?? [];
-    expect(run).toContain("DATABASE_URL=postgres://new");
+    const call = exec.find("docker run");
+    const run = call?.command ?? [];
+    expect(run).toContain("DATABASE_URL");
+    expect(run.join(" ")).not.toContain("postgres://new");
+    expect(call?.env).toMatchObject({ DATABASE_URL: "postgres://new" });
     expect(run).toContain(`--name`);
     expect(run).toContain(name);
     // Same published port, so the Caddy route still points at it.
@@ -487,6 +490,25 @@ describe("applyDeploymentEnv", () => {
     expect(
       exec.commands.indexOf(`docker rm --force ${name}-prev`),
     ).toBeLessThan(exec.commands.indexOf(`docker rename ${name} ${name}-prev`));
+  });
+
+  // A container was proved to exist by the inspect, so a rename failure is a real
+  // fault. Continuing would build the replacement with no rollback available.
+  it("refuses without touching anything when the container cannot be set aside", async () => {
+    const { promise, exec, request } = apply({
+      responder: (call) =>
+        call.command.join(" ").startsWith("docker rename")
+          ? { exitCode: 1, stderr: "name already in use\n" }
+          : undefined,
+    });
+    const result = await promise;
+    const name = containerNameFor(request.deploymentId);
+
+    expect(result.recreated).toBe(false);
+    expect(result.rolledBack).toBe(false);
+    expect(result.error).toBe("name already in use");
+    expect(exec.find("docker run")).toBeUndefined();
+    expect(exec.commands).not.toContain(`docker stop --time 10 ${name}-prev`);
   });
 
   it("reports honestly when the rollback itself fails", async () => {

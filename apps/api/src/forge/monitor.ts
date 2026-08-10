@@ -28,6 +28,18 @@ export class ForgeAgentUnavailableError extends CloudCoreError {
   }
 }
 
+/** The agent answered, and refused. Distinct from it not being configured. */
+export class ForgeAgentRequestError extends CloudCoreError {
+  readonly status = 503;
+
+  constructor(detail: string) {
+    super(
+      `The Forge deploy agent refused the request log: ${detail}`,
+      "FORGE_AGENT_REQUEST_FAILED",
+    );
+  }
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -118,6 +130,18 @@ export class ForgeMonitor {
     const response = await this.#options.deployAgent.json<unknown>(
       `/deployments/${encodeURIComponent(deploymentId)}/requests?limit=${limit}`,
     );
+    // A non-2xx body is an error envelope, not a record list. Parsing it would
+    // surface as a zod failure naming fields the caller never sent, so the status
+    // is checked first and reported as what it is.
+    if (response.status < 200 || response.status >= 300) {
+      throw new ForgeAgentRequestError(
+        typeof response.body === "object" &&
+          response.body !== null &&
+          "error" in response.body
+          ? JSON.stringify((response.body as { error: unknown }).error)
+          : `status ${response.status}`,
+      );
+    }
     return z
       .object({ requests: z.array(forgeRequestLogRecordSchema) })
       .parse(response.body).requests;

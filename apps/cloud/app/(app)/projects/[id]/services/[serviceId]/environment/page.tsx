@@ -92,17 +92,17 @@ const emptyDraft: Draft = {
  * target: a stored dirty bit would still be set after the next deploy cleared it,
  * and would survive a page reload as a banner nobody can dismiss.
  */
-type EnvEffect = "rebuild" | "restart" | "none";
+type EnvEffect = "rebuild-production" | "rebuild-preview" | "restart" | "none";
 
 function effectOf(before: DeployEnvVar[], after: Draft[]): EnvEffect {
   const previous = new Map(before.map((row) => [row.key, row]));
-  const changed = new Set<string>();
+  const changed = new Map<string, DeployEnvScope>();
 
   for (const draft of after) {
     if (draft.key.length === 0) continue;
     const existing = previous.get(draft.key);
     if (!existing) {
-      changed.add(draft.key);
+      changed.set(draft.key, draft.scope);
       continue;
     }
     // A literal whose box was never touched keeps its stored value, so it did
@@ -113,17 +113,25 @@ function effectOf(before: DeployEnvVar[], after: Draft[]): EnvEffect {
       (draft.source === "literal" && draft.value.length > 0) ||
       (draft.source === "binding" && draft.reference !== existing.reference) ||
       (draft.source === "template" && draft.template !== existing.template);
-    if (valueMoved) changed.add(draft.key);
+    if (valueMoved) changed.set(draft.key, draft.scope);
   }
   const keys = new Set(after.map((draft) => draft.key));
   for (const row of before) {
-    if (!keys.has(row.key)) changed.add(row.key);
+    if (!keys.has(row.key)) changed.set(row.key, row.scope);
   }
 
   if (changed.size === 0) return "none";
-  return [...changed].some((key) => key.startsWith("NEXT_PUBLIC_"))
-    ? "rebuild"
-    : "restart";
+  const publicScopes = [...changed]
+    .filter(([key]) => key.startsWith("NEXT_PUBLIC_"))
+    .map(([, scope]) => scope);
+  if (publicScopes.length === 0) return "restart";
+  // The scope decides which build has to happen, and getting this wrong is not
+  // cosmetic: offering "Redeploy" for a preview-scoped variable would queue a
+  // production deployment off the production branch, shipping every commit that
+  // has landed there since the last release — none of which was asked for here.
+  return publicScopes.some((scope) => scope !== "preview")
+    ? "rebuild-production"
+    : "rebuild-preview";
 }
 
 export default function EnvironmentPage() {
@@ -182,14 +190,17 @@ export default function EnvironmentPage() {
             ? "No running deployment to update"
             : `Restarted ${report.applied} deployment${report.applied === 1 ? "" : "s"}`,
         );
+        setPending("none");
       } else {
         // Naming the deployment matters here: production may well have taken the
-        // change while one preview did not.
+        // change while one preview did not. The dialog deliberately stays open —
+        // those containers are still running the old environment, and closing it
+        // would leave a toast that disappears as the only trace, with no way back
+        // to the action short of editing a variable and saving again.
         for (const result of failed) {
           toast.error(`${result.hostname}: ${result.error ?? "failed"}`);
         }
       }
-      setPending("none");
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -344,31 +355,45 @@ export default function EnvironmentPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {pending === "rebuild" ? "Redeploy required" : "Restart required"}
+              {pending === "rebuild-production"
+                ? "Redeploy required"
+                : pending === "rebuild-preview"
+                  ? "Next preview build required"
+                  : "Restart required"}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {pending === "rebuild"
+              {pending === "rebuild-production"
                 ? "A NEXT_PUBLIC_ variable is compiled into the bundle, so this change needs a new build to take effect."
-                : "Running containers keep the environment they were created with, so they need to be recreated to pick this up."}
+                : pending === "rebuild-preview"
+                  ? "This NEXT_PUBLIC_ variable is scoped to preview and is compiled into the bundle, so it takes effect on the next preview build of its branch. There is nothing to redeploy from here."
+                  : "Running containers keep the environment they were created with, so they need to be recreated to pick this up."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={applying}>Later</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={applying}
-              onClick={(event) => {
-                // The action closes the dialog by default, and this work has to
-                // report back into it.
-                event.preventDefault();
-                void (pending === "rebuild" ? rebuildNow() : applyNow());
-              }}
-            >
-              {applying
-                ? "Working…"
-                : pending === "rebuild"
-                  ? "Redeploy"
-                  : "Restart"}
-            </AlertDialogAction>
+            <AlertDialogCancel disabled={applying}>
+              {pending === "rebuild-preview" ? "Got it" : "Later"}
+            </AlertDialogCancel>
+            {/* No action for the preview case: the only honest one would be a
+                production deployment, which is not what changed. */}
+            {pending === "rebuild-preview" ? null : (
+              <AlertDialogAction
+                disabled={applying}
+                onClick={(event) => {
+                  // The action closes the dialog by default, and this work has to
+                  // report back into it.
+                  event.preventDefault();
+                  void (pending === "rebuild-production"
+                    ? rebuildNow()
+                    : applyNow());
+                }}
+              >
+                {applying
+                  ? "Working…"
+                  : pending === "rebuild-production"
+                    ? "Redeploy"
+                    : "Restart"}
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

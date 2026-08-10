@@ -149,7 +149,25 @@ const app = createAgentApp({
     // Fetched here rather than accepted in the body for the same reason the
     // build path does it: a request body is logged and retried, a secret set
     // should be neither.
-    const resolved = await controlPlane.env(deploymentId);
+    //
+    // An unreachable control plane, or one answering a body the schema refuses,
+    // is reported as an apply result rather than allowed to become a 500. The
+    // route's contract is 200 or 409 with a structured result, and the cloud page
+    // reads `error` to name which deployment failed.
+    let resolved: Awaited<ReturnType<typeof controlPlane.env>>;
+    try {
+      resolved = await controlPlane.env(deploymentId);
+    } catch (error) {
+      return {
+        recreated: false,
+        containerId: null,
+        healthy: false,
+        rolledBack: false,
+        error: `Could not resolve the environment: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
     return applyDeploymentEnv({
       request: body.request,
       port,
@@ -176,11 +194,15 @@ const app = createAgentApp({
     }),
 });
 
-// Caddy opens the access-log files, but it will not create the directory holding
-// them, and a logger it cannot open is an error at load time rather than a
-// visibly broken deployment — routing keeps working and every request panel is
-// simply empty. Created here because both processes run as `forge` and this one
-// starts second.
+// Caddy opens the access-log files but will not create the directory holding
+// them, and a logger it cannot open makes Caddy reject the *entire* config — so
+// without this directory the next publish installs no servers at all. The
+// router's own fallback catches that and republishes without logging, which keeps
+// routing up; this is what stops it needing to. Before `caddy.restore()` below,
+// which is the first publish of the process.
+//
+// `forge-agent-install` also creates it as root, so this is the second line of
+// defence rather than the only one.
 await mkdir(config.accessLogRoot, { recursive: true, mode: 0o750 }).catch(
   (error: unknown) => {
     logger.error("could not create the access log directory", {

@@ -175,6 +175,14 @@ interface Cursor {
   offset: number;
   /** Carried across reads so a record split by a chunk boundary survives. */
   partial: string;
+  /**
+   * Identifies the file itself, not its name. Caddy rolls by renaming and opening
+   * a fresh file, so the path outlives the inode — and a size comparison alone
+   * misses the roll whenever the new file has already grown past the old offset
+   * by the next poll, which then reads from the middle of a record.
+   */
+  dev: number;
+  ino: number;
 }
 
 /**
@@ -197,8 +205,21 @@ export class RequestLogStore {
     this.#root = options.root;
   }
 
+  /**
+   * Guarded here as well as at the route, because this is where a name becomes a
+   * path: a caller passing `../../var/log/syslog` would otherwise read outside the
+   * access root. The route rejecting non-uuids is the first line, this is the one
+   * that holds if another caller is added later.
+   */
   pathFor(deploymentId: string): string {
-    return join(this.#root, `${deploymentId}.log`);
+    if (deploymentId.includes("/") || deploymentId.includes("\\")) {
+      throw new Error(`Unsafe deployment id: ${deploymentId}`);
+    }
+    const path = join(this.#root, `${deploymentId}.log`);
+    if (!path.startsWith(`${this.#root}/`)) {
+      throw new Error(`Unsafe deployment id: ${deploymentId}`);
+    }
+    return path;
   }
 
   /** Stops tracking a deployment whose container has gone. */
@@ -229,15 +250,30 @@ export class RequestLogStore {
     }
 
     try {
-      const { size } = await handle.stat();
+      const stats = await handle.stat();
+      const { size } = stats;
       const cursor = this.#cursors.get(deploymentId);
       if (!cursor) {
-        this.#cursors.set(deploymentId, { offset: size, partial: "" });
+        this.#cursors.set(deploymentId, {
+          offset: size,
+          partial: "",
+          dev: stats.dev,
+          ino: stats.ino,
+        });
         return [];
       }
-      if (size < cursor.offset) {
+      // A different inode is a different file: Caddy rolled and this is the
+      // replacement, so read it from the start. A shrink is the same conclusion
+      // reached the other way, kept for a writer that truncates in place.
+      if (
+        stats.dev !== cursor.dev ||
+        stats.ino !== cursor.ino ||
+        size < cursor.offset
+      ) {
         cursor.offset = 0;
         cursor.partial = "";
+        cursor.dev = stats.dev;
+        cursor.ino = stats.ino;
       }
       if (size === cursor.offset) return [];
 

@@ -15,6 +15,7 @@ import { deploymentRequest } from "./fixtures";
 import type { HealthService } from "./health";
 import { DeploymentQueue } from "./queue";
 import { createAgentApp } from "./routes";
+import type { ApplyEnvResult } from "./run";
 import type { ForgeTelemetry } from "./telemetry";
 
 const TOKEN = "t".repeat(32);
@@ -64,6 +65,7 @@ function app(
     status?: AgentHealth["status"];
     logRoot?: string;
     telemetry?: ForgeTelemetry;
+    applyEnvResult?: ApplyEnvResult;
   } = {},
 ) {
   const queue = new DeploymentQueue({
@@ -120,13 +122,15 @@ function app(
       },
       applyEnv: async (request) => {
         envApplied.push(request);
-        return {
-          recreated: true,
-          containerId: "container-new",
-          healthy: true,
-          rolledBack: false,
-          error: null,
-        };
+        return (
+          options.applyEnvResult ?? {
+            recreated: true,
+            containerId: "container-new",
+            healthy: true,
+            rolledBack: false,
+            error: null,
+          }
+        );
       },
       rehost: async (deploymentId, hostnames, routeOptions) => {
         if (!routes.some((route) => route.deploymentId === deploymentId)) {
@@ -487,9 +491,50 @@ describe("POST /deployments/:id/apply-env", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
-      error: "DEPLOYMENT_ID_MISMATCH",
+      error: { code: "DEPLOYMENT_ID_MISMATCH" },
     });
     expect(envApplied).toHaveLength(0);
+  });
+
+  // The cloud page reads the status to decide whether to report a per-deployment
+  // failure, so a regression that always answered 200 has to fail here.
+  it("answers 409 when the apply did not recreate the container", async () => {
+    const { instance } = app({
+      applyEnvResult: {
+        recreated: false,
+        containerId: null,
+        healthy: false,
+        rolledBack: true,
+        error: "health check failed. The previous container was restored.",
+      },
+    });
+    const response = await instance.request(
+      `/deployments/${request.deploymentId}/apply-env`,
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body,
+      },
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      recreated: false,
+      rolledBack: true,
+    });
+  });
+
+  // The id becomes a path segment under the access-log root.
+  it("refuses a non-uuid deployment id on the requests route", async () => {
+    const { instance } = app();
+    const response = await instance.request(
+      `/deployments/${encodeURIComponent("../../etc/passwd")}/requests`,
+      { headers: AUTH },
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: "INVALID_DEPLOYMENT_ID" },
+    });
   });
 
   it("refuses a malformed body", async () => {

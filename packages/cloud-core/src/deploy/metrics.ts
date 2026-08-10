@@ -1,5 +1,5 @@
 import type { MetricSeries } from "@repo/schemas/cloud";
-import { and, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
 import {
@@ -58,6 +58,17 @@ export interface ProjectMetricsQuery {
 }
 
 /**
+ * Most deployments any one series will span.
+ *
+ * Each metric issues one query filtering `metrics_samples` on a key array of this
+ * size, served by the `(kind, key, interval_seconds, ts)` index. The cap is what
+ * stops a long window over a busy project turning into an array of thousands —
+ * newest first, so a truncated window loses the oldest deployments rather than the
+ * ones anyone is looking at.
+ */
+const MAX_DEPLOYMENTS_PER_SERIES = 200;
+
+/**
  * Which of a project's deployments could have produced samples in the window.
  *
  * Filtered by lifetime rather than by "is it live now": the whole point of a
@@ -84,7 +95,9 @@ async function deploymentKeysFor(
           gte(deployments.stoppedAt, new Date(query.from)),
         ),
       ),
-    );
+    )
+    .orderBy(desc(deployments.createdAt))
+    .limit(MAX_DEPLOYMENTS_PER_SERIES);
   return rows.map((row) => row.id);
 }
 

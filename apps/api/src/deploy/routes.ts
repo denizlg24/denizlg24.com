@@ -246,7 +246,11 @@ function serializeTarget(
   };
 }
 
-function serializeDeployment(row: DeploymentRow) {
+function serializeDeployment(
+  row: DeploymentRow,
+  /** The target's primary domain, when the caller has it to hand. */
+  resolvableHostname?: string | null,
+) {
   return {
     id: row.id,
     targetId: row.targetId,
@@ -257,7 +261,17 @@ function serializeDeployment(row: DeploymentRow) {
     gitSha: row.gitSha,
     gitMessage: row.gitMessage,
     hostname: row.hostname,
-    url: `https://${row.hostname}`,
+    // A production deployment with no record of its own is not reachable on its
+    // own hostname: that name is generated per deployment and its record is
+    // deliberately not created once the target has a stable domain, because
+    // nothing resolves it and the zone has only 200 records. The stable domain is
+    // where it actually answers, so that is what `url` has to be — a link to the
+    // ephemeral name would simply fail to open.
+    url: `https://${
+      row.kind === "production" && row.dnsRecordId === null
+        ? (resolvableHostname ?? row.hostname)
+        : row.hostname
+    }`,
     port: row.port,
     imageTag: row.imageTag,
     containerId: row.containerId,
@@ -713,12 +727,15 @@ export function deployRoutes(options: DeployRouteOptions) {
           .where(eq(deployments.targetId, row.target.id))
           .orderBy(desc(deployments.createdAt))
           .limit(1);
+        const primary = await primaryHostname(row.target.id);
         return {
           ...serializeTarget(row.target, {
             projectSlug: row.projectSlug,
-            primaryHostname: await primaryHostname(row.target.id),
+            primaryHostname: primary,
           }),
-          latestDeployment: latest ? serializeDeployment(latest) : null,
+          latestDeployment: latest
+            ? serializeDeployment(latest, primary)
+            : null,
         };
       }),
     );
@@ -1251,8 +1268,9 @@ export function deployRoutes(options: DeployRouteOptions) {
         .select({ total: sql<number>`count(*)::int` })
         .from(deployments)
         .where(eq(deployments.targetId, target.id));
+      const primary = await primaryHostname(target.id);
       return context.json({
-        data: rows.map(serializeDeployment),
+        data: rows.map((row) => serializeDeployment(row, primary)),
         pagination: {
           page: query.page,
           limit: query.limit,
@@ -1528,7 +1546,12 @@ export function deployRoutes(options: DeployRouteOptions) {
         createdBy: context.get("user").id,
       });
       await options.github?.surfaces.onEnqueued(created, target);
-      return context.json({ data: serializeDeployment(created) }, 202);
+      return context.json(
+        {
+          data: serializeDeployment(created, await primaryHostname(target.id)),
+        },
+        202,
+      );
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1538,7 +1561,9 @@ export function deployRoutes(options: DeployRouteOptions) {
   owner.get("/deployments/:id", async (context) => {
     try {
       const row = await loadDeployment(context.req.param("id"));
-      return context.json({ data: serializeDeployment(row) });
+      return context.json({
+        data: serializeDeployment(row, await primaryHostname(row.targetId)),
+      });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1612,7 +1637,10 @@ export function deployRoutes(options: DeployRouteOptions) {
         });
         await forge.releaseDeployment(row);
         return context.json({
-          data: serializeDeployment(cancelled ?? row),
+          data: serializeDeployment(
+            cancelled ?? row,
+            await primaryHostname(row.targetId),
+          ),
         });
       }
       const response = await agentProxy.post(`/deployments/${row.id}/cancel`);
@@ -1670,7 +1698,12 @@ export function deployRoutes(options: DeployRouteOptions) {
         prNumber: row.prNumber,
       });
       await options.github?.surfaces.onEnqueued(created, target);
-      return context.json({ data: serializeDeployment(created) }, 202);
+      return context.json(
+        {
+          data: serializeDeployment(created, await primaryHostname(target.id)),
+        },
+        202,
+      );
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1701,7 +1734,12 @@ export function deployRoutes(options: DeployRouteOptions) {
         createdBy: context.get("user").id,
       });
       await options.github?.surfaces.onEnqueued(created, target);
-      return context.json({ data: serializeDeployment(created) }, 202);
+      return context.json(
+        {
+          data: serializeDeployment(created, await primaryHostname(target.id)),
+        },
+        202,
+      );
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1742,7 +1780,10 @@ export function deployRoutes(options: DeployRouteOptions) {
         // second promote is idempotent where a revert is not.
         return context.json(
           {
-            data: serializeDeployment(promoted),
+            data: serializeDeployment(
+              promoted,
+              await primaryHostname(promoted.targetId),
+            ),
             warning: "The agent did not confirm the route change",
           },
           202,
@@ -1755,7 +1796,12 @@ export function deployRoutes(options: DeployRouteOptions) {
           keepDeploymentId: promoted.id,
         }),
       );
-      return context.json({ data: serializeDeployment(promoted) });
+      return context.json({
+        data: serializeDeployment(
+          promoted,
+          await primaryHostname(promoted.targetId),
+        ),
+      });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1830,72 +1876,85 @@ export function deployRoutes(options: DeployRouteOptions) {
         ),
       });
 
-      const results = await Promise.all(
-        live.map(async (row) => {
-          const outcome = {
-            deploymentId: row.id,
-            kind: row.kind,
-            hostname: row.hostname,
-          };
-          if (!row.imageTag) {
-            return {
-              ...outcome,
-              recreated: false,
-              healthy: false,
-              rolledBack: false,
-              error: "The deployment has no image recorded",
-            };
-          }
-          try {
-            const response = await agentProxy.json<AgentApplyEnvResult | null>(
-              `/deployments/${row.id}/apply-env`,
-              {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  request: toAgentRequest({
-                    deployment: row,
-                    target,
-                    projectSlug: project.slug,
-                  }),
-                  imageTag: row.imageTag,
-                  port: row.port,
-                }),
-                // The agent gates the replacement on the same 90s health
-                // deadline a deploy uses; the proxy default is a fifth of that.
-                timeoutMs: APPLY_ENV_TIMEOUT_MS,
-              },
-            );
-            const body = response.body;
-            // A recreated container is a new container id, and the row still
-            // names the old one — which the runtime-log route and the restart
-            // route both read to find something that no longer exists.
-            if (body?.recreated && body.containerId) {
-              await db
-                .update(deployments)
-                .set({ containerId: body.containerId })
-                .where(eq(deployments.id, row.id));
-            }
-            return {
-              ...outcome,
-              recreated: body?.recreated ?? false,
-              healthy: body?.healthy ?? false,
-              rolledBack: body?.rolledBack ?? false,
-              error:
-                body?.error ??
-                (body ? null : "The agent refused the environment apply"),
-            };
-          } catch (error) {
-            return {
-              ...outcome,
-              recreated: false,
-              healthy: false,
-              rolledBack: false,
-              error: error instanceof Error ? error.message : String(error),
-            };
-          }
-        }),
+      // One at a time, production first. Each replacement starts a new container
+      // while the old one is still stopping, so a concurrent pass would hold two
+      // containers per deployment at once and briefly double the target's whole
+      // memory footprint — on a host where `enqueueDeployment` takes a capacity
+      // lock and refuses a single build that would not fit. Serialising keeps the
+      // extra to one container's worth, and puts production at the front so the
+      // release that matters is applied before any preview can fail.
+      const ordered = [...live].sort((left, right) =>
+        left.kind === right.kind ? 0 : left.kind === "production" ? -1 : 1,
       );
+      const applyTo = async (row: (typeof ordered)[number]) => {
+        const outcome = {
+          deploymentId: row.id,
+          kind: row.kind,
+          hostname: row.hostname,
+        };
+        if (!row.imageTag) {
+          return {
+            ...outcome,
+            recreated: false,
+            healthy: false,
+            rolledBack: false,
+            error: "The deployment has no image recorded",
+          };
+        }
+        try {
+          const response = await agentProxy.json<AgentApplyEnvResult | null>(
+            `/deployments/${row.id}/apply-env`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                request: toAgentRequest({
+                  deployment: row,
+                  target,
+                  projectSlug: project.slug,
+                }),
+                imageTag: row.imageTag,
+                port: row.port,
+              }),
+              // The agent gates the replacement on the same 90s health
+              // deadline a deploy uses; the proxy default is a fifth of that.
+              timeoutMs: APPLY_ENV_TIMEOUT_MS,
+            },
+          );
+          const body = response.body;
+          // A recreated container is a new container id, and the row still
+          // names the old one — which the runtime-log route and the restart
+          // route both read to find something that no longer exists.
+          if (body?.recreated && body.containerId) {
+            await db
+              .update(deployments)
+              .set({ containerId: body.containerId })
+              .where(eq(deployments.id, row.id));
+          }
+          return {
+            ...outcome,
+            recreated: body?.recreated ?? false,
+            healthy: body?.healthy ?? false,
+            rolledBack: body?.rolledBack ?? false,
+            error:
+              body?.error ??
+              (body ? null : "The agent refused the environment apply"),
+          };
+        } catch (error) {
+          return {
+            ...outcome,
+            recreated: false,
+            healthy: false,
+            rolledBack: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      };
+
+      const results: Awaited<ReturnType<typeof applyTo>>[] = [];
+      for (const row of ordered) {
+        results.push(await applyTo(row));
+      }
 
       return context.json({
         data: {
@@ -2008,6 +2067,17 @@ export function deployRoutes(options: DeployRouteOptions) {
   owner.delete("/domains/:id", async (context) => {
     try {
       const row = await loadDeployDomain(db, context.req.param("id"));
+      // The dashboard hides this control for a generated domain, but hiding a
+      // button is not enforcement. A generated `<slug>.<zone>` is the only URL a
+      // target has before a real domain is attached, and it is retired
+      // automatically once one is active — deleting it by hand leaves the target
+      // with no name at all and no way to get one back short of recreating it.
+      if (row.origin === "generated" && row.retiredAt === null) {
+        throw new ConflictError(
+          "A generated domain is retired automatically once a domain you added is active",
+          "DOMAIN_GENERATED",
+        );
+      }
       await deleteDeployDomain(domainContext, row);
       await forge.republishTargetRoutes(row.targetId);
       return context.json({ data: { id: row.id } });

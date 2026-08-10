@@ -21,6 +21,13 @@ export const UNGROUPED = "—";
 export function groupByProject<T>(
   items: readonly T[],
   select: (item: T) => { projectSlug: string | null; kind: string | null },
+  /**
+   * `"alphabetical"` for a list with no order of its own. `"input"` keeps the
+   * order the items arrived in, which is what a server-sorted list needs: a page
+   * sorted by build time or status, then regrouped alphabetically, no longer runs
+   * top-to-bottom in the order the sort control claims.
+   */
+  order: "alphabetical" | "input" = "alphabetical",
 ): ProjectGroup<T>[] {
   const groups = new Map<string, ProjectGroup<T>>();
 
@@ -42,7 +49,11 @@ export function groupByProject<T>(
     groups.set(slug, group);
   }
 
-  return [...groups.values()].sort((left, right) => {
+  // Insertion order is first-appearance order, which is exactly what `"input"`
+  // wants.
+  const ordered = [...groups.values()];
+  if (order === "input") return ordered;
+  return ordered.sort((left, right) => {
     // The unlabelled bucket last, whatever it sorts as alphabetically.
     if (left.projectSlug === UNGROUPED) return 1;
     if (right.projectSlug === UNGROUPED) return -1;

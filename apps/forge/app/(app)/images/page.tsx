@@ -14,10 +14,14 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
-import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeading } from "@/components/page-heading";
 import { api } from "@/lib/api";
+import {
+  activeProject,
+  ProjectFilter,
+  ProjectGroupRow,
+} from "../_components/project-group-ui";
 import { groupByProject } from "../_components/project-groups";
 
 const COLUMNS = 6;
@@ -37,8 +41,9 @@ export default function ImagesPage() {
       })),
     [images],
   );
-  const shown = project
-    ? groups.filter((group) => group.projectSlug === project)
+  const active = activeProject(groups, project);
+  const shown = active
+    ? groups.filter((group) => group.projectSlug === active)
     : groups;
 
   const toggle = (slug: string) =>
@@ -105,37 +110,11 @@ export default function ImagesPage() {
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
       {data ? (
         <>
-          {groups.length > 1 ? (
-            <div className="flex flex-wrap items-center gap-1">
-              <button
-                type="button"
-                aria-pressed={project === null}
-                onClick={() => setProject(null)}
-                className={
-                  project === null
-                    ? "rounded-full bg-foreground px-2 py-0.5 text-[11px] text-background transition-colors"
-                    : "rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                }
-              >
-                all
-              </button>
-              {groups.map((group) => (
-                <button
-                  key={group.projectSlug}
-                  type="button"
-                  aria-pressed={project === group.projectSlug}
-                  onClick={() => setProject(group.projectSlug)}
-                  className={
-                    project === group.projectSlug
-                      ? "rounded-full bg-foreground px-2 py-0.5 text-[11px] text-background transition-colors"
-                      : "rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                  }
-                >
-                  {group.projectSlug}
-                </button>
-              ))}
-            </div>
-          ) : null}
+          <ProjectFilter
+            groups={groups}
+            selected={project}
+            onSelect={setProject}
+          />
 
           <Table>
             <TableHeader>
@@ -149,36 +128,21 @@ export default function ImagesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {shown.map((group) => {
+              {shown.flatMap((group) => {
                 const isCollapsed = collapsed.has(group.projectSlug);
                 const bytes = group.all.reduce(
                   (sum, image) => sum + image.sizeBytes,
                   0,
                 );
                 return [
-                  <TableRow
+                  <ProjectGroupRow
                     key={`${group.projectSlug}-group`}
-                    className="bg-muted/30"
-                  >
-                    <TableCell colSpan={COLUMNS} className="py-1.5">
-                      <button
-                        type="button"
-                        onClick={() => toggle(group.projectSlug)}
-                        aria-expanded={!isCollapsed}
-                        className="flex items-center gap-1.5 text-xs font-medium"
-                      >
-                        {isCollapsed ? (
-                          <ChevronRight className="size-3.5 text-muted-foreground" />
-                        ) : (
-                          <ChevronDown className="size-3.5 text-muted-foreground" />
-                        )}
-                        {group.projectSlug}
-                        <span className="text-[11px] font-normal text-muted-foreground tabular-nums">
-                          {group.all.length} · {formatBytes(bytes)}
-                        </span>
-                      </button>
-                    </TableCell>
-                  </TableRow>,
+                    slug={group.projectSlug}
+                    detail={`${group.all.length} · ${formatBytes(bytes)}`}
+                    columns={COLUMNS}
+                    collapsed={isCollapsed}
+                    onToggle={() => toggle(group.projectSlug)}
+                  />,
                   ...(isCollapsed
                     ? []
                     : [

@@ -130,14 +130,18 @@ export class ForgeTelemetry {
       }
     }
 
-    const stats = await Promise.all(
-      [...live].map(async (deploymentId) => {
+    // Bounded like the container-stats pass above it, and for the same reason:
+    // one open descriptor and one read buffer per live deployment at once is an
+    // unbounded burst on a host with many of them.
+    return mapWithConcurrency(
+      [...live],
+      METRICS_CONCURRENCY,
+      async (deploymentId) => {
         this.#tracked.add(deploymentId);
         const records = await store.drain(deploymentId).catch(() => []);
         return summariseRequests(deploymentId, records);
-      }),
+      },
     );
-    return stats;
   }
 
   async logs(

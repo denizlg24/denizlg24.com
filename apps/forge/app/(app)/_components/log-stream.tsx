@@ -45,12 +45,28 @@ export function LogStream({
     setDetail(null);
     stick.current = true;
     let seen = false;
+    // Buffered and flushed on a timer rather than appended per line. A build log
+    // replays from its first line as fast as the socket delivers, so a render per
+    // line means thousands of copies of a growing array for one open — and the
+    // trimming only has to hold once per flush, not once per line.
+    let buffered: string[] = [];
+    let flush: ReturnType<typeof setTimeout> | null = null;
+    const drain = () => {
+      flush = null;
+      const batch = buffered;
+      buffered = [];
+      if (batch.length === 0) return;
+      setLines((current) => [...current, ...batch].slice(-MAX_LINES));
+    };
+
     subscribe((line) => {
       if (!seen) {
         seen = true;
         setStatus("streaming");
       }
-      setLines((current) => [...current, line].slice(-MAX_LINES));
+      buffered.push(line);
+      if (buffered.length > MAX_LINES) buffered = buffered.slice(-MAX_LINES);
+      if (flush === null) flush = setTimeout(drain, 100);
     }, controller.signal)
       .then(() => {
         if (!controller.signal.aborted) setStatus("ended");
@@ -59,8 +75,16 @@ export function LogStream({
         if (controller.signal.aborted) return;
         setStatus("error");
         setDetail(errorMessage(streamError));
+      })
+      // Whatever is still buffered when the stream ends has to land, or the last
+      // few lines of a short log are never shown.
+      .finally(() => {
+        if (!controller.signal.aborted) drain();
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (flush !== null) clearTimeout(flush);
+    };
     // `subscribe` is a fresh closure on every render; `resetKey` is what
     // actually identifies the stream.
     // eslint-disable-next-line react-hooks/exhaustive-deps
