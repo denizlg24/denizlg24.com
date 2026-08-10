@@ -407,6 +407,13 @@ export interface PerformanceOptions {
    * of those calls would otherwise pay for the full scan and mapping.
    */
   intraday?: boolean;
+  /**
+   * How stale a cached quote may be before this read refreshes it, overriding
+   * the service default. Background callers pass the session's cadence so a
+   * snapshot taken against a closed market does not spend a provider request on
+   * a price that cannot have moved.
+   */
+  quoteMaxAgeMs?: number;
 }
 
 export async function getPerformance(
@@ -488,7 +495,9 @@ export async function getPerformance(
   // quote, so cached-only reads left the portfolio valued at whatever the last
   // cron run wrote. This is the batched, TTL'd path — one provider request
   // covers every holding, and at most one every two minutes.
-  const { quotes } = await getQuotes(quoteTickers).catch(async () => ({
+  const { quotes } = await getQuotes(quoteTickers, {
+    maxAgeMs: options.quoteMaxAgeMs,
+  }).catch(async () => ({
     quotes: await stores.quotes.getQuotes(quoteTickers),
   }));
   const quoteByTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));

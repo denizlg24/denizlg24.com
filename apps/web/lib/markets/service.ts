@@ -123,7 +123,10 @@ const QUOTE_TTL_MS = 120_000;
  * endpoint bills one request regardless of symbol count, so refreshing five
  * symbols individually would cost five times as much for the same data.
  */
-export async function getQuotes(tickers: string[]): Promise<{
+export async function getQuotes(
+  tickers: string[],
+  options: { maxAgeMs?: number } = {},
+): Promise<{
   quotes: Quote[];
   stale: boolean;
 }> {
@@ -131,12 +134,13 @@ export async function getQuotes(tickers: string[]): Promise<{
   const wanted = [...new Set(tickers.map((ticker) => ticker.toUpperCase()))];
   if (wanted.length === 0) return { quotes: [], stale: false };
 
+  const maxAge = options.maxAgeMs ?? QUOTE_TTL_MS;
   const cachedQuotes = await stores.quotes.getQuotes(wanted);
   const now = stores.clock.now().getTime();
   const byTicker = new Map(cachedQuotes.map((quote) => [quote.ticker, quote]));
   const anyStale = wanted.some((ticker) => {
     const quote = byTicker.get(ticker);
-    return !quote || now - Date.parse(quote.ts) > QUOTE_TTL_MS;
+    return !quote || now - Date.parse(quote.ts) > maxAge;
   });
 
   if (!anyStale) return { quotes: cachedQuotes, stale: false };

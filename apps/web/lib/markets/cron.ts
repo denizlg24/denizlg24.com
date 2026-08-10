@@ -1,4 +1,12 @@
-import { BudgetExhaustedError, toDateKey } from "@repo/markets/core";
+import {
+  BudgetExhaustedError,
+  backgroundQuoteMaxAgeMs,
+  dailyBarsAvailableThrough,
+  hasBackgroundHeadroom,
+  type MarketSessionState,
+  marketSession,
+  shouldRefreshQuotes,
+} from "@repo/markets/core";
 import { connectDB } from "@/lib/mongodb";
 import { MarketPortfolio, MarketPortfolioSnapshot } from "@/models/Market";
 import { runOrderEngine } from "./orders";
@@ -21,6 +29,14 @@ export interface MarketsCronResult {
   ordersEvaluated: number;
   ordersFilled: number;
   ordersClosed: number;
+  /** Exchange session this run saw, for the run log to explain a quiet pass. */
+  session: MarketSessionState;
+  /**
+   * Set when the run stopped asking the provider to stay clear of the reserve
+   * the interactive path draws on. Distinct from `budgetExhausted`, which means
+   * the quota itself is gone.
+   */
+  budgetReserved: boolean;
   /** Borrow booked across every portfolio this run, in cash. */
   borrowCharged: number;
   /** One line per portfolio under a call, for the run log to surface. */
@@ -75,6 +91,7 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
   await connectDB();
   const stores = getStores();
   const now = stores.clock.now();
+  const session = marketSession(now);
   const result: MarketsCronResult = {
     symbolsRefreshed: 0,
     tracked: 0,
@@ -84,6 +101,8 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
     ordersEvaluated: 0,
     ordersFilled: 0,
     ordersClosed: 0,
+    session: session.state,
+    budgetReserved: false,
     borrowCharged: 0,
     marginCalls: [],
     snapshotsWritten: 0,
@@ -101,15 +120,23 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
 
   const tracked = await stores.symbols.listTrackedTickers();
   result.tracked = tracked.length;
-  const today = toDateKey(now);
+
+  // Requesting through today would cost a request per symbol for a bar that has
+  // not printed, and — because an empty window still counts as fetched —
+  // advance coverage past the pending session so it is never asked for again.
+  const barsThrough = dailyBarsAvailableThrough(now);
 
   for (const ticker of tracked) {
-    if (result.budgetExhausted) break;
+    if (result.budgetExhausted || result.budgetReserved) break;
+    if (!hasBackgroundHeadroom(await stores.budget.peek("tiingo"))) {
+      result.budgetReserved = true;
+      break;
+    }
     try {
       const series = await getCandles({
         ticker,
         resolution: "1day",
-        to: today,
+        to: barsThrough,
         adjusted: false,
       });
       if (series.freshness.stale) {
@@ -126,13 +153,33 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
     }
   }
 
-  if (tracked.length > 0 && !result.budgetExhausted) {
-    try {
-      const { quotes, stale } = await getQuotes(tracked);
-      result.quotesRefreshed = quotes.length;
-      result.budgetExhausted = stale;
-    } catch (error) {
-      result.errors.push(`quotes: ${String(error)}`);
+  if (tracked.length > 0 && !result.budgetExhausted && !result.budgetReserved) {
+    const cachedQuotes = await stores.quotes.getQuotes(tracked);
+    // A ticker with no cached quote at all reads as the oldest there is, which
+    // is what makes a newly tracked symbol get its first price.
+    const oldestQuoteAt =
+      cachedQuotes.length < tracked.length
+        ? null
+        : cachedQuotes.reduce<string | null>(
+            (oldest, quote) =>
+              oldest === null || quote.ts < oldest ? quote.ts : oldest,
+            null,
+          );
+
+    if (!shouldRefreshQuotes({ now, state: session.state, oldestQuoteAt })) {
+      result.quotesRefreshed = 0;
+    } else if (!hasBackgroundHeadroom(await stores.budget.peek("tiingo"))) {
+      result.budgetReserved = true;
+    } else {
+      try {
+        const { quotes, stale } = await getQuotes(tracked, {
+          maxAgeMs: backgroundQuoteMaxAgeMs(session.state) ?? 0,
+        });
+        result.quotesRefreshed = quotes.length;
+        result.budgetExhausted = stale;
+      } catch (error) {
+        result.errors.push(`quotes: ${String(error)}`);
+      }
     }
   }
 
@@ -152,6 +199,14 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
     }
   }
 
+  // Both loops below read the book, and reading the book prices it. Left on the
+  // service default they would each refresh quotes on their own and undo the
+  // gating above — a closed market would still cost a request a run, per
+  // portfolio. Infinity means cache-only; a ticker with no quote at all is
+  // fetched regardless, so a cold holding is still priced.
+  const quoteMaxAgeMs =
+    backgroundQuoteMaxAgeMs(session.state) ?? Number.POSITIVE_INFINITY;
+
   // Orders and snapshots read only cached bars and quotes, so both still run
   // when the provider budget is gone. Orders go first: a fill changes the book
   // the snapshot is then taken of, and a snapshot written before the fill would
@@ -159,7 +214,9 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
   const portfolios = await MarketPortfolio.find();
   for (const portfolio of portfolios) {
     try {
-      const orders = await runOrderEngine(String(portfolio._id), now);
+      const orders = await runOrderEngine(String(portfolio._id), now, {
+        quoteMaxAgeMs,
+      });
       result.ordersEvaluated += orders.evaluated;
       result.ordersFilled += orders.filled;
       result.ordersClosed += orders.cancelled + orders.expired;
@@ -173,7 +230,9 @@ export async function runMarketsCron(): Promise<MarketsCronResult> {
 
   for (const portfolio of portfolios) {
     try {
-      const performance = await getPerformance(String(portfolio._id));
+      const performance = await getPerformance(String(portfolio._id), {
+        quoteMaxAgeMs,
+      });
       const latest = performance?.curve.at(-1);
       if (!latest || !performance) continue;
       await MarketPortfolioSnapshot.updateOne(

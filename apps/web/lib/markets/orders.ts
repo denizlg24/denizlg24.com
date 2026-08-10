@@ -543,8 +543,13 @@ async function reconcileBrackets(portfolioId: string): Promise<void> {
 export async function runOrderEngine(
   portfolioId: string,
   now = new Date(),
+  options: { quoteMaxAgeMs?: number } = {},
 ): Promise<OrderEngineResult> {
   await connectDB();
+  // Every book read in this pass shares one freshness rule. The engine triggers
+  // off the bar range rather than the quote, so a longer age outside regular
+  // hours costs it nothing it acts on.
+  const perf = { quoteMaxAgeMs: options.quoteMaxAgeMs };
   const result: OrderEngineResult = {
     evaluated: 0,
     filled: 0,
@@ -564,7 +569,7 @@ export async function runOrderEngine(
   let performance: PortfolioPerformance | null = null;
 
   if (working.length > 0) {
-    const opening = await getPerformance(portfolioId);
+    const opening = await getPerformance(portfolioId, perf);
     // Sizing a reduce-only order against an empty position list reads as "no
     // position left", and that cancels the order. Absorbing a null here would
     // turn one transient failure into every stop loss and take profit in the
@@ -644,7 +649,7 @@ export async function runOrderEngine(
             .slice(index + 1)
             .some((later) => later.reduceOnly);
           if (resizes) {
-            const refreshed = await getPerformance(portfolioId);
+            const refreshed = await getPerformance(portfolioId, perf);
             if (!refreshed) {
               result.errors.push("No performance available; pass stopped");
               return result;
@@ -659,13 +664,14 @@ export async function runOrderEngine(
     // Borrow is measured against the book the fills left behind, or a short an
     // order has just covered would still be billed for the day. That costs one
     // replay for the pass rather than one per fill.
-    performance = result.filled > 0 ? await getPerformance(portfolioId) : book;
+    performance =
+      result.filled > 0 ? await getPerformance(portfolioId, perf) : book;
   }
 
   const margin = marginConfigOf(portfolio);
   const today = toDateKey(now);
   if (margin.enabled) {
-    performance ??= await getPerformance(portfolioId);
+    performance ??= await getPerformance(portfolioId, perf);
     if (performance) {
       const accrual = await chargeBorrow(
         portfolioId,

@@ -4,6 +4,7 @@ export * from "./memory-stores";
 export * from "./portfolio";
 export * from "./ports";
 export * from "./providers";
+export * from "./refresh-policy";
 export * from "./relay-token";
 export * from "./session";
 export * from "./stats";
