@@ -140,12 +140,13 @@ describe("supersedeGeneratedDomains", () => {
     origin: "generated" | "manual",
     status: "active" | "verifying",
     isPrimary = false,
+    mode: "zone_record" | "custom_hostname" = "custom_hostname",
   ): DeployDomainRow {
     return {
       id: "arrival",
       targetId: "target-a",
       hostname: "shop.example.com",
-      mode: "custom_hostname",
+      mode,
       origin,
       isPrimary,
       redirectTo: null,
@@ -159,19 +160,25 @@ describe("supersedeGeneratedDomains", () => {
       createdAt: new Date("2026-08-01T00:00:00Z"),
     };
   }
-  it("moves primary onto the new domain before retiring the generated one", async () => {
+  it("moves primary but keeps the generated CNAME target for an external domain", async () => {
     const { db, log } = fakeDb([{ id: "gen-1", isPrimary: true }]);
     const result = await supersedeGeneratedDomains(db, row("manual", "active"));
 
-    // The exact sequence. Demote every other primary on the target, promote the
-    // arrival, then retire — a target with no primary has no URL to show, so the
-    // retire cannot come first.
+    expect(log).toEqual(["demote:target-a,arrival", "promote:arrival"]);
+    expect(result.isPrimary).toBe(true);
+  });
+
+  it("retires the generated domain after a managed-zone replacement", async () => {
+    const { db, log } = fakeDb([{ id: "gen-1", isPrimary: true }]);
+    await supersedeGeneratedDomains(
+      db,
+      row("manual", "active", false, "zone_record"),
+    );
     expect(log).toEqual([
       "demote:target-a,arrival",
       "promote:arrival",
       "retire:gen-1",
     ]);
-    expect(result.isPrimary).toBe(true);
   });
 
   // The generated name is the only one resolving until Cloudflare sees the
@@ -196,7 +203,10 @@ describe("supersedeGeneratedDomains", () => {
 
   it("retires without touching primary when the new domain already holds it", async () => {
     const { db, log } = fakeDb([{ id: "gen-1", isPrimary: false }]);
-    await supersedeGeneratedDomains(db, row("manual", "active", true));
+    await supersedeGeneratedDomains(
+      db,
+      row("manual", "active", true, "zone_record"),
+    );
     expect(log).toEqual(["retire:gen-1"]);
   });
 });

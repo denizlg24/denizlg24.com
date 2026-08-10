@@ -170,6 +170,8 @@ const IN_FLIGHT_STATUSES: readonly DeploymentStatus[] = [
  */
 export interface SupersededDeployment {
   id: string;
+  kind: DeploymentKind;
+  readyAt: Date | null;
   dnsRecordId: string | null;
 }
 
@@ -203,7 +205,12 @@ export async function supersedeQueuedDeployments(
         eq(deployments.status, "queued"),
       ),
     )
-    .returning({ id: deployments.id, dnsRecordId: deployments.dnsRecordId });
+    .returning({
+      id: deployments.id,
+      kind: deployments.kind,
+      readyAt: deployments.readyAt,
+      dnsRecordId: deployments.dnsRecordId,
+    });
 }
 
 /**
@@ -267,5 +274,10 @@ export async function supersedeOlderDeployments(
         inArray(deployments.status, [...LIVE_STATUSES]),
       ),
     )
-    .returning({ id: deployments.id, dnsRecordId: deployments.dnsRecordId });
+    .returning({
+      id: deployments.id,
+      kind: deployments.kind,
+      readyAt: deployments.readyAt,
+      dnsRecordId: deployments.dnsRecordId,
+    });
 }

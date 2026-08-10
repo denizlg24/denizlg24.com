@@ -241,14 +241,14 @@ export class ForgeOps {
     rows: readonly SupersededDeployment[],
   ): Promise<void> {
     for (const row of rows) {
-      await releaseDeploymentResources(this.db, this.dns, row).catch(
-        (error: unknown) => {
-          console.error(
-            `[deploy] releasing superseded ${row.id} failed`,
-            error,
-          );
-        },
-      );
+      await releaseDeploymentResources(this.db, this.dns, row, {
+        // A ready production hostname may be the CNAME target of a domain at a
+        // provider we cannot update. GC has the domain rows needed to decide
+        // whether deletion is safe; the supersede hot path does not.
+        preserveDns: row.kind === "production" && row.readyAt !== null,
+      }).catch((error: unknown) => {
+        console.error(`[deploy] releasing superseded ${row.id} failed`, error);
+      });
     }
   }
 

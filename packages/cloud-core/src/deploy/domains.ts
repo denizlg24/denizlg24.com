@@ -178,15 +178,13 @@ export async function createDeployDomain(
 }
 
 /**
- * Retires the auto-created `<slug>.<zone>` once a domain the owner asked for is
- * serving.
+ * Retires the auto-created `<slug>.<zone>` once another domain in our own zone
+ * is serving. External domains keep it as their stable CNAME target.
  *
- * The generated name exists so a new service has *some* URL before anyone points
- * a real one at it. After that it is a proxied CNAME nobody resolves, and the zone
- * has 200 records to spend. Retiring rather than deleting hands it to
- * `sweepDeployDomains`, so the name keeps answering through the same grace period
- * a rename gets and links that already exist do not break the instant a real
- * domain goes live.
+ * The generated name gives a new service its first URL. It is disposable after
+ * a manual `zone_record` replaces it, but an external domain needs a hostname in
+ * our zone as its CNAME target. In that case it remains active even after the
+ * external name becomes primary.
  *
  * The generated row is created `isPrimary`, so primary has to move before it can
  * be retired — a target with no primary has no URL to show. The new domain takes
@@ -246,6 +244,11 @@ export async function supersedeGeneratedDomains(
         .returning();
       if (promoted) updated = promoted;
     }
+
+    // The provider serving an external domain cannot point directly at our
+    // tunnel. This generated record is the stable DNS anchor we instructed the
+    // owner to CNAME to, so it must remain even though it is no longer primary.
+    if (arrival.mode === "custom_hostname") return updated;
 
     await transaction
       .update(deployDomains)

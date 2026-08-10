@@ -146,6 +146,7 @@ export interface DeploymentDnsCandidate {
   hostname: string;
   kind: DeploymentKind;
   status: DeploymentStatus;
+  readyAt: Date | null;
   dnsRecordId: string;
 }
 
@@ -158,8 +159,19 @@ export interface DeploymentDnsCandidate {
 export function planDeploymentDnsCleanup(
   rows: readonly DeploymentDnsCandidate[],
   targetsWithActiveDomains: ReadonlySet<string>,
+  targetsWithExternalDomains: ReadonlySet<string>,
 ): DeploymentDnsCandidate[] {
   return rows.filter((row) => {
+    // The external DNS provider may still CNAME to any production hostname we
+    // previously showed as its target. We cannot inspect or rewrite that zone,
+    // so deleting the record would take the external domain offline.
+    if (
+      row.kind === "production" &&
+      row.readyAt !== null &&
+      targetsWithExternalDomains.has(row.targetId)
+    ) {
+      return false;
+    }
     if (!KEEP_STATUSES.includes(row.status)) return true;
     return (
       row.kind === "production" && targetsWithActiveDomains.has(row.targetId)
@@ -171,7 +183,7 @@ export function planDeploymentDnsCleanup(
 export async function unneededDeploymentDnsRecords(
   db: Database,
 ): Promise<DeploymentDnsCandidate[]> {
-  const [rows, activeDomains] = await Promise.all([
+  const [rows, activeDomains, externalDomains] = await Promise.all([
     db
       .select({
         id: deployments.id,
@@ -179,6 +191,7 @@ export async function unneededDeploymentDnsRecords(
         hostname: deployments.hostname,
         kind: deployments.kind,
         status: deployments.status,
+        readyAt: deployments.readyAt,
         dnsRecordId: deployments.dnsRecordId,
       })
       .from(deployments)
@@ -187,6 +200,15 @@ export async function unneededDeploymentDnsRecords(
       .select({ targetId: deployDomains.targetId })
       .from(deployDomains)
       .where(eq(deployDomains.status, "active")),
+    db
+      .selectDistinct({ targetId: deployDomains.targetId })
+      .from(deployDomains)
+      .where(
+        and(
+          eq(deployDomains.mode, "custom_hostname"),
+          isNull(deployDomains.retiredAt),
+        ),
+      ),
   ]);
   const candidates = rows.flatMap((row) =>
     row.dnsRecordId ? [{ ...row, dnsRecordId: row.dnsRecordId }] : [],
@@ -194,6 +216,7 @@ export async function unneededDeploymentDnsRecords(
   return planDeploymentDnsCleanup(
     candidates,
     new Set(activeDomains.map((row) => row.targetId)),
+    new Set(externalDomains.map((row) => row.targetId)),
   );
 }
 
@@ -229,8 +252,10 @@ export async function releaseDeploymentResources(
   db: Database,
   dns: CloudflareDnsClient | null,
   row: Pick<DeploymentRow, "id" | "dnsRecordId">,
+  options: { preserveDns?: boolean } = {},
 ): Promise<void> {
   await revokeDeploymentS3Credentials(db, row.id);
+  if (options.preserveDns) return;
   await releaseDeploymentDnsRecord(db, dns, row).catch((error: unknown) => {
     console.error("[deploy] DNS record delete failed", error);
   });

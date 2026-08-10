@@ -211,6 +211,7 @@ describe("planDeploymentDnsCleanup", () => {
       hostname: `${overrides.id}.denizlg24.com`,
       kind: "production",
       status: "ready",
+      readyAt: new Date("2026-08-10T12:00:00Z"),
       dnsRecordId: `record-${overrides.id}`,
       ...overrides,
     };
@@ -224,6 +225,7 @@ describe("planDeploymentDnsCleanup", () => {
         deployment({ id: "superseded", status: "superseded" }),
       ],
       new Set(["target-a"]),
+      new Set(),
     );
 
     expect(candidates.map((row) => row.id)).toEqual([
@@ -234,8 +236,37 @@ describe("planDeploymentDnsCleanup", () => {
 
   it("keeps the production record until a stable domain is active", () => {
     expect(
-      planDeploymentDnsCleanup([deployment({ id: "production" })], new Set()),
+      planDeploymentDnsCleanup(
+        [deployment({ id: "production" })],
+        new Set(),
+        new Set(),
+      ),
     ).toEqual([]);
+  });
+
+  it("keeps ready production records that may be external CNAME targets", () => {
+    const candidates = planDeploymentDnsCleanup(
+      [
+        deployment({ id: "old-production", status: "superseded" }),
+        deployment({
+          id: "never-ready",
+          status: "superseded",
+          readyAt: null,
+        }),
+        deployment({
+          id: "old-preview",
+          kind: "preview",
+          status: "superseded",
+        }),
+      ],
+      new Set(["target-a"]),
+      new Set(["target-a"]),
+    );
+
+    expect(candidates.map((row) => row.id)).toEqual([
+      "never-ready",
+      "old-preview",
+    ]);
   });
 });
 

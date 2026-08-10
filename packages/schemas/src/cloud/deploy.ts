@@ -197,9 +197,10 @@ export type DeployDomainMode = z.infer<typeof deployDomainModeSchema>;
  * the one created automatically with the target.
  *
  * The distinction earns its column because the two are not equally wanted: a
- * generated `<slug>.<zone>` exists only so a new service has some URL, and once a
- * real domain is serving it is a DNS record nobody visits, held against a
- * 200-record zone. A typed one is never removed on our initiative.
+ * generated `<slug>.<zone>` is both the initial service URL and the stable CNAME
+ * target for an external domain. It is disposable only when another record in
+ * our own managed zone replaces it. A typed one is never removed on our
+ * initiative.
  */
 export const DEPLOY_DOMAIN_ORIGINS = ["generated", "manual"] as const;
 export const deployDomainOriginSchema = z.enum(DEPLOY_DOMAIN_ORIGINS);
