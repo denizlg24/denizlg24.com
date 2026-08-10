@@ -66,7 +66,6 @@ export interface TextBoxState {
   width: number;
   height: number;
   autoSize: boolean;
-  maxWidth: number;
   editingId: string | null;
   color: string;
   fontSize: number;

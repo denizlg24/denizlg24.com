@@ -42,7 +42,6 @@ function newId(): string {
 }
 
 const MIN_SIZE = 8;
-const TEXT_MAX_WIDTH = 480;
 
 export interface DrawSettings {
   color: string;
@@ -222,7 +221,6 @@ export function useWhiteboardCanvas(
         width: el.width ?? 120,
         height: el.height ?? d.fontSize * 1.4,
         autoSize: false,
-        maxWidth: TEXT_MAX_WIDTH,
         editingId: el.id,
         color: d.color,
         fontSize: d.fontSize,
@@ -700,7 +698,6 @@ export function useWhiteboardCanvas(
             ? Math.max(dh, style.fontSize * 1.4)
             : style.fontSize * 1.4,
           autoSize: !dragged,
-          maxWidth: TEXT_MAX_WIDTH,
           editingId: null,
           color: style.color,
           fontSize: style.fontSize,

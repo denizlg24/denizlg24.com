@@ -197,6 +197,12 @@ function measureFont(box: TextBoxState) {
   return WHITEBOARD_FONT_FAMILIES[box.fontFamily].css;
 }
 
+/** Keeps a fractional measurement from scrolling the textarea by a pixel. */
+const TEXT_MEASURE_SLACK = 2;
+
+/** Gives a trailing newline a last line the measurer will give height to. */
+const ZERO_WIDTH_SPACE = "​";
+
 function TextEditor({
   box,
   viewState,
@@ -219,8 +225,15 @@ function TextEditor({
   useLayoutEffect(() => {
     const el = measureRef.current;
     if (!el) return;
-    const w = box.autoSize ? Math.max(40, el.offsetWidth) : box.width;
-    const h = Math.max(box.height, box.fontSize * 1.4, el.offsetHeight);
+    const rect = el.getBoundingClientRect();
+    const w = box.autoSize
+      ? Math.max(40, Math.ceil(rect.width) + TEXT_MEASURE_SLACK)
+      : box.width;
+    const h = Math.max(
+      box.height,
+      box.fontSize * 1.4,
+      Math.ceil(rect.height) + TEXT_MEASURE_SLACK,
+    );
     sizeRef.current = { w, h };
     setWorldSize({ w, h });
   }, [text, box.fontSize, box.width, box.height, box.autoSize]);
@@ -250,9 +263,9 @@ function TextEditor({
           position: "absolute",
           visibility: "hidden",
           pointerEvents: "none",
-          whiteSpace: "pre-wrap",
+          whiteSpace: box.autoSize ? "pre" : "pre-wrap",
+          overflowWrap: box.autoSize ? "normal" : "break-word",
           width: box.autoSize ? "max-content" : box.width,
-          maxWidth: box.autoSize ? box.maxWidth : undefined,
           fontSize: box.fontSize,
           fontWeight: box.fontWeight,
           fontFamily: measureFont(box),
@@ -261,11 +274,12 @@ function TextEditor({
           boxSizing: "border-box",
         }}
       >
-        {text === "" ? " " : text}
+        {text === "" ? " " : `${text}${ZERO_WIDTH_SPACE}`}
       </div>
       <textarea
         ref={textareaRef}
         value={text}
+        wrap={box.autoSize ? "off" : "soft"}
         onChange={(e) => setText(e.target.value)}
         className="bg-transparent outline outline-1 outline-primary/60 resize-none overflow-hidden"
         style={{
@@ -279,6 +293,8 @@ function TextEditor({
           lineHeight: TEXT_LINE_HEIGHT,
           padding: TEXT_PADDING * viewState.zoom,
           boxSizing: "border-box",
+          whiteSpace: box.autoSize ? "pre" : "pre-wrap",
+          overflowWrap: box.autoSize ? "normal" : "break-word",
         }}
         onFocus={(e) => {
           const v = e.target.value;
