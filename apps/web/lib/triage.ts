@@ -4,6 +4,7 @@ import type {
   TriageAcceptanceResponse,
 } from "@repo/schemas";
 import mongoose from "mongoose";
+import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import {
   createCalendarEvent,
   updateCalendarEvent,
@@ -1808,7 +1809,27 @@ async function updateLastRunAt(
   await settings.save();
 }
 
+/**
+ * Accepting a suggestion is the only thing that admits a triage row into agent
+ * memory, so the observation lives here rather than on the row's other writes.
+ * It runs after the acceptance is persisted, across all six success paths, and
+ * re-reads the document because the gate reads the saved suggestion statuses.
+ */
 export async function acceptSuggestion(
+  triageId: string,
+  suggestionId: string,
+  type: "task" | "event",
+  overrides?: Record<string, unknown>,
+): Promise<TriageAcceptanceResponse> {
+  const result = await applyAcceptance(triageId, suggestionId, type, overrides);
+  if (result.ok) {
+    const accepted = await EmailTriageModel.findById(triageId).lean();
+    if (accepted) await observeDomainRecordSafely("email-triage", accepted);
+  }
+  return result;
+}
+
+async function applyAcceptance(
   triageId: string,
   suggestionId: string,
   type: "task" | "event",
