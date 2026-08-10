@@ -191,6 +191,20 @@ export const DEPLOY_DOMAIN_MODES = ["zone_record", "custom_hostname"] as const;
 export const deployDomainModeSchema = z.enum(DEPLOY_DOMAIN_MODES);
 export type DeployDomainMode = z.infer<typeof deployDomainModeSchema>;
 
+/**
+ * Who asked for this domain. `mode` is the DNS mechanism and says nothing about
+ * provenance — a hand-typed name in our own zone gets `zone_record` exactly like
+ * the one created automatically with the target.
+ *
+ * The distinction earns its column because the two are not equally wanted: a
+ * generated `<slug>.<zone>` exists only so a new service has some URL, and once a
+ * real domain is serving it is a DNS record nobody visits, held against a
+ * 200-record zone. A typed one is never removed on our initiative.
+ */
+export const DEPLOY_DOMAIN_ORIGINS = ["generated", "manual"] as const;
+export const deployDomainOriginSchema = z.enum(DEPLOY_DOMAIN_ORIGINS);
+export type DeployDomainOrigin = z.infer<typeof deployDomainOriginSchema>;
+
 export const DEPLOY_DOMAIN_STATUSES = [
   "pending",
   "verifying",
@@ -549,6 +563,35 @@ export const agentPromoteRequestSchema = z
     redirects: resolveRedirects(value),
   }));
 export type AgentPromoteRequest = z.infer<typeof agentPromoteRequestSchema>;
+
+/**
+ * Applying a changed environment recreates the container, and a container has to
+ * be recreated with every flag the original create used — memory ceilings, the
+ * restart policy, the labels, the resolved start command. None of that is on the
+ * agent: it lives in the `AgentDeploymentRequest`, which the agent never persists
+ * past the build. So the control plane sends the same request it would send for a
+ * deploy, plus the image already built for it.
+ *
+ * The resolved variables are deliberately absent, exactly as they are on
+ * `agentDeploymentRequestSchema`: the agent fetches them over `/env` so a body
+ * that gets logged or retried cannot carry a secret set.
+ */
+export const agentApplyEnvRequestSchema = z.object({
+  request: agentDeploymentRequestSchema,
+  imageTag: z.string().min(1).max(512),
+  port: z.number().int().min(1).max(65_535).nullish(),
+});
+export type AgentApplyEnvRequest = z.infer<typeof agentApplyEnvRequestSchema>;
+
+export const agentApplyEnvResultSchema = z.object({
+  recreated: z.boolean(),
+  containerId: z.string().max(64).nullable(),
+  healthy: z.boolean(),
+  /** The previous container is serving again because the new one failed. */
+  rolledBack: z.boolean(),
+  error: z.string().max(16_000).nullable(),
+});
+export type AgentApplyEnvResult = z.infer<typeof agentApplyEnvResultSchema>;
 
 /**
  * What the sweep must not touch. The agent has no view of deployment status —
@@ -912,6 +955,7 @@ export const deployDomainSchema = z.object({
   hostname: z.string(),
   url: z.string(),
   mode: deployDomainModeSchema,
+  origin: deployDomainOriginSchema,
   status: deployDomainStatusSchema,
   isPrimary: z.boolean(),
   role: deployDomainRoleSchema,

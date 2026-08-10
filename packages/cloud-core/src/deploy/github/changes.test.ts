@@ -108,14 +108,68 @@ describe("RepositoryChangeMatcher", () => {
     expect(result.affectsTarget(WEB)).toBe(true);
   });
 
-  it("fails open when any declared workspace manifest is unreadable", async () => {
+  it("fails open when a declared workspace manifest cannot be parsed", async () => {
     const repo = repository();
     const originalRead = repo.readFile;
     repo.readFile = async (path) =>
-      path === "packages/unrelated/package.json" ? null : originalRead(path);
+      path === "packages/unrelated/package.json"
+        ? "{ not valid json"
+        : originalRead(path);
     const result = await createRepositoryChangeMatcher(repo, [
       "apps/api/src/index.ts",
     ]);
     expect(result.affectsTarget(WEB)).toBe(true);
+  });
+
+  // A directory matched by `apps/*` that holds a Cargo, Go or Python project has
+  // no `package.json` and never will. Counting it as a missing manifest made the
+  // graph permanently incomplete, which made every target deploy on every push.
+  describe("workspaces that are not JavaScript packages", () => {
+    function polyglot(): RepoInspector {
+      const repo = repository();
+      const originalList = repo.listDirectory;
+      repo.listDirectory = async (path) =>
+        path === "apps"
+          ? [
+              { name: "api", type: "dir" as const },
+              { name: "web", type: "dir" as const },
+              { name: "envoy-cli", type: "dir" as const },
+              { name: "ssh-server", type: "dir" as const },
+            ]
+          : originalList(path);
+      return repo;
+    }
+
+    it("still skips an unrelated change", async () => {
+      const result = await createRepositoryChangeMatcher(polyglot(), [
+        "apps/api/src/index.ts",
+      ]);
+      expect(result.affectsTarget(WEB)).toBe(false);
+    });
+
+    it("does not fan a change inside one out to every other target", async () => {
+      const result = await createRepositoryChangeMatcher(polyglot(), [
+        "apps/envoy-cli/src/main.rs",
+      ]);
+      expect(result.affectsTarget(WEB)).toBe(false);
+    });
+
+    it("still deploys a target rooted in one when its own files change", async () => {
+      const result = await createRepositoryChangeMatcher(polyglot(), [
+        "apps/envoy-cli/src/main.rs",
+      ]);
+      expect(result.affectsTarget({ rootDirectory: "apps/envoy-cli" })).toBe(
+        true,
+      );
+    });
+
+    it("skips a target rooted in one when an unrelated package changes", async () => {
+      const result = await createRepositoryChangeMatcher(polyglot(), [
+        "packages/unrelated/src/index.ts",
+      ]);
+      expect(result.affectsTarget({ rootDirectory: "apps/envoy-cli" })).toBe(
+        false,
+      );
+    });
   });
 });

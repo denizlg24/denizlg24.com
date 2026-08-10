@@ -46,6 +46,96 @@ function hostsOf(config: LoadedConfig): string[][] {
     .map((route) => route.match?.[0]?.host ?? []);
 }
 
+describe("buildCaddyConfig access logging", () => {
+  const entry = {
+    deploymentId: "dep-1",
+    projectSlug: "app",
+    hostnames: ["b.denizlg24.com", "a.denizlg24.com"],
+    upstream: "127.0.0.1:24817",
+  };
+
+  /**
+   * Verified against a real Caddy 2.11.4: a `/load` whose body omits `admin`
+   * relocates the running admin endpoint to the default `localhost:2019`. It has
+   * always been invisible here because the bootstrap names that same address, but
+   * a non-default `CADDY_ADMIN_URL` would lose the agent its only way to reach
+   * Caddy on the first publish.
+   */
+  it("always declares the admin endpoint", () => {
+    expect(buildCaddyConfig([entry]).admin.listen).toBe("127.0.0.1:2019");
+    expect(
+      buildCaddyConfig([entry], { adminListen: "127.0.0.1:2020" }).admin.listen,
+    ).toBe("127.0.0.1:2020");
+  });
+
+  it("gives each deployment its own logger and file", () => {
+    const config = buildCaddyConfig([entry], { accessLogRoot: "/access" });
+    const logger = "access-dep-1";
+
+    expect(config.apps.http.servers.forge?.logs?.logger_names).toEqual({
+      "a.denizlg24.com": [logger],
+      "b.denizlg24.com": [logger],
+    });
+    expect(config.logging.logs[logger]).toEqual({
+      writer: {
+        output: "file",
+        filename: "/access/dep-1.log",
+        roll_size_mb: 16,
+        roll_keep: 2,
+      },
+      encoder: { format: "json" },
+      include: [`http.log.access.${logger}`],
+      level: "INFO",
+    });
+  });
+
+  // Without the exclude, every request line lands in the journal as well as in
+  // its own file.
+  it("keeps access lines out of the default logger", () => {
+    const config = buildCaddyConfig([entry]);
+    expect(config.logging.logs.default).toEqual({
+      level: "ERROR",
+      exclude: ["http.log.access.access-dep-1"],
+    });
+  });
+
+  // A redirect answers 308 without reaching the container, so counting it would
+  // report traffic the app never served.
+  it("does not log redirect-only hostnames against the deployment", () => {
+    const config = buildCaddyConfig([
+      {
+        ...entry,
+        hostnames: ["denizlg24.com"],
+        redirects: [{ hostname: "www.denizlg24.com", to: "denizlg24.com" }],
+      },
+    ]);
+    expect(
+      config.apps.http.servers.forge?.logs?.logger_names,
+    ).not.toHaveProperty("www.denizlg24.com");
+  });
+
+  it("omits the server logs block when nothing is routed", () => {
+    const config = buildCaddyConfig([]);
+    expect(config.apps.http.servers.forge?.logs).toBeUndefined();
+    expect(config.logging.logs.default).toEqual({
+      level: "ERROR",
+      exclude: [],
+    });
+  });
+
+  it("serialises identically for an unchanged set", () => {
+    const second = {
+      deploymentId: "dep-2",
+      projectSlug: "other",
+      hostnames: ["z.denizlg24.com"],
+      upstream: "127.0.0.1:24818",
+    };
+    expect(JSON.stringify(buildCaddyConfig([entry, second]))).toBe(
+      JSON.stringify(buildCaddyConfig([second, entry])),
+    );
+  });
+});
+
 describe("buildCaddyConfig", () => {
   it("always ends with a catch-all 404", () => {
     const config = buildCaddyConfig([

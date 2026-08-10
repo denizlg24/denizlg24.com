@@ -38,7 +38,6 @@ function harness(
     ports,
     routes,
     buildRoot: join(dir, "builds"),
-    envRoot: join(dir, "env"),
     network: "forge-apps",
     buildMemoryLimit: "6144m",
     drainMs: 10_000,

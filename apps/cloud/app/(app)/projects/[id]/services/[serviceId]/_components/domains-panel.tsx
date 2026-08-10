@@ -223,6 +223,9 @@ export function DomainsPanel({
                       ? "managed DNS"
                       : "external DNS"}
                   </Badge>
+                  {domain.origin === "generated" && (
+                    <Badge variant="ghost">generated</Badge>
+                  )}
                   <RoleBadge domain={domain} />
                 </span>
                 <span className="flex flex-wrap items-center gap-1">
@@ -298,18 +301,23 @@ export function DomainsPanel({
                         Make canonical
                       </Button>
                     )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() =>
-                      void act("Domain removed", () =>
-                        api.deploy.removeDomain(domain.id),
-                      )
-                    }
-                  >
-                    <Trash2 className="size-3" />
-                  </Button>
+                  {/* A generated name is not the owner's to delete — it is
+                      retired automatically once a real domain is active, and
+                      deleting it by hand leaves a target with no URL at all. */}
+                  {domain.origin !== "generated" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() =>
+                        void act("Domain removed", () =>
+                          api.deploy.removeDomain(domain.id),
+                        )
+                      }
+                    >
+                      <Trash2 className="size-3" />
+                    </Button>
+                  )}
                 </span>
               </div>
               <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">

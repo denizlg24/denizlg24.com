@@ -160,6 +160,20 @@ const IN_FLIGHT_STATUSES: readonly DeploymentStatus[] = [
 ];
 
 /**
+ * Enough of a superseded row to release what it holds outside itself.
+ *
+ * `dnsRecordId` is here rather than left to the caller to look up because these
+ * two functions were the one path to a terminal status that did not go through
+ * `recordDeploymentStatus`, so nothing ever released their DNS records — every
+ * push to a branch leaked the previous preview's CNAME, permanently, and the
+ * Cloudflare reconciler could not see it either because the row still existed.
+ */
+export interface SupersededDeployment {
+  id: string;
+  dnsRecordId: string | null;
+}
+
+/**
  * Pushing five times in a minute must produce one build, not five. Keyed on the
  * ref rather than the hostname the plan names: a preview hostname carries a
  * random suffix, so two pushes to one branch never share one and a hostname
@@ -172,8 +186,8 @@ const IN_FLIGHT_STATUSES: readonly DeploymentStatus[] = [
 export async function supersedeQueuedDeployments(
   db: Database,
   input: { targetId: string; gitRef: string; kind: DeploymentKind },
-): Promise<string[]> {
-  const rows = await db
+): Promise<SupersededDeployment[]> {
+  return db
     .update(deployments)
     .set({
       status: "superseded",
@@ -189,8 +203,7 @@ export async function supersedeQueuedDeployments(
         eq(deployments.status, "queued"),
       ),
     )
-    .returning({ id: deployments.id });
-  return rows.map((row) => row.id);
+    .returning({ id: deployments.id, dnsRecordId: deployments.dnsRecordId });
 }
 
 /**
@@ -242,8 +255,8 @@ export async function pullRequestDeployments(
 export async function supersedeOlderDeployments(
   db: Database,
   input: { targetId: string; kind: DeploymentKind; keepDeploymentId: string },
-): Promise<string[]> {
-  const rows = await db
+): Promise<SupersededDeployment[]> {
+  return db
     .update(deployments)
     .set({ status: "superseded", stoppedAt: new Date(), phase: null })
     .where(
@@ -254,6 +267,5 @@ export async function supersedeOlderDeployments(
         inArray(deployments.status, [...LIVE_STATUSES]),
       ),
     )
-    .returning({ id: deployments.id });
-  return rows.map((row) => row.id);
+    .returning({ id: deployments.id, dnsRecordId: deployments.dnsRecordId });
 }

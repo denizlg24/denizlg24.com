@@ -46,7 +46,6 @@ export interface PipelineOptions {
   cacheRoot?: string | null;
   buildxBuilder?: string;
   buildkitEndpoint?: string | null;
-  envRoot: string;
   network: string;
   buildMemoryLimit: string;
   drainMs: number;
@@ -109,7 +108,6 @@ export function createDeploymentRunner(
         signal: context.signal,
         exec: options.exec,
         routes: options.routes,
-        envRoot: options.envRoot,
         network: options.network,
         env: resolved.env,
         healthProbe: options.healthProbe,

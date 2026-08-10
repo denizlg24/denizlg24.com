@@ -75,6 +75,7 @@ import {
   verifyGithubSignature,
 } from "@repo/cloud-core/deploy";
 import {
+  type AgentApplyEnvResult,
   assertDeployHostname,
   createDeployDomainInputSchema,
   createDeploymentInputSchema,
@@ -298,6 +299,7 @@ function serializeDomain(row: DeployDomainRow) {
     hostname: row.hostname,
     url: `https://${row.hostname}`,
     mode: row.mode,
+    origin: row.origin,
     status: row.status,
     isPrimary: row.isPrimary,
     ...domainRole(row),
@@ -360,6 +362,12 @@ function newEnvRow(
 }
 
 const uuidParam = z.uuid();
+
+/**
+ * The agent's health deadline is 90s and it stops the old container first, so
+ * the wait is that plus the drain. Sized above both rather than at them.
+ */
+const APPLY_ENV_TIMEOUT_MS = 150_000;
 
 export function deployRoutes(options: DeployRouteOptions) {
   const { db, forge } = options;
@@ -860,6 +868,9 @@ export function deployRoutes(options: DeployRouteOptions) {
         targetId: created.id,
         hostname,
         mode: "zone_record",
+        // The one place a domain is not the owner's choice. Marked so that once a
+        // real domain is serving, this record can be given back to the zone.
+        origin: "generated",
         isPrimary: true,
       }).catch((error: unknown) => {
         console.error("[deploy] primary domain provisioning failed", error);
@@ -1419,7 +1430,24 @@ export function deployRoutes(options: DeployRouteOptions) {
       return row;
     });
 
-    if (forge.dns) {
+    // A production deployment is reached through the target's stable domains, so
+    // its own random-suffixed hostname is a record nobody resolves — one burned
+    // per production deploy, forever, against a 200-record zone. Previews are the
+    // opposite: the per-deployment name is the only way to reach them.
+    //
+    // Only skipped when a stable domain is actually active. Production with no
+    // domain yet has nothing else to answer on, and leaving it unreachable would
+    // make a first deploy look broken.
+    const needsOwnRecord =
+      created.kind !== "production" ||
+      (await db.query.deployDomains.findFirst({
+        where: and(
+          eq(deployDomains.targetId, input.target.id),
+          eq(deployDomains.status, "active"),
+        ),
+      })) === undefined;
+
+    if (forge.dns && needsOwnRecord) {
       try {
         const record = await forge.dns.createDeploymentRecord({
           hostname,
@@ -1720,11 +1748,13 @@ export function deployRoutes(options: DeployRouteOptions) {
           202,
         );
       }
-      await supersedeOlderDeployments(db, {
-        targetId: promoted.targetId,
-        kind: "production",
-        keepDeploymentId: promoted.id,
-      });
+      await forge.releaseSuperseded(
+        await supersedeOlderDeployments(db, {
+          targetId: promoted.targetId,
+          kind: "production",
+          keepDeploymentId: promoted.id,
+        }),
+      );
       return context.json({ data: serializeDeployment(promoted) });
     } catch (error) {
       const response = errorResponse(error);
@@ -1750,7 +1780,11 @@ export function deployRoutes(options: DeployRouteOptions) {
         restarted: boolean;
         healthy: boolean | null;
         error: string | null;
-      }>(`/deployments/${row.id}/restart`, { method: "POST" });
+      }>(`/deployments/${row.id}/restart`, {
+        method: "POST",
+        // The agent polls health for up to 90s after the bounce.
+        timeoutMs: APPLY_ENV_TIMEOUT_MS,
+      });
       if (result.status >= 500 || !result.body?.restarted) {
         return context.json(
           {
@@ -1763,6 +1797,112 @@ export function deployRoutes(options: DeployRouteOptions) {
         );
       }
       return context.json({ data: result.body });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * Makes an environment change take effect. Distinct from a restart because
+   * `docker restart` cannot do it: a container's env is fixed when it is
+   * created, so the agent has to recreate it.
+   *
+   * Target-scoped rather than deployment-scoped, because env belongs to the
+   * target and a change to it applies to every live deployment underneath —
+   * production and any preview still serving. Per-deployment results rather than
+   * one status: one preview failing its health check is not a reason to report
+   * that production did not take the change.
+   */
+  owner.post("/targets/:id/apply-env", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, target.projectId),
+      });
+      if (!project) {
+        throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
+      }
+      const live = await db.query.deployments.findMany({
+        where: and(
+          eq(deployments.targetId, target.id),
+          eq(deployments.status, "ready"),
+        ),
+      });
+
+      const results = await Promise.all(
+        live.map(async (row) => {
+          const outcome = {
+            deploymentId: row.id,
+            kind: row.kind,
+            hostname: row.hostname,
+          };
+          if (!row.imageTag) {
+            return {
+              ...outcome,
+              recreated: false,
+              healthy: false,
+              rolledBack: false,
+              error: "The deployment has no image recorded",
+            };
+          }
+          try {
+            const response = await agentProxy.json<AgentApplyEnvResult | null>(
+              `/deployments/${row.id}/apply-env`,
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  request: toAgentRequest({
+                    deployment: row,
+                    target,
+                    projectSlug: project.slug,
+                  }),
+                  imageTag: row.imageTag,
+                  port: row.port,
+                }),
+                // The agent gates the replacement on the same 90s health
+                // deadline a deploy uses; the proxy default is a fifth of that.
+                timeoutMs: APPLY_ENV_TIMEOUT_MS,
+              },
+            );
+            const body = response.body;
+            // A recreated container is a new container id, and the row still
+            // names the old one — which the runtime-log route and the restart
+            // route both read to find something that no longer exists.
+            if (body?.recreated && body.containerId) {
+              await db
+                .update(deployments)
+                .set({ containerId: body.containerId })
+                .where(eq(deployments.id, row.id));
+            }
+            return {
+              ...outcome,
+              recreated: body?.recreated ?? false,
+              healthy: body?.healthy ?? false,
+              rolledBack: body?.rolledBack ?? false,
+              error:
+                body?.error ??
+                (body ? null : "The agent refused the environment apply"),
+            };
+          } catch (error) {
+            return {
+              ...outcome,
+              recreated: false,
+              healthy: false,
+              rolledBack: false,
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+        }),
+      );
+
+      return context.json({
+        data: {
+          applied: results.filter((result) => result.recreated).length,
+          results,
+        },
+      });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1951,11 +2091,13 @@ export function deployRoutes(options: DeployRouteOptions) {
       );
     }
     if (updated.status === "ready") {
-      await supersedeOlderDeployments(db, {
-        targetId: updated.targetId,
-        kind: updated.kind,
-        keepDeploymentId: updated.id,
-      });
+      await forge.releaseSuperseded(
+        await supersedeOlderDeployments(db, {
+          targetId: updated.targetId,
+          kind: updated.kind,
+          keepDeploymentId: updated.id,
+        }),
+      );
       // The agent routed the deployment's own hostname when the gate passed;
       // this adds the target's stable domains on top, which is what makes a
       // custom domain follow the release rather than lag it.
@@ -2163,11 +2305,13 @@ export function deployRoutes(options: DeployRouteOptions) {
       return null;
     }
 
-    await supersedeQueuedDeployments(db, {
-      targetId: target.id,
-      gitRef: intent.ref,
-      kind: intent.kind,
-    });
+    await forge.releaseSuperseded(
+      await supersedeQueuedDeployments(db, {
+        targetId: target.id,
+        gitRef: intent.ref,
+        kind: intent.kind,
+      }),
+    );
 
     const created = await enqueueDeployment({
       target,

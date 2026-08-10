@@ -1,18 +1,23 @@
 import { describe, expect, it } from "bun:test";
-import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { BuildLog } from "./build-log";
-import { deploymentRequest, fakeExec, withTempDir } from "./fixtures";
+import {
+  deploymentRequest,
+  type ExecResponder,
+  fakeExec,
+  withTempDir,
+} from "./fixtures";
 import { PortAllocator } from "./ports";
 import {
+  applyDeploymentEnv,
   containerNameFor,
   healthUrl,
   loopbackOnlyRouteManager,
   type RouteManager,
   RunError,
   reapSuperseded,
-  renderEnvFile,
+  renderEnvArgs,
   resolveContainerPort,
   runDeployment,
   teardownDeployment,
@@ -31,19 +36,51 @@ function recordingRoutes(): RouteManager & { published: string[] } {
 
 const noSleep = async (): Promise<void> => {};
 
-describe("renderEnvFile", () => {
-  it("writes plain KEY=VALUE lines", () => {
-    expect(renderEnvFile({ A: "1", B: "two words" })).toBe(
-      "A=1\nB=two words\n",
-    );
+describe("renderEnvArgs", () => {
+  it("emits one --env flag per variable", () => {
+    expect(renderEnvArgs({ A: "1", B: "two words" })).toEqual([
+      "--env",
+      "A=1",
+      "--env",
+      "B=two words",
+    ]);
   });
 
-  it("refuses a value docker --env-file cannot represent", () => {
-    expect(() => renderEnvFile({ KEY: "line\nline" })).toThrow(RunError);
+  // Every one of these either failed the deployment outright or arrived at the
+  // container altered, back when this rendered a `docker --env-file`.
+  it("carries values argv cannot misread", () => {
+    const pem = "-----BEGIN KEY-----\nabc\ndef\n-----END KEY-----\n";
+    expect(renderEnvArgs({ PEM: pem })).toEqual(["--env", `PEM=${pem}`]);
+    expect(
+      renderEnvArgs({
+        QUOTED: '"quoted"',
+        DOLLAR: "$HOME and ${OTHER}",
+        HASH: "value # not a comment",
+        EQUALS: "a=b=c",
+        SPACED: "  leading and trailing  ",
+        UNICODE: "café 🚀",
+        EMPTY: "",
+      }),
+    ).toEqual([
+      "--env",
+      'QUOTED="quoted"',
+      "--env",
+      "DOLLAR=$HOME and ${OTHER}",
+      "--env",
+      "HASH=value # not a comment",
+      "--env",
+      "EQUALS=a=b=c",
+      "--env",
+      "SPACED=  leading and trailing  ",
+      "--env",
+      "UNICODE=café 🚀",
+      "--env",
+      "EMPTY=",
+    ]);
   });
 
   it("refuses a key that is not an identifier", () => {
-    expect(() => renderEnvFile({ "not-a-key": "x" })).toThrow(RunError);
+    expect(() => renderEnvArgs({ "not-a-key": "x" })).toThrow(RunError);
   });
 });
 
@@ -153,7 +190,6 @@ describe("runDeployment", () => {
       signal: new AbortController().signal,
       exec: exec.exec,
       routes,
-      envRoot: join(dir, "env"),
       network: "forge-apps",
       env: { DATABASE_URL: "postgres://x" },
       healthProbe: async () => statuses.shift() ?? null,
@@ -173,7 +209,6 @@ describe("runDeployment", () => {
       log,
       routes,
       phases,
-      envRoot: join(dir, "env"),
     };
   }
 
@@ -208,11 +243,18 @@ describe("runDeployment", () => {
     });
   });
 
-  it("deletes the env file once the container is created", async () => {
+  it("passes env as argv, with the resolved port winning over a stored one", async () => {
     await withTempDir(async (dir) => {
-      const { promise, envRoot } = deploy(dir);
+      const { promise, exec } = deploy(dir);
       await promise;
-      expect(await readdir(envRoot)).toEqual([]);
+      const run = exec.find("docker run")?.command ?? [];
+      expect(run).not.toContain("--env-file");
+      expect(run).toContain("DATABASE_URL=postgres://x");
+      // Last --env wins in docker, so PORT has to come after the deployment's
+      // own variables or an app is told to listen on the wrong one.
+      expect(run.lastIndexOf("PORT=3000")).toBeGreaterThan(
+        run.indexOf("DATABASE_URL=postgres://x"),
+      );
     });
   });
 
@@ -273,7 +315,6 @@ describe("runDeployment", () => {
           signal: new AbortController().signal,
           exec: exec.exec,
           routes: loopbackOnlyRouteManager(),
-          envRoot: join(dir, "env"),
           network: "forge-apps",
           healthProbe: async () => null,
           healthPollMs: 1,
@@ -308,7 +349,6 @@ describe("runDeployment", () => {
           signal: new AbortController().signal,
           exec: exec.exec,
           routes: loopbackOnlyRouteManager(),
-          envRoot: join(dir, "env"),
           network: "forge-apps",
           healthProbe: async () => null,
           healthPollMs: 1,
@@ -326,6 +366,177 @@ describe("runDeployment", () => {
       await promise;
       expect(exec.find("docker run")?.command).toContain("bun start");
     });
+  });
+});
+
+describe("applyDeploymentEnv", () => {
+  function apply(
+    options: {
+      healthStatuses?: (number | null)[];
+      running?: boolean;
+      missing?: boolean;
+      responder?: ExecResponder;
+    } = {},
+  ) {
+    const statuses = [...(options.healthStatuses ?? [200])];
+    const request = deploymentRequest();
+    const notes: string[] = [];
+    let clock = 0;
+    const exec = fakeExec((call) => {
+      const line = call.command.join(" ");
+      const override = options.responder?.(call);
+      if (override !== undefined) return override;
+      if (line.includes("{{json .Config.Image}}")) {
+        return options.missing
+          ? { exitCode: 1 }
+          : {
+              stdout:
+                '"forge/app:abc1234-dep"\t["sh","-c","bun start"]\t{"3000/tcp":[{"HostIp":"127.0.0.1","HostPort":"24817"}]}\n',
+            };
+      }
+      if (call.command.includes("run")) return { stdout: "container-new\n" };
+      if (line.includes("{{.State.Running}}")) {
+        return {
+          stdout:
+            options.running === false ? "false false 1\n" : "true false 0\n",
+        };
+      }
+      return undefined;
+    });
+    return {
+      request,
+      exec,
+      notes,
+      promise: applyDeploymentEnv({
+        request,
+        port: 24_817,
+        network: "forge-apps",
+        env: { DATABASE_URL: "postgres://new" },
+        exec: exec.exec,
+        healthProbe: async () => statuses.shift() ?? null,
+        healthPollMs: 1,
+        sleep: async () => {
+          clock += 2_000;
+        },
+        now: () => clock,
+        note: (message) => notes.push(message),
+      }),
+    };
+  }
+
+  it("recreates the container with the new env and removes the old one", async () => {
+    const { promise, exec, request } = apply();
+    const result = await promise;
+
+    expect(result).toMatchObject({
+      recreated: true,
+      containerId: "container-new",
+      healthy: true,
+      rolledBack: false,
+      error: null,
+    });
+
+    const name = containerNameFor(request.deploymentId);
+    // Renamed aside, then stopped, before anything is created.
+    expect(exec.commands).toContain(`docker rename ${name} ${name}-prev`);
+    expect(exec.commands).toContain(`docker stop --time 10 ${name}-prev`);
+    const run = exec.find("docker run")?.command ?? [];
+    expect(run).toContain("DATABASE_URL=postgres://new");
+    expect(run).toContain(`--name`);
+    expect(run).toContain(name);
+    // Same published port, so the Caddy route still points at it.
+    expect(run).toContain("127.0.0.1:24817:3000");
+    expect(exec.commands).toContain(`docker rm --force ${name}-prev`);
+  });
+
+  it("keeps the identical runtime flags as a first deploy", async () => {
+    const { promise, exec, request } = apply();
+    await promise;
+    const run = exec.find("docker run")?.command ?? [];
+    expect(run).toContain("--restart");
+    expect(run).toContain("unless-stopped");
+    expect(run).toContain("no-new-privileges");
+    expect(run).toContain(`forge.deployment=${request.deploymentId}`);
+    expect(run).toContain(`forge.kind=${request.kind}`);
+    expect(
+      run.slice(run.indexOf("--memory"), run.indexOf("--memory") + 2),
+    ).toEqual(["--memory", `${request.runtime.memoryLimitMb}m`]);
+  });
+
+  it("restores the previous container when the replacement never answers", async () => {
+    const { promise, exec, request } = apply({
+      healthStatuses: [null],
+      running: false,
+    });
+    const result = await promise;
+    const name = containerNameFor(request.deploymentId);
+
+    expect(result.recreated).toBe(false);
+    expect(result.healthy).toBe(false);
+    expect(result.rolledBack).toBe(true);
+    expect(result.error).toMatch(/previous container was restored/);
+    expect(exec.commands).toContain(`docker rm --force ${name}`);
+    expect(exec.commands).toContain(`docker rename ${name}-prev ${name}`);
+    expect(exec.commands).toContain(`docker start ${name}`);
+    // The old container must survive a failed apply. The only `rm` of the
+    // aside name is the leftover sweep that runs before the rename.
+    const removals = exec.commands.filter(
+      (command) => command === `docker rm --force ${name}-prev`,
+    );
+    expect(removals).toHaveLength(1);
+    expect(
+      exec.commands.indexOf(`docker rm --force ${name}-prev`),
+    ).toBeLessThan(exec.commands.indexOf(`docker rename ${name} ${name}-prev`));
+  });
+
+  it("reports honestly when the rollback itself fails", async () => {
+    const { promise, request } = apply({
+      healthStatuses: [null],
+      running: false,
+      responder: (call) => {
+        const line = call.command.join(" ");
+        if (line.startsWith("docker rename") && line.endsWith("-prev")) {
+          return undefined;
+        }
+        if (line.startsWith("docker rename")) return { exitCode: 1 };
+        return undefined;
+      },
+    });
+    const result = await promise;
+    expect(request.deploymentId).toBeTruthy();
+    expect(result.rolledBack).toBe(false);
+    expect(result.error).toMatch(/could not be restored/);
+  });
+
+  it("reuses the image and start command the container was created with", async () => {
+    const { promise, exec } = apply();
+    await promise;
+    const run = exec.find("docker run")?.command ?? [];
+    // Not the request's builder guess — the checkout that decided it is long
+    // gone by the time anyone edits a variable.
+    expect(run).toContain("forge/app:abc1234-dep");
+    expect(run.slice(-3)).toEqual(["sh", "-c", "bun start"]);
+    expect(run).toContain("127.0.0.1:24817:3000");
+  });
+
+  it("refuses when there is no container to recreate", async () => {
+    const { promise, exec } = apply({ missing: true });
+    const result = await promise;
+
+    expect(result.recreated).toBe(false);
+    expect(result.error).toMatch(/redeploy it instead/);
+    // Nothing may be touched when the spec could not be read.
+    expect(exec.find("docker run")).toBeUndefined();
+    expect(exec.find("docker rename")).toBeUndefined();
+  });
+
+  it("clears a leftover -prev before renaming, so a retry is not stranded", async () => {
+    const { promise, exec, request } = apply();
+    await promise;
+    const name = containerNameFor(request.deploymentId);
+    expect(
+      exec.commands.indexOf(`docker rm --force ${name}-prev`),
+    ).toBeLessThan(exec.commands.indexOf(`docker rename ${name} ${name}-prev`));
   });
 });
 

@@ -11,6 +11,7 @@ import {
   refreshDeployDomain,
   releaseDeploymentResources,
   routeHostnames,
+  type SupersededDeployment,
   sweepDeployDomains,
   targetsWithActiveDomains,
 } from "@repo/cloud-core/deploy";
@@ -223,6 +224,30 @@ export class ForgeOps {
 
   async releaseDeployment(row: DeploymentRow): Promise<void> {
     await releaseDeploymentResources(this.db, this.dns, row);
+  }
+
+  /**
+   * Superseding is the one route to a terminal status that bypasses
+   * `recordDeploymentStatus`, so it never released anything and every push to a
+   * branch left the previous preview's CNAME in Cloudflare for good.
+   *
+   * Best-effort per row: a record Cloudflare will not delete is not a reason to
+   * fail the push that superseded it, and the nightly reconciler gets another go
+   * at it once the row is eventually deleted.
+   */
+  async releaseSuperseded(
+    rows: readonly SupersededDeployment[],
+  ): Promise<void> {
+    for (const row of rows) {
+      await releaseDeploymentResources(this.db, this.dns, row).catch(
+        (error: unknown) => {
+          console.error(
+            `[deploy] releasing superseded ${row.id} failed`,
+            error,
+          );
+        },
+      );
+    }
   }
 
   /**

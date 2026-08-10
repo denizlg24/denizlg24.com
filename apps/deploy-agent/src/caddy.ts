@@ -4,6 +4,21 @@ import { dirname } from "node:path";
 import type { DeploymentRoute, RouteManager } from "./run";
 
 export const DEFAULT_ADMIN_URL = "http://127.0.0.1:2019";
+export const DEFAULT_ADMIN_LISTEN = "127.0.0.1:2019";
+
+/**
+ * The `host:port` Caddy should bind its admin endpoint to, derived from the URL
+ * the agent talks to so the config it publishes cannot disagree with it.
+ */
+export function adminListenFromUrl(adminUrl: string): string {
+  try {
+    const parsed = new URL(adminUrl);
+    const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+    return `${parsed.hostname}:${port}`;
+  } catch {
+    return DEFAULT_ADMIN_LISTEN;
+  }
+}
 export const DEFAULT_LISTEN = "127.0.0.1:8080";
 export const SERVER_NAME = "forge";
 
@@ -28,7 +43,38 @@ interface CaddyConfigRoute {
   handle: Record<string, unknown>[];
 }
 
+interface CaddyLogSink {
+  writer: {
+    output: "file";
+    filename: string;
+    roll_size_mb: number;
+    roll_keep: number;
+  };
+  encoder: { format: "json" };
+  include: string[];
+  level: "INFO";
+}
+
 export interface CaddyConfig {
+  /**
+   * Emitted on purpose, and it is not cosmetic. A `/load` whose body omits
+   * `admin` does not leave the running admin endpoint alone — Caddy *relocates*
+   * it to the default `localhost:2019`. On this host the bootstrap file happens
+   * to name that same address, so the move has always been invisible; point
+   * `CADDY_ADMIN_URL` anywhere else and the first publish silently moves Caddy's
+   * admin endpoint out from under the agent, which then cannot reach Caddy again
+   * until the process restarts. Declaring it keeps the two in agreement.
+   */
+  admin: { listen: string };
+  /**
+   * Also erased by every `/load`, which is why the bootstrap file's `logging`
+   * block never survived the first publish either. The `default` logger carries
+   * an `exclude` for every access logger so request lines go to their file and
+   * not to the journal as well.
+   */
+  logging: {
+    logs: Record<string, CaddyLogSink | { level: "ERROR"; exclude: string[] }>;
+  };
   apps: {
     http: {
       servers: Record<
@@ -37,6 +83,7 @@ export interface CaddyConfig {
           listen: string[];
           routes: CaddyConfigRoute[];
           automatic_https: { disable: true };
+          logs?: { logger_names: Record<string, string[]> };
         }
       >;
     };
@@ -52,6 +99,7 @@ export interface CaddyRouterOptions {
   statePath: string;
   adminUrl?: string;
   listen?: string;
+  accessLogRoot?: string;
   timeoutMs?: number;
   fetchImplementation?: typeof fetch;
   logger?: CaddyLogger;
@@ -97,10 +145,41 @@ function redirectHandler(canonical: string): Record<string, unknown> {
   };
 }
 
+export const DEFAULT_ACCESS_LOG_ROOT = "/srv/forge/access";
+const ACCESS_LOG_ROLL_SIZE_MB = 16;
+const ACCESS_LOG_ROLL_KEEP = 2;
+
+/**
+ * Caddy logger ids may not contain a `.` — the name is a node in a dotted
+ * namespace, so `dpl.abc` would nest under a `dpl` logger that does not exist.
+ * A deployment id is a UUID, which is safe, but this keeps that a property of
+ * the code rather than of the id format.
+ */
+export function accessLoggerName(deploymentId: string): string {
+  return `access-${deploymentId.replaceAll(".", "-")}`;
+}
+
+export function accessLogPath(root: string, deploymentId: string): string {
+  return `${root}/${deploymentId}.log`;
+}
+
+export interface BuildCaddyConfigOptions {
+  listen?: string;
+  adminListen?: string;
+  accessLogRoot?: string;
+}
+
 export function buildCaddyConfig(
   entries: readonly CaddyRouteEntry[],
-  listen: string = DEFAULT_LISTEN,
+  options: BuildCaddyConfigOptions | string = {},
 ): CaddyConfig {
+  // Kept callable with a bare listen string so the state-restore path and the
+  // existing tests do not have to know about the rest of this.
+  const resolved: BuildCaddyConfigOptions =
+    typeof options === "string" ? { listen: options } : options;
+  const listen = resolved.listen ?? DEFAULT_LISTEN;
+  const adminListen = resolved.adminListen ?? DEFAULT_ADMIN_LISTEN;
+  const accessLogRoot = resolved.accessLogRoot ?? DEFAULT_ACCESS_LOG_ROOT;
   // Sorted so an unchanged set of deployments always serialises identically —
   // otherwise every republish looks like a change and Caddy reloads for nothing.
   const sorted = [...entries].sort((a, b) =>
@@ -151,7 +230,46 @@ export function buildCaddyConfig(
     ],
   });
 
+  // One logger per deployment, so a request log is already separated by the time
+  // anything reads it — the alternative is one shared file that every consumer
+  // has to filter by host, and hosts move between deployments on promote.
+  const loggerNames: Record<string, string[]> = {};
+  const sinks: Record<string, CaddyLogSink> = {};
+  for (const entry of sorted) {
+    if (entry.hostnames.length === 0) continue;
+    const logger = accessLoggerName(entry.deploymentId);
+    sinks[logger] = {
+      writer: {
+        output: "file",
+        filename: accessLogPath(accessLogRoot, entry.deploymentId),
+        roll_size_mb: ACCESS_LOG_ROLL_SIZE_MB,
+        roll_keep: ACCESS_LOG_ROLL_KEEP,
+      },
+      encoder: { format: "json" },
+      include: [`http.log.access.${logger}`],
+      level: "INFO",
+    };
+    // Only names that serve. A redirect answers 308 without reaching the
+    // container, and logging it against the deployment would count traffic the
+    // app never saw.
+    for (const hostname of [...entry.hostnames].sort()) {
+      loggerNames[hostname] = [logger];
+    }
+  }
+
   return {
+    admin: { listen: adminListen },
+    logging: {
+      logs: {
+        default: {
+          level: "ERROR",
+          exclude: Object.keys(sinks)
+            .sort()
+            .map((logger) => `http.log.access.${logger}`),
+        },
+        ...sinks,
+      },
+    },
     apps: {
       http: {
         servers: {
@@ -165,6 +283,9 @@ export function buildCaddyConfig(
             // to an HTTPS server" — and start an ACME order per deployment
             // hostname that nothing can complete.
             automatic_https: { disable: true },
+            ...(Object.keys(loggerNames).length > 0
+              ? { logs: { logger_names: loggerNames } }
+              : {}),
           },
         },
       },
@@ -196,7 +317,13 @@ export class CaddyRouter implements RouteManager {
   }
 
   config(): CaddyConfig {
-    return buildCaddyConfig(this.routes(), this.#options.listen);
+    return buildCaddyConfig(this.routes(), {
+      listen: this.#options.listen,
+      adminListen: adminListenFromUrl(
+        this.#options.adminUrl ?? DEFAULT_ADMIN_URL,
+      ),
+      accessLogRoot: this.#options.accessLogRoot,
+    });
   }
 
   /**

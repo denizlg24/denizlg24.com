@@ -214,10 +214,13 @@ export default function DeploymentPage() {
         >
           Rollback to this
         </Button>
+        {/* Its own trigger, alongside the other actions. The build log stays
+            inline below because it is a record of this deployment; runtime
+            output is a live tail that belongs in a panel over the page. */}
+        <RuntimeLog deployment={data} />
       </div>
 
       <BuildLog deployment={data} />
-      <RuntimeLog deployment={data} />
     </div>
   );
 }

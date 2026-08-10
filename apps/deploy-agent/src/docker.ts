@@ -37,6 +37,34 @@ export interface ForgeDockerImage {
   sizeBytes: number;
   sharedSizeBytes: number | null;
   containerIds: string[];
+  projectSlug: string | null;
+  kind: string | null;
+  /** Carries `forge/<slug>:latest`, which GC can never reap. */
+  isCacheTag: boolean;
+}
+
+/**
+ * The project and role an image tag encodes.
+ *
+ * Builds are tagged `forge/<projectSlug>:<shortSha>-<deploymentId8>` plus a moving
+ * `forge/<projectSlug>:latest` used as the `--cache-from` source. Parsing it here
+ * rather than in the dashboard keeps the tag format one thing the UI does not have
+ * to know — and the `:latest` flag is what lets the images list say "cache" about
+ * the one image per project that legitimately has no container and never will.
+ */
+export function parseForgeImageTags(tags: readonly string[]): {
+  projectSlug: string | null;
+  isCacheTag: boolean;
+} {
+  let projectSlug: string | null = null;
+  let isCacheTag = false;
+  for (const tag of tags) {
+    const match = /^forge\/([a-z0-9][a-z0-9-]*):(.+)$/.exec(tag);
+    if (!match?.[1]) continue;
+    projectSlug ??= match[1];
+    if (match[2] === "latest") isCacheTag = true;
+  }
+  return { projectSlug, isCacheTag };
 }
 
 export type FetchLike = (
@@ -381,6 +409,10 @@ export class DockerClient {
         : [];
       const created = numberAt(value, "Created");
       const sharedSize = value.SharedSize;
+      const used = forgeContainers.filter(
+        (container) => container.imageId === id,
+      );
+      const parsed = parseForgeImageTags(tags);
       return [
         {
           id,
@@ -391,9 +423,14 @@ export class DockerClient {
             typeof sharedSize === "number" && sharedSize >= 0
               ? sharedSize
               : null,
-          containerIds: forgeContainers
-            .filter((container) => container.imageId === id)
-            .map((container) => container.id),
+          containerIds: used.map((container) => container.id),
+          projectSlug: parsed.projectSlug,
+          // Only the container can say which kind an image was built for — the
+          // tag carries the project and the commit, not the environment. An image
+          // no container references has no kind, which is exactly right: a
+          // retained build belongs to no environment until something runs it.
+          kind: used[0]?.kind ?? null,
+          isCacheTag: parsed.isCacheTag,
         },
       ];
     });

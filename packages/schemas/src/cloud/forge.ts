@@ -45,8 +45,62 @@ export const forgeImageSchema = z.object({
   sizeBytes: z.number().int().nonnegative(),
   sharedSizeBytes: z.number().int().nullable(),
   containerIds: z.array(z.string()),
+  /**
+   * Parsed from the tag on the agent. Defaulted rather than required so a control
+   * plane deployed ahead of the agent still parses an older snapshot instead of
+   * blanking the whole overview.
+   */
+  projectSlug: z.string().nullable().default(null),
+  kind: z.string().nullable().default(null),
+  /** `forge/<slug>:latest`, the build cache source. GC never reaps it. */
+  isCacheTag: z.boolean().default(false),
 });
 export type ForgeImage = z.infer<typeof forgeImageSchema>;
+
+/**
+ * One HTTP request, as Caddy's JSON access log recorded it.
+ *
+ * Flattened out of Caddy's nested shape on the agent so the wire format does not
+ * inherit it — `request.headers["User-Agent"][0]` is an implementation detail of
+ * the log encoder, not something a dashboard should reach into. Durations arrive
+ * in float seconds and are converted to milliseconds here.
+ */
+export const forgeRequestLogRecordSchema = z.object({
+  ts: cloudDateTimeSchema,
+  status: z.number().int(),
+  method: z.string(),
+  host: z.string(),
+  uri: z.string(),
+  proto: z.string(),
+  durationMs: z.number().nonnegative(),
+  bytesOut: z.number().int().nonnegative(),
+  clientIp: z.string(),
+  userAgent: z.string().nullable(),
+  referer: z.string().nullable(),
+});
+export type ForgeRequestLogRecord = z.infer<typeof forgeRequestLogRecordSchema>;
+
+/**
+ * What one telemetry interval saw, per deployment. Deltas rather than totals: the
+ * agent keeps no history, so a counter that only ever grew would reset to zero
+ * whenever the agent restarted and read as a traffic collapse.
+ *
+ * Percentiles are computed over the interval's own samples. They cannot be
+ * averaged across intervals afterwards, which is why they are stored as their own
+ * series rather than derived later from a mean.
+ */
+export const forgeRequestStatsSchema = z.object({
+  deploymentId: z.string().min(1),
+  count: z.number().int().nonnegative(),
+  status2xx: z.number().int().nonnegative(),
+  status3xx: z.number().int().nonnegative(),
+  status4xx: z.number().int().nonnegative(),
+  status5xx: z.number().int().nonnegative(),
+  bytesOut: z.number().int().nonnegative(),
+  durationP50Ms: z.number().nonnegative(),
+  durationP95Ms: z.number().nonnegative(),
+});
+export type ForgeRequestStats = z.infer<typeof forgeRequestStatsSchema>;
 
 /** Host utilization collected by the deploy agent itself. */
 export const forgeHostSnapshotSchema = z.object({
@@ -73,6 +127,11 @@ export const forgeAgentSnapshotSchema = z.object({
   host: forgeHostSnapshotSchema,
   containers: z.array(forgeContainerSchema),
   images: z.array(forgeImageSchema),
+  /**
+   * Optional so a control plane running ahead of the agent still parses a
+   * snapshot from one that has no access logs configured yet.
+   */
+  requests: z.array(forgeRequestStatsSchema).optional(),
 });
 export type ForgeAgentSnapshot = z.infer<typeof forgeAgentSnapshotSchema>;
 

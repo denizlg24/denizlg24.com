@@ -1,6 +1,3 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-
 import type {
   AgentDeploymentRequest,
   DeploymentPhase,
@@ -63,7 +60,6 @@ export interface RunOptions {
   signal: AbortSignal;
   exec: Exec;
   routes: RouteManager;
-  envRoot: string;
   network: string;
   env?: Record<string, string>;
   onPhase?: (phase: DeploymentPhase) => Promise<void>;
@@ -108,24 +104,31 @@ export function containerNameFor(deploymentId: string): string {
 }
 
 /**
- * `docker --env-file` parses `KEY=VALUE` lines and nothing else — no quoting,
- * no continuations. A value with a newline in it silently becomes two broken
- * entries, so it is refused here instead.
+ * One `--env KEY=VALUE` argv entry per variable, rather than the `--env-file`
+ * this used to write.
+ *
+ * argv is a list of byte strings with no line structure, and `spawnExec` never
+ * goes through a shell, so a value carrying a newline, a quote, a `$` or a `#`
+ * reaches the container exactly as it was stored. `docker --env-file` parses
+ * `KEY=VALUE` lines and nothing else: it could not represent a newline at all,
+ * so the only safe thing available was to refuse the deployment — which is how
+ * a PEM key or a service-account JSON used to fail *after* its build had
+ * already succeeded, while the same value had passed the build fine as a
+ * `--build-arg`.
+ *
+ * The cost is that values are now visible in `ps` on the Forge host. They were
+ * already readable there via `docker inspect`, and the host runs nothing but
+ * this agent and the containers it starts.
  */
-export function renderEnvFile(env: Record<string, string>): string {
-  const lines: string[] = [];
+export function renderEnvArgs(env: Record<string, string>): string[] {
+  const args: string[] = [];
   for (const [key, value] of Object.entries(env)) {
     if (!ENV_KEY_PATTERN.test(key)) {
       throw new RunError(`Environment key is not a valid identifier: ${key}`);
     }
-    if (/[\n\r\0]/.test(value)) {
-      throw new RunError(
-        `Environment value for ${key} contains a newline, which docker --env-file cannot represent`,
-      );
-    }
-    lines.push(`${key}=${value}`);
+    args.push("--env", `${key}=${value}`);
   }
-  return lines.length > 0 ? `${lines.join("\n")}\n` : "";
+  return args;
 }
 
 export function healthUrl(port: number, healthPath: string): string {
@@ -141,8 +144,8 @@ export function healthUrl(port: number, healthPath: string): string {
 export async function resolveContainerPort(
   options: Pick<
     RunOptions,
-    "request" | "builder" | "imageTag" | "exec" | "signal" | "log"
-  >,
+    "request" | "builder" | "imageTag" | "exec" | "signal"
+  > & { log: Pick<BuildLog, "note"> },
 ): Promise<number> {
   const declared = options.request.runtime.containerPort;
   if (declared) return declared;
@@ -238,111 +241,138 @@ async function captureContainerLogs(
   options.log.write(output.length > 0 ? `${output}\n` : "(no output)\n");
 }
 
+/**
+ * Every flag `docker run` needs, as one array.
+ *
+ * Split out from `startContainer` because applying an env change recreates the
+ * container, and it has to be recreated with *these* flags — a container that
+ * came back with a different memory ceiling or no `--restart` policy because a
+ * second argv drifted from this one would be a much harder failure to see than
+ * a missing variable.
+ */
+export function containerCreateArgs(options: {
+  request: AgentDeploymentRequest;
+  imageTag: string;
+  port: number;
+  containerPort: number;
+  network: string;
+  env?: Record<string, string>;
+  name?: string;
+  /**
+   * Appended after the image, overriding its `CMD`. Empty leaves the image's own
+   * command in place — which is what every nixpacks build wants, because the
+   * start command was already baked in at build time as `--start-cmd`.
+   */
+  command?: readonly string[];
+}): string[] {
+  const { request } = options;
+  const memory = `${request.runtime.memoryLimitMb}m`;
+  return [
+    "docker",
+    "run",
+    "--detach",
+    "--name",
+    options.name ?? containerNameFor(request.deploymentId),
+    "--network",
+    options.network,
+    "--restart",
+    "unless-stopped",
+    // The hard ceiling. Equal to --memory-swap so swap stays off: on this
+    // host a container thrashing swap degrades every other container and
+    // the tunnel with it, which is worse than one clean kill.
+    "--memory",
+    memory,
+    "--memory-swap",
+    memory,
+    // The soft limit (memory.low). Under host pressure the kernel reclaims
+    // from containers above their reservation first, so an app inside its
+    // planned working set is the last to be squeezed. This is what makes
+    // the gap up to --memory usable rather than theoretical.
+    "--memory-reservation",
+    `${request.runtime.memoryReservationMb}m`,
+    // When the host itself runs out, the kernel picks a victim by badness
+    // score and would happily choose dockerd, this agent, or Caddy —
+    // killing Caddy takes every deployment down at once. A positive
+    // adjustment makes a deployed app always the cheaper target.
+    "--oom-score-adj",
+    "500",
+    "--cpus",
+    String(request.runtime.cpuLimit),
+    "--pids-limit",
+    "512",
+    "--security-opt",
+    "no-new-privileges",
+    "--log-opt",
+    "max-size=10m",
+    "--log-opt",
+    "max-file=3",
+    ...renderEnvArgs({ ...RUN_DEFAULT_ENV, ...options.env }),
+    // After the deployment's own vars, so the resolved container port wins over
+    // anything stored under the same name.
+    "--env",
+    `PORT=${options.containerPort}`,
+    "--publish",
+    `127.0.0.1:${options.port}:${options.containerPort}`,
+    "--label",
+    `forge.deployment=${request.deploymentId}`,
+    "--label",
+    `forge.project=${request.projectSlug}`,
+    "--label",
+    `forge.target=${request.targetId}`,
+    "--label",
+    `forge.kind=${request.kind}`,
+    options.imageTag,
+    ...(options.command ?? []),
+  ];
+}
+
+/**
+ * Run-time only, and only on the dockerfile path: on the nixpacks path the same
+ * string was already passed as `--start-cmd` at build time, and repeating it as
+ * an argument would be handed to an entrypoint that does not want it.
+ */
+export function startCommandArgs(
+  request: AgentDeploymentRequest,
+  builder: ResolvedBuilder,
+): string[] {
+  return builder === "dockerfile" && request.build.startCommand
+    ? ["sh", "-c", request.build.startCommand]
+    : [];
+}
+
 export async function startContainer(options: RunOptions): Promise<RunOutcome> {
   const { request, exec, signal, log } = options;
   const name = containerNameFor(request.deploymentId);
   const containerPort = await resolveContainerPort(options);
-  const memory = `${request.runtime.memoryLimitMb}m`;
-  const envFile = join(options.envRoot, `${request.deploymentId}.env`);
 
-  await mkdir(options.envRoot, { recursive: true });
-  await rm(envFile, { force: true });
-  await writeFile(
-    envFile,
-    renderEnvFile({ ...RUN_DEFAULT_ENV, ...options.env }),
-    {
-      mode: 0o600,
-      flag: "wx",
-    },
+  // A name left behind by an interrupted run would fail the create with a
+  // conflict that reads as a bug in the allocator.
+  await exec({
+    command: ["docker", "rm", "--force", name],
+    signal,
+    timeoutMs: 60_000,
+  });
+
+  log.note(
+    `starting ${name} on 127.0.0.1:${options.port} → container port ${containerPort}`,
   );
-
-  let containerId: string;
-  try {
-    // A name left behind by an interrupted run would fail the create with a
-    // conflict that reads as a bug in the allocator.
-    await exec({
-      command: ["docker", "rm", "--force", name],
-      signal,
-      timeoutMs: 60_000,
-    });
-
-    log.note(
-      `starting ${name} on 127.0.0.1:${options.port} → container port ${containerPort}`,
-    );
-    const created = await execOrThrow(exec, "docker run", {
-      command: [
-        "docker",
-        "run",
-        "--detach",
-        "--name",
-        name,
-        "--network",
-        options.network,
-        "--restart",
-        "unless-stopped",
-        // The hard ceiling. Equal to --memory-swap so swap stays off: on this
-        // host a container thrashing swap degrades every other container and
-        // the tunnel with it, which is worse than one clean kill.
-        "--memory",
-        memory,
-        "--memory-swap",
-        memory,
-        // The soft limit (memory.low). Under host pressure the kernel reclaims
-        // from containers above their reservation first, so an app inside its
-        // planned working set is the last to be squeezed. This is what makes
-        // the gap up to --memory usable rather than theoretical.
-        "--memory-reservation",
-        `${request.runtime.memoryReservationMb}m`,
-        // When the host itself runs out, the kernel picks a victim by badness
-        // score and would happily choose dockerd, this agent, or Caddy —
-        // killing Caddy takes every deployment down at once. A positive
-        // adjustment makes a deployed app always the cheaper target.
-        "--oom-score-adj",
-        "500",
-        "--cpus",
-        String(request.runtime.cpuLimit),
-        "--pids-limit",
-        "512",
-        "--security-opt",
-        "no-new-privileges",
-        "--log-opt",
-        "max-size=10m",
-        "--log-opt",
-        "max-file=3",
-        "--env-file",
-        envFile,
-        "--env",
-        `PORT=${containerPort}`,
-        "--publish",
-        `127.0.0.1:${options.port}:${containerPort}`,
-        "--label",
-        `forge.deployment=${request.deploymentId}`,
-        "--label",
-        `forge.project=${request.projectSlug}`,
-        "--label",
-        `forge.target=${request.targetId}`,
-        "--label",
-        `forge.kind=${request.kind}`,
-        options.imageTag,
-        // Run-time only, and only here: on the nixpacks path the same string
-        // was already passed as `--start-cmd` at build time, and repeating it
-        // as an argument would be handed to an entrypoint that does not want it.
-        ...(options.builder === "dockerfile" && request.build.startCommand
-          ? ["sh", "-c", request.build.startCommand]
-          : []),
-      ],
-      signal,
-      timeoutMs: 120_000,
-    });
-    containerId = created.stdout.trim().slice(0, 64);
-  } finally {
-    // The resolved env set is the most sensitive thing this box holds. It is on
-    // disk for the length of one `docker run` and no longer.
-    await rm(envFile, { force: true }).catch(() => {});
-  }
+  const created = await execOrThrow(exec, "docker run", {
+    command: containerCreateArgs({
+      request,
+      imageTag: options.imageTag,
+      port: options.port,
+      containerPort,
+      network: options.network,
+      env: options.env,
+      name,
+      command: startCommandArgs(request, options.builder),
+    }),
+    signal,
+    timeoutMs: 120_000,
+  });
 
   return {
-    containerId,
+    containerId: created.stdout.trim().slice(0, 64),
     containerName: name,
     port: options.port,
     containerPort,
@@ -353,53 +383,83 @@ export async function startContainer(options: RunOptions): Promise<RunOutcome> {
  * Any status under 500 passes. Requiring 200 breaks every app whose root is a
  * redirect and every API-only surface whose root is a 404 — and a 404 from the
  * app is still proof that the app is listening, which is the entire question.
+ *
+ * Shared with the env-apply recreate: a container that comes back on new
+ * variables has to be gated exactly as hard as one that comes back on a new
+ * image, including the OOM case, or applying an env change becomes the one way
+ * to put an unhealthy container into the routing table.
  */
-export async function awaitHealthy(
-  options: RunOptions,
-  outcome: RunOutcome,
-): Promise<void> {
-  const probe = options.healthProbe ?? fetchHealthProbe;
-  const sleep =
-    options.sleep ??
-    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const now = options.now ?? Date.now;
-  const pollMs = options.healthPollMs ?? 2_000;
-  const url = healthUrl(outcome.port, options.request.runtime.healthPath);
-  const deadline = now() + options.request.timeouts.healthMs;
-
-  options.log.note(`health check ${url}`);
+async function gateOnHealth(options: {
+  exec: Exec;
+  containerName: string;
+  url: string;
+  timeoutMs: number;
+  memoryLimitMb: number;
+  signal: AbortSignal;
+  probe: HealthProbe;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
+  pollMs: number;
+  note: (message: string) => void;
+  cancelledMessage: string;
+}): Promise<void> {
+  const deadline = options.now() + options.timeoutMs;
+  const seconds = Math.round(options.timeoutMs / 1_000);
+  options.note(`health check ${options.url}`);
   let lastStatus: number | null = null;
 
-  while (now() < deadline) {
-    if (options.signal.aborted) throw new RunError("Deployment cancelled");
+  while (options.now() < deadline) {
+    if (options.signal.aborted) throw new RunError(options.cancelledMessage);
 
-    const status = await probe(url, options.signal);
+    const status = await options.probe(options.url, options.signal);
     if (status !== null && status < 500) {
-      options.log.note(`healthy (HTTP ${status})`);
+      options.note(`healthy (HTTP ${status})`);
       return;
     }
     lastStatus = status;
 
     const state = await containerState(
       options.exec,
-      outcome.containerName,
+      options.containerName,
       options.signal,
     );
     if (!state.running) {
       throw new RunError(
         state.oomKilled
-          ? `Container exceeded its ${options.request.runtime.memoryLimitMb} MB memory ceiling and was killed`
+          ? `Container exceeded its ${options.memoryLimitMb} MB memory ceiling and was killed`
           : "Container exited before it became healthy",
       );
     }
-    await sleep(pollMs);
+    await options.sleep(options.pollMs);
   }
 
   throw new RunError(
     lastStatus === null
-      ? `Health check did not answer within ${Math.round(options.request.timeouts.healthMs / 1_000)}s`
-      : `Health check kept answering HTTP ${lastStatus} for ${Math.round(options.request.timeouts.healthMs / 1_000)}s`,
+      ? `Health check did not answer within ${seconds}s`
+      : `Health check kept answering HTTP ${lastStatus} for ${seconds}s`,
   );
+}
+
+export async function awaitHealthy(
+  options: RunOptions,
+  outcome: RunOutcome,
+): Promise<void> {
+  await gateOnHealth({
+    exec: options.exec,
+    containerName: outcome.containerName,
+    url: healthUrl(outcome.port, options.request.runtime.healthPath),
+    timeoutMs: options.request.timeouts.healthMs,
+    memoryLimitMb: options.request.runtime.memoryLimitMb,
+    signal: options.signal,
+    probe: options.healthProbe ?? fetchHealthProbe,
+    sleep:
+      options.sleep ??
+      ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))),
+    now: options.now ?? Date.now,
+    pollMs: options.healthPollMs ?? 2_000,
+    note: (message) => options.log.note(message),
+    cancelledMessage: "Deployment cancelled",
+  });
 }
 
 export interface ReapOptions {
@@ -562,6 +622,256 @@ export async function restartDeployment(
     healthy: false,
     error: "Container restarted but did not answer the health check",
   };
+}
+
+export interface ApplyEnvOptions {
+  request: AgentDeploymentRequest;
+  /** From the live route table, so the replacement keeps its place in Caddy. */
+  port: number;
+  network: string;
+  env: Record<string, string>;
+  exec: Exec;
+  signal?: AbortSignal;
+  healthProbe?: HealthProbe;
+  healthPollMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+  note?: (message: string) => void;
+}
+
+interface ContainerSpec {
+  imageTag: string;
+  containerPort: number;
+  command: string[];
+}
+
+/**
+ * What the running container was created with, read back off the container
+ * itself.
+ *
+ * The alternative — re-deriving it from the deployment request — cannot work
+ * here. `resolveBuilder` decides between a Dockerfile and nixpacks by probing
+ * the checked-out repository, and GC deletes that checkout after two hours, so
+ * by the time anyone edits a variable the evidence is gone. Guessing from
+ * `build.dockerfilePath` alone gets the `builder: "auto"` case wrong, and the
+ * cost of getting it wrong is a container that comes back running the image's
+ * default command instead of its configured start command.
+ *
+ * `.Config.Cmd` is exact whether it was overridden or inherited: re-passing an
+ * inherited CMD produces the same entrypoint/CMD pairing docker would have used
+ * anyway. `.HostConfig.PortBindings` carries the resolved container port as its
+ * key, which is more reliable than inspecting the image a second time.
+ */
+async function inspectContainerSpec(
+  exec: Exec,
+  name: string,
+  signal: AbortSignal,
+): Promise<ContainerSpec | null> {
+  const result = await exec({
+    command: [
+      "docker",
+      "inspect",
+      "--format",
+      "{{json .Config.Image}}\t{{json .Config.Cmd}}\t{{json .HostConfig.PortBindings}}",
+      name,
+    ],
+    signal,
+    timeoutMs: 30_000,
+  });
+  if (result.exitCode !== 0) return null;
+
+  const [rawImage = "", rawCmd = "", rawPorts = ""] = result.stdout
+    .trim()
+    .split("\t");
+  let imageTag: unknown;
+  let cmd: unknown;
+  let ports: unknown;
+  try {
+    imageTag = JSON.parse(rawImage || "null");
+    cmd = JSON.parse(rawCmd || "null");
+    ports = JSON.parse(rawPorts || "null");
+  } catch {
+    return null;
+  }
+  if (typeof imageTag !== "string" || imageTag.length === 0) return null;
+
+  const command = Array.isArray(cmd)
+    ? cmd.filter((part): part is string => typeof part === "string")
+    : [];
+  const bindings =
+    ports !== null && typeof ports === "object"
+      ? Object.keys(ports)
+          .map((key) => Number.parseInt(key.split("/")[0] ?? "", 10))
+          .filter((port) => Number.isInteger(port) && port > 0)
+      : [];
+  const containerPort = bindings[0];
+  if (containerPort === undefined) return null;
+
+  return { imageTag, containerPort, command };
+}
+
+export interface ApplyEnvResult {
+  recreated: boolean;
+  containerId: string | null;
+  healthy: boolean;
+  /** The previous container is serving again because the new one failed. */
+  rolledBack: boolean;
+  error: string | null;
+}
+
+/**
+ * Applies a changed environment by *recreating* the container.
+ *
+ * `docker restart` cannot do this and never could: a container's environment is
+ * fixed when it is created, so stopping and starting the same container object
+ * re-reads nothing. That is why the restart button appeared to work and changed
+ * nothing.
+ *
+ * The old container is renamed aside rather than removed, because it is the only
+ * rollback available — the replacement can fail its health check on a typo'd
+ * variable, and the alternative to keeping it is an outage that lasts until
+ * someone notices. It has to be stopped either way: both containers publish
+ * `127.0.0.1:<port>`, so they cannot run at once.
+ *
+ * The port and the container name are unchanged throughout, so Caddy is never
+ * touched and no route is republished.
+ */
+export async function applyDeploymentEnv(
+  options: ApplyEnvOptions,
+): Promise<ApplyEnvResult> {
+  const { request, exec } = options;
+  const signal = options.signal ?? new AbortController().signal;
+  const note = options.note ?? (() => {});
+  const name = containerNameFor(request.deploymentId);
+  const previous = `${name}-prev`;
+
+  // Read before anything moves: this is the only record of how the container was
+  // created, and it has to survive the rename to be worth reading.
+  const spec = await inspectContainerSpec(exec, name, signal);
+  if (!spec) {
+    return {
+      recreated: false,
+      containerId: null,
+      healthy: false,
+      rolledBack: false,
+      error:
+        "No container to recreate for this deployment; redeploy it instead of applying env",
+    };
+  }
+
+  // A leftover from an attempt that died mid-flight would collide with the
+  // rename below and strand this one before it started.
+  await exec({
+    command: ["docker", "rm", "--force", previous],
+    signal,
+    timeoutMs: 60_000,
+  });
+
+  const renamed = await exec({
+    command: ["docker", "rename", name, previous],
+    signal,
+    timeoutMs: 30_000,
+  });
+  const hadPrevious = renamed.exitCode === 0;
+  if (hadPrevious) {
+    // Both containers publish the same loopback port, so the old one has to let
+    // go of it before the new one can bind.
+    await exec({
+      command: ["docker", "stop", "--time", "10", previous],
+      signal,
+      timeoutMs: 120_000,
+    });
+  }
+
+  const restorePrevious = async (): Promise<boolean> => {
+    if (!hadPrevious) return false;
+    await exec({
+      command: ["docker", "rm", "--force", name],
+      signal,
+      timeoutMs: 60_000,
+    });
+    const back = await exec({
+      command: ["docker", "rename", previous, name],
+      signal,
+      timeoutMs: 30_000,
+    });
+    if (back.exitCode !== 0) return false;
+    const started = await exec({
+      command: ["docker", "start", name],
+      signal,
+      timeoutMs: 120_000,
+    });
+    return started.exitCode === 0;
+  };
+
+  try {
+    note(
+      `recreating ${name} on 127.0.0.1:${options.port} → container port ${spec.containerPort}`,
+    );
+    const created = await execOrThrow(exec, "docker run", {
+      command: containerCreateArgs({
+        request,
+        imageTag: spec.imageTag,
+        port: options.port,
+        containerPort: spec.containerPort,
+        network: options.network,
+        env: options.env,
+        name,
+        command: spec.command,
+      }),
+      signal,
+      timeoutMs: 120_000,
+    });
+    const containerId = created.stdout.trim().slice(0, 64);
+
+    await gateOnHealth({
+      exec,
+      containerName: name,
+      url: healthUrl(options.port, request.runtime.healthPath),
+      timeoutMs: request.timeouts.healthMs,
+      memoryLimitMb: request.runtime.memoryLimitMb,
+      signal,
+      probe: options.healthProbe ?? fetchHealthProbe,
+      sleep:
+        options.sleep ??
+        ((ms: number) =>
+          new Promise<void>((resolve) => setTimeout(resolve, ms))),
+      now: options.now ?? Date.now,
+      pollMs: options.healthPollMs ?? 2_000,
+      note,
+      cancelledMessage: "Environment apply cancelled",
+    });
+
+    if (hadPrevious) {
+      await exec({
+        command: ["docker", "rm", "--force", previous],
+        signal,
+        timeoutMs: 60_000,
+      });
+    }
+    return {
+      recreated: true,
+      containerId,
+      healthy: true,
+      rolledBack: false,
+      error: null,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    note(`env apply failed: ${message}`);
+    const rolledBack = await restorePrevious();
+    return {
+      recreated: false,
+      containerId: null,
+      healthy: false,
+      rolledBack,
+      error: rolledBack
+        ? `${message}. The previous container was restored.`
+        : hadPrevious
+          ? `${message}. The previous container could not be restored.`
+          : message,
+    };
+  }
 }
 
 export interface TeardownOptions {

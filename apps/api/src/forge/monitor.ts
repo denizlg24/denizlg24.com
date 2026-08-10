@@ -7,8 +7,11 @@ import {
 import {
   type ForgeAgentSnapshot,
   type ForgeOverview,
+  type ForgeRequestLogRecord,
   forgeAgentSnapshotSchema,
+  forgeRequestLogRecordSchema,
 } from "@repo/schemas/cloud";
+import { z } from "zod";
 
 import type { DeployAgentProxy } from "../deploy/proxy";
 
@@ -103,6 +106,21 @@ export class ForgeMonitor {
     return this.#options.deployAgent.post(
       `/deployments/${encodeURIComponent(deploymentId)}/restart`,
     );
+  }
+
+  async requestLogs(
+    deploymentId: string,
+    limit: number,
+  ): Promise<ForgeRequestLogRecord[]> {
+    if (!this.#options.deployAgent) {
+      throw new ForgeAgentUnavailableError();
+    }
+    const response = await this.#options.deployAgent.json<unknown>(
+      `/deployments/${encodeURIComponent(deploymentId)}/requests?limit=${limit}`,
+    );
+    return z
+      .object({ requests: z.array(forgeRequestLogRecordSchema) })
+      .parse(response.body).requests;
   }
 
   async #agentSnapshot(): Promise<ForgeAgentSnapshot> {
@@ -263,6 +281,82 @@ export class ForgeMonitor {
       }
       for (const key of this.#networkTotals.keys()) {
         if (!seenNetworkKeys.has(key)) this.#networkTotals.delete(key);
+      }
+
+      // Already deltas for the interval the agent drained, so unlike the network
+      // counters there is nothing to differentiate here. Keyed by deployment id
+      // like the container series, so a project's request history and its CPU
+      // history join on the same key.
+      //
+      // Stored as counts per sample interval, on the default `intervalSeconds`,
+      // and both of those are deliberate. `rollupAndPruneMetrics` averages 30s
+      // rows into 300s buckets and filters on `interval_seconds = 30` exactly —
+      // a measured float would round to something else in the `smallint` column
+      // and the row would then never be rolled up *or* pruned. Averaging counts
+      // that all describe one sample interval keeps their meaning at every
+      // resolution: the value is always "requests per sample", which the UI
+      // scales to a rate. A poll the agent misses makes one sample cover two
+      // intervals and reads as a spike; that is the honest reading, because the
+      // traffic did arrive.
+      for (const stats of agent.requests ?? []) {
+        const key = stats.deploymentId;
+        samples.push(
+          {
+            ts,
+            kind: "forge-container",
+            key: `${key}:requests.count`,
+            value: stats.count,
+          },
+          {
+            ts,
+            kind: "forge-container",
+            key: `${key}:requests.2xx`,
+            value: stats.status2xx,
+          },
+          {
+            ts,
+            kind: "forge-container",
+            key: `${key}:requests.3xx`,
+            value: stats.status3xx,
+          },
+          {
+            ts,
+            kind: "forge-container",
+            key: `${key}:requests.4xx`,
+            value: stats.status4xx,
+          },
+          {
+            ts,
+            kind: "forge-container",
+            key: `${key}:requests.5xx`,
+            value: stats.status5xx,
+          },
+          {
+            ts,
+            kind: "forge-container",
+            key: `${key}:response.bytes`,
+            value: stats.bytesOut,
+          },
+        );
+        // Only when the interval actually saw traffic. A percentile over no
+        // requests is 0, and storing that would drag every average down and draw
+        // a latency chart that dips to zero every time an app is idle.
+        if (stats.count > 0) {
+          samples.push(
+            {
+              ts,
+              kind: "forge-container",
+              key: `${key}:request.duration_ms.p50`,
+              value: stats.durationP50Ms,
+            },
+            {
+              ts,
+              kind: "forge-container",
+              key: `${key}:request.duration_ms.p95`,
+              value: stats.durationP95Ms,
+            },
+          );
+        }
       }
     }
     return samples;

@@ -1,5 +1,5 @@
 import { requiredEnv } from "@repo/cloud-core";
-import { DEFAULT_LISTEN } from "./caddy";
+import { DEFAULT_ACCESS_LOG_ROOT, DEFAULT_LISTEN } from "./caddy";
 
 export interface AgentConfig {
   bindAddress: string;
@@ -11,8 +11,8 @@ export interface AgentConfig {
   heartbeatMs: number;
   buildRoot: string;
   logRoot: string;
+  accessLogRoot: string;
   cacheRoot: string;
-  runEnvRoot: string;
   dockerSocket: string;
   dockerDataRoot: string;
   buildxBuilder: string;
@@ -168,10 +168,10 @@ export function agentConfigFromEnv(): AgentConfig {
     heartbeatMs: integerEnv("HEARTBEAT_MS", 30_000, 1_000, 300_000),
     buildRoot: absolutePathEnv("BUILD_ROOT", "/srv/forge/builds"),
     logRoot: absolutePathEnv("LOG_ROOT", "/srv/forge/logs"),
+    // Written by Caddy, read by this agent. Both run as `forge`, and the path
+    // has to be in the Caddy unit's ReadWritePaths or every write fails.
+    accessLogRoot: absolutePathEnv("ACCESS_LOG_ROOT", DEFAULT_ACCESS_LOG_ROOT),
     cacheRoot: absolutePathEnv("CACHE_ROOT", "/srv/forge/cache"),
-    // A tmpfs, so a resolved env set never reaches the disk even for the
-    // length of one `docker run`.
-    runEnvRoot: absolutePathEnv("RUN_ENV_ROOT", "/run/forge"),
     dockerSocket: absolutePathEnv("DOCKER_SOCKET", "/var/run/docker.sock"),
     dockerDataRoot: absolutePathEnv("DOCKER_DATA_ROOT", "/var/lib/docker"),
     buildxBuilder: buildxBuilderEnv(),

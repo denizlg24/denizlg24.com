@@ -114,6 +114,39 @@ describe("selectForgeKeepSet", () => {
     expect(keep.keepDeploymentIds).toEqual([]);
   });
 
+  // The shipped default. Every retained image is a full layer set on a disk with
+  // none to spare, and it shows in the images list as something with no container
+  // that reads as garbage.
+  it("keeps only the newest build per target at the default retention of one", () => {
+    const keep = selectForgeKeepSet(
+      [
+        candidate({
+          id: "old",
+          targetId: "a",
+          createdAt: new Date("2026-08-01T00:00:00Z"),
+        }),
+        candidate({
+          id: "newest",
+          targetId: "a",
+          createdAt: new Date("2026-08-03T00:00:00Z"),
+        }),
+        candidate({
+          id: "live",
+          targetId: "a",
+          status: "ready",
+          createdAt: new Date("2026-07-01T00:00:00Z"),
+        }),
+      ],
+      1,
+    );
+    // The live deployment's image survives on its own account, not on retention.
+    expect(keep.keepImageTags.sort()).toEqual([
+      "forge/app:live",
+      "forge/app:newest",
+    ]);
+    expect(keep.keepImageTags).not.toContain("forge/app:old");
+  });
+
   it("ignores insertion order when ranking a target's builds", () => {
     const keep = selectForgeKeepSet(
       [

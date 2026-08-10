@@ -30,7 +30,12 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/srv/forge/caddy
+# /srv/forge/access holds the per-deployment JSON request logs the agent
+# publishes loggers for. Without it here `ProtectSystem=strict` makes every
+# access-log write fail, and Caddy reports that as a logger error at startup
+# rather than as a broken deployment — so routing keeps working and the request
+# panels are simply always empty.
+ReadWritePaths=/srv/forge/caddy /srv/forge/access
 StateDirectory=forge-caddy
 LockPersonality=yes
 RestrictRealtime=yes

@@ -1,8 +1,14 @@
-import type { ForgeAgentSnapshot, ForgeContainer } from "@repo/schemas/cloud";
+import type {
+  ForgeAgentSnapshot,
+  ForgeContainer,
+  ForgeRequestLogRecord,
+  ForgeRequestStats,
+} from "@repo/schemas/cloud";
 
 import type { DockerClient, ForgeDockerContainer } from "./docker";
 import type { HealthService } from "./health";
 import { HostCollector } from "./host";
+import { type RequestLogStore, summariseRequests } from "./request-log";
 
 const METRICS_CONCURRENCY = 4;
 
@@ -29,6 +35,8 @@ export interface ForgeTelemetryOptions {
   docker: DockerClient;
   health: HealthService;
   host?: Pick<HostCollector, "collect">;
+  /** Absent on a host with no access logs configured; requests are then omitted. */
+  requests?: Pick<RequestLogStore, "drain" | "forget" | "tail">;
   now?: () => Date;
 }
 
@@ -43,10 +51,19 @@ export interface ForgeTelemetryOptions {
 export class ForgeTelemetry {
   readonly #options: ForgeTelemetryOptions;
   readonly #host: Pick<HostCollector, "collect">;
+  readonly #tracked = new Set<string>();
 
   constructor(options: ForgeTelemetryOptions) {
     this.#options = options;
     this.#host = options.host ?? new HostCollector();
+  }
+
+  /** The most recent requests a deployment served, newest last. */
+  async requests(
+    deploymentId: string,
+    limit: number,
+  ): Promise<ForgeRequestLogRecord[]> {
+    return (await this.#options.requests?.tail(deploymentId, limit)) ?? [];
   }
 
   async snapshot(): Promise<ForgeAgentSnapshot> {
@@ -65,11 +82,12 @@ export class ForgeTelemetry {
         images: [],
       };
     }
-    const [withMetrics, images] = await Promise.all([
+    const [withMetrics, images, requests] = await Promise.all([
       mapWithConcurrency(containers, METRICS_CONCURRENCY, (container) =>
         this.#withMetrics(container),
       ),
       this.#options.docker.listForgeImages(containers).catch(() => []),
+      this.#requestStats(containers),
     ]);
     return {
       timestamp: (this.#options.now?.() ?? new Date()).toISOString(),
@@ -77,7 +95,49 @@ export class ForgeTelemetry {
       host,
       containers: withMetrics,
       images,
+      ...(requests ? { requests } : {}),
     };
+  }
+
+  /**
+   * Drains each live deployment's access log into one interval's counters.
+   *
+   * Draining here rather than on a timer of its own is what makes the numbers
+   * mean anything: the control plane records a sample per poll, so the window the
+   * counters describe has to be the window between polls. A separate schedule
+   * would silently attribute traffic to the wrong bucket.
+   *
+   * A deployment with no traffic still reports a zero row. Omitting it would make
+   * an idle app indistinguishable from one whose logging broke, and leave gaps
+   * that a chart draws as a line straight across an outage.
+   */
+  async #requestStats(
+    containers: readonly ForgeDockerContainer[],
+  ): Promise<ForgeRequestStats[] | null> {
+    const store = this.#options.requests;
+    if (!store) return null;
+
+    const live = new Set<string>();
+    for (const container of containers) {
+      if (container.deploymentId) live.add(container.deploymentId);
+    }
+    // A cursor for a container that has gone would otherwise be held for the
+    // life of the process, and GC deletes the file underneath it anyway.
+    for (const deploymentId of this.#tracked) {
+      if (!live.has(deploymentId)) {
+        store.forget(deploymentId);
+        this.#tracked.delete(deploymentId);
+      }
+    }
+
+    const stats = await Promise.all(
+      [...live].map(async (deploymentId) => {
+        this.#tracked.add(deploymentId);
+        const records = await store.drain(deploymentId).catch(() => []);
+        return summariseRequests(deploymentId, records);
+      }),
+    );
+    return stats;
   }
 
   async logs(

@@ -1,6 +1,7 @@
 import {
   assertDeployHostname,
   type DeployDomainMode,
+  type DeployDomainOrigin,
   type DeploymentKind,
 } from "@repo/schemas/cloud";
 import { and, asc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
@@ -137,6 +138,7 @@ export async function createDeployDomain(
     targetId: string;
     hostname: string;
     mode?: DeployDomainMode;
+    origin?: DeployDomainOrigin;
     isPrimary?: boolean;
     redirectTo?: string | null;
   },
@@ -160,6 +162,9 @@ export async function createDeployDomain(
       targetId: input.targetId,
       hostname,
       mode,
+      // Manual unless the caller says otherwise: only target creation generates
+      // a domain, and everything else reaching here was typed by the owner.
+      origin: input.origin ?? "manual",
       isPrimary: input.isPrimary ?? false,
       redirectTo: input.redirectTo ?? null,
       status: "pending",
@@ -168,7 +173,79 @@ export async function createDeployDomain(
   if (!row) throw new Error("Deploy domain insert returned no row");
   if (row.isPrimary) await clearPrimary(context.db, row.targetId, row.id);
 
-  return await provisionDeployDomain(context, row);
+  const provisioned = await provisionDeployDomain(context, row);
+  return await supersedeGeneratedDomains(context.db, provisioned);
+}
+
+/**
+ * Retires the auto-created `<slug>.<zone>` once a domain the owner asked for is
+ * serving.
+ *
+ * The generated name exists so a new service has *some* URL before anyone points
+ * a real one at it. After that it is a proxied CNAME nobody resolves, and the zone
+ * has 200 records to spend. Retiring rather than deleting hands it to
+ * `sweepDeployDomains`, so the name keeps answering through the same grace period
+ * a rename gets and links that already exist do not break the instant a real
+ * domain goes live.
+ *
+ * The generated row is created `isPrimary`, so primary has to move before it can
+ * be retired — a target with no primary has no URL to show. The new domain takes
+ * it, which is also the answer anyone would want: the domain you added is the one
+ * worth displaying.
+ *
+ * A no-op unless `arrival` is a manual domain that is actually active. A
+ * `custom_hostname` sits in `verifying` until Cloudflare sees the owner's DNS, and
+ * retiring the only working name on the strength of one that does not resolve yet
+ * would take the service off the air.
+ */
+export async function supersedeGeneratedDomains(
+  db: Database,
+  arrival: DeployDomainRow,
+): Promise<DeployDomainRow> {
+  if (arrival.origin !== "manual" || arrival.status !== "active")
+    return arrival;
+
+  const generated = await db
+    .select({ id: deployDomains.id, isPrimary: deployDomains.isPrimary })
+    .from(deployDomains)
+    .where(
+      and(
+        eq(deployDomains.targetId, arrival.targetId),
+        eq(deployDomains.origin, "generated"),
+        isNull(deployDomains.retiredAt),
+      ),
+    );
+  if (generated.length === 0) return arrival;
+
+  let updated = arrival;
+  if (generated.some((row) => row.isPrimary) && !arrival.isPrimary) {
+    await db
+      .update(deployDomains)
+      .set({ isPrimary: false })
+      .where(
+        inArray(
+          deployDomains.id,
+          generated.map((row) => row.id),
+        ),
+      );
+    const [promoted] = await db
+      .update(deployDomains)
+      .set({ isPrimary: true })
+      .where(eq(deployDomains.id, arrival.id))
+      .returning();
+    if (promoted) updated = promoted;
+  }
+
+  await db
+    .update(deployDomains)
+    .set({ retiredAt: new Date(), isPrimary: false })
+    .where(
+      inArray(
+        deployDomains.id,
+        generated.map((row) => row.id),
+      ),
+    );
+  return updated;
 }
 
 /**
@@ -225,8 +302,18 @@ export async function refreshDeployDomain(
   context: DomainContext,
   row: DeployDomainRow,
 ): Promise<DeployDomainRow> {
-  if (row.mode === "zone_record") return provisionDeployDomain(context, row);
-  if (!row.customHostnameId) return provisionDeployDomain(context, row);
+  if (row.mode === "zone_record") {
+    return supersedeGeneratedDomains(
+      context.db,
+      await provisionDeployDomain(context, row),
+    );
+  }
+  if (!row.customHostnameId) {
+    return supersedeGeneratedDomains(
+      context.db,
+      await provisionDeployDomain(context, row),
+    );
+  }
   if (!context.customHostnames) return row;
 
   const current = await context.customHostnames.get(row.customHostnameId);
@@ -257,7 +344,10 @@ export async function refreshDeployDomain(
     })
     .where(eq(deployDomains.id, row.id))
     .returning();
-  return updated ?? row;
+  // This is where a custom hostname finally goes active — usually minutes or
+  // hours after it was added — so it is the second place the generated name can
+  // be handed back.
+  return updated ? await supersedeGeneratedDomains(context.db, updated) : row;
 }
 
 export interface DomainReleaseResult {

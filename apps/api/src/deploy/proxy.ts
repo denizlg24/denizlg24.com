@@ -54,9 +54,9 @@ export class DeployAgentProxy {
 
   async #call(
     path: string,
-    init: RequestInit & { stream?: boolean },
+    init: RequestInit & { stream?: boolean; timeoutMs?: number },
   ): Promise<Response> {
-    const { stream, ...rest } = init;
+    const { stream, timeoutMs, ...rest } = init;
     try {
       return await this.#fetch(`${this.#baseUrl}${path}`, {
         ...rest,
@@ -67,16 +67,24 @@ export class DeployAgentProxy {
         // A build log has no length and no deadline. Aborting it on the
         // request timeout would cut the stream off mid-build, which is
         // precisely when someone is watching it.
-        signal: stream ? undefined : AbortSignal.timeout(this.#timeoutMs),
+        signal: stream
+          ? undefined
+          : AbortSignal.timeout(timeoutMs ?? this.#timeoutMs),
       });
     } catch (error) {
       throw new DeployAgentUnavailableError(error);
     }
   }
 
+  /**
+   * `timeoutMs` exists because the default is sized for a question, not for
+   * work. Anything that waits on a health gate — a restart, an env apply — runs
+   * to the agent's 90-second deadline, and aborting at 15 would report a failure
+   * for an operation that went on to succeed.
+   */
   async json<T>(
     path: string,
-    init: RequestInit = {},
+    init: RequestInit & { timeoutMs?: number } = {},
   ): Promise<{ status: number; body: T }> {
     const response = await this.#call(path, init);
     const body = (await response.json().catch(() => null)) as T;

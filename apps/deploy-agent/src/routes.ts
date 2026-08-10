@@ -1,5 +1,10 @@
-import type { AgentGcReport, AgentGcRequest } from "@repo/schemas/cloud";
+import type {
+  AgentApplyEnvRequest,
+  AgentGcReport,
+  AgentGcRequest,
+} from "@repo/schemas/cloud";
 import {
+  agentApplyEnvRequestSchema,
   agentDeploymentRequestSchema,
   agentGcRequestSchema,
   agentPromoteRequestSchema,
@@ -13,7 +18,7 @@ import type { CaddyRouteEntry } from "./caddy";
 import { ForgeContainerNotFoundError } from "./docker";
 import type { HealthService } from "./health";
 import { type DeploymentQueue, QueueAtCapacityError } from "./queue";
-import type { RestartResult, TeardownResult } from "./run";
+import type { ApplyEnvResult, RestartResult, TeardownResult } from "./run";
 import type { ForgeTelemetry } from "./telemetry";
 
 export interface AgentRouteOptions {
@@ -25,6 +30,7 @@ export interface AgentRouteOptions {
   routes: () => CaddyRouteEntry[];
   teardown: (deploymentId: string) => Promise<TeardownResult>;
   restart: (deploymentId: string) => Promise<RestartResult>;
+  applyEnv: (request: AgentApplyEnvRequest) => Promise<ApplyEnvResult>;
   rehost: (
     deploymentId: string,
     hostnames: string[],
@@ -196,9 +202,51 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
     });
   });
 
+  /**
+   * The requests a deployment recently served, newest last.
+   *
+   * Keyed by deployment id rather than container id, because the access log
+   * outlives the container: recreating one on an env change gives it a new id
+   * while the traffic history is unchanged. Answers 200 with an empty list rather
+   * than 404 when nothing has been logged — a deployment that has served no
+   * requests is not a missing deployment, and the two are easy to confuse when
+   * access logging has only just been turned on.
+   */
+  guarded.get("/deployments/:id/requests", async (context) => {
+    const limit = Number.parseInt(context.req.query("limit") ?? "200", 10);
+    const records = await options.telemetry.requests(
+      context.req.param("id"),
+      Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 2_000) : 200,
+    );
+    return context.json({ requests: records });
+  });
+
   guarded.post("/deployments/:id/restart", async (context) => {
     const result = await options.restart(context.req.param("id"));
     return context.json(result, result.restarted ? 200 : 409);
+  });
+
+  /**
+   * Recreates the container so a changed environment actually takes effect —
+   * `docker restart` cannot, because env is fixed at create time. 409 rather
+   * than 500 on failure: the deployment still exists and the previous container
+   * has been put back, so the caller's move is to fix the variable and retry.
+   */
+  guarded.post("/deployments/:id/apply-env", async (context) => {
+    const parsed = agentApplyEnvRequestSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        { error: "INVALID_REQUEST", detail: parsed.error.issues },
+        400,
+      );
+    }
+    if (parsed.data.request.deploymentId !== context.req.param("id")) {
+      return context.json({ error: "DEPLOYMENT_ID_MISMATCH" }, 400);
+    }
+    const result = await options.applyEnv(parsed.data);
+    return context.json(result, result.recreated ? 200 : 409);
   });
 
   /**
