@@ -176,6 +176,11 @@ export function forgeGcSummary(report: ForgeGcReport): string {
     agent?.builderCacheReclaimedBytes
       ? `${formatBytes(agent.builderCacheReclaimedBytes)} build cache`
       : null,
+    // Worth a word so the count reads as "in use", not as a silent shortfall,
+    // but never alongside "failed" — nothing went wrong.
+    agent && agent.imagesSkipped.length > 0
+      ? `${agent.imagesSkipped.length} in use`
+      : null,
     report.failures.length > 0 ? `${report.failures.length} failed` : null,
     agent === null ? "the agent did not answer" : null,
   ].filter(Boolean);

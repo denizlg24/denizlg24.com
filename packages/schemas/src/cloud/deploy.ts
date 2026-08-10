@@ -626,6 +626,13 @@ export const agentGcFailureSchema = z.object({
 export const agentGcReportSchema = z.object({
   dryRun: z.boolean(),
   imagesRemoved: z.array(z.string()),
+  /**
+   * Images Docker refused because a container is running on them. Reclaimed
+   * nothing, but nothing is wrong either — separated from `failures` so a
+   * report with entries in it still reads as a clean pass. Defaulted so a
+   * control plane running ahead of the agent parses an older report.
+   */
+  imagesSkipped: z.array(z.string()).default([]),
   containersRemoved: z.array(z.string()),
   buildsRemoved: z.array(z.string()),
   logsRemoved: z.array(z.string()),

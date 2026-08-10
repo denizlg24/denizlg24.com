@@ -7,11 +7,15 @@ import {
   type ForgeDeploymentQuery,
   type ForgeDeploymentSummary,
   type ForgeOverview,
-  type ForgeRequestLogRecord,
+  type ForgeProjectMetricName,
+  type ForgeProjectMetricsResponse,
+  type ForgeRequestLogPage,
+  type ForgeRequestLogQuery,
   forgeDeploymentPageSchema,
   forgeDeploymentSummarySchema,
   forgeOverviewSchema,
-  forgeRequestLogRecordSchema,
+  forgeProjectMetricsResponseSchema,
+  forgeRequestLogPageSchema,
   type MetricsResponse,
   metricsResponseSchema,
   type SafeUser,
@@ -166,31 +170,43 @@ export const api = {
      * A project's own history, aggregated across every deployment it had in the
      * window — container samples are keyed per deployment, so charting one key
      * would make a project's graph restart at its last deploy.
+     *
+     * Aggregating is also why this cannot be parsed as a metrics response: the
+     * series that comes back is keyed by the bare metric, not by the
+     * `forge-container:<id>:<metric>` key the samples were stored under.
      */
     projectMetrics: (
       projectSlug: string,
       query: {
-        metrics: string[];
+        metrics: ForgeProjectMetricName[];
         from: string;
         to: string;
         step: number;
         kind?: "production" | "preview";
       },
-    ): Promise<MetricsResponse> =>
+    ): Promise<ForgeProjectMetricsResponse> =>
       data(
-        metricsResponseSchema,
+        forgeProjectMetricsResponseSchema,
         `/api/forge/projects/${encodeURIComponent(projectSlug)}/metrics`,
         { query: { ...query, metrics: query.metrics.join(",") } },
       ),
     requests: (
       deploymentId: string,
-      limit = 200,
-    ): Promise<ForgeRequestLogRecord[]> =>
+      query: Partial<ForgeRequestLogQuery> = {},
+    ): Promise<ForgeRequestLogPage> =>
       data(
-        z.object({ requests: z.array(forgeRequestLogRecordSchema) }),
+        forgeRequestLogPageSchema,
         `/api/forge/deployments/${encodeURIComponent(deploymentId)}/requests`,
-        { query: { limit } },
-      ).then((payload) => payload.requests),
+        {
+          query: {
+            limit: query.limit,
+            method: query.method,
+            status: query.status,
+            search: query.search,
+            minDurationMs: query.minDurationMs,
+          },
+        },
+      ),
     restart: (deploymentId: string): Promise<unknown> =>
       data(
         z.unknown(),

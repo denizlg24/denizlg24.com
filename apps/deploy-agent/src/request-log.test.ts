@@ -277,7 +277,11 @@ describe("RequestLogStore.tail", () => {
       await writeFile(join(root, "dep-1.log"), `${lines.join("\n")}\n`);
 
       const tail = await requests.tail("dep-1", 3);
-      expect(tail.map((record) => record.uri)).toEqual(["/p3", "/p4", "/p5"]);
+      expect(tail.requests.map((record) => record.uri)).toEqual([
+        "/p3",
+        "/p4",
+        "/p5",
+      ]);
     });
   });
 
@@ -290,8 +294,10 @@ describe("RequestLogStore.tail", () => {
       await writeFile(join(root, "dep-1.log"), `${many.join("\n")}\n`);
 
       const tail = await requests.tail("dep-1", 5);
-      expect(tail).toHaveLength(5);
-      expect(tail.at(-1)?.uri).toBe("/p3999");
+      expect(tail.requests).toHaveLength(5);
+      expect(tail.requests.at(-1)?.uri).toBe("/p3999");
+      // The point of the backwards read: five rows must not cost 4 000 parses.
+      expect(tail.scanned).toBeLessThan(200);
     });
   });
 
@@ -299,7 +305,9 @@ describe("RequestLogStore.tail", () => {
     await withTempDir(async (dir) => {
       const { root, requests } = await store(dir);
       await writeFile(join(root, "dep-1.log"), `${line()}\n`);
-      expect(await requests.tail("dep-1", 100)).toHaveLength(1);
+      const tail = await requests.tail("dep-1", 100);
+      expect(tail.requests).toHaveLength(1);
+      expect(tail.truncated).toBe(false);
     });
   });
 
@@ -307,8 +315,60 @@ describe("RequestLogStore.tail", () => {
     await withTempDir(async (dir) => {
       const { root, requests } = await store(dir);
       await writeFile(join(root, "dep-1.log"), "");
-      expect(await requests.tail("dep-1", 10)).toEqual([]);
-      expect(await requests.tail("gone", 10)).toEqual([]);
+      expect((await requests.tail("dep-1", 10)).requests).toEqual([]);
+      expect((await requests.tail("gone", 10)).requests).toEqual([]);
+    });
+  });
+
+  it("keeps reading past the limit until it has that many matches", async () => {
+    await withTempDir(async (dir) => {
+      const { root, requests } = await store(dir);
+      // One 500 at the very front, then a thousand 200s. An unfiltered tail of
+      // 10 never sees it; the filtered read has to walk back the whole file.
+      const lines = [
+        line({ status: 500 }, { uri: "/boom" }),
+        ...Array.from({ length: 1_000 }, (_, n) =>
+          line({ status: 200 }, { uri: `/ok${n}` }),
+        ),
+      ];
+      await writeFile(join(root, "dep-1.log"), `${lines.join("\n")}\n`);
+
+      const tail = await requests.tail("dep-1", 10, {
+        statusClasses: ["5xx"],
+      });
+      expect(tail.requests.map((record) => record.uri)).toEqual(["/boom"]);
+      expect(tail.scanned).toBe(1_001);
+      expect(tail.truncated).toBe(false);
+    });
+  });
+
+  it("filters on method, path and duration", async () => {
+    await withTempDir(async (dir) => {
+      const { root, requests } = await store(dir);
+      await writeFile(
+        join(root, "dep-1.log"),
+        `${[
+          line({ duration: 0.005 }, { method: "GET", uri: "/api/fast" }),
+          line({ duration: 2 }, { method: "POST", uri: "/api/slow" }),
+          line({ duration: 3 }, { method: "GET", uri: "/other/slow" }),
+        ].join("\n")}\n`,
+      );
+
+      expect(
+        (await requests.tail("dep-1", 10, { methods: ["get"] })).requests.map(
+          (record) => record.uri,
+        ),
+      ).toEqual(["/api/fast", "/other/slow"]);
+      expect(
+        (await requests.tail("dep-1", 10, { search: "/API/" })).requests.map(
+          (record) => record.uri,
+        ),
+      ).toEqual(["/api/fast", "/api/slow"]);
+      expect(
+        (
+          await requests.tail("dep-1", 10, { minDurationMs: 1_000 })
+        ).requests.map((record) => record.uri),
+      ).toEqual(["/api/slow", "/other/slow"]);
     });
   });
 });

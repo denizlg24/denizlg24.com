@@ -1,14 +1,18 @@
 import type {
   ForgeAgentSnapshot,
   ForgeContainer,
-  ForgeRequestLogRecord,
   ForgeRequestStats,
 } from "@repo/schemas/cloud";
 
 import type { DockerClient, ForgeDockerContainer } from "./docker";
 import type { HealthService } from "./health";
 import { HostCollector } from "./host";
-import { type RequestLogStore, summariseRequests } from "./request-log";
+import {
+  type RequestLogFilter,
+  type RequestLogStore,
+  type RequestLogTail,
+  summariseRequests,
+} from "./request-log";
 
 const METRICS_CONCURRENCY = 4;
 
@@ -58,12 +62,19 @@ export class ForgeTelemetry {
     this.#host = options.host ?? new HostCollector();
   }
 
-  /** The most recent requests a deployment served, newest last. */
+  /** The most recent matching requests a deployment served, newest last. */
   async requests(
     deploymentId: string,
     limit: number,
-  ): Promise<ForgeRequestLogRecord[]> {
-    return (await this.#options.requests?.tail(deploymentId, limit)) ?? [];
+    filter?: RequestLogFilter,
+  ): Promise<RequestLogTail> {
+    return (
+      (await this.#options.requests?.tail(deploymentId, limit, filter)) ?? {
+        requests: [],
+        scanned: 0,
+        truncated: false,
+      }
+    );
   }
 
   async snapshot(): Promise<ForgeAgentSnapshot> {

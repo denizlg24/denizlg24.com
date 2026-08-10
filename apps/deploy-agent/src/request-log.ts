@@ -28,6 +28,75 @@ const MAX_DURATION_SAMPLES = 20_000;
 /** Never buffer more than this looking for a newline. */
 const MAX_LINE_BYTES = 1024 * 1024;
 
+/**
+ * How far back a filtered read will look before giving up.
+ *
+ * Without a cap, a filter matching nothing parses the whole file — 16 MB of
+ * JSON per rolled log, on a Pi, while the caller holds a connection open. At
+ * roughly 300 bytes a line this covers about 12 MB, so in practice it reaches
+ * the start of a current log and stops short only on a full one.
+ */
+const MAX_SCAN_LINES = 40_000;
+
+export interface RequestLogFilter {
+  /** Upper-cased on entry; an empty list means every method. */
+  methods?: readonly string[];
+  /** `"2xx"`-style buckets; an empty list means every status. */
+  statusClasses?: readonly string[];
+  /** Substring, case-insensitive, over path + client + agent + status. */
+  search?: string | null;
+  minDurationMs?: number | null;
+}
+
+export interface RequestLogTail {
+  requests: ForgeRequestLogRecord[];
+  scanned: number;
+  truncated: boolean;
+}
+
+/**
+ * Compiled once per read rather than per line: a filtered scan can touch 40 000
+ * records, and lower-casing the needle inside the loop is 40 000 allocations
+ * for one constant.
+ */
+export function requestLogPredicate(
+  filter: RequestLogFilter | undefined,
+): (record: ForgeRequestLogRecord) => boolean {
+  const methods = new Set(
+    (filter?.methods ?? []).map((method) => method.toUpperCase()),
+  );
+  const classes = new Set(filter?.statusClasses ?? []);
+  const needle = filter?.search?.trim().toLowerCase() ?? "";
+  const minDuration = filter?.minDurationMs ?? null;
+  if (
+    methods.size === 0 &&
+    classes.size === 0 &&
+    needle.length === 0 &&
+    minDuration === null
+  ) {
+    return () => true;
+  }
+  return (record) => {
+    if (methods.size > 0 && !methods.has(record.method.toUpperCase())) {
+      return false;
+    }
+    if (
+      classes.size > 0 &&
+      !classes.has(`${Math.floor(record.status / 100)}xx`)
+    ) {
+      return false;
+    }
+    if (minDuration !== null && record.durationMs < minDuration) return false;
+    if (needle.length === 0) return true;
+    return (
+      record.uri.toLowerCase().includes(needle) ||
+      record.clientIp.toLowerCase().includes(needle) ||
+      String(record.status).includes(needle) ||
+      (record.userAgent?.toLowerCase().includes(needle) ?? false)
+    );
+  };
+}
+
 interface CaddyAccessLine {
   ts?: unknown;
   status?: unknown;
@@ -314,50 +383,79 @@ export class RequestLogStore {
   }
 
   /**
-   * The most recent `limit` requests, newest last.
+   * The most recent `limit` requests matching `filter`, newest last.
    *
    * Reads backwards from the end so a 16 MB file does not have to be parsed to
-   * show twenty rows.
+   * show twenty rows, and — when a filter is set — keeps reading until it has
+   * `limit` matches rather than stopping at the first `limit` lines. Filtering
+   * the last page instead would answer "no 5xx here" for a deployment whose
+   * errors are simply further back than the window, which is the only case
+   * anyone opens this list to look for.
+   *
+   * `scanned` counts the lines actually parsed and `truncated` says the cap was
+   * reached, so an empty result reads as "none in the last 40 000 requests"
+   * rather than an unqualified nothing.
    */
   async tail(
     deploymentId: string,
     limit: number,
-  ): Promise<ForgeRequestLogRecord[]> {
+    filter?: RequestLogFilter,
+  ): Promise<RequestLogTail> {
     const path = this.pathFor(deploymentId);
+    const matches = requestLogPredicate(filter);
     let handle: Awaited<ReturnType<typeof open>>;
     try {
       handle = await open(path, "r");
     } catch {
-      return [];
+      return { requests: [], scanned: 0, truncated: false };
     }
 
     try {
       const { size } = await handle.stat();
-      if (size === 0) return [];
+      if (size === 0) return { requests: [], scanned: 0, truncated: false };
 
       const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+      // Newest first while scanning, reversed once at the end — unshifting into
+      // an array that can hold `limit` entries is quadratic, and `limit` is 500.
+      const found: ForgeRequestLogRecord[] = [];
+      let scanned = 0;
+      let truncated = false;
       let text = "";
       let position = size;
-      let lines: string[] = [];
+      let carry = "";
 
-      while (position > 0) {
+      while (position > 0 && found.length < limit && scanned < MAX_SCAN_LINES) {
         const length = Math.min(READ_CHUNK_BYTES, position);
         position -= length;
         const { bytesRead } = await handle.read(buffer, 0, length, position);
-        text = buffer.toString("utf8", 0, bytesRead) + text;
-        lines = text.split("\n");
-        // The first element may be a partial line unless we reached the start.
-        if (position === 0) break;
-        if (lines.length - 1 > limit) break;
+        text = buffer.toString("utf8", 0, bytesRead) + carry;
+        const lines = text.split("\n");
+        // The first element is a partial line unless this chunk reached the
+        // start of the file; it is carried into the next read rather than
+        // parsed. Anything longer than one chunk is not a log line, and holding
+        // it would grow the carry for the rest of the scan.
+        carry = position === 0 ? "" : (lines.shift() ?? "");
+        if (carry.length > MAX_LINE_BYTES) carry = "";
+        if (position === 0 && lines.length === 0) break;
+
+        for (let index = lines.length - 1; index >= 0; index -= 1) {
+          if (found.length >= limit) break;
+          if (scanned >= MAX_SCAN_LINES) {
+            truncated = true;
+            break;
+          }
+          const line = lines[index] ?? "";
+          if (line.trim().length === 0) continue;
+          scanned += 1;
+          const record = parseAccessLogLine(line);
+          if (record && matches(record)) found.push(record);
+        }
       }
 
-      const complete = position === 0 ? lines : lines.slice(1);
-      const records: ForgeRequestLogRecord[] = [];
-      for (const line of complete.slice(-limit - 1)) {
-        const record = parseAccessLogLine(line);
-        if (record) records.push(record);
-      }
-      return records.slice(-limit);
+      // More file left with the budget spent means the answer is partial. A scan
+      // that stopped because it filled `limit` is complete for what was asked.
+      if (position > 0 && found.length < limit) truncated = true;
+      return { requests: found.reverse(), scanned, truncated };
     } finally {
       await handle.close().catch(() => {});
     }

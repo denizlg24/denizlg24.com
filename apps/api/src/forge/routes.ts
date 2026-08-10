@@ -16,6 +16,7 @@ import {
   type ForgeDeploymentQuery,
   type ForgeDeploymentSort,
   forgeDeploymentQuerySchema,
+  forgeRequestLogQuerySchema,
   metricsQuerySchema,
 } from "@repo/schemas/cloud";
 import {
@@ -309,12 +310,26 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
         400,
       );
     }
-    const requested = Number.parseInt(context.req.query("limit") ?? "200", 10);
-    const limit = Number.isInteger(requested)
-      ? Math.min(Math.max(requested, 1), 2_000)
-      : 200;
+    const query = forgeRequestLogQuerySchema.safeParse({
+      limit: context.req.query("limit") ?? undefined,
+      method: context.req.queries("method") ?? [],
+      status: context.req.queries("status") ?? [],
+      search: context.req.query("search") ?? null,
+      minDurationMs: context.req.query("minDurationMs") ?? null,
+    });
+    if (!query.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_REQUEST_FILTER",
+            message: query.error.issues[0]?.message ?? "Invalid filter",
+          },
+        },
+        400,
+      );
+    }
     return context.json({
-      data: { requests: await options.monitor.requestLogs(id, limit) },
+      data: await options.monitor.requestLogs(id, query.data),
     });
   });
 

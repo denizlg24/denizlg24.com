@@ -48,6 +48,7 @@ import { PageHeading } from "@/components/page-heading";
 import { api, errorMessage } from "@/lib/api";
 import { ProjectGroupRow } from "../_components/project-group-ui";
 import { groupByProject } from "../_components/project-groups";
+import { ProjectPicker } from "../_components/project-picker";
 
 const PAGE_SIZES = [25, 50, 100, 200];
 
@@ -171,21 +172,12 @@ function DeploymentsTable() {
       </PageHeading>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <NativeSelect
-          size="sm"
-          aria-label="Project"
-          value={query.project ?? ""}
-          onChange={(event) =>
-            setQuery({ project: event.target.value || null })
-          }
-        >
-          <NativeSelectOption value="">all projects</NativeSelectOption>
-          {(data?.projects ?? []).map((slug) => (
-            <NativeSelectOption key={slug} value={slug}>
-              {slug}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+        <ProjectPicker
+          options={(data?.projects ?? []).map((slug) => ({ slug }))}
+          selected={query.project}
+          onSelect={(project) => setQuery({ project })}
+          allLabel="all projects"
+        />
 
         <div className="flex flex-wrap items-center gap-1">
           {DEPLOYMENT_STATUSES.map((status) => {
@@ -290,24 +282,31 @@ function DeploymentsTable() {
                           deployment.kind === "production" ? undefined : "pl-9"
                         }
                       >
-                        <div className="flex flex-col gap-1">
+                        <div className="flex w-56 flex-col gap-1">
                           <span className="flex items-center gap-2">
                             <Link
                               href={`/deployments/${deployment.id}`}
-                              className={
+                              title={deployment.gitRef}
+                              className={cn(
+                                "truncate hover:underline",
                                 deployment.kind === "production"
-                                  ? "font-medium hover:underline"
-                                  : "text-xs hover:underline"
-                              }
+                                  ? "font-medium"
+                                  : "text-xs",
+                              )}
                             >
                               {deployment.gitRef.replace(/^refs\/heads\//, "")}
                             </Link>
-                            <DeploymentBadges
-                              kind={deployment.kind}
-                              status={deployment.status}
-                            />
+                            <span className="flex shrink-0 items-center gap-1">
+                              <DeploymentBadges
+                                kind={deployment.kind}
+                                status={deployment.status}
+                              />
+                            </span>
                           </span>
-                          <span className="text-[11px] text-muted-foreground">
+                          <span
+                            className="truncate text-[11px] text-muted-foreground"
+                            title={deployment.targetName}
+                          >
                             {deployment.targetName}
                           </span>
                         </div>
@@ -333,24 +332,38 @@ function DeploymentsTable() {
                         {formatRelative(deployment.createdAt)}
                       </TableCell>
                       <TableCell>
-                        <div className="flex max-w-56 flex-col">
+                        <div className="flex w-48 flex-col">
                           <span className="font-mono text-xs">
                             {deployment.gitSha.slice(0, 7)}
                           </span>
-                          <span className="truncate text-[11px] text-muted-foreground">
+                          <span
+                            className="truncate text-[11px] text-muted-foreground"
+                            title={deployment.gitMessage ?? deployment.gitRef}
+                          >
                             {deployment.gitMessage ?? deployment.gitRef}
                           </span>
                         </div>
                       </TableCell>
+                      {/* A preview hostname is slug + branch + sha and runs past
+                          60 characters. `TableCell` is `whitespace-nowrap`, so
+                          unbounded it widens the column until the table scrolls
+                          sideways and the actions fall off the edge.
+                          `max-w-*` will not hold it: an auto-layout table sizes
+                          columns from content and ignores a cell's max-width, so
+                          the truncating element needs a definite width of its
+                          own. */}
                       <TableCell>
                         <a
-                          className="inline-flex items-center gap-1 hover:underline"
+                          className="flex w-56 items-center gap-1 hover:underline"
                           href={`https://${deployment.hostname}`}
                           target="_blank"
                           rel="noreferrer"
+                          title={deployment.hostname}
                         >
-                          {deployment.hostname}
-                          <ExternalLink className="size-3" />
+                          <span className="truncate">
+                            {deployment.hostname}
+                          </span>
+                          <ExternalLink className="size-3 shrink-0" />
                         </a>
                       </TableCell>
                       <TableCell>

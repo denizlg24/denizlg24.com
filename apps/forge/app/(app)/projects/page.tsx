@@ -6,7 +6,9 @@ import { useMemo, useState } from "react";
 import { PageHeading } from "@/components/page-heading";
 import { api } from "@/lib/api";
 import { ProjectCharts } from "../_components/project-charts";
+import { MAX_PILLS } from "../_components/project-group-ui";
 import { groupByProject } from "../_components/project-groups";
+import { ProjectPicker } from "../_components/project-picker";
 import { RequestTable } from "../_components/request-table";
 
 /**
@@ -49,23 +51,36 @@ export default function ProjectsPage() {
           <p className="text-xs text-muted-foreground">—</p>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-1">
-              {groups.map((entry) => (
-                <button
-                  key={entry.projectSlug}
-                  type="button"
-                  aria-pressed={entry.projectSlug === project}
-                  onClick={() => setSelected(entry.projectSlug)}
-                  className={
-                    entry.projectSlug === project
-                      ? "rounded-full bg-foreground px-2 py-0.5 text-[11px] text-background transition-colors"
-                      : "rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                  }
-                >
-                  {entry.projectSlug}
-                </button>
-              ))}
-            </div>
+            {groups.length > MAX_PILLS ? (
+              // One project is always selected here, so there is no "all" entry
+              // and no clear — this is a switcher, not a filter.
+              <ProjectPicker
+                options={groups.map((entry) => ({
+                  slug: entry.projectSlug,
+                  detail: String(entry.all.length),
+                }))}
+                selected={project}
+                onSelect={(slug) => slug !== null && setSelected(slug)}
+              />
+            ) : (
+              <div className="flex flex-wrap items-center gap-1">
+                {groups.map((entry) => (
+                  <button
+                    key={entry.projectSlug}
+                    type="button"
+                    aria-pressed={entry.projectSlug === project}
+                    onClick={() => setSelected(entry.projectSlug)}
+                    className={
+                      entry.projectSlug === project
+                        ? "rounded-full bg-foreground px-2 py-0.5 text-[11px] text-background transition-colors"
+                        : "rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                    }
+                  >
+                    {entry.projectSlug}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {project ? <ProjectCharts projectSlug={project} /> : null}
 
@@ -74,7 +89,9 @@ export default function ProjectsPage() {
                 <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   recent requests
                 </h2>
-                <div className="max-h-96 overflow-auto border-t pt-2">
+                {/* The scroll belongs to the table inside, not to this box —
+                    scrolling here would carry the filter bar off the top. */}
+                <div className="flex max-h-96 min-h-0 flex-col border-t pt-2">
                   <RequestTable deploymentId={live.deploymentId} />
                 </div>
               </section>

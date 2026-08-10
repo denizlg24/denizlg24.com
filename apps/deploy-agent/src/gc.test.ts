@@ -8,6 +8,8 @@ import { agentGcRequestSchema } from "@repo/schemas/cloud";
 import type { ExecOptions, ExecResult } from "./exec";
 import {
   builderPruneCommands,
+  inUseImageIds,
+  isImageInUseConflict,
   runGarbageCollection,
   selectDanglingToRemove,
   selectImagesToRemove,
@@ -109,6 +111,57 @@ describe("selectDanglingToRemove", () => {
   });
 });
 
+describe("inUseImageIds", () => {
+  it("resolves ids through inspect rather than trusting the ps reference", async () => {
+    const { exec, commands } = scriptedExec({
+      "docker ps --quiet": { stdout: "c1\nc2\n" },
+      "docker inspect --format": {
+        stdout: `${DANGLING_IN_USE}\n${DANGLING}\n`,
+      },
+    });
+
+    expect(await inUseImageIds(exec)).toEqual([DANGLING_IN_USE, DANGLING]);
+    // Every container, not only the Forge-labelled ones: the dangling listing
+    // this guards is host-wide.
+    expect(commands[0]).toEqual([
+      "docker",
+      "ps",
+      "--quiet",
+      "--all",
+      "--no-trunc",
+    ]);
+    expect(commands[1]).toEqual([
+      "docker",
+      "inspect",
+      "--format",
+      "{{.Image}}",
+      "c1",
+      "c2",
+    ]);
+  });
+
+  it("returns nothing rather than throwing when docker is unavailable", async () => {
+    const { exec } = scriptedExec({
+      "docker ps --quiet": { exitCode: 1, stderr: "cannot connect" },
+    });
+    expect(await inUseImageIds(exec)).toEqual([]);
+  });
+});
+
+describe("isImageInUseConflict", () => {
+  it("recognises the daemon's refusal", () => {
+    expect(
+      isImageInUseConflict(
+        "Error response from daemon: conflict: unable to delete b3d1d2e01d31 (cannot be forced) - image is being used by running container 8cbcae666624",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not swallow an unrelated error", () => {
+    expect(isImageInUseConflict("no such image: sha256:abc")).toBe(false);
+  });
+});
+
 describe("builderPruneCommands", () => {
   it("sweeps the named builder and the daemon's own", () => {
     expect(builderPruneCommands("forge-hdd")).toEqual([
@@ -182,6 +235,66 @@ describe("runGarbageCollection", () => {
     // The image of a container we could not remove stays: reaping it would only
     // produce a second failure describing the same problem.
     expect(report.imagesRemoved).toEqual([]);
+  });
+
+  it("spares a dangling image pinned by a container it cannot see", async () => {
+    // The production failure this reproduces: the sweep listed dangling images
+    // host-wide, but built its keep set from Forge-labelled containers alone.
+    // Every unlabelled container on the box — the cloud API, Meilisearch —
+    // pinned an image the sweep then tried to delete, three failures a night.
+    const { exec, commands } = scriptedExec({
+      "docker ps --all": { stdout: "" },
+      "docker images --filter": { stdout: "" },
+      "docker images --no-trunc": {
+        stdout: `${DANGLING}\n${DANGLING_IN_USE}`,
+      },
+      "docker ps --quiet": { stdout: "unlabelled-container" },
+      "docker inspect --format": { stdout: DANGLING_IN_USE },
+    });
+
+    const report = await withRoots((roots) =>
+      runGarbageCollection(request(), {
+        exec,
+        ...roots,
+        dockerDataRoot: "/var/lib/docker",
+        statfsImplementation: NO_DISK,
+      }),
+    );
+
+    expect(report.imagesRemoved).toEqual([DANGLING]);
+    expect(report.failures).toEqual([]);
+    expect(
+      commands.filter(
+        (command) => command[1] === "rmi" && command[2] === DANGLING_IN_USE,
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports a container that grabbed an image mid-sweep as skipped", async () => {
+    // Nothing knew about it when the keep set was built, so the refusal is a
+    // race, not a fault — and a failure entry here would sit next to real ones.
+    const { exec } = scriptedExec({
+      "docker ps --all": { stdout: "" },
+      "docker images --filter": { stdout: "" },
+      "docker images --no-trunc": { stdout: DANGLING },
+      [`docker rmi ${DANGLING}`]: {
+        exitCode: 1,
+        stderr: `Error response from daemon: conflict: unable to delete ${DANGLING.slice(7, 19)} (cannot be forced) - image is being used by running container abc123`,
+      },
+    });
+
+    const report = await withRoots((roots) =>
+      runGarbageCollection(request(), {
+        exec,
+        ...roots,
+        dockerDataRoot: "/var/lib/docker",
+        statfsImplementation: NO_DISK,
+      }),
+    );
+
+    expect(report.imagesRemoved).toEqual([]);
+    expect(report.imagesSkipped).toEqual([DANGLING.slice(0, 19)]);
+    expect(report.failures).toEqual([]);
   });
 
   it("deletes stale builds and logs and leaves fresh ones", async () => {

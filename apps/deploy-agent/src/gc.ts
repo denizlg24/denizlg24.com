@@ -57,10 +57,25 @@ export function selectImagesToRemove(
 }
 
 /**
- * An untagged image still referenced by a container we kept must survive, and
- * `docker ps --no-trunc` reports exactly the `sha256:…` id that `docker images
- * --no-trunc` prints for it — so the same in-use set that guards the tagged
- * pass guards this one.
+ * An untagged image still referenced by any container must survive.
+ *
+ * `keep` here is image *ids*, and it has to cover every container on the host,
+ * not just the Forge-labelled ones. Two things made the old version report
+ * failures on every pass:
+ *
+ * `docker ps --format '{{.Image}}'` prints the reference the container was
+ * created from, which is a moving tag. A rebuild moves `forge/<slug>:latest`
+ * onto the new image and leaves the old one untagged — the container is still
+ * running on it, but the in-use set holds the tag, and the tag now resolves
+ * elsewhere. The id never appears, so the pass tries to reap an image in use.
+ *
+ * And the dangling listing is host-wide while the tagged pass is scoped to
+ * `reference=forge/*`. Every non-Forge container on the box — the cloud API,
+ * Meilisearch, anything pulled by digest — pins an image this pass can see and
+ * the Forge-labelled listing cannot.
+ *
+ * Both are the same conflict Docker refuses with `image is being used by
+ * running container`, which is why it read as a failure rather than as data.
  */
 export function selectDanglingToRemove(
   present: readonly string[],
@@ -68,6 +83,59 @@ export function selectDanglingToRemove(
 ): string[] {
   const kept = new Set(keep);
   return present.filter((id) => id.length > 0 && !kept.has(id));
+}
+
+/**
+ * The image id every container on the host is actually running.
+ *
+ * `docker ps` cannot report it — its `{{.Image}}` is the create-time reference,
+ * not the resolved id — so the ids come from `docker inspect`, which returns
+ * `.Image` as the `sha256:…` the container is pinned to. Unfiltered by label on
+ * purpose: this set exists to protect images from a host-wide dangling sweep.
+ *
+ * Best-effort. A failure here means the sweep proceeds with a smaller keep set
+ * and Docker refuses the individual removals, which is the behaviour this
+ * replaces — never a reason to abandon the pass.
+ */
+export async function inUseImageIds(
+  exec: Exec,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const listed = await exec({
+    command: ["docker", "ps", "--quiet", "--all", "--no-trunc"],
+    signal,
+    timeoutMs: 60_000,
+  });
+  const ids = listed.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (listed.exitCode !== 0 || ids.length === 0) return [];
+
+  const inspected = await exec({
+    command: ["docker", "inspect", "--format", "{{.Image}}", ...ids],
+    signal,
+    timeoutMs: 60_000,
+  });
+  // Partial output is still useful: `docker inspect` prints what it resolved and
+  // exits non-zero for the ids that vanished mid-call.
+  return inspected.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("sha256:"));
+}
+
+/**
+ * Docker's refusal to delete an image something is running.
+ *
+ * A skip, not a failure: it is the daemon telling us the keep set was
+ * incomplete — a container started between the listing and the removal, or one
+ * whose id `inUseImageIds` could not resolve. The disk is not reclaimed either
+ * way, but nothing is wrong, and reporting it as a failure trains the reader to
+ * ignore a list that also carries real errors.
+ */
+export function isImageInUseConflict(stderr: string): boolean {
+  return /image is being used by|imag(e|es) is referenced in/i.test(stderr);
 }
 
 /**
@@ -156,6 +224,7 @@ export async function runGarbageCollection(
   const report: AgentGcReport = {
     dryRun: request.dryRun,
     imagesRemoved: [],
+    imagesSkipped: [],
     containersRemoved: [],
     buildsRemoved: [],
     logsRemoved: [],
@@ -270,14 +339,20 @@ export async function runGarbageCollection(
       signal,
       timeoutMs: 180_000,
     });
-    if (removed.exitCode === 0) report.imagesRemoved.push(tag);
-    else {
-      failures.push({
-        step: "images",
-        subject: tag,
-        error: removed.stderr.trim() || `exit ${removed.exitCode}`,
-      });
+    if (removed.exitCode === 0) {
+      report.imagesRemoved.push(tag);
+      continue;
     }
+    const stderr = removed.stderr.trim();
+    if (isImageInUseConflict(stderr)) {
+      report.imagesSkipped.push(tag);
+      continue;
+    }
+    failures.push({
+      step: "images",
+      subject: tag,
+      error: stderr || `exit ${removed.exitCode}`,
+    });
   }
 
   // A rebuild moves `forge/<slug>:latest` off the previous image and leaves it
@@ -305,9 +380,17 @@ export async function runGarbageCollection(
     });
   }
 
+  // The dangling listing is host-wide, so the tags gathered from Forge-labelled
+  // containers do not cover it — and a tag is the wrong kind of key here anyway.
+  // Resolved ids are what a dangling id can be compared against.
+  const pinned = new Set([
+    ...inUseImages,
+    ...(await inUseImageIds(exec, signal)),
+  ]);
+
   for (const id of selectDanglingToRemove(
     dangling.stdout.split("\n").map((line) => line.trim()),
-    inUseImages,
+    pinned,
   )) {
     if (request.dryRun) {
       report.imagesRemoved.push(id);
@@ -318,14 +401,22 @@ export async function runGarbageCollection(
       signal,
       timeoutMs: 180_000,
     });
-    if (removed.exitCode === 0) report.imagesRemoved.push(id);
-    else {
-      failures.push({
-        step: "dangling-images",
-        subject: id.slice(0, 19),
-        error: removed.stderr.trim() || `exit ${removed.exitCode}`,
-      });
+    if (removed.exitCode === 0) {
+      report.imagesRemoved.push(id);
+      continue;
     }
+    const stderr = removed.stderr.trim();
+    // Something started using it between the listing and now. Nothing is wrong
+    // and nothing was reclaimed; the next pass will find it again.
+    if (isImageInUseConflict(stderr)) {
+      report.imagesSkipped.push(id.slice(0, 19));
+      continue;
+    }
+    failures.push({
+      step: "dangling-images",
+      subject: id.slice(0, 19),
+      error: stderr || `exit ${removed.exitCode}`,
+    });
   }
 
   const buildCutoff =
