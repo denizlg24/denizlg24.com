@@ -60,7 +60,7 @@ export interface ProjectMetricsQuery {
 /**
  * Most deployments any one series will span.
  *
- * Each metric issues one query filtering `metrics_samples` on a key array of this
+ * Each metric issues one query filtering `metrics_samples` on a key list of this
  * size, served by the `(kind, key, interval_seconds, ts)` index. The cap is what
  * stops a long window over a busy project turning into an array of thousands —
  * newest first, so a truncated window loses the oldest deployments rather than the
@@ -125,6 +125,10 @@ export async function queryProjectMetrics(
   return Promise.all(
     query.metrics.map(async (metric) => {
       const keys = ids.map((id) => `${id}:${metric}`);
+      const keyList = sql.join(
+        keys.map((key) => sql`${key}`),
+        sql`, `,
+      );
       const combine =
         PROJECT_METRIC_AGGREGATES[metric] === "max" ? sql`max` : sql`sum`;
       const rows = await db.execute(sql<{
@@ -143,7 +147,7 @@ export async function queryProjectMetrics(
           FROM ${metricsSamples}
           WHERE
             ${metricsSamples.kind} = 'forge-container'
-            AND ${metricsSamples.key} = ANY(${keys})
+            AND ${metricsSamples.key} IN (${keyList})
             AND ${metricsSamples.ts} >= ${from}::timestamptz
             AND ${metricsSamples.ts} <= ${to}::timestamptz
           GROUP BY 1, 2, 3
