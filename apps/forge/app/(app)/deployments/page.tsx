@@ -46,6 +46,8 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageHeading } from "@/components/page-heading";
 import { api, errorMessage } from "@/lib/api";
+import { ProjectGroupRow } from "../_components/project-group-ui";
+import { groupByProject } from "../_components/project-groups";
 
 const PAGE_SIZES = [25, 50, 100, 200];
 
@@ -99,6 +101,20 @@ function DeploymentsTable() {
 
   const fetchPage = useMemo(() => () => api.forge.deployments(query), [query]);
   const { data, error, loading, reload } = usePoll(fetchPage, 30_000);
+  const groups = useMemo(
+    () =>
+      groupByProject(
+        data?.deployments ?? [],
+        (deployment) => ({
+          projectSlug: deployment.projectSlug,
+          kind: deployment.kind,
+        }),
+        // The server already ordered this page by the selected sort; regrouping
+        // alphabetically would make the sort control look broken.
+        "input",
+      ),
+    [data],
+  );
 
   const [restarting, setRestarting] = useState<Set<string>>(() => new Set());
   const restart = async (id: string) => {
@@ -239,114 +255,139 @@ function DeploymentsTable() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.deployments.map((deployment) => (
-                <TableRow
-                  key={deployment.id}
-                  // The link in the project cell is the real navigation — this
-                  // only widens its target. Clicks landing on the row's own
-                  // links and buttons are left to them.
-                  onClick={(event) => {
-                    if (
-                      event.target instanceof Element &&
-                      event.target.closest("a,button")
-                    ) {
-                      return;
-                    }
-                    router.push(`/deployments/${deployment.id}`);
-                  }}
-                  className="cursor-pointer"
-                >
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <span className="flex items-center gap-2">
-                        <Link
-                          href={`/deployments/${deployment.id}`}
-                          className="font-medium hover:underline"
-                        >
-                          {deployment.projectSlug}
-                        </Link>
-                        <DeploymentBadges
-                          kind={deployment.kind}
-                          status={deployment.status}
-                        />
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        {deployment.targetName}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="inline-flex items-center gap-1.5">
-                      <StatusDot
-                        tone={deploymentTone(deployment.status)}
-                        label={deployment.status}
-                      />
-                      {deploymentLabel(deployment.status, deployment.phase)}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs">
-                    {deployment.imageSizeBytes === null
-                      ? "—"
-                      : formatBytes(deployment.imageSizeBytes)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs">
-                    {formatDurationMs(deployment.buildDurationMs)}
-                  </TableCell>
-                  <TableCell>{formatRelative(deployment.createdAt)}</TableCell>
-                  <TableCell>
-                    <div className="flex max-w-56 flex-col">
-                      <span className="font-mono text-xs">
-                        {deployment.gitSha.slice(0, 7)}
-                      </span>
-                      <span className="truncate text-[11px] text-muted-foreground">
-                        {deployment.gitMessage ?? deployment.gitRef}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <a
-                      className="inline-flex items-center gap-1 hover:underline"
-                      href={`https://${deployment.hostname}`}
-                      target="_blank"
-                      rel="noreferrer"
+              {groups.flatMap((group) => [
+                <ProjectGroupRow
+                  key={`${group.projectSlug}-group`}
+                  slug={group.projectSlug}
+                  detail={group.all.length}
+                  columns={8}
+                />,
+                // Production first, previews inset beneath it. Grouping is within
+                // the page only: paging is server-side `limit/offset`, so a
+                // project with many deployments genuinely does continue onto the
+                // next page, and pretending otherwise would mean paging groups
+                // the endpoint cannot count.
+                ...[...group.production, ...group.previews].map(
+                  (deployment) => (
+                    <TableRow
+                      key={deployment.id}
+                      // The link in the project cell is the real navigation — this
+                      // only widens its target. Clicks landing on the row's own
+                      // links and buttons are left to them.
+                      onClick={(event) => {
+                        if (
+                          event.target instanceof Element &&
+                          event.target.closest("a,button")
+                        ) {
+                          return;
+                        }
+                        router.push(`/deployments/${deployment.id}`);
+                      }}
+                      className="cursor-pointer"
                     >
-                      {deployment.hostname}
-                      <ExternalLink className="size-3" />
-                    </a>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        asChild
+                      <TableCell
+                        className={
+                          deployment.kind === "production" ? undefined : "pl-9"
+                        }
                       >
-                        <Link
-                          href={`/logs?mode=build&id=${deployment.id}`}
-                          aria-label="Build log"
-                        >
-                          <ScrollText className="size-3.5" />
-                        </Link>
-                      </Button>
-                      {deployment.status === "ready" ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          disabled={restarting.has(deployment.id)}
-                          onClick={() => void restart(deployment.id)}
-                          aria-label="Restart deployment"
-                        >
-                          <RotateCw
-                            className={`size-3.5 ${restarting.has(deployment.id) ? "animate-spin" : ""}`}
+                        <div className="flex flex-col gap-1">
+                          <span className="flex items-center gap-2">
+                            <Link
+                              href={`/deployments/${deployment.id}`}
+                              className={
+                                deployment.kind === "production"
+                                  ? "font-medium hover:underline"
+                                  : "text-xs hover:underline"
+                              }
+                            >
+                              {deployment.gitRef.replace(/^refs\/heads\//, "")}
+                            </Link>
+                            <DeploymentBadges
+                              kind={deployment.kind}
+                              status={deployment.status}
+                            />
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {deployment.targetName}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center gap-1.5">
+                          <StatusDot
+                            tone={deploymentTone(deployment.status)}
+                            label={deployment.status}
                           />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+                          {deploymentLabel(deployment.status, deployment.phase)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        {deployment.imageSizeBytes === null
+                          ? "—"
+                          : formatBytes(deployment.imageSizeBytes)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        {formatDurationMs(deployment.buildDurationMs)}
+                      </TableCell>
+                      <TableCell>
+                        {formatRelative(deployment.createdAt)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex max-w-56 flex-col">
+                          <span className="font-mono text-xs">
+                            {deployment.gitSha.slice(0, 7)}
+                          </span>
+                          <span className="truncate text-[11px] text-muted-foreground">
+                            {deployment.gitMessage ?? deployment.gitRef}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <a
+                          className="inline-flex items-center gap-1 hover:underline"
+                          href={`https://${deployment.hostname}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {deployment.hostname}
+                          <ExternalLink className="size-3" />
+                        </a>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            asChild
+                          >
+                            <Link
+                              href={`/deployments/${deployment.id}`}
+                              aria-label="Logs"
+                            >
+                              <ScrollText className="size-3.5" />
+                            </Link>
+                          </Button>
+                          {deployment.status === "ready" ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7"
+                              disabled={restarting.has(deployment.id)}
+                              onClick={() => void restart(deployment.id)}
+                              aria-label="Restart deployment"
+                            >
+                              <RotateCw
+                                className={`size-3.5 ${restarting.has(deployment.id) ? "animate-spin" : ""}`}
+                              />
+                            </Button>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ),
+                ),
+              ])}
               {data.deployments.length === 0 ? (
                 <TableRow>
                   <TableCell

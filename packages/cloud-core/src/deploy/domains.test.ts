@@ -3,10 +3,12 @@ import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
 import type { Database } from "../db";
+import type { DeployDomainRow } from "../db/schema";
 import {
   defaultDomainMode,
   isZoneHostname,
   planRouting,
+  supersedeGeneratedDomains,
   sweepDeployDomains,
 } from "./domains";
 
@@ -79,6 +81,121 @@ describe("sweepDeployDomains", () => {
           .params.filter((value) => String(value).includes("2026-08-08")),
       ),
     ).toEqual(["2026-08-08T19:14:54.000Z", "2026-08-08T19:14:54.000Z"]);
+  });
+});
+
+describe("supersedeGeneratedDomains", () => {
+  interface Generated {
+    id: string;
+    isPrimary: boolean;
+  }
+
+  /**
+   * Records what was written, in order, rather than emulating Postgres.
+   *
+   * One ordered log rather than a bucket per operation: the behaviour worth
+   * pinning is the *sequence* — primary has to move before the generated row is
+   * retired, or the target is briefly left with no URL to show — and separate
+   * arrays only prove membership, so a version that retired first would pass just
+   * as well.
+   */
+  function fakeDb(generated: Generated[]) {
+    const log: string[] = [];
+    const write = (values: Record<string, unknown>, condition: SQL) => {
+      const ids = new PgDialect()
+        .sqlToQuery(condition)
+        .params.filter((value): value is string => typeof value === "string");
+      const action =
+        "retiredAt" in values
+          ? "retire"
+          : values.isPrimary === true
+            ? "promote"
+            : "demote";
+      log.push(`${action}:${ids.join(",")}`);
+    };
+    const db = {
+      transaction: async <T>(body: (tx: unknown) => Promise<T>) => body(db),
+      select: () => ({
+        from: () => ({ where: async () => generated }),
+      }),
+      update: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (condition: SQL) => {
+            write(values, condition);
+            return {
+              returning: async () => [
+                { ...row("manual", "active"), isPrimary: true },
+              ],
+            };
+          },
+        }),
+      }),
+    } as unknown as Database;
+    return { db, log };
+  }
+
+  function row(
+    origin: "generated" | "manual",
+    status: "active" | "verifying",
+    isPrimary = false,
+  ): DeployDomainRow {
+    return {
+      id: "arrival",
+      targetId: "target-a",
+      hostname: "shop.example.com",
+      mode: "custom_hostname",
+      origin,
+      isPrimary,
+      redirectTo: null,
+      zoneId: null,
+      dnsRecordId: null,
+      customHostnameId: "ch-1",
+      status,
+      verification: null,
+      lastCheckedAt: null,
+      retiredAt: null,
+      createdAt: new Date("2026-08-01T00:00:00Z"),
+    };
+  }
+  it("moves primary onto the new domain before retiring the generated one", async () => {
+    const { db, log } = fakeDb([{ id: "gen-1", isPrimary: true }]);
+    const result = await supersedeGeneratedDomains(db, row("manual", "active"));
+
+    // The exact sequence. Demote every other primary on the target, promote the
+    // arrival, then retire — a target with no primary has no URL to show, so the
+    // retire cannot come first.
+    expect(log).toEqual([
+      "demote:target-a,arrival",
+      "promote:arrival",
+      "retire:gen-1",
+    ]);
+    expect(result.isPrimary).toBe(true);
+  });
+
+  // The generated name is the only one resolving until Cloudflare sees the
+  // owner's DNS records. Retiring it here would take the service off the air.
+  it("leaves everything alone while the new domain is still verifying", async () => {
+    const { db, log } = fakeDb([{ id: "gen-1", isPrimary: true }]);
+    await supersedeGeneratedDomains(db, row("manual", "verifying"));
+    expect(log).toEqual([]);
+  });
+
+  it("ignores a generated domain going active", async () => {
+    const { db, log } = fakeDb([{ id: "gen-1", isPrimary: true }]);
+    await supersedeGeneratedDomains(db, row("generated", "active"));
+    expect(log).toEqual([]);
+  });
+
+  it("does nothing when the target has no generated domain left", async () => {
+    const { db, log } = fakeDb([]);
+    await supersedeGeneratedDomains(db, row("manual", "active"));
+    expect(log).toEqual([]);
+  });
+
+  it("retires without touching primary when the new domain already holds it", async () => {
+    const { db, log } = fakeDb([{ id: "gen-1", isPrimary: false }]);
+    await supersedeGeneratedDomains(db, row("manual", "active", true));
+    expect(log).toEqual(["retire:gen-1"]);
   });
 });
 

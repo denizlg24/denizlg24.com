@@ -2,7 +2,11 @@ import { describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentGcRequest, AgentHealth } from "@repo/schemas/cloud";
+import type {
+  AgentApplyEnvRequest,
+  AgentGcRequest,
+  AgentHealth,
+} from "@repo/schemas/cloud";
 
 import { BuildLogStore } from "./build-log";
 import type { CaddyRouteEntry } from "./caddy";
@@ -11,6 +15,7 @@ import { deploymentRequest } from "./fixtures";
 import type { HealthService } from "./health";
 import { DeploymentQueue } from "./queue";
 import { createAgentApp } from "./routes";
+import type { ApplyEnvResult } from "./run";
 import type { ForgeTelemetry } from "./telemetry";
 
 const TOKEN = "t".repeat(32);
@@ -60,6 +65,7 @@ function app(
     status?: AgentHealth["status"];
     logRoot?: string;
     telemetry?: ForgeTelemetry;
+    applyEnvResult?: ApplyEnvResult;
   } = {},
 ) {
   const queue = new DeploymentQueue({
@@ -81,6 +87,7 @@ function app(
     redirects: { hostname: string; to: string }[];
   }[] = [];
   const collected: AgentGcRequest[] = [];
+  const envApplied: AgentApplyEnvRequest[] = [];
   const routes: CaddyRouteEntry[] = [
     {
       deploymentId: "dep-1",
@@ -97,6 +104,7 @@ function app(
     restarted,
     rehosted,
     collected,
+    envApplied,
     instance: createAgentApp({
       token: TOKEN,
       health: healthStub(options.status ?? "ok"),
@@ -111,6 +119,18 @@ function app(
       restart: async (deploymentId) => {
         restarted.push(deploymentId);
         return { restarted: true, healthy: true, error: null };
+      },
+      applyEnv: async (request) => {
+        envApplied.push(request);
+        return (
+          options.applyEnvResult ?? {
+            recreated: true,
+            containerId: "container-new",
+            healthy: true,
+            rolledBack: false,
+            error: null,
+          }
+        );
       },
       rehost: async (deploymentId, hostnames, routeOptions) => {
         if (!routes.some((route) => route.deploymentId === deploymentId)) {
@@ -426,6 +446,110 @@ describe("POST /deployments/:id/restart", () => {
       error: null,
     });
     expect(restarted).toEqual(["dep-1"]);
+  });
+});
+
+describe("POST /deployments/:id/apply-env", () => {
+  const request = deploymentRequest();
+  const body = JSON.stringify({
+    request,
+    imageTag: "forge/app:abc1234-dep",
+    port: 24_817,
+  });
+
+  it("recreates the container and reports the new id", async () => {
+    const { instance, envApplied } = app();
+    const response = await instance.request(
+      `/deployments/${request.deploymentId}/apply-env`,
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      recreated: true,
+      containerId: "container-new",
+      healthy: true,
+    });
+    expect(envApplied).toHaveLength(1);
+    expect(envApplied[0]?.request.deploymentId).toBe(request.deploymentId);
+  });
+
+  it("refuses a body whose deployment id is not the one in the path", async () => {
+    const { instance, envApplied } = app();
+    const response = await instance.request(
+      `/deployments/${crypto.randomUUID()}/apply-env`,
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body,
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: "DEPLOYMENT_ID_MISMATCH" },
+    });
+    expect(envApplied).toHaveLength(0);
+  });
+
+  // The cloud page reads the status to decide whether to report a per-deployment
+  // failure, so a regression that always answered 200 has to fail here.
+  it("answers 409 when the apply did not recreate the container", async () => {
+    const { instance } = app({
+      applyEnvResult: {
+        recreated: false,
+        containerId: null,
+        healthy: false,
+        rolledBack: true,
+        error: "health check failed. The previous container was restored.",
+      },
+    });
+    const response = await instance.request(
+      `/deployments/${request.deploymentId}/apply-env`,
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body,
+      },
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      recreated: false,
+      rolledBack: true,
+    });
+  });
+
+  // The id becomes a path segment under the access-log root.
+  it("refuses a non-uuid deployment id on the requests route", async () => {
+    const { instance } = app();
+    const response = await instance.request(
+      `/deployments/${encodeURIComponent("../../etc/passwd")}/requests`,
+      { headers: AUTH },
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: "INVALID_DEPLOYMENT_ID" },
+    });
+  });
+
+  it("refuses a malformed body", async () => {
+    const { instance, envApplied } = app();
+    const response = await instance.request(
+      `/deployments/${request.deploymentId}/apply-env`,
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body: JSON.stringify({ imageTag: "forge/app:1" }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(envApplied).toHaveLength(0);
   });
 });
 

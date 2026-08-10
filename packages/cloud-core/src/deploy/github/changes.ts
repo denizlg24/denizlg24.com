@@ -64,6 +64,7 @@ function readManifest(
 export class RepositoryChangeMatcher {
   readonly #changedFiles: string[];
   readonly #workspacePaths: string[];
+  readonly #leafWorkspaces: Set<string>;
   readonly #workspaceGraphComplete: boolean;
   readonly #manifestsByPath: Map<string, WorkspaceManifest>;
   readonly #manifestsByName: Map<string, WorkspaceManifest | null>;
@@ -72,6 +73,13 @@ export class RepositoryChangeMatcher {
     changedFiles: string[];
     workspacePaths: string[];
     manifests: WorkspaceManifest[];
+    /**
+     * Declared workspaces that hold no `package.json` at all — a Cargo, Go or
+     * Python directory matched by an `apps/*` glob. They are not holes in the
+     * JavaScript graph, they are simply not in it, and conflating the two made
+     * every target rebuild on every push in any repository that has one.
+     */
+    nonPackageWorkspaces?: string[];
   }) {
     this.#changedFiles = [
       ...new Set(options.changedFiles.map(normalisePath).filter(Boolean)),
@@ -80,8 +88,15 @@ export class RepositoryChangeMatcher {
       .map(normalisePath)
       .filter(Boolean)
       .sort((left, right) => right.length - left.length);
+    this.#leafWorkspaces = new Set(
+      (options.nonPackageWorkspaces ?? []).map(normalisePath).filter(Boolean),
+    );
+    // Every declared workspace has to be accounted for, either as a manifest we
+    // read or as a directory we know carries none. One that is neither had a
+    // `package.json` we could not parse, and that is a real hole.
     this.#workspaceGraphComplete =
-      options.manifests.length === this.#workspacePaths.length;
+      options.manifests.length + this.#leafWorkspaces.size ===
+      this.#workspacePaths.length;
     this.#manifestsByPath = new Map(
       options.manifests.map((manifest) => [manifest.path, manifest]),
     );
@@ -145,6 +160,10 @@ export class RepositoryChangeMatcher {
     const visit = (path: string): boolean => {
       if (watched.has(path)) return true;
       watched.add(path);
+      // A workspace with no manifest has no JavaScript dependencies to follow,
+      // so it is a resolved leaf rather than an unreadable node. Its own files
+      // are already covered by the root-directory check.
+      if (this.#leafWorkspaces.has(path)) return true;
       const manifest = this.#manifestsByPath.get(path);
       if (!manifest) return false;
 
@@ -168,20 +187,25 @@ export async function createRepositoryChangeMatcher(
   changedFiles: string[],
 ): Promise<RepositoryChangeMatcher> {
   const workspaces = await detectWorkspaces(repo);
-  const manifests = (
-    await Promise.all(
-      workspaces.map(async (workspace) =>
-        readManifest(
-          workspace.path,
-          await repo.readFile(`${workspace.path}/package.json`),
-        ),
-      ),
-    )
-  ).filter((manifest): manifest is WorkspaceManifest => manifest !== null);
+  const read = await Promise.all(
+    workspaces.map(async (workspace) => {
+      const raw = await repo.readFile(`${workspace.path}/package.json`);
+      return {
+        path: workspace.path,
+        absent: raw === null,
+        manifest: readManifest(workspace.path, raw),
+      };
+    }),
+  );
 
   return new RepositoryChangeMatcher({
     changedFiles,
     workspacePaths: workspaces.map((workspace) => workspace.path),
-    manifests,
+    manifests: read
+      .map((entry) => entry.manifest)
+      .filter((manifest): manifest is WorkspaceManifest => manifest !== null),
+    nonPackageWorkspaces: read
+      .filter((entry) => entry.absent)
+      .map((entry) => entry.path),
   });
 }

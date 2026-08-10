@@ -10,6 +10,8 @@ export interface GcOptions {
   exec: Exec;
   buildRoot: string;
   logRoot: string;
+  /** Optional so a host with no access logging configured still collects. */
+  accessLogRoot?: string;
   cacheRoot: string;
   dockerDataRoot: string;
   buildDataRoot?: string;
@@ -364,6 +366,38 @@ export async function runGarbageCollection(
         subject: name,
         error: errorMessage(error),
       });
+    }
+  }
+
+  // Access logs, on the same retention as build logs. Caddy caps each file by
+  // rolling it, which bounds one deployment's logs but not the number of files —
+  // every deployment that ever served a request leaves one behind, and nothing
+  // else would ever remove them.
+  //
+  // A kept deployment's file is never touched, even if its mtime is old. Caddy
+  // holds an open descriptor to the file of anything it is routing and does not
+  // notice the unlink: it goes on writing to a detached inode, so the log looks
+  // frozen until the next publish reopens it. An idle-but-live deployment is
+  // exactly the case where the mtime would be old enough to qualify.
+  if (options.accessLogRoot) {
+    const accessRoot = options.accessLogRoot;
+    const keep = new Set(request.keepDeploymentIds);
+    for (const name of await listEntriesOlderThan(accessRoot, logCutoff)) {
+      if (keep.has(name.replace(/\.log$/, ""))) continue;
+      if (request.dryRun) {
+        report.logsRemoved.push(name);
+        continue;
+      }
+      try {
+        await rm(join(accessRoot, name), { recursive: true, force: true });
+        report.logsRemoved.push(name);
+      } catch (error) {
+        failures.push({
+          step: "access-logs",
+          subject: name,
+          error: errorMessage(error),
+        });
+      }
     }
   }
 

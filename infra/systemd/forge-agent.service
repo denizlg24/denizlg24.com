@@ -38,9 +38,10 @@ RestartSec=5s
 StartLimitIntervalSec=0
 TimeoutStartSec=120
 
-# /run/forge, as tmpfs, wiped on every restart. The resolved env set for a
-# deployment is written here for the length of one `docker run`; RUN_ENV_ROOT
-# must point at it or a decrypted env file lands on a real disk.
+# /run/forge, as tmpfs, wiped on every restart. A resolved env set no longer
+# touches the filesystem at all — it is passed to `docker run` as argv — so
+# nothing sensitive lands here now. Kept because the unit's other paths assume
+# a private runtime directory exists.
 RuntimeDirectory=forge
 RuntimeDirectoryMode=0700
 WorkingDirectory=/srv/forge

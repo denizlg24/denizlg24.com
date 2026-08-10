@@ -17,7 +17,10 @@ const NAV = [
   { href: "/containers", label: "containers" },
   { href: "/images", label: "images" },
   { href: "/deployments", label: "deployments" },
-  { href: "/logs", label: "logs" },
+  // No logs entry. Logs belong to a container or a deployment, and a page that
+  // listed every log source on the host in one picker made "whose output is
+  // this" the first question every time.
+  { href: "/projects", label: "projects" },
 ];
 
 function NavLinks({ className }: { className?: string }) {

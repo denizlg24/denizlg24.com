@@ -75,6 +75,7 @@ import {
   verifyGithubSignature,
 } from "@repo/cloud-core/deploy";
 import {
+  type AgentApplyEnvResult,
   assertDeployHostname,
   createDeployDomainInputSchema,
   createDeploymentInputSchema,
@@ -245,7 +246,11 @@ function serializeTarget(
   };
 }
 
-function serializeDeployment(row: DeploymentRow) {
+function serializeDeployment(
+  row: DeploymentRow,
+  /** The target's primary domain, when the caller has it to hand. */
+  resolvableHostname?: string | null,
+) {
   return {
     id: row.id,
     targetId: row.targetId,
@@ -256,7 +261,17 @@ function serializeDeployment(row: DeploymentRow) {
     gitSha: row.gitSha,
     gitMessage: row.gitMessage,
     hostname: row.hostname,
-    url: `https://${row.hostname}`,
+    // A production deployment with no record of its own is not reachable on its
+    // own hostname: that name is generated per deployment and its record is
+    // deliberately not created once the target has a stable domain, because
+    // nothing resolves it and the zone has only 200 records. The stable domain is
+    // where it actually answers, so that is what `url` has to be — a link to the
+    // ephemeral name would simply fail to open.
+    url: `https://${
+      row.kind === "production" && row.dnsRecordId === null
+        ? (resolvableHostname ?? row.hostname)
+        : row.hostname
+    }`,
     port: row.port,
     imageTag: row.imageTag,
     containerId: row.containerId,
@@ -298,6 +313,7 @@ function serializeDomain(row: DeployDomainRow) {
     hostname: row.hostname,
     url: `https://${row.hostname}`,
     mode: row.mode,
+    origin: row.origin,
     status: row.status,
     isPrimary: row.isPrimary,
     ...domainRole(row),
@@ -360,6 +376,12 @@ function newEnvRow(
 }
 
 const uuidParam = z.uuid();
+
+/**
+ * The agent's health deadline is 90s and it stops the old container first, so
+ * the wait is that plus the drain. Sized above both rather than at them.
+ */
+const APPLY_ENV_TIMEOUT_MS = 150_000;
 
 export function deployRoutes(options: DeployRouteOptions) {
   const { db, forge } = options;
@@ -705,12 +727,15 @@ export function deployRoutes(options: DeployRouteOptions) {
           .where(eq(deployments.targetId, row.target.id))
           .orderBy(desc(deployments.createdAt))
           .limit(1);
+        const primary = await primaryHostname(row.target.id);
         return {
           ...serializeTarget(row.target, {
             projectSlug: row.projectSlug,
-            primaryHostname: await primaryHostname(row.target.id),
+            primaryHostname: primary,
           }),
-          latestDeployment: latest ? serializeDeployment(latest) : null,
+          latestDeployment: latest
+            ? serializeDeployment(latest, primary)
+            : null,
         };
       }),
     );
@@ -860,6 +885,9 @@ export function deployRoutes(options: DeployRouteOptions) {
         targetId: created.id,
         hostname,
         mode: "zone_record",
+        // The one place a domain is not the owner's choice. Marked so that once a
+        // real domain is serving, this record can be given back to the zone.
+        origin: "generated",
         isPrimary: true,
       }).catch((error: unknown) => {
         console.error("[deploy] primary domain provisioning failed", error);
@@ -1240,8 +1268,9 @@ export function deployRoutes(options: DeployRouteOptions) {
         .select({ total: sql<number>`count(*)::int` })
         .from(deployments)
         .where(eq(deployments.targetId, target.id));
+      const primary = await primaryHostname(target.id);
       return context.json({
-        data: rows.map(serializeDeployment),
+        data: rows.map((row) => serializeDeployment(row, primary)),
         pagination: {
           page: query.page,
           limit: query.limit,
@@ -1419,7 +1448,24 @@ export function deployRoutes(options: DeployRouteOptions) {
       return row;
     });
 
-    if (forge.dns) {
+    // A production deployment is reached through the target's stable domains, so
+    // its own random-suffixed hostname is a record nobody resolves — one burned
+    // per production deploy, forever, against a 200-record zone. Previews are the
+    // opposite: the per-deployment name is the only way to reach them.
+    //
+    // Only skipped when a stable domain is actually active. Production with no
+    // domain yet has nothing else to answer on, and leaving it unreachable would
+    // make a first deploy look broken.
+    const needsOwnRecord =
+      created.kind !== "production" ||
+      (await db.query.deployDomains.findFirst({
+        where: and(
+          eq(deployDomains.targetId, input.target.id),
+          eq(deployDomains.status, "active"),
+        ),
+      })) === undefined;
+
+    if (forge.dns && needsOwnRecord) {
       try {
         const record = await forge.dns.createDeploymentRecord({
           hostname,
@@ -1500,7 +1546,12 @@ export function deployRoutes(options: DeployRouteOptions) {
         createdBy: context.get("user").id,
       });
       await options.github?.surfaces.onEnqueued(created, target);
-      return context.json({ data: serializeDeployment(created) }, 202);
+      return context.json(
+        {
+          data: serializeDeployment(created, await primaryHostname(target.id)),
+        },
+        202,
+      );
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1510,7 +1561,9 @@ export function deployRoutes(options: DeployRouteOptions) {
   owner.get("/deployments/:id", async (context) => {
     try {
       const row = await loadDeployment(context.req.param("id"));
-      return context.json({ data: serializeDeployment(row) });
+      return context.json({
+        data: serializeDeployment(row, await primaryHostname(row.targetId)),
+      });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1584,7 +1637,10 @@ export function deployRoutes(options: DeployRouteOptions) {
         });
         await forge.releaseDeployment(row);
         return context.json({
-          data: serializeDeployment(cancelled ?? row),
+          data: serializeDeployment(
+            cancelled ?? row,
+            await primaryHostname(row.targetId),
+          ),
         });
       }
       const response = await agentProxy.post(`/deployments/${row.id}/cancel`);
@@ -1642,7 +1698,12 @@ export function deployRoutes(options: DeployRouteOptions) {
         prNumber: row.prNumber,
       });
       await options.github?.surfaces.onEnqueued(created, target);
-      return context.json({ data: serializeDeployment(created) }, 202);
+      return context.json(
+        {
+          data: serializeDeployment(created, await primaryHostname(target.id)),
+        },
+        202,
+      );
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1673,7 +1734,12 @@ export function deployRoutes(options: DeployRouteOptions) {
         createdBy: context.get("user").id,
       });
       await options.github?.surfaces.onEnqueued(created, target);
-      return context.json({ data: serializeDeployment(created) }, 202);
+      return context.json(
+        {
+          data: serializeDeployment(created, await primaryHostname(target.id)),
+        },
+        202,
+      );
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1714,18 +1780,28 @@ export function deployRoutes(options: DeployRouteOptions) {
         // second promote is idempotent where a revert is not.
         return context.json(
           {
-            data: serializeDeployment(promoted),
+            data: serializeDeployment(
+              promoted,
+              await primaryHostname(promoted.targetId),
+            ),
             warning: "The agent did not confirm the route change",
           },
           202,
         );
       }
-      await supersedeOlderDeployments(db, {
-        targetId: promoted.targetId,
-        kind: "production",
-        keepDeploymentId: promoted.id,
+      await forge.releaseSuperseded(
+        await supersedeOlderDeployments(db, {
+          targetId: promoted.targetId,
+          kind: "production",
+          keepDeploymentId: promoted.id,
+        }),
+      );
+      return context.json({
+        data: serializeDeployment(
+          promoted,
+          await primaryHostname(promoted.targetId),
+        ),
       });
-      return context.json({ data: serializeDeployment(promoted) });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1750,7 +1826,11 @@ export function deployRoutes(options: DeployRouteOptions) {
         restarted: boolean;
         healthy: boolean | null;
         error: string | null;
-      }>(`/deployments/${row.id}/restart`, { method: "POST" });
+      }>(`/deployments/${row.id}/restart`, {
+        method: "POST",
+        // The agent polls health for up to 90s after the bounce.
+        timeoutMs: APPLY_ENV_TIMEOUT_MS,
+      });
       if (result.status >= 500 || !result.body?.restarted) {
         return context.json(
           {
@@ -1763,6 +1843,125 @@ export function deployRoutes(options: DeployRouteOptions) {
         );
       }
       return context.json({ data: result.body });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * Makes an environment change take effect. Distinct from a restart because
+   * `docker restart` cannot do it: a container's env is fixed when it is
+   * created, so the agent has to recreate it.
+   *
+   * Target-scoped rather than deployment-scoped, because env belongs to the
+   * target and a change to it applies to every live deployment underneath —
+   * production and any preview still serving. Per-deployment results rather than
+   * one status: one preview failing its health check is not a reason to report
+   * that production did not take the change.
+   */
+  owner.post("/targets/:id/apply-env", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, target.projectId),
+      });
+      if (!project) {
+        throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
+      }
+      const live = await db.query.deployments.findMany({
+        where: and(
+          eq(deployments.targetId, target.id),
+          eq(deployments.status, "ready"),
+        ),
+      });
+
+      // One at a time, production first. Each replacement starts a new container
+      // while the old one is still stopping, so a concurrent pass would hold two
+      // containers per deployment at once and briefly double the target's whole
+      // memory footprint — on a host where `enqueueDeployment` takes a capacity
+      // lock and refuses a single build that would not fit. Serialising keeps the
+      // extra to one container's worth, and puts production at the front so the
+      // release that matters is applied before any preview can fail.
+      const ordered = [...live].sort((left, right) =>
+        left.kind === right.kind ? 0 : left.kind === "production" ? -1 : 1,
+      );
+      const applyTo = async (row: (typeof ordered)[number]) => {
+        const outcome = {
+          deploymentId: row.id,
+          kind: row.kind,
+          hostname: row.hostname,
+        };
+        if (!row.imageTag) {
+          return {
+            ...outcome,
+            recreated: false,
+            healthy: false,
+            rolledBack: false,
+            error: "The deployment has no image recorded",
+          };
+        }
+        try {
+          const response = await agentProxy.json<AgentApplyEnvResult | null>(
+            `/deployments/${row.id}/apply-env`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                request: toAgentRequest({
+                  deployment: row,
+                  target,
+                  projectSlug: project.slug,
+                }),
+                imageTag: row.imageTag,
+                port: row.port,
+              }),
+              // The agent gates the replacement on the same 90s health
+              // deadline a deploy uses; the proxy default is a fifth of that.
+              timeoutMs: APPLY_ENV_TIMEOUT_MS,
+            },
+          );
+          const body = response.body;
+          // A recreated container is a new container id, and the row still
+          // names the old one — which the runtime-log route and the restart
+          // route both read to find something that no longer exists.
+          if (body?.recreated && body.containerId) {
+            await db
+              .update(deployments)
+              .set({ containerId: body.containerId })
+              .where(eq(deployments.id, row.id));
+          }
+          return {
+            ...outcome,
+            recreated: body?.recreated ?? false,
+            healthy: body?.healthy ?? false,
+            rolledBack: body?.rolledBack ?? false,
+            error:
+              body?.error ??
+              (body ? null : "The agent refused the environment apply"),
+          };
+        } catch (error) {
+          return {
+            ...outcome,
+            recreated: false,
+            healthy: false,
+            rolledBack: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      };
+
+      const results: Awaited<ReturnType<typeof applyTo>>[] = [];
+      for (const row of ordered) {
+        results.push(await applyTo(row));
+      }
+
+      return context.json({
+        data: {
+          applied: results.filter((result) => result.recreated).length,
+          results,
+        },
+      });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1868,6 +2067,17 @@ export function deployRoutes(options: DeployRouteOptions) {
   owner.delete("/domains/:id", async (context) => {
     try {
       const row = await loadDeployDomain(db, context.req.param("id"));
+      // The dashboard hides this control for a generated domain, but hiding a
+      // button is not enforcement. A generated `<slug>.<zone>` is the only URL a
+      // target has before a real domain is attached, and it is retired
+      // automatically once one is active — deleting it by hand leaves the target
+      // with no name at all and no way to get one back short of recreating it.
+      if (row.origin === "generated" && row.retiredAt === null) {
+        throw new ConflictError(
+          "A generated domain is retired automatically once a domain you added is active",
+          "DOMAIN_GENERATED",
+        );
+      }
       await deleteDeployDomain(domainContext, row);
       await forge.republishTargetRoutes(row.targetId);
       return context.json({ data: { id: row.id } });
@@ -1951,11 +2161,13 @@ export function deployRoutes(options: DeployRouteOptions) {
       );
     }
     if (updated.status === "ready") {
-      await supersedeOlderDeployments(db, {
-        targetId: updated.targetId,
-        kind: updated.kind,
-        keepDeploymentId: updated.id,
-      });
+      await forge.releaseSuperseded(
+        await supersedeOlderDeployments(db, {
+          targetId: updated.targetId,
+          kind: updated.kind,
+          keepDeploymentId: updated.id,
+        }),
+      );
       // The agent routed the deployment's own hostname when the gate passed;
       // this adds the target's stable domains on top, which is what makes a
       // custom domain follow the release rather than lag it.
@@ -2163,11 +2375,13 @@ export function deployRoutes(options: DeployRouteOptions) {
       return null;
     }
 
-    await supersedeQueuedDeployments(db, {
-      targetId: target.id,
-      gitRef: intent.ref,
-      kind: intent.kind,
-    });
+    await forge.releaseSuperseded(
+      await supersedeQueuedDeployments(db, {
+        targetId: target.id,
+        gitRef: intent.ref,
+        kind: intent.kind,
+      }),
+    );
 
     const created = await enqueueDeployment({
       target,

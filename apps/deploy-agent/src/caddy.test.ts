@@ -46,6 +46,180 @@ function hostsOf(config: LoadedConfig): string[][] {
     .map((route) => route.match?.[0]?.host ?? []);
 }
 
+describe("access-log rejection fallback", () => {
+  /**
+   * Caddy's real 400 when it cannot open a log writer, copied from 2.11.4. It
+   * rejects the whole document, so without a fallback one unwritable directory
+   * takes every deployment's routing with it.
+   */
+  const LOGGER_REJECTION =
+    `{"error":"loading config: loading new config: setting up custom log 'access-dep-1': ` +
+    `opening log writer using \\u0026logging.FileWriter{Filename:\\"/srv/forge/access/dep-1.log\\"}: ` +
+    `open /srv/forge/access/dep-1.log: permission denied"}`;
+
+  function rejectingCaddy(detail: string, rejectAll = false) {
+    const loads: Record<string, unknown>[] = [];
+    const implementation = fakeFetch(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      loads.push(body);
+      const hasLogging =
+        Object.keys(
+          (body.logging as { logs?: Record<string, unknown> })?.logs ?? {},
+        ).length > 1;
+      if (rejectAll || hasLogging) {
+        return new Response(detail, { status: 400 });
+      }
+      return new Response("", { status: 200 });
+    });
+    return { loads, implementation };
+  }
+
+  it("republishes without logging so routing survives an unwritable log dir", async () => {
+    await withTempDir(async (dir) => {
+      const caddy = rejectingCaddy(LOGGER_REJECTION);
+      const errors: string[] = [];
+      const instance = new CaddyRouter({
+        statePath: join(dir, "caddy", "config.json"),
+        fetchImplementation: caddy.implementation,
+        logger: {
+          info: () => {},
+          error: (message) => errors.push(message),
+        },
+      });
+
+      await instance.publish({
+        deploymentId: "dep-1",
+        projectSlug: "app",
+        hostname: "app.denizlg24.com",
+        port: 24_817,
+      });
+
+      expect(caddy.loads).toHaveLength(2);
+      // The retry keeps the routes and drops only the logging.
+      const retry = caddy.loads[1] as {
+        logging: { logs: Record<string, unknown> };
+        apps: { http: { servers: Record<string, { routes: unknown[] }> } };
+      };
+      expect(Object.keys(retry.logging.logs)).toEqual(["default"]);
+      expect(retry.apps.http.servers.forge?.routes).toHaveLength(2);
+      expect(retry.apps.http.servers.forge).not.toHaveProperty("logs");
+      expect(errors.join(" ")).toContain("retrying without it");
+    });
+  });
+
+  // A genuinely broken route must still fail loudly; the fallback is only for
+  // the log writers.
+  it("still throws when the rejection is not about logging", async () => {
+    await withTempDir(async (dir) => {
+      const caddy = rejectingCaddy("bad handler", true);
+      const instance = new CaddyRouter({
+        statePath: join(dir, "caddy", "config.json"),
+        fetchImplementation: caddy.implementation,
+      });
+
+      await expect(
+        instance.publish({
+          deploymentId: "dep-1",
+          projectSlug: "app",
+          hostname: "app.denizlg24.com",
+          port: 24_817,
+        }),
+      ).rejects.toThrow(CaddyError);
+      expect(caddy.loads).toHaveLength(1);
+    });
+  });
+});
+
+describe("buildCaddyConfig access logging", () => {
+  const entry = {
+    deploymentId: "dep-1",
+    projectSlug: "app",
+    hostnames: ["b.denizlg24.com", "a.denizlg24.com"],
+    upstream: "127.0.0.1:24817",
+  };
+
+  /**
+   * Verified against a real Caddy 2.11.4: a `/load` whose body omits `admin`
+   * relocates the running admin endpoint to the default `localhost:2019`. It has
+   * always been invisible here because the bootstrap names that same address, but
+   * a non-default `CADDY_ADMIN_URL` would lose the agent its only way to reach
+   * Caddy on the first publish.
+   */
+  it("always declares the admin endpoint", () => {
+    expect(buildCaddyConfig([entry]).admin.listen).toBe("127.0.0.1:2019");
+    expect(
+      buildCaddyConfig([entry], { adminListen: "127.0.0.1:2020" }).admin.listen,
+    ).toBe("127.0.0.1:2020");
+  });
+
+  it("gives each deployment its own logger and file", () => {
+    const config = buildCaddyConfig([entry], { accessLogRoot: "/access" });
+    const logger = "access-dep-1";
+
+    expect(config.apps.http.servers.forge?.logs?.logger_names).toEqual({
+      "a.denizlg24.com": [logger],
+      "b.denizlg24.com": [logger],
+    });
+    expect(config.logging.logs[logger]).toEqual({
+      writer: {
+        output: "file",
+        filename: "/access/dep-1.log",
+        roll_size_mb: 16,
+        roll_keep: 2,
+      },
+      encoder: { format: "json" },
+      include: [`http.log.access.${logger}`],
+      level: "INFO",
+    });
+  });
+
+  // Without the exclude, every request line lands in the journal as well as in
+  // its own file.
+  it("keeps access lines out of the default logger", () => {
+    const config = buildCaddyConfig([entry]);
+    expect(config.logging.logs.default).toEqual({
+      level: "ERROR",
+      exclude: ["http.log.access.access-dep-1"],
+    });
+  });
+
+  // A redirect answers 308 without reaching the container, so counting it would
+  // report traffic the app never served.
+  it("does not log redirect-only hostnames against the deployment", () => {
+    const config = buildCaddyConfig([
+      {
+        ...entry,
+        hostnames: ["denizlg24.com"],
+        redirects: [{ hostname: "www.denizlg24.com", to: "denizlg24.com" }],
+      },
+    ]);
+    expect(
+      config.apps.http.servers.forge?.logs?.logger_names,
+    ).not.toHaveProperty("www.denizlg24.com");
+  });
+
+  it("omits the server logs block when nothing is routed", () => {
+    const config = buildCaddyConfig([]);
+    expect(config.apps.http.servers.forge?.logs).toBeUndefined();
+    expect(config.logging.logs.default).toEqual({
+      level: "ERROR",
+      exclude: [],
+    });
+  });
+
+  it("serialises identically for an unchanged set", () => {
+    const second = {
+      deploymentId: "dep-2",
+      projectSlug: "other",
+      hostnames: ["z.denizlg24.com"],
+      upstream: "127.0.0.1:24818",
+    };
+    expect(JSON.stringify(buildCaddyConfig([entry, second]))).toBe(
+      JSON.stringify(buildCaddyConfig([second, entry])),
+    );
+  });
+});
+
 describe("buildCaddyConfig", () => {
   it("always ends with a catch-all 404", () => {
     const config = buildCaddyConfig([

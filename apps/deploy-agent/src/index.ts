@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises";
+
 import { BuildLogStore } from "./build-log";
 import { CaddyRouter } from "./caddy";
 import { agentConfigFromEnv } from "./config";
@@ -9,8 +11,13 @@ import { HealthService } from "./health";
 import { createDeploymentRunner } from "./pipeline";
 import { PortAllocator } from "./ports";
 import { DeploymentQueue, type QueueLogger } from "./queue";
+import { RequestLogStore } from "./request-log";
 import { createAgentApp } from "./routes";
-import { restartDeployment, teardownDeployment } from "./run";
+import {
+  applyDeploymentEnv,
+  restartDeployment,
+  teardownDeployment,
+} from "./run";
 import { ForgeTelemetry } from "./telemetry";
 
 const VERSION = process.env.APP_VERSION ?? "dev";
@@ -50,6 +57,7 @@ const caddy = new CaddyRouter({
   statePath: config.caddyStatePath,
   adminUrl: config.caddyAdminUrl,
   listen: config.caddyListen,
+  accessLogRoot: config.accessLogRoot,
   logger,
 });
 
@@ -68,7 +76,6 @@ const queue = new DeploymentQueue({
     cacheRoot: config.cacheRoot,
     buildxBuilder: config.buildxBuilder,
     buildkitEndpoint: config.buildkitEndpoint,
-    envRoot: config.runEnvRoot,
     network: config.dockerNetwork,
     buildMemoryLimit: `${config.buildMemoryLimitMb}m`,
     drainMs: config.drainMs,
@@ -92,7 +99,12 @@ const health = new HealthService({
   // hold when the queue is full, not only when it is idle.
   buildReserveMb: config.buildMemoryLimitMb * config.maxConcurrentBuilds,
 });
-const telemetry = new ForgeTelemetry({ docker, health });
+const requestLogs = new RequestLogStore({ root: config.accessLogRoot });
+const telemetry = new ForgeTelemetry({
+  docker,
+  health,
+  requests: requestLogs,
+});
 
 /** The live routing table is the only honest source for a running port. */
 function routedPort(deploymentId: string): number | null {
@@ -119,6 +131,54 @@ const app = createAgentApp({
       port: routedPort(deploymentId),
       healthPollMs: config.healthPollMs,
     }),
+  applyEnv: async (body) => {
+    const deploymentId = body.request.deploymentId;
+    // The route table is the honest source for a running port, but a deployment
+    // whose route was never published has none — the caller's recorded port is
+    // the only thing left, and without either there is nothing to publish on.
+    const port = routedPort(deploymentId) ?? body.port ?? null;
+    if (port === null) {
+      return {
+        recreated: false,
+        containerId: null,
+        healthy: false,
+        rolledBack: false,
+        error: "No routed port for this deployment; redeploy it instead",
+      };
+    }
+    // Fetched here rather than accepted in the body for the same reason the
+    // build path does it: a request body is logged and retried, a secret set
+    // should be neither.
+    //
+    // An unreachable control plane, or one answering a body the schema refuses,
+    // is reported as an apply result rather than allowed to become a 500. The
+    // route's contract is 200 or 409 with a structured result, and the cloud page
+    // reads `error` to name which deployment failed.
+    let resolved: Awaited<ReturnType<typeof controlPlane.env>>;
+    try {
+      resolved = await controlPlane.env(deploymentId);
+    } catch (error) {
+      return {
+        recreated: false,
+        containerId: null,
+        healthy: false,
+        rolledBack: false,
+        error: `Could not resolve the environment: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+    return applyDeploymentEnv({
+      request: body.request,
+      port,
+      network: config.dockerNetwork,
+      env: resolved.env,
+      exec,
+      healthPollMs: config.healthPollMs,
+      note: (message) =>
+        logger.info("env apply", { deploymentId, detail: message }),
+    });
+  },
   rehost: (deploymentId, hostnames, options) =>
     caddy.rehost(deploymentId, hostnames, options),
   collectGarbage: (request) =>
@@ -126,12 +186,31 @@ const app = createAgentApp({
       exec,
       buildRoot: config.buildRoot,
       logRoot: config.logRoot,
+      accessLogRoot: config.accessLogRoot,
       cacheRoot: config.cacheRoot,
       dockerDataRoot: config.dockerDataRoot,
       buildDataRoot: config.buildRoot,
       buildxBuilder: config.buildxBuilder,
     }),
 });
+
+// Caddy opens the access-log files but will not create the directory holding
+// them, and a logger it cannot open makes Caddy reject the *entire* config — so
+// without this directory the next publish installs no servers at all. The
+// router's own fallback catches that and republishes without logging, which keeps
+// routing up; this is what stops it needing to. Before `caddy.restore()` below,
+// which is the first publish of the process.
+//
+// `forge-agent-install` also creates it as root, so this is the second line of
+// defence rather than the only one.
+await mkdir(config.accessLogRoot, { recursive: true, mode: 0o750 }).catch(
+  (error: unknown) => {
+    logger.error("could not create the access log directory", {
+      path: config.accessLogRoot,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  },
+);
 
 // Before the queue starts claiming: a build that finishes first would publish
 // its route into a table that has not read the persisted one yet, and the

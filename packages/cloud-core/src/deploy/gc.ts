@@ -46,6 +46,12 @@ export interface ForgeKeepSet {
  * separate reasons to keep an image: a live deployment references it, or it is
  * one of the last few builds of its target and a rollback would rather reuse it
  * than rebuild it.
+ *
+ * The two reasons do not share slots. A live deployment's image is protected on
+ * its own account, so counting it against `imageRetention` would mean that at a
+ * retention of one — the shipped default — the live image takes the only slot and
+ * nothing older survives at all. `imageRetention` is what is kept *beyond* what is
+ * running, which is what its documentation has always claimed.
  */
 export function selectForgeKeepSet(
   rows: readonly ForgeKeepCandidate[],
@@ -68,8 +74,14 @@ export function selectForgeKeepSet(
 
   for (const bucket of perTarget.values()) {
     bucket.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    for (const row of bucket.slice(0, imageRetention)) {
-      if (row.imageTag) keepImageTags.add(row.imageTag);
+    let kept = 0;
+    for (const row of bucket) {
+      if (kept >= imageRetention) break;
+      if (!row.imageTag) continue;
+      // Already protected by a live deployment, so it costs no slot.
+      if (keepImageTags.has(row.imageTag)) continue;
+      keepImageTags.add(row.imageTag);
+      kept += 1;
     }
   }
 

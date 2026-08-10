@@ -9,6 +9,10 @@ import {
   projects,
 } from "@repo/cloud-core/db/schema";
 import {
+  isProjectMetricName,
+  queryProjectMetrics,
+} from "@repo/cloud-core/deploy";
+import {
   type ForgeDeploymentQuery,
   type ForgeDeploymentSort,
   forgeDeploymentQuerySchema,
@@ -142,6 +146,68 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
     });
   });
 
+  /**
+   * A project's history, not a deployment's. Container samples are keyed per
+   * deployment, so a chart built from one key stops at the last deploy — this
+   * aggregates across every deployment the project had in the window, each metric
+   * with the only aggregate that means anything for it.
+   */
+  app.get("/projects/:slug/metrics", async (context) => {
+    const now = new Date();
+    const requested = (context.req.query("metrics") ?? "")
+      .split(",")
+      .map((metric) => metric.trim())
+      .filter(Boolean);
+    const unknown = requested.filter((metric) => !isProjectMetricName(metric));
+    if (requested.length === 0 || unknown.length > 0) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_SERIES",
+            message:
+              unknown.length > 0
+                ? `Unknown project metric: ${unknown.join(", ")}`
+                : "At least one metric is required",
+          },
+        },
+        400,
+      );
+    }
+    const kind = context.req.query("kind");
+    if (kind !== undefined && kind !== "production" && kind !== "preview") {
+      return context.json(
+        { error: { code: "INVALID_KIND", message: "Unknown deployment kind" } },
+        400,
+      );
+    }
+    // Parsed through the shared schema so the range and point-count guardrails
+    // that protect the raw metrics route protect this one too.
+    const query = metricsQuerySchema.parse({
+      series: requested.map((metric) => `forge-container:${metric}`),
+      from:
+        context.req.query("from") ??
+        new Date(now.getTime() - 24 * 60 * 60 * 1_000).toISOString(),
+      to: context.req.query("to") ?? now.toISOString(),
+      step: Number(context.req.query("step") ?? 300),
+    });
+
+    return context.json({
+      data: {
+        from: query.from,
+        to: query.to,
+        step: query.step,
+        series: await queryProjectMetrics(options.db, {
+          projectSlug: context.req.param("slug"),
+          metrics: requested.filter(isProjectMetricName),
+          from: query.from,
+          to: query.to,
+          step: query.step,
+          ...(kind ? { kind } : {}),
+        }),
+      },
+    });
+  });
+
   app.get("/deployments", async (context) => {
     const query = forgeDeploymentQuerySchema.parse({
       limit: context.req.query("limit"),
@@ -234,6 +300,23 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
       context.req.raw.signal,
     ),
   );
+
+  app.get("/deployments/:id/requests", async (context) => {
+    const id = context.req.param("id");
+    if (!z.uuid().safeParse(id).success) {
+      return context.json(
+        { error: { code: "INVALID_DEPLOYMENT_ID", message: "Not a uuid" } },
+        400,
+      );
+    }
+    const requested = Number.parseInt(context.req.query("limit") ?? "200", 10);
+    const limit = Number.isInteger(requested)
+      ? Math.min(Math.max(requested, 1), 2_000)
+      : 200;
+    return context.json({
+      data: { requests: await options.monitor.requestLogs(id, limit) },
+    });
+  });
 
   app.post("/deployments/:id/restart", async (context) => {
     const upstream = await options.monitor.restartDeployment(

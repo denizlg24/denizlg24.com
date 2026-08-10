@@ -7,9 +7,11 @@ import {
   type ForgeDeploymentQuery,
   type ForgeDeploymentSummary,
   type ForgeOverview,
+  type ForgeRequestLogRecord,
   forgeDeploymentPageSchema,
   forgeDeploymentSummarySchema,
   forgeOverviewSchema,
+  forgeRequestLogRecordSchema,
   type MetricsResponse,
   metricsResponseSchema,
   type SafeUser,
@@ -160,6 +162,35 @@ export const api = {
       data(metricsResponseSchema, "/api/forge/metrics", {
         query: { ...query, series: query.series.join(",") },
       }),
+    /**
+     * A project's own history, aggregated across every deployment it had in the
+     * window — container samples are keyed per deployment, so charting one key
+     * would make a project's graph restart at its last deploy.
+     */
+    projectMetrics: (
+      projectSlug: string,
+      query: {
+        metrics: string[];
+        from: string;
+        to: string;
+        step: number;
+        kind?: "production" | "preview";
+      },
+    ): Promise<MetricsResponse> =>
+      data(
+        metricsResponseSchema,
+        `/api/forge/projects/${encodeURIComponent(projectSlug)}/metrics`,
+        { query: { ...query, metrics: query.metrics.join(",") } },
+      ),
+    requests: (
+      deploymentId: string,
+      limit = 200,
+    ): Promise<ForgeRequestLogRecord[]> =>
+      data(
+        z.object({ requests: z.array(forgeRequestLogRecordSchema) }),
+        `/api/forge/deployments/${encodeURIComponent(deploymentId)}/requests`,
+        { query: { limit } },
+      ).then((payload) => payload.requests),
     restart: (deploymentId: string): Promise<unknown> =>
       data(
         z.unknown(),

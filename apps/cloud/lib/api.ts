@@ -41,6 +41,7 @@ import {
   deployCapacitySchema,
   deployDomainSchema,
   deployEnvVarSchema,
+  deploymentKindSchema,
   deploymentSchema,
   deployTargetListEntrySchema,
   deployTargetSchema,
@@ -170,6 +171,25 @@ interface RequestOptions {
 const DEFAULT_TIMEOUT_MS = 30_000;
 // Query consoles, provisioning and manual task runs legitimately take longer.
 const SLOW_TIMEOUT_MS = 120_000;
+// One container replacement per live deployment, each gated on a 90s health
+// check, and the API waits 150s on the agent before giving up on one.
+const APPLY_ENV_TIMEOUT_MS = 300_000;
+
+export const deployApplyEnvReportSchema = z.object({
+  applied: z.number().int().min(0),
+  results: z.array(
+    z.object({
+      deploymentId: z.uuid(),
+      kind: deploymentKindSchema,
+      hostname: z.string(),
+      recreated: z.boolean(),
+      healthy: z.boolean(),
+      rolledBack: z.boolean(),
+      error: z.string().nullable(),
+    }),
+  ),
+});
+export type DeployApplyEnvReport = z.infer<typeof deployApplyEnvReportSchema>;
 
 function buildUrl(path: string, query: RequestOptions["query"]): URL {
   const url = new URL(path, API_BASE_URL);
@@ -940,6 +960,18 @@ export const api = {
         z.array(deployEnvVarSchema),
         `/api/deploy/targets/${targetId}/env`,
         { method: "PUT", body: input },
+      ),
+    /**
+     * Recreates every live container so an env change takes effect. Not a
+     * restart: env is fixed when a container is created, so the agent has to
+     * replace it. Slower than every other mutation here because each
+     * replacement is gated on the same health check a deploy uses.
+     */
+    applyEnv: (targetId: string): Promise<DeployApplyEnvReport> =>
+      requestData(
+        deployApplyEnvReportSchema,
+        `/api/deploy/targets/${targetId}/apply-env`,
+        { method: "POST", timeoutMs: APPLY_ENV_TIMEOUT_MS },
       ),
     bindings: (targetId: string): Promise<DeployBindings> =>
       requestData(deployBindingsSchema, `/api/deploy/bindings/${targetId}`),

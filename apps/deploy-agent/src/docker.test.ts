@@ -4,7 +4,39 @@ import {
   DockerClient,
   type FetchLike,
   ForgeContainerNotFoundError,
+  parseForgeImageTags,
 } from "./docker";
+
+describe("parseForgeImageTags", () => {
+  test("reads the project slug out of a build tag", () => {
+    expect(parseForgeImageTags(["forge/hello-world:a1b2c3d-7f3e9a01"])).toEqual(
+      { projectSlug: "hello-world", isCacheTag: false },
+    );
+  });
+
+  // The one image per project that legitimately has no container, so the list
+  // has to be able to say so rather than showing it as reclaimable.
+  test("flags the moving cache tag", () => {
+    expect(parseForgeImageTags(["forge/api:latest"])).toEqual({
+      projectSlug: "api",
+      isCacheTag: true,
+    });
+    expect(
+      parseForgeImageTags(["forge/api:a1b2c3d-7f3e9a01", "forge/api:latest"]),
+    ).toEqual({ projectSlug: "api", isCacheTag: true });
+  });
+
+  test("ignores anything that is not a Forge tag", () => {
+    expect(parseForgeImageTags([])).toEqual({
+      projectSlug: null,
+      isCacheTag: false,
+    });
+    expect(parseForgeImageTags(["<none>:<none>", "node:22"])).toEqual({
+      projectSlug: null,
+      isCacheTag: false,
+    });
+  });
+});
 
 function dockerFrame(text: string, stream = 1): Uint8Array {
   const payload = new TextEncoder().encode(text);

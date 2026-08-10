@@ -9,6 +9,7 @@ import {
   ALERT_RULE_UNITS,
   DEPLOY_BUILDERS,
   DEPLOY_DOMAIN_MODES,
+  DEPLOY_DOMAIN_ORIGINS,
   DEPLOY_DOMAIN_STATUSES,
   DEPLOY_ENV_SCOPES,
   DEPLOY_ENV_SOURCES,
@@ -159,6 +160,10 @@ export const deployDomainModeEnum = pgEnum(
 export const deployDomainStatusEnum = pgEnum(
   "deploy_domain_status",
   DEPLOY_DOMAIN_STATUSES,
+);
+export const deployDomainOriginEnum = pgEnum(
+  "deploy_domain_origin",
+  DEPLOY_DOMAIN_ORIGINS,
 );
 
 export interface FieldMapping {
@@ -1209,6 +1214,12 @@ export const deployDomains = pgTable(
       .references(() => deployTargets.id, { onDelete: "cascade" }),
     hostname: varchar("hostname", { length: 255 }).notNull().unique(),
     mode: deployDomainModeEnum("mode").notNull(),
+    /**
+     * `manual` by default so anything this column does not know about is treated
+     * as the owner's, which is the safe way to be wrong: a generated row misread
+     * as manual survives, a manual row misread as generated gets retired.
+     */
+    origin: deployDomainOriginEnum("origin").notNull().default("manual"),
     isPrimary: boolean("is_primary").notNull().default(false),
     /**
      * Null serves the deployment. A hostname here is an explicit per-domain

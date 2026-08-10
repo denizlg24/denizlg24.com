@@ -58,9 +58,38 @@ if [ -f "$STAGING_DIR/forge-agent-install" ]; then
   rm -f "$STAGING_DIR/forge-agent-install"
 fi
 
+# Caddy's unit travels with the agent because the two are one contract: the agent
+# publishes a config naming the access-log directory, and only `ReadWritePaths`
+# in this unit lets Caddy open it. Out of step, Caddy rejects the *entire* config
+# with a 400 — not just the logger — so every deployment stops routing while the
+# agent's own /healthz stays green. They have to move together.
+caddy_changed=0
+if [ -f "$STAGING_DIR/forge-caddy.service" ]; then
+  if ! cmp -s "$STAGING_DIR/forge-caddy.service" \
+    /etc/systemd/system/forge-caddy.service; then
+    caddy_changed=1
+  fi
+  install -m 0644 -o root -g root \
+    "$STAGING_DIR/forge-caddy.service" /etc/systemd/system/forge-caddy.service
+  rm -f "$STAGING_DIR/forge-caddy.service"
+fi
+
+# Root-created so it never depends on the agent having started first, and owned
+# by the service user because both processes run as `forge`.
+install -d -m 0750 -o forge -g forge /srv/forge/access
+
 systemctl daemon-reload
 systemctl enable forge-buildkit.service >/dev/null
 systemctl restart forge-buildkit.service
+
+# Only when the unit actually changed. A sandbox property like ReadWritePaths
+# applies at process start, so this needs a restart rather than a reload — and a
+# restart drops Caddy to its bootstrap config until the agent republishes, which
+# is a routing blip not worth taking on every agent release.
+if [ "$caddy_changed" = "1" ]; then
+  echo "forge-caddy.service changed; restarting Caddy"
+  systemctl restart forge-caddy.service
+fi
 
 [ -f "$TARGET" ] && cp -f "$TARGET" "$PREVIOUS"
 

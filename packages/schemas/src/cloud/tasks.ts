@@ -143,11 +143,15 @@ export type NamespaceTieringTaskConfig = z.infer<
  */
 export const forgeGcTaskConfigSchema = z.object({
   /**
-   * Images kept per target beyond the ones a live deployment references. Three
-   * is two rollbacks deep — a rollback rebuilds, so this is a speed floor, not
-   * the thing that makes rollback possible.
+   * Images kept per target beyond the ones a live deployment references. A
+   * rollback rebuilds regardless, so this is only a speed floor — and every
+   * image it holds is a full layer set on a disk that has none to spare, showing
+   * up in the images list as something with no container that looks like garbage
+   * and is not. One keeps the immediately-previous build warm; the per-project
+   * `:latest` cache tag, which GC never reaps, is what actually makes rebuilds
+   * fast.
    */
-  imageRetention: z.number().int().min(1).max(50).default(3),
+  imageRetention: z.number().int().min(1).max(50).default(1),
   logRetentionDays: z.number().int().min(1).max(365).default(30),
   buildCacheMaxMb: z.number().int().min(0).max(1_048_576).default(2_048),
   buildCacheMaxAgeDays: z.number().int().min(1).max(365).default(14),

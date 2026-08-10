@@ -11,6 +11,11 @@ on:
       - "infra/systemd/forge-agent-install"
       - "infra/systemd/forge-buildkit.service"
       - "infra/systemd/forge-buildkitd.toml"
+      # Caddy's unit ships with the agent, not on its own. The agent publishes a
+      # config that names the access-log directory and only this unit's
+      # ReadWritePaths lets Caddy open it; out of step, Caddy 400s the whole
+      # config and every deployment stops routing.
+      - "infra/systemd/forge-caddy.service"
       - ".github/workflows/release-deploy-agent.yml"
       - "bun.lock"
   workflow_dispatch:
@@ -129,6 +134,7 @@ jobs:
             -o StrictHostKeyChecking=accept-new \
             -o BatchMode=yes \
             infra/systemd/forge-agent.service \
+            infra/systemd/forge-caddy.service \
             infra/systemd/forge-buildkit.service \
             infra/systemd/forge-buildkitd.toml \
             infra/systemd/forge-agent-install \
@@ -180,7 +186,7 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
             "denizlg24@${FORGE_ADDR}" \
-            "rm -f /var/lib/forge-agent/staging/forge-agent /var/lib/forge-agent/staging/forge-agent.service /var/lib/forge-agent/staging/forge-buildkit.service /var/lib/forge-agent/staging/forge-buildkitd.toml /var/lib/forge-agent/staging/forge-agent-install"
+            "rm -f /var/lib/forge-agent/staging/forge-agent /var/lib/forge-agent/staging/forge-agent.service /var/lib/forge-agent/staging/forge-caddy.service /var/lib/forge-agent/staging/forge-buildkit.service /var/lib/forge-agent/staging/forge-buildkitd.toml /var/lib/forge-agent/staging/forge-agent-install"
           {
             echo "### Validate-only run"
             echo

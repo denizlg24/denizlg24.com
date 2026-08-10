@@ -16,13 +16,16 @@ import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
 import { Skeleton } from "@repo/ui/skeleton";
 import { StatusDot } from "@repo/ui/status-dot";
-import { ArrowLeft, ExternalLink, RotateCw, ScrollText } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { ArrowLeft, ExternalLink, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageHeading } from "@/components/page-heading";
 import { api, errorMessage } from "@/lib/api";
+import { LogStream } from "../../_components/log-stream";
+import { RequestTable } from "../../_components/request-table";
 
 export default function DeploymentDetailPage() {
   const params = useParams<{ id: string }>();
@@ -38,6 +41,18 @@ export default function DeploymentDetailPage() {
   useEffect(() => {
     if (data) setLive(isDeploymentLive(data.status));
   }, [data]);
+
+  const containerId = data?.containerId ?? "";
+  const buildSubscribe = useMemo(
+    () => (onLine: (line: string) => void, signal: AbortSignal) =>
+      api.forge.streamBuildLogs(id, onLine, signal),
+    [id],
+  );
+  const runtimeSubscribe = useMemo(
+    () => (onLine: (line: string) => void, signal: AbortSignal) =>
+      api.forge.streamLogs(containerId, onLine, signal),
+    [containerId],
+  );
 
   const restart = async () => {
     setRestarting(true);
@@ -84,20 +99,6 @@ export default function DeploymentDetailPage() {
               {formatRelative(data.createdAt)}
             </span>
             <div className="ml-auto flex items-center gap-1">
-              <Button variant="ghost" size="sm" asChild>
-                <Link href={`/logs?mode=build&id=${data.id}`}>
-                  <ScrollText className="size-3.5" />
-                  build log
-                </Link>
-              </Button>
-              {data.containerId ? (
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href={`/logs?mode=runtime&id=${data.containerId}`}>
-                    <ScrollText className="size-3.5" />
-                    runtime log
-                  </Link>
-                </Button>
-              ) : null}
               {data.status === "ready" ? (
                 <Button
                   variant="ghost"
@@ -172,6 +173,44 @@ export default function DeploymentDetailPage() {
             <Field label="ready">{formatDateTime(data.readyAt)}</Field>
             <Field label="stopped">{formatDateTime(data.stoppedAt)}</Field>
           </dl>
+
+          {/* Inline rather than behind a link to a shared logs page: the build
+              log, the container's output and the requests it served are three
+              views of this one deployment, and which deployment you are looking
+              at is the thing a separate page kept losing. */}
+          <Tabs
+            defaultValue="build"
+            className="flex min-h-0 flex-col gap-3 border-t pt-4"
+          >
+            <TabsList variant="line">
+              <TabsTrigger value="build">build log</TabsTrigger>
+              <TabsTrigger value="runtime" disabled={!data.containerId}>
+                runtime log
+              </TabsTrigger>
+              <TabsTrigger value="requests">requests</TabsTrigger>
+            </TabsList>
+            <TabsContent value="build" className="flex min-h-0 flex-col">
+              <LogStream
+                subscribe={buildSubscribe}
+                resetKey={`build-${id}`}
+                emptyLabel="no build output"
+              />
+            </TabsContent>
+            <TabsContent value="runtime" className="flex min-h-0 flex-col">
+              {data.containerId ? (
+                <LogStream
+                  subscribe={runtimeSubscribe}
+                  resetKey={`runtime-${data.containerId}`}
+                />
+              ) : null}
+            </TabsContent>
+            <TabsContent
+              value="requests"
+              className="flex max-h-96 min-h-0 flex-col"
+            >
+              <RequestTable deploymentId={id} />
+            </TabsContent>
+          </Tabs>
         </div>
       ) : null}
     </div>
