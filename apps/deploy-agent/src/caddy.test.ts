@@ -46,6 +46,90 @@ function hostsOf(config: LoadedConfig): string[][] {
     .map((route) => route.match?.[0]?.host ?? []);
 }
 
+describe("access-log rejection fallback", () => {
+  /**
+   * Caddy's real 400 when it cannot open a log writer, copied from 2.11.4. It
+   * rejects the whole document, so without a fallback one unwritable directory
+   * takes every deployment's routing with it.
+   */
+  const LOGGER_REJECTION =
+    `{"error":"loading config: loading new config: setting up custom log 'access-dep-1': ` +
+    `opening log writer using \\u0026logging.FileWriter{Filename:\\"/srv/forge/access/dep-1.log\\"}: ` +
+    `open /srv/forge/access/dep-1.log: permission denied"}`;
+
+  function rejectingCaddy(detail: string, rejectAll = false) {
+    const loads: Record<string, unknown>[] = [];
+    const implementation = fakeFetch(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      loads.push(body);
+      const hasLogging =
+        Object.keys(
+          (body.logging as { logs?: Record<string, unknown> })?.logs ?? {},
+        ).length > 1;
+      if (rejectAll || hasLogging) {
+        return new Response(detail, { status: 400 });
+      }
+      return new Response("", { status: 200 });
+    });
+    return { loads, implementation };
+  }
+
+  it("republishes without logging so routing survives an unwritable log dir", async () => {
+    await withTempDir(async (dir) => {
+      const caddy = rejectingCaddy(LOGGER_REJECTION);
+      const errors: string[] = [];
+      const instance = new CaddyRouter({
+        statePath: join(dir, "caddy", "config.json"),
+        fetchImplementation: caddy.implementation,
+        logger: {
+          info: () => {},
+          error: (message) => errors.push(message),
+        },
+      });
+
+      await instance.publish({
+        deploymentId: "dep-1",
+        projectSlug: "app",
+        hostname: "app.denizlg24.com",
+        port: 24_817,
+      });
+
+      expect(caddy.loads).toHaveLength(2);
+      // The retry keeps the routes and drops only the logging.
+      const retry = caddy.loads[1] as {
+        logging: { logs: Record<string, unknown> };
+        apps: { http: { servers: Record<string, { routes: unknown[] }> } };
+      };
+      expect(Object.keys(retry.logging.logs)).toEqual(["default"]);
+      expect(retry.apps.http.servers.forge?.routes).toHaveLength(2);
+      expect(retry.apps.http.servers.forge).not.toHaveProperty("logs");
+      expect(errors.join(" ")).toContain("retrying without it");
+    });
+  });
+
+  // A genuinely broken route must still fail loudly; the fallback is only for
+  // the log writers.
+  it("still throws when the rejection is not about logging", async () => {
+    await withTempDir(async (dir) => {
+      const caddy = rejectingCaddy("bad handler", true);
+      const instance = new CaddyRouter({
+        statePath: join(dir, "caddy", "config.json"),
+        fetchImplementation: caddy.implementation,
+      });
+
+      await expect(
+        instance.publish({
+          deploymentId: "dep-1",
+          projectSlug: "app",
+          hostname: "app.denizlg24.com",
+          port: 24_817,
+        }),
+      ).rejects.toThrow(CaddyError);
+      expect(caddy.loads).toHaveLength(1);
+    });
+  });
+});
+
 describe("buildCaddyConfig access logging", () => {
   const entry = {
     deploymentId: "dep-1",

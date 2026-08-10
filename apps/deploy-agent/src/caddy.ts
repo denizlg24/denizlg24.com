@@ -294,6 +294,43 @@ export function buildCaddyConfig(
 }
 
 /**
+ * Whether Caddy refused the config over a log writer rather than over routing.
+ *
+ * Matched on Caddy's own wording (`setting up custom log 'name': opening log
+ * writer ...`) because the status code cannot tell the two apart — both are a
+ * 400. A false negative just means the error propagates as before, which is the
+ * safe direction.
+ */
+function isLoggerRejection(detail: string): boolean {
+  return (
+    detail.includes("setting up custom log") ||
+    detail.includes("opening log writer")
+  );
+}
+
+/** The same config with every access-log declaration stripped out. */
+function withoutAccessLogging(config: CaddyConfig): CaddyConfig {
+  return {
+    admin: config.admin,
+    logging: { logs: { default: { level: "ERROR", exclude: [] } } },
+    apps: {
+      http: {
+        servers: Object.fromEntries(
+          Object.entries(config.apps.http.servers).map(([name, server]) => [
+            name,
+            {
+              listen: server.listen,
+              routes: server.routes,
+              automatic_https: server.automatic_https,
+            },
+          ]),
+        ),
+      },
+    },
+  };
+}
+
+/**
  * The agent owns Caddy's config outright: no Caddyfile, and every change is a
  * full `POST /load`. Patching individual route indices is the alternative and
  * it is a trap — an index computed before a concurrent delete addresses the
@@ -487,7 +524,28 @@ export class CaddyRouter implements RouteManager {
   }
 
   async #apply(): Promise<void> {
-    await this.#load(this.config());
+    const config = this.config();
+    try {
+      await this.#load(config);
+    } catch (error) {
+      // Caddy validates the access-log writers as part of the config and rejects
+      // the *whole* document if it cannot open one — a 400, not a warning, so the
+      // servers never get installed and every deployment stops routing. The one
+      // way that happens in practice is `/srv/forge/access` not being writable,
+      // which means this unit and `forge-caddy.service` have drifted apart.
+      //
+      // Routing is worth more than request logs. Retrying without the logging
+      // block turns that drift from an outage into a missing feature, and the
+      // error is logged either way so it is still findable.
+      if (!(error instanceof CaddyError) || !isLoggerRejection(error.message)) {
+        throw error;
+      }
+      this.#logger.error(
+        "Caddy rejected the access-log configuration; retrying without it",
+        { error: error.message },
+      );
+      await this.#load(withoutAccessLogging(config));
+    }
     await this.#persist();
   }
 
