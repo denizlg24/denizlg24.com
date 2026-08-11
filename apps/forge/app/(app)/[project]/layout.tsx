@@ -118,7 +118,7 @@ export default function ProjectLayout({ children }: { children: ReactNode }) {
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  <section.icon className="size-3.5 shrink-0" aria-hidden />
+                  {/* <section.icon className="size-3.5 shrink-0" aria-hidden /> */}
                   {section.label}
                 </Link>
               );
