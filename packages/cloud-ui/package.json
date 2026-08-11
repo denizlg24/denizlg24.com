@@ -9,6 +9,7 @@
     "./api-error": "./src/api-error.ts",
     "./deploy/api": "./src/deploy/api.ts",
     "./format": "./src/format.ts",
+    "./projects/api": "./src/projects/api.ts",
     "./status-tone": "./src/status-tone.ts",
     "./theme-script": "./src/theme-script.ts",
     "./use-poll": "./src/use-poll.ts"

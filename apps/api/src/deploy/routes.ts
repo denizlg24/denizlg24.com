@@ -1601,6 +1601,7 @@ export function deployRoutes(options: DeployRouteOptions) {
             scopes: entry.connection.scopes,
             targetId: entry.targetId,
           })),
+          namespaceId: resource.namespaceId,
           namespaceSlug: namespace?.slug ?? null,
         },
       });

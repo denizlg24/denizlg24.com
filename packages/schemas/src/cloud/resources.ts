@@ -159,6 +159,12 @@ export const resourceDetailSchema = resourceSchema.extend({
   connections: z.array(resourceConnectionDetailSchema),
   /** The namespace record naming the on-disk bucket or index prefix. */
   namespaceSlug: z.string().nullable(),
+  /**
+   * The same record's id. The collections synced into a `meilisearch` resource
+   * and the vector indexes beside a `postgres` one are still addressed
+   * project-scoped, so the detail page needs the id to reach them.
+   */
+  namespaceId: z.uuid().nullable(),
 });
 export type ResourceDetail = z.infer<typeof resourceDetailSchema>;
 

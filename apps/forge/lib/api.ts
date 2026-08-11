@@ -1,5 +1,6 @@
 import { toApiError, toTransportError } from "@repo/cloud-ui/api-error";
 import { deployApi } from "@repo/cloud-ui/deploy/api";
+import { projectsApi } from "@repo/cloud-ui/projects/api";
 import {
   type CompleteSignupInput,
   type CompleteSignupResult,
@@ -136,6 +137,13 @@ export const api = {
    * carries its own timeouts rather than the shorter default above.
    */
   deploy: deployApi,
+
+  /**
+   * The namespace half of a project — API keys, collections, vector indexes.
+   * Shared for the same reason `deploy` is: these routes need PATCH and
+   * DELETE, which the request core above deliberately does not carry.
+   */
+  projects: projectsApi,
 
   me: (): Promise<SafeUser> => data(safeUserSchema, "/api/me"),
   completeSignup: (input: CompleteSignupInput): Promise<CompleteSignupResult> =>
