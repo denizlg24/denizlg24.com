@@ -8,6 +8,7 @@ import {
   RuntimeFields,
 } from "@repo/cloud-ui/deploy/build-config-fields";
 import { useResolvedBuildConfig } from "@repo/cloud-ui/deploy/repo-import";
+import { formatRelative } from "@repo/cloud-ui/format";
 import type { DeployTarget } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
@@ -138,8 +139,91 @@ export default function SettingsPage() {
 
       <EnvoySection target={target} onChanged={() => void reload()} />
 
+      <AvailabilitySection target={target} onChanged={() => void reload()} />
+
       <DangerSection target={target} />
     </div>
+  );
+}
+
+/**
+ * Pausing tears the production container down and stops the target counting
+ * against the host's memory; nothing else about the project changes. Resuming
+ * has to rebuild, because the teardown took the image with it — which is worth
+ * saying on the button, since every other way back to a live site here is
+ * instant.
+ */
+function AvailabilitySection({
+  target,
+  onChanged,
+}: {
+  target: DeployTarget;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const paused = target.pausedAt !== null;
+
+  async function run(action: () => Promise<unknown>, done: string) {
+    setBusy(true);
+    try {
+      await action();
+      toast.success(done);
+      onChanged();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section
+      title="Availability"
+      actions={
+        paused ? (
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                const { deployment } = await api.deploy.resumeTarget(target.id);
+                return deployment;
+              }, "Resumed — rebuilding")
+            }
+          >
+            Resume
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              void run(() => api.deploy.pauseTarget(target.id), "Paused")
+            }
+          >
+            Pause
+          </Button>
+        )
+      }
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        {paused ? (
+          <>
+            <span className="text-foreground">
+              Paused {formatRelative(target.pausedAt)}
+            </span>
+            <span>Resuming rebuilds the last production commit.</span>
+          </>
+        ) : (
+          <span>
+            Stops the production container and releases its{" "}
+            {target.memoryReservationMb} MB reservation. Builds are refused
+            until it resumes.
+          </span>
+        )}
+      </div>
+    </Section>
   );
 }
 

@@ -70,13 +70,18 @@ export function TargetCard({
 
       {latest ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {/* A paused target's last deployment is still `ready` — the row
+              records what production was, and nothing rewrote it. Reading the
+              status alone would show a live site that is not running. */}
           <span className="flex items-center gap-1.5">
             <StatusDot
-              tone={deploymentTone(latest.status)}
-              label={latest.status}
+              tone={target.pausedAt ? "muted" : deploymentTone(latest.status)}
+              label={target.pausedAt ? "paused" : latest.status}
             />
             <span className="text-foreground">
-              {deploymentLabel(latest.status, latest.phase)}
+              {target.pausedAt
+                ? "Paused"
+                : deploymentLabel(latest.status, latest.phase)}
             </span>
           </span>
           <span>{formatRelative(latest.readyAt ?? latest.createdAt)}</span>

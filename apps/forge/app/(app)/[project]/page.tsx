@@ -53,11 +53,12 @@ export default function ProjectOverviewPage() {
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title="production"
+        title={target.pausedAt ? "production · paused" : "production"}
         actions={
           <ProductionActions
             production={production}
             previous={previous}
+            paused={target.pausedAt !== null}
             onDone={reload}
           />
         }

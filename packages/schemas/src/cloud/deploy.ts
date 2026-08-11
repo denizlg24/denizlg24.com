@@ -879,6 +879,11 @@ export const deployTargetSchema = z.object({
   cpuLimit: z.number(),
   autoDeploy: z.boolean(),
   previewDeploys: z.boolean(),
+  /**
+   * Set means the target is off: nothing builds, no container runs, and its
+   * reservation is not charged against the host. Config and domains are intact.
+   */
+  pausedAt: z.iso.datetime().nullable(),
   /** Set means this target opted into pulling env from Envoy. Never the passphrase. */
   envoyProjectId: z.uuid().nullable(),
   primaryHostname: z.string().nullable(),

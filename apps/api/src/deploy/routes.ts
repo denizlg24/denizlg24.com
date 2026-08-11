@@ -42,6 +42,7 @@ import {
   BindingUnresolvableError,
   buildSpecFromTarget,
   type ChangeDecision,
+  COMMITTED_DEPLOYMENT_STATUSES,
   claimQueuedDeployment,
   createDeployBindingResolvers,
   createDeployDomain,
@@ -122,7 +123,7 @@ import {
   updateDeployTargetInputSchema,
   type WebhookDeployIntent,
 } from "@repo/schemas/cloud";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -273,6 +274,7 @@ function serializeTarget(
     cpuLimit: Number(target.cpuLimit),
     autoDeploy: target.autoDeploy,
     previewDeploys: target.previewDeploys,
+    pausedAt: target.pausedAt?.toISOString() ?? null,
     envoyProjectId: target.envoyProjectId,
     primaryHostname: extra.primaryHostname,
     createdAt: target.createdAt.toISOString(),
@@ -1229,6 +1231,140 @@ export function deployRoutes(options: DeployRouteOptions) {
   });
 
   /**
+   * Off, but not deleted. Every container the target holds is torn down and it
+   * stops being charged against the host's memory, which is the entire point on
+   * a box where `deployCapacity` refuses a deploy once the reservations add up.
+   * Everything that describes the project — env, domains, build config, the
+   * deployment history — is left exactly as it was.
+   *
+   * Previews go down with production rather than surviving it. Capacity counts
+   * a preview slot as readily as a production one, so a paused target that kept
+   * previews running would be reported as holding nothing while holding real
+   * memory — and a project that is off should not still be building pull
+   * requests either.
+   *
+   * Idempotent: pausing a paused target re-runs the teardown, which is the
+   * repair for a pause whose agent call failed the first time.
+   */
+  owner.post("/targets/:id/pause", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      // Flip the row first. The teardown below is the slow, failable half, and
+      // a target marked paused but still running is a smaller problem than one
+      // whose containers are gone while the webhook keeps building.
+      const [paused] = await db
+        .update(deployTargets)
+        .set({ pausedAt: target.pausedAt ?? new Date(), updatedAt: new Date() })
+        .where(eq(deployTargets.id, target.id))
+        .returning();
+      if (!paused) throw new Error("Pause returned no row");
+
+      const held = await db
+        .select()
+        .from(deployments)
+        .where(
+          and(
+            eq(deployments.targetId, paused.id),
+            inArray(deployments.status, [...COMMITTED_DEPLOYMENT_STATUSES]),
+          ),
+        );
+      const stopped: DeploymentRow[] = [];
+      for (const row of held) {
+        // A `ready` row keeps its status: it records what production or a
+        // preview *was*, and it is what resume rebuilds from. The paused flag
+        // on the target is what every surface reads to say nothing is serving.
+        //
+        // A queued or building one cannot be left alone — the claim query would
+        // pick it up and build it despite the pause.
+        if (row.status !== "ready") {
+          const cancelled = await recordDeploymentStatus(db, row.id, {
+            status: "cancelled",
+            error: "The project was paused",
+          });
+          stopped.push(cancelled ?? row);
+          await forge.releaseDeployment(row);
+        }
+        await agentProxy.delete(`/deployments/${row.id}`).catch(() => {});
+      }
+      // DNS is left alone deliberately. Pausing is reversible, and a record
+      // pointing at the tunnel with nothing behind it is a 502 rather than a
+      // name that has to be re-provisioned; the nightly reconciler reaps it
+      // once the row is eventually superseded.
+      await forge.reportRetired(stopped);
+
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, paused.projectId),
+      });
+      return context.json({
+        data: serializeTarget(paused, {
+          projectSlug: project?.slug ?? "",
+          primaryHostname: await primaryHostname(paused.id),
+        }),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * Resume is a rebuild, not a resurrection. Pausing removes the container and
+   * its image, so there is nothing left to start — the last production SHA is
+   * built again, exactly as `rollback` does, and the site is back when it goes
+   * ready rather than immediately.
+   *
+   * A target with no production deployment to rebuild resumes anyway: it is
+   * un-paused and the next push deploys it.
+   */
+  owner.post("/targets/:id/resume", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const [resumed] = await db
+        .update(deployTargets)
+        .set({ pausedAt: null, updatedAt: new Date() })
+        .where(eq(deployTargets.id, target.id))
+        .returning();
+      if (!resumed) throw new Error("Resume returned no row");
+
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, resumed.projectId),
+      });
+      // Still `ready`, because pause never touched the row — which is what
+      // makes it the thing to rebuild.
+      const last = await forge.liveProductionDeployment(resumed.id);
+      let rebuilt: DeploymentRow | null = null;
+      if (last && project) {
+        // Capacity is checked here rather than at pause: a host that filled up
+        // while this was paused should refuse the resume instead of
+        // overcommitting. The target is un-paused either way, so a refusal
+        // leaves it deployable by hand once there is room.
+        rebuilt = await enqueueDeployment({
+          target: resumed,
+          projectSlug: project.slug,
+          ref: last.gitRef,
+          sha: last.gitSha,
+          message: last.gitMessage,
+          kind: "production",
+          triggeredBy: "manual",
+          createdBy: context.get("user").id,
+        });
+        await options.github?.surfaces.onEnqueued(rebuilt, resumed);
+      }
+      const hostname = await primaryHostname(resumed.id);
+      return context.json({
+        data: serializeTarget(resumed, {
+          projectSlug: project?.slug ?? "",
+          primaryHostname: hostname,
+        }),
+        deployment: rebuilt ? serializeDeployment(rebuilt, hostname) : null,
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
    * The opt-in. Storing the passphrase is what makes the pull possible at all —
    * Envoy encrypts client-side, so its server holds ciphertext and never a key
    * — and it is the reason this is a deliberate act per target rather than
@@ -1885,6 +2021,16 @@ export function deployRoutes(options: DeployRouteOptions) {
     createdBy: string | null;
     prNumber?: number | null;
   }) {
+    // Central rather than per-caller: a webhook, a manual deploy, a redeploy
+    // and a rollback all land here, and a paused target that still built from
+    // any one of them would keep taking back the memory pause just gave up.
+    // Resume passes the already-updated row, so it is not a special case.
+    if (input.target.pausedAt !== null) {
+      throw new ValidationError(
+        "This project is paused. Resume it before deploying.",
+        "TARGET_PAUSED",
+      );
+    }
     const rows = await db
       .select()
       .from(deployEnvVars)
@@ -2913,6 +3059,10 @@ export function deployRoutes(options: DeployRouteOptions) {
     changeCache: WebhookChangeCache,
   ): Promise<DeploymentRow | null> {
     if (target.githubInstallationId === null) return null;
+    // Silently, and before change detection runs: a paused project has opted
+    // out of building, so a check run saying it was skipped would report a
+    // decision about the commit that was never made.
+    if (target.pausedAt !== null) return null;
     const decision = await targetChanged(target, intent, changeCache);
     if (!decision.deploy) {
       // Vercel's behaviour, and for the same reason: a commit whose checks show

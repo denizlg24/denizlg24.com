@@ -19,11 +19,18 @@ import { api, errorMessage } from "@/lib/api";
 export function ProductionActions({
   production,
   previous,
+  paused,
   onDone,
 }: {
   production: Deployment | null;
   /** The ready production deployment before the live one, if there is one. */
   previous: Deployment | null;
+  /**
+   * A paused target refuses every enqueue server-side, so both rebuilds are
+   * disabled rather than left to fail. `visit` stays: the hostname is still
+   * the project's, it just has nothing behind it.
+   */
+  paused: boolean;
   onDone: () => Promise<unknown> | void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -54,7 +61,7 @@ export function ProductionActions({
       <Button
         variant="ghost"
         size="sm"
-        disabled={busy}
+        disabled={busy || paused}
         onClick={() =>
           void run("Redeploying this commit", () =>
             api.deploy.rollback(production.id),
@@ -67,7 +74,7 @@ export function ProductionActions({
         <Button
           variant="ghost"
           size="sm"
-          disabled={busy}
+          disabled={busy || paused}
           onClick={() =>
             void run(`Rolling back to ${previous.gitSha.slice(0, 7)}`, () =>
               api.deploy.rollback(previous.id),

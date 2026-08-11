@@ -3,17 +3,22 @@ import {
   type DeploymentKind,
   deriveMemoryCeilingMb,
 } from "@repo/schemas/cloud";
-import { and, inArray, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
-import { type DeployTargetRow, deployments } from "../db/schema";
+import { type DeployTargetRow, deployments, deployTargets } from "../db/schema";
 import { ValidationError } from "../errors";
 
 type CapacityDatabase =
   | Database
   | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-const COMMITTED_STATUSES = [
+/**
+ * A slot that is holding, or is about to hold, memory on the host. Pause tears
+ * down exactly this set, which is what keeps the teardown and the reservation
+ * arithmetic describing the same thing.
+ */
+export const COMMITTED_DEPLOYMENT_STATUSES = [
   "queued",
   "building",
   "deploying",
@@ -82,6 +87,11 @@ export function assertMemoryCapacity(input: {
  * Queued and building slots count too. Admission would otherwise allow ten
  * requests through while the host was empty, only discovering the overcommit
  * after the builds finished.
+ *
+ * A paused target holds nothing. Its container was torn down when it was
+ * paused, so charging the host for a reservation that is not running is the
+ * whole reason pause exists on a box with finite memory. Its `ready` row is
+ * left alone deliberately — it still records what production was.
  */
 export async function committedReservationMb(
   db: CapacityDatabase,
@@ -94,16 +104,20 @@ export async function committedReservationMb(
       reservation: deployments.memoryReservationMb,
     })
     .from(deployments)
+    .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
     .where(
-      options.excludeTargetId && options.excludeKind
-        ? and(
-            inArray(deployments.status, [...COMMITTED_STATUSES]),
-            or(
-              ne(deployments.targetId, options.excludeTargetId),
-              ne(deployments.kind, options.excludeKind),
-            )!,
-          )
-        : inArray(deployments.status, [...COMMITTED_STATUSES]),
+      and(
+        isNull(deployTargets.pausedAt),
+        options.excludeTargetId && options.excludeKind
+          ? and(
+              inArray(deployments.status, [...COMMITTED_DEPLOYMENT_STATUSES]),
+              or(
+                ne(deployments.targetId, options.excludeTargetId),
+                ne(deployments.kind, options.excludeKind),
+              )!,
+            )
+          : inArray(deployments.status, [...COMMITTED_DEPLOYMENT_STATUSES]),
+      )!,
     );
 
   return {

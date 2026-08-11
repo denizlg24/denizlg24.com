@@ -188,6 +188,33 @@ export const deployApi = {
       // Tears down every container and record the target owns.
       timeoutMs: SLOW_TIMEOUT_MS,
     }),
+  pauseTarget: (id: string): Promise<DeployTarget> =>
+    requestData(deployTargetSchema, `/api/deploy/targets/${id}/pause`, {
+      method: "POST",
+      // Tears the production container down before it answers.
+      timeoutMs: SLOW_TIMEOUT_MS,
+    }),
+  /**
+   * Answers as soon as the rebuild is queued, not when it is live — resuming
+   * rebuilds the last production commit, because pausing removed the image
+   * there was to start. `deployment` is null when there was never a production
+   * deployment to put back.
+   */
+  resumeTarget: (
+    id: string,
+  ): Promise<{ target: DeployTarget; deployment: Deployment | null }> =>
+    rawRequest(`/api/deploy/targets/${id}/resume`, {
+      method: "POST",
+      timeoutMs: SLOW_TIMEOUT_MS,
+    }).then((payload) => {
+      const parsed = z
+        .object({
+          data: deployTargetSchema,
+          deployment: deploymentSchema.nullable(),
+        })
+        .parse(payload);
+      return { target: parsed.data, deployment: parsed.deployment };
+    }),
 
   deployments: (
     targetId: string,

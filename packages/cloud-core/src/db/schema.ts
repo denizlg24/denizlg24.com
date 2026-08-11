@@ -1223,6 +1223,16 @@ export const deployTargets = pgTable(
     autoDeploy: boolean("auto_deploy").notNull().default(true),
     previewDeploys: boolean("preview_deploys").notNull().default(true),
     /**
+     * Set means the target is off: nothing enqueues, its production container
+     * has been torn down, and admission control stops charging the host for a
+     * reservation nothing is running. A timestamp rather than a flag so the
+     * settings page can say how long it has been down.
+     *
+     * Config, env, domains and previews are all left alone — pausing is not a
+     * soft delete, and resuming has to put the site back exactly as it was.
+     */
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    /**
      * Opt-in, and the opt-in is this column being set. Envoy env is never
      * pulled because a project happens to have an Envoy counterpart — the link
      * is made deliberately, per target, or nothing happens.
