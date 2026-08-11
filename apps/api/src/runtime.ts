@@ -334,10 +334,50 @@ export async function createRuntimeApp() {
             token: deployAgentToken,
           })
         : null;
+    // Optional in the same way the agent is: without the App a target still
+    // deploys, it just has to be told which commit and cannot clone a private
+    // repository or write anything back to a pull request.
+    //
+    // Resolved before `forge` because `ForgeOps` reports the deployments it
+    // retires — the supersedes and the interrupted sweep — and those are
+    // exactly the runs nothing else tells GitHub about.
+    let githubApp: GithubAppConfig | null = null;
+    try {
+      githubApp = githubAppConfigFromEnv();
+    } catch {
+      githubApp = null;
+    }
+    const github = githubApp
+      ? (() => {
+          const client = new GithubAppClient({
+            config: githubApp,
+            cache: {
+              get: async (key) => redis.get(key),
+              set: async (key, value, ttlSeconds) => {
+                await redis.set(key, value, { EX: ttlSeconds });
+              },
+              delete: async (key) => {
+                await redis.del(key);
+              },
+            },
+          });
+          return {
+            client,
+            surfaces: new GithubSurfaces({
+              db,
+              client,
+              adminBaseUrl:
+                process.env.CLOUD_ADMIN_URL ?? "https://cloud.denizlg24.com",
+            }),
+          };
+        })()
+      : null;
+
     const forge = deployAgent
       ? new ForgeOps({
           db,
           agent: deployAgent,
+          github: github?.surfaces ?? null,
           // Cloudflare is configured separately. Without it a deployment
           // still builds, runs and routes through Caddy — it just has no
           // public name, which is a better failure than refusing to deploy.
@@ -489,41 +529,6 @@ export async function createRuntimeApp() {
       serverUrl: process.env.TERMINAL_SERVER_URL ?? "ws://127.0.0.1:3003",
       ticketSecret: requiredEnv("TERMINAL_TICKET_SECRET"),
     });
-
-    // Optional in the same way the agent is: without the App a target still
-    // deploys, it just has to be told which commit and cannot clone a private
-    // repository or write anything back to a pull request.
-    let githubApp: GithubAppConfig | null = null;
-    try {
-      githubApp = githubAppConfigFromEnv();
-    } catch {
-      githubApp = null;
-    }
-    const github = githubApp
-      ? (() => {
-          const client = new GithubAppClient({
-            config: githubApp,
-            cache: {
-              get: async (key) => redis.get(key),
-              set: async (key, value, ttlSeconds) => {
-                await redis.set(key, value, { EX: ttlSeconds });
-              },
-              delete: async (key) => {
-                await redis.del(key);
-              },
-            },
-          });
-          return {
-            client,
-            surfaces: new GithubSurfaces({
-              db,
-              client,
-              adminBaseUrl:
-                process.env.CLOUD_ADMIN_URL ?? "https://cloud.denizlg24.com",
-            }),
-          };
-        })()
-      : null;
 
     const deploy =
       forge && deployAgentToken

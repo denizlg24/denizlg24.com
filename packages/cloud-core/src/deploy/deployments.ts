@@ -160,22 +160,6 @@ const IN_FLIGHT_STATUSES: readonly DeploymentStatus[] = [
 ];
 
 /**
- * Enough of a superseded row to release what it holds outside itself.
- *
- * `dnsRecordId` is here rather than left to the caller to look up because these
- * two functions were the one path to a terminal status that did not go through
- * `recordDeploymentStatus`, so nothing ever released their DNS records — every
- * push to a branch leaked the previous preview's CNAME, permanently, and the
- * Cloudflare reconciler could not see it either because the row still existed.
- */
-export interface SupersededDeployment {
-  id: string;
-  kind: DeploymentKind;
-  readyAt: Date | null;
-  dnsRecordId: string | null;
-}
-
-/**
  * Pushing five times in a minute must produce one build, not five. Keyed on the
  * ref rather than the hostname the plan names: a preview hostname carries a
  * random suffix, so two pushes to one branch never share one and a hostname
@@ -184,11 +168,17 @@ export interface SupersededDeployment {
  * Only `queued` rows are taken. A build already running has a container and a
  * log someone may be watching; `supersedeOlderDeployments` retires it when the
  * newer one goes ready.
+ *
+ * The whole row comes back rather than the four fields the caller strictly
+ * needs, because these two functions are the one path to a terminal status that
+ * does not go through `recordDeploymentStatus` — so everything the status route
+ * does afterwards has to be done here instead, from releasing the DNS record to
+ * closing out the check run on the commit.
  */
 export async function supersedeQueuedDeployments(
   db: Database,
   input: { targetId: string; gitRef: string; kind: DeploymentKind },
-): Promise<SupersededDeployment[]> {
+): Promise<DeploymentRow[]> {
   return db
     .update(deployments)
     .set({
@@ -205,12 +195,7 @@ export async function supersedeQueuedDeployments(
         eq(deployments.status, "queued"),
       ),
     )
-    .returning({
-      id: deployments.id,
-      kind: deployments.kind,
-      readyAt: deployments.readyAt,
-      dnsRecordId: deployments.dnsRecordId,
-    });
+    .returning();
 }
 
 /**
@@ -262,7 +247,7 @@ export async function pullRequestDeployments(
 export async function supersedeOlderDeployments(
   db: Database,
   input: { targetId: string; kind: DeploymentKind; keepDeploymentId: string },
-): Promise<SupersededDeployment[]> {
+): Promise<DeploymentRow[]> {
   return db
     .update(deployments)
     .set({ status: "superseded", stoppedAt: new Date(), phase: null })
@@ -274,10 +259,5 @@ export async function supersedeOlderDeployments(
         inArray(deployments.status, [...LIVE_STATUSES]),
       ),
     )
-    .returning({
-      id: deployments.id,
-      kind: deployments.kind,
-      readyAt: deployments.readyAt,
-      dnsRecordId: deployments.dnsRecordId,
-    });
+    .returning();
 }

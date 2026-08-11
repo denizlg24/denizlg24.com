@@ -12,7 +12,6 @@ import {
   releaseDeploymentDnsRecord,
   releaseDeploymentResources,
   routeHostnames,
-  type SupersededDeployment,
   sweepDeployDomains,
   targetsWithActiveDomains,
   unneededDeploymentDnsRecords,
@@ -27,6 +26,7 @@ import {
 } from "@repo/schemas/cloud";
 import { and, desc, eq } from "drizzle-orm";
 
+import type { GithubSurfaces } from "./github-surfaces";
 import type { DeployAgentProxy } from "./proxy";
 
 export interface ForgeOpsOptions {
@@ -37,6 +37,13 @@ export interface ForgeOpsOptions {
   /** Absent unless Cloudflare for SaaS is enabled; external domains then cannot be added. */
   customHostnames: CloudflareCustomHostnameClient | null;
   zoneName: string;
+  /**
+   * Absent until the GitHub App is installed. It is here rather than only on
+   * the routes because both paths that retire a deployment without the agent
+   * saying so — the supersedes and the interrupted sweep — run through this
+   * class, and a check run nobody completes spins on the commit for ever.
+   */
+  github: GithubSurfaces | null;
 }
 
 interface StepFailure {
@@ -63,12 +70,14 @@ export class ForgeOps {
   readonly dns: CloudflareDnsClient | null;
   readonly zoneName: string;
   readonly domainContext: DomainContext;
+  readonly github: GithubSurfaces | null;
 
   constructor(options: ForgeOpsOptions) {
     this.db = options.db;
     this.agent = options.agent;
     this.dns = options.dns;
     this.zoneName = options.zoneName;
+    this.github = options.github;
     this.domainContext = {
       db: options.db,
       dns: options.dns,
@@ -237,9 +246,7 @@ export class ForgeOps {
    * fail the push that superseded it, and the nightly reconciler gets another go
    * at it once the row is eventually deleted.
    */
-  async releaseSuperseded(
-    rows: readonly SupersededDeployment[],
-  ): Promise<void> {
+  async releaseSuperseded(rows: readonly DeploymentRow[]): Promise<void> {
     for (const row of rows) {
       await releaseDeploymentResources(this.db, this.dns, row, {
         // A ready production hostname may be the CNAME target of a domain at a
@@ -250,6 +257,20 @@ export class ForgeOps {
         console.error(`[deploy] releasing superseded ${row.id} failed`, error);
       });
     }
+    await this.reportRetired(rows);
+  }
+
+  /**
+   * Closes out the commit for deployments that finished without the agent
+   * saying so. Last and best-effort, in the same spirit as everything else the
+   * GitHub surfaces do: the row is already retired and its resources already
+   * released, so GitHub being unreachable costs a stale check run, not a leak.
+   */
+  async reportRetired(rows: readonly DeploymentRow[]): Promise<void> {
+    if (!this.github || rows.length === 0) return;
+    await this.github.onRetired(rows).catch((error: unknown) => {
+      console.error("[deploy] reporting retired deployments failed", error);
+    });
   }
 
   /**
@@ -276,6 +297,10 @@ export class ForgeOps {
           });
         });
       }
+      // The agent died mid-build, so nothing ever reported the run as over.
+      // Without this the commit keeps a spinning check run until someone
+      // notices by hand.
+      await this.reportRetired(interrupted);
     }
 
     const keep = await loadForgeKeepSet(this.db, {

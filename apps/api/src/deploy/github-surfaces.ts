@@ -3,10 +3,13 @@ import type {
   DeploymentRow,
   DeployTargetRow,
 } from "@repo/cloud-core/db/schema";
-import { deployments } from "@repo/cloud-core/db/schema";
+import { deployments, deployTargets } from "@repo/cloud-core/db/schema";
 import type { ChangeDecision, GithubAppClient } from "@repo/cloud-core/deploy";
-import type { WebhookDeployIntent } from "@repo/schemas/cloud";
-import { eq } from "drizzle-orm";
+import type {
+  DeploymentStatus,
+  WebhookDeployIntent,
+} from "@repo/schemas/cloud";
+import { eq, inArray } from "drizzle-orm";
 
 export interface GithubSurfacesOptions {
   db: Database;
@@ -59,6 +62,63 @@ function skipSummary(
         "does not reach — resolved from the import graph of the last build.",
       ].join("\n")
     : `Nothing under \`${root}\`, or in any package it depends on, changed in this push.`;
+}
+
+/**
+ * What the ✓/✗ beside the commit becomes.
+ *
+ * `superseded` is a skip, not a failure: a newer commit arrived and this build
+ * stopped being the answer, which is nothing the reader has to act on. It is
+ * also why the mapping has to exist at all — a check run left `in_progress`
+ * spins on the commit for ever, and GitHub counts `skipped` as passing where a
+ * run that never completes blocks a required-checks merge indefinitely.
+ */
+function checkConclusion(
+  status: DeploymentStatus,
+): "success" | "cancelled" | "skipped" | "failure" {
+  switch (status) {
+    case "ready":
+      return "success";
+    case "cancelled":
+      return "cancelled";
+    case "superseded":
+      return "skipped";
+    default:
+      return "failure";
+  }
+}
+
+/**
+ * `inactive` is what retires a transient environment on GitHub's side, so a
+ * superseded preview stops being listed as deployed rather than being reported
+ * as a failure that never happened.
+ */
+function deploymentState(
+  status: DeploymentStatus,
+): "success" | "inactive" | "failure" {
+  if (status === "ready") return "success";
+  return status === "superseded" ? "inactive" : "failure";
+}
+
+function checkOutput(row: DeploymentRow): { title: string; summary: string } {
+  if (row.status === "ready") {
+    return {
+      title: `Deployed in ${Math.round((row.buildDurationMs ?? 0) / 1_000)}s`,
+      summary: `https://${row.hostname}`,
+    };
+  }
+  if (row.status === "superseded") {
+    return {
+      title: "Superseded by a newer deployment",
+      summary: row.error ?? "A newer deployment replaced this one.",
+    };
+  }
+  return {
+    title: `Deployment ${row.status}`,
+    // The agent reports the failure text on the row; the full log lives on the
+    // deploy host and is one click away in details_url.
+    summary: row.error ?? "No error was reported",
+  };
 }
 
 /**
@@ -150,6 +210,44 @@ export class GithubSurfaces {
   async onFinished(row: DeploymentRow, target: DeployTargetRow): Promise<void> {
     const repo = repoFor(target);
     if (!repo) return;
+    await this.#reportTerminal(row, repo);
+    await this.#comment(row, target, repo);
+  }
+
+  /**
+   * Rows that reached a terminal status without the agent reporting it: both
+   * supersedes, the sweep that marks a dead build interrupted, and cancelling
+   * one that was never claimed. They are the only finished deployments that do
+   * not pass through `onFinished`, which is why every one of them used to leave
+   * a check run spinning on the commit for good.
+   *
+   * No pull request comment. A row is superseded precisely because a newer one
+   * exists, and that one writes the comment a moment later — writing here would
+   * be an API call to publish text that is overwritten before anyone reads it.
+   */
+  async onRetired(rows: readonly DeploymentRow[]): Promise<void> {
+    const reportable = rows.filter(
+      (row) => row.githubCheckRunId !== null || row.githubDeploymentId !== null,
+    );
+    if (reportable.length === 0) return;
+    const targetIds = [...new Set(reportable.map((row) => row.targetId))];
+    const targets = await this.options.db
+      .select()
+      .from(deployTargets)
+      .where(inArray(deployTargets.id, targetIds));
+    const byId = new Map(targets.map((target) => [target.id, target]));
+
+    for (const row of reportable) {
+      const target = byId.get(row.targetId);
+      if (!target) continue;
+      const repo = repoFor(target);
+      if (!repo) continue;
+      await this.#reportTerminal(row, repo);
+    }
+  }
+
+  /** The check run and the deployment status, for a run that is over. */
+  async #reportTerminal(row: DeploymentRow, repo: Repo): Promise<void> {
     const detailsUrl = this.#detailsUrl(row);
 
     if (row.githubCheckRunId !== null) {
@@ -160,25 +258,9 @@ export class GithubSurfaces {
           checkRunId,
           update: {
             status: "completed",
-            conclusion:
-              row.status === "ready"
-                ? "success"
-                : row.status === "cancelled"
-                  ? "cancelled"
-                  : "failure",
+            conclusion: checkConclusion(row.status),
             detailsUrl,
-            output: {
-              title:
-                row.status === "ready"
-                  ? `Deployed in ${Math.round((row.buildDurationMs ?? 0) / 1_000)}s`
-                  : `Deployment ${row.status}`,
-              // The agent reports the failure text on the row; the full log
-              // lives on the deploy host and is one click away in details_url.
-              summary:
-                row.status === "ready"
-                  ? `https://${row.hostname}`
-                  : (row.error ?? "No error was reported"),
-            },
+            output: checkOutput(row),
           },
         });
       });
@@ -190,7 +272,7 @@ export class GithubSurfaces {
         await this.options.client.createDeploymentStatus({
           ...repo,
           deploymentId,
-          state: row.status === "ready" ? "success" : "failure",
+          state: deploymentState(row.status),
           ...(row.status === "ready"
             ? { environmentUrl: `https://${row.hostname}` }
             : {}),
@@ -198,8 +280,6 @@ export class GithubSurfaces {
         });
       });
     }
-
-    await this.#comment(row, target, repo);
   }
 
   /**
@@ -275,6 +355,9 @@ export class GithubSurfaces {
     if (row.prNumber === null) return;
     const prNumber = row.prNumber;
     const marker = commentMarker(target.id);
+    // Every terminal status is named. The fallthrough is "building", so a
+    // status this does not know about reads as a run still in progress —
+    // the one thing a finished deployment must never say.
     const status =
       row.status === "ready"
         ? `✅ Ready · [${row.hostname}](https://${row.hostname})`
@@ -282,7 +365,11 @@ export class GithubSurfaces {
           ? "❌ Failed"
           : row.status === "cancelled"
             ? "⚪ Cancelled"
-            : "🔄 Building";
+            : row.status === "superseded"
+              ? "⏭️ Superseded"
+              : row.status === "interrupted"
+                ? "❌ Interrupted"
+                : "🔄 Building";
     const body = [
       marker,
       `**${target.name}**`,

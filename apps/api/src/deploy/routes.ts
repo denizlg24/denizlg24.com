@@ -2139,6 +2139,10 @@ export function deployRoutes(options: DeployRouteOptions) {
           error: "Cancelled before it was claimed",
         });
         await forge.releaseDeployment(row);
+        // A claimed run reports its own cancellation through the agent's status
+        // route; this one has no agent to report it, so the check run has to be
+        // closed out from here or it never completes.
+        await forge.reportRetired([cancelled ?? row]);
         return context.json({
           data: serializeDeployment(
             cancelled ?? row,
