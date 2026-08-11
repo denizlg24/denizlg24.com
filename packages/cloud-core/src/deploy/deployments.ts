@@ -21,16 +21,33 @@ import {
  * holds: the row is flipped to `building` in the same statement that claims
  * it, so a crash between the claim and the first status report leaves a row
  * the interrupted sweep reclaims — not one two agents both build.
+ *
+ * One deployment per target at a time, which only started mattering when the
+ * agent gained more than one build slot. Three things in the pipeline are keyed
+ * by target or project rather than by deployment, and all three break if two
+ * runs for the same target overlap: `reapSuperseded` stops every production
+ * container for the target except its own, so whichever finishes last wins
+ * regardless of which is newer; both builds move `forge/<slug>:latest`, leaving
+ * the loser's image untagged the moment it is written; and the BuildKit cache
+ * mounts are `id=<targetId>-…`, so the two contend for the same store.
+ *
+ * Different targets still run in parallel, which is the case the extra slots
+ * exist for — a monorepo push queues one deployment per project.
  */
 export async function claimQueuedDeployment(
   db: Database,
 ): Promise<DeploymentRow | null> {
   const claimed = await db.execute(sql<{ id: string }>`
     WITH claimed AS (
-      SELECT id FROM ${deployments}
-      WHERE ${deployments.status} = 'queued'
-      ORDER BY ${deployments.createdAt}
-      FOR UPDATE SKIP LOCKED
+      SELECT queued.id FROM ${deployments} AS queued
+      WHERE queued.status = 'queued'
+        AND NOT EXISTS (
+          SELECT 1 FROM ${deployments} AS active
+          WHERE active.target_id = queued.target_id
+            AND active.status IN ('building', 'deploying')
+        )
+      ORDER BY queued.created_at
+      FOR UPDATE OF queued SKIP LOCKED
       LIMIT 1
     )
     UPDATE ${deployments}

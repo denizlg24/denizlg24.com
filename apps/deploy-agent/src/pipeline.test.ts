@@ -47,13 +47,19 @@ function harness(
     ...overrides,
   });
   const updates: DeploymentStatusUpdate[] = [];
+  const released: DeploymentStatusUpdate[][] = [];
   const context = {
     signal: new AbortController().signal,
     report: async (update: DeploymentStatusUpdate) => {
       updates.push(update);
     },
+    // Recording the updates seen at release time is what pins *when* the slot
+    // goes back: a snapshot taken after the container started would not.
+    releaseBuildSlot: () => {
+      released.push([...updates]);
+    },
   };
-  return { runner, context, updates, routes, ports, logs };
+  return { runner, context, updates, released, routes, ports, logs };
 }
 
 function happyExec(): FakeExec {
@@ -97,6 +103,40 @@ describe("createDeploymentRunner", () => {
       expect(updates[2]?.imageTag).toBe(final.imageTag);
       expect(updates[2]?.port).toBe(final.port);
       expect(exec.find("nixpacks build")).toBeDefined();
+    });
+  });
+
+  /**
+   * The slot has to go back before the container starts, not after the run
+   * finishes — everything past the build is idle waiting, and holding a slot
+   * through it is what left the builder parked behind a health probe.
+   */
+  it("releases the build slot once the image exists", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, context, released } = harness(dir, happyExec());
+
+      await runner(deploymentRequest({ kind: "production" }), context);
+
+      expect(released).toHaveLength(1);
+      expect(
+        released[0]?.map((update) => `${update.status}:${update.phase ?? "-"}`),
+      ).toEqual(["building:cloning", "building:building"]);
+    });
+  });
+
+  it("never releases the build slot early when the build fails", async () => {
+    await withTempDir(async (dir) => {
+      const exec = fakeExec((call) =>
+        call.command.includes("build")
+          ? { exitCode: 1, stderr: "missing lockfile" }
+          : undefined,
+      );
+      const { runner, context, released } = harness(dir, exec);
+
+      await expect(runner(deploymentRequest(), context)).rejects.toThrow();
+
+      // Nothing to hand back early: the queue releases it on the way out.
+      expect(released).toHaveLength(0);
     });
   });
 

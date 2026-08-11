@@ -68,7 +68,12 @@ AGENT_TOKEN=${token}
 # Tailscale address rather than the 127.0.0.1 default, or this is refused.
 CONTROL_PLANE_URL=${controlPlane}
 
-MAX_CONCURRENT_BUILDS=${env.MAX_CONCURRENT_BUILDS || "1"}
+# Concurrent *builds*, not concurrent deployments — a run hands its slot back
+# the moment the image exists and finishes starting the container outside the
+# cap. The host is 12 cores / 31 GB and a Next.js build peaks 2–4 GB, so three
+# fits with room. Keep this in step with max-parallelism in
+# infra/systemd/forge-buildkitd.toml, which is a worker-wide step cap.
+MAX_CONCURRENT_BUILDS=${env.MAX_CONCURRENT_BUILDS || "3"}
 
 # Production paths. Deliberately not taken from .env: those are this laptop's.
 BUILD_ROOT=/mnt/storage/forge/builds

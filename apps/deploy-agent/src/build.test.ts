@@ -3,11 +3,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentDeploymentRequest } from "@repo/schemas/cloud";
 import {
+  BUILD_SECRET_ENV_VAR,
+  BUILD_SECRET_ID,
   BuildConfigError,
   branchFor,
   cloneUrlFor,
   imageTagFor,
   runBuild,
+  shellEnvFile,
 } from "./build";
 
 import { BuildLog } from "./build-log";
@@ -405,6 +408,33 @@ describe("runBuild", () => {
     });
   });
 
+  it("hands the whole environment over as a mounted secret", async () => {
+    await withTempDir(async (dir) => {
+      const exec = fakeExec(checkoutWriter({ Dockerfile: "FROM scratch" }));
+      const buildLog = log(dir);
+      await runBuild({
+        request: deploymentRequest(),
+        log: buildLog,
+        signal: new AbortController().signal,
+        exec: exec.exec,
+        buildRoot: join(dir, "builds"),
+        buildMemoryLimit: "6144m",
+        env: { RESEND_API_KEY: "re_live_1", MONGODB_URI: "mongodb://x" },
+      });
+      await buildLog.close();
+
+      const call = exec.find("docker build");
+      expect(call?.command).toContain(
+        `id=${BUILD_SECRET_ID},env=${BUILD_SECRET_ENV_VAR}`,
+      );
+      // The value reaches the client through its environment, never argv.
+      expect(call?.env?.[BUILD_SECRET_ENV_VAR]).toContain(
+        "export RESEND_API_KEY='re_live_1'",
+      );
+      expect(call?.command.join(" ")).not.toContain("re_live_1\n");
+    });
+  });
+
   it("reports the image size it read back", async () => {
     await withTempDir(async (dir) => {
       const { outcome } = await build(
@@ -452,5 +482,34 @@ describe("runBuild", () => {
         await Bun.file(join(buildRoot, request.deploymentId, "src")).exists(),
       ).toBe(false);
     });
+  });
+});
+
+describe("shellEnvFile", () => {
+  it("emits sourceable exports", () => {
+    expect(shellEnvFile({ A: "1", B: "two" })).toBe(
+      "export A='1'\nexport B='two'\n",
+    );
+  });
+
+  /**
+   * The case the whole format exists for. A PEM key holds newlines and a
+   * service-account JSON holds quotes and `$`; inside single quotes none of it
+   * is special, so the only thing needing an escape is the quote itself.
+   */
+  it("survives newlines, quotes and shell metacharacters", () => {
+    const value = '-----BEGIN KEY-----\nab\'cd$(x)`y`"z"\n-----END KEY-----';
+    const rendered = shellEnvFile({ PEM: value });
+    expect(rendered).toBe(
+      `export PEM='-----BEGIN KEY-----\nab'\\''cd$(x)\`y\`"z"\n-----END KEY-----'\n`,
+    );
+  });
+
+  it("drops names that are not shell identifiers", () => {
+    // `export 1BAD=` is a syntax error, and it would take the build with it
+    // rather than the one variable.
+    expect(shellEnvFile({ "1BAD": "x", "a-b": "y", GOOD: "z" })).toBe(
+      "export GOOD='z'\n",
+    );
   });
 });

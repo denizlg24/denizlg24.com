@@ -252,6 +252,37 @@ function envFlags(flag: string, env: Record<string, string>): string[] {
   ]);
 }
 
+/** Anything else is not a shell identifier and `export` would be a syntax error. */
+const SHELL_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export const BUILD_SECRET_ID = "forge-env";
+/** Carries the blob to the buildx client. Never appears in argv. */
+export const BUILD_SECRET_ENV_VAR = "FORGE_BUILD_ENV";
+
+/**
+ * The deployment's environment as a file a Dockerfile can `.` source.
+ *
+ * A Dockerfile only receives a `--build-arg` it declares, so the build of an
+ * app that reads its config at module scope — which is most of them, and all of
+ * `apps/web`'s API routes — sees none of it unless every name is written into
+ * the Dockerfile by hand. That list is discovered one failed build at a time
+ * and silently goes stale, so the whole set is handed over at once instead.
+ *
+ * Single quotes with `'\''` for embedded ones, because that is the only POSIX
+ * quoting that is total: nothing inside `'…'` is special, so a value holding a
+ * newline, a `$`, or a backtick survives intact. A PEM key is the case that
+ * makes this matter — see the `--env` note in run.ts for the same problem on
+ * the run side.
+ */
+export function shellEnvFile(env: Record<string, string>): string {
+  return Object.entries(env)
+    .filter(([key]) => SHELL_NAME.test(key))
+    .map(
+      ([key, value]) => `export ${key}='${value.replaceAll("'", "'\\''")}'\n`,
+    )
+    .join("");
+}
+
 async function imageSize(
   exec: Exec,
   imageTag: string,
@@ -450,7 +481,14 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
               imageTag,
               "--tag",
               latestTag,
+              // Both, deliberately. The build args keep a Dockerfile that
+              // declares `ARG NEXT_PUBLIC_…` working unchanged; the secret is
+              // what a build needing the whole environment mounts. An arg no
+              // Dockerfile declares is dropped by BuildKit, so passing them
+              // costs nothing and puts nothing in the image's layer history.
               ...envFlags("--build-arg", buildEnv),
+              "--secret",
+              `id=${BUILD_SECRET_ID},env=${BUILD_SECRET_ENV_VAR}`,
               // A container-driver builder cannot read the daemon's image
               // store, so the previous image is no use to it as a cache source
               // — the local cache below supersedes it and carries the cache
@@ -482,6 +520,11 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
               "--build-arg",
               "BUILDKIT_INLINE_CACHE=1",
               ...envFlags("--build-arg", buildEnv),
+              // Also on the fallback path: a Dockerfile that mounts the secret
+              // fails outright where it is not supplied, and which builder ran
+              // is not something the repository can know.
+              "--secret",
+              `id=${BUILD_SECRET_ID},env=${BUILD_SECRET_ENV_VAR}`,
               "--cache-from",
               latestTag,
               "--memory",
@@ -493,7 +536,13 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
               ".",
             ],
         cwd: contextDirectory,
-        env: { DOCKER_BUILDKIT: "1" },
+        env: {
+          DOCKER_BUILDKIT: "1",
+          // Through the child's environment block rather than its argv, for the
+          // reason spelled out on the `--env` path in run.ts: `/proc/<pid>/cmdline`
+          // is world-readable and `/proc/<pid>/environ` is not.
+          [BUILD_SECRET_ENV_VAR]: shellEnvFile(buildEnv),
+        },
         signal,
         timeoutMs: request.timeouts.buildMs,
         onOutput: (chunk) => log.write(chunk),

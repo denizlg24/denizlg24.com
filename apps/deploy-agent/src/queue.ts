@@ -10,6 +10,20 @@ import type {
 export interface RunnerContext {
   signal: AbortSignal;
   report: (update: DeploymentStatusUpdate) => Promise<void>;
+  /**
+   * Hands the build slot back while the run continues.
+   *
+   * Capacity exists to bound what a build costs — CPU, memory, and a spinning
+   * disk that BuildKit reads and writes the whole time. None of that is still
+   * true once the image exists: starting a container and polling it until it
+   * answers is idle waiting, and a deployment already holds its memory whether
+   * or not some other build is running. Holding a slot through it just leaves
+   * the builder parked.
+   *
+   * Idempotent, and safe not to call — the run releases the slot on the way out
+   * either way.
+   */
+  releaseBuildSlot: () => void;
 }
 
 export type DeploymentRunner = (
@@ -37,6 +51,13 @@ export interface DeploymentQueueOptions {
   historyLimit?: number;
   /** How long stop() waits for in-flight runs to honour their abort signal. */
   stopGraceMs?: number;
+  /**
+   * Ceiling on total in-flight runs, build slot or not. Only reachable if the
+   * post-build phase stalls — a health probe waiting out its timeout on a
+   * container that never answers — and it exists so that stalling cannot claim
+   * the whole queue and exhaust the port range behind it.
+   */
+  maxInFlight?: number;
 }
 
 export class QueueAtCapacityError extends Error {
@@ -50,11 +71,14 @@ interface RunningDeployment {
   request: AgentDeploymentRequest;
   controller: AbortController;
   state: AgentDeploymentState;
+  holdsBuildSlot: boolean;
 }
 
 const NOOP_LOGGER: QueueLogger = { info: () => {}, error: () => {} };
 const DEFAULT_HISTORY_LIMIT = 100;
 const DEFAULT_STOP_GRACE_MS = 30_000;
+/** Multiple of `capacity` that `maxInFlight` defaults to. */
+const IN_FLIGHT_MULTIPLE = 4;
 /**
  * Consecutive failed claims before the log level goes from info to error.
  *
@@ -109,10 +133,37 @@ export class DeploymentQueue {
     return this.#running.size;
   }
 
+  /** In-flight runs still occupying a build slot. */
+  get buildingCount(): number {
+    let count = 0;
+    for (const entry of this.#running.values()) {
+      if (entry.holdsBuildSlot) count += 1;
+    }
+    return count;
+  }
+
+  get #maxInFlight(): number {
+    return (
+      this.#options.maxInFlight ?? this.#options.capacity * IN_FLIGHT_MULTIPLE
+    );
+  }
+
+  /**
+   * Both bounds, as one question. The build slots are the real limit; the
+   * in-flight ceiling only ever bites when something after the build is stuck.
+   */
+  get #hasRoom(): boolean {
+    return (
+      this.buildingCount < this.#options.capacity &&
+      this.#running.size < this.#maxInFlight
+    );
+  }
+
   snapshot(): AgentQueueSnapshot {
     return {
       running: this.#running.size,
       capacity: this.#options.capacity,
+      building: this.buildingCount,
       deploymentIds: [...this.#running.keys()],
     };
   }
@@ -162,7 +213,7 @@ export class DeploymentQueue {
    * from the loop so tests can drive exactly one pass without timers.
    */
   async pump(): Promise<void> {
-    while (!this.#stopped && this.#running.size < this.#options.capacity) {
+    while (!this.#stopped && this.#hasRoom) {
       const request = await this.#options.claim();
       if (!request) return;
       this.#launch(request);
@@ -181,7 +232,7 @@ export class DeploymentQueue {
     // succeeds or spuriously 429s.
     const existing = this.#running.get(request.deploymentId);
     if (existing) return existing.state;
-    if (this.#stopped || this.#running.size >= this.#options.capacity) {
+    if (this.#stopped || !this.#hasRoom) {
       throw new QueueAtCapacityError();
     }
     return this.#launch(request);
@@ -209,7 +260,12 @@ export class DeploymentQueue {
       startedAt: timestamp,
       updatedAt: timestamp,
     };
-    const entry: RunningDeployment = { request, controller, state };
+    const entry: RunningDeployment = {
+      request,
+      controller,
+      state,
+      holdsBuildSlot: true,
+    };
     this.#running.set(request.deploymentId, entry);
     this.#logger.info("deployment started", {
       deploymentId: request.deploymentId,
@@ -229,6 +285,7 @@ export class DeploymentQueue {
     try {
       const final = await this.#options.runner(entry.request, {
         signal: entry.controller.signal,
+        releaseBuildSlot: () => this.#releaseBuildSlot(entry),
         report: async (update) => {
           try {
             await report(update);
@@ -268,11 +325,25 @@ export class DeploymentQueue {
         });
       }
     } finally {
+      // A run that failed before reaching the deploy phase still holds its
+      // slot, and one that released it early must not release it twice.
+      entry.holdsBuildSlot = false;
       this.#running.delete(deploymentId);
       this.#remember(entry.state);
       // Do not wait out the poll interval for a slot that is free now.
       this.#wake?.();
     }
+  }
+
+  #releaseBuildSlot(entry: RunningDeployment): void {
+    if (!entry.holdsBuildSlot) return;
+    entry.holdsBuildSlot = false;
+    this.#logger.info("build slot released", {
+      deploymentId: entry.request.deploymentId,
+      building: this.buildingCount,
+      running: this.#running.size,
+    });
+    this.#wake?.();
   }
 
   #applyUpdate(entry: RunningDeployment, update: DeploymentStatusUpdate): void {

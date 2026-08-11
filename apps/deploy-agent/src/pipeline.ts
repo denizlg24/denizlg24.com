@@ -113,6 +113,11 @@ export function createDeploymentRunner(
         now: options.now,
       });
 
+      // The image exists; nothing below this line touches the build disk or the
+      // builder. Handing the slot back here is what lets the next build start
+      // while this one starts a container and waits for it to answer.
+      context.releaseBuildSlot();
+
       port = await options.ports.allocate(request.deploymentId);
       // Repeated on every deploying report rather than written once: each is an
       // idempotent overwrite, and a control plane that missed one still ends up
