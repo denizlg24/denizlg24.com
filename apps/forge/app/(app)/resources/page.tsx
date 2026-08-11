@@ -1,6 +1,7 @@
 "use client";
 
 import { formatRelative } from "@repo/cloud-ui/format";
+import { ResourceIcon } from "@repo/cloud-ui/tech-icon";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { RESOURCE_KINDS, type ResourceKind } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
@@ -84,9 +85,10 @@ function ResourcesTable() {
               active={kind === option}
               onClick={() => setQuery({ kind: option })}
             >
+              <ResourceIcon kind={option} className="size-3" />
               {option}
               {counts.has(option) ? (
-                <span className="ml-1 tabular-nums opacity-60">
+                <span className="tabular-nums opacity-60">
                   {counts.get(option)}
                 </span>
               ) : null}
@@ -191,7 +193,7 @@ function FilterChip({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "rounded-full px-2 py-0.5 text-[11px] transition-colors",
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition-colors",
         active
           ? "bg-foreground text-background"
           : "text-muted-foreground hover:text-foreground",

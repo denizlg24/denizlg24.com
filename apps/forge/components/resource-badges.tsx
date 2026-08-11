@@ -1,5 +1,6 @@
 "use client";
 
+import { ResourceIcon } from "@repo/cloud-ui/tech-icon";
 import type {
   ResourceConnectionScope,
   ResourceKind,
@@ -9,10 +10,14 @@ import { Badge } from "@repo/ui/badge";
 /**
  * Kinds are labelled, not coloured by status — a resource has no health here.
  * The engine daemons' health is Cloud's `/engines` page; this is the store.
+ *
+ * The mark is decorative: the kind is written beside it, so a reader who does
+ * not recognise the elephant still reads "postgres".
  */
 export function ResourceKindBadge({ kind }: { kind: ResourceKind }) {
   return (
-    <Badge variant="secondary" className="font-mono text-[10px]">
+    <Badge variant="secondary" className="gap-1 font-mono text-[10px]">
+      <ResourceIcon kind={kind} className="size-3" />
       {kind}
     </Badge>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { formatRelative } from "@repo/cloud-ui/format";
+import { ResourceIcon } from "@repo/cloud-ui/tech-icon";
 import { Unreachable } from "@repo/cloud-ui/unreachable";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { ResourceCredentials } from "@repo/schemas/cloud";
@@ -87,6 +88,12 @@ export default function ResourceDetailPage() {
       <PageHeading
         title={resource.name}
         detail={`${resource.kind} · ${resource.engine} · created ${formatRelative(resource.createdAt)}`}
+        icon={
+          <ResourceIcon
+            kind={resource.kind}
+            className="size-5 text-muted-foreground"
+          />
+        }
       >
         <ResourceKindBadge kind={resource.kind} />
         {/* Refused server-side while anything is still connected, so the button
@@ -157,7 +164,7 @@ export default function ResourceDetailPage() {
                   <TableCell>
                     {connection.targetId ? (
                       <Link
-                        href={`/${encodeURIComponent(connection.projectSlug)}/storage`}
+                        href={`/${encodeURIComponent(connection.projectSlug)}/resources`}
                         className="text-xs hover:underline"
                       >
                         {connection.projectSlug}

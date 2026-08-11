@@ -28,7 +28,8 @@ import { api, errorMessage } from "@/lib/api";
 
 /**
  * What this project has connected, and what each connection puts in the
- * container.
+ * container. Named `resources` to match the top-level page and the word the
+ * model uses; it was `storage`, which described only two of the five kinds.
  *
  * The distinction matters: connecting a resource makes its binding namespace
  * *resolvable*, and nothing reaches the container until an env var references

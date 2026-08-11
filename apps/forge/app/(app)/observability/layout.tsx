@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@repo/ui/utils";
+import { Boxes, Layers, Server } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
@@ -11,9 +12,9 @@ import type { ReactNode } from "react";
  * this rail goes with them.
  */
 const SECTIONS = [
-  { href: "/observability", label: "host" },
-  { href: "/observability/containers", label: "containers" },
-  { href: "/observability/images", label: "images" },
+  { href: "/observability", label: "host", icon: Server },
+  { href: "/observability/containers", label: "containers", icon: Boxes },
+  { href: "/observability/images", label: "images", icon: Layers },
 ] as const;
 
 export default function ObservabilityLayout({
@@ -35,12 +36,13 @@ export default function ObservabilityLayout({
               key={section.href}
               href={section.href}
               className={cn(
-                "whitespace-nowrap text-xs transition-colors",
+                "flex items-center gap-1.5 whitespace-nowrap text-xs transition-colors",
                 active
                   ? "font-medium text-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
+              <section.icon className="size-3.5 shrink-0" aria-hidden />
               {section.label}
             </Link>
           );

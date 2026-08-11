@@ -12,6 +12,7 @@ import { NativeSelect } from "@repo/ui/native-select";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "../api-error";
+import { FrameworkIcon } from "../tech-icon";
 import { usePoll } from "../use-poll";
 import { deployApi } from "./api";
 import {
@@ -231,25 +232,35 @@ export function PresetField({ state }: { state: RepoImport }) {
       <Label htmlFor="preset" className="text-xs text-muted-foreground">
         Application preset
       </Label>
-      <NativeSelect
-        id="preset"
-        value={value}
-        disabled={state.detecting || state.presets.length === 0}
-        className="w-full text-xs"
-        onChange={(event) => state.setPreset(event.target.value)}
-      >
-        {/* Detection can land on a preset the table does not offer — `unknown`
-            for a directory it cannot read — and a select whose value matches no
-            option silently shows the first one instead. */}
-        {!state.presets.some((preset) => preset.id === value) && (
-          <option value={value}>{state.resolved?.frameworkLabel ?? "—"}</option>
-        )}
-        {state.presets.map((preset) => (
-          <option key={preset.id} value={preset.id}>
-            {preset.label}
-          </option>
-        ))}
-      </NativeSelect>
+      {/* A native option cannot hold a mark, so it sits beside the control and
+          follows the selection. Decorative: the option itself is the label. */}
+      <div className="flex items-center gap-2">
+        <FrameworkIcon
+          framework={value || null}
+          className="size-4 text-muted-foreground"
+        />
+        <NativeSelect
+          id="preset"
+          value={value}
+          disabled={state.detecting || state.presets.length === 0}
+          className="w-full text-xs"
+          onChange={(event) => state.setPreset(event.target.value)}
+        >
+          {/* Detection can land on a preset the table does not offer —
+              `unknown` for a directory it cannot read — and a select whose
+              value matches no option silently shows the first one instead. */}
+          {!state.presets.some((preset) => preset.id === value) && (
+            <option value={value}>
+              {state.resolved?.frameworkLabel ?? "—"}
+            </option>
+          )}
+          {state.presets.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.label}
+            </option>
+          ))}
+        </NativeSelect>
+      </div>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { ArrowUpRight, GitBranch } from "lucide-react";
 import Link from "next/link";
 import { deploymentLabel, deploymentTone } from "../deploy-status";
 import { formatRelative } from "../format";
+import { FrameworkIcon } from "../tech-icon";
 
 /**
  * The card is the whole surface: name, where it answers, and what the last
@@ -30,13 +31,22 @@ export function TargetCard({
   return (
     <div className="flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-muted/40">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <Link href={href} className="text-sm font-medium hover:underline">
-            {target.name}
-          </Link>
-          <p className="truncate text-xs text-muted-foreground">
-            {target.projectSlug}
-          </p>
+        <div className="flex min-w-0 items-start gap-2.5">
+          {/* Labelled, because the card never writes the framework out — this
+              mark is the only place it appears. */}
+          <FrameworkIcon
+            framework={target.framework}
+            className="mt-0.5 size-4 text-muted-foreground"
+            label={target.framework ?? "no preset"}
+          />
+          <div className="min-w-0">
+            <Link href={href} className="text-sm font-medium hover:underline">
+              {target.name}
+            </Link>
+            <p className="truncate text-xs text-muted-foreground">
+              {target.projectSlug}
+            </p>
+          </div>
         </div>
         {hostname && (
           <Button asChild variant="outline" size="sm">

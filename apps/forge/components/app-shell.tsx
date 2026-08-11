@@ -5,7 +5,14 @@ import { UnreachableBanner } from "@repo/cloud-ui/unreachable";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
 import { cn } from "@repo/ui/utils";
-import { LogOut } from "lucide-react";
+import {
+  Activity,
+  Database,
+  KeyRound,
+  LayoutGrid,
+  LogOut,
+  Rocket,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
@@ -24,11 +31,11 @@ import { useSession } from "./session-provider";
 // `/resources` is top-level rather than only reachable from inside a project
 // because a resource with no project is the normal case, not an edge one.
 const NAV = [
-  { href: "/", label: "projects" },
-  { href: "/deployments", label: "deployments" },
-  { href: "/resources", label: "resources" },
-  { href: "/keys", label: "keys" },
-  { href: "/observability", label: "observability" },
+  { href: "/", label: "projects", icon: LayoutGrid },
+  { href: "/deployments", label: "deployments", icon: Rocket },
+  { href: "/resources", label: "resources", icon: Database },
+  { href: "/keys", label: "keys", icon: KeyRound },
+  { href: "/observability", label: "observability", icon: Activity },
 ];
 
 function NavLinks({ className }: { className?: string }) {
@@ -43,12 +50,13 @@ function NavLinks({ className }: { className?: string }) {
             key={item.href}
             href={item.href}
             className={cn(
-              "whitespace-nowrap text-sm transition-colors",
+              "flex items-center gap-1.5 whitespace-nowrap text-sm transition-colors",
               active
                 ? "font-medium text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
+            <item.icon className="size-3.5 shrink-0" aria-hidden />
             {item.label}
           </Link>
         );

@@ -1,5 +1,6 @@
 "use client";
 
+import { ResourceIcon } from "@repo/cloud-ui/tech-icon";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import {
   DATABASE_RESOURCE_KINDS,
@@ -86,7 +87,7 @@ function PrefixField({
 }
 
 export function CreateResourceDialog({
-  /** Set on `/[project]/storage`, where the new resource connects on creation. */
+  /** Set on `/[project]/resources`, where the new resource connects on creation. */
   projectId,
   onCreated,
   trigger,
@@ -148,18 +149,28 @@ export function CreateResourceDialog({
         </DialogHeader>
         <div className="flex flex-col gap-4">
           <Field label="Kind">
-            <NativeSelect
-              size="sm"
-              value={kind}
-              className="text-xs"
-              onChange={(event) => setKind(event.target.value as ResourceKind)}
-            >
-              {kinds.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </NativeSelect>
+            {/* A native option cannot hold a mark, so it sits beside the
+                control and follows the selection. */}
+            <div className="flex items-center gap-2">
+              <ResourceIcon
+                kind={kind}
+                className="size-4 text-muted-foreground"
+              />
+              <NativeSelect
+                size="sm"
+                value={kind}
+                className="w-full text-xs"
+                onChange={(event) =>
+                  setKind(event.target.value as ResourceKind)
+                }
+              >
+                {kinds.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </NativeSelect>
+            </div>
           </Field>
           <Field label={nameRequired ? "Name" : "Name (optional)"}>
             <Input
@@ -199,7 +210,7 @@ export function ConnectResourceDialog({
 }: {
   /** Fixed on `/resources/[id]`; the dialog then picks the project. */
   resourceId?: string;
-  /** Fixed on `/[project]/storage`; the dialog then picks the resource. */
+  /** Fixed on `/[project]/resources`; the dialog then picks the resource. */
   projectId?: string;
   onConnected: () => Promise<unknown> | void;
   trigger: ReactNode;
