@@ -297,6 +297,28 @@ describe("DeploymentQueue.submit", () => {
   });
 });
 
+describe("DeploymentQueue build maintenance", () => {
+  it("yields to an active build", () => {
+    const { queue } = harness({ runner: () => new Promise(() => {}) });
+    queue.submit(deploymentRequest());
+
+    expect(queue.tryAcquireBuildMaintenance()).toBeNull();
+  });
+
+  it("pauses new builds until maintenance releases the worker", () => {
+    const { queue } = harness({ runner: () => new Promise(() => {}) });
+    const release = queue.tryAcquireBuildMaintenance();
+
+    expect(release).not.toBeNull();
+    expect(() => queue.submit(deploymentRequest())).toThrow(
+      QueueAtCapacityError,
+    );
+
+    release?.();
+    expect(queue.submit(deploymentRequest()).status).toBe("building");
+  });
+});
+
 describe("DeploymentQueue history", () => {
   it("answers lookups after a deployment finishes", async () => {
     const request = deploymentRequest();

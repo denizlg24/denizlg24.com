@@ -202,6 +202,7 @@ const app = createAgentApp({
       dockerDataRoot: config.dockerDataRoot,
       buildDataRoot: config.buildRoot,
       buildxBuilder: config.buildxBuilder,
+      acquireBuilderMaintenance: () => queue.tryAcquireBuildMaintenance(),
     }),
 });
 

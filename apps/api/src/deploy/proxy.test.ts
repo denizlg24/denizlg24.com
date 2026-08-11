@@ -106,4 +106,38 @@ describe("DeployAgentProxy", () => {
       DeployAgentUnavailableError,
     );
   });
+
+  test("a long operation can override the question-sized timeout", async () => {
+    const fetchImplementation = ((
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ) =>
+      new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(
+          () => resolve(Response.json({ ok: true })),
+          15,
+        );
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(init.signal?.reason);
+          },
+          { once: true },
+        );
+      })) as typeof fetch;
+    const client = new DeployAgentProxy({
+      baseUrl: "http://forge:4010",
+      token: TOKEN,
+      timeoutMs: 1,
+      fetchImplementation,
+    });
+
+    await expect(client.json("/gc", { timeoutMs: 100 })).resolves.toMatchObject(
+      {
+        status: 200,
+        body: { ok: true },
+      },
+    );
+  });
 });

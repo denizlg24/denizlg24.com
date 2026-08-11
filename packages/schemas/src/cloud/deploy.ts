@@ -686,6 +686,11 @@ export const agentGcReportSchema = z.object({
   logsRemoved: z.array(z.string()),
   cacheDirsRemoved: z.array(z.string()),
   builderCacheReclaimedBytes: z.number().int().min(0).nullable(),
+  /**
+   * True when a deployment owned BuildKit at prune time. Defaulted so a newer
+   * control plane continues to accept reports from an older agent.
+   */
+  builderCachePruneSkipped: z.boolean().default(false),
   disk: agentDiskHealthSchema,
   buildDisk: agentDiskHealthSchema.optional(),
   failures: z.array(agentGcFailureSchema),

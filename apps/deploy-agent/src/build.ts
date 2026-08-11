@@ -273,10 +273,11 @@ export function assertCommandsSupported(
 }
 
 function envFlags(flag: string, env: Record<string, string>): string[] {
-  return Object.entries(env).flatMap(([key, value]) => [
-    flag,
-    `${key}=${value}`,
-  ]);
+  // Docker build and Nixpacks both read a value from their own environment
+  // when the flag carries only a name. Values in argv are world-readable via
+  // /proc/<pid>/cmdline on Linux; the child environment is restricted to the
+  // process owner and root.
+  return Object.keys(env).flatMap((key) => [flag, key]);
 }
 
 /** Anything else is not a shell identifier and `export` would be a syntax error. */
@@ -528,9 +529,13 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
                     "--cache-to",
                     `type=local,dest=${cacheDirectory},mode=max`,
                   ]),
-              // Without this the image stays in the builder and `docker run`
-              // reports it as missing.
-              "--load",
+              // The worker and Docker daemon are on the same host. `--load`
+              // is shorthand for a gzip-compressed Docker export, which burns
+              // CPU and makes the HDD-backed worker spend minutes in
+              // "exporting layers" just to hand them to the local SSD. Docker
+              // can load an uncompressed exporter stream directly.
+              "--output",
+              "type=docker,compression=uncompressed",
               "--progress",
               "plain",
               ".",
@@ -564,6 +569,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
             ],
         cwd: contextDirectory,
         env: {
+          ...buildEnv,
           DOCKER_BUILDKIT: "1",
           // Through the child's environment block rather than its argv, for the
           // reason spelled out on the `--env` path in run.ts: `/proc/<pid>/cmdline`
@@ -634,7 +640,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
           ...(startCommand ? ["--start-cmd", startCommand] : []),
         ],
         cwd: contextDirectory,
-        env: { DOCKER_BUILDKIT: "1" },
+        env: { ...nixpacksEnv, DOCKER_BUILDKIT: "1" },
         signal,
         timeoutMs: request.timeouts.buildMs,
         onOutput: (chunk) => log.write(chunk),
@@ -677,13 +683,16 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
             "--tag",
             latestTag,
             ...envFlags("--build-arg", nixpacksEnv),
-            "--load",
+            // See the Dockerfile path above: this is a local hand-off, not a
+            // registry transfer, so compression only adds export latency.
+            "--output",
+            "type=docker,compression=uncompressed",
             "--progress",
             "plain",
             ".",
           ],
           cwd: contextDirectory,
-          env: { DOCKER_BUILDKIT: "1" },
+          env: { ...nixpacksEnv, DOCKER_BUILDKIT: "1" },
           signal,
           timeoutMs: request.timeouts.buildMs,
           onOutput: (chunk) => log.write(chunk),

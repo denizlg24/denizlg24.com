@@ -16,6 +16,9 @@ interface LoadedConfig {
             match?: { host: string[] }[];
             handle: Record<string, unknown>[];
           }[];
+          errors?: {
+            routes: { handle: Record<string, unknown>[] }[];
+          };
         }
       >;
     };
@@ -221,7 +224,7 @@ describe("buildCaddyConfig access logging", () => {
 });
 
 describe("buildCaddyConfig", () => {
-  it("always ends with a catch-all 404", () => {
+  it("always ends with a branded catch-all 404", () => {
     const config = buildCaddyConfig([
       {
         deploymentId: "a",
@@ -233,7 +236,52 @@ describe("buildCaddyConfig", () => {
     const routes = config.apps.http.servers.forge?.routes ?? [];
     expect(routes).toHaveLength(2);
     expect(routes.at(-1)?.match).toBeUndefined();
-    expect(routes.at(-1)?.handle[0]?.status_code).toBe(404);
+    const handler = routes.at(-1)?.handle[0] as
+      | { status_code: number; body: string; headers: Record<string, string[]> }
+      | undefined;
+    expect(handler?.status_code).toBe(404);
+    expect(handler?.headers["Content-Type"]).toEqual([
+      "text/html; charset=utf-8",
+    ]);
+    expect(handler?.body).toContain("Deployment not found");
+    expect(handler?.body).toContain("served by denizforge");
+  });
+
+  it("intercepts upstream 5xx responses with the unavailable page", () => {
+    const config = buildCaddyConfig([
+      {
+        deploymentId: "a",
+        projectSlug: "app",
+        hostnames: ["a.denizlg24.com"],
+        upstream: "127.0.0.1:24817",
+      },
+    ]);
+    const proxy = config.apps.http.servers.forge?.routes[0]?.handle[0] as {
+      handle_response: {
+        match: { status_code: number[] };
+        routes: { handle: { status_code: number; body: string }[] }[];
+      }[];
+    };
+
+    expect(proxy.handle_response[0]?.match.status_code).toEqual([5]);
+    expect(proxy.handle_response[0]?.routes[0]?.handle[0]?.status_code).toBe(
+      503,
+    );
+    expect(proxy.handle_response[0]?.routes[0]?.handle[0]?.body).toContain(
+      "This deployment needs a moment.",
+    );
+  });
+
+  it("serves the unavailable page when the upstream cannot be reached", () => {
+    const server = buildCaddyConfig([]).apps.http.servers.forge;
+    const handler = server?.errors?.routes[0]?.handle[0] as
+      | { status_code: number; body: string; headers: Record<string, string[]> }
+      | undefined;
+
+    expect(handler?.status_code).toBe(503);
+    expect(handler?.headers["Retry-After"]).toEqual(["10"]);
+    expect(handler?.headers["Cache-Control"]).toEqual(["no-store"]);
+    expect(handler?.body).toContain("Try again");
   });
 
   it("redirects configured aliases to their destination", () => {

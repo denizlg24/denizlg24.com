@@ -467,6 +467,30 @@ describe("runGarbageCollection", () => {
     expect(report.builderCacheReclaimedBytes).toBe(3_500_000_000);
   });
 
+  it("defers cache pruning while a build owns BuildKit", async () => {
+    const { exec, commands } = scriptedExec({});
+
+    const report = await withRoots((roots) =>
+      runGarbageCollection(request(), {
+        exec,
+        ...roots,
+        dockerDataRoot: "/var/lib/docker",
+        buildxBuilder: "forge-hdd",
+        acquireBuilderMaintenance: () => null,
+        statfsImplementation: NO_DISK,
+      }),
+    );
+
+    expect(report.builderCachePruneSkipped).toBe(true);
+    expect(
+      commands.some(
+        (command) =>
+          command[1] === "buildx" ||
+          command.slice(0, 3).join(" ") === "docker builder prune",
+      ),
+    ).toBe(false);
+  });
+
   it("reaps untagged images the reference filter cannot see", async () => {
     const { exec, commands } = scriptedExec({
       "docker images --no-trunc": { stdout: `${DANGLING}\n${DANGLING_IN_USE}` },

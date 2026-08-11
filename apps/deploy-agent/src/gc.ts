@@ -21,6 +21,11 @@ export interface GcOptions {
   now?: () => number;
   statfsImplementation?: StatfsLike;
   signal?: AbortSignal;
+  /**
+   * Acquires exclusive access to BuildKit, or returns null when a build is
+   * active. Cache pruning is maintenance, so it yields to deployment work.
+   */
+  acquireBuilderMaintenance?: () => (() => void) | null;
 }
 
 const DEFAULT_BUILD_MAX_AGE_MS = 2 * 60 * 60 * 1_000;
@@ -244,6 +249,7 @@ export async function runGarbageCollection(
     logsRemoved: [],
     cacheDirsRemoved: [],
     builderCacheReclaimedBytes: null,
+    builderCachePruneSkipped: false,
     disk: {
       path: options.dockerDataRoot,
       totalBytes: null,
@@ -540,31 +546,46 @@ export async function runGarbageCollection(
     // 111 GB of reclaimable cache sat on the runtime disk unnoticed after the
     // builder moved to its own daemon. It also keeps the sweep correct if
     // BUILDKIT_ENDPOINT is ever unset and builds fall back to the daemon.
-    for (const pruneCommand of builderPruneCommands(options.buildxBuilder)) {
-      const pruned = await exec({
-        command: [
-          ...pruneCommand,
-          "--filter",
-          `until=${request.builderPruneHours}h`,
-          "--force",
-        ],
-        signal,
-        timeoutMs: 600_000,
-      });
-      if (pruned.exitCode === 0) {
-        const reclaimed = parseReclaimedBytes(
-          `${pruned.stdout}\n${pruned.stderr}`,
-        );
-        if (reclaimed !== null) {
-          report.builderCacheReclaimedBytes =
-            (report.builderCacheReclaimedBytes ?? 0) + reclaimed;
+    const releaseMaintenance = options.acquireBuilderMaintenance
+      ? options.acquireBuilderMaintenance()
+      : () => {};
+    if (!releaseMaintenance) {
+      // BuildKit's configured GC still enforces the hard size/free-space cap.
+      // The hourly cold-cache pass can safely wait for the next idle tick.
+      report.builderCachePruneSkipped = true;
+    } else {
+      try {
+        for (const pruneCommand of builderPruneCommands(
+          options.buildxBuilder,
+        )) {
+          const pruned = await exec({
+            command: [
+              ...pruneCommand,
+              "--filter",
+              `until=${request.builderPruneHours}h`,
+              "--force",
+            ],
+            signal,
+            timeoutMs: 600_000,
+          });
+          if (pruned.exitCode === 0) {
+            const reclaimed = parseReclaimedBytes(
+              `${pruned.stdout}\n${pruned.stderr}`,
+            );
+            if (reclaimed !== null) {
+              report.builderCacheReclaimedBytes =
+                (report.builderCacheReclaimedBytes ?? 0) + reclaimed;
+            }
+          } else {
+            failures.push({
+              step: "builder-cache",
+              subject: pruneCommand.join(" "),
+              error: pruned.stderr.trim() || `exit ${pruned.exitCode}`,
+            });
+          }
         }
-      } else {
-        failures.push({
-          step: "builder-cache",
-          subject: pruneCommand.join(" "),
-          error: pruned.stderr.trim() || `exit ${pruned.exitCode}`,
-        });
+      } finally {
+        releaseMaintenance();
       }
     }
   }

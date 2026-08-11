@@ -259,7 +259,9 @@ describe("runBuild", () => {
       expect(exec.find("nixpacks build")?.command).toContain("--out");
       const command = exec.find("docker buildx build")?.command ?? [];
       expect(command).toContain("forge-hdd");
-      expect(command).toContain("--load");
+      expect(command).toContain("--output");
+      expect(command).toContain("type=docker,compression=uncompressed");
+      expect(command).not.toContain("--load");
       expect(command).toContain(outcome.latestTag);
       expect(command.join(" ")).toContain(".nixpacks/Dockerfile");
       expect(exec.find("docker tag")).toBeUndefined();
@@ -433,9 +435,10 @@ describe("runBuild", () => {
         env: { NEXT_PUBLIC_API_URL: "https://api.example.com" },
       });
       await buildLog.close();
-      expect(exec.find("docker build")?.command).toContain(
-        "NEXT_PUBLIC_API_URL=https://api.example.com",
-      );
+      const call = exec.find("docker build");
+      expect(call?.command).toContain("NEXT_PUBLIC_API_URL");
+      expect(call?.command.join(" ")).not.toContain("https://api.example.com");
+      expect(call?.env?.NEXT_PUBLIC_API_URL).toBe("https://api.example.com");
     });
   });
 
@@ -462,7 +465,8 @@ describe("runBuild", () => {
       expect(call?.env?.[BUILD_SECRET_ENV_VAR]).toContain(
         "export RESEND_API_KEY='re_live_1'",
       );
-      expect(call?.command.join(" ")).not.toContain("re_live_1\n");
+      expect(call?.command.join(" ")).not.toContain("re_live_1");
+      expect(call?.env?.RESEND_API_KEY).toBe("re_live_1");
     });
   });
 

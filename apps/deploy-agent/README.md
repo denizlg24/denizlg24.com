@@ -129,8 +129,11 @@ virtualenv removes `pip` from the command path.
 Both paths tag `forge/<slug>:<sha>-<id8>` and the moving
 `forge/<slug>:latest`. With the production external builder, Nixpacks first
 generates its Dockerfile and both builder paths run through `forge-hdd`.
-BuildKit's content store and cache mounts stay on the HDD; `--load` copies the
-completed image into Docker's SSD-backed runtime store.
+BuildKit's content store and cache mounts stay on the HDD; the Docker exporter
+copies the completed image into Docker's SSD-backed runtime store. The agent
+uses an uncompressed output for that load: both stores are local, so gzip only
+adds CPU and HDD latency to the `exporting layers` phase without saving network
+bandwidth.
 
 The host's allocatable deployment memory is total RAM minus
 `MEMORY_HEADROOM_MB` and one `BUILD_MEMORY_LIMIT_MB` reserve for every build

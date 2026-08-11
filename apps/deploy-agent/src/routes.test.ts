@@ -154,6 +154,7 @@ function app(
           logsRemoved: [],
           cacheDirsRemoved: [],
           builderCacheReclaimedBytes: null,
+          builderCachePruneSkipped: false,
           disk: {
             path: "/var/lib/docker",
             totalBytes: 100,

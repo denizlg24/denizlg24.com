@@ -52,6 +52,12 @@ interface StepFailure {
   error: string;
 }
 
+// GC can legitimately spend ten minutes in each of the named and embedded
+// BuildKit prunes. The proxy's 15-second default is for health-sized questions;
+// applying it here aborts the response while the agent keeps pruning and turns
+// a slow, healthy sweep into "The deploy agent is unreachable".
+const AGENT_GC_TIMEOUT_MS = 30 * 60 * 1_000;
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -319,6 +325,7 @@ export class ForgeOps {
           builderPruneHours: config.builderPruneHours,
           dryRun,
         }),
+        timeoutMs: AGENT_GC_TIMEOUT_MS,
       });
       if (response.status >= 400) {
         throw new Error(`The agent refused the sweep (${response.status})`);

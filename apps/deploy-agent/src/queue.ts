@@ -116,6 +116,8 @@ export class DeploymentQueue {
   #loopPromise: Promise<void> | null = null;
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   #wake: (() => void) | null = null;
+  #claimsInFlight = 0;
+  #buildMaintenance = false;
 
   constructor(options: DeploymentQueueOptions) {
     this.#options = options;
@@ -154,9 +156,37 @@ export class DeploymentQueue {
    */
   get #hasRoom(): boolean {
     return (
+      !this.#buildMaintenance &&
       this.buildingCount < this.#options.capacity &&
       this.#running.size < this.#maxInFlight
     );
+  }
+
+  /**
+   * Pauses new claims while an operation needs exclusive access to BuildKit.
+   *
+   * This is deliberately a try-acquire rather than a wait: an hourly cache
+   * prune is disposable and must not queue ahead of deployments already using
+   * the worker. When the worker is idle, setting the flag and checking it are
+   * synchronous, so a build cannot slip in between them.
+   */
+  tryAcquireBuildMaintenance(): (() => void) | null {
+    if (
+      this.#stopped ||
+      this.#buildMaintenance ||
+      this.#claimsInFlight > 0 ||
+      this.buildingCount > 0
+    ) {
+      return null;
+    }
+    this.#buildMaintenance = true;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.#buildMaintenance = false;
+      this.#wake?.();
+    };
   }
 
   snapshot(): AgentQueueSnapshot {
@@ -214,7 +244,13 @@ export class DeploymentQueue {
    */
   async pump(): Promise<void> {
     while (!this.#stopped && this.#hasRoom) {
-      const request = await this.#options.claim();
+      this.#claimsInFlight += 1;
+      let request: AgentDeploymentRequest | null;
+      try {
+        request = await this.#options.claim();
+      } finally {
+        this.#claimsInFlight -= 1;
+      }
       if (!request) return;
       this.#launch(request);
     }

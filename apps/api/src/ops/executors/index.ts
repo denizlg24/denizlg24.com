@@ -176,6 +176,7 @@ export function forgeGcSummary(report: ForgeGcReport): string {
     agent?.builderCacheReclaimedBytes
       ? `${formatBytes(agent.builderCacheReclaimedBytes)} build cache`
       : null,
+    agent?.builderCachePruneSkipped ? "build cache prune deferred" : null,
     // Worth a word so the count reads as "in use", not as a silent shortfall,
     // but never alongside "failed" — nothing went wrong.
     agent && agent.imagesSkipped.length > 0

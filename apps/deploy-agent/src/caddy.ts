@@ -43,6 +43,10 @@ interface CaddyConfigRoute {
   handle: Record<string, unknown>[];
 }
 
+interface CaddyErrorRoutes {
+  routes: CaddyConfigRoute[];
+}
+
 interface CaddyLogSink {
   writer: {
     output: "file";
@@ -84,6 +88,7 @@ export interface CaddyConfig {
           routes: CaddyConfigRoute[];
           automatic_https: { disable: true };
           logs?: { logger_names: Record<string, string[]> };
+          errors: CaddyErrorRoutes;
         }
       >;
     };
@@ -125,7 +130,142 @@ function proxyHandler(upstream: string): Record<string, unknown> {
     handler: "reverse_proxy",
     upstreams: [{ dial: upstream }],
     headers: { request: { set: { "X-Forwarded-Proto": ["https"] } } },
+    // A response from the application is not a Caddy handler error, even when
+    // it is a 5xx. Intercept the whole status class here; dial failures and
+    // containers which disappear mid-request use the server error route below.
+    handle_response: [
+      {
+        match: { status_code: [5] },
+        routes: [{ handle: [unavailablePageHandler()] }],
+      },
+    ],
   };
+}
+
+type ErrorPageKind = "not-found" | "unavailable";
+
+const ERROR_PAGE_COPY: Record<
+  ErrorPageKind,
+  { status: number; eyebrow: string; title: string; message: string }
+> = {
+  "not-found": {
+    status: 404,
+    eyebrow: "Deployment not found",
+    title: "There’s nothing here yet.",
+    message:
+      "This domain is not connected to an active deployment. Check the address or contact the site owner.",
+  },
+  unavailable: {
+    status: 503,
+    eyebrow: "Temporarily unavailable",
+    title: "This deployment needs a moment.",
+    message:
+      "The service may be restarting or recovering from an error. Please try again shortly.",
+  },
+};
+
+function errorPage(kind: ErrorPageKind): string {
+  const copy = ERROR_PAGE_COPY[kind];
+  const retry =
+    kind === "unavailable" ? '<a class="action" href="">Try again</a>' : "";
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>${copy.eyebrow}</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --background: #f9f8f6;
+      --surface: #f1f3e0;
+      --muted: #d2dcb6;
+      --foreground: #647560;
+      --muted-foreground: #4f5a4a;
+      --primary: #303630;
+      --primary-foreground: #f9f8f6;
+      --border: #d2dcb6;
+      --ring: #303630;
+      --critical: #d03b3b;
+      font-family: Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body { margin: 0; min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; background: var(--background); color: var(--foreground); -webkit-font-smoothing: antialiased; }
+    .site-header { display: flex; height: 48px; flex: none; align-items: center; gap: 24px; padding: 0 24px; border-bottom: 1px solid var(--border); }
+    .brand { font-size: 14px; font-weight: 600; letter-spacing: -.025em; }
+    .brand span { color: var(--muted-foreground); }
+    .edge { margin-left: auto; color: var(--muted-foreground); font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; }
+    main { display: flex; width: 100%; flex: 1; align-items: center; justify-content: center; padding: 48px 16px; }
+    .state { width: min(100%, 320px); }
+    .status { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; color: var(--muted-foreground); font-size: 12px; }
+    .dot { width: 6px; height: 6px; flex: none; border-radius: 999px; background: var(--critical); }
+    h1 { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.4; letter-spacing: -.015em; }
+    .message { margin: 6px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
+    .meta { margin: 14px 0 0; color: var(--muted-foreground); font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; }
+    .action { display: inline-flex; height: 32px; align-items: center; justify-content: center; margin-top: 22px; padding: 0 12px; border-radius: 8px; background: var(--primary); color: var(--primary-foreground); font-size: 14px; font-weight: 500; text-decoration: none; transition: opacity 120ms ease; }
+    .action:hover { opacity: .9; }
+    .action:focus-visible { outline: 3px solid color-mix(in srgb, var(--ring) 50%, transparent); outline-offset: 2px; }
+    .site-footer { display: flex; min-height: 44px; flex: none; align-items: center; padding: 0 24px; color: var(--muted-foreground); font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --background: #303630;
+        --surface: #3d463c;
+        --muted: #536150;
+        --foreground: #f9f8f6;
+        --muted-foreground: #d2dcb6;
+        --primary: #a1bc98;
+        --primary-foreground: #303630;
+        --border: #536150;
+        --ring: #a1bc98;
+        --critical: #e05a5a;
+      }
+    }
+    @media (max-width: 520px) { .site-header, .site-footer { padding-left: 16px; padding-right: 16px; } }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">deniz<span>forge</span></div>
+    <span class="edge">edge / ${copy.status}</span>
+  </header>
+  <main>
+    <section class="state" aria-labelledby="error-title">
+      <p class="status"><span class="dot" aria-hidden="true"></span>${copy.eyebrow}</p>
+      <h1 id="error-title">${copy.title}</h1>
+      <p class="message">${copy.message}</p>
+      <p class="meta">HTTP ${copy.status}</p>
+      ${retry}
+    </section>
+  </main>
+  <footer class="site-footer">served by denizforge</footer>
+</body>
+</html>`;
+}
+
+function errorPageHandler(kind: ErrorPageKind): Record<string, unknown> {
+  const unavailable = kind === "unavailable";
+  return {
+    handler: "static_response",
+    status_code: ERROR_PAGE_COPY[kind].status,
+    headers: {
+      "Cache-Control": ["no-store"],
+      "Content-Security-Policy": [
+        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      ],
+      "Content-Type": ["text/html; charset=utf-8"],
+      "Referrer-Policy": ["no-referrer"],
+      ...(unavailable ? { "Retry-After": ["10"] } : {}),
+      "X-Content-Type-Options": ["nosniff"],
+      "X-Robots-Tag": ["noindex, nofollow"],
+    },
+    body: errorPage(kind),
+  };
+}
+
+function unavailablePageHandler(): Record<string, unknown> {
+  return errorPageHandler("unavailable");
 }
 
 /**
@@ -221,13 +361,7 @@ export function buildCaddyConfig(
     });
 
   routes.push({
-    handle: [
-      {
-        handler: "static_response",
-        status_code: 404,
-        body: "no deployment for this hostname",
-      },
-    ],
+    handle: [errorPageHandler("not-found")],
   });
 
   // One logger per deployment, so a request log is already separated by the time
@@ -283,6 +417,12 @@ export function buildCaddyConfig(
             // to an HTTPS server" — and start an ACME order per deployment
             // hostname that nothing can complete.
             automatic_https: { disable: true },
+            // Connection failures never produce an upstream response for
+            // handle_response to intercept. Caddy raises those as handler
+            // errors, so this is the path for a stopped or vanished container.
+            errors: {
+              routes: [{ handle: [unavailablePageHandler()] }],
+            },
             ...(Object.keys(loggerNames).length > 0
               ? { logs: { logger_names: loggerNames } }
               : {}),
@@ -322,6 +462,7 @@ function withoutAccessLogging(config: CaddyConfig): CaddyConfig {
               listen: server.listen,
               routes: server.routes,
               automatic_https: server.automatic_https,
+              errors: server.errors,
             },
           ]),
         ),
