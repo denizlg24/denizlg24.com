@@ -1,0 +1,35 @@
+export {
+  type ResourceCredentialsConfig,
+  resourceCredentials,
+} from "./credentials";
+export {
+  type CreateResourceOptions,
+  deprovisionResource,
+  type ProvisionedResource,
+  provisionResource,
+  type ResourceProvisionDeps,
+  type SearchKeyClient,
+} from "./provision";
+export {
+  availableResourceName,
+  type ConnectedResource,
+  type ConnectedResourceQuery,
+  type ConnectResourceOptions,
+  connectedResourceKinds,
+  connectResource,
+  type DatabaseResourceCredentials,
+  type DbExecutor,
+  databaseCredentials,
+  disconnectResource,
+  findConnectedResources,
+  getResource,
+  type ListResourcesQuery,
+  listResources,
+  projectConnectedResources,
+  type ResourceConnectionDetailRow,
+  resolveConnectedResource,
+  resourceConnectionCounts,
+  resourceConnectionDetails,
+  toDatabaseMetadata,
+  toResourceContract,
+} from "./resources";

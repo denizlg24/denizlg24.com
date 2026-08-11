@@ -164,13 +164,27 @@ export async function directorySizeBytes(path: string): Promise<number> {
  * daemon, which is why `docker system df` cannot see it either. Both need
  * sweeping, and the named one first so a failure there still leaves the
  * runtime disk swept.
+ *
+ * `--all` is not optional here. Without it a prune only reaps *dangling*
+ * records — ones no image or cache manifest still reaches — and on a worker
+ * that keeps its state across builds almost every record is reachable from the
+ * last build of some project. That is why every hourly pass reported exactly
+ * 0 bytes reclaimed while the cache grew past 300 GB.
+ *
+ * What keeps `--all` from being destructive is the `until` filter the caller
+ * appends: records touched inside the window survive regardless, so this
+ * removes cache nothing has needed for days, not the cache that makes the next
+ * build fast.
  */
 export function builderPruneCommands(
   buildxBuilder: string | null | undefined,
 ): string[][] {
-  const daemon = ["docker", "builder", "prune"];
+  const daemon = ["docker", "builder", "prune", "--all"];
   if (!buildxBuilder) return [daemon];
-  return [["docker", "buildx", "prune", "--builder", buildxBuilder], daemon];
+  return [
+    ["docker", "buildx", "prune", "--builder", buildxBuilder, "--all"],
+    daemon,
+  ];
 }
 
 function parseReclaimedBytes(output: string): number | null {

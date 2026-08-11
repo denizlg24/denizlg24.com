@@ -16,7 +16,26 @@ describe("forgeDeploymentQuerySchema", () => {
       status: [],
       project: null,
       search: null,
+      kind: null,
+      branch: null,
+      repo: null,
+      since: null,
+      until: null,
     });
+  });
+
+  it("keeps a one-sided date range", () => {
+    const query = forgeDeploymentQuerySchema.parse({
+      since: "2026-08-01T00:00:00.000Z",
+    });
+    expect(query.since).toBe("2026-08-01T00:00:00.000Z");
+    expect(query.until).toBeNull();
+  });
+
+  it("refuses a kind that is not a deployment kind", () => {
+    expect(() =>
+      forgeDeploymentQuerySchema.parse({ kind: "staging" }),
+    ).toThrow();
   });
 
   it("coerces the numbers a query string carries as text", () => {

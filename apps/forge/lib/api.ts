@@ -1,4 +1,6 @@
 import { toApiError, toTransportError } from "@repo/cloud-ui/api-error";
+import { deployApi } from "@repo/cloud-ui/deploy/api";
+import { projectsApi } from "@repo/cloud-ui/projects/api";
 import {
   type CompleteSignupInput,
   type CompleteSignupResult,
@@ -129,6 +131,20 @@ async function streamSse(
 }
 
 export const api = {
+  /**
+   * Shared with apps/cloud, which drives the same targets over the same routes.
+   * Its request core is the one this namespace was written against, so it
+   * carries its own timeouts rather than the shorter default above.
+   */
+  deploy: deployApi,
+
+  /**
+   * The namespace half of a project — API keys, collections, vector indexes.
+   * Shared for the same reason `deploy` is: these routes need PATCH and
+   * DELETE, which the request core above deliberately does not carry.
+   */
+  projects: projectsApi,
+
   me: (): Promise<SafeUser> => data(safeUserSchema, "/api/me"),
   completeSignup: (input: CompleteSignupInput): Promise<CompleteSignupResult> =>
     data(completeSignupResultSchema, "/api/auth/complete-signup", {
@@ -150,6 +166,11 @@ export const api = {
           status: query.status,
           project: query.project,
           search: query.search,
+          kind: query.kind,
+          branch: query.branch,
+          repo: query.repo,
+          since: query.since,
+          until: query.until,
         },
       }),
     deployment: (deploymentId: string): Promise<ForgeDeploymentSummary> =>
@@ -183,6 +204,12 @@ export const api = {
         to: string;
         step: number;
         kind?: "production" | "preview";
+        /**
+         * One container instead of the average of every container behind the
+         * project. Without it a project running two previews reports the mean
+         * of three containers as though it were one.
+         */
+        deployment?: string;
       },
     ): Promise<ForgeProjectMetricsResponse> =>
       data(

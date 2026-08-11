@@ -211,6 +211,20 @@
       "when": 1786399877160,
       "tag": "0029_spooky_dragon_man",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1786439798172,
+      "tag": "0030_tidy_vision",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1786449426890,
+      "tag": "0031_deploy_target_pause",
+      "breakpoints": true
     }
   ]
 }

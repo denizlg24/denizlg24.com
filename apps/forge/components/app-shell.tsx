@@ -5,22 +5,37 @@ import { UnreachableBanner } from "@repo/cloud-ui/unreachable";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
 import { cn } from "@repo/ui/utils";
-import { LogOut } from "lucide-react";
+import {
+  Activity,
+  Database,
+  KeyRound,
+  LayoutGrid,
+  LogOut,
+  Rocket,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { api } from "@/lib/api";
 import { useSession } from "./session-provider";
 
+// A project lives at `/<slug>`, one dynamic segment at the root, so every entry
+// here is a static segment that a project slug can never take —
+// `RESERVED_PROJECT_SLUGS` in @repo/schemas is what keeps that true.
+//
+// No logs entry. Logs belong to a container or a deployment, and a page that
+// listed every log source on the host in one picker made "whose output is this"
+// the first question every time. `/[project]/logs` is scoped by its route,
+// which is what makes that question unaskable.
+//
+// `/resources` is top-level rather than only reachable from inside a project
+// because a resource with no project is the normal case, not an edge one.
 const NAV = [
-  { href: "/", label: "overview" },
-  { href: "/containers", label: "containers" },
-  { href: "/images", label: "images" },
-  { href: "/deployments", label: "deployments" },
-  // No logs entry. Logs belong to a container or a deployment, and a page that
-  // listed every log source on the host in one picker made "whose output is
-  // this" the first question every time.
-  { href: "/projects", label: "projects" },
+  { href: "/", label: "projects", icon: LayoutGrid },
+  { href: "/deployments", label: "deployments", icon: Rocket },
+  { href: "/resources", label: "resources", icon: Database },
+  { href: "/keys", label: "keys", icon: KeyRound },
+  { href: "/observability", label: "observability", icon: Activity },
 ];
 
 function NavLinks({ className }: { className?: string }) {
@@ -35,12 +50,13 @@ function NavLinks({ className }: { className?: string }) {
             key={item.href}
             href={item.href}
             className={cn(
-              "whitespace-nowrap text-sm transition-colors",
+              "flex items-center gap-1.5 whitespace-nowrap text-sm transition-colors",
               active
                 ? "font-medium text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
+            {/* <item.icon className="size-3.5 shrink-0" aria-hidden /> */}
             {item.label}
           </Link>
         );

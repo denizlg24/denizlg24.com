@@ -22,6 +22,8 @@ import {
   type DomainVerificationRecords,
   NOTIFICATION_TYPES,
   type NotificationPayload,
+  RESOURCE_CONNECTION_SCOPES,
+  RESOURCE_KINDS,
   type TaskConfig,
   type TaskRunMetadata,
 } from "@repo/schemas/cloud";
@@ -106,6 +108,12 @@ export type SyncStatus = (typeof syncStatusEnum.enumValues)[number];
 
 export const dbTypeEnum = pgEnum("db_type", ["postgres", "mongodb", "redis"]);
 export type DbType = (typeof dbTypeEnum.enumValues)[number];
+
+export const resourceKindEnum = pgEnum("resource_kind", RESOURCE_KINDS);
+export const resourceConnectionScopeEnum = pgEnum(
+  "resource_connection_scope",
+  RESOURCE_CONNECTION_SCOPES,
+);
 
 export const collectionSourceTypeEnum = pgEnum("collection_source_type", [
   "mongodb",
@@ -521,6 +529,142 @@ export const projectDatabases = pgTable(
   ],
 );
 
+/**
+ * A datastore that exists on its own, replacing `project_databases`.
+ *
+ * The table it replaces carried `unique(project_id, type)`, which allowed one
+ * postgres database per project and so forced a second environment to be a
+ * second *project*. Twelve of the twenty projects in production exist only
+ * because of that constraint. There is deliberately no equivalent here: a
+ * project reaches its databases through `resource_connections`, and connecting
+ * four postgres resources to one project at different scopes is the normal
+ * case rather than a workaround.
+ *
+ * Columns are per-kind and nullable, following `project_collections`, which
+ * already keys `mongo*` and `pg*` off a `source_type` discriminator. Which
+ * columns a row must fill is enforced by `resources_kind_shape` below.
+ */
+export const resources = pgTable(
+  "resources",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: resourceKindEnum("kind").notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    /**
+     * Which daemon the resource lives on. Every kind has exactly one daemon
+     * today and they all run on the Pi, so this is informational until Cloud's
+     * `/engines` page can address more than one.
+     */
+    engine: varchar("engine", { length: 64 }).notNull().default("pi-cloud"),
+    /**
+     * The `projects` row that owns the on-disk namespace, kept because an S3
+     * bucket is a directory named exactly the project slug and a Meilisearch
+     * key is scoped to an index prefix derived the same way. Null for the three
+     * database kinds, which name their database explicitly instead.
+     */
+    namespaceId: uuid("namespace_id"),
+    /** Database kinds. `dbName` doubles as the Redis key prefix. */
+    dbName: varchar("db_name", { length: 255 }),
+    username: varchar("username", { length: 255 }),
+    encryptedPassword: text("encrypted_password"),
+    iv: text("iv"),
+    authTag: text("auth_tag"),
+    /**
+     * Explicit rather than derived from the namespace slug. Deriving it is what
+     * makes a project unrenameable — a rename would orphan the bucket
+     * directory under `.s3-v2` while every read kept working.
+     */
+    bucket: varchar("bucket", { length: 255 }),
+    /** Meilisearch. The key is the credential; the uid is what revokes it. */
+    meiliApiKeyUid: text("meili_api_key_uid"),
+    meiliApiKey: text("meili_api_key"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => [
+    /**
+     * Partial, so a name is reusable once the resource it named is gone. A
+     * plain unique index would make deleting `shortn-v2-staging` permanently
+     * consume the name.
+     */
+    uniqueIndex("resources_kind_name_unique")
+      .on(table.kind, table.name)
+      .where(sql`${table.deletedAt} is null`),
+    index("resources_kind_idx").on(table.kind),
+    index("resources_namespace_id_idx").on(table.namespaceId),
+    foreignKey({
+      name: "resources_namespace_id_fkey",
+      columns: [table.namespaceId],
+      foreignColumns: [projects.id],
+    }).onDelete("set null"),
+    /**
+     * A row with no credentials resolves every binding field to undefined and
+     * hands the container a blank `DATABASE_URL` rather than failing, which is
+     * the failure this constraint exists to make impossible.
+     */
+    check(
+      "resources_kind_shape",
+      sql`
+        CASE ${table.kind}
+          WHEN 's3' THEN ${table.bucket} IS NOT NULL
+          WHEN 'meilisearch' THEN ${table.meiliApiKey} IS NOT NULL AND ${table.meiliApiKeyUid} IS NOT NULL
+          ELSE ${table.dbName} IS NOT NULL
+            AND ${table.username} IS NOT NULL
+            AND ${table.encryptedPassword} IS NOT NULL
+            AND ${table.iv} IS NOT NULL
+            AND ${table.authTag} IS NOT NULL
+        END
+      `,
+    ),
+  ],
+);
+
+/**
+ * Project ↔ resource, many-to-many. This is what injects env vars, exactly as
+ * connecting a store to a project does on Vercel: a resource connected to
+ * nothing is normal, and four applications sharing one postgres resource is a
+ * connection each rather than four copies of a connection string.
+ */
+export const resourceConnections = pgTable(
+  "resource_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    resourceId: uuid("resource_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    scopes: resourceConnectionScopeEnum("scopes").notNull().default("both"),
+    /**
+     * Empty is the default connection — what a bare `database.postgres.*`
+     * binding resolves to. A non-empty prefix is how a second resource of the
+     * same kind reaches the same project without colliding with the first.
+     */
+    envPrefix: varchar("env_prefix", { length: 48 }).notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("resource_connections_resource_project_prefix_key").on(
+      table.resourceId,
+      table.projectId,
+      table.envPrefix,
+    ),
+    index("resource_connections_project_id_idx").on(table.projectId),
+    index("resource_connections_resource_id_idx").on(table.resourceId),
+    foreignKey({
+      name: "resource_connections_resource_id_fkey",
+      columns: [table.resourceId],
+      foreignColumns: [resources.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "resource_connections_project_id_fkey",
+      columns: [table.projectId],
+      foreignColumns: [projects.id],
+    }).onDelete("cascade"),
+  ],
+);
+
 export const files = pgTable(
   "files",
   {
@@ -821,7 +965,30 @@ export const projectsRelations = relations(projects, ({ many, one }) => ({
   s3Credentials: many(s3Credentials),
   collections: many(projectCollections),
   databases: many(projectDatabases),
+  resourceConnections: many(resourceConnections),
 }));
+
+export const resourcesRelations = relations(resources, ({ many, one }) => ({
+  namespace: one(projects, {
+    fields: [resources.namespaceId],
+    references: [projects.id],
+  }),
+  connections: many(resourceConnections),
+}));
+
+export const resourceConnectionsRelations = relations(
+  resourceConnections,
+  ({ one }) => ({
+    resource: one(resources, {
+      fields: [resourceConnections.resourceId],
+      references: [resources.id],
+    }),
+    project: one(projects, {
+      fields: [resourceConnections.projectId],
+      references: [projects.id],
+    }),
+  }),
+);
 
 export const davCredentialsRelations = relations(davCredentials, ({ one }) => ({
   user: one(users, { fields: [davCredentials.userId], references: [users.id] }),
@@ -916,6 +1083,14 @@ export type S3Credential = InferSelectModel<typeof s3Credentials>;
 export type NewS3Credential = InferInsertModel<typeof s3Credentials>;
 export type ProjectCollection = InferSelectModel<typeof projectCollections>;
 export type NewProjectCollection = InferInsertModel<typeof projectCollections>;
+export type ResourceRow = InferSelectModel<typeof resources>;
+export type NewResourceRow = InferInsertModel<typeof resources>;
+export type ResourceConnectionRow = InferSelectModel<
+  typeof resourceConnections
+>;
+export type NewResourceConnectionRow = InferInsertModel<
+  typeof resourceConnections
+>;
 /**
  * One row per namespace scan. `generation` increments per completed scan and is
  * what the two-generation reap rule counts against.
@@ -1047,6 +1222,16 @@ export const deployTargets = pgTable(
       .default("1.0"),
     autoDeploy: boolean("auto_deploy").notNull().default(true),
     previewDeploys: boolean("preview_deploys").notNull().default(true),
+    /**
+     * Set means the target is off: nothing enqueues, its production container
+     * has been torn down, and admission control stops charging the host for a
+     * reservation nothing is running. A timestamp rather than a flag so the
+     * settings page can say how long it has been down.
+     *
+     * Config, env, domains and previews are all left alone — pausing is not a
+     * soft delete, and resuming has to put the site back exactly as it was.
+     */
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
     /**
      * Opt-in, and the opt-in is this column being set. Envoy env is never
      * pulled because a project happens to have an Envoy counterpart — the link

@@ -3,12 +3,11 @@ import type {
   ProjectVectorIndex,
   ProjectVectorSearchOverview,
 } from "@repo/schemas/cloud";
-import { and, eq } from "drizzle-orm";
 import type { Document, MongoClient } from "mongodb";
 
 import type { Database } from "../db";
-import { projectDatabases } from "../db/schema";
 import { ConflictError, NotFoundError } from "../errors";
+import { findConnectedResources } from "../resources/resources";
 
 export interface MongotHealth {
   status: "ready" | "unavailable";
@@ -77,20 +76,18 @@ async function projectMongoDatabase(
   db: Database,
   projectId: string,
 ): Promise<string> {
-  const record = await db.query.projectDatabases.findFirst({
-    columns: { dbName: true },
-    where: and(
-      eq(projectDatabases.projectId, projectId),
-      eq(projectDatabases.type, "mongodb"),
-    ),
+  const connected = await findConnectedResources(db, {
+    kind: "mongodb",
+    projectId,
   });
-  if (!record) {
+  const dbName = connected[0]?.resource.dbName;
+  if (!dbName) {
     throw new NotFoundError(
       "Project has no MongoDB database",
       "MONGODB_NOT_PROVISIONED",
     );
   }
-  return record.dbName;
+  return dbName;
 }
 
 async function projectCollections(

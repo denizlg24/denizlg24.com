@@ -2,13 +2,26 @@ import {
   type AuthVariables,
   CloudCoreError,
   ConflictError,
+  connectResource,
   createProject,
   type Database,
+  deprovisionResource,
+  disconnectResource,
+  getResource,
   isPostgresErrorCode,
+  listResources,
   NotFoundError,
   type ProjectDatabaseHosts,
+  type Provisioner,
+  projectConnectedResources,
+  provisionResource,
   requireRole,
   requireSession,
+  resourceConnectionCounts,
+  resourceConnectionDetails,
+  resourceCredentials,
+  type SearchKeyClient,
+  toResourceContract,
   ValidationError,
 } from "@repo/cloud-core";
 import {
@@ -29,6 +42,7 @@ import {
   BindingUnresolvableError,
   buildSpecFromTarget,
   type ChangeDecision,
+  COMMITTED_DEPLOYMENT_STATUSES,
   claimQueuedDeployment,
   createDeployBindingResolvers,
   createDeployDomain,
@@ -79,29 +93,37 @@ import {
   type AgentApplyEnvResult,
   agentModuleGraphReportSchema,
   assertDeployHostname,
+  bindingReferenceResourceKind,
+  connectResourceInputSchema,
   createDeployDomainInputSchema,
   createDeploymentInputSchema,
   createDeployTargetRequestSchema,
+  createResourceInputSchema,
+  type DbType,
   type DeployDomainRole,
   type DeployEnvVarInput,
   DeployHostnameError,
   type DeploymentBuildSpec,
   deploymentStatusUpdateSchema,
+  extractTemplateReferences,
   githubInstallationEventSchema,
   githubPullRequestEventSchema,
   githubPushEventSchema,
   isDeployNodeVersion,
+  isSecretDeployBindingReference,
   isTerminalDeploymentStatus,
   linkEnvoyProjectInputSchema,
   previewHostnameLabel,
+  type ResourceKind,
   replaceDeployEnvInputSchema,
   repoBadgeRequestSchema,
+  resourceListQuerySchema,
   slugifyHostnameLabel,
   updateDeployDomainInputSchema,
   updateDeployTargetInputSchema,
   type WebhookDeployIntent,
 } from "@repo/schemas/cloud";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -134,9 +156,20 @@ export interface DeployRouteOptions {
   envEncryptionKey: string;
   databaseEncryptionSecret: string;
   databaseHosts: ProjectDatabaseHosts;
+  /** External, for the same reason the database bindings use external hosts. */
+  meilisearchUrl: string;
   s3Endpoint: string;
   s3Region: string;
   s3CredentialEncryptionKey: string;
+  /**
+   * Creating a resource reaches the same engines Cloud provisions against, and
+   * a `meilisearch` resource is a key issued on the search daemon. Both live
+   * here rather than on a separate router because a router of its own would
+   * have meant threading `databaseEncryptionSecret`, `databaseHosts`,
+   * `meilisearchUrl`, `s3Endpoint` and `s3Region` twice.
+   */
+  provisioners: ReadonlyMap<DbType, Provisioner>;
+  meili: SearchKeyClient;
 }
 
 /**
@@ -241,11 +274,52 @@ function serializeTarget(
     cpuLimit: Number(target.cpuLimit),
     autoDeploy: target.autoDeploy,
     previewDeploys: target.previewDeploys,
+    pausedAt: target.pausedAt?.toISOString() ?? null,
     envoyProjectId: target.envoyProjectId,
     primaryHostname: extra.primaryHostname,
     createdAt: target.createdAt.toISOString(),
     updatedAt: target.updatedAt.toISOString(),
   };
+}
+
+/**
+ * How far back the branch panel looks. Grouping happens in memory, so this is
+ * the real cost of the route; a project that deploys every push would otherwise
+ * scan its whole history to surface the four branches anyone cares about.
+ */
+const BRANCH_SCAN_LIMIT = 400;
+
+/**
+ * The env vars on a target that reach the container through a resource of this
+ * kind. A `binding` row names one reference; a `template` row can weave several
+ * into a string, and one of those referencing the kind is enough to count it.
+ */
+function injectedKeysFor(
+  kind: ResourceKind,
+  rows: readonly {
+    key: string;
+    reference: string | null;
+    template: string | null;
+  }[],
+): { key: string; reference: string; secret: boolean }[] {
+  const injected: { key: string; reference: string; secret: boolean }[] = [];
+  for (const row of rows) {
+    const references = row.reference
+      ? [row.reference]
+      : extractTemplateReferences(row.template ?? "");
+    const matched = references.filter(
+      (reference) => bindingReferenceResourceKind(reference) === kind,
+    );
+    if (matched.length === 0) continue;
+    for (const reference of matched) {
+      injected.push({
+        key: row.key,
+        reference,
+        secret: isSecretDeployBindingReference(reference),
+      });
+    }
+  }
+  return injected;
 }
 
 function serializeDeployment(
@@ -414,6 +488,13 @@ export function deployRoutes(options: DeployRouteOptions) {
       throw new NotFoundError("Deployment not found", "DEPLOYMENT_NOT_FOUND");
     }
     return row;
+  }
+
+  async function loadResource(id: string) {
+    if (!uuidParam.safeParse(id).success) {
+      throw new NotFoundError("Resource not found", "RESOURCE_NOT_FOUND");
+    }
+    return getResource(db, id);
   }
 
   async function primaryHostname(targetId: string): Promise<string | null> {
@@ -895,12 +976,53 @@ export function deployRoutes(options: DeployRouteOptions) {
         console.error("[deploy] primary domain provisioning failed", error);
       });
 
+      /**
+       * Import ends in a running application, not an empty project. The button
+       * that reaches here says "Deploy", and without this nothing builds until
+       * somebody pushes — on a repository whose last commit may be months old,
+       * that is a project page showing a dash forever.
+       *
+       * Not gated on `autoDeploy`: that flag governs what later pushes do, and
+       * an owner who wants to control when commits ship still asked for this
+       * one. Deliberately best-effort for the same reason the domain above is
+       * — the target row is already committed, so throwing here would answer a
+       * successful create with a 500 and leave the UI believing nothing
+       * happened. The three ways it can fail are all recoverable from the
+       * project page: no GitHub App installed (deploy by SHA), no capacity
+       * (free some and press Redeploy), or an env binding that cannot resolve
+       * (fix it in the environment editor).
+       */
+      const initial = await (async () => {
+        const head = await resolveRef(created, created.productionBranch);
+        const deployment = await enqueueDeployment({
+          target: created,
+          projectSlug: project.slug,
+          ref: created.productionBranch,
+          sha: head.sha,
+          message: head.message,
+          kind: "production",
+          triggeredBy: "manual",
+          createdBy: context.get("user").id,
+        });
+        await options.github?.surfaces.onEnqueued(deployment, created);
+        return deployment;
+      })().catch((error: unknown) => {
+        console.error("[deploy] initial deployment failed to enqueue", error);
+        return error instanceof CloudCoreError
+          ? error.message
+          : "The project was created but its first deployment could not be queued";
+      });
+
       return context.json(
         {
           data: serializeTarget(created, {
             projectSlug: project.slug,
             primaryHostname: hostname,
           }),
+          // Same shape as promote's: the write succeeded and something adjacent
+          // did not, which a 201 alone cannot say. Without it a full capacity
+          // pool reads as "I imported it and nothing happened".
+          ...(typeof initial === "string" ? { warning: initial } : {}),
         },
         201,
       );
@@ -919,6 +1041,75 @@ export function deployRoutes(options: DeployRouteOptions) {
       return context.json({
         data: serializeTarget(target, {
           projectSlug: project?.slug ?? "",
+          primaryHostname: await primaryHostname(target.id),
+        }),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * Every project, as the connect picker needs them: id, slug, name and
+   * whether anything deploys from it. Distinct from `GET /api/projects`, which
+   * paginates and returns whole rows — the twelve projects that exist only to
+   * hold a database must appear here, and they are exactly the ones a target
+   * list would omit.
+   */
+  owner.get("/projects", async (context) => {
+    const rows = await db
+      .select({
+        id: projects.id,
+        name: projects.name,
+        slug: projects.slug,
+        targetId: deployTargets.id,
+      })
+      .from(projects)
+      .leftJoin(deployTargets, eq(deployTargets.projectId, projects.id))
+      .orderBy(projects.slug);
+    // A project holding two targets would repeat; the schema permits it even
+    // though nothing in production does, so collapse on the project id.
+    const seen = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      if (!seen.has(row.id)) seen.set(row.id, row);
+    }
+    return context.json({
+      data: {
+        projects: [...seen.values()].map((row) => ({
+          hasTarget: row.targetId !== null,
+          id: row.id,
+          name: row.name,
+          slug: row.slug,
+        })),
+      },
+    });
+  });
+
+  /**
+   * Forge routes a deployable at `/<project slug>`, so every page under it
+   * resolves the target from the slug rather than an id it never sees. Ordered
+   * by creation so the answer is stable: the schema permits a project to hold
+   * more than one target even though nothing in production does.
+   */
+  owner.get("/projects/:slug/target", async (context) => {
+    try {
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.slug, context.req.param("slug")),
+      });
+      if (!project) {
+        throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
+      }
+      const target = await db.query.deployTargets.findFirst({
+        where: eq(deployTargets.projectId, project.id),
+        orderBy: deployTargets.createdAt,
+      });
+      if (!target) {
+        throw new NotFoundError("Deploy target not found", "TARGET_NOT_FOUND");
+      }
+      return context.json({
+        data: serializeTarget(target, {
+          projectSlug: project.slug,
           primaryHostname: await primaryHostname(target.id),
         }),
       });
@@ -1033,6 +1224,140 @@ export function deployRoutes(options: DeployRouteOptions) {
       }
       await db.delete(deployTargets).where(eq(deployTargets.id, target.id));
       return context.json({ data: { id: target.id } });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * Off, but not deleted. Every container the target holds is torn down and it
+   * stops being charged against the host's memory, which is the entire point on
+   * a box where `deployCapacity` refuses a deploy once the reservations add up.
+   * Everything that describes the project — env, domains, build config, the
+   * deployment history — is left exactly as it was.
+   *
+   * Previews go down with production rather than surviving it. Capacity counts
+   * a preview slot as readily as a production one, so a paused target that kept
+   * previews running would be reported as holding nothing while holding real
+   * memory — and a project that is off should not still be building pull
+   * requests either.
+   *
+   * Idempotent: pausing a paused target re-runs the teardown, which is the
+   * repair for a pause whose agent call failed the first time.
+   */
+  owner.post("/targets/:id/pause", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      // Flip the row first. The teardown below is the slow, failable half, and
+      // a target marked paused but still running is a smaller problem than one
+      // whose containers are gone while the webhook keeps building.
+      const [paused] = await db
+        .update(deployTargets)
+        .set({ pausedAt: target.pausedAt ?? new Date(), updatedAt: new Date() })
+        .where(eq(deployTargets.id, target.id))
+        .returning();
+      if (!paused) throw new Error("Pause returned no row");
+
+      const held = await db
+        .select()
+        .from(deployments)
+        .where(
+          and(
+            eq(deployments.targetId, paused.id),
+            inArray(deployments.status, [...COMMITTED_DEPLOYMENT_STATUSES]),
+          ),
+        );
+      const stopped: DeploymentRow[] = [];
+      for (const row of held) {
+        // A `ready` row keeps its status: it records what production or a
+        // preview *was*, and it is what resume rebuilds from. The paused flag
+        // on the target is what every surface reads to say nothing is serving.
+        //
+        // A queued or building one cannot be left alone — the claim query would
+        // pick it up and build it despite the pause.
+        if (row.status !== "ready") {
+          const cancelled = await recordDeploymentStatus(db, row.id, {
+            status: "cancelled",
+            error: "The project was paused",
+          });
+          stopped.push(cancelled ?? row);
+          await forge.releaseDeployment(row);
+        }
+        await agentProxy.delete(`/deployments/${row.id}`).catch(() => {});
+      }
+      // DNS is left alone deliberately. Pausing is reversible, and a record
+      // pointing at the tunnel with nothing behind it is a 502 rather than a
+      // name that has to be re-provisioned; the nightly reconciler reaps it
+      // once the row is eventually superseded.
+      await forge.reportRetired(stopped);
+
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, paused.projectId),
+      });
+      return context.json({
+        data: serializeTarget(paused, {
+          projectSlug: project?.slug ?? "",
+          primaryHostname: await primaryHostname(paused.id),
+        }),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * Resume is a rebuild, not a resurrection. Pausing removes the container and
+   * its image, so there is nothing left to start — the last production SHA is
+   * built again, exactly as `rollback` does, and the site is back when it goes
+   * ready rather than immediately.
+   *
+   * A target with no production deployment to rebuild resumes anyway: it is
+   * un-paused and the next push deploys it.
+   */
+  owner.post("/targets/:id/resume", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const [resumed] = await db
+        .update(deployTargets)
+        .set({ pausedAt: null, updatedAt: new Date() })
+        .where(eq(deployTargets.id, target.id))
+        .returning();
+      if (!resumed) throw new Error("Resume returned no row");
+
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, resumed.projectId),
+      });
+      // Still `ready`, because pause never touched the row — which is what
+      // makes it the thing to rebuild.
+      const last = await forge.liveProductionDeployment(resumed.id);
+      let rebuilt: DeploymentRow | null = null;
+      if (last && project) {
+        // Capacity is checked here rather than at pause: a host that filled up
+        // while this was paused should refuse the resume instead of
+        // overcommitting. The target is un-paused either way, so a refusal
+        // leaves it deployable by hand once there is room.
+        rebuilt = await enqueueDeployment({
+          target: resumed,
+          projectSlug: project.slug,
+          ref: last.gitRef,
+          sha: last.gitSha,
+          message: last.gitMessage,
+          kind: "production",
+          triggeredBy: "manual",
+          createdBy: context.get("user").id,
+        });
+        await options.github?.surfaces.onEnqueued(rebuilt, resumed);
+      }
+      const hostname = await primaryHostname(resumed.id);
+      return context.json({
+        data: serializeTarget(resumed, {
+          projectSlug: project?.slug ?? "",
+          primaryHostname: hostname,
+        }),
+        deployment: rebuilt ? serializeDeployment(rebuilt, hostname) : null,
+      });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1287,6 +1612,318 @@ export function deployRoutes(options: DeployRouteOptions) {
   });
 
   /**
+   * The branches a project currently has previews for, latest deployment each.
+   *
+   * Derived from the deployments rather than from the git remote: a branch
+   * nobody deployed has nothing to show, and one deleted upstream still has a
+   * container worth finding. Production is excluded because it is not a branch
+   * in this sense — the overview names it separately.
+   *
+   * The window is bounded rather than complete. A project with two years of
+   * merged PRs has hundreds of dead refs, and the panel exists to show what is
+   * live now.
+   */
+  owner.get("/targets/:id/branches", async (context) => {
+    const query = z
+      .object({ limit: z.coerce.number().int().min(1).max(100).default(20) })
+      .parse({ limit: context.req.query("limit") });
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const rows = await db
+        .select()
+        .from(deployments)
+        .where(
+          and(
+            eq(deployments.targetId, target.id),
+            ne(deployments.kind, "production"),
+          ),
+        )
+        .orderBy(desc(deployments.createdAt))
+        .limit(BRANCH_SCAN_LIMIT);
+
+      const primary = await primaryHostname(target.id);
+      const branches = new Map<
+        string,
+        {
+          gitRef: string;
+          prNumber: number | null;
+          count: number;
+          latest: DeploymentRow;
+        }
+      >();
+      for (const row of rows) {
+        const existing = branches.get(row.gitRef);
+        if (existing) {
+          existing.count += 1;
+          // `prNumber` is only set once a PR exists, so the newest row that has
+          // one is the truth for the branch — the first push predates it.
+          existing.prNumber ??= row.prNumber;
+          continue;
+        }
+        branches.set(row.gitRef, {
+          count: 1,
+          gitRef: row.gitRef,
+          latest: row,
+          prNumber: row.prNumber,
+        });
+      }
+
+      return context.json({
+        data: [...branches.values()].slice(0, query.limit).map((branch) => ({
+          deploymentCount: branch.count,
+          gitRef: branch.gitRef,
+          latest: serializeDeployment(branch.latest, primary),
+          prNumber: branch.prNumber,
+        })),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * The project's storage tab: every resource connected to it, with the env
+   * vars each connection actually injects.
+   *
+   * "Actually" is the point — a connection makes a namespace *resolvable*, and
+   * what reaches the container is the set of env rows referencing it. A
+   * resource connected but referenced by nothing is a real and visible state,
+   * not an omission.
+   */
+  owner.get("/targets/:id/resources", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const [connected, envRows] = await Promise.all([
+        projectConnectedResources(db, target.projectId),
+        db
+          .select({
+            key: deployEnvVars.key,
+            reference: deployEnvVars.reference,
+            template: deployEnvVars.template,
+          })
+          .from(deployEnvVars)
+          .where(eq(deployEnvVars.targetId, target.id)),
+      ]);
+
+      const counts = await resourceConnectionCounts(
+        db,
+        connected.map((entry) => entry.resource.id),
+      );
+
+      return context.json({
+        data: {
+          resources: connected.map((entry) => ({
+            connection: {
+              createdAt: entry.connection.createdAt.toISOString(),
+              envPrefix: entry.connection.envPrefix,
+              id: entry.connection.id,
+              projectId: entry.connection.projectId,
+              resourceId: entry.connection.resourceId,
+              scopes: entry.connection.scopes,
+            },
+            injectedKeys: injectedKeysFor(entry.resource.kind, envRows),
+            resource: toResourceContract(
+              entry.resource,
+              counts.get(entry.resource.id) ?? 0,
+            ),
+          })),
+        },
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.get("/resources", async (context) => {
+    const query = resourceListQuerySchema.parse({
+      kind: context.req.query("kind") ?? null,
+      search: context.req.query("search") ?? null,
+      unconnected: context.req.query("unconnected") ?? false,
+    });
+    const rows = await listResources(db, query);
+    return context.json({
+      data: {
+        resources: rows.map((entry) =>
+          toResourceContract(entry.row, entry.connectionCount),
+        ),
+      },
+    });
+  });
+
+  owner.get("/resources/:id", async (context) => {
+    try {
+      const resource = await loadResource(context.req.param("id"));
+      const [connections, counts] = await Promise.all([
+        resourceConnectionDetails(db, resource.id),
+        resourceConnectionCounts(db, [resource.id]),
+      ]);
+      const namespace = resource.namespaceId
+        ? await db.query.projects.findFirst({
+            where: eq(projects.id, resource.namespaceId),
+          })
+        : null;
+      return context.json({
+        data: {
+          ...toResourceContract(resource, counts.get(resource.id) ?? 0),
+          connections: connections.map((entry) => ({
+            createdAt: entry.connection.createdAt.toISOString(),
+            envPrefix: entry.connection.envPrefix,
+            id: entry.connection.id,
+            projectId: entry.connection.projectId,
+            projectName: entry.projectName,
+            projectSlug: entry.projectSlug,
+            resourceId: entry.connection.resourceId,
+            scopes: entry.connection.scopes,
+            targetId: entry.targetId,
+          })),
+          namespaceId: resource.namespaceId,
+          namespaceSlug: namespace?.slug ?? null,
+        },
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * POST rather than GET because revealing a credential is an act, not a view:
+   * it keeps the secret out of browser history, out of any GET-logging
+   * middleware, and off a URL that could be linked or prefetched.
+   */
+  owner.post("/resources/:id/credentials", async (context) => {
+    try {
+      const resource = await loadResource(context.req.param("id"));
+      return context.json({
+        data: resourceCredentials(resource, {
+          databaseEncryptionSecret: options.databaseEncryptionSecret,
+          databaseHosts: options.databaseHosts,
+          meilisearchUrl: options.meilisearchUrl,
+          s3Endpoint: options.s3Endpoint,
+          s3Region: options.s3Region,
+        }),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  const provisionDeps = {
+    encryptionSecret: options.databaseEncryptionSecret,
+    registry: options.provisioners,
+    search: options.meili,
+  };
+
+  /**
+   * Creates a resource, and connects it in the same transaction when a project
+   * is given. Nothing here enforces one resource of a kind per project — that
+   * rule is what made a second environment need a second project, and removing
+   * it is the point of the split.
+   */
+  owner.post("/resources", async (context) => {
+    try {
+      const input = createResourceInputSchema.parse(await context.req.json());
+      const { password, resource } = await provisionResource(
+        db,
+        provisionDeps,
+        {
+          envPrefix: input.envPrefix,
+          kind: input.kind,
+          name: input.name ?? null,
+          projectId: input.projectId ?? null,
+          scopes: input.scopes,
+        },
+      );
+      const counts = await resourceConnectionCounts(db, [resource.id]);
+      return context.json(
+        {
+          data: {
+            password,
+            resource: toResourceContract(
+              resource,
+              counts.get(resource.id) ?? 0,
+            ),
+          },
+        },
+        201,
+      );
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.delete("/resources/:id", async (context) => {
+    try {
+      const resource = await loadResource(context.req.param("id"));
+      await deprovisionResource(db, provisionDeps, resource.id);
+      return context.json({ data: { id: resource.id } });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.post("/resources/:id/connections", async (context) => {
+    try {
+      const resource = await loadResource(context.req.param("id"));
+      const input = connectResourceInputSchema.parse(await context.req.json());
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, input.projectId),
+      });
+      if (!project) {
+        throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
+      }
+      const connection = await connectResource(db, {
+        envPrefix: input.envPrefix,
+        projectId: input.projectId,
+        resourceId: resource.id,
+        scopes: input.scopes,
+      });
+      return context.json(
+        {
+          data: {
+            createdAt: connection.createdAt.toISOString(),
+            envPrefix: connection.envPrefix,
+            id: connection.id,
+            projectId: connection.projectId,
+            resourceId: connection.resourceId,
+            scopes: connection.scopes,
+          },
+        },
+        201,
+      );
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * Disconnecting leaves the resource and its data alone — it only stops the
+   * project's bindings resolving through it. Dropping the resource is
+   * `DELETE /resources/:id`, which refuses while anything is still connected.
+   */
+  owner.delete("/resources/:id/connections/:connectionId", async (context) => {
+    try {
+      const resource = await loadResource(context.req.param("id"));
+      const connectionId = context.req.param("connectionId");
+      const connections = await resourceConnectionDetails(db, resource.id);
+      if (!connections.some((entry) => entry.connection.id === connectionId)) {
+        throw new NotFoundError("Connection not found", "CONNECTION_NOT_FOUND");
+      }
+      await disconnectResource(db, connectionId);
+      return context.json({ data: { id: connectionId } });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
    * What this run will build, resolved from the target's preset and overrides
    * against the exact commit being deployed. Frozen onto the deployment row, so
    * a target edited while a build is queued does not change that build.
@@ -1384,6 +2021,16 @@ export function deployRoutes(options: DeployRouteOptions) {
     createdBy: string | null;
     prNumber?: number | null;
   }) {
+    // Central rather than per-caller: a webhook, a manual deploy, a redeploy
+    // and a rollback all land here, and a paused target that still built from
+    // any one of them would keep taking back the memory pause just gave up.
+    // Resume passes the already-updated row, so it is not a special case.
+    if (input.target.pausedAt !== null) {
+      throw new ValidationError(
+        "This project is paused. Resume it before deploying.",
+        "TARGET_PAUSED",
+      );
+    }
     const rows = await db
       .select()
       .from(deployEnvVars)
@@ -1638,6 +2285,10 @@ export function deployRoutes(options: DeployRouteOptions) {
           error: "Cancelled before it was claimed",
         });
         await forge.releaseDeployment(row);
+        // A claimed run reports its own cancellation through the agent's status
+        // route; this one has no agent to report it, so the check run has to be
+        // closed out from here or it never completes.
+        await forge.reportRetired([cancelled ?? row]);
         return context.json({
           data: serializeDeployment(
             cancelled ?? row,
@@ -2280,8 +2931,10 @@ export function deployRoutes(options: DeployRouteOptions) {
           projectId: project.id,
           projectSlug: project.slug,
           deploymentId: row.id,
+          deploymentKind: row.kind,
           databaseEncryptionSecret: options.databaseEncryptionSecret,
           databaseHosts: options.databaseHosts,
+          meilisearchUrl: options.meilisearchUrl,
           s3Endpoint: options.s3Endpoint,
           s3Region: options.s3Region,
           s3CredentialEncryptionKey: options.s3CredentialEncryptionKey,
@@ -2406,6 +3059,10 @@ export function deployRoutes(options: DeployRouteOptions) {
     changeCache: WebhookChangeCache,
   ): Promise<DeploymentRow | null> {
     if (target.githubInstallationId === null) return null;
+    // Silently, and before change detection runs: a paused project has opted
+    // out of building, so a check run saying it was skipped would report a
+    // decision about the commit that was never made.
+    if (target.pausedAt !== null) return null;
     const decision = await targetChanged(target, intent, changeCache);
     if (!decision.deploy) {
       // Vercel's behaviour, and for the same reason: a commit whose checks show

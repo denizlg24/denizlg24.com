@@ -22,7 +22,7 @@ and invokes the host's narrowly scoped installer.
 | `AGENT_PORT` | `4010` | |
 | `AGENT_TOKEN` | — | **Required**, ≥32 chars. Must match the API's `DEPLOY_AGENT_TOKEN`. |
 | `CONTROL_PLANE_URL` | — | **Required.** e.g. `https://api.denizlg24.com` |
-| `MAX_CONCURRENT_BUILDS` | `1` | 1–4. A Next.js build peaks 2–4 GB. |
+| `MAX_CONCURRENT_BUILDS` | `3` | 1–4, and it bounds concurrent *builds*, not deployments — see below. A Next.js build peaks 2–4 GB. |
 | `CLAIM_POLL_MS` | `3000` | |
 | `HEARTBEAT_MS` | `30000` | Must stay well under the control plane's 15-minute interrupted-run threshold. |
 | `BUILD_ROOT` | `/srv/forge/builds` | Checkouts. Production sets `/mnt/storage/forge/builds`; removed after every build, pass or fail. |
@@ -143,11 +143,49 @@ the effective cap is `buildkitd`'s own. Treat it as belt-and-braces, not as the
 control.
 
 When `BUILDKIT_ENDPOINT` is configured, an unavailable HDD builder fails the
-deployment instead of silently falling back to the SSD. The worker's own GC
-policy preserves 150 GB free, and `POST /gc` additionally runs
-`docker buildx prune --builder $BUILDX_BUILDER`. Without an external endpoint,
-the legacy per-target exported cache under `$CACHE_ROOT` remains available and
-is capped by the request's age and size settings.
+deployment instead of silently falling back to the SSD. Without an external
+endpoint, the legacy per-target exported cache under `$CACHE_ROOT` remains
+available and is capped by the request's age and size settings.
+
+### What bounds the build cache
+
+Two mechanisms, and for months neither did anything while the cache grew to
+324 GB:
+
+- **`buildkitd`'s own GC** is the one that runs continuously, and it only fires
+  on the thresholds in `infra/systemd/forge-buildkitd.toml`. `maxUsedSpace` is
+  the real cap. Set to a percentage of a 916 GiB disk it put the trigger past
+  700 GB, which is indistinguishable from having no GC at all.
+- **`POST /gc`** runs `docker buildx prune --builder $BUILDX_BUILDER --all` and
+  the daemon's own, both filtered by `builderPruneHours`. `--all` is required:
+  without it a prune only reaps records nothing reaches, which on a worker that
+  keeps state across builds is almost none of them. The window matters just as
+  much — the old 168h default spared everything on a host that builds twenty-five
+  times a day.
+
+Read `builderCacheReclaimedBytes` on the task run, not the run status. A pass
+that reclaims nothing still completes.
+
+### Build slots and deploy concurrency
+
+`MAX_CONCURRENT_BUILDS` gates the build, and a run hands its slot back the
+moment the image exists — `releaseBuildSlot` in the pipeline, before the
+container starts. What follows is starting a container and polling it until it
+answers, which costs the builder nothing and which a deployment's own memory
+reservation already accounts for. Holding a slot across it left the builder
+parked behind a health probe.
+
+Two consequences worth knowing:
+
+- `running` and `building` in the queue snapshot are different numbers.
+  `maxInFlight` (default `capacity × 4`) is the ceiling on the first, and only
+  bites when something after the build stalls — a health probe waiting out its
+  timeout cannot then claim the whole queue and exhaust the port range.
+- The control plane will not claim two deployments for the same target at once.
+  `reapSuperseded`, the `forge/<slug>:latest` tag and the `id=<targetId>` cache
+  mounts are all keyed by target rather than by deployment, so overlapping runs
+  for one target fight over all three. Different targets still build in
+  parallel, which is the case the extra slots exist for.
 
 ### Running and the health gate
 

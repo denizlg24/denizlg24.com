@@ -8,6 +8,7 @@ export * from "./middleware";
 export * from "./mongo";
 export * from "./ops";
 export * from "./projects";
+export * from "./resources";
 export * from "./search";
 export * from "./services";
 export * from "./storage";

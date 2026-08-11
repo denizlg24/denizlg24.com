@@ -21,16 +21,33 @@ import {
  * holds: the row is flipped to `building` in the same statement that claims
  * it, so a crash between the claim and the first status report leaves a row
  * the interrupted sweep reclaims — not one two agents both build.
+ *
+ * One deployment per target at a time, which only started mattering when the
+ * agent gained more than one build slot. Three things in the pipeline are keyed
+ * by target or project rather than by deployment, and all three break if two
+ * runs for the same target overlap: `reapSuperseded` stops every production
+ * container for the target except its own, so whichever finishes last wins
+ * regardless of which is newer; both builds move `forge/<slug>:latest`, leaving
+ * the loser's image untagged the moment it is written; and the BuildKit cache
+ * mounts are `id=<targetId>-…`, so the two contend for the same store.
+ *
+ * Different targets still run in parallel, which is the case the extra slots
+ * exist for — a monorepo push queues one deployment per project.
  */
 export async function claimQueuedDeployment(
   db: Database,
 ): Promise<DeploymentRow | null> {
   const claimed = await db.execute(sql<{ id: string }>`
     WITH claimed AS (
-      SELECT id FROM ${deployments}
-      WHERE ${deployments.status} = 'queued'
-      ORDER BY ${deployments.createdAt}
-      FOR UPDATE SKIP LOCKED
+      SELECT queued.id FROM ${deployments} AS queued
+      WHERE queued.status = 'queued'
+        AND NOT EXISTS (
+          SELECT 1 FROM ${deployments} AS active
+          WHERE active.target_id = queued.target_id
+            AND active.status IN ('building', 'deploying')
+        )
+      ORDER BY queued.created_at
+      FOR UPDATE OF queued SKIP LOCKED
       LIMIT 1
     )
     UPDATE ${deployments}
@@ -160,22 +177,6 @@ const IN_FLIGHT_STATUSES: readonly DeploymentStatus[] = [
 ];
 
 /**
- * Enough of a superseded row to release what it holds outside itself.
- *
- * `dnsRecordId` is here rather than left to the caller to look up because these
- * two functions were the one path to a terminal status that did not go through
- * `recordDeploymentStatus`, so nothing ever released their DNS records — every
- * push to a branch leaked the previous preview's CNAME, permanently, and the
- * Cloudflare reconciler could not see it either because the row still existed.
- */
-export interface SupersededDeployment {
-  id: string;
-  kind: DeploymentKind;
-  readyAt: Date | null;
-  dnsRecordId: string | null;
-}
-
-/**
  * Pushing five times in a minute must produce one build, not five. Keyed on the
  * ref rather than the hostname the plan names: a preview hostname carries a
  * random suffix, so two pushes to one branch never share one and a hostname
@@ -184,11 +185,17 @@ export interface SupersededDeployment {
  * Only `queued` rows are taken. A build already running has a container and a
  * log someone may be watching; `supersedeOlderDeployments` retires it when the
  * newer one goes ready.
+ *
+ * The whole row comes back rather than the four fields the caller strictly
+ * needs, because these two functions are the one path to a terminal status that
+ * does not go through `recordDeploymentStatus` — so everything the status route
+ * does afterwards has to be done here instead, from releasing the DNS record to
+ * closing out the check run on the commit.
  */
 export async function supersedeQueuedDeployments(
   db: Database,
   input: { targetId: string; gitRef: string; kind: DeploymentKind },
-): Promise<SupersededDeployment[]> {
+): Promise<DeploymentRow[]> {
   return db
     .update(deployments)
     .set({
@@ -205,12 +212,7 @@ export async function supersedeQueuedDeployments(
         eq(deployments.status, "queued"),
       ),
     )
-    .returning({
-      id: deployments.id,
-      kind: deployments.kind,
-      readyAt: deployments.readyAt,
-      dnsRecordId: deployments.dnsRecordId,
-    });
+    .returning();
 }
 
 /**
@@ -262,7 +264,7 @@ export async function pullRequestDeployments(
 export async function supersedeOlderDeployments(
   db: Database,
   input: { targetId: string; kind: DeploymentKind; keepDeploymentId: string },
-): Promise<SupersededDeployment[]> {
+): Promise<DeploymentRow[]> {
   return db
     .update(deployments)
     .set({ status: "superseded", stoppedAt: new Date(), phase: null })
@@ -274,10 +276,5 @@ export async function supersedeOlderDeployments(
         inArray(deployments.status, [...LIVE_STATUSES]),
       ),
     )
-    .returning({
-      id: deployments.id,
-      kind: deployments.kind,
-      readyAt: deployments.readyAt,
-      dnsRecordId: deployments.dnsRecordId,
-    });
+    .returning();
 }

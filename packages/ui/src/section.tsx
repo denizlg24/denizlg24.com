@@ -7,7 +7,8 @@ export function Section({
   children,
 }: {
   title: string;
-  count?: number;
+  /** A string carries a filtered fraction — `12/40` — where a number cannot. */
+  count?: number | string;
   actions?: ReactNode;
   children: ReactNode;
 }) {

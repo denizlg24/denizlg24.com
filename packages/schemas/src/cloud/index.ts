@@ -12,6 +12,7 @@ export * from "./notifications";
 export * from "./operations";
 export * from "./ops";
 export * from "./projects";
+export * from "./resources";
 export * from "./storage";
 export * from "./tasks";
 export * from "./terminal";

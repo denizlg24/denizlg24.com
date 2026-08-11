@@ -85,6 +85,73 @@ describe("DeploymentQueue.pump", () => {
     expect(claims).toBe(2);
   });
 
+  /**
+   * The point of the split: the run is still in flight, but it is past the
+   * build and no longer costs the builder anything, so the slot it was holding
+   * belongs to the next one.
+   */
+  it("claims again once a run hands its build slot back", async () => {
+    const requests = [deploymentRequest(), deploymentRequest()];
+    const release: Array<() => void> = [];
+    const { queue } = harness({
+      capacity: 1,
+      claim: async () => requests.shift() ?? null,
+      runner: (_request, context) =>
+        new Promise(() => {
+          release.push(context.releaseBuildSlot);
+        }),
+    });
+
+    await queue.pump();
+    expect(queue.runningCount).toBe(1);
+    expect(queue.buildingCount).toBe(1);
+
+    release[0]?.();
+    await queue.pump();
+
+    expect(queue.buildingCount).toBe(1);
+    // Both are alive; only the second is still building.
+    expect(queue.runningCount).toBe(2);
+    expect(queue.snapshot().building).toBe(1);
+  });
+
+  it("stops claiming past the in-flight ceiling when nothing finishes", async () => {
+    const requests = Array.from({ length: 10 }, () => deploymentRequest());
+    const { queue } = harness({
+      capacity: 2,
+      maxInFlight: 3,
+      claim: async () => requests.shift() ?? null,
+      // Every run releases its slot immediately and then wedges in the deploy
+      // phase — the shape of a health probe waiting out its timeout.
+      runner: (_request, context) =>
+        new Promise(() => {
+          context.releaseBuildSlot();
+        }),
+    });
+
+    await queue.pump();
+
+    expect(queue.runningCount).toBe(3);
+    expect(queue.buildingCount).toBe(0);
+  });
+
+  it("refuses a manual submit at the in-flight ceiling", async () => {
+    const { queue } = harness({
+      capacity: 2,
+      maxInFlight: 1,
+      runner: (_request, context) =>
+        new Promise(() => {
+          context.releaseBuildSlot();
+        }),
+    });
+
+    queue.submit(deploymentRequest());
+
+    expect(() => queue.submit(deploymentRequest())).toThrow(
+      QueueAtCapacityError,
+    );
+  });
+
   it("stops claiming when the control plane has nothing queued", async () => {
     let claims = 0;
     const { queue } = harness({

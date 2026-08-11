@@ -165,15 +165,27 @@ describe("isImageInUseConflict", () => {
 describe("builderPruneCommands", () => {
   it("sweeps the named builder and the daemon's own", () => {
     expect(builderPruneCommands("forge-hdd")).toEqual([
-      ["docker", "buildx", "prune", "--builder", "forge-hdd"],
-      ["docker", "builder", "prune"],
+      ["docker", "buildx", "prune", "--builder", "forge-hdd", "--all"],
+      ["docker", "builder", "prune", "--all"],
     ]);
   });
 
   it("sweeps only the daemon when no builder is configured", () => {
     expect(builderPruneCommands(null)).toEqual([
-      ["docker", "builder", "prune"],
+      ["docker", "builder", "prune", "--all"],
     ]);
+  });
+
+  /**
+   * Without `--all` a prune only reaps records nothing reaches, which on a
+   * persistent worker is next to none of them — the pass reclaimed 0 bytes on
+   * every run for months. The `until` filter the caller appends is what keeps
+   * this from taking cache a build still wants.
+   */
+  it("always asks for more than the dangling records", () => {
+    for (const command of builderPruneCommands("forge-hdd")) {
+      expect(command).toContain("--all");
+    }
   });
 });
 

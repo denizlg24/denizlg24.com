@@ -22,10 +22,11 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DeploymentActions } from "@/components/deployment-actions";
+import { LogStream } from "@/components/log-stream";
 import { PageHeading } from "@/components/page-heading";
+import { RequestTable } from "@/components/request-table";
 import { api, errorMessage } from "@/lib/api";
-import { LogStream } from "../../_components/log-stream";
-import { RequestTable } from "../../_components/request-table";
 
 export default function DeploymentDetailPage() {
   const params = useParams<{ id: string }>();
@@ -98,7 +99,7 @@ export default function DeploymentDetailPage() {
             <span className="text-xs text-muted-foreground">
               {formatRelative(data.createdAt)}
             </span>
-            <div className="ml-auto flex items-center gap-1">
+            <div className="ml-auto flex flex-wrap items-center gap-1">
               {data.status === "ready" ? (
                 <Button
                   variant="ghost"
@@ -112,6 +113,16 @@ export default function DeploymentDetailPage() {
                   restart
                 </Button>
               ) : null}
+              {/* No delete here: removing the row would leave this page
+                  rendering a 404 of the deployment it is showing. */}
+              <DeploymentActions
+                deployment={{
+                  id: data.id,
+                  kind: data.kind,
+                  status: data.status,
+                }}
+                onDone={reload}
+              />
             </div>
           </div>
 

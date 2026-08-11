@@ -422,6 +422,15 @@ export type AgentDeploymentState = z.infer<typeof agentDeploymentStateSchema>;
 export const agentQueueSnapshotSchema = z.object({
   running: z.number().int().min(0),
   capacity: z.number().int().min(1),
+  /**
+   * The subset of `running` still holding a build slot. `capacity` bounds this
+   * number, not `running`: a run releases its slot the moment the image exists,
+   * and spends the rest of its life starting a container and waiting on a
+   * health probe — work that costs the build disk nothing.
+   *
+   * Optional so an older agent, which reports neither field, still validates.
+   */
+  building: z.number().int().min(0).optional(),
   deploymentIds: z.array(z.uuid()),
 });
 export type AgentQueueSnapshot = z.infer<typeof agentQueueSnapshotSchema>;
@@ -638,7 +647,15 @@ export const agentGcRequestSchema = z.object({
   logRetentionDays: z.number().int().min(1).max(365).default(30),
   buildCacheMaxMb: z.number().int().min(0).max(1_048_576).default(2_048),
   buildCacheMaxAgeDays: z.number().int().min(1).max(365).default(14),
-  builderPruneHours: z.number().int().min(1).max(8_760).default(168),
+  /**
+   * How cold a build-cache record must be before the sweep takes it. A week —
+   * the previous default — is not a window on a host that builds twenty-five
+   * times a day: every record is touched inside it, so the pass reclaimed
+   * nothing on every run for months. Three days still spares the cache of a
+   * branch someone is iterating on, and the worker's own `maxUsedSpace` is what
+   * bounds the total.
+   */
+  builderPruneHours: z.number().int().min(1).max(8_760).default(72),
   dryRun: z.boolean().default(false),
 });
 export type AgentGcRequest = z.infer<typeof agentGcRequestSchema>;
@@ -879,6 +896,11 @@ export const deployTargetSchema = z.object({
   cpuLimit: z.number(),
   autoDeploy: z.boolean(),
   previewDeploys: z.boolean(),
+  /**
+   * Set means the target is off: nothing builds, no container runs, and its
+   * reservation is not charged against the host. Config and domains are intact.
+   */
+  pausedAt: z.iso.datetime().nullable(),
   /** Set means this target opted into pulling env from Envoy. Never the passphrase. */
   envoyProjectId: z.uuid().nullable(),
   primaryHostname: z.string().nullable(),
@@ -911,6 +933,20 @@ export const deploymentSchema = z.object({
   stoppedAt: z.iso.datetime().nullable(),
 });
 export type Deployment = z.infer<typeof deploymentSchema>;
+
+/**
+ * A branch that has had a preview deployment, with its latest one. Derived from
+ * grouping non-production deployments by `gitRef` rather than from the git
+ * remote: a branch nobody deployed has nothing to show here, and a branch
+ * deleted upstream still has a container to find.
+ */
+export const deployBranchSchema = z.object({
+  gitRef: z.string(),
+  prNumber: z.number().int().positive().nullable(),
+  deploymentCount: z.number().int().positive(),
+  latest: deploymentSchema,
+});
+export type DeployBranch = z.infer<typeof deployBranchSchema>;
 
 /**
  * The list shape. A target with no deployment yet is the normal state right

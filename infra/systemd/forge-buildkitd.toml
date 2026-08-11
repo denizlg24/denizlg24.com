@@ -5,12 +5,27 @@ root = "/var/lib/buildkit"
 [worker.oci]
   enabled = true
   gc = true
-  # Retain enough hot cache to make GC useful, but preserve a large emergency
-  # reserve for checkouts, logs and future builds on the 1 TB disk.
+  # These three decide whether GC ever runs at all, and the previous values —
+  # 75% of a 916 GiB disk with a 150 GB free floor — put the trigger point past
+  # 700 GB of cache. Nothing collected for months while the cache grew to
+  # 324 GB, and the hourly `forge_gc` pass reported 0 bytes reclaimed every
+  # time because there was nothing for it to reclaim: BuildKit was doing
+  # exactly what it had been told.
+  #
+  # A cap is the whole mechanism. `maxUsedSpace` is what actually bounds the
+  # cache; `minFreeSpace` is a second guard for the disk this shares with
+  # checkouts and logs, and `reservedSpace` keeps a warm floor that GC will not
+  # cut into however cold the records look.
   reservedSpace = "20GB"
-  maxUsedSpace = "75%"
-  minFreeSpace = "150GB"
-  max-parallelism = 2
+  maxUsedSpace = "150GB"
+  minFreeSpace = "100GB"
+  # A worker-wide cap on concurrent solve steps, not a per-build one. Held at 2
+  # while the agent ran a single build at a time; three concurrent builds
+  # against the same 2 would serialise them and make the extra slots useless.
+  # This is that same per-build 2, multiplied by MAX_CONCURRENT_BUILDS — and it
+  # stays deliberately modest because the cache is on a 7200rpm disk, where
+  # more concurrent steps buys contention rather than throughput.
+  max-parallelism = 6
 
 [worker.containerd]
   enabled = false

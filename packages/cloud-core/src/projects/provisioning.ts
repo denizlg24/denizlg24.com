@@ -5,7 +5,7 @@ import type {
   ProjectDatabase as ProjectDatabaseContract,
   ProjectDatabaseMetadata,
 } from "@repo/schemas/cloud";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { MongoClient } from "mongodb";
 
 import {
@@ -16,11 +16,19 @@ import type { Database, RawSqlClient } from "../db";
 import { createRawClient } from "../db";
 import {
   type Project,
-  type ProjectDatabase,
-  projectDatabases,
   projects,
+  type ResourceRow,
+  resourceConnections,
+  resources,
 } from "../db/schema";
 import { ConflictError, NotFoundError } from "../errors";
+import {
+  availableResourceName,
+  type DatabaseResourceCredentials,
+  databaseCredentials,
+  findConnectedResources,
+  toDatabaseMetadata,
+} from "../resources/resources";
 
 const REDIS_DENIED_COMMANDS = [
   "-acl",
@@ -37,8 +45,13 @@ const REDIS_DENIED_COMMANDS = [
 ] as const;
 
 export interface ProvisionTarget {
-  projectId: string;
-  projectSlug: string;
+  /**
+   * Null for a resource that belongs to no project. Only Mongo reads these, and
+   * only to stamp a `_meta` document; a standalone database records that it has
+   * no owner rather than borrowing one.
+   */
+  projectId: string | null;
+  projectSlug: string | null;
   dbName: string;
   username: string;
   password: string;
@@ -65,7 +78,13 @@ export interface ProjectDatabaseHosts {
   redisExternal: string;
 }
 
-function identifierForSlug(slug: string): string {
+/**
+ * The database name and role name a resource gets on its engine. Derived from
+ * the resource name rather than from a project slug: names are unique per kind,
+ * whereas a project may now hold several databases of one kind and deriving
+ * from its slug would point them all at the same database.
+ */
+export function identifierForSlug(slug: string): string {
   const normalized = slug.replaceAll("-", "_").replace(/[^a-z0-9_]/g, "");
   return `proj_${normalized}`.slice(0, 63);
 }
@@ -81,7 +100,7 @@ function quoteLiteral(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function password(): string {
+export function generateDatabasePassword(): string {
   return randomBytes(24).toString("base64url");
 }
 
@@ -266,7 +285,7 @@ export function createProvisionerRegistry(
 }
 
 function connectionUri(
-  record: Pick<ProjectDatabase, "dbName" | "type" | "username">,
+  record: Pick<DatabaseResourceCredentials, "dbName" | "type" | "username">,
   secret: string,
   host: string,
 ): string {
@@ -280,11 +299,18 @@ function connectionUri(
   return `redis://${credentials}@${host}`;
 }
 
-export function formatProjectDatabase(
-  record: ProjectDatabase,
+/**
+ * `projectId` comes from the connection rather than from the resource, because
+ * a resource is no longer owned by one project. The contract keeps the field
+ * so the project-scoped routes answer exactly what they did before.
+ */
+export function formatDatabaseResource(
+  row: ResourceRow,
+  projectId: string,
   secret: string,
   hosts: ProjectDatabaseHosts,
 ): ProjectDatabaseContract {
+  const record = databaseCredentials(row);
   const pair: readonly [string, string] =
     record.type === "postgres"
       ? [hosts.postgresInternal, hosts.postgresExternal]
@@ -292,8 +318,8 @@ export function formatProjectDatabase(
         ? [hosts.mongodbInternal, hosts.mongodbExternal]
         : [hosts.redisInternal, hosts.redisExternal];
   return {
-    id: record.id,
-    projectId: record.projectId,
+    id: row.id,
+    projectId,
     type: record.type,
     dbName: record.dbName,
     username: record.username,
@@ -303,7 +329,7 @@ export function formatProjectDatabase(
       internal: connectionUri(record, secret, pair[0]),
       external: connectionUri(record, secret, pair[1]),
     },
-    createdAt: record.createdAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -320,6 +346,16 @@ async function projectForProvisioning(
   return project;
 }
 
+/**
+ * Provisions a database on its engine and connects it to the project.
+ *
+ * The one-per-type rejection is now a query over connections rather than the
+ * `unique(project_id, type)` index it used to be. The index is gone on purpose
+ * — it is what forced a second environment to become a second project — but the
+ * project-scoped route keeps the old behaviour so Cloud's UI is unchanged. The
+ * resource-scoped surface is what will connect several postgres resources to
+ * one project.
+ */
 export async function provisionProjectDatabase(
   db: Database,
   registry: ReadonlyMap<DbType, Provisioner>,
@@ -328,13 +364,11 @@ export async function provisionProjectDatabase(
   input: { projectId: string; type: DbType },
 ): Promise<ProjectDatabaseContract> {
   const project = await projectForProvisioning(db, input.projectId);
-  const existing = await db.query.projectDatabases.findFirst({
-    where: and(
-      eq(projectDatabases.projectId, input.projectId),
-      eq(projectDatabases.type, input.type),
-    ),
+  const connected = await findConnectedResources(db, {
+    kind: input.type,
+    projectId: input.projectId,
   });
-  if (existing) {
+  if (connected.length > 0) {
     throw new ConflictError(
       `A ${input.type} database already exists for this project`,
       "DATABASE_EXISTS",
@@ -344,8 +378,9 @@ export async function provisionProjectDatabase(
   if (!provisioner) {
     throw new Error(`No ${input.type} provisioner configured`);
   }
-  const identifier = identifierForSlug(project.slug);
-  const cleartextPassword = password();
+  const name = await availableResourceName(db, input.type, project.slug);
+  const identifier = identifierForSlug(name);
+  const cleartextPassword = generateDatabasePassword();
   const target: ProvisionTarget = {
     projectId: project.id,
     projectSlug: project.slug,
@@ -359,22 +394,30 @@ export async function provisionProjectDatabase(
       cleartextPassword,
       encryptionSecret,
     );
-    const [record] = await db
-      .insert(projectDatabases)
-      .values({
+    const row = await db.transaction(async (tx) => {
+      const [resource] = await tx
+        .insert(resources)
+        .values({
+          authTag: encrypted.authTag,
+          dbName: identifier,
+          encryptedPassword: encrypted.encrypted,
+          iv: encrypted.iv,
+          kind: input.type,
+          name,
+          username: identifier,
+        })
+        .returning();
+      if (!resource) {
+        throw new Error("Failed to save resource");
+      }
+      await tx.insert(resourceConnections).values({
         projectId: project.id,
-        type: input.type,
-        dbName: identifier,
-        username: identifier,
-        encryptedPassword: encrypted.encrypted,
-        iv: encrypted.iv,
-        authTag: encrypted.authTag,
-      })
-      .returning();
-    if (!record) {
-      throw new Error("Failed to save project database");
-    }
-    return formatProjectDatabase(record, cleartextPassword, hosts);
+        resourceId: resource.id,
+        scopes: "both",
+      });
+      return resource;
+    });
+    return formatDatabaseResource(row, project.id, cleartextPassword, hosts);
   } catch (error) {
     await provisioner
       .deprovision({
@@ -392,47 +435,77 @@ export async function listProjectDatabases(
   projectId: string,
 ): Promise<ProjectDatabaseMetadata[]> {
   await projectForProvisioning(db, projectId);
-  const records = await db
-    .select()
-    .from(projectDatabases)
-    .where(eq(projectDatabases.projectId, projectId))
-    .orderBy(projectDatabases.createdAt);
-  return records.map((record) => ({
-    id: record.id,
-    projectId: record.projectId,
-    type: record.type,
-    dbName: record.dbName,
-    username: record.username,
-    ...(record.type === "redis" ? { keyPrefix: `${record.dbName}:` } : {}),
-    createdAt: record.createdAt.toISOString(),
-  }));
+  const rows = (
+    await Promise.all(
+      (["postgres", "mongodb", "redis"] as const).map((kind) =>
+        findConnectedResources(db, { kind, projectId }),
+      ),
+    )
+  ).flat();
+  return rows
+    .sort(
+      (left, right) =>
+        left.resource.createdAt.getTime() - right.resource.createdAt.getTime(),
+    )
+    .map(({ resource }) => toDatabaseMetadata(resource, projectId));
 }
 
+/**
+ * Disconnects the resource from this project, and drops it from its engine only
+ * when nothing else is connected. Every backfilled resource has exactly one
+ * connection, so this drops the database in the same cases the old route did —
+ * but once a resource is shared, disconnecting one project can no longer
+ * destroy the data the other three are reading.
+ */
 export async function deprovisionProjectDatabase(
   db: Database,
   registry: ReadonlyMap<DbType, Provisioner>,
   projectId: string,
   databaseId: string,
 ): Promise<void> {
-  const record = await db.query.projectDatabases.findFirst({
-    where: and(
-      eq(projectDatabases.id, databaseId),
-      eq(projectDatabases.projectId, projectId),
-    ),
+  const row = await db.query.resources.findFirst({
+    where: and(eq(resources.id, databaseId), isNull(resources.deletedAt)),
   });
-  if (!record) {
+  if (!row) {
     throw new NotFoundError("Database not found", "DATABASE_NOT_FOUND");
   }
-  const provisioner = registry.get(record.type);
-  if (!provisioner) {
-    throw new Error(`No ${record.type} provisioner configured`);
+  const record = databaseCredentials(row);
+  const connections = await db
+    .select({ projectId: resourceConnections.projectId })
+    .from(resourceConnections)
+    .where(eq(resourceConnections.resourceId, row.id));
+  const mine = connections.filter((row) => row.projectId === projectId);
+  if (mine.length === 0) {
+    throw new NotFoundError("Database not found", "DATABASE_NOT_FOUND");
   }
-  await provisioner.deprovision({
-    projectId: record.projectId,
-    dbName: record.dbName,
-    username: record.username,
+  const lastConnection = connections.length === mine.length;
+  if (lastConnection) {
+    const provisioner = registry.get(record.type);
+    if (!provisioner) {
+      throw new Error(`No ${record.type} provisioner configured`);
+    }
+    await provisioner.deprovision({
+      projectId,
+      dbName: record.dbName,
+      username: record.username,
+    });
+  }
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(resourceConnections)
+      .where(
+        and(
+          eq(resourceConnections.resourceId, row.id),
+          eq(resourceConnections.projectId, projectId),
+        ),
+      );
+    if (lastConnection) {
+      await tx
+        .update(resources)
+        .set({ deletedAt: new Date() })
+        .where(eq(resources.id, row.id));
+    }
   });
-  await db.delete(projectDatabases).where(eq(projectDatabases.id, record.id));
 }
 
 export async function syncRedisProjectAclUsers(
@@ -440,11 +513,12 @@ export async function syncRedisProjectAclUsers(
   redis: RedisCommander,
   encryptionSecret: string,
 ): Promise<number> {
-  const records = await db
+  const rows = await db
     .select()
-    .from(projectDatabases)
-    .where(eq(projectDatabases.type, "redis"));
-  for (const record of records) {
+    .from(resources)
+    .where(and(eq(resources.kind, "redis"), isNull(resources.deletedAt)));
+  for (const row of rows) {
+    const record = databaseCredentials(row);
     const cleartextPassword = decryptLegacyTotpSecret(
       record.encryptedPassword,
       record.iv,
@@ -458,8 +532,8 @@ export async function syncRedisProjectAclUsers(
       record.dbName,
     );
   }
-  if (records.length > 0) {
+  if (rows.length > 0) {
     await saveRedisAcls(redis);
   }
-  return records.length;
+  return rows.length;
 }

@@ -46,6 +46,7 @@ export interface DeployBindingResolvers {
   "database.postgres": NamespaceResolver;
   "database.mongodb": NamespaceResolver;
   "database.redis": NamespaceResolver;
+  "search.meilisearch": NamespaceResolver;
   s3: NamespaceResolver;
 }
 
@@ -98,13 +99,14 @@ export function namespacesForReferences(
 
 /**
  * Which platform-owned namespaces this project can actually satisfy. Only the
- * three databases vary: `s3` can always be issued, and `deployment` and
+ * connected resources vary: `s3` can always be issued, and `deployment` and
  * `project` are properties of the run itself.
  */
 export interface DeployNamespaceAvailability {
   postgres: boolean;
   mongodb: boolean;
   redis: boolean;
+  meilisearch: boolean;
 }
 
 export interface DefaultDeployEnvBinding {
@@ -145,6 +147,7 @@ function isAvailable(
   if (namespace === "database.postgres") return availability.postgres;
   if (namespace === "database.mongodb") return availability.mongodb;
   if (namespace === "database.redis") return availability.redis;
+  if (namespace === "search.meilisearch") return availability.meilisearch;
   return true;
 }
 

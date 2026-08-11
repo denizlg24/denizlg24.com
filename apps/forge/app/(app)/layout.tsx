@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { SessionProvider } from "@/components/session-provider";
 
 export const metadata: Metadata = {
-  title: { default: "overview", template: "%s — deniz forge" },
+  title: { default: "projects", template: "%s — deniz forge" },
   description: "Forge host, container, image and deployment operations",
 };
 

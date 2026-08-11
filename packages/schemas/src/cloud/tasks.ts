@@ -155,7 +155,8 @@ export const forgeGcTaskConfigSchema = z.object({
   logRetentionDays: z.number().int().min(1).max(365).default(30),
   buildCacheMaxMb: z.number().int().min(0).max(1_048_576).default(2_048),
   buildCacheMaxAgeDays: z.number().int().min(1).max(365).default(14),
-  builderPruneHours: z.number().int().min(1).max(8_760).default(168),
+  /** See `agentGcRequestSchema` — a week is not a window on this host. */
+  builderPruneHours: z.number().int().min(1).max(8_760).default(72),
   /** Free space under this raises `forge_disk_low`. */
   diskLowPercent: z.number().min(1).max(99).default(15),
   dryRun: z.boolean().default(false),

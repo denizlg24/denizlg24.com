@@ -2,7 +2,30 @@ import { z } from "zod";
 
 import { cloudDateTimeSchema } from "./common";
 
-const projectSlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/);
+/**
+ * Forge serves a project at `/<slug>`, one dynamic segment at the root, so a
+ * slug matching a static segment there is a page nobody can reach. Guarded here
+ * rather than by prefixing the URL, which would cost every project route a
+ * segment to protect four names.
+ */
+const RESERVED_PROJECT_SLUGS = new Set([
+  "deployments",
+  "keys",
+  "new",
+  "observability",
+  "resources",
+]);
+
+/**
+ * Exported so the import form can refuse a reserved slug before the round trip
+ * rather than after one that has already provisioned a project.
+ */
+export const projectSlugSchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/)
+  .refine((value) => !RESERVED_PROJECT_SLUGS.has(value), {
+    message: "Slug is reserved by a Forge route",
+  });
 const databaseIdentifierSchema = z
   .string()
   .regex(/^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/);

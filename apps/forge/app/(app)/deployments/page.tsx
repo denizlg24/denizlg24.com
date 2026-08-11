@@ -45,10 +45,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageHeading } from "@/components/page-heading";
+import { ProjectGroupRow } from "@/components/project-group-ui";
+import { groupByProject } from "@/components/project-groups";
+import { ProjectPicker } from "@/components/project-picker";
 import { api, errorMessage } from "@/lib/api";
-import { ProjectGroupRow } from "../_components/project-group-ui";
-import { groupByProject } from "../_components/project-groups";
-import { ProjectPicker } from "../_components/project-picker";
 
 const PAGE_SIZES = [25, 50, 100, 200];
 
@@ -59,6 +59,26 @@ const SORTABLE: { key: ForgeDeploymentSort; label: string; end?: true }[] = [
   { key: "buildDurationMs", label: "build", end: true },
   { key: "createdAt", label: "created" },
 ];
+
+const KINDS = ["production", "preview"] as const;
+
+/**
+ * A `<input type="date">` carries `YYYY-MM-DD` and the filter compares
+ * timestamps, so a bare date has to be widened to the day it names — local
+ * midnight to local midnight. Parsing it as UTC instead would shift the
+ * boundary by the offset and drop the first or last few hours of the range.
+ */
+function dayStart(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function dayEnd(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = new Date(`${value}T23:59:59.999`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
 
 function DeploymentsTable() {
   const router = useRouter();
@@ -76,6 +96,11 @@ function DeploymentsTable() {
         status: params.getAll("status"),
         project: params.get("project"),
         search: params.get("search"),
+        kind: params.get("kind"),
+        branch: params.get("branch"),
+        repo: params.get("repo"),
+        since: dayStart(params.get("since")),
+        until: dayEnd(params.get("until")),
       }),
     [params],
   );
@@ -153,7 +178,14 @@ function DeploymentsTable() {
   const first = total === 0 ? 0 : query.offset + 1;
   const last = Math.min(query.offset + query.limit, total);
   const filtered =
-    query.status.length > 0 || query.project !== null || query.search !== null;
+    query.status.length > 0 ||
+    query.project !== null ||
+    query.search !== null ||
+    query.kind !== null ||
+    query.branch !== null ||
+    query.repo !== null ||
+    query.since !== null ||
+    query.until !== null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -175,9 +207,91 @@ function DeploymentsTable() {
         <ProjectPicker
           options={(data?.projects ?? []).map((slug) => ({ slug }))}
           selected={query.project}
-          onSelect={(project) => setQuery({ project })}
+          // Branches are scoped to the selected project, so one left behind
+          // from the previous project matches nothing and reads as an empty
+          // table with no visible cause.
+          onSelect={(project) => setQuery({ project, branch: null })}
           allLabel="all projects"
         />
+
+        <NativeSelect
+          className="h-7 w-auto text-xs"
+          aria-label="Repository"
+          value={query.repo ?? ""}
+          onChange={(event) => setQuery({ repo: event.target.value || null })}
+        >
+          <NativeSelectOption value="">all repos</NativeSelectOption>
+          {(data?.repos ?? []).map((repo) => (
+            <NativeSelectOption key={repo} value={repo}>
+              {repo}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+
+        {/* Branches only narrow within a project. Across the box the list runs
+            to thousands of refs, and the server caps it — a picker that silently
+            omits the branch you want is worse than not offering one. */}
+        {query.project ? (
+          <NativeSelect
+            className="h-7 w-auto max-w-56 text-xs"
+            aria-label="Branch"
+            value={query.branch ?? ""}
+            onChange={(event) =>
+              setQuery({ branch: event.target.value || null })
+            }
+          >
+            <NativeSelectOption value="">all branches</NativeSelectOption>
+            {(data?.branches ?? []).map((branch) => (
+              <NativeSelectOption key={branch} value={branch}>
+                {branch}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-1">
+          {KINDS.map((kind) => {
+            const active = query.kind === kind;
+            return (
+              <button
+                key={kind}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setQuery({ kind: active ? null : kind })}
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[11px] transition-colors",
+                  active
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {kind}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-1">
+          <Input
+            type="date"
+            aria-label="Since"
+            className="h-7 w-auto text-xs"
+            value={params.get("since") ?? ""}
+            onChange={(event) =>
+              setQuery({ since: event.target.value || null })
+            }
+          />
+          <span className="text-[11px] text-muted-foreground">→</span>
+          <Input
+            type="date"
+            aria-label="Until"
+            className="h-7 w-auto text-xs"
+            value={params.get("until") ?? ""}
+            onChange={(event) =>
+              setQuery({ until: event.target.value || null })
+            }
+          />
+        </div>
 
         <div className="flex flex-wrap items-center gap-1">
           {DEPLOYMENT_STATUSES.map((status) => {
@@ -205,7 +319,16 @@ function DeploymentsTable() {
           <button
             type="button"
             onClick={() =>
-              setQuery({ status: null, project: null, search: null })
+              setQuery({
+                status: null,
+                project: null,
+                search: null,
+                kind: null,
+                branch: null,
+                repo: null,
+                since: null,
+                until: null,
+              })
             }
             className="text-[11px] text-muted-foreground underline-offset-2 hover:underline"
           >

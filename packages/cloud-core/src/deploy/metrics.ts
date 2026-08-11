@@ -62,6 +62,13 @@ export interface ProjectMetricsQuery {
   to: string;
   step: number;
   kind?: "production" | "preview";
+  /**
+   * One deployment's container instead of every container behind the project.
+   * Without it the series averages them together, which is right for a
+   * project's history and wrong for the question "what is this container
+   * doing" — and wrong quietly, because the chart still renders.
+   */
+  deploymentId?: string;
 }
 
 /**
@@ -96,6 +103,9 @@ async function deploymentKeysFor(
       and(
         eq(projects.slug, query.projectSlug),
         query.kind ? eq(deployments.kind, query.kind) : undefined,
+        // Still scoped to the project rather than looked up by id alone, so a
+        // deployment id from another project cannot read its metrics.
+        query.deploymentId ? eq(deployments.id, query.deploymentId) : undefined,
         lte(deployments.createdAt, new Date(query.to)),
         or(
           isNull(deployments.stoppedAt),
