@@ -171,6 +171,38 @@ describe("DockerClient Forge telemetry", () => {
     ]);
   });
 
+  // Docker interleaves the two streams arbitrarily, and a write need not end on
+  // a newline. Sharing one partial-line buffer splices an unterminated stdout
+  // write onto the next stderr frame and labels the result with whichever came
+  // first — corrupting both the text and the stream it is attributed to.
+  test("keeps a partial line per stream when the two interleave", async () => {
+    const entries = await client({
+      logChunks: [
+        dockerFrame("out-start", 1),
+        dockerFrame("err-whole\n", 2),
+        dockerFrame("-out-end\n", 1),
+      ],
+    }).forgeContainerLogWindow("deployment-1", {
+      since: new Date(0),
+      until: new Date(1),
+    });
+    expect(entries).toEqual([
+      { stream: "stderr", line: "err-whole" },
+      { stream: "stdout", line: "out-start-out-end" },
+    ]);
+  });
+
+  test("keeps only the newest lines once a window passes its cap", async () => {
+    const entries = await client({
+      logChunks: [dockerFrame("one\ntwo\nthree\nfour\n", 1)],
+    }).forgeContainerLogWindow("deployment-1", {
+      since: new Date(0),
+      until: new Date(1),
+      maxEntries: 2,
+    });
+    expect(entries.map((entry) => entry.line)).toEqual(["three", "four"]);
+  });
+
   test("streams unframed TTY logs", async () => {
     const lines: string[] = [];
     const plain = new TextEncoder().encode("first\nsecond\n");

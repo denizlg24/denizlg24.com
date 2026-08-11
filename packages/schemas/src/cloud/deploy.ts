@@ -954,6 +954,16 @@ export type DeployBranch = z.infer<typeof deployBranchSchema>;
  */
 export const deployTargetListEntrySchema = deployTargetSchema.extend({
   latestDeployment: deploymentSchema.nullable(),
+  /**
+   * The newest production deployment, which is the only one that describes what
+   * the target's domain is serving. `latestDeployment` is the newest of *any*
+   * kind, so on a repository with active preview builds it is almost always a
+   * branch — and a failed preview then reports a healthy project as failed.
+   *
+   * Defaulted rather than required so a client running ahead of the API still
+   * parses a list from one that does not send it yet.
+   */
+  latestProduction: deploymentSchema.nullable().default(null),
 });
 export type DeployTargetListEntry = z.infer<typeof deployTargetListEntrySchema>;
 

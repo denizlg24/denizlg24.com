@@ -7,8 +7,16 @@ import type {
   ResolvedBuildConfig,
 } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@repo/ui/combobox";
 import { Label } from "@repo/ui/label";
-import { NativeSelect } from "@repo/ui/native-select";
+import { OptionSelect } from "@repo/ui/option-select";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "../api-error";
@@ -232,34 +240,43 @@ export function PresetField({ state }: { state: RepoImport }) {
       <Label htmlFor="preset" className="text-xs text-muted-foreground">
         Application preset
       </Label>
-      {/* A native option cannot hold a mark, so it sits beside the control and
-          follows the selection. Decorative: the option itself is the label. */}
       <div className="flex items-center gap-2">
+        {/* Decorative and outside the trigger: it tracks the selection, and the
+            option's own label is what names the preset. */}
         <FrameworkIcon
           framework={value || null}
-          className="size-4 text-muted-foreground"
+          className="size-4 shrink-0 text-muted-foreground"
         />
-        <NativeSelect
+        <OptionSelect
           id="preset"
-          value={value}
+          size="default"
+          className="w-full"
+          value={value || null}
           disabled={state.detecting || state.presets.length === 0}
-          className="w-full text-xs"
-          onChange={(event) => state.setPreset(event.target.value)}
-        >
-          {/* Detection can land on a preset the table does not offer —
-              `unknown` for a directory it cannot read — and a select whose
-              value matches no option silently shows the first one instead. */}
-          {!state.presets.some((preset) => preset.id === value) && (
-            <option value={value}>
-              {state.resolved?.frameworkLabel ?? "—"}
-            </option>
-          )}
-          {state.presets.map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {preset.label}
-            </option>
-          ))}
-        </NativeSelect>
+          onValueChange={(preset) => {
+            if (preset) state.setPreset(preset);
+          }}
+          options={
+            // Detection can land on a preset the table does not offer —
+            // `unknown` for a directory it cannot read — and a select whose
+            // value matches no item renders an empty trigger instead.
+            state.presets.some((preset) => preset.id === value)
+              ? state.presets.map((preset) => ({
+                  value: preset.id,
+                  label: preset.label,
+                }))
+              : [
+                  {
+                    value,
+                    label: state.resolved?.frameworkLabel ?? "—",
+                  },
+                  ...state.presets.map((preset) => ({
+                    value: preset.id,
+                    label: preset.label,
+                  })),
+                ]
+          }
+        />
       </div>
     </div>
   );
@@ -280,23 +297,36 @@ function BranchField({
   const load = useCallback(fetchBranches, [fetchBranches]);
   const { data } = usePoll(load, null);
   const branches = data ?? [{ name: fallback, sha: "" }];
+  const names = branches.map((entry) => entry.name);
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor="branch" className="text-xs text-muted-foreground">
         Production branch
       </Label>
-      <NativeSelect
-        id="branch"
+      {/* A combobox rather than a select: an active repository carries hundreds
+          of refs, and scrolling to `feat/…` in a flat list is not a thing
+          anyone does twice. */}
+      <Combobox
+        items={names}
         value={value}
-        className="w-full text-xs"
-        onChange={(event) => onChange(event.target.value)}
+        onValueChange={(next: string | null) => {
+          if (next) onChange(next);
+        }}
       >
-        {branches.map((entry) => (
-          <option key={entry.name} value={entry.name}>
-            {entry.name}
-          </option>
-        ))}
-      </NativeSelect>
+        <ComboboxInput id="branch" placeholder="search branches" />
+        <ComboboxContent>
+          <ComboboxEmpty className="px-2 py-3 text-xs text-muted-foreground">
+            no branch matches
+          </ComboboxEmpty>
+          <ComboboxList>
+            {(name: string) => (
+              <ComboboxItem key={name} value={name} className="text-xs">
+                {name}
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
     </div>
   );
 }

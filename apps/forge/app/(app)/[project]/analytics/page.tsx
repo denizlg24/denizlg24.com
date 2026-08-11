@@ -4,12 +4,14 @@ import { useState } from "react";
 import { ContainerSelect } from "@/components/container-select";
 import { ProjectCharts } from "@/components/project-charts";
 import { useProjectContainers } from "@/components/project-containers";
-import { RequestTable } from "@/components/request-table";
 import { useTarget } from "@/components/target-context";
 
 /**
- * The resource and request history of one project, plus the requests its live
- * release is serving now.
+ * What one project's containers are consuming.
+ *
+ * Machine stats only — CPU, memory, network. Traffic lives on the logs page
+ * with the requests it describes; this page used to carry both, which made it
+ * the answer to two unrelated questions and a good answer to neither.
  *
  * Container metrics are keyed per deployment, so the project route on the API
  * aggregates them — which is right for a history and wrong for one container.
@@ -19,14 +21,11 @@ import { useTarget } from "@/components/target-context";
  */
 export default function ProjectAnalyticsPage() {
   const { target } = useTarget();
-  const { containers, live } = useProjectContainers(target.projectSlug);
+  const { containers } = useProjectContainers(target.projectSlug);
   const [containerId, setContainerId] = useState<string | null>(null);
 
   const selected =
     containers.find((container) => container.id === containerId) ?? null;
-  // The request list follows the selected container, falling back to the live
-  // production one — a preview is a branch nobody is watching for traffic.
-  const requestSource = selected ?? live;
 
   return (
     <div className="flex flex-col gap-6">
@@ -44,19 +43,6 @@ export default function ProjectAnalyticsPage() {
           ) : null
         }
       />
-
-      {requestSource?.deploymentId ? (
-        <section className="space-y-2">
-          <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            recent requests
-          </h2>
-          {/* The scroll belongs to the table inside, not to this box —
-              scrolling here would carry the filter bar off the top. */}
-          <div className="flex max-h-96 min-h-0 flex-col border-t pt-2">
-            <RequestTable deploymentId={requestSource.deploymentId} />
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }

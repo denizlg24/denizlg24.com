@@ -1,10 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import type { AlertRule } from "@repo/schemas/cloud";
+import { type AlertRule, DEFAULT_ALERT_RULES } from "@repo/schemas/cloud";
 
+import type { Database } from "../db";
 import {
   describeCondition,
   formatMetricValue,
   nextRuleState,
+  seedDefaultAlertRules,
 } from "./alert-rules";
 
 const BASE = new Date("2026-07-29T12:00:00.000Z");
@@ -133,6 +135,57 @@ describe("nextRuleState", () => {
   });
 });
 
+function seedDb(existing: readonly string[]): {
+  db: Database;
+  inserted: { series: string }[][];
+} {
+  const inserted: { series: string }[][] = [];
+  const db = {
+    select: () => ({
+      from: async () => existing.map((series) => ({ series })),
+    }),
+    insert: () => ({
+      values: (rows: { series: string }[]) => {
+        inserted.push(rows);
+        return { returning: async () => rows.map(() => ({ id: "id" })) };
+      },
+    }),
+  } as unknown as Database;
+  return { db, inserted };
+}
+
+function kinds(rows: readonly { series: string }[]): Set<string> {
+  return new Set(rows.map((row) => row.series.split(":")[0] ?? ""));
+}
+
+describe("seedDefaultAlertRules", () => {
+  it("seeds every shipped family on a database with no rules", async () => {
+    const { db, inserted } = seedDb([]);
+    const count = await seedDefaultAlertRules(db);
+    expect(count).toBe(DEFAULT_ALERT_RULES.length);
+    expect(kinds(inserted[0] ?? [])).toEqual(kinds(DEFAULT_ALERT_RULES));
+  });
+
+  it("seeds a family added after the database was first populated", async () => {
+    // The production case: the Pi's rules have been there since day one, so a
+    // seed gated on the table being empty would never deliver the forge box's.
+    const { db, inserted } = seedDb(["host:swap.usage_percent"]);
+    await seedDefaultAlertRules(db);
+    expect(kinds(inserted[0] ?? []).has("host")).toBe(false);
+    expect(kinds(inserted[0] ?? []).has("forge-host")).toBe(true);
+  });
+
+  it("never re-seeds a family that still holds a rule", async () => {
+    // One surviving rule per family stands for the owner having tuned them —
+    // the deleted siblings must stay deleted across restarts.
+    const { db, inserted } = seedDb([
+      ...new Set(DEFAULT_ALERT_RULES.map((rule) => rule.series)),
+    ]);
+    expect(await seedDefaultAlertRules(db)).toBe(0);
+    expect(inserted).toHaveLength(0);
+  });
+});
+
 describe("value formatting", () => {
   it("renders each unit in its own terms", () => {
     expect(formatMetricValue(42.567, "percent")).toBe("42.6%");
@@ -142,6 +195,14 @@ describe("value formatting", () => {
     expect(formatMetricValue(1_073_741_824, "bytes")).toBe("1.0 GiB");
     expect(formatMetricValue(1_048_576, "bytes_per_second")).toBe("1.0 MiB/s");
     expect(formatMetricValue(0, "bytes")).toBe("0 B");
+    expect(formatMetricValue(1_209_600, "seconds")).toBe("14d 0h");
+    expect(formatMetricValue(90, "seconds")).toBe("1m 30s");
+    expect(formatMetricValue(42, "milliseconds")).toBe("42 ms");
+    expect(formatMetricValue(4_200, "megahertz")).toBe("4.20 GHz");
+    expect(formatMetricValue(900, "rpm")).toBe("900 rpm");
+    expect(formatMetricValue(1.216, "volts")).toBe("1.216 V");
+    expect(formatMetricValue(65.3, "watts")).toBe("65.3 W");
+    expect(formatMetricValue(0.5, "amps")).toBe("0.50 A");
   });
 
   it("describes a condition the way the alert body states it", () => {

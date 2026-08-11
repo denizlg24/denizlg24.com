@@ -1,5 +1,6 @@
 "use client";
 
+import { ENV_SCOPES } from "@repo/cloud-ui/deploy/env-editor";
 import { TemplateInput } from "@repo/cloud-ui/deploy/template-input";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import type {
@@ -19,7 +20,7 @@ import {
 } from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
-import { NativeSelect } from "@repo/ui/native-select";
+import { OptionSelect } from "@repo/ui/option-select";
 import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
 import { Plus, Trash2 } from "lucide-react";
@@ -45,6 +46,12 @@ type Draft = {
   template: string;
   scope: DeployEnvScope;
 };
+
+const ENV_SOURCES: readonly { value: Draft["source"]; label: string }[] = [
+  { value: "literal", label: "literal" },
+  { value: "binding", label: "binding" },
+  { value: "template", label: "template" },
+];
 
 function toDraft(row: DeployEnvVar): Draft {
   return {
@@ -286,19 +293,14 @@ export default function EnvironmentPage() {
           className="h-8 w-48 text-xs"
           onChange={(event) => setSearch(event.target.value)}
         />
-        <NativeSelect
-          size="sm"
-          value={scopeFilter}
-          className="w-32 text-xs"
-          onChange={(event) =>
-            setScopeFilter(event.target.value as DeployEnvScope | "")
-          }
-        >
-          <option value="">every scope</option>
-          <option value="all">all</option>
-          <option value="production">production</option>
-          <option value="preview">preview</option>
-        </NativeSelect>
+        <OptionSelect<DeployEnvScope>
+          className="w-32"
+          aria-label="Scope filter"
+          value={scopeFilter === "" ? null : scopeFilter}
+          onValueChange={(scope) => setScopeFilter(scope ?? "")}
+          emptyLabel="every scope"
+          options={ENV_SCOPES}
+        />
       </div>
 
       <div className="flex flex-col">
@@ -320,41 +322,29 @@ export default function EnvironmentPage() {
               className="h-8 font-mono text-xs"
               onChange={(event) => patch(draft.id, { key: event.target.value })}
             />
-            <NativeSelect
-              size="sm"
+            <OptionSelect<Draft["source"]>
+              aria-label="Source"
               value={draft.source}
-              className="text-xs"
-              onChange={(event) =>
-                patch(draft.id, {
-                  source: event.target.value as Draft["source"],
-                })
+              onValueChange={(source) =>
+                patch(draft.id, { source: source ?? "literal" })
               }
-            >
-              <option value="literal">literal</option>
-              <option value="binding">binding</option>
-              <option value="template">template</option>
-            </NativeSelect>
+              options={ENV_SOURCES}
+            />
             {draft.source === "binding" ? (
-              <NativeSelect
-                size="sm"
-                value={draft.reference}
-                className="w-full text-xs"
-                onChange={(event) =>
-                  patch(draft.id, { reference: event.target.value })
+              <OptionSelect
+                className="w-full"
+                aria-label="Binding"
+                value={draft.reference || null}
+                onValueChange={(reference) =>
+                  patch(draft.id, { reference: reference ?? "" })
                 }
-              >
-                <option value="">—</option>
-                {(bindings?.bindings ?? []).map((binding) => (
-                  <option
-                    key={binding.reference}
-                    value={binding.reference}
-                    disabled={!binding.available}
-                  >
-                    {binding.reference}
-                    {binding.available ? "" : " (unavailable)"}
-                  </option>
-                ))}
-              </NativeSelect>
+                emptyLabel="—"
+                options={(bindings?.bindings ?? []).map((binding) => ({
+                  value: binding.reference,
+                  label: `${binding.reference}${binding.available ? "" : " (unavailable)"}`,
+                  disabled: !binding.available,
+                }))}
+              />
             ) : draft.source === "template" ? (
               <TemplateInput
                 value={draft.template}
@@ -372,20 +362,14 @@ export default function EnvironmentPage() {
                 }
               />
             )}
-            <NativeSelect
-              size="sm"
+            <OptionSelect<DeployEnvScope>
+              aria-label="Scope"
               value={draft.scope}
-              className="text-xs"
-              onChange={(event) =>
-                patch(draft.id, {
-                  scope: event.target.value as DeployEnvScope,
-                })
+              onValueChange={(scope) =>
+                patch(draft.id, { scope: scope ?? "all" })
               }
-            >
-              <option value="all">all</option>
-              <option value="production">production</option>
-              <option value="preview">preview</option>
-            </NativeSelect>
+              options={ENV_SCOPES}
+            />
             <Button
               variant="ghost"
               size="sm"

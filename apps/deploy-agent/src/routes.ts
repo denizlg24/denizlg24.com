@@ -42,6 +42,9 @@ export interface AgentRouteOptions {
 const DEPLOYMENT_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Mirrors the bound the control plane's query schema enforces. */
+const MAX_LOG_WINDOW_MS = 60 * 60 * 1_000;
+
 export function createAgentApp(options: AgentRouteOptions): Hono {
   const app = new Hono();
 
@@ -248,6 +251,82 @@ export function createAgentApp(options: AgentRouteOptions): Hono {
         },
       ),
     );
+  });
+
+  /**
+   * The container output belonging to one request.
+   *
+   * Bounded by a time window on both ends rather than tailed, because this
+   * answers a question about something that already happened. `requestId` is
+   * what makes the answer exact; without it — or when the app never logged it —
+   * the window is all there is, and the response says so.
+   */
+  guarded.get("/deployments/:id/request-logs", async (context) => {
+    const id = context.req.param("id");
+    if (!DEPLOYMENT_ID.test(id)) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_DEPLOYMENT_ID",
+            message: "A deployment id must be a uuid",
+          },
+        },
+        400,
+      );
+    }
+    const from = new Date(context.req.query("from") ?? "");
+    const to = new Date(context.req.query("to") ?? "");
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_WINDOW",
+            message: "from and to must be timestamps",
+          },
+        },
+        400,
+      );
+    }
+    // A reversed window reads as "no logs" rather than as the mistake it is, and
+    // an open-ended one asks the daemon for everything the container ever wrote
+    // — the cost of which is set by the caller's arithmetic, not by this box.
+    const span = to.getTime() - from.getTime();
+    if (span < 0 || span > MAX_LOG_WINDOW_MS) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_WINDOW",
+            message: `from must not be after to, and the window must be at most ${MAX_LOG_WINDOW_MS / 60_000} minutes`,
+          },
+        },
+        400,
+      );
+    }
+    const limit = Number.parseInt(context.req.query("limit") ?? "200", 10);
+    try {
+      return context.json(
+        await options.telemetry.requestLogs(id, {
+          from,
+          to,
+          requestId: context.req.query("requestId") ?? null,
+          limit: Number.isInteger(limit)
+            ? Math.min(Math.max(limit, 1), 1_000)
+            : 200,
+        }),
+      );
+    } catch {
+      // A daemon that will not answer is reported as such. Returning an empty
+      // window instead would tell the caller the request wrote no output.
+      return context.json(
+        {
+          error: {
+            code: "DOCKER_UNAVAILABLE",
+            message: "Could not read the Forge container log window",
+          },
+        },
+        502,
+      );
+    }
   });
 
   guarded.post("/deployments/:id/restart", async (context) => {

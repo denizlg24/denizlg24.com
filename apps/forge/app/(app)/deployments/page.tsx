@@ -1,72 +1,58 @@
 "use client";
 
 import {
-  DeploymentBadges,
+  DeploymentKindBadge,
   deploymentLabel,
   deploymentTone,
 } from "@repo/cloud-ui/deploy-status";
-import {
-  formatBytes,
-  formatDurationMs,
-  formatRelative,
-} from "@repo/cloud-ui/format";
+import { formatDurationMs, formatRelative } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import {
-  DEPLOYMENT_STATUSES,
-  type DeploymentStatus,
   type ForgeDeploymentSort,
+  type ForgeDeploymentSummary,
   forgeDeploymentQuerySchema,
 } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
-import { NativeSelect, NativeSelectOption } from "@repo/ui/native-select";
+import { OptionSelect } from "@repo/ui/option-select";
 import { Skeleton } from "@repo/ui/skeleton";
 import { StatusDot } from "@repo/ui/status-dot";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@repo/ui/table";
 import { cn } from "@repo/ui/utils";
-import {
-  ArrowDown,
-  ArrowUp,
-  ChevronLeft,
-  ChevronRight,
-  ExternalLink,
-  RotateCw,
-  ScrollText,
-} from "lucide-react";
+import { GitBranch, GitCommitHorizontal, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  DateRangeFilter,
+  SearchFilter,
+  StatusFilter,
+} from "@/components/deployment-filters";
 import { PageHeading } from "@/components/page-heading";
-import { ProjectGroupRow } from "@/components/project-group-ui";
-import { groupByProject } from "@/components/project-groups";
-import { ProjectPicker } from "@/components/project-picker";
 import { api, errorMessage } from "@/lib/api";
 
-const PAGE_SIZES = [25, 50, 100, 200];
+const PAGE_STEP = 50;
+/** `forgeDeploymentQuerySchema` refuses more, and the feed stops being one. */
+const MAX_ROWS = 500;
 
-const SORTABLE: { key: ForgeDeploymentSort; label: string; end?: true }[] = [
-  { key: "projectSlug", label: "project" },
-  { key: "status", label: "status" },
-  { key: "imageSizeBytes", label: "image", end: true },
-  { key: "buildDurationMs", label: "build", end: true },
-  { key: "createdAt", label: "created" },
+const SORTS: { value: ForgeDeploymentSort; label: string }[] = [
+  { value: "createdAt", label: "newest" },
+  { value: "projectSlug", label: "project" },
+  { value: "status", label: "status" },
+  { value: "buildDurationMs", label: "build time" },
+  { value: "imageSizeBytes", label: "image size" },
 ];
 
-const KINDS = ["production", "preview"] as const;
+const ENVIRONMENTS = [
+  { value: "production" as const, label: "Production" },
+  { value: "preview" as const, label: "Preview" },
+];
 
 /**
- * A `<input type="date">` carries `YYYY-MM-DD` and the filter compares
- * timestamps, so a bare date has to be widened to the day it names — local
- * midnight to local midnight. Parsing it as UTC instead would shift the
- * boundary by the offset and drop the first or last few hours of the range.
+ * A day string carries no time and the filter compares timestamps, so a bare
+ * date has to be widened to the day it names — local midnight to local
+ * midnight. Parsing it as UTC instead shifts the boundary by the offset and
+ * drops the first or last few hours of the range.
  */
 function dayStart(value: string | null): string | null {
   if (!value) return null;
@@ -80,34 +66,41 @@ function dayEnd(value: string | null): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-function DeploymentsTable() {
+function shortRef(gitRef: string): string {
+  return gitRef.replace(/^refs\/heads\//, "");
+}
+
+function DeploymentsFeed() {
   const router = useRouter();
   const params = useSearchParams();
 
   // The URL is the state. A filtered view stays linkable, survives a refresh
   // and comes back intact from a deployment's detail page.
-  const query = useMemo(
-    () =>
-      forgeDeploymentQuerySchema.parse({
-        limit: params.get("size") ?? undefined,
-        offset: params.get("offset") ?? undefined,
-        sort: params.get("sort") ?? undefined,
-        direction: params.get("direction") ?? undefined,
-        status: params.getAll("status"),
-        project: params.get("project"),
-        search: params.get("search"),
-        kind: params.get("kind"),
-        branch: params.get("branch"),
-        repo: params.get("repo"),
-        since: dayStart(params.get("since")),
-        until: dayEnd(params.get("until")),
-      }),
-    [params],
-  );
+  //
+  // Parsed safely because the URL is typed by hand as often as it is navigated
+  // to: `?size=`, a status the enum does not hold, or a stale link from before a
+  // filter was renamed would otherwise throw inside render and blank the page.
+  // An unparseable URL falls back to the unfiltered feed rather than to nothing.
+  const query = useMemo(() => {
+    const parsed = forgeDeploymentQuerySchema.safeParse({
+      limit: params.get("size") ?? undefined,
+      sort: params.get("sort") ?? undefined,
+      direction: params.get("direction") ?? undefined,
+      status: params.getAll("status"),
+      project: params.get("project"),
+      search: params.get("search"),
+      kind: params.get("kind"),
+      branch: params.get("branch"),
+      repo: params.get("repo"),
+      since: dayStart(params.get("since")),
+      until: dayEnd(params.get("until")),
+    });
+    return parsed.success ? parsed.data : forgeDeploymentQuerySchema.parse({});
+  }, [params]);
 
   const setQuery = (
     next: Partial<Record<string, string | number | null | string[]>>,
-    { keepOffset = false }: { keepOffset?: boolean } = {},
+    { keepSize = false }: { keepSize?: boolean } = {},
   ) => {
     const search = new URLSearchParams(params.toString());
     for (const [key, value] of Object.entries(next)) {
@@ -119,27 +112,20 @@ function DeploymentsTable() {
       }
       search.set(key, String(value));
     }
-    // Any change to what is being listed invalidates the page number — page 7
-    // of an unfiltered list is rarely page 7 of a filtered one.
-    if (!keepOffset) search.delete("offset");
+    // Any change to what is being listed invalidates how far down it you had
+    // scrolled — five pages of an unfiltered feed is rarely five of a filtered
+    // one, and keeping it would fetch 250 rows to show three.
+    if (!keepSize) search.delete("size");
     router.replace(search.size === 0 ? "?" : `?${search}`, { scroll: false });
   };
 
   const fetchPage = useMemo(() => () => api.forge.deployments(query), [query]);
-  const { data, error, loading, reload } = usePoll(fetchPage, 30_000);
-  const groups = useMemo(
-    () =>
-      groupByProject(
-        data?.deployments ?? [],
-        (deployment) => ({
-          projectSlug: deployment.projectSlug,
-          kind: deployment.kind,
-        }),
-        // The server already ordered this page by the selected sort; regrouping
-        // alphabetically would make the sort control look broken.
-        "input",
-      ),
-    [data],
+  // The first window refreshes on the cadence a feed wants. Ten pages of it is
+  // ten times the query and ten times the payload for rows nobody is looking at
+  // — someone who has paged that far down is reading, not watching.
+  const { data, error, loading, reload } = usePoll(
+    fetchPage,
+    query.limit > PAGE_STEP ? 120_000 : 30_000,
   );
 
   const [restarting, setRestarting] = useState<Set<string>>(() => new Set());
@@ -160,23 +146,8 @@ function DeploymentsTable() {
     }
   };
 
-  const toggleSort = (key: ForgeDeploymentSort) =>
-    setQuery({
-      sort: key,
-      direction:
-        query.sort === key && query.direction === "desc" ? "asc" : "desc",
-    });
-
-  const toggleStatus = (status: DeploymentStatus) =>
-    setQuery({
-      status: query.status.includes(status)
-        ? query.status.filter((entry) => entry !== status)
-        : [...query.status, status],
-    });
-
   const total = data?.total ?? 0;
-  const first = total === 0 ? 0 : query.offset + 1;
-  const last = Math.min(query.offset + query.limit, total);
+  const shown = data?.deployments.length ?? 0;
   const filtered =
     query.status.length > 0 ||
     query.project !== null ||
@@ -188,13 +159,11 @@ function DeploymentsTable() {
     query.until !== null;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <PageHeading
         title="deployments"
         detail={
-          data
-            ? `${first}–${last} of ${total}${filtered ? " matched" : ""}`
-            : undefined
+          data ? `${shown} of ${total}${filtered ? " matched" : ""}` : undefined
         }
       >
         <SearchBox
@@ -203,117 +172,75 @@ function DeploymentsTable() {
         />
       </PageHeading>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <ProjectPicker
-          options={(data?.projects ?? []).map((slug) => ({ slug }))}
-          selected={query.project}
-          // Branches are scoped to the selected project, so one left behind
-          // from the previous project matches nothing and reads as an empty
-          // table with no visible cause.
-          onSelect={(project) => setQuery({ project, branch: null })}
-          allLabel="all projects"
+      <div className="flex flex-wrap items-center gap-2">
+        <DateRangeFilter
+          since={params.get("since")}
+          until={params.get("until")}
+          onChange={(range) => setQuery(range)}
         />
 
-        <NativeSelect
-          className="h-7 w-auto text-xs"
-          aria-label="Repository"
-          value={query.repo ?? ""}
-          onChange={(event) => setQuery({ repo: event.target.value || null })}
-        >
-          <NativeSelectOption value="">all repos</NativeSelectOption>
-          {(data?.repos ?? []).map((repo) => (
-            <NativeSelectOption key={repo} value={repo}>
-              {repo}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+        <OptionSelect
+          size="default"
+          className="h-9 w-44"
+          aria-label="Environment"
+          value={query.kind}
+          onValueChange={(kind) => setQuery({ kind })}
+          emptyLabel="All Environments"
+          options={ENVIRONMENTS}
+        />
+
+        <SearchFilter
+          value={query.repo}
+          onChange={(repo) => setQuery({ repo })}
+          options={data?.repos ?? []}
+          allLabel="All Repositories"
+          emptyLabel="no repository matches"
+        />
+
+        <SearchFilter
+          value={query.project}
+          // Branches are scoped to the selected project, so one left behind
+          // from the previous project matches nothing and reads as an empty
+          // feed with no visible cause.
+          onChange={(project) => setQuery({ project, branch: null })}
+          options={data?.projects ?? []}
+          allLabel="All Projects"
+          emptyLabel="no project matches"
+        />
 
         {/* Branches only narrow within a project. Across the box the list runs
-            to thousands of refs, and the server caps it — a picker that silently
+            to thousands of refs and the server caps it — a picker that silently
             omits the branch you want is worse than not offering one. */}
         {query.project ? (
-          <NativeSelect
-            className="h-7 w-auto max-w-56 text-xs"
-            aria-label="Branch"
-            value={query.branch ?? ""}
-            onChange={(event) =>
-              setQuery({ branch: event.target.value || null })
-            }
-          >
-            <NativeSelectOption value="">all branches</NativeSelectOption>
-            {(data?.branches ?? []).map((branch) => (
-              <NativeSelectOption key={branch} value={branch}>
-                {branch}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
+          <SearchFilter
+            value={query.branch}
+            onChange={(branch) => setQuery({ branch })}
+            options={data?.branches ?? []}
+            allLabel="All Branches"
+            emptyLabel="no branch matches"
+          />
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-1">
-          {KINDS.map((kind) => {
-            const active = query.kind === kind;
-            return (
-              <button
-                key={kind}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setQuery({ kind: active ? null : kind })}
-                className={cn(
-                  "rounded-full px-2 py-0.5 text-[11px] transition-colors",
-                  active
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {kind}
-              </button>
-            );
-          })}
-        </div>
+        <StatusFilter
+          selected={query.status}
+          onChange={(status) => setQuery({ status })}
+        />
 
-        <div className="flex items-center gap-1">
-          <Input
-            type="date"
-            aria-label="Since"
-            className="h-7 w-auto text-xs"
-            value={params.get("since") ?? ""}
-            onChange={(event) =>
-              setQuery({ since: event.target.value || null })
-            }
-          />
-          <span className="text-[11px] text-muted-foreground">→</span>
-          <Input
-            type="date"
-            aria-label="Until"
-            className="h-7 w-auto text-xs"
-            value={params.get("until") ?? ""}
-            onChange={(event) =>
-              setQuery({ until: event.target.value || null })
-            }
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1">
-          {DEPLOYMENT_STATUSES.map((status) => {
-            const active = query.status.includes(status);
-            return (
-              <button
-                key={status}
-                type="button"
-                aria-pressed={active}
-                onClick={() => toggleStatus(status)}
-                className={cn(
-                  "rounded-full px-2 py-0.5 text-[11px] transition-colors",
-                  active
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {status}
-              </button>
-            );
-          })}
-        </div>
+        <OptionSelect
+          size="default"
+          className="ml-auto h-9"
+          aria-label="Sort"
+          value={query.sort}
+          onValueChange={(sort) =>
+            setQuery({
+              sort,
+              // Every sort but the default reads best largest-first, and
+              // `createdAt` already means newest-first descending.
+              direction: "desc",
+            })
+          }
+          options={SORTS}
+        />
 
         {filtered ? (
           <button
@@ -337,286 +264,155 @@ function DeploymentsTable() {
         ) : null}
       </div>
 
-      {!data && !error ? <Skeleton className="h-64" /> : null}
+      {!data && !error ? <Skeleton className="h-96" /> : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
       {data ? (
         <div
           className={cn(
-            "transition-opacity",
+            "flex flex-col transition-opacity",
             loading ? "opacity-60" : "opacity-100",
           )}
         >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {SORTABLE.map((column) => (
-                  <TableHead
-                    key={column.key}
-                    className={column.end ? "text-right" : undefined}
-                  >
-                    <SortButton
-                      label={column.label}
-                      active={query.sort === column.key}
-                      direction={query.direction}
-                      end={column.end}
-                      onClick={() => toggleSort(column.key)}
-                    />
-                  </TableHead>
-                ))}
-                <TableHead>commit</TableHead>
-                <TableHead>host</TableHead>
-                <TableHead className="w-24" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {groups.flatMap((group) => [
-                <ProjectGroupRow
-                  key={`${group.projectSlug}-group`}
-                  slug={group.projectSlug}
-                  detail={group.all.length}
-                  columns={8}
-                />,
-                // Production first, previews inset beneath it. Grouping is within
-                // the page only: paging is server-side `limit/offset`, so a
-                // project with many deployments genuinely does continue onto the
-                // next page, and pretending otherwise would mean paging groups
-                // the endpoint cannot count.
-                ...[...group.production, ...group.previews].map(
-                  (deployment) => (
-                    <TableRow
-                      key={deployment.id}
-                      // The link in the project cell is the real navigation — this
-                      // only widens its target. Clicks landing on the row's own
-                      // links and buttons are left to them.
-                      onClick={(event) => {
-                        if (
-                          event.target instanceof Element &&
-                          event.target.closest("a,button")
-                        ) {
-                          return;
-                        }
-                        router.push(`/deployments/${deployment.id}`);
-                      }}
-                      className="cursor-pointer"
-                    >
-                      <TableCell
-                        className={
-                          deployment.kind === "production" ? undefined : "pl-9"
-                        }
-                      >
-                        <div className="flex w-56 flex-col gap-1">
-                          <span className="flex items-center gap-2">
-                            <Link
-                              href={`/deployments/${deployment.id}`}
-                              title={deployment.gitRef}
-                              className={cn(
-                                "truncate hover:underline",
-                                deployment.kind === "production"
-                                  ? "font-medium"
-                                  : "text-xs",
-                              )}
-                            >
-                              {deployment.gitRef.replace(/^refs\/heads\//, "")}
-                            </Link>
-                            <span className="flex shrink-0 items-center gap-1">
-                              <DeploymentBadges
-                                kind={deployment.kind}
-                                status={deployment.status}
-                              />
-                            </span>
-                          </span>
-                          <span
-                            className="truncate text-[11px] text-muted-foreground"
-                            title={deployment.targetName}
-                          >
-                            {deployment.targetName}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center gap-1.5">
-                          <StatusDot
-                            tone={deploymentTone(deployment.status)}
-                            label={deployment.status}
-                          />
-                          {deploymentLabel(deployment.status, deployment.phase)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-xs">
-                        {deployment.imageSizeBytes === null
-                          ? "—"
-                          : formatBytes(deployment.imageSizeBytes)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-xs">
-                        {formatDurationMs(deployment.buildDurationMs)}
-                      </TableCell>
-                      <TableCell>
-                        {formatRelative(deployment.createdAt)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex w-48 flex-col">
-                          <span className="font-mono text-xs">
-                            {deployment.gitSha.slice(0, 7)}
-                          </span>
-                          <span
-                            className="truncate text-[11px] text-muted-foreground"
-                            title={deployment.gitMessage ?? deployment.gitRef}
-                          >
-                            {deployment.gitMessage ?? deployment.gitRef}
-                          </span>
-                        </div>
-                      </TableCell>
-                      {/* A preview hostname is slug + branch + sha and runs past
-                          60 characters. `TableCell` is `whitespace-nowrap`, so
-                          unbounded it widens the column until the table scrolls
-                          sideways and the actions fall off the edge.
-                          `max-w-*` will not hold it: an auto-layout table sizes
-                          columns from content and ignores a cell's max-width, so
-                          the truncating element needs a definite width of its
-                          own. */}
-                      <TableCell>
-                        <a
-                          className="flex w-56 items-center gap-1 hover:underline"
-                          href={`https://${deployment.hostname}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title={deployment.hostname}
-                        >
-                          <span className="truncate">
-                            {deployment.hostname}
-                          </span>
-                          <ExternalLink className="size-3 shrink-0" />
-                        </a>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7"
-                            asChild
-                          >
-                            <Link
-                              href={`/deployments/${deployment.id}`}
-                              aria-label="Logs"
-                            >
-                              <ScrollText className="size-3.5" />
-                            </Link>
-                          </Button>
-                          {deployment.status === "ready" ? (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-7"
-                              disabled={restarting.has(deployment.id)}
-                              onClick={() => void restart(deployment.id)}
-                              aria-label="Restart deployment"
-                            >
-                              <RotateCw
-                                className={`size-3.5 ${restarting.has(deployment.id) ? "animate-spin" : ""}`}
-                              />
-                            </Button>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ),
-                ),
-              ])}
-              {data.deployments.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={8}
-                    className="text-center text-xs text-muted-foreground"
-                  >
-                    —
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-
-          <div className="mt-4 flex items-center justify-between gap-4">
-            <NativeSelect
-              size="sm"
-              aria-label="Rows per page"
-              value={String(query.limit)}
-              onChange={(event) => setQuery({ size: event.target.value })}
-            >
-              {PAGE_SIZES.map((size) => (
-                <NativeSelectOption key={size} value={String(size)}>
-                  {size} / page
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                disabled={query.offset === 0}
-                aria-label="Previous page"
-                onClick={() =>
-                  setQuery(
-                    { offset: Math.max(0, query.offset - query.limit) },
-                    { keepOffset: true },
-                  )
-                }
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                disabled={last >= total}
-                aria-label="Next page"
-                onClick={() =>
-                  setQuery(
-                    { offset: query.offset + query.limit },
-                    { keepOffset: true },
-                  )
-                }
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
+          <div className="overflow-hidden rounded-lg border">
+            {data.deployments.map((deployment) => (
+              <DeploymentRow
+                key={deployment.id}
+                deployment={deployment}
+                restarting={restarting.has(deployment.id)}
+                onRestart={() => void restart(deployment.id)}
+              />
+            ))}
+            {data.deployments.length === 0 ? (
+              <p className="px-4 py-8 text-center text-xs text-muted-foreground">
+                —
+              </p>
+            ) : null}
           </div>
+
+          {shown < total ? (
+            <Button
+              variant="outline"
+              className="mt-4 w-full"
+              disabled={loading || query.limit >= MAX_ROWS}
+              onClick={() =>
+                setQuery(
+                  { size: Math.min(query.limit + PAGE_STEP, MAX_ROWS) },
+                  { keepSize: true },
+                )
+              }
+            >
+              {query.limit >= MAX_ROWS ? "Narrow the filters" : "Load More"}
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-function SortButton({
-  label,
-  active,
-  direction,
-  end,
-  onClick,
+/**
+ * One deployment, as one line.
+ *
+ * Everything on it is fixed-width except the commit message, which takes the
+ * slack — a row whose columns move as you scroll is unreadable, and the message
+ * is the only field with no natural length. `min-w-0` on that cell is what lets
+ * `truncate` fire at all: a flex child defaults to the width of its content.
+ */
+function DeploymentRow({
+  deployment,
+  restarting,
+  onRestart,
 }: {
-  label: string;
-  active: boolean;
-  direction: "asc" | "desc";
-  end?: true;
-  onClick: () => void;
+  deployment: ForgeDeploymentSummary;
+  restarting: boolean;
+  onRestart: () => void;
 }) {
-  const Arrow = direction === "asc" ? ArrowUp : ArrowDown;
+  const router = useRouter();
+  const href = `/deployments/${deployment.id}`;
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={`Sort by ${label}`}
-      className={cn(
-        "inline-flex items-center gap-1 hover:text-foreground",
-        end && "flex-row-reverse",
-        active ? "text-foreground" : "text-muted-foreground",
-      )}
+    <div
+      // The message is the real link — this only widens its target. Clicks
+      // landing on the row's own links and buttons are left to them.
+      onClick={(event) => {
+        if (event.target instanceof Element && event.target.closest("a,button"))
+          return;
+        router.push(href);
+      }}
+      className="flex cursor-pointer items-center gap-4 border-b px-4 py-2.5 text-xs transition-colors last:border-b-0 hover:bg-muted/40"
     >
-      {label}
-      {active ? <Arrow className="size-3" /> : null}
-    </button>
+      <Link
+        href={href}
+        className="min-w-0 flex-1 truncate hover:underline"
+        title={deployment.gitMessage ?? shortRef(deployment.gitRef)}
+      >
+        {deployment.gitMessage ?? shortRef(deployment.gitRef)}
+      </Link>
+
+      <span className="flex w-40 shrink-0 items-center gap-1.5">
+        <StatusDot
+          tone={deploymentTone(deployment.status)}
+          label={deployment.status}
+        />
+        <span className="capitalize">
+          {deploymentLabel(deployment.status, deployment.phase)}
+        </span>
+        <span className="tabular-nums text-muted-foreground">
+          {formatDurationMs(deployment.buildDurationMs)}
+        </span>
+      </span>
+
+      <DeploymentKindBadge
+        kind={deployment.kind}
+        className="w-20 shrink-0 justify-center"
+      />
+
+      <Link
+        href={`/${deployment.projectSlug}`}
+        className="w-44 shrink-0 truncate hover:underline"
+        title={deployment.projectSlug}
+      >
+        {deployment.projectSlug}
+      </Link>
+
+      <span className="flex w-24 shrink-0 items-center gap-1 font-mono text-muted-foreground">
+        <GitCommitHorizontal className="size-3.5 shrink-0" />
+        {deployment.gitSha.slice(0, 7)}
+      </span>
+
+      {/* A preview ref is `dependabot/npm_and_yarn/…` and runs past sixty
+          characters; without a definite width there is nothing for the ellipsis
+          to appear in and the row pushes the timestamp off the edge. */}
+      <span
+        className="flex w-56 shrink-0 items-center gap-1 text-muted-foreground"
+        title={shortRef(deployment.gitRef)}
+      >
+        <GitBranch className="size-3.5 shrink-0" />
+        <span className="truncate">{shortRef(deployment.gitRef)}</span>
+      </span>
+
+      <span className="w-20 shrink-0 text-right text-muted-foreground">
+        {formatRelative(deployment.createdAt)}
+      </span>
+
+      <span className="flex w-7 shrink-0 justify-end">
+        {deployment.status === "ready" ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            disabled={restarting}
+            onClick={onRestart}
+            aria-label="Restart deployment"
+          >
+            <RotateCw
+              className={cn("size-3.5", restarting && "animate-spin")}
+            />
+          </Button>
+        ) : null}
+      </span>
+    </div>
   );
 }
 
@@ -651,8 +447,8 @@ function SearchBox({
 
 export default function DeploymentsPage() {
   return (
-    <Suspense fallback={<Skeleton className="h-64" />}>
-      <DeploymentsTable />
+    <Suspense fallback={<Skeleton className="h-96" />}>
+      <DeploymentsFeed />
     </Suspense>
   );
 }

@@ -1,9 +1,12 @@
 import type {
   ForgeAgentSnapshot,
   ForgeContainer,
+  ForgeRequestLogLine,
+  ForgeRequestLogs,
   ForgeRequestStats,
 } from "@repo/schemas/cloud";
 
+import { mapWithConcurrency } from "./concurrency";
 import type { DockerClient, ForgeDockerContainer } from "./docker";
 import type { HealthService } from "./health";
 import { HostCollector } from "./host";
@@ -16,23 +19,42 @@ import {
 
 const METRICS_CONCURRENCY = 4;
 
-async function mapWithConcurrency<T, R>(
-  values: readonly T[],
-  concurrency: number,
-  map: (value: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
-      while (next < values.length) {
-        const index = next++;
-        const value = values[index];
-        if (value !== undefined) results[index] = await map(value);
-      }
-    }),
-  );
-  return results;
+/**
+ * How many lines one request-log window may hold in memory at once.
+ *
+ * Far above any `limit` a caller asks for, because the id correlation searches
+ * the whole window and a cap at the answer's size would only ever find matches
+ * in its last page. Far below what a chatty container writes in an hour, which
+ * is the number that would otherwise be buffered before anything is discarded.
+ */
+const LOG_WINDOW_MAX_ENTRIES = 20_000;
+
+/**
+ * Splits Docker's `timestamps=1` prefix off a line.
+ *
+ * The daemon writes an RFC3339 instant, a single space, then the line as the
+ * container wrote it. Left in place it would be repeated in front of every
+ * message in a UI that already has a time column, and would defeat any search
+ * for text at the start of a line.
+ */
+export function parseTimestampedLine(entry: {
+  stream: "stdout" | "stderr" | null;
+  line: string;
+}): ForgeRequestLogLine {
+  const boundary = entry.line.indexOf(" ");
+  if (boundary > 0) {
+    const stamp = new Date(entry.line.slice(0, boundary));
+    if (!Number.isNaN(stamp.getTime())) {
+      return {
+        ts: stamp.toISOString(),
+        stream: entry.stream,
+        message: entry.line.slice(boundary + 1),
+      };
+    }
+  }
+  // A line the daemon did not stamp is still a line worth showing; it just
+  // cannot be placed on the timeline.
+  return { ts: null, stream: entry.stream, message: entry.line };
 }
 
 export interface ForgeTelemetryOptions {
@@ -162,6 +184,73 @@ export class ForgeTelemetry {
     const container =
       await this.#options.docker.resolveForgeContainer(containerId);
     return this.#options.docker.forgeContainerLogs(container, options);
+  }
+
+  /**
+   * The container output belonging to one request.
+   *
+   * Two mechanisms, and the answer says which one it used. Caddy stamps every
+   * proxied request with `X-Request-Id` and forwards it, so an app that logs the
+   * header gives an exact join — those lines are its request's and nobody
+   * else's. An app that does not gets the whole window the request was open
+   * for, which is right under low concurrency and wrong under high; conflating
+   * the two would let the second quietly pass for the first.
+   *
+   * The id is matched as a substring rather than by parsing the line: apps
+   * format their logs however they like, and requiring a shape would mean
+   * correlating for none of them.
+   */
+  async requestLogs(
+    deploymentId: string,
+    options: { from: Date; to: Date; requestId: string | null; limit: number },
+  ): Promise<ForgeRequestLogs> {
+    // Not caught: a daemon that cannot be reached is not a deployment with no
+    // logs, and swallowing it here reports an empty window for an outage. The
+    // route maps the failure to DOCKER_UNAVAILABLE.
+    const containers = await this.#options.docker.listForgeContainers();
+    const container = containers.find(
+      (candidate) => candidate.deploymentId === deploymentId,
+    );
+    if (!container) {
+      return { lines: [], correlation: "time-window", truncated: false };
+    }
+
+    // `forgeContainerLogWindow` already rounds the bounds outward, because the
+    // daemon filters at one-second resolution — a request that started at .95
+    // would otherwise fall outside a window asked for from .95. That widening is
+    // undone here rather than left in the answer.
+    const entries = await this.#options.docker.forgeContainerLogWindow(
+      container,
+      {
+        since: options.from,
+        until: options.to,
+        maxEntries: LOG_WINDOW_MAX_ENTRIES,
+      },
+    );
+
+    const from = options.from.getTime();
+    const to = options.to.getTime();
+    const parsed = entries
+      .map((entry) => parseTimestampedLine(entry))
+      .filter((line) => {
+        // An unstamped line cannot be placed on the timeline, and dropping it
+        // would hide exactly the output of an app that writes its own format.
+        if (line.ts === null) return true;
+        const at = new Date(line.ts).getTime();
+        return at >= from && at <= to;
+      });
+    const requestId = options.requestId;
+    const matched =
+      requestId === null
+        ? []
+        : parsed.filter((line) => line.message.includes(requestId));
+
+    const selected = matched.length > 0 ? matched : parsed;
+    return {
+      lines: selected.slice(-options.limit),
+      correlation: matched.length > 0 ? "request-id" : "time-window",
+      truncated: selected.length > options.limit,
+    };
   }
 
   async #withMetrics(container: ForgeDockerContainer): Promise<ForgeContainer> {

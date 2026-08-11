@@ -12,7 +12,11 @@ import {
   RepoImportFields,
   useRepoImport,
 } from "@repo/cloud-ui/deploy/repo-import";
-import { projectSlugSchema } from "@repo/schemas/cloud";
+import { usePoll } from "@repo/cloud-ui/use-poll";
+import {
+  type ConnectableProject,
+  projectSlugSchema,
+} from "@repo/schemas/cloud";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import {
@@ -20,12 +24,21 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@repo/ui/collapsible";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@repo/ui/combobox";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
+import { Skeleton } from "@repo/ui/skeleton";
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageHeading } from "@/components/page-heading";
 import { projectHref } from "@/components/target-context";
@@ -59,6 +72,85 @@ function Disclosure({
   );
 }
 
+/**
+ * Attaches this deployable to a project that already exists instead of minting
+ * one.
+ *
+ * Only projects with no target are offered. The schema permits a project to
+ * hold several, but nothing in production does, and a picker that lets you
+ * attach a second deployable to a project already serving one produces a
+ * hostname collision rather than anything useful.
+ *
+ * This is a leftover-shaped problem — projects predating Forge that hold a
+ * database and no deployable — so it sits under a disclosure rather than beside
+ * the slug field. New imports should keep creating both in one call.
+ */
+function ExistingProjectField({
+  value,
+  onChange,
+}: {
+  value: ConnectableProject | null;
+  onChange: (project: ConnectableProject | null) => void;
+}) {
+  const load = useCallback(() => api.deploy.projects(), []);
+  const { data, error, loading } = usePoll(load, null);
+  const available = useMemo(
+    () => (data ?? []).filter((project) => !project.hasTarget),
+    [data],
+  );
+
+  if (error) return <p className="text-xs text-destructive">{error}</p>;
+  // Checked before the empty case, which is otherwise what an in-flight request
+  // renders — a dash reading as "there are none" while the list is still coming.
+  if (!data && loading) return <Skeleton className="h-8 w-64" />;
+  if (available.length === 0) {
+    return <p className="text-xs text-muted-foreground">—</p>;
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Combobox
+        items={available}
+        value={value}
+        onValueChange={onChange}
+        itemToStringLabel={(project: ConnectableProject) => project.slug}
+        isItemEqualToValue={(a: ConnectableProject, b: ConnectableProject) =>
+          a.id === b.id
+        }
+      >
+        <ComboboxInput
+          placeholder="search projects"
+          className="h-8 w-64 text-xs"
+        />
+        <ComboboxContent>
+          <ComboboxEmpty className="px-2 py-3 text-xs text-muted-foreground">
+            no project matches
+          </ComboboxEmpty>
+          <ComboboxList>
+            {(project: ConnectableProject) => (
+              <ComboboxItem
+                key={project.id}
+                value={project}
+                className="flex-col items-start gap-0 py-1.5"
+              >
+                <span className="font-mono text-xs">{project.slug}</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {project.name}
+                </span>
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
+      {value ? (
+        <Button size="sm" variant="ghost" onClick={() => onChange(null)}>
+          Clear
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 /** `denizlg24.com` and `My_App` are both legal repository names and neither is a legal slug. */
 function slugify(repoName: string): string {
   return repoName
@@ -78,14 +170,20 @@ export default function ConfigureImportPage() {
   const [slug, setSlug] = useState(() =>
     initial ? slugify(initial.name) : "",
   );
+  const [linked, setLinked] = useState<ConnectableProject | null>(null);
   const [env, setEnv] = useState<EnvDraftRow[]>([]);
   const [busy, setBusy] = useState(false);
 
+  // Linking adopts that project's slug wholesale — the project already owns it,
+  // and the create call sends an id rather than a name when one is chosen.
+  const effectiveSlug = linked?.slug ?? slug;
+
   const slugError = useMemo(() => {
+    if (linked) return null;
     const parsed = projectSlugSchema.safeParse(slug);
     if (parsed.success) return null;
     return parsed.error.issues[0]?.message ?? "Invalid slug";
-  }, [slug]);
+  }, [slug, linked]);
 
   async function create() {
     if (!repo || slugError) return;
@@ -95,10 +193,19 @@ export default function ConfigureImportPage() {
         // The patch shape is partial, so the fields create insists on are
         // restated under it rather than spread over it.
         ...buildConfigPatch(source.form),
-        // A Forge project is the deployable, so the import creates both in one
-        // call rather than sending the owner through a separate project form.
-        project: { name: slug, slug },
-        name: slug,
+        // Exactly one of the two, which the request schema enforces. A Forge
+        // project is normally the deployable, so the common path creates both
+        // in one call rather than sending the owner through a project form —
+        // but projects predating Forge exist with no target, and those are
+        // adopted by id instead.
+        ...(linked
+          ? { projectId: linked.id }
+          : { project: { name: slug, slug } }),
+        // The target's name, not the project's. The server builds the hostname
+        // as `<slug>-<name>` unless the name is `web`, so passing the slug here
+        // produced `myapp-myapp.<zone>` for every single-deployable project —
+        // which is all of them on import.
+        name: "web",
         repoOwner: repo.owner,
         repoName: repo.name,
         githubInstallationId: repo.installationId,
@@ -173,15 +280,16 @@ export default function ConfigureImportPage() {
           </Label>
           <Input
             id="slug"
-            value={slug}
-            className="font-mono text-xs"
+            value={effectiveSlug}
+            disabled={linked !== null}
+            className="font-mono text-xs disabled:opacity-60"
             onChange={(event) => setSlug(event.target.value)}
           />
           <p className="text-[11px] text-muted-foreground">
             {slugError ? (
               <span className="text-destructive">{slugError}</span>
             ) : (
-              `/${slug}`
+              `/${effectiveSlug}`
             )}
           </p>
         </div>
@@ -208,6 +316,9 @@ export default function ConfigureImportPage() {
         </Disclosure>
         <Disclosure title="Environment variables" count={env.length}>
           <EnvEditor rows={env} onChange={setEnv} />
+        </Disclosure>
+        <Disclosure title="Existing project" count={linked ? 1 : 0}>
+          <ExistingProjectField value={linked} onChange={setLinked} />
         </Disclosure>
       </div>
 

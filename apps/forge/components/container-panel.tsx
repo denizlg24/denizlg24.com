@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { useCallback } from "react";
 import { api } from "@/lib/api";
 import { LogStream } from "./log-stream";
-import { RequestTable } from "./request-table";
+import { RequestExplorer } from "./request-explorer";
 
 /**
  * Logs and requests for one container, opened from its row.
@@ -76,7 +76,7 @@ export function ContainerPanel({
                 className="flex min-h-0 flex-1 flex-col"
               >
                 {container.deploymentId ? (
-                  <RequestTable deploymentId={container.deploymentId} />
+                  <RequestExplorer deploymentId={container.deploymentId} />
                 ) : null}
               </TabsContent>
             </Tabs>

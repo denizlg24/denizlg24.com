@@ -2,6 +2,7 @@
 
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
+import { OptionSelect } from "@repo/ui/option-select";
 import { Switch } from "@repo/ui/switch";
 import { useId } from "react";
 
@@ -94,22 +95,20 @@ export function OverrideSelect<T extends string>({
         {label}
       </Label>
       <div className="flex items-center gap-2">
-        <select
+        {/* While the switch is off the control shows the preset's answer, which
+            is not one of the options — hence the empty row carrying it. Turning
+            the switch on is what selects a real value, so the row is only
+            reachable in the disabled state. */}
+        <OptionSelect<T>
           id={id}
-          value={overridden ? value : ""}
+          size="default"
+          className="w-full font-mono disabled:opacity-60"
+          value={overridden ? value : null}
           disabled={disabled || !overridden}
-          className="h-9 w-full rounded-md border bg-transparent px-2 font-mono text-xs disabled:opacity-60"
-          onChange={(event) => onChange(event.target.value as T)}
-        >
-          {!overridden && (
-            <option value="">{presetLabel ?? preset ?? "N/A"}</option>
-          )}
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          onValueChange={(next) => onChange(next)}
+          emptyLabel={presetLabel ?? preset ?? "N/A"}
+          options={options}
+        />
         <Switch
           checked={overridden}
           disabled={disabled}
