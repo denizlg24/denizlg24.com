@@ -5,13 +5,12 @@ import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
 import { useCallback } from "react";
+import { useTarget } from "@/components/target-context";
 import { api } from "@/lib/api";
-import { projectServiceHref } from "@/lib/project-routes";
-import { useTarget } from "../_components/target-context";
 
 const POLL_MS = 5_000;
 
-export default function DeploymentsListPage() {
+export default function ProjectDeploymentsPage() {
   const { target } = useTarget();
   const fetchDeployments = useCallback(
     () => api.deploy.deployments(target.id, { limit: 100 }),
@@ -23,16 +22,10 @@ export default function DeploymentsListPage() {
   if (!data && loading) return <Skeleton className="h-64 w-full" />;
 
   return (
-    <Section title="Deployments" count={data?.pagination.total}>
+    <Section title="deployments" count={data?.pagination.total}>
       <DeploymentRows
         deployments={data?.items ?? []}
-        deploymentHref={(deployment) =>
-          projectServiceHref(
-            target.projectId,
-            target.id,
-            `deployments/${deployment.id}`,
-          )
-        }
+        deploymentHref={(deployment) => `/deployments/${deployment.id}`}
       />
     </Section>
   );

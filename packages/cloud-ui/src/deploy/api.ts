@@ -125,6 +125,15 @@ export const deployApi = {
     requestData(z.array(deployTargetListEntrySchema), "/api/deploy/targets"),
   target: (id: string): Promise<DeployTarget> =>
     requestData(deployTargetSchema, `/api/deploy/targets/${id}`),
+  /**
+   * Forge addresses a deployable by its project slug, which is what its URLs
+   * carry; nothing in its routes ever holds a target id to look one up with.
+   */
+  targetBySlug: (slug: string): Promise<DeployTarget> =>
+    requestData(
+      deployTargetSchema,
+      `/api/deploy/projects/${encodeURIComponent(slug)}/target`,
+    ),
   createTarget: (input: CreateDeployTargetRequest): Promise<DeployTarget> =>
     requestData(deployTargetSchema, "/api/deploy/targets", {
       method: "POST",

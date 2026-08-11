@@ -22,10 +22,10 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { LogStream } from "@/components/log-stream";
 import { PageHeading } from "@/components/page-heading";
+import { RequestTable } from "@/components/request-table";
 import { api, errorMessage } from "@/lib/api";
-import { LogStream } from "../../_components/log-stream";
-import { RequestTable } from "../../_components/request-table";
 
 export default function DeploymentDetailPage() {
   const params = useParams<{ id: string }>();

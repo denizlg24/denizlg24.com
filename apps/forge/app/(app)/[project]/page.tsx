@@ -9,14 +9,22 @@ import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
 import Link from "next/link";
 import { useCallback } from "react";
+import { projectHref, useTarget } from "@/components/target-context";
 import { api } from "@/lib/api";
-import { projectServiceHref } from "@/lib/project-routes";
-import { useTarget } from "./_components/target-context";
 
 const POLL_MS = 5_000;
 const RECENT = 6;
 
-export default function DeployTargetOverviewPage() {
+/**
+ * A deployment's detail page is one route for the whole box rather than one per
+ * project — it is reachable from `/deployments` too, and duplicating it under
+ * every project would mean two pages rendering the same build log.
+ */
+function deploymentHref(deployment: { id: string }): string {
+  return `/deployments/${deployment.id}`;
+}
+
+export default function ProjectOverviewPage() {
   const { target } = useTarget();
   const fetchDeployments = useCallback(
     () => api.deploy.deployments(target.id, { limit: 25 }),
@@ -28,12 +36,6 @@ export default function DeployTargetOverviewPage() {
   if (!data && loading) return <Skeleton className="h-48 w-full" />;
 
   const rows = data?.items ?? [];
-  const deploymentHref = (deployment: { id: string }) =>
-    projectServiceHref(
-      target.projectId,
-      target.id,
-      `deployments/${deployment.id}`,
-    );
   // The live one, not merely the newest: a failed build after a good one
   // leaves the previous container serving, and that is what the hostname
   // resolves to.
@@ -43,22 +45,18 @@ export default function DeployTargetOverviewPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <Section title="Production">
+      <Section title="production">
         <ProductionSummary
           deployment={production}
           deploymentHref={deploymentHref}
         />
       </Section>
       <Section
-        title="Recent deployments"
+        title="recent deployments"
         actions={
           rows.length > RECENT && (
             <Link
-              href={projectServiceHref(
-                target.projectId,
-                target.id,
-                "deployments",
-              )}
+              href={projectHref(target.projectSlug, "deployments")}
               className="text-xs text-muted-foreground hover:text-foreground hover:underline"
             >
               All {data?.pagination.total ?? rows.length}

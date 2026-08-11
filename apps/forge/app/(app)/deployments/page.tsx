@@ -45,10 +45,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageHeading } from "@/components/page-heading";
+import { ProjectGroupRow } from "@/components/project-group-ui";
+import { groupByProject } from "@/components/project-groups";
+import { ProjectPicker } from "@/components/project-picker";
 import { api, errorMessage } from "@/lib/api";
-import { ProjectGroupRow } from "../_components/project-group-ui";
-import { groupByProject } from "../_components/project-groups";
-import { ProjectPicker } from "../_components/project-picker";
 
 const PAGE_SIZES = [25, 50, 100, 200];
 

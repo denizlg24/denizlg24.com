@@ -22,15 +22,15 @@ import {
 import { RotateCw, ScrollText } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { ContainerPanel } from "@/components/container-panel";
 import { PageHeading } from "@/components/page-heading";
-import { api, errorMessage } from "@/lib/api";
-import { ContainerPanel } from "../_components/container-panel";
 import {
   activeProject,
   ProjectFilter,
   ProjectGroupRow,
-} from "../_components/project-group-ui";
-import { groupByProject } from "../_components/project-groups";
+} from "@/components/project-group-ui";
+import { groupByProject } from "@/components/project-groups";
+import { api, errorMessage } from "@/lib/api";
 
 const COLUMNS = 8;
 

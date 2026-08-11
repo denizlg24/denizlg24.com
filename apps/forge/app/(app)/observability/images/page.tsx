@@ -16,13 +16,13 @@ import {
 } from "@repo/ui/table";
 import { useMemo, useState } from "react";
 import { PageHeading } from "@/components/page-heading";
-import { api } from "@/lib/api";
 import {
   activeProject,
   ProjectFilter,
   ProjectGroupRow,
-} from "../_components/project-group-ui";
-import { groupByProject } from "../_components/project-groups";
+} from "@/components/project-group-ui";
+import { groupByProject } from "@/components/project-groups";
+import { api } from "@/lib/api";
 
 const COLUMNS = 6;
 

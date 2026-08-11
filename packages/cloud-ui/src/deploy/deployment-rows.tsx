@@ -1,17 +1,24 @@
 "use client";
 
-import {
-  DeploymentBadges,
-  deploymentLabel,
-  deploymentTone,
-} from "@repo/cloud-ui/deploy-status";
-import { formatRelative } from "@repo/cloud-ui/format";
 import type { Deployment } from "@repo/schemas/cloud";
 import { StatusDot } from "@repo/ui/status-dot";
 import { cn } from "@repo/ui/utils";
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
-import { projectServiceHref } from "@/lib/project-routes";
+import {
+  DeploymentBadges,
+  deploymentLabel,
+  deploymentTone,
+} from "../deploy-status";
+import { formatRelative } from "../format";
+
+/**
+ * The two apps nest a deployment at different depths — Cloud under
+ * `/projects/[id]/services/[serviceId]`, Forge under `/[project]` — so the link
+ * is injected rather than built from ids the component would have to be handed
+ * for no other reason.
+ */
+export type DeploymentHref = (deployment: Deployment) => string;
 
 /**
  * One deployment as a row of hairline-separated text. Everything actionable
@@ -20,20 +27,14 @@ import { projectServiceHref } from "@/lib/project-routes";
  */
 export function DeploymentRow({
   deployment,
-  projectId,
-  targetId,
+  deploymentHref,
 }: {
   deployment: Deployment;
-  projectId: string;
-  targetId: string;
+  deploymentHref: DeploymentHref;
 }) {
   return (
     <Link
-      href={projectServiceHref(
-        projectId,
-        targetId,
-        `deployments/${deployment.id}`,
-      )}
+      href={deploymentHref(deployment)}
       className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b py-2.5 text-xs transition-colors last:border-b-0 hover:bg-muted/40"
     >
       <span className="flex w-32 shrink-0 items-center gap-1.5">
@@ -63,12 +64,10 @@ export function DeploymentRow({
 
 export function DeploymentRows({
   deployments,
-  projectId,
-  targetId,
+  deploymentHref,
 }: {
   deployments: readonly Deployment[];
-  projectId: string;
-  targetId: string;
+  deploymentHref: DeploymentHref;
 }) {
   if (deployments.length === 0) {
     return <p className="py-2 text-xs text-muted-foreground">—</p>;
@@ -79,8 +78,7 @@ export function DeploymentRows({
         <DeploymentRow
           key={deployment.id}
           deployment={deployment}
-          projectId={projectId}
-          targetId={targetId}
+          deploymentHref={deploymentHref}
         />
       ))}
     </div>
@@ -90,12 +88,10 @@ export function DeploymentRows({
 /** The live production deployment, rendered as the thing the page is about. */
 export function ProductionSummary({
   deployment,
-  projectId,
-  targetId,
+  deploymentHref,
 }: {
   deployment: Deployment | null;
-  projectId: string;
-  targetId: string;
+  deploymentHref: DeploymentHref;
 }) {
   if (!deployment) {
     return <p className="py-2 text-xs text-muted-foreground">—</p>;
@@ -135,11 +131,7 @@ export function ProductionSummary({
         <Fact label="deployed" value={formatRelative(deployment.createdAt)} />
       </dl>
       <Link
-        href={projectServiceHref(
-          projectId,
-          targetId,
-          `deployments/${deployment.id}`,
-        )}
+        href={deploymentHref(deployment)}
         className="text-xs text-muted-foreground hover:text-foreground hover:underline"
       >
         Build logs

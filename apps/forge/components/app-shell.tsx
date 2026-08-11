@@ -12,15 +12,17 @@ import type { ReactNode } from "react";
 import { api } from "@/lib/api";
 import { useSession } from "./session-provider";
 
+// A project lives at `/<slug>`, one dynamic segment at the root, so every entry
+// here is a static segment that a project slug can never take —
+// `RESERVED_PROJECT_SLUGS` in @repo/schemas is what keeps that true.
+//
+// No logs entry. Logs belong to a container or a deployment, and a page that
+// listed every log source on the host in one picker made "whose output is this"
+// the first question every time.
 const NAV = [
-  { href: "/", label: "overview" },
-  { href: "/containers", label: "containers" },
-  { href: "/images", label: "images" },
+  { href: "/", label: "projects" },
   { href: "/deployments", label: "deployments" },
-  // No logs entry. Logs belong to a container or a deployment, and a page that
-  // listed every log source on the host in one picker made "whose output is
-  // this" the first question every time.
-  { href: "/projects", label: "projects" },
+  { href: "/observability", label: "observability" },
 ];
 
 function NavLinks({ className }: { className?: string }) {

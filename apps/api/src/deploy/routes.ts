@@ -930,6 +930,39 @@ export function deployRoutes(options: DeployRouteOptions) {
     }
   });
 
+  /**
+   * Forge routes a deployable at `/<project slug>`, so every page under it
+   * resolves the target from the slug rather than an id it never sees. Ordered
+   * by creation so the answer is stable: the schema permits a project to hold
+   * more than one target even though nothing in production does.
+   */
+  owner.get("/projects/:slug/target", async (context) => {
+    try {
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.slug, context.req.param("slug")),
+      });
+      if (!project) {
+        throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
+      }
+      const target = await db.query.deployTargets.findFirst({
+        where: eq(deployTargets.projectId, project.id),
+        orderBy: deployTargets.createdAt,
+      });
+      if (!target) {
+        throw new NotFoundError("Deploy target not found", "TARGET_NOT_FOUND");
+      }
+      return context.json({
+        data: serializeTarget(target, {
+          projectSlug: project.slug,
+          primaryHostname: await primaryHostname(target.id),
+        }),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
   owner.patch("/targets/:id", async (context) => {
     const parsed = updateDeployTargetInputSchema.safeParse(
       await context.req.json().catch(() => null),
