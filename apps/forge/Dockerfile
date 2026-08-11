@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7-labs
-
 FROM oven/bun:1.3.3-alpine AS dependencies
 WORKDIR /workspace
 
