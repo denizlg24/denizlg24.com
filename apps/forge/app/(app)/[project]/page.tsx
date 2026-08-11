@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useCallback } from "react";
 import { ActiveBranches } from "@/components/active-branches";
 import { LiveStrip } from "@/components/live-strip";
+import { ProductionActions } from "@/components/production-actions";
 import { projectHref, useTarget } from "@/components/target-context";
 import { api } from "@/lib/api";
 
@@ -32,7 +33,7 @@ export default function ProjectOverviewPage() {
     () => api.deploy.deployments(target.id, { limit: 25 }),
     [target.id],
   );
-  const { data, error, loading } = usePoll(fetchDeployments, POLL_MS);
+  const { data, error, loading, reload } = usePoll(fetchDeployments, POLL_MS);
 
   if (error) return <p className="text-xs text-destructive">{error}</p>;
   if (!data && loading) return <Skeleton className="h-48 w-full" />;
@@ -41,13 +42,26 @@ export default function ProjectOverviewPage() {
   // The live one, not merely the newest: a failed build after a good one
   // leaves the previous container serving, and that is what the hostname
   // resolves to.
-  const production =
-    rows.find((row) => row.kind === "production" && row.status === "ready") ??
-    null;
+  const ready = rows.filter(
+    (row) => row.kind === "production" && row.status === "ready",
+  );
+  const production = ready[0] ?? null;
+  // What a rollback goes back to. Absent on a project that has shipped once,
+  // which is why the button is conditional rather than disabled.
+  const previous = ready[1] ?? null;
 
   return (
     <div className="flex flex-col gap-8">
-      <Section title="production">
+      <Section
+        title="production"
+        actions={
+          <ProductionActions
+            production={production}
+            previous={previous}
+            onDone={reload}
+          />
+        }
+      >
         <ProductionSummary
           deployment={production}
           deploymentHref={deploymentHref}
