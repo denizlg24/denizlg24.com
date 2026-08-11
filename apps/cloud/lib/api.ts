@@ -6,7 +6,6 @@ import {
   requestPaginated,
   SLOW_TIMEOUT_MS,
 } from "@repo/cloud-ui/api-client";
-import { deployApi } from "@repo/cloud-ui/deploy/api";
 import {
   type ActivityExportQuery,
   type ActivityFacets,
@@ -21,24 +20,13 @@ import {
   type CompleteSignupInput,
   type CompleteSignupResult,
   type ContainerSnapshot,
-  type CreateCollectionInput,
-  type CreatedApiKey,
   type CreateMongoCollectionInput,
   type CreateMongoIndexInput,
   type CreatePgTableInput,
-  type CreateProjectInput,
-  type CreateProjectVectorIndexInput,
   type CreateTaskInput,
   completeSignupResultSchema,
   containerSnapshotSchema,
-  createdApiKeySchema,
-  type DiscoverFieldsInput,
-  type DiscoverFieldsResult,
-  discoverFieldsResultSchema,
   type FindMongoDocumentsInput,
-  type GenerateSearchTokenInput,
-  type IssuedProjectS3Credential,
-  issuedProjectS3CredentialSchema,
   type LargestFile,
   largestFileSchema,
   type MetricCatalogResponse,
@@ -66,11 +54,6 @@ import {
   type PgSchema,
   type PgTable,
   type PgTableDetail,
-  type ProjectDatabase,
-  type ProjectDatabaseMetadata,
-  type ProjectS3CredentialMetadata,
-  type ProjectVectorIndex,
-  type ProjectVectorSearchOverview,
   paginationSchema,
   pendingUserCreatedSchema,
   pgDatabaseSchema,
@@ -78,35 +61,22 @@ import {
   pgSchemaSchema,
   pgTableDetailSchema,
   pgTableSchema,
-  projectDatabaseMetadataSchema,
-  projectDatabaseSchema,
-  projectS3CredentialMetadataSchema,
-  projectVectorIndexSchema,
-  projectVectorSearchOverviewSchema,
   type S3BucketUsage,
   type S3CredentialMetadata,
   type SafeActivityEntry,
-  type SafeApiKey,
   type SafeNotificationEvent,
-  type SafeProject,
-  type SafeProjectCollection,
   type SafeScheduledTask,
   type SafeTaskRun,
   type SafeUser,
-  type SearchTokenResult,
   type StorageStats,
   type StorageTypeBreakdown,
   s3BucketUsageSchema,
   s3CredentialMetadataSchema,
   safeActivityEntrySchema,
-  safeApiKeySchema,
   safeNotificationEventSchema,
-  safeProjectCollectionSchema,
-  safeProjectSchema,
   safeScheduledTaskSchema,
   safeTaskRunSchema,
   safeUserSchema,
-  searchTokenResultSchema,
   storageStatsSchema,
   storageTypeBreakdownSchema,
   type TerminalSession,
@@ -114,8 +84,6 @@ import {
   type TieringSettings,
   terminalSessionSchema,
   tieringSettingsSchema,
-  type UpdateCollectionInput,
-  type UpdateProjectInput,
   type UpdateTaskInput,
   type UserStorageStat,
   userStorageStatSchema,
@@ -365,249 +333,6 @@ export const api = {
         { method: "DELETE" },
       ),
   },
-
-  projects: {
-    list: (query?: {
-      page?: number;
-      limit?: number;
-    }): Promise<Paginated<SafeProject>> =>
-      requestPaginated(safeProjectSchema, "/api/projects", { query }),
-    get: (id: string): Promise<SafeProject> =>
-      requestData(safeProjectSchema, `/api/projects/${id}`),
-    create: (input: CreateProjectInput): Promise<SafeProject> =>
-      requestData(safeProjectSchema, "/api/projects", {
-        method: "POST",
-        body: input,
-      }),
-    update: (id: string, input: UpdateProjectInput): Promise<SafeProject> =>
-      requestData(safeProjectSchema, `/api/projects/${id}`, {
-        method: "PATCH",
-        body: input,
-      }),
-    remove: (id: string): Promise<{ success: boolean }> =>
-      requestData(successSchema, `/api/projects/${id}`, { method: "DELETE" }),
-
-    apiKeys: {
-      list: (projectId: string): Promise<SafeApiKey[]> =>
-        requestData(
-          z.array(safeApiKeySchema),
-          `/api/projects/${projectId}/api-keys`,
-        ),
-      create: (
-        projectId: string,
-        input: { name: string; scopes: string[]; expiresIn?: string },
-      ): Promise<CreatedApiKey> =>
-        requestData(
-          createdApiKeySchema,
-          `/api/projects/${projectId}/api-keys`,
-          { method: "POST", body: input },
-        ),
-      rotate: (projectId: string, keyId: string): Promise<CreatedApiKey> =>
-        requestData(
-          createdApiKeySchema,
-          `/api/projects/${projectId}/api-keys/${keyId}/rotate`,
-          { method: "POST" },
-        ),
-      revoke: (
-        projectId: string,
-        keyId: string,
-      ): Promise<{ success: boolean }> =>
-        requestData(
-          successSchema,
-          `/api/projects/${projectId}/api-keys/${keyId}`,
-          { method: "DELETE" },
-        ),
-    },
-
-    s3Credentials: {
-      list: (projectId: string): Promise<ProjectS3CredentialMetadata[]> =>
-        requestData(
-          z.array(projectS3CredentialMetadataSchema),
-          `/api/projects/${projectId}/s3-credentials`,
-        ),
-      create: (
-        projectId: string,
-        label: string,
-      ): Promise<IssuedProjectS3Credential> =>
-        requestData(
-          issuedProjectS3CredentialSchema,
-          `/api/projects/${projectId}/s3-credentials`,
-          { method: "POST", body: { label } },
-        ),
-      rotate: (
-        projectId: string,
-        credentialId: string,
-      ): Promise<IssuedProjectS3Credential> =>
-        requestData(
-          issuedProjectS3CredentialSchema,
-          `/api/projects/${projectId}/s3-credentials/${credentialId}/rotate`,
-          { method: "POST" },
-        ),
-      revoke: (
-        projectId: string,
-        credentialId: string,
-      ): Promise<{ revoked: boolean }> =>
-        requestData(
-          z.object({ revoked: z.boolean() }),
-          `/api/projects/${projectId}/s3-credentials/${credentialId}`,
-          { method: "DELETE" },
-        ),
-    },
-
-    databases: {
-      list: (projectId: string): Promise<ProjectDatabaseMetadata[]> =>
-        requestData(
-          z.array(projectDatabaseMetadataSchema),
-          `/api/projects/${projectId}/databases`,
-        ),
-      provision: (
-        projectId: string,
-        type: "postgres" | "mongodb" | "redis",
-      ): Promise<ProjectDatabase> =>
-        requestData(
-          projectDatabaseSchema,
-          `/api/projects/${projectId}/databases`,
-          { method: "POST", body: { type }, timeoutMs: SLOW_TIMEOUT_MS },
-        ),
-      deprovision: (projectId: string, databaseId: string): Promise<null> =>
-        requestData(
-          z.null(),
-          `/api/projects/${projectId}/databases/${databaseId}`,
-          { method: "DELETE" },
-        ),
-    },
-
-    collections: {
-      list: (projectId: string): Promise<SafeProjectCollection[]> =>
-        requestData(
-          z.array(safeProjectCollectionSchema),
-          `/api/projects/${projectId}/collections`,
-        ),
-      get: (
-        projectId: string,
-        collectionId: string,
-      ): Promise<SafeProjectCollection> =>
-        requestData(
-          safeProjectCollectionSchema,
-          `/api/projects/${projectId}/collections/${collectionId}`,
-        ),
-      create: (
-        projectId: string,
-        input: CreateCollectionInput,
-      ): Promise<SafeProjectCollection> =>
-        requestData(
-          safeProjectCollectionSchema,
-          `/api/projects/${projectId}/collections`,
-          { method: "POST", body: input },
-        ),
-      update: (
-        projectId: string,
-        collectionId: string,
-        input: UpdateCollectionInput,
-      ): Promise<SafeProjectCollection> =>
-        requestData(
-          safeProjectCollectionSchema,
-          `/api/projects/${projectId}/collections/${collectionId}`,
-          { method: "PATCH", body: input },
-        ),
-      remove: (
-        projectId: string,
-        collectionId: string,
-      ): Promise<{ success: boolean }> =>
-        requestData(
-          successSchema,
-          `/api/projects/${projectId}/collections/${collectionId}`,
-          { method: "DELETE" },
-        ),
-      resync: (
-        projectId: string,
-        collectionId: string,
-      ): Promise<{ success: boolean; message?: string }> =>
-        requestData(
-          z.object({ success: z.boolean(), message: z.string().optional() }),
-          `/api/projects/${projectId}/collections/${collectionId}/resync`,
-          { method: "POST", timeoutMs: SLOW_TIMEOUT_MS },
-        ),
-      discoverFields: (
-        projectId: string,
-        input: DiscoverFieldsInput,
-      ): Promise<DiscoverFieldsResult> =>
-        requestData(
-          discoverFieldsResultSchema,
-          `/api/projects/${projectId}/collections/discover-fields`,
-          { method: "POST", body: input },
-        ),
-    },
-
-    searchToken: (
-      projectId: string,
-      input: GenerateSearchTokenInput,
-    ): Promise<SearchTokenResult> =>
-      requestData(
-        searchTokenResultSchema,
-        `/api/projects/${projectId}/search-token`,
-        { method: "POST", body: input },
-      ),
-
-    pgSources: {
-      databases: (projectId: string): Promise<string[]> =>
-        requestData(
-          z.array(z.union([z.string(), z.object({ name: z.string() })])),
-          `/api/projects/${projectId}/pg-databases`,
-        ).then((rows) =>
-          rows.map((row) => (typeof row === "string" ? row : row.name)),
-        ),
-      schemas: (projectId: string, database: string): Promise<string[]> =>
-        requestData(
-          z.array(z.union([z.string(), z.object({ name: z.string() })])),
-          `/api/projects/${projectId}/pg-schemas`,
-          { query: { database } },
-        ).then((rows) =>
-          rows.map((row) => (typeof row === "string" ? row : row.name)),
-        ),
-      tables: (
-        projectId: string,
-        database: string,
-        schema: string,
-      ): Promise<string[]> =>
-        requestData(
-          z.array(z.union([z.string(), z.object({ name: z.string() })])),
-          `/api/projects/${projectId}/pg-tables`,
-          { query: { database, schema } },
-        ).then((rows) =>
-          rows.map((row) => (typeof row === "string" ? row : row.name)),
-        ),
-    },
-
-    vectorIndexes: {
-      overview: (projectId: string): Promise<ProjectVectorSearchOverview> =>
-        requestData(
-          projectVectorSearchOverviewSchema,
-          `/api/projects/${projectId}/vector-indexes`,
-        ),
-      create: (
-        projectId: string,
-        input: CreateProjectVectorIndexInput,
-      ): Promise<ProjectVectorIndex> =>
-        requestData(
-          projectVectorIndexSchema,
-          `/api/projects/${projectId}/vector-indexes`,
-          { method: "POST", body: input },
-        ),
-      remove: (
-        projectId: string,
-        collection: string,
-        indexName: string,
-      ): Promise<unknown> =>
-        requestData(
-          z.unknown(),
-          `/api/projects/${projectId}/vector-indexes/${encodeURIComponent(collection)}/${encodeURIComponent(indexName)}`,
-          { method: "DELETE" },
-        ),
-    },
-  },
-
-  deploy: deployApi,
 
   storageAnalytics: {
     stats: (): Promise<StorageStats> =>

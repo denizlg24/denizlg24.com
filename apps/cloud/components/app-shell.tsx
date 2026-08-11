@@ -14,7 +14,6 @@ import { useSession } from "./session-provider";
 
 const NAV = [
   { href: "/", label: "overview" },
-  { href: "/projects", label: "projects" },
   { href: "/users", label: "users" },
   { href: "/databases", label: "databases" },
   { href: "/disks", label: "disks" },
