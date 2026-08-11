@@ -1,5 +1,6 @@
 "use client";
 
+import { deploymentLabel, deploymentTone } from "@repo/cloud-ui/deploy-status";
 import { formatRelative } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { DeployTargetListEntry, SafeProject } from "@repo/schemas/cloud";
@@ -9,7 +10,6 @@ import { StatusDot } from "@repo/ui/status-dot";
 import { ArrowUpRight, GitBranch, Plus } from "lucide-react";
 import Link from "next/link";
 import { useCallback } from "react";
-import { deploymentLabel, deploymentTone } from "@/components/deploy/status";
 import { api } from "@/lib/api";
 import {
   newProjectServiceHref,

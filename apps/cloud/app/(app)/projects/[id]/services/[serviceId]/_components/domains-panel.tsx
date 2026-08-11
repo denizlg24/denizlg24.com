@@ -1,5 +1,6 @@
 "use client";
 
+import { domainTone } from "@repo/cloud-ui/deploy-status";
 import { formatRelative } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { DeployDomain } from "@repo/schemas/cloud";
@@ -19,7 +20,6 @@ import { StatusDot } from "@repo/ui/status-dot";
 import { Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { domainTone } from "@/components/deploy/status";
 import { api, errorMessage } from "@/lib/api";
 
 /** Long enough to catch a validation, short enough not to hammer Cloudflare. */

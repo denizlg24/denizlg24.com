@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     "./*": "./src/*.tsx",
+    "./api-client": "./src/api-client.ts",
     "./api-error": "./src/api-error.ts",
+    "./deploy/api": "./src/deploy/api.ts",
     "./format": "./src/format.ts",
     "./status-tone": "./src/status-tone.ts",
     "./theme-script": "./src/theme-script.ts",

@@ -1,5 +1,6 @@
 "use client";
 
+import { TemplateInput } from "@repo/cloud-ui/deploy/template-input";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import type {
   DeployEnvScope,
@@ -24,7 +25,6 @@ import { Skeleton } from "@repo/ui/skeleton";
 import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { TemplateInput } from "@/components/deploy/template-input";
 import { api, errorMessage } from "@/lib/api";
 import { useTarget } from "../_components/target-context";
 

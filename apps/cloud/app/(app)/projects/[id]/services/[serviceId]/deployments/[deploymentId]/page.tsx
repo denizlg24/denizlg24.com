@@ -1,5 +1,12 @@
 "use client";
 
+import {
+  DeploymentBadges,
+  deploymentLabel,
+  deploymentTone,
+  isDeploymentLive,
+  isDeploymentRetryable,
+} from "@repo/cloud-ui/deploy-status";
 import { formatBytes, formatRelative } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
@@ -10,13 +17,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import {
-  DeploymentBadges,
-  deploymentLabel,
-  deploymentTone,
-  isDeploymentLive,
-  isDeploymentRetryable,
-} from "@/components/deploy/status";
 import { api, errorMessage } from "@/lib/api";
 import { projectServiceHref } from "@/lib/project-routes";
 import { BuildLog } from "../../_components/build-log";

@@ -1,14 +1,15 @@
 "use client";
 
-import { formatRelative } from "@repo/cloud-ui/format";
-import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { GithubRepositorySummary, RepoBadge } from "@repo/schemas/cloud";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { api, errorMessage } from "@/lib/api";
+import { errorMessage } from "../api-error";
+import { formatRelative } from "../format";
+import { usePoll } from "../use-poll";
+import { deployApi } from "./api";
 
 /** How many repositories are rendered, and therefore badged, at once. */
 const PAGE_SIZE = 10;
@@ -42,7 +43,7 @@ function useRepoBadges(
     if (missing.length === 0) return;
 
     let cancelled = false;
-    void api.deploy.github
+    void deployApi.github
       .badges(
         missing.flatMap((fullName) => {
           const [owner, name] = fullName.split("/");
@@ -85,11 +86,11 @@ export function RepoPicker({
   // only dependency either callback has, and deliberately so.
   const [generation, setGeneration] = useState(0);
   const fetchConnection = useCallback(
-    () => api.deploy.github.connection(),
+    () => deployApi.github.connection(),
     [generation],
   );
   const fetchRepositories = useCallback(
-    () => api.deploy.github.repositories(),
+    () => deployApi.github.repositories(),
     [generation],
   );
   const { data: connection } = usePoll(fetchConnection, null);
@@ -102,7 +103,7 @@ export function RepoPicker({
   async function sync() {
     setSyncing(true);
     try {
-      const installations = await api.deploy.github.syncInstallations();
+      const installations = await deployApi.github.syncInstallations();
       setGeneration((current) => current + 1);
       toast.success(
         installations.length === 0

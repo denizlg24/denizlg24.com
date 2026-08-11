@@ -1,21 +1,29 @@
 "use client";
 
-import { formatRelative } from "@repo/cloud-ui/format";
 import type { DeployTargetListEntry } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { StatusDot } from "@repo/ui/status-dot";
 import { ArrowUpRight, GitBranch } from "lucide-react";
 import Link from "next/link";
-import { projectServiceHref } from "@/lib/project-routes";
-import { deploymentLabel, deploymentTone } from "./status";
+import { deploymentLabel, deploymentTone } from "../deploy-status";
+import { formatRelative } from "../format";
 
 /**
  * The card is the whole surface: name, where it answers, and what the last
  * build did. Everything else is one click away on the target page — a card
  * carrying eight fields stops being scannable, which is the only thing a list
  * of them is for.
+ *
+ * `href` is supplied rather than derived: the two apps that render this nest
+ * a deployable at different depths.
  */
-export function TargetCard({ target }: { target: DeployTargetListEntry }) {
+export function TargetCard({
+  target,
+  href,
+}: {
+  target: DeployTargetListEntry;
+  href: string;
+}) {
   const latest = target.latestDeployment;
   const hostname = target.primaryHostname ?? latest?.hostname ?? null;
 
@@ -23,10 +31,7 @@ export function TargetCard({ target }: { target: DeployTargetListEntry }) {
     <div className="flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-muted/40">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <Link
-            href={projectServiceHref(target.projectId, target.id)}
-            className="text-sm font-medium hover:underline"
-          >
+          <Link href={href} className="text-sm font-medium hover:underline">
             {target.name}
           </Link>
           <p className="truncate text-xs text-muted-foreground">

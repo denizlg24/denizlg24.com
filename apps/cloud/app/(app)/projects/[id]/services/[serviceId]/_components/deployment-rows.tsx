@@ -1,16 +1,16 @@
 "use client";
 
+import {
+  DeploymentBadges,
+  deploymentLabel,
+  deploymentTone,
+} from "@repo/cloud-ui/deploy-status";
 import { formatRelative } from "@repo/cloud-ui/format";
 import type { Deployment } from "@repo/schemas/cloud";
 import { StatusDot } from "@repo/ui/status-dot";
 import { cn } from "@repo/ui/utils";
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
-import {
-  DeploymentBadges,
-  deploymentLabel,
-  deploymentTone,
-} from "@/components/deploy/status";
 import { projectServiceHref } from "@/lib/project-routes";
 
 /**

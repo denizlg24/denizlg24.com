@@ -12,7 +12,8 @@ import {
 import { Spinner } from "@repo/ui/spinner";
 import { ChevronRight, Folder } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { api, errorMessage } from "@/lib/api";
+import { errorMessage } from "../api-error";
+import { deployApi } from "./api";
 
 interface Entry {
   path: string;
@@ -151,7 +152,7 @@ export function RootDirectoryDialog({
       setLoading((current) => new Set(current).add(path));
       setError(null);
       try {
-        const entries = await api.deploy.github.tree(owner, repo, {
+        const entries = await deployApi.github.tree(owner, repo, {
           ref: gitRef,
           path,
         });

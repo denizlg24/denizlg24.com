@@ -1,5 +1,14 @@
 "use client";
 
+import { buildConfigPatch } from "@repo/cloud-ui/deploy/build-config-fields";
+import { type EnvDraftRow, EnvEditor } from "@repo/cloud-ui/deploy/env-editor";
+import {
+  DetectionActions,
+  RepoBuildFields,
+  RepoImportFields,
+  useRepoImport,
+} from "@repo/cloud-ui/deploy/repo-import";
+import { RepoPicker } from "@repo/cloud-ui/deploy/repo-picker";
 import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
 import { Input } from "@repo/ui/input";
@@ -9,15 +18,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { buildConfigPatch } from "@/components/deploy/build-config-fields";
-import { type EnvDraftRow, EnvEditor } from "@/components/deploy/env-editor";
-import {
-  DetectionActions,
-  RepoBuildFields,
-  RepoImportFields,
-  useRepoImport,
-} from "@/components/deploy/repo-import";
-import { RepoPicker } from "@/components/deploy/repo-picker";
 import { api, errorMessage } from "@/lib/api";
 import { projectServiceHref } from "@/lib/project-routes";
 

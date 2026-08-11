@@ -1,6 +1,5 @@
 "use client";
 
-import { usePoll } from "@repo/cloud-ui/use-poll";
 import type {
   DeployPreset,
   GithubRepositorySummary,
@@ -12,13 +11,15 @@ import { Label } from "@repo/ui/label";
 import { NativeSelect } from "@repo/ui/native-select";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { errorMessage } from "../api-error";
+import { usePoll } from "../use-poll";
+import { deployApi } from "./api";
 import {
   type BuildConfigForm,
   BuildFields,
   defaultBuildConfig,
-} from "@/components/deploy/build-config-fields";
-import { RootDirectoryDialog } from "@/components/deploy/directory-browser";
-import { api, errorMessage } from "@/lib/api";
+} from "./build-config-fields";
+import { RootDirectoryDialog } from "./directory-browser";
 
 export interface RepoImport {
   repo: GithubRepositorySummary | null;
@@ -59,7 +60,7 @@ export function useRepoImport(): RepoImport {
       if (!repo) return;
       setDetecting(true);
       try {
-        const detected = await api.deploy.github.detect(repo.owner, repo.name, {
+        const detected = await deployApi.github.detect(repo.owner, repo.name, {
           ref: gitRef,
           dir,
           ...(framework ? { framework } : {}),
@@ -149,7 +150,7 @@ export function useResolvedBuildConfig(target: {
 
   useEffect(() => {
     let cancelled = false;
-    void api.deploy.github
+    void deployApi.github
       .detect(repoOwner, repoName, {
         ref: productionBranch,
         dir: rootDirectory ?? "",
@@ -173,7 +174,7 @@ export function RepoImportFields({ state }: { state: RepoImport }) {
   const repo = state.repo;
   if (!repo) return null;
 
-  const fetchBranches = () => api.deploy.github.branches(repo.owner, repo.name);
+  const fetchBranches = () => deployApi.github.branches(repo.owner, repo.name);
 
   return (
     <>

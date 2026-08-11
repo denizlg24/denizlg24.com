@@ -1,5 +1,13 @@
 "use client";
 
+import {
+  type BuildConfigForm,
+  BuildFields,
+  buildConfigFromTarget,
+  buildConfigPatch,
+  RuntimeFields,
+} from "@repo/cloud-ui/deploy/build-config-fields";
+import { useResolvedBuildConfig } from "@repo/cloud-ui/deploy/repo-import";
 import type { DeployTarget } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
@@ -8,14 +16,6 @@ import { Section } from "@repo/ui/section";
 import { Switch } from "@repo/ui/switch";
 import { useState } from "react";
 import { toast } from "sonner";
-import {
-  type BuildConfigForm,
-  BuildFields,
-  buildConfigFromTarget,
-  buildConfigPatch,
-  RuntimeFields,
-} from "@/components/deploy/build-config-fields";
-import { useResolvedBuildConfig } from "@/components/deploy/repo-import";
 import { api, errorMessage } from "@/lib/api";
 import { useTarget } from "../_components/target-context";
 

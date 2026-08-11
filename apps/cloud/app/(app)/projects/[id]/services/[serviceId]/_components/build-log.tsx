@@ -1,5 +1,6 @@
 "use client";
 
+import { isDeploymentLive } from "@repo/cloud-ui/deploy-status";
 import type { Deployment } from "@repo/schemas/cloud";
 import {
   Accordion,
@@ -8,7 +9,6 @@ import {
   AccordionTrigger,
 } from "@repo/ui/accordion";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isDeploymentLive } from "@/components/deploy/status";
 import { api } from "@/lib/api";
 
 const MAX_LINES = 5_000;

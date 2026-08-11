@@ -1,4 +1,5 @@
 import { toApiError, toTransportError } from "@repo/cloud-ui/api-error";
+import { deployApi } from "@repo/cloud-ui/deploy/api";
 import {
   type CompleteSignupInput,
   type CompleteSignupResult,
@@ -129,6 +130,13 @@ async function streamSse(
 }
 
 export const api = {
+  /**
+   * Shared with apps/cloud, which drives the same targets over the same routes.
+   * Its request core is the one this namespace was written against, so it
+   * carries its own timeouts rather than the shorter default above.
+   */
+  deploy: deployApi,
+
   me: (): Promise<SafeUser> => data(safeUserSchema, "/api/me"),
   completeSignup: (input: CompleteSignupInput): Promise<CompleteSignupResult> =>
     data(completeSignupResultSchema, "/api/auth/complete-signup", {

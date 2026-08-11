@@ -13,10 +13,7 @@ import {
 } from "@repo/schemas/cloud";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
-import {
-  OverrideField,
-  OverrideSelect,
-} from "@/components/deploy/override-field";
+import { OverrideField, OverrideSelect } from "./override-field";
 
 /**
  * The target's build configuration as overrides, where `null` means "whatever

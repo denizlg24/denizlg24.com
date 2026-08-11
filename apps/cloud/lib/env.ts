@@ -1,9 +1,10 @@
+import { API_BASE_URL } from "@repo/cloud-ui/api-client";
+
+export { API_BASE_URL };
+
 // NEXT_PUBLIC_* values are inlined at build time. Fall back to the local dev
 // services, never to production: a build that forgot the Vercel variables
-// should break loudly instead of pointing this admin app at the live API.
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_CLOUD_API_URL ?? "http://localhost:3001";
-
+// should break loudly instead of pointing this admin app at live infrastructure.
 export const STORAGE_APP_URL =
   process.env.NEXT_PUBLIC_STORAGE_APP_URL ?? "http://localhost:3005";
 

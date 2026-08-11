@@ -1,11 +1,11 @@
 "use client";
 
-import { Unreachable } from "@repo/cloud-ui/unreachable";
-import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { DeployTargetListEntry } from "@repo/schemas/cloud";
 import { Skeleton } from "@repo/ui/skeleton";
 import { useCallback } from "react";
-import { api } from "@/lib/api";
+import { Unreachable } from "../unreachable";
+import { usePoll } from "../use-poll";
+import { deployApi } from "./api";
 import { TargetCard } from "./target-card";
 
 /**
@@ -17,13 +17,15 @@ const POLL_MS = 5_000;
 
 export function TargetGrid({
   projectId,
+  targetHref,
   emptyLabel = "—",
 }: {
   /** Narrows to one project; omitted, every target on the box. */
   projectId?: string;
+  targetHref: (target: DeployTargetListEntry) => string;
   emptyLabel?: string;
 }) {
-  const fetchTargets = useCallback(() => api.deploy.targets(), []);
+  const fetchTargets = useCallback(() => deployApi.targets(), []);
   const { data, error, unreachable, loading, reload } = usePoll(
     fetchTargets,
     POLL_MS,
@@ -54,7 +56,7 @@ export function TargetGrid({
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {targets.map((target) => (
-        <TargetCard key={target.id} target={target} />
+        <TargetCard key={target.id} target={target} href={targetHref(target)} />
       ))}
     </div>
   );
