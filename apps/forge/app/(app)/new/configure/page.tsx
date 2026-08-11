@@ -91,7 +91,7 @@ export default function ConfigureImportPage() {
     if (!repo || slugError) return;
     setBusy(true);
     try {
-      const created = await api.deploy.createTarget({
+      const { target, warning } = await api.deploy.createTarget({
         // The patch shape is partial, so the fields create insists on are
         // restated under it rather than spread over it.
         ...buildConfigPatch(source.form),
@@ -119,8 +119,15 @@ export default function ConfigureImportPage() {
             scope: row.scope,
           })),
       });
-      toast.success(`Created ${created.name}`);
-      router.push(projectHref(created.projectSlug));
+      // The project page shows the queued build, so the happy path needs no
+      // second sentence. A warning means there is nothing to watch for and the
+      // page would otherwise sit empty without saying why.
+      if (warning) {
+        toast.warning(warning);
+      } else {
+        toast.success(`Deploying ${target.name}`);
+      }
+      router.push(projectHref(target.projectSlug));
     } catch (error) {
       toast.error(errorMessage(error));
       setBusy(false);

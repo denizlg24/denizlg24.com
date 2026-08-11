@@ -974,12 +974,53 @@ export function deployRoutes(options: DeployRouteOptions) {
         console.error("[deploy] primary domain provisioning failed", error);
       });
 
+      /**
+       * Import ends in a running application, not an empty project. The button
+       * that reaches here says "Deploy", and without this nothing builds until
+       * somebody pushes — on a repository whose last commit may be months old,
+       * that is a project page showing a dash forever.
+       *
+       * Not gated on `autoDeploy`: that flag governs what later pushes do, and
+       * an owner who wants to control when commits ship still asked for this
+       * one. Deliberately best-effort for the same reason the domain above is
+       * — the target row is already committed, so throwing here would answer a
+       * successful create with a 500 and leave the UI believing nothing
+       * happened. The three ways it can fail are all recoverable from the
+       * project page: no GitHub App installed (deploy by SHA), no capacity
+       * (free some and press Redeploy), or an env binding that cannot resolve
+       * (fix it in the environment editor).
+       */
+      const initial = await (async () => {
+        const head = await resolveRef(created, created.productionBranch);
+        const deployment = await enqueueDeployment({
+          target: created,
+          projectSlug: project.slug,
+          ref: created.productionBranch,
+          sha: head.sha,
+          message: head.message,
+          kind: "production",
+          triggeredBy: "manual",
+          createdBy: context.get("user").id,
+        });
+        await options.github?.surfaces.onEnqueued(deployment, created);
+        return deployment;
+      })().catch((error: unknown) => {
+        console.error("[deploy] initial deployment failed to enqueue", error);
+        return error instanceof CloudCoreError
+          ? error.message
+          : "The project was created but its first deployment could not be queued";
+      });
+
       return context.json(
         {
           data: serializeTarget(created, {
             projectSlug: project.slug,
             primaryHostname: hostname,
           }),
+          // Same shape as promote's: the write succeeded and something adjacent
+          // did not, which a 201 alone cannot say. Without it a full capacity
+          // pool reads as "I imported it and nothing happened".
+          ...(typeof initial === "string" ? { warning: initial } : {}),
         },
         201,
       );

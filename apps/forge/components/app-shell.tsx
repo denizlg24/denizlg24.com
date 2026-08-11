@@ -56,7 +56,7 @@ function NavLinks({ className }: { className?: string }) {
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <item.icon className="size-3.5 shrink-0" aria-hidden />
+            {/* <item.icon className="size-3.5 shrink-0" aria-hidden /> */}
             {item.label}
           </Link>
         );

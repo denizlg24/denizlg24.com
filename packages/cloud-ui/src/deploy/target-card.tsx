@@ -32,13 +32,6 @@ export function TargetCard({
     <div className="flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-muted/40">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-2.5">
-          {/* Labelled, because the card never writes the framework out — this
-              mark is the only place it appears. */}
-          <FrameworkIcon
-            framework={target.framework}
-            className="mt-0.5 size-4 text-muted-foreground"
-            label={target.framework ?? "no preset"}
-          />
           <div className="min-w-0">
             <Link href={href} className="text-sm font-medium hover:underline">
               {target.name}
@@ -47,6 +40,13 @@ export function TargetCard({
               {target.projectSlug}
             </p>
           </div>
+          {/* Labelled, because the card never writes the framework out — this
+              mark is the only place it appears. */}
+          <FrameworkIcon
+            framework={target.framework}
+            className="mt-1 size-4 text-muted-foreground"
+            label={target.framework ?? "no preset"}
+          />
         </div>
         {hostname && (
           <Button asChild variant="outline" size="sm">

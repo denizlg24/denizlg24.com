@@ -153,13 +153,26 @@ export const deployApi = {
       deployTargetSchema,
       `/api/deploy/projects/${encodeURIComponent(slug)}/target`,
     ),
-  createTarget: (input: CreateDeployTargetRequest): Promise<DeployTarget> =>
-    requestData(deployTargetSchema, "/api/deploy/targets", {
+  /**
+   * A 201 with a `warning` means the project exists but its first deployment
+   * was not queued — most plausibly no capacity left. The project page would
+   * otherwise just sit empty with nothing saying why, so the caller has to
+   * surface it.
+   */
+  createTarget: (
+    input: CreateDeployTargetRequest,
+  ): Promise<{ target: DeployTarget; warning: string | null }> =>
+    rawRequest("/api/deploy/targets", {
       method: "POST",
       body: input,
-      // Creating a target provisions a DNS record on Cloudflare, and may
-      // provision the project it belongs to first.
+      // Creating a target provisions a DNS record on Cloudflare, may provision
+      // the project it belongs to first, and then queues the first build.
       timeoutMs: SLOW_TIMEOUT_MS,
+    }).then((payload) => {
+      const parsed = z
+        .object({ data: deployTargetSchema, warning: z.string().optional() })
+        .parse(payload);
+      return { target: parsed.data, warning: parsed.warning ?? null };
     }),
   updateTarget: (
     id: string,

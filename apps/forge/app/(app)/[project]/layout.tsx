@@ -73,11 +73,11 @@ export default function ProjectLayout({ children }: { children: ReactNode }) {
   return (
     <TargetContext.Provider value={{ target, reload }}>
       <div className="flex flex-col gap-6">
-        <div className="flex flex-wrap items-end gap-3 border-b pb-4">
+        <div className="flex flex-wrap items-start gap-3 border-b pb-4">
           {/* Labelled: nothing on this header writes the framework out. */}
           <FrameworkIcon
             framework={target.framework}
-            className="mb-0.5 size-5 text-muted-foreground"
+            className="mt-0.5 size-5 text-muted-foreground"
             label={target.framework ?? "no preset"}
           />
           <div className="min-w-0 flex-1">
