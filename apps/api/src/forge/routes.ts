@@ -152,12 +152,11 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
    * next machine — or after a fan is unplugged.
    */
   app.get("/series", async (context) => {
-    const series = await metricCatalog(options.db, { sinceHours: 48 });
-    return context.json({
-      data: {
-        series: series.filter((entry) => entry.name.startsWith("forge-")),
-      },
+    const series = await metricCatalog(options.db, {
+      sinceHours: 48,
+      kindPrefix: "forge-",
     });
+    return context.json({ data: { series } });
   });
 
   app.get("/metrics", async (context) => {

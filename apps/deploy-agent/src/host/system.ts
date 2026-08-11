@@ -3,6 +3,8 @@ import { hostname } from "node:os";
 
 import type { ForgeProcess, ForgeSystemInfo } from "@repo/schemas/cloud";
 
+import { mapWithConcurrency } from "../concurrency";
+
 export interface SystemReaderOptions {
   readFile?: (path: string) => Promise<string>;
   readDir?: (path: string) => Promise<string[]>;
@@ -150,6 +152,7 @@ export interface ProcessCounters {
 const PAGE_BYTES = 4_096;
 /** `USER_HZ`, which is 100 on every Linux target this runs on. */
 export const CLOCK_TICKS_PER_SECOND = 100;
+const PROC_READ_CONCURRENCY = 32;
 
 /**
  * Every process, with the counters a CPU share is derived from.
@@ -168,8 +171,13 @@ export async function readProcessCounters(
     .then((entries) => entries.filter((entry) => /^\d+$/.test(entry)))
     .catch(() => [] as string[]);
 
-  const rows = await Promise.all(
-    pids.map(async (pid) => {
+  // Bounded rather than a plain `Promise.all`: a busy host runs a few hundred
+  // processes and each one is two files, so the unbounded form asks the kernel
+  // for a thousand descriptors at once every sample interval.
+  const rows = await mapWithConcurrency(
+    pids,
+    PROC_READ_CONCURRENCY,
+    async (pid) => {
       const stat = await optional(read, `/proc/${pid}/stat`);
       if (stat === null) return null;
       const parsed = parseProcessStat(stat);
@@ -186,7 +194,7 @@ export async function readProcessCounters(
         threads: parsed.threads,
         residentBytes: Number.isFinite(resident) ? resident * PAGE_BYTES : 0,
       };
-    }),
+    },
   );
 
   return rows.filter((row): row is ProcessCounters => row !== null);

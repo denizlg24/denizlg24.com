@@ -8,15 +8,32 @@ import type { ForgeHostSnapshot } from "@repo/schemas/cloud";
  * both storable and stable: the same sensor has to produce the same series name
  * on every sample, or its history restarts whenever the label is rendered
  * differently.
+ *
+ * `.` collapses too, even though the schema allows it: it is what separates the
+ * segments of a key, so a VLAN interface named `eth0.100` left intact would emit
+ * `net.eth0.100.rx_bytes_per_second` and be read back as an interface `eth0`
+ * with a metric named `100.rx_bytes_per_second`.
  */
 export function seriesSegment(value: string): string {
   return (
     value
       .trim()
       .toLowerCase()
-      .replace(/[^a-z0-9_.-]+/g, "_")
+      .replace(/[^a-z0-9_-]+/g, "_")
       .replace(/^_+|_+$/g, "") || "unknown"
   );
+}
+
+/**
+ * A mount point as one segment. `/` is spelled out rather than normalised,
+ * because every character in it is a separator: it would otherwise strip to the
+ * empty string and the root filesystem — the one every box has — would report
+ * itself as `unknown`.
+ */
+function mountSegment(mount: string): string {
+  const trimmed = mount.trim();
+  if (trimmed === "/" || trimmed === "") return "root";
+  return seriesSegment(trimmed.replace(/^\/+/, ""));
 }
 
 /** Sensor readings carry their unit in the key, since the kind is not in it. */
@@ -107,7 +124,7 @@ export function hostMetricSamples(
   for (const filesystem of host.filesystems) {
     // The mount point, not the device: `/mnt/storage` is what a person reads,
     // and a disk replaced behind the same mount keeps its history.
-    const key = `fs.${seriesSegment(filesystem.mount)}`;
+    const key = `fs.${mountSegment(filesystem.mount)}`;
     push(`${key}.usage_percent`, filesystem.usagePercent);
     push(`${key}.used_bytes`, filesystem.usedBytes);
     push(`${key}.free_bytes`, filesystem.freeBytes);

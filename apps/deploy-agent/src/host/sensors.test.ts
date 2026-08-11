@@ -111,7 +111,13 @@ describe("readSensors", () => {
   // One unreadable file on one chip must not cost the readings of every other.
   it("skips an unreadable sensor without losing its neighbours", async () => {
     const tree = fakeSysfs({
-      "/hwmon/hwmon0": { name: "coretemp", temp1_input: "40000" },
+      "/hwmon/hwmon0": {
+        name: "coretemp",
+        temp1_input: "40000",
+        // Present on the chip, and unreadable. Without it the test proves only
+        // that one readable sensor is returned.
+        temp2_input: "50000",
+      },
     });
     const sensors = await readSensors({
       root: "/hwmon",
@@ -121,7 +127,7 @@ describe("readSensors", () => {
           ? Promise.reject(new Error("EIO"))
           : tree.readValue(path),
     });
-    expect(sensors).toHaveLength(1);
+    expect(sensors.map((sensor) => sensor.key)).toEqual(["temp1"]);
   });
 
   // Nothing loaded is a valid state, not a failure — it means the board's

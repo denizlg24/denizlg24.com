@@ -8,6 +8,7 @@ import {
 import { Unreachable } from "@repo/cloud-ui/unreachable";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { ForgeContainer, ForgeImage } from "@repo/schemas/cloud";
+import { Button } from "@repo/ui/button";
 import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
 import { useCallback, useMemo, useState } from "react";
@@ -75,7 +76,12 @@ export default function ObservabilityPage() {
   // The catalog changes when hardware does, not between polls, so it is fetched
   // once rather than on the snapshot's cadence.
   const fetchSeries = useCallback(() => api.forge.series(), []);
-  const { data: catalog } = usePoll(fetchSeries, null);
+  const {
+    data: catalog,
+    error: catalogError,
+    loading: catalogLoading,
+    reload: reloadCatalog,
+  } = usePoll(fetchSeries, null);
   const [project, setProject] = useState<string | null>(null);
 
   const containers = useMemo(() => data?.agent?.containers ?? [], [data]);
@@ -268,6 +274,20 @@ export default function ObservabilityPage() {
       <Panel title="history">
         {catalog ? (
           <SeriesCharts catalog={catalog} />
+        ) : catalogError ? (
+          // The catalog is fetched once, so a failure has nothing behind it to
+          // try again — without this the panel holds a skeleton forever.
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-destructive">{catalogError}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={catalogLoading}
+              onClick={() => void reloadCatalog()}
+            >
+              {catalogLoading ? "Retrying…" : "Retry"}
+            </Button>
+          </div>
         ) : (
           <Skeleton className="h-48" />
         )}

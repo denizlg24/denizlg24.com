@@ -28,6 +28,13 @@ export const ALERT_RULE_UNITS = [
   "count",
   "celsius",
   "ratio",
+  "seconds",
+  "milliseconds",
+  "megahertz",
+  "rpm",
+  "volts",
+  "watts",
+  "amps",
 ] as const;
 export const alertRuleUnitSchema = z.enum(ALERT_RULE_UNITS);
 export type AlertRuleUnit = z.infer<typeof alertRuleUnitSchema>;
@@ -322,7 +329,7 @@ export const DEFAULT_ALERT_RULES: readonly AlertRuleCreate[] = [
     forSeconds: 0,
     severity: "warn",
     cooldownMinutes: 120,
-    unit: "count",
+    unit: "seconds",
   },
   {
     name: "forge cpu temperature high",

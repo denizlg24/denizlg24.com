@@ -50,6 +50,22 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * A non-2xx body is an error envelope, not the payload the caller asked for.
+ * Parsing it would surface as a zod failure naming fields nobody sent, so the
+ * status is checked first and reported as what it is.
+ */
+function assertAgentOk(response: { status: number; body: unknown }): void {
+  if (response.status >= 200 && response.status < 300) return;
+  throw new ForgeAgentRequestError(
+    typeof response.body === "object" &&
+      response.body !== null &&
+      "error" in response.body
+      ? JSON.stringify((response.body as { error: unknown }).error)
+      : `status ${response.status}`,
+  );
+}
+
 export interface ForgeMonitorOptions {
   db: Database;
   deployAgent: DeployAgentProxy | null;
@@ -146,18 +162,7 @@ export class ForgeMonitor {
     const response = await this.#options.deployAgent.json<unknown>(
       `/deployments/${encodeURIComponent(deploymentId)}/requests?${search}`,
     );
-    // A non-2xx body is an error envelope, not a record list. Parsing it would
-    // surface as a zod failure naming fields the caller never sent, so the status
-    // is checked first and reported as what it is.
-    if (response.status < 200 || response.status >= 300) {
-      throw new ForgeAgentRequestError(
-        typeof response.body === "object" &&
-          response.body !== null &&
-          "error" in response.body
-          ? JSON.stringify((response.body as { error: unknown }).error)
-          : `status ${response.status}`,
-      );
-    }
+    assertAgentOk(response);
     // `.catch` rather than a required field: an agent deployed behind this one
     // answers with the bare record list, and losing the scan counters is a
     // cosmetically poorer empty state, not a reason to fail the request.
@@ -196,15 +201,7 @@ export class ForgeMonitor {
     const response = await this.#options.deployAgent.json<unknown>(
       `/deployments/${encodeURIComponent(deploymentId)}/request-logs?${search}`,
     );
-    if (response.status < 200 || response.status >= 300) {
-      throw new ForgeAgentRequestError(
-        typeof response.body === "object" &&
-          response.body !== null &&
-          "error" in response.body
-          ? JSON.stringify((response.body as { error: unknown }).error)
-          : `status ${response.status}`,
-      );
-    }
+    assertAgentOk(response);
     return forgeRequestLogsSchema.parse(response.body);
   }
 

@@ -103,4 +103,68 @@ describe("ForgeTelemetry", () => {
     expect(snapshot.containers).toEqual([]);
     expect(snapshot.images).toEqual([]);
   });
+
+  describe("requestLogs", () => {
+    const from = new Date("2026-08-09T12:00:10.000Z");
+    const to = new Date("2026-08-09T12:00:20.000Z");
+
+    function docker(
+      window: () => Promise<{ stream: "stdout" | null; line: string }[]>,
+    ) {
+      return {
+        listForgeContainers: async () => [container(1)],
+        forgeContainerLogWindow: window,
+      } as unknown as DockerClient;
+    }
+
+    // The daemon filters at one-second resolution, so the client rounds the
+    // bounds outward to catch a request that started mid-second. That widening
+    // is a way of asking, not part of the answer.
+    it("drops lines the daemon's rounding pulled in from outside the window", async () => {
+      const telemetry = new ForgeTelemetry({
+        docker: docker(async () => [
+          { stream: "stdout", line: "2026-08-09T12:00:09.100Z before" },
+          { stream: "stdout", line: "2026-08-09T12:00:15.000Z inside" },
+          { stream: "stdout", line: "2026-08-09T12:00:20.900Z after" },
+          // Unstamped output is the whole point of an app that logs its own
+          // format; it cannot be placed, so it cannot be excluded.
+          { stream: "stdout", line: "no timestamp here" },
+        ]),
+        health: healthService,
+        host,
+      });
+
+      const result = await telemetry.requestLogs("deployment-1", {
+        from,
+        to,
+        requestId: null,
+        limit: 100,
+      });
+      expect(result.lines.map((line) => line.message)).toEqual([
+        "inside",
+        "no timestamp here",
+      ]);
+    });
+
+    // An empty window is what a request that wrote nothing looks like. A daemon
+    // that will not answer must not be able to say the same thing.
+    it("surfaces a Docker failure rather than reporting an empty window", async () => {
+      const telemetry = new ForgeTelemetry({
+        docker: docker(async () => {
+          throw new Error("Docker /logs responded 500");
+        }),
+        health: healthService,
+        host,
+      });
+
+      await expect(
+        telemetry.requestLogs("deployment-1", {
+          from,
+          to,
+          requestId: null,
+          limit: 100,
+        }),
+      ).rejects.toThrow("Docker /logs responded 500");
+    });
+  });
 });

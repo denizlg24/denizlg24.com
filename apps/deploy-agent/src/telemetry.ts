@@ -6,6 +6,7 @@ import type {
   ForgeRequestStats,
 } from "@repo/schemas/cloud";
 
+import { mapWithConcurrency } from "./concurrency";
 import type { DockerClient, ForgeDockerContainer } from "./docker";
 import type { HealthService } from "./health";
 import { HostCollector } from "./host";
@@ -17,6 +18,16 @@ import {
 } from "./request-log";
 
 const METRICS_CONCURRENCY = 4;
+
+/**
+ * How many lines one request-log window may hold in memory at once.
+ *
+ * Far above any `limit` a caller asks for, because the id correlation searches
+ * the whole window and a cap at the answer's size would only ever find matches
+ * in its last page. Far below what a chatty container writes in an hour, which
+ * is the number that would otherwise be buffered before anything is discarded.
+ */
+const LOG_WINDOW_MAX_ENTRIES = 20_000;
 
 /**
  * Splits Docker's `timestamps=1` prefix off a line.
@@ -44,25 +55,6 @@ export function parseTimestampedLine(entry: {
   // A line the daemon did not stamp is still a line worth showing; it just
   // cannot be placed on the timeline.
   return { ts: null, stream: entry.stream, message: entry.line };
-}
-
-async function mapWithConcurrency<T, R>(
-  values: readonly T[],
-  concurrency: number,
-  map: (value: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
-      while (next < values.length) {
-        const index = next++;
-        const value = values[index];
-        if (value !== undefined) results[index] = await map(value);
-      }
-    }),
-  );
-  return results;
 }
 
 export interface ForgeTelemetryOptions {
@@ -212,9 +204,10 @@ export class ForgeTelemetry {
     deploymentId: string,
     options: { from: Date; to: Date; requestId: string | null; limit: number },
   ): Promise<ForgeRequestLogs> {
-    const containers = await this.#options.docker
-      .listForgeContainers()
-      .catch(() => []);
+    // Not caught: a daemon that cannot be reached is not a deployment with no
+    // logs, and swallowing it here reports an empty window for an outage. The
+    // route maps the failure to DOCKER_UNAVAILABLE.
+    const containers = await this.#options.docker.listForgeContainers();
     const container = containers.find(
       (candidate) => candidate.deploymentId === deploymentId,
     );
@@ -222,17 +215,30 @@ export class ForgeTelemetry {
       return { lines: [], correlation: "time-window", truncated: false };
     }
 
-    const entries = await this.#options.docker
-      .forgeContainerLogWindow(container, {
-        // Widened by a second at each end because the daemon filters at
-        // one-second resolution: a request that started at .95 would otherwise
-        // fall outside a window asked for from .95.
-        since: new Date(options.from.getTime() - 1_000),
-        until: new Date(options.to.getTime() + 1_000),
-      })
-      .catch(() => []);
+    // `forgeContainerLogWindow` already rounds the bounds outward, because the
+    // daemon filters at one-second resolution — a request that started at .95
+    // would otherwise fall outside a window asked for from .95. That widening is
+    // undone here rather than left in the answer.
+    const entries = await this.#options.docker.forgeContainerLogWindow(
+      container,
+      {
+        since: options.from,
+        until: options.to,
+        maxEntries: LOG_WINDOW_MAX_ENTRIES,
+      },
+    );
 
-    const parsed = entries.map((entry) => parseTimestampedLine(entry));
+    const from = options.from.getTime();
+    const to = options.to.getTime();
+    const parsed = entries
+      .map((entry) => parseTimestampedLine(entry))
+      .filter((line) => {
+        // An unstamped line cannot be placed on the timeline, and dropping it
+        // would hide exactly the output of an app that writes its own format.
+        if (line.ts === null) return true;
+        const at = new Date(line.ts).getTime();
+        return at >= from && at <= to;
+      });
     const requestId = options.requestId;
     const matched =
       requestId === null

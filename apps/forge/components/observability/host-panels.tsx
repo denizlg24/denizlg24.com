@@ -115,7 +115,9 @@ export function CoreGrid({
                     ? "bg-amber-500"
                     : "bg-foreground/60",
               )}
-              style={{ height: `${Math.max(core.usagePercent, 2)}%` }}
+              style={{
+                height: `${Math.min(Math.max(core.usagePercent, 2), 100)}%`,
+              }}
             />
           </div>
           <span className="text-center font-mono text-[9px] text-muted-foreground">

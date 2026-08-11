@@ -53,6 +53,12 @@ describe("seriesSegment", () => {
   it("is stable across casing and spacing", () => {
     expect(seriesSegment("CPU Fan")).toBe(seriesSegment("cpu  fan"));
   });
+
+  // `.` separates the segments of a key, so a segment holding one would be read
+  // back as two.
+  it("does not leak the segment separator into a segment", () => {
+    expect(seriesSegment("eth0.100")).toBe("eth0_100");
+  });
 });
 
 describe("hostMetricSamples", () => {
@@ -159,6 +165,48 @@ describe("hostMetricSamples", () => {
     );
     // A disk replaced behind the same mount keeps its history.
     expect(emitted).toContain("fs.mnt_storage.usage_percent");
+  });
+
+  // Every character of `/` is a separator, so normalising it leaves nothing —
+  // and the filesystem every box has would key itself as `unknown`.
+  it("names the root filesystem rather than normalising it away", () => {
+    const emitted = keys(
+      host({
+        filesystems: [
+          {
+            mount: "/",
+            device: "/dev/nvme0n1p2",
+            fstype: "ext4",
+            totalBytes: 100,
+            usedBytes: 40,
+            freeBytes: 60,
+            usagePercent: 40,
+          },
+        ],
+      }),
+    );
+    expect(emitted).toContain("fs.root.usage_percent");
+  });
+
+  // A VLAN interface is the case that made `.` unusable inside a segment: the
+  // label parser reads the key back on the dots.
+  it("keeps a dotted interface name as one segment", () => {
+    const emitted = keys(
+      host({
+        network: [
+          {
+            name: "eth0.100",
+            rxBytesPerSecond: 1,
+            txBytesPerSecond: 2,
+            rxPacketsPerSecond: 3,
+            txPacketsPerSecond: 4,
+            errorsPerSecond: 0,
+            dropsPerSecond: 0,
+          },
+        ],
+      }),
+    );
+    expect(emitted).toContain("net.eth0_100.rx_bytes_per_second");
   });
 
   // Storing a value the schema would refuse, or a NaN from a failed read, would

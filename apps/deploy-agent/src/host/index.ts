@@ -180,6 +180,7 @@ export class HostCollector {
   #previousNetwork: Previous<Map<string, NetCounters>> | null = null;
   #previousEnergy: Previous<Map<string, number>> | null = null;
   #previousProcesses: Previous<Map<number, number>> | null = null;
+  #collecting: Promise<ForgeHostSnapshot> | null = null;
 
   constructor(options: HostCollectorOptions = {}) {
     this.#readProc =
@@ -190,7 +191,23 @@ export class HostCollector {
     this.#now = options.now ?? Date.now;
   }
 
-  async collect(): Promise<ForgeHostSnapshot> {
+  /**
+   * Serialised, because every rate here is a delta against the previous sample
+   * and the previous sample is instance state. Two overlapping calls would each
+   * read the counters, then each overwrite `#previousCpu` and friends — the
+   * second one's deltas measured against the first one's read, which is a
+   * fraction of the real interval and a rate several times too high.
+   */
+  collect(): Promise<ForgeHostSnapshot> {
+    if (this.#collecting) return this.#collecting;
+    const running = this.#collect().finally(() => {
+      this.#collecting = null;
+    });
+    this.#collecting = running;
+    return running;
+  }
+
+  async #collect(): Promise<ForgeHostSnapshot> {
     const at = this.#now();
     const [cpuStat, memory, load, temperatureCelsius] = await Promise.all([
       this.#readProc("stat")
@@ -234,7 +251,7 @@ export class HostCollector {
     ]);
 
     const cpu = this.#cpu(cpuStat, at);
-    const perCore = await this.#perCore(cpuStat, at);
+    const perCore = await this.#perCore(cpuStat);
     this.#previousCpu = cpuStat;
     this.#previousCpuAt = at;
 
@@ -303,7 +320,7 @@ export class HostCollector {
     };
   }
 
-  async #perCore(stat: CpuStat, _at: number) {
+  async #perCore(stat: CpuStat) {
     const cores = [...stat.cores.keys()].sort((a, b) => a - b);
     if (cores.length === 0) return [];
     const frequencies = await readCoreFrequencies(cores);

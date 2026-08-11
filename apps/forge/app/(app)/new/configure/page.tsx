@@ -34,6 +34,7 @@ import {
 } from "@repo/ui/combobox";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
+import { Skeleton } from "@repo/ui/skeleton";
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -92,13 +93,16 @@ function ExistingProjectField({
   onChange: (project: ConnectableProject | null) => void;
 }) {
   const load = useCallback(() => api.deploy.projects(), []);
-  const { data, error } = usePoll(load, null);
+  const { data, error, loading } = usePoll(load, null);
   const available = useMemo(
     () => (data ?? []).filter((project) => !project.hasTarget),
     [data],
   );
 
   if (error) return <p className="text-xs text-destructive">{error}</p>;
+  // Checked before the empty case, which is otherwise what an in-flight request
+  // renders — a dash reading as "there are none" while the list is still coming.
+  if (!data && loading) return <Skeleton className="h-8 w-64" />;
   if (available.length === 0) {
     return <p className="text-xs text-muted-foreground">—</p>;
   }
@@ -197,7 +201,11 @@ export default function ConfigureImportPage() {
         ...(linked
           ? { projectId: linked.id }
           : { project: { name: slug, slug } }),
-        name: effectiveSlug,
+        // The target's name, not the project's. The server builds the hostname
+        // as `<slug>-<name>` unless the name is `web`, so passing the slug here
+        // produced `myapp-myapp.<zone>` for every single-deployable project —
+        // which is all of them on import.
+        name: "web",
         repoOwner: repo.owner,
         repoName: repo.name,
         githubInstallationId: repo.installationId,

@@ -824,25 +824,34 @@ export function deployRoutes(options: DeployRouteOptions) {
       newestProduction.map((row) => [row.targetId, row]),
     );
 
-    const listed = await Promise.all(
-      rows.map(async (row) => {
-        const primary = await primaryHostname(row.target.id);
-        const latest = byTarget.get(row.target.id);
-        const production = productionByTarget.get(row.target.id);
-        return {
-          ...serializeTarget(row.target, {
-            projectSlug: row.projectSlug,
-            primaryHostname: primary,
-          }),
-          latestDeployment: latest
-            ? serializeDeployment(latest, primary)
-            : null,
-          latestProduction: production
-            ? serializeDeployment(production, primary)
-            : null,
-        };
-      }),
+    // Batched for the same reason as the deployments above: one query for every
+    // target's primary domain, rather than one per target inside the map.
+    const primaryRows = await db
+      .select({
+        targetId: deployDomains.targetId,
+        hostname: deployDomains.hostname,
+      })
+      .from(deployDomains)
+      .where(eq(deployDomains.isPrimary, true));
+    const primaryByTarget = new Map(
+      primaryRows.map((row) => [row.targetId, row.hostname]),
     );
+
+    const listed = rows.map((row) => {
+      const primary = primaryByTarget.get(row.target.id) ?? null;
+      const latest = byTarget.get(row.target.id);
+      const production = productionByTarget.get(row.target.id);
+      return {
+        ...serializeTarget(row.target, {
+          projectSlug: row.projectSlug,
+          primaryHostname: primary,
+        }),
+        latestDeployment: latest ? serializeDeployment(latest, primary) : null,
+        latestProduction: production
+          ? serializeDeployment(production, primary)
+          : null,
+      };
+    });
     return context.json({ data: listed });
   });
 

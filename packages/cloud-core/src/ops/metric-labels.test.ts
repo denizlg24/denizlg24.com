@@ -28,6 +28,20 @@ describe("inferMetricUnit", () => {
       "bytes",
     );
   });
+
+  // Everything the forge host publishes past the shared suffixes. Falling back
+  // to `count` renders an uptime of 1209600 and a fan at 900 as bare numbers.
+  it("reads the forge host's own units", () => {
+    expect(inferMetricUnit("forge-host:system.uptime_seconds")).toBe("seconds");
+    expect(inferMetricUnit("forge-host:agent.latency_ms")).toBe("milliseconds");
+    expect(inferMetricUnit("forge-host:cpu.core.0.mhz")).toBe("megahertz");
+    expect(inferMetricUnit("forge-host:sensor.nct6798.fan1.rpm")).toBe("rpm");
+    expect(inferMetricUnit("forge-host:sensor.nct6798.in0.volts")).toBe(
+      "volts",
+    );
+    expect(inferMetricUnit("forge-host:power.package_0.watts")).toBe("watts");
+    expect(inferMetricUnit("forge-host:sensor.acpi.curr1.amps")).toBe("amps");
+  });
 });
 
 describe("describeMetricSeries", () => {

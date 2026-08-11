@@ -20,7 +20,16 @@ export function inferMetricUnit(series: string): AlertRuleUnit {
   if (series.endsWith("_bytes_per_second")) return "bytes_per_second";
   if (series.endsWith("_bytes")) return "bytes";
   if (series.endsWith("_celsius")) return "celsius";
+  if (series.endsWith("_seconds")) return "seconds";
+  if (series.endsWith("_ms")) return "milliseconds";
+  if (series.endsWith(".mhz")) return "megahertz";
   if (series.endsWith(".per_core")) return "ratio";
+  // Sensor series carry their unit as the last segment, because the reading's
+  // kind is not recoverable from anything else in the key.
+  if (series.endsWith(".rpm")) return "rpm";
+  if (series.endsWith(".volts")) return "volts";
+  if (series.endsWith(".watts")) return "watts";
+  if (series.endsWith(".amps")) return "amps";
   return "count";
 }
 
@@ -60,9 +69,11 @@ const FORGE_HOST_PATTERNS: {
     group: "disks",
   },
   {
+    // The mount segment is shown as it was normalised, not turned back into a
+    // path: `/mnt/my_disk` and `/mnt/my/disk` both key to `mnt_my_disk`, so any
+    // reconstruction is a guess that would name a directory that need not exist.
     pattern: /^fs\.(.+?)\.([a-z_]+)$/,
-    label: (match) =>
-      `${match[1]?.replace(/_/g, "/")} ${match[2]?.replace(/_/g, " ")}`,
+    label: (match) => `${match[1]} ${match[2]?.replace(/_/g, " ")}`,
     group: "filesystems",
   },
   {

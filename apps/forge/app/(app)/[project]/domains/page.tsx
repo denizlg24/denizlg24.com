@@ -68,7 +68,7 @@ export default function DomainsPage() {
     null;
   const needle = query.trim().toLowerCase();
   const visible = needle
-    ? domains.filter((domain) => domain.hostname.includes(needle))
+    ? domains.filter((domain) => domain.hostname.toLowerCase().includes(needle))
     : domains;
 
   return (
@@ -105,7 +105,7 @@ export default function DomainsPage() {
               className="max-w-sm font-mono text-xs"
               onChange={(event) => setHostname(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") submitHostname();
+                if (event.key === "Enter" && !busy) submitHostname();
               }}
             />
             <Button

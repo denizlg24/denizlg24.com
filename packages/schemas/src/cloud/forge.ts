@@ -153,12 +153,30 @@ export const forgeRequestLogsSchema = z.object({
 });
 export type ForgeRequestLogs = z.infer<typeof forgeRequestLogsSchema>;
 
-export const forgeRequestLogsQuerySchema = z.object({
-  from: cloudDateTimeSchema,
-  to: cloudDateTimeSchema,
-  requestId: z.string().min(1).max(200).nullable().default(null),
-  limit: z.coerce.number().int().min(1).max(1_000).default(200),
-});
+/**
+ * One hour. The window is what the agent asks the daemon for, so an unbounded
+ * one is a request to read everything a container ever wrote — and a reversed
+ * one comes back empty rather than as the mistake it is.
+ */
+const MAX_LOG_WINDOW_MS = 60 * 60 * 1_000;
+
+export const forgeRequestLogsQuerySchema = z
+  .object({
+    from: cloudDateTimeSchema,
+    to: cloudDateTimeSchema,
+    requestId: z.string().min(1).max(200).nullable().default(null),
+    limit: z.coerce.number().int().min(1).max(1_000).default(200),
+  })
+  .refine((query) => new Date(query.from) <= new Date(query.to), {
+    message: "from must not be after to",
+    path: ["from"],
+  })
+  .refine(
+    (query) =>
+      new Date(query.to).getTime() - new Date(query.from).getTime() <=
+      MAX_LOG_WINDOW_MS,
+    { message: "The window must be at most one hour", path: ["to"] },
+  );
 export type ForgeRequestLogsQuery = z.infer<typeof forgeRequestLogsQuerySchema>;
 
 /**

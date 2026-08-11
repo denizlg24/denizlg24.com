@@ -21,8 +21,21 @@ export interface SelectOption<T extends string> {
  * "nothing selected", so an `<SelectItem value="">all</SelectItem>` throws. Every
  * filter in this repo needs exactly that row, so the sentinel lives here once
  * rather than in each caller.
+ *
+ * Real values are prefixed on the way in and stripped on the way out, so an
+ * option that happens to be named `__none__` — a branch, a container, anything
+ * out of a database — selects itself rather than clearing the filter.
  */
 const NONE = "__none__";
+const VALUE_PREFIX = "v:";
+
+function encode(value: string): string {
+  return `${VALUE_PREFIX}${value}`;
+}
+
+function decode(value: string): string | null {
+  return value === NONE ? null : value.slice(VALUE_PREFIX.length);
+}
 
 /**
  * A `Select` over a list, with `null` as a first-class value.
@@ -67,11 +80,9 @@ export function OptionSelect<T extends string>({
 }) {
   return (
     <Select
-      value={value ?? NONE}
+      value={value === null ? NONE : encode(value)}
       disabled={disabled}
-      onValueChange={(next) =>
-        onValueChange(next === NONE ? null : (next as T))
-      }
+      onValueChange={(next) => onValueChange(decode(next) as T | null)}
     >
       <SelectTrigger
         id={id}
@@ -91,7 +102,7 @@ export function OptionSelect<T extends string>({
         {options.map((option) => (
           <SelectItem
             key={option.value}
-            value={option.value}
+            value={encode(option.value)}
             disabled={option.disabled}
             className="text-xs"
           >

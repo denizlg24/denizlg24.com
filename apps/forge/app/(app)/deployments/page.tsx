@@ -76,23 +76,27 @@ function DeploymentsFeed() {
 
   // The URL is the state. A filtered view stays linkable, survives a refresh
   // and comes back intact from a deployment's detail page.
-  const query = useMemo(
-    () =>
-      forgeDeploymentQuerySchema.parse({
-        limit: params.get("size") ?? undefined,
-        sort: params.get("sort") ?? undefined,
-        direction: params.get("direction") ?? undefined,
-        status: params.getAll("status"),
-        project: params.get("project"),
-        search: params.get("search"),
-        kind: params.get("kind"),
-        branch: params.get("branch"),
-        repo: params.get("repo"),
-        since: dayStart(params.get("since")),
-        until: dayEnd(params.get("until")),
-      }),
-    [params],
-  );
+  //
+  // Parsed safely because the URL is typed by hand as often as it is navigated
+  // to: `?size=`, a status the enum does not hold, or a stale link from before a
+  // filter was renamed would otherwise throw inside render and blank the page.
+  // An unparseable URL falls back to the unfiltered feed rather than to nothing.
+  const query = useMemo(() => {
+    const parsed = forgeDeploymentQuerySchema.safeParse({
+      limit: params.get("size") ?? undefined,
+      sort: params.get("sort") ?? undefined,
+      direction: params.get("direction") ?? undefined,
+      status: params.getAll("status"),
+      project: params.get("project"),
+      search: params.get("search"),
+      kind: params.get("kind"),
+      branch: params.get("branch"),
+      repo: params.get("repo"),
+      since: dayStart(params.get("since")),
+      until: dayEnd(params.get("until")),
+    });
+    return parsed.success ? parsed.data : forgeDeploymentQuerySchema.parse({});
+  }, [params]);
 
   const setQuery = (
     next: Partial<Record<string, string | number | null | string[]>>,
@@ -116,7 +120,13 @@ function DeploymentsFeed() {
   };
 
   const fetchPage = useMemo(() => () => api.forge.deployments(query), [query]);
-  const { data, error, loading, reload } = usePoll(fetchPage, 30_000);
+  // The first window refreshes on the cadence a feed wants. Ten pages of it is
+  // ten times the query and ten times the payload for rows nobody is looking at
+  // — someone who has paged that far down is reading, not watching.
+  const { data, error, loading, reload } = usePoll(
+    fetchPage,
+    query.limit > PAGE_STEP ? 120_000 : 30_000,
+  );
 
   const [restarting, setRestarting] = useState<Set<string>>(() => new Set());
   const restart = async (id: string) => {

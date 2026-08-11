@@ -195,6 +195,14 @@ describe("value formatting", () => {
     expect(formatMetricValue(1_073_741_824, "bytes")).toBe("1.0 GiB");
     expect(formatMetricValue(1_048_576, "bytes_per_second")).toBe("1.0 MiB/s");
     expect(formatMetricValue(0, "bytes")).toBe("0 B");
+    expect(formatMetricValue(1_209_600, "seconds")).toBe("14d 0h");
+    expect(formatMetricValue(90, "seconds")).toBe("1m 30s");
+    expect(formatMetricValue(42, "milliseconds")).toBe("42 ms");
+    expect(formatMetricValue(4_200, "megahertz")).toBe("4.20 GHz");
+    expect(formatMetricValue(900, "rpm")).toBe("900 rpm");
+    expect(formatMetricValue(1.216, "volts")).toBe("1.216 V");
+    expect(formatMetricValue(65.3, "watts")).toBe("65.3 W");
+    expect(formatMetricValue(0.5, "amps")).toBe("0.50 A");
   });
 
   it("describes a condition the way the alert body states it", () => {

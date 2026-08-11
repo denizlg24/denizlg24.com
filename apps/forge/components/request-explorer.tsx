@@ -177,17 +177,25 @@ export function RequestExplorer({ deploymentId }: { deploymentId: string }) {
     // the container picker moves. The flag is per-effect, so only the current
     // request's responses are accepted.
     let live = true;
+    // And a sequence within the effect, because the flag alone does not order
+    // two polls of the *same* view: a slow one issued at t=0 landing after the
+    // one issued at t=10s would put the older page back on screen.
+    let issued = 0;
+    let applied = 0;
     setPage(null);
     setError(null);
 
     const load = async () => {
+      const sequence = ++issued;
       try {
         const next = await api.forge.requests(deploymentId, query);
-        if (!live) return;
+        if (!live || sequence <= applied) return;
+        applied = sequence;
         setPage(next);
         setError(null);
       } catch (requestError) {
-        if (!live) return;
+        if (!live || sequence <= applied) return;
+        applied = sequence;
         setError(errorMessage(requestError));
       }
     };
@@ -332,9 +340,23 @@ export function RequestExplorer({ deploymentId }: { deploymentId: string }) {
                   return (
                     <tr
                       key={`${record.ts}-${index}`}
+                      // The whole row is the target, so it takes focus itself
+                      // rather than hiding a button in one cell — the row stays
+                      // a row to a screen reader, and `aria-expanded` says what
+                      // activating it does.
+                      tabIndex={0}
+                      aria-expanded={open}
                       onClick={() => setSelected(open ? null : record)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        // Space scrolls the page otherwise, which moves the row
+                        // out from under the reader who just opened it.
+                        event.preventDefault();
+                        setSelected(open ? null : record);
+                      }}
                       className={cn(
                         "cursor-pointer border-b last:border-b-0 hover:bg-muted/40",
+                        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                         open && "bg-muted/60",
                       )}
                     >

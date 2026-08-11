@@ -120,7 +120,7 @@ export function ProjectCharts({
             labels={{ "memory.bytes": "rss" }}
           />
           <MetricChart
-            title="memory headroom"
+            title="memory limit usage"
             names={["memory.usage_percent"]}
             data={data.series}
             format="percent"
