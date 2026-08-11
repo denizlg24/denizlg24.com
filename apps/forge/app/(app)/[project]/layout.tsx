@@ -18,6 +18,9 @@ const SECTIONS = [
   { segment: "analytics", label: "analytics" },
   { segment: "logs", label: "logs" },
   { segment: "storage", label: "storage" },
+  { segment: "environment", label: "environment" },
+  { segment: "domains", label: "domains" },
+  { segment: "settings", label: "settings" },
 ] as const;
 
 /**

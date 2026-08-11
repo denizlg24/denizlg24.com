@@ -10,6 +10,7 @@ import { cloudDateTimeSchema } from "./common";
  */
 const RESERVED_PROJECT_SLUGS = new Set([
   "deployments",
+  "keys",
   "new",
   "observability",
   "resources",
