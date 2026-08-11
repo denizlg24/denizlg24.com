@@ -4,7 +4,8 @@ import type {
   DeployTargetRow,
 } from "@repo/cloud-core/db/schema";
 import { deployments } from "@repo/cloud-core/db/schema";
-import type { GithubAppClient } from "@repo/cloud-core/deploy";
+import type { ChangeDecision, GithubAppClient } from "@repo/cloud-core/deploy";
+import type { WebhookDeployIntent } from "@repo/schemas/cloud";
 import { eq } from "drizzle-orm";
 
 export interface GithubSurfacesOptions {
@@ -29,8 +30,35 @@ function repoFor(target: DeployTargetRow): Repo | null {
   };
 }
 
+/**
+ * How long a reported skip is remembered. The two events for one commit arrive
+ * within seconds; anything later is a genuine re-push and deserves its own run.
+ */
+const SKIP_MEMORY_MS = 10 * 60 * 1_000;
+
 function commentMarker(targetId: string): string {
   return `<!-- forge:target:${targetId} -->`;
+}
+
+/**
+ * Why nothing was built. The distinction that matters to a reader is whether
+ * the change missed the project's directory entirely or landed in a shared
+ * package whose changed modules this project never imports — the second looks
+ * like a bug until it is spelled out.
+ */
+function skipSummary(
+  target: DeployTargetRow,
+  decision: ChangeDecision,
+): string {
+  const root = target.rootDirectory ?? ".";
+  return decision.reason === "unimported-files"
+    ? [
+        `No file that \`${root}\` imports changed in this push.`,
+        "",
+        "Every change landed in a package this project depends on, in modules it",
+        "does not reach — resolved from the import graph of the last build.",
+      ].join("\n")
+    : `Nothing under \`${root}\`, or in any package it depends on, changed in this push.`;
 }
 
 /**
@@ -40,7 +68,21 @@ function commentMarker(targetId: string): string {
  * not a reason to stop deploying.
  */
 export class GithubSurfaces {
+  /** `${targetId}:${sha}` → when it was reported. Bounded by `SKIP_MEMORY_MS`. */
+  readonly #reportedSkips = new Map<string, number>();
+
   constructor(private readonly options: GithubSurfacesOptions) {}
+
+  /** True the first time a skip is seen, false while it is still remembered. */
+  #claimSkip(key: string): boolean {
+    const now = Date.now();
+    for (const [seen, at] of this.#reportedSkips) {
+      if (now - at > SKIP_MEMORY_MS) this.#reportedSkips.delete(seen);
+    }
+    if (this.#reportedSkips.has(key)) return false;
+    this.#reportedSkips.set(key, now);
+    return true;
+  }
 
   #detailsUrl(row: DeploymentRow): string {
     return `${this.options.adminBaseUrl.replace(/\/$/, "")}/deployments/${row.targetId}?d=${row.id}`;
@@ -158,6 +200,43 @@ export class GithubSurfaces {
     }
 
     await this.#comment(row, target, repo);
+  }
+
+  /**
+   * The push touched nothing this target reads, so no deployment was created.
+   *
+   * A commit whose checks simply do not mention a project reads exactly like a
+   * webhook that never arrived, which is why Vercel reports its skips too. This
+   * writes a completed check run and nothing else: there is no deployment, so
+   * there is no environment to create and no build log to link.
+   */
+  async onSkipped(
+    target: DeployTargetRow,
+    intent: WebhookDeployIntent,
+    decision: ChangeDecision,
+  ): Promise<void> {
+    const repo = repoFor(target);
+    if (!repo) return;
+    // A push to a branch with an open pull request arrives twice, as `push` and
+    // as `pull_request.synchronize`. A real deployment dedupes on the in-flight
+    // row it already created; a skip creates nothing, so it dedupes here.
+    if (!this.#claimSkip(`${target.id}:${intent.sha}`)) return;
+
+    await this.#swallow("skipped check run create", async () => {
+      await this.options.client.createCheckRun({
+        ...repo,
+        name: `forge / ${target.name}`,
+        headSha: intent.sha,
+        detailsUrl: `${this.options.adminBaseUrl.replace(/\/$/, "")}/deployments/${target.id}`,
+        completed: {
+          conclusion: "skipped",
+          output: {
+            title: "Skipped — no changes to this project",
+            summary: skipSummary(target, decision),
+          },
+        },
+      });
+    });
   }
 
   /**

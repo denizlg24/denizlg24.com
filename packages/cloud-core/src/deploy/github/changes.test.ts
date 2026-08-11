@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { RepoInspector } from "../detect";
+import type { ModuleGraph } from "../module-graph";
 import { createRepositoryChangeMatcher } from "./changes";
 
 function pkg(value: Record<string, unknown>): string {
@@ -170,6 +171,95 @@ describe("RepositoryChangeMatcher", () => {
       expect(result.affectsTarget({ rootDirectory: "apps/envoy-cli" })).toBe(
         false,
       );
+    });
+  });
+
+  // The package-level answer is "web depends on @repo/tokens", which is true and
+  // does not mean web reads the file that changed.
+  describe("with an import graph from the last build", () => {
+    const graph: ModuleGraph = {
+      sha: "abc1234",
+      rootDirectory: "apps/web",
+      files: ["packages/ui/src/index.ts", "packages/tokens/src/colors.ts"],
+      opaqueWorkspaces: [],
+      complete: true,
+    };
+
+    it("skips a dependency file the target does not import", async () => {
+      const decision = (await matcher("packages/tokens/src/spacing.ts")).decide(
+        { ...WEB, moduleGraph: graph },
+      );
+      expect(decision).toEqual({
+        deploy: false,
+        reason: "unimported-files",
+        files: [],
+      });
+    });
+
+    it("deploys for a dependency file the target does import", async () => {
+      const decision = (await matcher("packages/tokens/src/colors.ts")).decide({
+        ...WEB,
+        moduleGraph: graph,
+      });
+      expect(decision.deploy).toBe(true);
+      expect(decision.reason).toBe("dependency-imported");
+    });
+
+    it("deploys when only one of several changed files is imported", async () => {
+      const decision = (
+        await matcher(
+          "packages/tokens/src/spacing.ts",
+          "packages/tokens/src/colors.ts",
+        )
+      ).decide({ ...WEB, moduleGraph: graph });
+      expect(decision.deploy).toBe(true);
+      expect(decision.files).toEqual(["packages/tokens/src/colors.ts"]);
+    });
+
+    it("deploys for a dependency manifest the walk never opened", async () => {
+      const decision = (await matcher("packages/tokens/package.json")).decide({
+        ...WEB,
+        moduleGraph: graph,
+      });
+      expect(decision.deploy).toBe(true);
+    });
+
+    it("ignores a graph resolved for a different root directory", async () => {
+      const decision = (await matcher("packages/tokens/src/spacing.ts")).decide(
+        {
+          ...WEB,
+          moduleGraph: { ...graph, rootDirectory: "apps/api" },
+        },
+      );
+      expect(decision).toEqual({
+        deploy: true,
+        reason: "dependency-unresolved",
+        files: ["packages/tokens/src/spacing.ts"],
+      });
+    });
+
+    it("ignores an incomplete graph", async () => {
+      const decision = (await matcher("packages/tokens/src/spacing.ts")).decide(
+        { ...WEB, moduleGraph: { ...graph, complete: false } },
+      );
+      expect(decision.deploy).toBe(true);
+      expect(decision.reason).toBe("dependency-unresolved");
+    });
+
+    it("still deploys for the target's own files", async () => {
+      const decision = (await matcher("apps/web/app/page.tsx")).decide({
+        ...WEB,
+        moduleGraph: graph,
+      });
+      expect(decision.reason).toBe("own-files");
+    });
+
+    it("still deploys for a global input", async () => {
+      const decision = (await matcher("bun.lock")).decide({
+        ...WEB,
+        moduleGraph: graph,
+      });
+      expect(decision.reason).toBe("global-inputs");
     });
   });
 });

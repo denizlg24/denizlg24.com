@@ -1,4 +1,10 @@
 import { detectWorkspaces, type RepoInspector } from "../detect";
+import {
+  graphReaches,
+  type ModuleGraph,
+  normaliseGraphPath as normalisePath,
+  pathIsInside,
+} from "../module-graph";
 
 interface WorkspaceManifest {
   path: string;
@@ -9,17 +15,54 @@ interface WorkspaceManifest {
 export interface ChangeAwareTarget {
   rootDirectory: string | null;
   dockerfilePath?: string | null;
+  /**
+   * The import graph the last build resolved for this target, when the stored
+   * one still describes the current root directory. Absent means the matcher
+   * falls back to watching every dependency workspace whole.
+   */
+  moduleGraph?: ModuleGraph | null;
 }
 
-function normalisePath(value: string): string {
-  return value
-    .replaceAll("\\", "/")
-    .replace(/^\.\//, "")
-    .replace(/^\/+|\/+$/g, "");
+/**
+ * Why a target is or is not being built. Carried through to the GitHub check
+ * run, because "skipped" with no reason is indistinguishable from a bug.
+ */
+export type ChangeReason =
+  /** No root directory: the target owns the whole repository. */
+  | "root-target"
+  /** A file inside the target, or the Dockerfile it names. */
+  | "own-files"
+  /** A file outside every declared workspace — lockfile, CI, root config. */
+  | "global-inputs"
+  /** A `package.json` somewhere that could not be parsed. */
+  | "workspace-graph-incomplete"
+  /** A dependency file the stored import graph says the target reads. */
+  | "dependency-imported"
+  /** A dependency changed and no import graph has been resolved yet. */
+  | "dependency-unresolved"
+  /** Every change landed in a workspace this target does not depend on. */
+  | "unrelated-workspace"
+  /** Every change landed in a dependency, in files the target never imports. */
+  | "unimported-files";
+
+export interface ChangeDecision {
+  deploy: boolean;
+  reason: ChangeReason;
+  /**
+   * The changed files that decided it, capped for display. Empty for a
+   * `deploy: false` decision, where the interesting set is everything.
+   */
+  files: string[];
 }
 
-function pathIsInside(path: string, directory: string): boolean {
-  return path === directory || path.startsWith(`${directory}/`);
+const DECIDING_FILE_SAMPLE = 5;
+
+function build(reason: ChangeReason, files: string[]): ChangeDecision {
+  return { deploy: true, reason, files: files.slice(0, DECIDING_FILE_SAMPLE) };
+}
+
+function skip(reason: ChangeReason): ChangeDecision {
+  return { deploy: false, reason, files: [] };
 }
 
 function readManifest(
@@ -112,47 +155,65 @@ export class RepositoryChangeMatcher {
 
   /** A root target owns the repository, so every changed file affects it. */
   affectsTarget(target: ChangeAwareTarget): boolean {
+    return this.decide(target).deploy;
+  }
+
+  decide(target: ChangeAwareTarget): ChangeDecision {
     const rootDirectory = normalisePath(target.rootDirectory ?? "");
-    if (!rootDirectory) return true;
+    if (!rootDirectory) return build("root-target", this.#changedFiles);
 
     const dockerfilePath = normalisePath(target.dockerfilePath ?? "");
-    if (
-      this.#changedFiles.some(
-        (path) =>
-          pathIsInside(path, rootDirectory) ||
-          (dockerfilePath.length > 0 && path === dockerfilePath),
-      )
-    ) {
-      return true;
-    }
+    const own = this.#changedFiles.filter(
+      (path) =>
+        pathIsInside(path, rootDirectory) ||
+        (dockerfilePath.length > 0 && path === dockerfilePath),
+    );
+    if (own.length > 0) return build("own-files", own);
 
     // Anything outside the workspace declaration may control every build:
     // lockfiles, root manifests, scripts and shared configuration all live
     // here. Deploying is safer than guessing which arbitrary root file matters.
-    if (
-      this.#changedFiles.some(
-        (path) =>
-          !this.#workspacePaths.some((workspace) =>
-            pathIsInside(path, workspace),
-          ),
-      )
-    ) {
-      return true;
-    }
+    const global = this.#changedFiles.filter(
+      (path) =>
+        !this.#workspacePaths.some((workspace) =>
+          pathIsInside(path, workspace),
+        ),
+    );
+    if (global.length > 0) return build("global-inputs", global);
 
     const owner = this.#workspacePaths.find((workspace) =>
       pathIsInside(rootDirectory, workspace),
     );
-    if (!owner) return false;
-    if (!this.#workspaceGraphComplete) return true;
+    if (!owner) return skip("unrelated-workspace");
+    if (!this.#workspaceGraphComplete) {
+      return build("workspace-graph-incomplete", this.#changedFiles);
+    }
 
     const watched = this.#dependencyClosure(owner);
     // An unreadable manifest or unresolved `workspace:` dependency means the
     // graph cannot prove the change is unrelated. Fail open and build.
-    if (!watched) return true;
-    return this.#changedFiles.some((path) =>
+    if (!watched)
+      return build("workspace-graph-incomplete", this.#changedFiles);
+
+    const inDependencies = this.#changedFiles.filter((path) =>
       [...watched].some((workspace) => pathIsInside(path, workspace)),
     );
+    if (inDependencies.length === 0) return skip("unrelated-workspace");
+
+    // The package-level answer is "yes, this target depends on where the change
+    // landed". Which is not the same as reading the file that changed: several
+    // applications enter `@repo/schemas` through different subpath exports and
+    // share none of the modules behind them. Only the import graph resolved
+    // from a real checkout can tell those apart.
+    const graph = target.moduleGraph;
+    if (!graph || !graph.complete || graph.rootDirectory !== rootDirectory) {
+      return build("dependency-unresolved", inDependencies);
+    }
+
+    const imported = inDependencies.filter((path) => graphReaches(graph, path));
+    return imported.length > 0
+      ? build("dependency-imported", imported)
+      : skip("unimported-files");
   }
 
   #dependencyClosure(root: string): Set<string> | null {

@@ -8,6 +8,7 @@
     "agent-memory:auto-accept": "bun scripts/agent-memory-auto-accept.ts",
     "agent-memory:reembed": "bun --env-file=../../.env scripts/reembed-agent-memory.ts",
     "agent-memory:reclassify-contradictions": "bun --env-file=../../.env scripts/reclassify-agent-memory-contradictions.ts",
+    "agent-memory:purge-triage": "bun --env-file=../../.env scripts/purge-ineligible-triage-memories.ts",
     "triage:backfill": "bun --env-file=../../.env scripts/backfill-triage.ts",
     "triage:dataset": "bun --env-file=../../.env scripts/build-triage-dataset.ts",
     "markets:migrate-usd": "bun --env-file=../../.env scripts/migrate-portfolios-to-usd.ts",

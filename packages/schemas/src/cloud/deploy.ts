@@ -374,6 +374,37 @@ export type DeploymentStatusUpdate = z.infer<
   typeof deploymentStatusUpdateSchema
 >;
 
+/**
+ * The import graph one build resolved for its target, reported back so the next
+ * webhook can decide whether a change to a shared package reaches this target at
+ * all. Resolved on the deploy host because that is the only place a checkout
+ * exists: answering it from the GitHub API would cost one request per source
+ * file in the application.
+ *
+ * Stored per target and overwritten by every build. It cannot go stale in a way
+ * that drops a deployment — adding an import edits a file that is already
+ * watched, which builds, which resolves the graph again.
+ */
+export const deployModuleGraphSchema = z.object({
+  sha: z.string().max(40),
+  rootDirectory: z.string().max(512),
+  /** Repository-relative files outside `rootDirectory` that the target reads. */
+  files: z.array(z.string().max(1024)).max(50_000),
+  /** Dependencies whose own graph could not be followed; watched whole. */
+  opaqueWorkspaces: z.array(z.string().max(512)).max(1_000),
+  /** False means the walk gave up, and a partial graph never skips a build. */
+  complete: z.boolean(),
+  resolvedAt: z.iso.datetime(),
+});
+export type DeployModuleGraph = z.infer<typeof deployModuleGraphSchema>;
+
+export const agentModuleGraphReportSchema = z.object({
+  moduleGraph: deployModuleGraphSchema.omit({ resolvedAt: true }),
+});
+export type AgentModuleGraphReport = z.infer<
+  typeof agentModuleGraphReportSchema
+>;
+
 export const agentDeploymentStateSchema = z.object({
   deploymentId: z.uuid(),
   status: deploymentStatusSchema,

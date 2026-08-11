@@ -3,6 +3,7 @@ import {
   type AgentDeploymentRequest,
   agentClaimResponseSchema,
   agentDeploymentEnvSchema,
+  type DeployModuleGraph,
   type DeploymentStatusUpdate,
 } from "@repo/schemas/cloud";
 
@@ -107,5 +108,20 @@ export class ControlPlaneClient {
       { method: "GET", signal },
     );
     return agentDeploymentEnvSchema.parse(body);
+  }
+
+  /**
+   * What this checkout showed the target imports. Reported once per build,
+   * right after the clone, so it lands whether or not the build then succeeds —
+   * a failing build resolves the same graph a passing one does.
+   */
+  async reportModuleGraph(
+    deploymentId: string,
+    graph: DeployModuleGraph,
+  ): Promise<void> {
+    await this.#post(
+      `/api/deploy/agent/deployments/${deploymentId}/module-graph`,
+      { moduleGraph: graph },
+    );
   }
 }

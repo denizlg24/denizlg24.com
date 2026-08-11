@@ -223,6 +223,33 @@ function policyFor(
   };
 }
 
+/**
+ * Whether a domain record is worth remembering at all.
+ *
+ * Every kind but email triage is something the owner wrote, so the record
+ * existing is itself the decision to keep it. Triage is the opposite: a row is
+ * created for every message that arrives, and its contents are an external
+ * sender's assertions plus a classifier's guess about them. Observing all of it
+ * filled memory with low-confidence restatements of an inbox that is already
+ * searchable — which is the one thing memory is not for.
+ *
+ * The line is an action by the owner. Accepting a suggested task or event is a
+ * deliberate "this matters to me" that nothing else in the system records, and
+ * it is the only part of a triage row that cannot be recovered by looking at the
+ * mailbox. A row nobody acted on produces no evidence and therefore no memory.
+ */
+export function domainRecordIsMemoryEligible(
+  kind: AgentDomainKind,
+  value: unknown,
+): boolean {
+  if (kind !== "email-triage") return true;
+  const raw = record(value);
+  const accepted = (field: unknown) =>
+    Array.isArray(field) &&
+    field.some((item) => record(item).status === "accepted");
+  return accepted(raw.suggestedTasks) || accepted(raw.suggestedEvents);
+}
+
 function validDate(value: unknown): Date | undefined {
   if (!value) return undefined;
   const date = new Date(value as string | number | Date);
@@ -271,6 +298,9 @@ export async function observeDomainRecordSafely(
   value: unknown,
 ): Promise<void> {
   if (mongoose.connection.readyState !== 1) return;
+  // Ahead of the write rather than inside formation, so an ineligible row leaves
+  // no evidence row, no job and no candidate to clean up later.
+  if (!domainRecordIsMemoryEligible(kind, value)) return;
   try {
     await observeEvidence({
       memoryMode: "enabled",

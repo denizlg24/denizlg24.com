@@ -59,7 +59,7 @@ export interface GithubCommit {
 
 export interface GithubCheckRunUpdate {
   status?: "queued" | "in_progress" | "completed";
-  conclusion?: "success" | "failure" | "cancelled" | "neutral";
+  conclusion?: "success" | "failure" | "cancelled" | "neutral" | "skipped";
   detailsUrl?: string;
   output?: { title: string; summary: string };
 }
@@ -534,6 +534,11 @@ export class GithubAppClient {
     };
   }
 
+  /**
+   * Created `in_progress` unless `completed` is given. A skipped build has
+   * nothing to wait for, and a check run that appears and finishes in one call
+   * never leaves a spinner on a commit nobody is building.
+   */
   async createCheckRun(input: {
     installationId: number;
     owner: string;
@@ -541,6 +546,10 @@ export class GithubAppClient {
     name: string;
     headSha: string;
     detailsUrl: string;
+    completed?: {
+      conclusion: NonNullable<GithubCheckRunUpdate["conclusion"]>;
+      output: NonNullable<GithubCheckRunUpdate["output"]>;
+    };
   }): Promise<number> {
     const token = await this.installationToken(input.installationId);
     const run = await this.#json<{ id: number }>(
@@ -551,8 +560,15 @@ export class GithubAppClient {
         body: JSON.stringify({
           name: input.name,
           head_sha: input.headSha,
-          status: "in_progress",
           details_url: input.detailsUrl,
+          ...(input.completed
+            ? {
+                status: "completed",
+                conclusion: input.completed.conclusion,
+                output: input.completed.output,
+                completed_at: new Date().toISOString(),
+              }
+            : { status: "in_progress" }),
         }),
       },
     );
