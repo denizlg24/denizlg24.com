@@ -54,6 +54,7 @@ async function build(
     cacheRoot?: string;
     buildxBuilder?: string;
     buildkitEndpoint?: string;
+    serializeBunInstalls?: boolean;
   } = {},
 ) {
   const request = deploymentRequest(overrides);
@@ -270,6 +271,49 @@ describe("runBuild", () => {
       expect(buildx?.timeoutMs).toBeUndefined();
       expect(exec.find("docker tag")).toBeUndefined();
       expect(text).toContain("serializing install steps across builds");
+    });
+  });
+
+  it("does not serialize Bun installs on an SSD-backed worker", async () => {
+    await withTempDir(async (dir) => {
+      let generatedDockerfile = "";
+      const { text } = await build(
+        dir,
+        {},
+        { "package.json": "{}" },
+        () => {
+          const checkout = checkoutWriter({ "package.json": "{}" });
+          return async (options) => {
+            await checkout(options);
+            if (options.command[0] === "nixpacks" && options.cwd) {
+              const output = join(options.cwd, ".nixpacks");
+              await mkdir(output, { recursive: true });
+              await writeFile(
+                join(output, "Dockerfile"),
+                "FROM scratch\nRUN --mount=type=cache,id=target-a-/root/bun,target=/root/.bun bun install\n",
+              );
+            }
+            if (
+              options.command[0] === "docker" &&
+              options.command.includes("buildx") &&
+              options.cwd
+            ) {
+              generatedDockerfile = await Bun.file(
+                join(options.cwd, ".nixpacks", "Dockerfile"),
+              ).text();
+            }
+            return undefined;
+          };
+        },
+        {
+          buildxBuilder: "forge-ssd",
+          buildkitEndpoint: "docker-container://forge-buildkit",
+          serializeBunInstalls: false,
+        },
+      );
+
+      expect(generatedDockerfile).not.toContain("forge-bun-install-lock");
+      expect(text).not.toContain("serializing install steps across builds");
     });
   });
 

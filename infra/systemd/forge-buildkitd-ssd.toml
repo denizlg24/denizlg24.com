@@ -1,0 +1,22 @@
+# SSD profile installed as /etc/forge/buildkitd-ssd.toml. The service selects
+# it through /etc/forge/buildkit-storage.env, so normal agent releases cannot
+# silently switch the host back to the HDD profile.
+root = "/var/lib/buildkit"
+
+[worker.oci]
+  enabled = true
+  gc = true
+  # This is a bounded hot cache shared by every project. maxUsedSpace is the
+  # steady-state target, not a filesystem quota: an active solve may burst
+  # above it. minFreeSpace therefore preserves enough room for Docker, the OS,
+  # and a large image export before GC has caught up.
+  reservedSpace = "10GB"
+  maxUsedSpace = "70GB"
+  minFreeSpace = "55GB"
+  # Two concurrent builds on the 12-core host. Next.js performs its own
+  # parallel work inside a step, so a larger solve-step count mostly increases
+  # export contention rather than reducing compilation time.
+  max-parallelism = 6
+
+[worker.containerd]
+  enabled = false

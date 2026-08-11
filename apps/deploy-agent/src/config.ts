@@ -17,6 +17,8 @@ export interface AgentConfig {
   dockerDataRoot: string;
   buildxBuilder: string;
   buildkitEndpoint: string | null;
+  /** Serialize Bun cache mounts when the BuildKit worker is rotational. */
+  serializeBunInstalls: boolean;
   dockerNetwork: string;
   caddyAdminUrl: string;
   caddyListen: string;
@@ -74,6 +76,13 @@ function absolutePathEnv(name: string, fallback: string): string {
     throw new Error(`${name} must be an absolute path`);
   }
   return value;
+}
+
+function booleanEnv(name: string, fallback: boolean): boolean {
+  const value = (process.env[name] ?? String(fallback)).trim().toLowerCase();
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`${name} must be true or false`);
 }
 
 function dockerNetworkEnv(): string {
@@ -176,6 +185,10 @@ export function agentConfigFromEnv(): AgentConfig {
     dockerDataRoot: absolutePathEnv("DOCKER_DATA_ROOT", "/var/lib/docker"),
     buildxBuilder: buildxBuilderEnv(),
     buildkitEndpoint: buildkitEndpointEnv(),
+    // Safe for the original HDD worker. The SSD migration opts out explicitly;
+    // defaulting the other way would let an older agent.env overload the disk
+    // as soon as a newer binary is deployed.
+    serializeBunInstalls: booleanEnv("SERIALIZE_BUN_INSTALLS", true),
     dockerNetwork: dockerNetworkEnv(),
     caddyAdminUrl: caddyAdminUrlEnv(),
     caddyListen: process.env.CADDY_LISTEN?.trim() || DEFAULT_LISTEN,

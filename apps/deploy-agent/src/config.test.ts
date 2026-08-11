@@ -24,6 +24,7 @@ const TOUCHED = [
   "DOCKER_DATA_ROOT",
   "BUILDX_BUILDER",
   "BUILDKIT_ENDPOINT",
+  "SERIALIZE_BUN_INSTALLS",
   "BUILD_MEMORY_LIMIT_MB",
   "MEMORY_HEADROOM_MB",
   "CADDY_LISTEN",
@@ -72,6 +73,7 @@ describe("agentConfigFromEnv", () => {
     expect(config.dockerDataRoot).toBe("/var/lib/docker");
     expect(config.buildxBuilder).toBe("forge");
     expect(config.buildkitEndpoint).toBeNull();
+    expect(config.serializeBunInstalls).toBe(true);
     expect(config.memoryHeadroomMb).toBe(1_024);
     expect(config.caddyListen).toBe(DEFAULT_LISTEN);
   });
@@ -158,5 +160,14 @@ describe("agentConfigFromEnv", () => {
     expect(() =>
       configWith({ BUILDKIT_ENDPOINT: "tcp://127.0.0.1:1234" }),
     ).toThrow(/docker-container/);
+  });
+
+  it("can disable the HDD-only Bun install mutex", () => {
+    expect(
+      configWith({ SERIALIZE_BUN_INSTALLS: "false" }).serializeBunInstalls,
+    ).toBe(false);
+    expect(() => configWith({ SERIALIZE_BUN_INSTALLS: "sometimes" })).toThrow(
+      /true or false/,
+    );
   });
 });

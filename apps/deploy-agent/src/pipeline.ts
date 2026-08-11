@@ -58,6 +58,7 @@ export interface PipelineOptions {
   cacheRoot?: string | null;
   buildxBuilder?: string;
   buildkitEndpoint?: string | null;
+  serializeBunInstalls?: boolean;
   network: string;
   buildMemoryLimit: string;
   drainMs: number;
@@ -95,6 +96,7 @@ export function createDeploymentRunner(
         cacheRoot: options.cacheRoot,
         buildxBuilder: options.buildxBuilder,
         buildkitEndpoint: options.buildkitEndpoint,
+        serializeBunInstalls: options.serializeBunInstalls,
         buildMemoryLimit: options.buildMemoryLimit,
         cloneToken: resolved.cloneToken,
         env: resolved.env,

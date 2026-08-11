@@ -38,6 +38,14 @@ const arg = (name) =>
 
 const bind = arg("bind") ?? "REPLACE_WITH_TAILSCALE_IP";
 const controlPlane = arg("control-plane") ?? "http://100.89.155.9:3001";
+const buildStorage = arg("build-storage") ?? "hdd";
+if (buildStorage !== "hdd" && buildStorage !== "ssd") {
+  console.error("[forge-agent-env] --build-storage must be hdd or ssd");
+  process.exit(1);
+}
+const maxConcurrentBuilds =
+  arg("max-concurrent-builds") ??
+  (buildStorage === "ssd" ? "2" : (env.MAX_CONCURRENT_BUILDS ?? "3"));
 
 const token = env.AGENT_TOKEN ?? "";
 if (token.length < 32) {
@@ -70,10 +78,9 @@ CONTROL_PLANE_URL=${controlPlane}
 
 # Concurrent *builds*, not concurrent deployments — a run hands its slot back
 # the moment the image exists and finishes starting the container outside the
-# cap. The host is 12 cores / 31 GB and a Next.js build peaks 2–4 GB, so three
-# fits with room. Keep this in step with max-parallelism in
-# infra/systemd/forge-buildkitd.toml, which is a worker-wide step cap.
-MAX_CONCURRENT_BUILDS=${env.MAX_CONCURRENT_BUILDS || "3"}
+# cap. The SSD profile defaults to two so exports cannot monopolise the runtime
+# disk. Keep this in step with BuildKit's worker-wide parallelism.
+MAX_CONCURRENT_BUILDS=${maxConcurrentBuilds}
 
 # Production paths. Deliberately not taken from .env: those are this laptop's.
 BUILD_ROOT=/mnt/storage/forge/builds
@@ -84,10 +91,14 @@ RUN_ENV_ROOT=/run/forge
 DOCKER_SOCKET=/var/run/docker.sock
 # statfs'd by /healthz.
 DOCKER_DATA_ROOT=/var/lib/docker
-# External worker: BuildKit cache stays on the HDD; --load puts completed images
-# in DOCKER_DATA_ROOT for fast container startup.
-BUILDX_BUILDER=forge-hdd
+# External worker. Its data-root is selected independently by
+# /etc/forge/buildkit-storage.env, while --load keeps completed runtime images
+# in DOCKER_DATA_ROOT.
+BUILDX_BUILDER=forge-${buildStorage}
 BUILDKIT_ENDPOINT=docker-container://forge-buildkit
+# The global Bun mutex protects a rotational worker from random-I/O collapse.
+# Per-target cache mounts can run concurrently once the worker is SSD-backed.
+SERIALIZE_BUN_INSTALLS=${buildStorage === "hdd" ? "true" : "false"}
 DOCKER_NETWORK=${env.DOCKER_NETWORK || "forge-apps"}
 
 # Caddy's admin API is unauthenticated code execution; loopback is enforced.
@@ -110,6 +121,7 @@ chmodSync(target, 0o600);
 console.log(`[forge-agent-env] wrote ${target} (0600)`);
 console.log(`[forge-agent-env]   AGENT_BIND_ADDRESS=${bind}`);
 console.log(`[forge-agent-env]   CONTROL_PLANE_URL=${controlPlane}`);
+console.log(`[forge-agent-env]   BUILD_STORAGE=${buildStorage}`);
 console.log(
   `[forge-agent-env]   AGENT_TOKEN carried from .env (${token.length} chars)`,
 );

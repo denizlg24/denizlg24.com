@@ -27,6 +27,8 @@ export interface BuildOptions {
   buildxBuilder?: string;
   /** Externally managed BuildKit daemon. When set, builds never fall back. */
   buildkitEndpoint?: string | null;
+  /** Keep Bun install cache mounts mutually exclusive on rotational storage. */
+  serializeBunInstalls?: boolean;
   /** Passed to `docker run`-style flags, e.g. `6144m`. */
   buildMemoryLimit: string;
   cloneToken?: string | null;
@@ -660,7 +662,9 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         }
         const dockerfileContents = await readFile(generatedDockerfile, "utf8");
         const serializedDockerfile =
-          serializeBunInstallSteps(dockerfileContents);
+          options.serializeBunInstalls === false
+            ? dockerfileContents
+            : serializeBunInstallSteps(dockerfileContents);
         if (serializedDockerfile !== dockerfileContents) {
           await writeFile(generatedDockerfile, serializedDockerfile);
           log.note(

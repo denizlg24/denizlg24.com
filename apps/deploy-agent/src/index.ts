@@ -76,6 +76,7 @@ const queue = new DeploymentQueue({
     cacheRoot: config.cacheRoot,
     buildxBuilder: config.buildxBuilder,
     buildkitEndpoint: config.buildkitEndpoint,
+    serializeBunInstalls: config.serializeBunInstalls,
     network: config.dockerNetwork,
     buildMemoryLimit: `${config.buildMemoryLimitMb}m`,
     drainMs: config.drainMs,

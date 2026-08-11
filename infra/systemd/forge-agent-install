@@ -20,6 +20,38 @@ STAGING_DIR=/var/lib/forge-agent/staging
 [ -f "$STAGED" ] || { echo "nothing staged at $STAGED" >&2; exit 1; }
 [ -s "$STAGED" ] || { echo "staged binary is empty" >&2; exit 1; }
 
+buildkit_changed=0
+if [ -f "$STAGING_DIR/forge-buildkit.service" ] \
+  && ! cmp -s "$STAGING_DIR/forge-buildkit.service" \
+    /etc/systemd/system/forge-buildkit.service; then
+  buildkit_changed=1
+fi
+if [ -f "$STAGING_DIR/forge-buildkitd.toml" ] \
+  && ! cmp -s "$STAGING_DIR/forge-buildkitd.toml" \
+    /etc/forge/buildkitd.toml; then
+  buildkit_changed=1
+fi
+
+# Restarting the agent cancels its in-memory queue, and restarting BuildKit
+# additionally cancels every solve using it. A release must wait for both the
+# build and post-build deployment phases to drain.
+bind_address="$(awk -F= '$1 == "AGENT_BIND_ADDRESS" { print $2; exit }' /etc/forge/agent.env)"
+agent_port="$(awk -F= '$1 == "AGENT_PORT" { print $2; exit }' /etc/forge/agent.env)"
+agent_port="${agent_port:-4010}"
+health="$(curl -sS --max-time 5 \
+  "http://${bind_address}:${agent_port}/healthz" 2>/dev/null || true)"
+if [ -n "$health" ] \
+  && { ! grep -q '"running":0' <<<"$health" \
+    || ! grep -q '"building":0' <<<"$health"; }; then
+  echo "the Forge queue is not idle; refusing to cancel active deployments" >&2
+  exit 1
+fi
+
+if pgrep -f 'docker-buildx.*buildx build|nixpacks build' >/dev/null; then
+  echo "a build process is active; refusing to restart the Forge agent" >&2
+  exit 1
+fi
+
 # A truncated scp produces a file that exists, is executable and dies at
 # startup. Checking it runs before it becomes the service costs a second.
 chmod 0755 "$STAGED"
@@ -80,7 +112,9 @@ install -d -m 0750 -o forge -g forge /srv/forge/access
 
 systemctl daemon-reload
 systemctl enable forge-buildkit.service >/dev/null
-systemctl restart forge-buildkit.service
+if [ "$buildkit_changed" = "1" ]; then
+  systemctl restart forge-buildkit.service
+fi
 
 # Only when the unit actually changed. A sandbox property like ReadWritePaths
 # applies at process start, so this needs a restart rather than a reload — and a

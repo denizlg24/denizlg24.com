@@ -1,19 +1,24 @@
 [Unit]
-Description=Forge HDD-backed BuildKit worker
+Description=Forge managed BuildKit worker
 After=docker.service
 Requires=docker.service
-RequiresMountsFor=/mnt/storage/forge/buildkit
-ConditionPathIsMountPoint=/mnt/storage
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
+# Host-local overrides survive agent releases. With no override this retains the
+# original HDD worker; the SSD migration changes only this root-owned env file.
+Environment=BUILDKIT_DATA_ROOT=/mnt/storage/forge/buildkit
+Environment=BUILDKIT_CONFIG_PATH=/etc/forge/buildkitd.toml
+EnvironmentFile=-/etc/forge/buildkit-storage.env
+# Refuse to create a cache directory beneath an absent mount by accident.
+ExecStartPre=/usr/bin/test -d ${BUILDKIT_DATA_ROOT}
 # The worker is disposable; all durable cache state is the bind mount below.
 ExecStartPre=-/usr/bin/docker rm --force forge-buildkit
-ExecStart=/usr/bin/docker run --rm --name forge-buildkit --privileged --pull=missing --volume /mnt/storage/forge/buildkit:/var/lib/buildkit --volume /etc/forge/buildkitd.toml:/etc/buildkit/buildkitd.toml:ro moby/buildkit:v0.32.2 --config /etc/buildkit/buildkitd.toml
+ExecStart=/usr/bin/docker run --rm --name forge-buildkit --privileged --pull=missing --volume ${BUILDKIT_DATA_ROOT}:/var/lib/buildkit --volume ${BUILDKIT_CONFIG_PATH}:/etc/buildkit/buildkitd.toml:ro moby/buildkit:v0.32.2 --config /etc/buildkit/buildkitd.toml
 ExecStop=-/usr/bin/docker stop --time 30 forge-buildkit
 Restart=always
 RestartSec=5
-StartLimitIntervalSec=0
 TimeoutStartSec=300
 TimeoutStopSec=60
 

@@ -5,6 +5,8 @@ Wants=network-online.target
 Requires=docker.service forge-buildkit.service
 RequiresMountsFor=/mnt/storage/forge/builds /mnt/storage/forge/logs /mnt/storage/forge/cache
 ConditionPathIsMountPoint=/mnt/storage
+# Unit-level start rate limit; placing this in [Service] is silently ignored.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -35,7 +37,6 @@ RestartSec=5s
 # No rate limit. The failure that matters here is transient and external — the
 # tailnet, the control plane, the docker socket — and a unit that gives up
 # after five tries turns a thirty-second outage into an indefinite one.
-StartLimitIntervalSec=0
 TimeoutStartSec=120
 
 # /run/forge, as tmpfs, wiped on every restart. A resolved env set no longer
