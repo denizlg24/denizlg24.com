@@ -1008,6 +1008,42 @@ export function deployRoutes(options: DeployRouteOptions) {
   });
 
   /**
+   * Every project, as the connect picker needs them: id, slug, name and
+   * whether anything deploys from it. Distinct from `GET /api/projects`, which
+   * paginates and returns whole rows — the twelve projects that exist only to
+   * hold a database must appear here, and they are exactly the ones a target
+   * list would omit.
+   */
+  owner.get("/projects", async (context) => {
+    const rows = await db
+      .select({
+        id: projects.id,
+        name: projects.name,
+        slug: projects.slug,
+        targetId: deployTargets.id,
+      })
+      .from(projects)
+      .leftJoin(deployTargets, eq(deployTargets.projectId, projects.id))
+      .orderBy(projects.slug);
+    // A project holding two targets would repeat; the schema permits it even
+    // though nothing in production does, so collapse on the project id.
+    const seen = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      if (!seen.has(row.id)) seen.set(row.id, row);
+    }
+    return context.json({
+      data: {
+        projects: [...seen.values()].map((row) => ({
+          hasTarget: row.targetId !== null,
+          id: row.id,
+          name: row.name,
+          slug: row.slug,
+        })),
+      },
+    });
+  });
+
+  /**
    * Forge routes a deployable at `/<project slug>`, so every page under it
    * resolves the target from the slug rather than an id it never sees. Ordered
    * by creation so the answer is stable: the schema permits a project to hold

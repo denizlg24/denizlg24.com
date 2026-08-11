@@ -3,6 +3,7 @@
 import { formatRelative } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { RESOURCE_KINDS, type ResourceKind } from "@repo/schemas/cloud";
+import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import { Skeleton } from "@repo/ui/skeleton";
 import {
@@ -19,6 +20,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { PageHeading } from "@/components/page-heading";
 import { ResourceKindBadge } from "@/components/resource-badges";
+import { CreateResourceDialog } from "@/components/resource-dialogs";
 import { api } from "@/lib/api";
 
 function ResourcesTable() {
@@ -42,7 +44,7 @@ function ResourcesTable() {
     () => api.deploy.resources({ kind, search, unconnected }),
     [kind, search, unconnected],
   );
-  const { data, error, loading } = usePoll(fetchResources, null);
+  const { data, error, loading, reload } = usePoll(fetchResources, null);
 
   const counts = useMemo(() => {
     const byKind = new Map<ResourceKind, number>();
@@ -61,6 +63,10 @@ function ResourcesTable() {
         <SearchBox
           value={search ?? ""}
           onChange={(value) => setQuery({ search: value || null })}
+        />
+        <CreateResourceDialog
+          onCreated={reload}
+          trigger={<Button size="sm">Create</Button>}
         />
       </PageHeading>
 

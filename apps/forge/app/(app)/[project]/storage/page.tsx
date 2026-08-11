@@ -3,6 +3,7 @@
 import { formatRelative } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Badge } from "@repo/ui/badge";
+import { Button } from "@repo/ui/button";
 import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
 import {
@@ -13,11 +14,17 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
+import { Unlink } from "lucide-react";
 import Link from "next/link";
 import { useCallback } from "react";
+import { toast } from "sonner";
 import { ResourceKindBadge, ScopeBadge } from "@/components/resource-badges";
+import {
+  ConnectResourceDialog,
+  CreateResourceDialog,
+} from "@/components/resource-dialogs";
 import { useTarget } from "@/components/target-context";
-import { api } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
 
 /**
  * What this project has connected, and what each connection puts in the
@@ -34,7 +41,17 @@ export default function ProjectStoragePage() {
     () => api.deploy.targetResources(target.id),
     [target.id],
   );
-  const { data, error, loading } = usePoll(fetchResources, null);
+  const { data, error, loading, reload } = usePoll(fetchResources, null);
+
+  async function disconnect(resourceId: string, connectionId: string) {
+    try {
+      await api.deploy.disconnectResource(resourceId, connectionId);
+      toast.success("Disconnected");
+      await reload();
+    } catch (disconnectError) {
+      toast.error(errorMessage(disconnectError));
+    }
+  }
 
   if (error) return <p className="text-xs text-destructive">{error}</p>;
   if (!data && loading) return <Skeleton className="h-48 w-full" />;
@@ -42,7 +59,28 @@ export default function ProjectStoragePage() {
   const rows = data ?? [];
 
   return (
-    <Section title="connected resources" count={rows.length}>
+    <Section
+      title="connected resources"
+      count={rows.length}
+      actions={
+        <div className="flex gap-2">
+          <ConnectResourceDialog
+            projectId={target.projectId}
+            onConnected={reload}
+            trigger={
+              <Button variant="outline" size="sm">
+                Connect existing
+              </Button>
+            }
+          />
+          <CreateResourceDialog
+            projectId={target.projectId}
+            onCreated={reload}
+            trigger={<Button size="sm">Create new</Button>}
+          />
+        </div>
+      }
+    >
       {rows.length === 0 ? (
         <p className="text-xs text-muted-foreground">—</p>
       ) : (
@@ -53,6 +91,7 @@ export default function ProjectStoragePage() {
               <TableHead>scope</TableHead>
               <TableHead>injects</TableHead>
               <TableHead className="text-right">connected</TableHead>
+              <TableHead className="w-8" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -97,6 +136,23 @@ export default function ProjectStoragePage() {
                 </TableCell>
                 <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
                   {formatRelative(row.connection.createdAt)}
+                </TableCell>
+                {/* The resource and its data survive — this only stops the
+                    project's bindings resolving through it. Any env var still
+                    referencing it becomes unresolvable, which is why the
+                    injected keys are on the row next to this button. */}
+                <TableCell className="text-right">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6"
+                    aria-label={`Disconnect ${row.resource.name}`}
+                    onClick={() =>
+                      void disconnect(row.resource.id, row.connection.id)
+                    }
+                  >
+                    <Unlink className="size-3" />
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}

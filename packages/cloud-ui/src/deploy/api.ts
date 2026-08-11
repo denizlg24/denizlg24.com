@@ -1,4 +1,5 @@
 import type {
+  ConnectableProject,
   ConnectResourceInput,
   CreateDeployDomainInput,
   CreateDeploymentInput,
@@ -30,6 +31,7 @@ import type {
   UpdateDeployTargetInput,
 } from "@repo/schemas/cloud";
 import {
+  connectableProjectListSchema,
   createdResourceSchema,
   deployBindingsSchema,
   deployBranchSchema,
@@ -195,6 +197,11 @@ export const deployApi = {
       { query },
     ),
 
+  /** Every project, including the ones that hold a resource and nothing else. */
+  projects: (): Promise<ConnectableProject[]> =>
+    requestData(connectableProjectListSchema, "/api/deploy/projects").then(
+      (page) => page.projects,
+    ),
   /** Every resource on the box, whether or not anything connects to it. */
   resources: (query?: Partial<ResourceListQuery>): Promise<Resource[]> =>
     requestData(resourceListSchema, "/api/deploy/resources", {

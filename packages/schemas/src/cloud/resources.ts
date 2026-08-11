@@ -184,6 +184,24 @@ export const resourceCredentialsSchema = z.object({
 });
 export type ResourceCredentials = z.infer<typeof resourceCredentialsSchema>;
 
+/**
+ * A project as the connect picker sees it. `hasTarget` is false for the twelve
+ * that exist only to hold a database — they are still valid connection
+ * targets, so they are listed rather than filtered out, but nothing links to
+ * a project page they do not have.
+ */
+export const connectableProjectSchema = z.object({
+  id: z.uuid(),
+  slug: z.string(),
+  name: z.string(),
+  hasTarget: z.boolean(),
+});
+export type ConnectableProject = z.infer<typeof connectableProjectSchema>;
+
+export const connectableProjectListSchema = z.object({
+  projects: z.array(connectableProjectSchema),
+});
+
 export const resourceListQuerySchema = z.object({
   kind: resourceKindSchema.nullable().default(null),
   /** Matched against the resource name and its database name. */

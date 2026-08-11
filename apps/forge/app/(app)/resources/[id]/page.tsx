@@ -15,13 +15,15 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/table";
-import { Copy, Eye, EyeOff } from "lucide-react";
+import { TypedConfirmDialog } from "@repo/ui/typed-confirm-dialog";
+import { Copy, Eye, EyeOff, Trash2, Unlink } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { PageHeading } from "@/components/page-heading";
 import { ResourceKindBadge, ScopeBadge } from "@/components/resource-badges";
+import { ConnectResourceDialog } from "@/components/resource-dialogs";
 import { api, errorMessage } from "@/lib/api";
 
 /** Which fields are worth showing, in the order they read. */
@@ -44,6 +46,7 @@ const FIELDS: {
 
 export default function ResourceDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const fetchResource = useCallback(
     () => api.deploy.resource(params.id),
     [params.id],
@@ -55,6 +58,16 @@ export default function ResourceDetailPage() {
     loading,
     reload,
   } = usePoll(fetchResource, null);
+
+  async function disconnect(resourceId: string, connectionId: string) {
+    try {
+      await api.deploy.disconnectResource(resourceId, connectionId);
+      toast.success("Disconnected");
+      await reload();
+    } catch (disconnectError) {
+      toast.error(errorMessage(disconnectError));
+    }
+  }
 
   if (unreachable) {
     return <Unreachable retrying={loading} onRetry={() => void reload()} />;
@@ -76,13 +89,53 @@ export default function ResourceDetailPage() {
         detail={`${resource.kind} · ${resource.engine} · created ${formatRelative(resource.createdAt)}`}
       >
         <ResourceKindBadge kind={resource.kind} />
+        {/* Refused server-side while anything is still connected, so the button
+            is disabled rather than hidden: "disconnect these four projects
+            first" is the next action, and hiding it answers nothing. */}
+        <TypedConfirmDialog
+          title={`Delete ${resource.name}`}
+          keyword={resource.name}
+          actionLabel="Delete"
+          onConfirm={async () => {
+            try {
+              await api.deploy.removeResource(resource.id);
+              toast.success("Resource deleted");
+              router.push("/resources");
+            } catch (deleteError) {
+              toast.error(errorMessage(deleteError));
+            }
+          }}
+          trigger={
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={resource.connections.length > 0}
+            >
+              <Trash2 className="size-3" />
+            </Button>
+          }
+        />
       </PageHeading>
 
       <Section title="credentials">
         <Credentials resourceId={resource.id} />
       </Section>
 
-      <Section title="connected projects" count={resource.connections.length}>
+      <Section
+        title="connected projects"
+        count={resource.connections.length}
+        actions={
+          <ConnectResourceDialog
+            resourceId={resource.id}
+            onConnected={reload}
+            trigger={
+              <Button variant="outline" size="sm">
+                Connect
+              </Button>
+            }
+          />
+        }
+      >
         {resource.connections.length === 0 ? (
           // Not an empty state to fix. A resource used by an app that deploys
           // on Vercel has nothing here and never will.
@@ -95,6 +148,7 @@ export default function ResourceDetailPage() {
                 <TableHead>scope</TableHead>
                 <TableHead>prefix</TableHead>
                 <TableHead className="text-right">connected</TableHead>
+                <TableHead className="w-8" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -125,6 +179,22 @@ export default function ResourceDetailPage() {
                   </TableCell>
                   <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
                     {formatRelative(connection.createdAt)}
+                  </TableCell>
+                  {/* Disconnecting destroys nothing — it stops this project's
+                      bindings resolving through the resource. Dropping the
+                      resource itself is the button in the header. */}
+                  <TableCell className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6"
+                      aria-label={`Disconnect ${connection.projectSlug}`}
+                      onClick={() =>
+                        void disconnect(resource.id, connection.id)
+                      }
+                    >
+                      <Unlink className="size-3" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
