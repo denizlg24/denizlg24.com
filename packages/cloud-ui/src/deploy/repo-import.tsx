@@ -21,9 +21,21 @@ import {
 } from "./build-config-fields";
 import { RootDirectoryDialog } from "./directory-browser";
 
+/**
+ * The five fields the import actually reads off a repository. Narrower than
+ * `GithubRepositorySummary` so a configure step can rebuild one from its URL
+ * rather than refetching every installation's repository list to find the row
+ * it already had — a summary is still assignable to it, so the picker is
+ * unaffected.
+ */
+export type ImportRepo = Pick<
+  GithubRepositorySummary,
+  "owner" | "name" | "fullName" | "installationId" | "defaultBranch"
+>;
+
 export interface RepoImport {
-  repo: GithubRepositorySummary | null;
-  select: (repo: GithubRepositorySummary | null) => void;
+  repo: ImportRepo | null;
+  select: (repo: ImportRepo | null) => void;
   branch: string;
   rootDirectory: string;
   resolved: ResolvedBuildConfig | null;
@@ -45,8 +57,8 @@ export interface RepoImport {
  * they disagree, one of them silently deploys with commands the form never
  * showed.
  */
-export function useRepoImport(): RepoImport {
-  const [repo, setRepo] = useState<GithubRepositorySummary | null>(null);
+export function useRepoImport(initial: ImportRepo | null = null): RepoImport {
+  const [repo, setRepo] = useState<ImportRepo | null>(initial);
   const [branch, setBranchState] = useState("");
   const [rootDirectory, setRootDirectoryState] = useState("");
   const [presets, setPresets] = useState<DeployPreset[]>([]);

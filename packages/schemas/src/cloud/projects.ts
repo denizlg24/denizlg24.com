@@ -16,7 +16,11 @@ const RESERVED_PROJECT_SLUGS = new Set([
   "resources",
 ]);
 
-const projectSlugSchema = z
+/**
+ * Exported so the import form can refuse a reserved slug before the round trip
+ * rather than after one that has already provisioned a project.
+ */
+export const projectSlugSchema = z
   .string()
   .regex(/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/)
   .refine((value) => !RESERVED_PROJECT_SLUGS.has(value), {
