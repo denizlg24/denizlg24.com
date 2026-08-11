@@ -1,7 +1,10 @@
 import type {
+  ConnectResourceInput,
   CreateDeployDomainInput,
   CreateDeploymentInput,
   CreateDeployTargetRequest,
+  CreatedResource,
+  CreateResourceInput,
   DeployBindings,
   DeployBranch,
   DeployCapacity,
@@ -19,6 +22,7 @@ import type {
   ReplaceDeployEnvInput,
   RepoBadge,
   Resource,
+  ResourceConnection,
   ResourceCredentials,
   ResourceDetail,
   ResourceListQuery,
@@ -26,6 +30,7 @@ import type {
   UpdateDeployTargetInput,
 } from "@repo/schemas/cloud";
 import {
+  createdResourceSchema,
   deployBindingsSchema,
   deployBranchSchema,
   deployCapacitySchema,
@@ -43,6 +48,7 @@ import {
   githubTreeEntrySchema,
   projectResourceListSchema,
   repoBadgeSchema,
+  resourceConnectionSchema,
   resourceCredentialsSchema,
   resourceDetailSchema,
   resourceListSchema,
@@ -216,6 +222,43 @@ export const deployApi = {
       projectResourceListSchema,
       `/api/deploy/targets/${targetId}/resources`,
     ).then((page) => page.resources),
+  /**
+   * Creates a resource, connecting it in the same transaction when `projectId`
+   * is set. The password comes back once and only here.
+   */
+  createResource: (input: CreateResourceInput): Promise<CreatedResource> =>
+    requestData(createdResourceSchema, "/api/deploy/resources", {
+      method: "POST",
+      body: input,
+      // Provisions a database, a role and a password on the engine.
+      timeoutMs: SLOW_TIMEOUT_MS,
+    }),
+  /** Refuses while anything is still connected. Disconnect first. */
+  removeResource: (id: string): Promise<{ id: string }> =>
+    requestData(z.object({ id: z.uuid() }), `/api/deploy/resources/${id}`, {
+      method: "DELETE",
+      // Drops the database off its engine.
+      timeoutMs: SLOW_TIMEOUT_MS,
+    }),
+  connectResource: (
+    id: string,
+    input: ConnectResourceInput,
+  ): Promise<ResourceConnection> =>
+    requestData(
+      resourceConnectionSchema,
+      `/api/deploy/resources/${id}/connections`,
+      { method: "POST", body: input },
+    ),
+  /** Stops the project's bindings resolving through it. Destroys nothing. */
+  disconnectResource: (
+    id: string,
+    connectionId: string,
+  ): Promise<{ id: string }> =>
+    requestData(
+      z.object({ id: z.uuid() }),
+      `/api/deploy/resources/${id}/connections/${connectionId}`,
+      { method: "DELETE" },
+    ),
   create: (
     targetId: string,
     input: CreateDeploymentInput,

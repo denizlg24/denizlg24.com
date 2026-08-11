@@ -545,6 +545,8 @@ export async function createRuntimeApp() {
               process.env.DEPLOY_S3_ENDPOINT ?? "https://api.denizlg24.com/v2",
             s3Region: process.env.DEPLOY_S3_REGION ?? "auto",
             s3CredentialEncryptionKey: storageConfig.s3.credentialEncryptionKey,
+            provisioners,
+            meili,
           })
         : undefined;
 

@@ -3,6 +3,14 @@ export {
   resourceCredentials,
 } from "./credentials";
 export {
+  type CreateResourceOptions,
+  deprovisionResource,
+  type ProvisionedResource,
+  provisionResource,
+  type ResourceProvisionDeps,
+  type SearchKeyClient,
+} from "./provision";
+export {
   availableResourceName,
   type ConnectedResource,
   type ConnectedResourceQuery,

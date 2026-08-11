@@ -2,19 +2,25 @@ import {
   type AuthVariables,
   CloudCoreError,
   ConflictError,
+  connectResource,
   createProject,
   type Database,
+  deprovisionResource,
+  disconnectResource,
   getResource,
   isPostgresErrorCode,
   listResources,
   NotFoundError,
   type ProjectDatabaseHosts,
+  type Provisioner,
   projectConnectedResources,
+  provisionResource,
   requireRole,
   requireSession,
   resourceConnectionCounts,
   resourceConnectionDetails,
   resourceCredentials,
+  type SearchKeyClient,
   toResourceContract,
   ValidationError,
 } from "@repo/cloud-core";
@@ -87,9 +93,12 @@ import {
   agentModuleGraphReportSchema,
   assertDeployHostname,
   bindingReferenceResourceKind,
+  connectResourceInputSchema,
   createDeployDomainInputSchema,
   createDeploymentInputSchema,
   createDeployTargetRequestSchema,
+  createResourceInputSchema,
+  type DbType,
   type DeployDomainRole,
   type DeployEnvVarInput,
   DeployHostnameError,
@@ -151,6 +160,15 @@ export interface DeployRouteOptions {
   s3Endpoint: string;
   s3Region: string;
   s3CredentialEncryptionKey: string;
+  /**
+   * Creating a resource reaches the same engines Cloud provisions against, and
+   * a `meilisearch` resource is a key issued on the search daemon. Both live
+   * here rather than on a separate router because a router of its own would
+   * have meant threading `databaseEncryptionSecret`, `databaseHosts`,
+   * `meilisearchUrl`, `s3Endpoint` and `s3Region` twice.
+   */
+  provisioners: ReadonlyMap<DbType, Provisioner>;
+  meili: SearchKeyClient;
 }
 
 /**
@@ -1573,6 +1591,118 @@ export function deployRoutes(options: DeployRouteOptions) {
           s3Region: options.s3Region,
         }),
       });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  const provisionDeps = {
+    encryptionSecret: options.databaseEncryptionSecret,
+    registry: options.provisioners,
+    search: options.meili,
+  };
+
+  /**
+   * Creates a resource, and connects it in the same transaction when a project
+   * is given. Nothing here enforces one resource of a kind per project — that
+   * rule is what made a second environment need a second project, and removing
+   * it is the point of the split.
+   */
+  owner.post("/resources", async (context) => {
+    try {
+      const input = createResourceInputSchema.parse(await context.req.json());
+      const { password, resource } = await provisionResource(
+        db,
+        provisionDeps,
+        {
+          envPrefix: input.envPrefix,
+          kind: input.kind,
+          name: input.name ?? null,
+          projectId: input.projectId ?? null,
+          scopes: input.scopes,
+        },
+      );
+      const counts = await resourceConnectionCounts(db, [resource.id]);
+      return context.json(
+        {
+          data: {
+            password,
+            resource: toResourceContract(
+              resource,
+              counts.get(resource.id) ?? 0,
+            ),
+          },
+        },
+        201,
+      );
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.delete("/resources/:id", async (context) => {
+    try {
+      const resource = await loadResource(context.req.param("id"));
+      await deprovisionResource(db, provisionDeps, resource.id);
+      return context.json({ data: { id: resource.id } });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.post("/resources/:id/connections", async (context) => {
+    try {
+      const resource = await loadResource(context.req.param("id"));
+      const input = connectResourceInputSchema.parse(await context.req.json());
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, input.projectId),
+      });
+      if (!project) {
+        throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
+      }
+      const connection = await connectResource(db, {
+        envPrefix: input.envPrefix,
+        projectId: input.projectId,
+        resourceId: resource.id,
+        scopes: input.scopes,
+      });
+      return context.json(
+        {
+          data: {
+            createdAt: connection.createdAt.toISOString(),
+            envPrefix: connection.envPrefix,
+            id: connection.id,
+            projectId: connection.projectId,
+            resourceId: connection.resourceId,
+            scopes: connection.scopes,
+          },
+        },
+        201,
+      );
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * Disconnecting leaves the resource and its data alone — it only stops the
+   * project's bindings resolving through it. Dropping the resource is
+   * `DELETE /resources/:id`, which refuses while anything is still connected.
+   */
+  owner.delete("/resources/:id/connections/:connectionId", async (context) => {
+    try {
+      const resource = await loadResource(context.req.param("id"));
+      const connectionId = context.req.param("connectionId");
+      const connections = await resourceConnectionDetails(db, resource.id);
+      if (!connections.some((entry) => entry.connection.id === connectionId)) {
+        throw new NotFoundError("Connection not found", "CONNECTION_NOT_FOUND");
+      }
+      await disconnectResource(db, connectionId);
+      return context.json({ data: { id: connectionId } });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);

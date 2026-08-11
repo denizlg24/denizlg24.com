@@ -45,8 +45,13 @@ const REDIS_DENIED_COMMANDS = [
 ] as const;
 
 export interface ProvisionTarget {
-  projectId: string;
-  projectSlug: string;
+  /**
+   * Null for a resource that belongs to no project. Only Mongo reads these, and
+   * only to stamp a `_meta` document; a standalone database records that it has
+   * no owner rather than borrowing one.
+   */
+  projectId: string | null;
+  projectSlug: string | null;
   dbName: string;
   username: string;
   password: string;
@@ -73,7 +78,13 @@ export interface ProjectDatabaseHosts {
   redisExternal: string;
 }
 
-function identifierForSlug(slug: string): string {
+/**
+ * The database name and role name a resource gets on its engine. Derived from
+ * the resource name rather than from a project slug: names are unique per kind,
+ * whereas a project may now hold several databases of one kind and deriving
+ * from its slug would point them all at the same database.
+ */
+export function identifierForSlug(slug: string): string {
   const normalized = slug.replaceAll("-", "_").replace(/[^a-z0-9_]/g, "");
   return `proj_${normalized}`.slice(0, 63);
 }
@@ -89,7 +100,7 @@ function quoteLiteral(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function password(): string {
+export function generateDatabasePassword(): string {
   return randomBytes(24).toString("base64url");
 }
 
@@ -367,9 +378,9 @@ export async function provisionProjectDatabase(
   if (!provisioner) {
     throw new Error(`No ${input.type} provisioner configured`);
   }
-  const identifier = identifierForSlug(project.slug);
   const name = await availableResourceName(db, input.type, project.slug);
-  const cleartextPassword = password();
+  const identifier = identifierForSlug(name);
+  const cleartextPassword = generateDatabasePassword();
   const target: ProvisionTarget = {
     projectId: project.id,
     projectSlug: project.slug,

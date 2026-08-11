@@ -99,11 +99,21 @@ export const resourceConnectionSchema = z.object({
 });
 export type ResourceConnection = z.infer<typeof resourceConnectionSchema>;
 
+/**
+ * `projectId` connects the new resource in the same transaction that creates
+ * it, which is what `/[project]/storage`'s "Create new" does. It is optional
+ * for the three database kinds — a resource connected to nothing is the normal
+ * case for the four applications that deploy on Vercel and only use the Pi's
+ * postgres — and required for `s3` and `meilisearch`, which are addressed by a
+ * namespace slug rather than by a name they choose.
+ */
 export const createResourceInputSchema = z.object({
   kind: resourceKindSchema,
   /** Derived from the connected project's slug when absent. */
   name: resourceNameSchema.optional(),
-  engine: z.string().max(64).optional(),
+  projectId: z.uuid().optional(),
+  scopes: resourceConnectionScopeSchema.default("both"),
+  envPrefix: resourceEnvPrefixSchema.default(""),
 });
 export type CreateResourceInput = z.infer<typeof createResourceInputSchema>;
 
@@ -113,6 +123,17 @@ export const connectResourceInputSchema = z.object({
   envPrefix: resourceEnvPrefixSchema.default(""),
 });
 export type ConnectResourceInput = z.infer<typeof connectResourceInputSchema>;
+
+/**
+ * What creating a resource answers with. The password is here and nowhere else
+ * in the contract: it is the one moment it exists outside the encrypted column,
+ * and every later read goes through the credentials reveal.
+ */
+export const createdResourceSchema = z.object({
+  resource: resourceSchema,
+  password: z.string().nullable(),
+});
+export type CreatedResource = z.infer<typeof createdResourceSchema>;
 
 /**
  * A connection carrying the project it points at. The list page shows a
