@@ -1,4 +1,8 @@
 export {
+  type ResourceCredentialsConfig,
+  resourceCredentials,
+} from "./credentials";
+export {
   availableResourceName,
   type ConnectedResource,
   type ConnectedResourceQuery,
@@ -11,8 +15,13 @@ export {
   disconnectResource,
   findConnectedResources,
   getResource,
+  type ListResourcesQuery,
+  listResources,
+  projectConnectedResources,
+  type ResourceConnectionDetailRow,
   resolveConnectedResource,
   resourceConnectionCounts,
+  resourceConnectionDetails,
   toDatabaseMetadata,
   toResourceContract,
 } from "./resources";

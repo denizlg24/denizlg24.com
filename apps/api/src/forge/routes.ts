@@ -26,10 +26,13 @@ import {
   count,
   desc,
   eq,
+  gte,
   ilike,
   inArray,
+  lte,
   or,
   type SQL,
+  sql,
 } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -74,12 +77,33 @@ const SORT_COLUMNS: Record<ForgeDeploymentSort, Column> = {
   imageSizeBytes: deployments.imageSizeBytes,
 };
 
+/** `owner/name`, which is how the filter names a repository. */
+const REPO_SLUG = sql<string>`${deployTargets.repoOwner} || '/' || ${deployTargets.repoName}`;
+
+/**
+ * Branches are per-project in practice. Unscoped the list spans every ref the
+ * box has ever built, which is thousands, so the picker caps it rather than
+ * shipping a list nothing can render usefully.
+ */
+const BRANCH_FACET_LIMIT = 200;
+
 function deploymentFilters(query: ForgeDeploymentQuery): SQL | undefined {
   const clauses: SQL[] = [];
   if (query.status.length > 0) {
     clauses.push(inArray(deployments.status, query.status));
   }
   if (query.project) clauses.push(eq(projects.slug, query.project));
+  if (query.kind) clauses.push(eq(deployments.kind, query.kind));
+  if (query.branch) clauses.push(eq(deployments.gitRef, query.branch));
+  if (query.repo) clauses.push(eq(REPO_SLUG, query.repo));
+  // Inclusive at both ends: a range typed as two dates is read as "these days",
+  // and an exclusive upper bound would silently drop the last one.
+  if (query.since) {
+    clauses.push(gte(deployments.createdAt, new Date(query.since)));
+  }
+  if (query.until) {
+    clauses.push(lte(deployments.createdAt, new Date(query.until)));
+  }
   if (query.search) {
     const pattern = `%${query.search}%`;
     // A `?` in `or()` is only undefined when every branch is, which cannot
@@ -181,6 +205,21 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
         400,
       );
     }
+    const deploymentId = context.req.query("deployment");
+    if (
+      deploymentId !== undefined &&
+      !z.uuid().safeParse(deploymentId).success
+    ) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_DEPLOYMENT_ID",
+            message: "That is not a deployment id",
+          },
+        },
+        400,
+      );
+    }
     // Parsed through the shared schema so the range and point-count guardrails
     // that protect the raw metrics route protect this one too.
     const query = metricsQuerySchema.parse({
@@ -204,6 +243,7 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
           to: query.to,
           step: query.step,
           ...(kind ? { kind } : {}),
+          ...(deploymentId ? { deploymentId } : {}),
         }),
       },
     });
@@ -218,6 +258,11 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
       status: context.req.queries("status") ?? [],
       project: context.req.query("project") ?? null,
       search: context.req.query("search") ?? null,
+      kind: context.req.query("kind") ?? null,
+      branch: context.req.query("branch") ?? null,
+      repo: context.req.query("repo") ?? null,
+      since: context.req.query("since") ?? null,
+      until: context.req.query("until") ?? null,
     });
     const where = deploymentFilters(query);
     const order = query.direction === "asc" ? asc : desc;
@@ -228,35 +273,60 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
         ? [order(deployments.createdAt), desc(deployments.id)]
         : [order(SORT_COLUMNS[query.sort]), desc(deployments.createdAt)];
 
-    const [rows, [totals], projectRows] = await Promise.all([
-      options.db
-        .select(DEPLOYMENT_COLUMNS)
-        .from(deployments)
-        .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
-        .innerJoin(projects, eq(projects.id, deployTargets.projectId))
-        .where(where)
-        .orderBy(...orderBy)
-        .limit(query.limit)
-        .offset(query.offset),
-      options.db
-        .select({ value: count() })
-        .from(deployments)
-        .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
-        .innerJoin(projects, eq(projects.id, deployTargets.projectId))
-        .where(where),
-      options.db
-        .selectDistinct({ slug: projects.slug })
-        .from(deployments)
-        .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
-        .innerJoin(projects, eq(projects.id, deployTargets.projectId))
-        .orderBy(asc(projects.slug)),
-    ]);
+    // The facet lists are deliberately unfiltered, for the same reason the
+    // project list always was: an option that vanishes the moment you pick it
+    // makes the filter impossible to undo. Branches are the exception that
+    // proves it — there are thousands across all projects, so they narrow to
+    // the selected project, which is the only scope in which the list is
+    // usable at all.
+    const branchScope = query.project
+      ? eq(projects.slug, query.project)
+      : undefined;
+
+    const [rows, [totals], projectRows, branchRows, repoRows] =
+      await Promise.all([
+        options.db
+          .select(DEPLOYMENT_COLUMNS)
+          .from(deployments)
+          .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
+          .innerJoin(projects, eq(projects.id, deployTargets.projectId))
+          .where(where)
+          .orderBy(...orderBy)
+          .limit(query.limit)
+          .offset(query.offset),
+        options.db
+          .select({ value: count() })
+          .from(deployments)
+          .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
+          .innerJoin(projects, eq(projects.id, deployTargets.projectId))
+          .where(where),
+        options.db
+          .selectDistinct({ slug: projects.slug })
+          .from(deployments)
+          .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
+          .innerJoin(projects, eq(projects.id, deployTargets.projectId))
+          .orderBy(asc(projects.slug)),
+        options.db
+          .selectDistinct({ gitRef: deployments.gitRef })
+          .from(deployments)
+          .innerJoin(deployTargets, eq(deployTargets.id, deployments.targetId))
+          .innerJoin(projects, eq(projects.id, deployTargets.projectId))
+          .where(branchScope)
+          .orderBy(asc(deployments.gitRef))
+          .limit(BRANCH_FACET_LIMIT),
+        options.db
+          .selectDistinct({ repo: REPO_SLUG })
+          .from(deployTargets)
+          .orderBy(asc(REPO_SLUG)),
+      ]);
 
     return context.json({
       data: {
         deployments: rows.map(serialize),
         total: totals?.value ?? 0,
         projects: projectRows.map((row) => row.slug),
+        branches: branchRows.map((row) => row.gitRef),
+        repos: repoRows.map((row) => row.repo),
       },
     });
   });

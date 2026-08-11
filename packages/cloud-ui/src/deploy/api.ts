@@ -3,6 +3,7 @@ import type {
   CreateDeploymentInput,
   CreateDeployTargetRequest,
   DeployBindings,
+  DeployBranch,
   DeployCapacity,
   DeployDomain,
   DeployEnvVar,
@@ -14,13 +15,19 @@ import type {
   GithubInstallationSummary,
   GithubRepositorySummary,
   LinkEnvoyProjectInput,
+  ProjectResource,
   ReplaceDeployEnvInput,
   RepoBadge,
+  Resource,
+  ResourceCredentials,
+  ResourceDetail,
+  ResourceListQuery,
   UpdateDeployDomainInput,
   UpdateDeployTargetInput,
 } from "@repo/schemas/cloud";
 import {
   deployBindingsSchema,
+  deployBranchSchema,
   deployCapacitySchema,
   deployDomainSchema,
   deployEnvVarSchema,
@@ -34,7 +41,11 @@ import {
   githubInstallationSummarySchema,
   githubRepositorySchema,
   githubTreeEntrySchema,
+  projectResourceListSchema,
   repoBadgeSchema,
+  resourceCredentialsSchema,
+  resourceDetailSchema,
+  resourceListSchema,
 } from "@repo/schemas/cloud";
 import { z } from "zod";
 import {
@@ -168,6 +179,43 @@ export const deployApi = {
     ),
   deployment: (id: string): Promise<Deployment> =>
     requestData(deploymentSchema, `/api/deploy/deployments/${id}`),
+  branches: (
+    targetId: string,
+    query?: { limit?: number },
+  ): Promise<DeployBranch[]> =>
+    requestData(
+      z.array(deployBranchSchema),
+      `/api/deploy/targets/${targetId}/branches`,
+      { query },
+    ),
+
+  /** Every resource on the box, whether or not anything connects to it. */
+  resources: (query?: Partial<ResourceListQuery>): Promise<Resource[]> =>
+    requestData(resourceListSchema, "/api/deploy/resources", {
+      query: {
+        kind: query?.kind ?? undefined,
+        search: query?.search ?? undefined,
+        unconnected: query?.unconnected ? "true" : undefined,
+      },
+    }).then((page) => page.resources),
+  resource: (id: string): Promise<ResourceDetail> =>
+    requestData(resourceDetailSchema, `/api/deploy/resources/${id}`),
+  /**
+   * POST because revealing a credential is an act rather than a view — it keeps
+   * the secret out of browser history and off a prefetchable URL.
+   */
+  resourceCredentials: (id: string): Promise<ResourceCredentials> =>
+    requestData(
+      resourceCredentialsSchema,
+      `/api/deploy/resources/${id}/credentials`,
+      { method: "POST" },
+    ),
+  /** What one project has connected, and what each connection injects. */
+  targetResources: (targetId: string): Promise<ProjectResource[]> =>
+    requestData(
+      projectResourceListSchema,
+      `/api/deploy/targets/${targetId}/resources`,
+    ).then((page) => page.resources),
   create: (
     targetId: string,
     input: CreateDeploymentInput,

@@ -303,6 +303,18 @@ export const forgeDeploymentQuerySchema = z.object({
   project: z.string().min(1).nullable().default(null),
   /** Matched against the commit sha, the commit message and the hostname. */
   search: z.string().min(1).max(200).nullable().default(null),
+  kind: deploymentKindSchema.nullable().default(null),
+  /** An exact git ref. The picker offers the refs the window actually holds. */
+  branch: z.string().min(1).max(255).nullable().default(null),
+  /** `owner/name`, matched against the target's configured repository. */
+  repo: z.string().min(1).max(255).nullable().default(null),
+  /**
+   * Bounds on `createdAt`. Half-open at both ends so a single-sided range is a
+   * valid filter — "since Monday" is the common one, and requiring both would
+   * make it two decisions.
+   */
+  since: cloudDateTimeSchema.nullable().default(null),
+  until: cloudDateTimeSchema.nullable().default(null),
 });
 export type ForgeDeploymentQuery = z.infer<typeof forgeDeploymentQuerySchema>;
 
@@ -310,11 +322,13 @@ export type ForgeDeploymentQuery = z.infer<typeof forgeDeploymentQuerySchema>;
  * `total` counts the rows the filter matches, not the page, so the pager can
  * size itself without a second request. `projects` is deliberately unfiltered:
  * a slug that vanishes from the picker the moment you select it makes the
- * filter impossible to undo.
+ * filter impossible to undo. `branches` and `repos` follow the same rule.
  */
 export const forgeDeploymentPageSchema = z.object({
   deployments: z.array(forgeDeploymentSummarySchema),
   total: z.number().int().nonnegative(),
   projects: z.array(z.string()),
+  branches: z.array(z.string()),
+  repos: z.array(z.string()),
 });
 export type ForgeDeploymentPage = z.infer<typeof forgeDeploymentPageSchema>;

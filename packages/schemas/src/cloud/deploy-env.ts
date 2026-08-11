@@ -5,6 +5,7 @@ import {
   deployEnvSourceSchema,
   deploymentKindSchema,
 } from "./deploy";
+import type { ResourceKind } from "./resources";
 
 /**
  * The whole vocabulary a binding may resolve to. It is closed on purpose: a
@@ -58,6 +59,34 @@ export const SECRET_DEPLOY_BINDING_REFERENCES: ReadonlySet<string> = new Set([
   "search.meilisearch.key",
   "s3.secretAccessKey",
 ]);
+
+/**
+ * Which resource kind backs each namespace. `deployment` and `project` are
+ * absent because nothing is provisioned for them — they are facts about the
+ * build, always injected, and a project's storage tab must not claim a
+ * connection produced them.
+ */
+export const BINDING_NAMESPACE_RESOURCE_KIND: Partial<
+  Record<DeployBindingNamespace, ResourceKind>
+> = {
+  "database.mongodb": "mongodb",
+  "database.postgres": "postgres",
+  "database.redis": "redis",
+  s3: "s3",
+  "search.meilisearch": "meilisearch",
+};
+
+/**
+ * The resource kind a reference resolves through, or null when the reference is
+ * satisfied without one.
+ */
+export function bindingReferenceResourceKind(
+  value: string,
+): ResourceKind | null {
+  const parsed = parseBindingReference(value);
+  if (!parsed) return null;
+  return BINDING_NAMESPACE_RESOURCE_KIND[parsed.namespace] ?? null;
+}
 
 export function isDeployBindingReference(value: string): boolean {
   return REFERENCE_SET.has(value);

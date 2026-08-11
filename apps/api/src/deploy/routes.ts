@@ -4,11 +4,18 @@ import {
   ConflictError,
   createProject,
   type Database,
+  getResource,
   isPostgresErrorCode,
+  listResources,
   NotFoundError,
   type ProjectDatabaseHosts,
+  projectConnectedResources,
   requireRole,
   requireSession,
+  resourceConnectionCounts,
+  resourceConnectionDetails,
+  resourceCredentials,
+  toResourceContract,
   ValidationError,
 } from "@repo/cloud-core";
 import {
@@ -79,6 +86,7 @@ import {
   type AgentApplyEnvResult,
   agentModuleGraphReportSchema,
   assertDeployHostname,
+  bindingReferenceResourceKind,
   createDeployDomainInputSchema,
   createDeploymentInputSchema,
   createDeployTargetRequestSchema,
@@ -87,15 +95,19 @@ import {
   DeployHostnameError,
   type DeploymentBuildSpec,
   deploymentStatusUpdateSchema,
+  extractTemplateReferences,
   githubInstallationEventSchema,
   githubPullRequestEventSchema,
   githubPushEventSchema,
   isDeployNodeVersion,
+  isSecretDeployBindingReference,
   isTerminalDeploymentStatus,
   linkEnvoyProjectInputSchema,
   previewHostnameLabel,
+  type ResourceKind,
   replaceDeployEnvInputSchema,
   repoBadgeRequestSchema,
+  resourceListQuerySchema,
   slugifyHostnameLabel,
   updateDeployDomainInputSchema,
   updateDeployTargetInputSchema,
@@ -248,6 +260,46 @@ function serializeTarget(
     createdAt: target.createdAt.toISOString(),
     updatedAt: target.updatedAt.toISOString(),
   };
+}
+
+/**
+ * How far back the branch panel looks. Grouping happens in memory, so this is
+ * the real cost of the route; a project that deploys every push would otherwise
+ * scan its whole history to surface the four branches anyone cares about.
+ */
+const BRANCH_SCAN_LIMIT = 400;
+
+/**
+ * The env vars on a target that reach the container through a resource of this
+ * kind. A `binding` row names one reference; a `template` row can weave several
+ * into a string, and one of those referencing the kind is enough to count it.
+ */
+function injectedKeysFor(
+  kind: ResourceKind,
+  rows: readonly {
+    key: string;
+    reference: string | null;
+    template: string | null;
+  }[],
+): { key: string; reference: string; secret: boolean }[] {
+  const injected: { key: string; reference: string; secret: boolean }[] = [];
+  for (const row of rows) {
+    const references = row.reference
+      ? [row.reference]
+      : extractTemplateReferences(row.template ?? "");
+    const matched = references.filter(
+      (reference) => bindingReferenceResourceKind(reference) === kind,
+    );
+    if (matched.length === 0) continue;
+    for (const reference of matched) {
+      injected.push({
+        key: row.key,
+        reference,
+        secret: isSecretDeployBindingReference(reference),
+      });
+    }
+  }
+  return injected;
 }
 
 function serializeDeployment(
@@ -416,6 +468,13 @@ export function deployRoutes(options: DeployRouteOptions) {
       throw new NotFoundError("Deployment not found", "DEPLOYMENT_NOT_FOUND");
     }
     return row;
+  }
+
+  async function loadResource(id: string) {
+    if (!uuidParam.safeParse(id).success) {
+      throw new NotFoundError("Resource not found", "RESOURCE_NOT_FOUND");
+    }
+    return getResource(db, id);
   }
 
   async function primaryHostname(targetId: string): Promise<string | null> {
@@ -1314,6 +1373,205 @@ export function deployRoutes(options: DeployRouteOptions) {
           total: counted?.total ?? 0,
           totalPages: Math.ceil((counted?.total ?? 0) / query.limit),
         },
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * The branches a project currently has previews for, latest deployment each.
+   *
+   * Derived from the deployments rather than from the git remote: a branch
+   * nobody deployed has nothing to show, and one deleted upstream still has a
+   * container worth finding. Production is excluded because it is not a branch
+   * in this sense — the overview names it separately.
+   *
+   * The window is bounded rather than complete. A project with two years of
+   * merged PRs has hundreds of dead refs, and the panel exists to show what is
+   * live now.
+   */
+  owner.get("/targets/:id/branches", async (context) => {
+    const query = z
+      .object({ limit: z.coerce.number().int().min(1).max(100).default(20) })
+      .parse({ limit: context.req.query("limit") });
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const rows = await db
+        .select()
+        .from(deployments)
+        .where(
+          and(
+            eq(deployments.targetId, target.id),
+            ne(deployments.kind, "production"),
+          ),
+        )
+        .orderBy(desc(deployments.createdAt))
+        .limit(BRANCH_SCAN_LIMIT);
+
+      const primary = await primaryHostname(target.id);
+      const branches = new Map<
+        string,
+        {
+          gitRef: string;
+          prNumber: number | null;
+          count: number;
+          latest: DeploymentRow;
+        }
+      >();
+      for (const row of rows) {
+        const existing = branches.get(row.gitRef);
+        if (existing) {
+          existing.count += 1;
+          // `prNumber` is only set once a PR exists, so the newest row that has
+          // one is the truth for the branch — the first push predates it.
+          existing.prNumber ??= row.prNumber;
+          continue;
+        }
+        branches.set(row.gitRef, {
+          count: 1,
+          gitRef: row.gitRef,
+          latest: row,
+          prNumber: row.prNumber,
+        });
+      }
+
+      return context.json({
+        data: [...branches.values()].slice(0, query.limit).map((branch) => ({
+          deploymentCount: branch.count,
+          gitRef: branch.gitRef,
+          latest: serializeDeployment(branch.latest, primary),
+          prNumber: branch.prNumber,
+        })),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * The project's storage tab: every resource connected to it, with the env
+   * vars each connection actually injects.
+   *
+   * "Actually" is the point — a connection makes a namespace *resolvable*, and
+   * what reaches the container is the set of env rows referencing it. A
+   * resource connected but referenced by nothing is a real and visible state,
+   * not an omission.
+   */
+  owner.get("/targets/:id/resources", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const [connected, envRows] = await Promise.all([
+        projectConnectedResources(db, target.projectId),
+        db
+          .select({
+            key: deployEnvVars.key,
+            reference: deployEnvVars.reference,
+            template: deployEnvVars.template,
+          })
+          .from(deployEnvVars)
+          .where(eq(deployEnvVars.targetId, target.id)),
+      ]);
+
+      const counts = await resourceConnectionCounts(
+        db,
+        connected.map((entry) => entry.resource.id),
+      );
+
+      return context.json({
+        data: {
+          resources: connected.map((entry) => ({
+            connection: {
+              createdAt: entry.connection.createdAt.toISOString(),
+              envPrefix: entry.connection.envPrefix,
+              id: entry.connection.id,
+              projectId: entry.connection.projectId,
+              resourceId: entry.connection.resourceId,
+              scopes: entry.connection.scopes,
+            },
+            injectedKeys: injectedKeysFor(entry.resource.kind, envRows),
+            resource: toResourceContract(
+              entry.resource,
+              counts.get(entry.resource.id) ?? 0,
+            ),
+          })),
+        },
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.get("/resources", async (context) => {
+    const query = resourceListQuerySchema.parse({
+      kind: context.req.query("kind") ?? null,
+      search: context.req.query("search") ?? null,
+      unconnected: context.req.query("unconnected") ?? false,
+    });
+    const rows = await listResources(db, query);
+    return context.json({
+      data: {
+        resources: rows.map((entry) =>
+          toResourceContract(entry.row, entry.connectionCount),
+        ),
+      },
+    });
+  });
+
+  owner.get("/resources/:id", async (context) => {
+    try {
+      const resource = await loadResource(context.req.param("id"));
+      const [connections, counts] = await Promise.all([
+        resourceConnectionDetails(db, resource.id),
+        resourceConnectionCounts(db, [resource.id]),
+      ]);
+      const namespace = resource.namespaceId
+        ? await db.query.projects.findFirst({
+            where: eq(projects.id, resource.namespaceId),
+          })
+        : null;
+      return context.json({
+        data: {
+          ...toResourceContract(resource, counts.get(resource.id) ?? 0),
+          connections: connections.map((entry) => ({
+            createdAt: entry.connection.createdAt.toISOString(),
+            envPrefix: entry.connection.envPrefix,
+            id: entry.connection.id,
+            projectId: entry.connection.projectId,
+            projectName: entry.projectName,
+            projectSlug: entry.projectSlug,
+            resourceId: entry.connection.resourceId,
+            scopes: entry.connection.scopes,
+            targetId: entry.targetId,
+          })),
+          namespaceSlug: namespace?.slug ?? null,
+        },
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * POST rather than GET because revealing a credential is an act, not a view:
+   * it keeps the secret out of browser history, out of any GET-logging
+   * middleware, and off a URL that could be linked or prefetched.
+   */
+  owner.post("/resources/:id/credentials", async (context) => {
+    try {
+      const resource = await loadResource(context.req.param("id"));
+      return context.json({
+        data: resourceCredentials(resource, {
+          databaseEncryptionSecret: options.databaseEncryptionSecret,
+          databaseHosts: options.databaseHosts,
+          meilisearchUrl: options.meilisearchUrl,
+          s3Endpoint: options.s3Endpoint,
+          s3Region: options.s3Region,
+        }),
       });
     } catch (error) {
       const response = errorResponse(error);

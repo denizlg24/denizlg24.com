@@ -9,6 +9,8 @@ import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
 import Link from "next/link";
 import { useCallback } from "react";
+import { ActiveBranches } from "@/components/active-branches";
+import { LiveStrip } from "@/components/live-strip";
 import { projectHref, useTarget } from "@/components/target-context";
 import { api } from "@/lib/api";
 
@@ -51,6 +53,8 @@ export default function ProjectOverviewPage() {
           deploymentHref={deploymentHref}
         />
       </Section>
+      <LiveStrip projectSlug={target.projectSlug} />
+      <ActiveBranches targetId={target.id} />
       <Section
         title="recent deployments"
         actions={

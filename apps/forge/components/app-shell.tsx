@@ -18,10 +18,15 @@ import { useSession } from "./session-provider";
 //
 // No logs entry. Logs belong to a container or a deployment, and a page that
 // listed every log source on the host in one picker made "whose output is this"
-// the first question every time.
+// the first question every time. `/[project]/logs` is scoped by its route,
+// which is what makes that question unaskable.
+//
+// `/resources` is top-level rather than only reachable from inside a project
+// because a resource with no project is the normal case, not an edge one.
 const NAV = [
   { href: "/", label: "projects" },
   { href: "/deployments", label: "deployments" },
+  { href: "/resources", label: "resources" },
   { href: "/observability", label: "observability" },
 ];
 

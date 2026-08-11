@@ -158,6 +158,11 @@ export const api = {
           status: query.status,
           project: query.project,
           search: query.search,
+          kind: query.kind,
+          branch: query.branch,
+          repo: query.repo,
+          since: query.since,
+          until: query.until,
         },
       }),
     deployment: (deploymentId: string): Promise<ForgeDeploymentSummary> =>
@@ -191,6 +196,12 @@ export const api = {
         to: string;
         step: number;
         kind?: "production" | "preview";
+        /**
+         * One container instead of the average of every container behind the
+         * project. Without it a project running two previews reports the mean
+         * of three containers as though it were one.
+         */
+        deployment?: string;
       },
     ): Promise<ForgeProjectMetricsResponse> =>
       data(

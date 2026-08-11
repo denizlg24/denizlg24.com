@@ -7,10 +7,22 @@ import type {
   ResourceConnectionScope,
   ResourceKind,
 } from "@repo/schemas/cloud";
-import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import type { Database } from "../db";
 import {
+  deployTargets,
+  projects,
   type ResourceConnectionRow,
   type ResourceRow,
   resourceConnections,
@@ -202,6 +214,102 @@ export async function disconnectResource(
   if (deleted.length === 0) {
     throw new NotFoundError("Connection not found", "CONNECTION_NOT_FOUND");
   }
+}
+
+export interface ListResourcesQuery {
+  kind?: ResourceKind | null;
+  search?: string | null;
+  /** Only resources nothing connects to. */
+  unconnected?: boolean;
+}
+
+/**
+ * Every live resource, kind-major so the list reads as groups without the page
+ * having to sort it. Counts are looked up separately rather than joined: a
+ * resource connected to nothing has to stay in the result, and that is the
+ * normal case for the four applications that deploy on Vercel and only use the
+ * Pi's postgres.
+ */
+export async function listResources(
+  db: DbExecutor,
+  query: ListResourcesQuery = {},
+): Promise<{ row: ResourceRow; connectionCount: number }[]> {
+  const rows = await db
+    .select()
+    .from(resources)
+    .where(
+      and(
+        isNull(resources.deletedAt),
+        query.kind ? eq(resources.kind, query.kind) : undefined,
+        query.search
+          ? or(
+              ilike(resources.name, `%${query.search}%`),
+              ilike(resources.dbName, `%${query.search}%`),
+            )
+          : undefined,
+      ),
+    )
+    .orderBy(asc(resources.kind), asc(resources.name));
+  const counts = await resourceConnectionCounts(
+    db,
+    rows.map((row) => row.id),
+  );
+  return rows
+    .map((row) => ({ connectionCount: counts.get(row.id) ?? 0, row }))
+    .filter((entry) => !query.unconnected || entry.connectionCount === 0);
+}
+
+export interface ResourceConnectionDetailRow {
+  connection: ResourceConnectionRow;
+  projectSlug: string;
+  projectName: string;
+  targetId: string | null;
+}
+
+/**
+ * A resource's consumers. The deploy target is joined in so the UI can link a
+ * connection at the project page it belongs to; it stays `null` for a project
+ * that holds no deployable, which is not an error condition.
+ */
+export async function resourceConnectionDetails(
+  db: DbExecutor,
+  resourceId: string,
+): Promise<ResourceConnectionDetailRow[]> {
+  return db
+    .select({
+      connection: resourceConnections,
+      projectName: projects.name,
+      projectSlug: projects.slug,
+      targetId: deployTargets.id,
+    })
+    .from(resourceConnections)
+    .innerJoin(projects, eq(projects.id, resourceConnections.projectId))
+    .leftJoin(deployTargets, eq(deployTargets.projectId, projects.id))
+    .where(eq(resourceConnections.resourceId, resourceId))
+    .orderBy(asc(projects.slug), asc(resourceConnections.envPrefix));
+}
+
+/**
+ * Everything one project has connected, in the order the storage tab lists it.
+ * Unlike `findConnectedResources` this is not narrowed to a kind or a scope —
+ * the tab shows the whole set, including a preview-only database that no
+ * production build will ever resolve.
+ */
+export async function projectConnectedResources(
+  db: DbExecutor,
+  projectId: string,
+): Promise<ConnectedResource[]> {
+  return db
+    .select({ connection: resourceConnections, resource: resources })
+    .from(resourceConnections)
+    .innerJoin(resources, eq(resources.id, resourceConnections.resourceId))
+    .where(
+      and(
+        eq(resourceConnections.projectId, projectId),
+        isNull(resources.deletedAt),
+      ),
+    )
+    .orderBy(asc(resources.kind), ...DEFAULT_CONNECTION_FIRST);
 }
 
 export async function resourceConnectionCounts(

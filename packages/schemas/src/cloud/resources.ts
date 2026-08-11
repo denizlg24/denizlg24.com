@@ -115,6 +115,93 @@ export const connectResourceInputSchema = z.object({
 export type ConnectResourceInput = z.infer<typeof connectResourceInputSchema>;
 
 /**
+ * A connection carrying the project it points at. The list page shows a
+ * resource's consumers by slug, and a resource connected to four projects is
+ * the case the split exists to make possible — so the slug travels with the
+ * connection rather than costing a lookup per row.
+ */
+export const resourceConnectionDetailSchema = resourceConnectionSchema.extend({
+  projectSlug: z.string(),
+  projectName: z.string(),
+  /**
+   * Null when the project holds no deployable. Four of these applications
+   * deploy on Vercel and only use the Pi's postgres, so a connection with
+   * nowhere to link to is normal.
+   */
+  targetId: z.uuid().nullable(),
+});
+export type ResourceConnectionDetail = z.infer<
+  typeof resourceConnectionDetailSchema
+>;
+
+export const resourceDetailSchema = resourceSchema.extend({
+  connections: z.array(resourceConnectionDetailSchema),
+  /** The namespace record naming the on-disk bucket or index prefix. */
+  namespaceSlug: z.string().nullable(),
+});
+export type ResourceDetail = z.infer<typeof resourceDetailSchema>;
+
+/**
+ * Revealed on demand and never part of a list. Shaped per kind because the
+ * three database kinds carry a password while `s3` carries a key pair and
+ * `meilisearch` a single API key.
+ */
+export const resourceCredentialsSchema = z.object({
+  resourceId: z.uuid(),
+  kind: resourceKindSchema,
+  /** Ready to paste. Carries the password inline, as every URL form does. */
+  url: z.string().nullable(),
+  host: z.string().nullable(),
+  port: z.number().int().nullable(),
+  username: z.string().nullable(),
+  password: z.string().nullable(),
+  database: z.string().nullable(),
+  bucket: z.string().nullable(),
+  accessKeyId: z.string().nullable(),
+  secretAccessKey: z.string().nullable(),
+  apiKey: z.string().nullable(),
+});
+export type ResourceCredentials = z.infer<typeof resourceCredentialsSchema>;
+
+export const resourceListQuerySchema = z.object({
+  kind: resourceKindSchema.nullable().default(null),
+  /** Matched against the resource name and its database name. */
+  search: z.string().min(1).max(200).nullable().default(null),
+  /** `true` narrows to resources nothing connects to — the tidy-up view. */
+  unconnected: z.coerce.boolean().default(false),
+});
+export type ResourceListQuery = z.infer<typeof resourceListQuerySchema>;
+
+export const resourceListSchema = z.object({
+  resources: z.array(resourceSchema),
+});
+export type ResourceList = z.infer<typeof resourceListSchema>;
+
+/**
+ * One connected resource as a project sees it. `injectedKeys` are the env vars
+ * on that project's target whose value is a binding reference resolving through
+ * this resource — what the connection actually puts in the container, rather
+ * than what it theoretically could.
+ */
+export const projectResourceSchema = z.object({
+  resource: resourceSchema,
+  connection: resourceConnectionSchema,
+  injectedKeys: z.array(
+    z.object({
+      key: z.string(),
+      reference: z.string(),
+      secret: z.boolean(),
+    }),
+  ),
+});
+export type ProjectResource = z.infer<typeof projectResourceSchema>;
+
+export const projectResourceListSchema = z.object({
+  resources: z.array(projectResourceSchema),
+});
+export type ProjectResourceList = z.infer<typeof projectResourceListSchema>;
+
+/**
  * `both` satisfies either side. Anything else has to match the deployment being
  * resolved, which is what lets one project hold a production database and a
  * staging database without the preview builds reaching the production one.

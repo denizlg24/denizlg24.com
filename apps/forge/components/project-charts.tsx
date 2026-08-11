@@ -2,7 +2,7 @@
 
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Skeleton } from "@repo/ui/skeleton";
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import { api } from "@/lib/api";
 import { MetricChart } from "./metric-chart";
 
@@ -36,7 +36,21 @@ const WINDOWS = [
  */
 const PER_MINUTE = 2;
 
-export function ProjectCharts({ projectSlug }: { projectSlug: string }) {
+export function ProjectCharts({
+  projectSlug,
+  deploymentId = null,
+  selector,
+}: {
+  projectSlug: string;
+  /**
+   * One deployment's container instead of the project aggregate. The API scopes
+   * it to the project too, so an id from elsewhere reads as no data rather than
+   * another project's metrics.
+   */
+  deploymentId?: string | null;
+  /** The container picker, rendered beside the window control. */
+  selector?: ReactNode;
+}) {
   const [window, setWindow] = useState<(typeof WINDOWS)[number]>(WINDOWS[1]);
   const fetchMetrics = useCallback(() => {
     const to = new Date();
@@ -46,32 +60,36 @@ export function ProjectCharts({ projectSlug }: { projectSlug: string }) {
       from: from.toISOString(),
       to: to.toISOString(),
       step: window.step,
+      ...(deploymentId ? { deployment: deploymentId } : {}),
     });
-  }, [projectSlug, window]);
+  }, [projectSlug, window, deploymentId]);
   const { data, error, loading } = usePoll(fetchMetrics, 60_000);
 
   return (
     <section className="space-y-4">
-      <div className="flex items-baseline justify-between gap-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           {projectSlug}
         </h2>
-        <div className="flex items-center gap-1">
-          {WINDOWS.map((option) => (
-            <button
-              key={option.label}
-              type="button"
-              aria-pressed={option.label === window.label}
-              onClick={() => setWindow(option)}
-              className={
-                option.label === window.label
-                  ? "rounded-full bg-foreground px-2 py-0.5 text-[11px] text-background transition-colors"
-                  : "rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-              }
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          {selector}
+          <div className="flex items-center gap-1">
+            {WINDOWS.map((option) => (
+              <button
+                key={option.label}
+                type="button"
+                aria-pressed={option.label === window.label}
+                onClick={() => setWindow(option)}
+                className={
+                  option.label === window.label
+                    ? "rounded-full bg-foreground px-2 py-0.5 text-[11px] text-background transition-colors"
+                    : "rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                }
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

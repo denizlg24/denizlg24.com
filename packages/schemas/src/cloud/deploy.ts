@@ -913,6 +913,20 @@ export const deploymentSchema = z.object({
 export type Deployment = z.infer<typeof deploymentSchema>;
 
 /**
+ * A branch that has had a preview deployment, with its latest one. Derived from
+ * grouping non-production deployments by `gitRef` rather than from the git
+ * remote: a branch nobody deployed has nothing to show here, and a branch
+ * deleted upstream still has a container to find.
+ */
+export const deployBranchSchema = z.object({
+  gitRef: z.string(),
+  prNumber: z.number().int().positive().nullable(),
+  deploymentCount: z.number().int().positive(),
+  latest: deploymentSchema,
+});
+export type DeployBranch = z.infer<typeof deployBranchSchema>;
+
+/**
  * The list shape. A target with no deployment yet is the normal state right
  * after it is created, so `latestDeployment` is nullable rather than the list
  * being filtered.
