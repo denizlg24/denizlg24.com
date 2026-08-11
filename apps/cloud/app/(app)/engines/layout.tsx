@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "databases",
-  description: "postgres, mongodb and redis instances",
+  title: "engines",
+  description: "the postgres, mongodb and redis daemons",
 };
 
 export default function Layout({ children }: { children: ReactNode }) {

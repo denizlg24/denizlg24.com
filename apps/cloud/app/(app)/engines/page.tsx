@@ -5,10 +5,16 @@ import { MongoPanel } from "./_components/mongo-panel";
 import { PostgresPanel } from "./_components/postgres-panel";
 import { ToolsPanel } from "./_components/tools-panel";
 
-export default function DatabasesPage() {
+/**
+ * The daemons, not the databases on them. What a database *is* — who connects
+ * to it, with which credentials, from which project — is a resource, and
+ * resources live in Forge. This is process health, what each engine is
+ * carrying, and the introspection tools that have no equivalent there.
+ */
+export default function EnginesPage() {
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-sm font-semibold">databases</h1>
+      <h1 className="text-sm font-semibold">engines</h1>
       <Tabs defaultValue="postgres">
         <TabsList variant="line">
           <TabsTrigger value="postgres" className="text-xs">

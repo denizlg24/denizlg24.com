@@ -17,6 +17,13 @@ const nextConfig: NextConfig = {
         destination: "/",
         permanent: false,
       },
+      // `/databases` narrowed to `/engines`: the per-database create, drop and
+      // credentials went to Forge with the resource model.
+      {
+        source: "/databases/:path*",
+        destination: "/engines",
+        permanent: false,
+      },
     ];
   },
 };

@@ -29,7 +29,10 @@ export function TargetCard({
   const hostname = target.primaryHostname ?? latest?.hostname ?? null;
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-muted/40">
+    // `min-w-0` because a grid item defaults to `min-width: auto`, which is the
+    // width of its widest unbreakable content — a long hostname then widens the
+    // whole track and `truncate` inside never gets a chance to fire.
+    <div className="flex min-w-0 flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-muted/40">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-2.5">
           <div className="min-w-0">

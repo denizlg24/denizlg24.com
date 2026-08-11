@@ -6,10 +6,8 @@ import {
   formatPercent,
   formatRelative,
 } from "@repo/cloud-ui/format";
-import { usePoll } from "@repo/cloud-ui/use-poll";
 import type { ForgeContainer } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
-import { Skeleton } from "@repo/ui/skeleton";
 import { StatusDot } from "@repo/ui/status-dot";
 import {
   Table,
@@ -23,25 +21,34 @@ import { RotateCw, ScrollText } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ContainerPanel } from "@/components/container-panel";
-import { PageHeading } from "@/components/page-heading";
-import {
-  activeProject,
-  ProjectFilter,
-  ProjectGroupRow,
-} from "@/components/project-group-ui";
+import { ProjectGroupRow } from "@/components/project-group-ui";
 import { groupByProject } from "@/components/project-groups";
 import { api, errorMessage } from "@/lib/api";
 
 const COLUMNS = 8;
 
-export default function ContainersPage() {
-  const { data, error, reload } = usePoll(api.forge.overview, 15_000);
+/**
+ * Live Docker state, Forge-labelled workloads only.
+ *
+ * The project filter lives on the page rather than here: containers and images
+ * are two views of the same host, and two filters that could disagree about
+ * which project you are looking at is the kind of difference nobody notices
+ * until it misleads.
+ */
+export function ContainersTable({
+  containers,
+  project,
+  onChanged,
+}: {
+  containers: readonly ForgeContainer[];
+  /** Already resolved against what is on screen; null shows everything. */
+  project: string | null;
+  onChanged: () => Promise<unknown> | void;
+}) {
   const [restarting, setRestarting] = useState<Set<string>>(() => new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  const [project, setProject] = useState<string | null>(null);
   const [opened, setOpened] = useState<ForgeContainer | null>(null);
 
-  const containers = data?.agent?.containers ?? [];
   const groups = useMemo(
     () =>
       groupByProject(containers, (container) => ({
@@ -50,9 +57,8 @@ export default function ContainersPage() {
       })),
     [containers],
   );
-  const active = activeProject(groups, project);
-  const shown = active
-    ? groups.filter((group) => group.projectSlug === active)
+  const shown = project
+    ? groups.filter((group) => group.projectSlug === project)
     : groups;
 
   const restart = async (deploymentId: string) => {
@@ -60,7 +66,7 @@ export default function ContainersPage() {
     try {
       await api.forge.restart(deploymentId);
       toast.success("Container restarted");
-      await reload();
+      await onChanged();
     } catch (restartError) {
       toast.error(errorMessage(restartError));
     } finally {
@@ -170,72 +176,54 @@ export default function ContainersPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeading
-        title="containers"
-        detail="live Docker state; Forge-labelled workloads only"
-      />
-      {!data && !error ? <Skeleton className="h-64" /> : null}
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-      {data ? (
-        <>
-          <ProjectFilter
-            groups={groups}
-            selected={project}
-            onSelect={setProject}
-          />
-
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>container</TableHead>
-                <TableHead>state</TableHead>
-                <TableHead className="text-right">cpu</TableHead>
-                <TableHead className="text-right">memory</TableHead>
-                <TableHead className="text-right">network rx / tx</TableHead>
-                <TableHead className="text-right">block r / w</TableHead>
-                <TableHead className="text-right">pids</TableHead>
-                <TableHead className="w-24" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {shown.flatMap((group) => {
-                const isCollapsed = collapsed.has(group.projectSlug);
-                return [
-                  <ProjectGroupRow
-                    key={`${group.projectSlug}-group`}
-                    slug={group.projectSlug}
-                    detail={group.all.length}
-                    columns={COLUMNS}
-                    collapsed={isCollapsed}
-                    onToggle={() => toggle(group.projectSlug)}
-                  />,
-                  ...(isCollapsed
-                    ? []
-                    : [
-                        ...group.production.map((container) =>
-                          row(container, false),
-                        ),
-                        ...group.previews.map((container) =>
-                          row(container, true),
-                        ),
-                      ]),
-                ];
-              })}
-              {shown.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={COLUMNS}
-                    className="h-24 text-center text-xs text-muted-foreground"
-                  >
-                    —
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-        </>
-      ) : null}
+    <>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>container</TableHead>
+            <TableHead>state</TableHead>
+            <TableHead className="text-right">cpu</TableHead>
+            <TableHead className="text-right">memory</TableHead>
+            <TableHead className="text-right">network rx / tx</TableHead>
+            <TableHead className="text-right">block r / w</TableHead>
+            <TableHead className="text-right">pids</TableHead>
+            <TableHead className="w-24" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {shown.flatMap((group) => {
+            const isCollapsed = collapsed.has(group.projectSlug);
+            return [
+              <ProjectGroupRow
+                key={`${group.projectSlug}-group`}
+                slug={group.projectSlug}
+                detail={group.all.length}
+                columns={COLUMNS}
+                collapsed={isCollapsed}
+                onToggle={() => toggle(group.projectSlug)}
+              />,
+              ...(isCollapsed
+                ? []
+                : [
+                    ...group.production.map((container) =>
+                      row(container, false),
+                    ),
+                    ...group.previews.map((container) => row(container, true)),
+                  ]),
+            ];
+          })}
+          {shown.length === 0 ? (
+            <TableRow>
+              <TableCell
+                colSpan={COLUMNS}
+                className="h-24 text-center text-xs text-muted-foreground"
+              >
+                —
+              </TableCell>
+            </TableRow>
+          ) : null}
+        </TableBody>
+      </Table>
 
       <ContainerPanel
         container={opened}
@@ -243,6 +231,6 @@ export default function ContainersPage() {
           if (!open) setOpened(null);
         }}
       />
-    </div>
+    </>
   );
 }

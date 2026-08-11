@@ -21,7 +21,7 @@ import {
   TableRow,
 } from "@repo/ui/table";
 import { TypedConfirmDialog } from "@repo/ui/typed-confirm-dialog";
-import { Lock, Play, Plus, Trash2 } from "lucide-react";
+import { Lock, Play, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
@@ -163,9 +163,8 @@ function FindConsole({
 }
 
 export function MongoPanel() {
-  const { data: databases, reload } = usePoll(api.mongo.databases, null);
+  const { data: databases } = usePoll(api.mongo.databases, null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [newName, setNewName] = useState("");
   const [indexesFor, setIndexesFor] = useState<string | null>(null);
   const [findFor, setFindFor] = useState<string | null>(null);
 
@@ -178,47 +177,17 @@ export function MongoPanel() {
     null,
   );
 
-  const createDatabase = async () => {
-    try {
-      await api.mongo.createDatabase(newName.trim());
-      setNewName("");
-      void reload();
-    } catch (err) {
-      toast.error(errorMessage(err));
-    }
-  };
-
   return (
     <div className="flex flex-col gap-8">
-      <Section
-        title="databases"
-        count={databases?.length}
-        actions={
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder="name"
-              className="h-8 w-40 font-mono text-xs"
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-            />
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={newName.trim().length === 0}
-              onClick={() => void createDatabase()}
-            >
-              <Plus className="size-3.5" />
-            </Button>
-          </div>
-        }
-      >
+      {/* Read-only, as on the postgres panel: creating and dropping a database
+          is a resource operation and lives in Forge. */}
+      <Section title="databases" count={databases?.length}>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>name</TableHead>
                 <TableHead className="text-right">size</TableHead>
-                <TableHead className="w-16" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -245,36 +214,6 @@ export function MongoPanel() {
                   </TableCell>
                   <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
                     {formatBytes(database.sizeBytes)}
-                  </TableCell>
-                  <TableCell onClick={(event) => event.stopPropagation()}>
-                    <div className="flex justify-end">
-                      {!database.isProtected && (
-                        <TypedConfirmDialog
-                          trigger={
-                            <Button
-                              aria-label={`Drop database ${database.name}`}
-                              variant="ghost"
-                              size="icon"
-                              className="size-7 text-destructive"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          }
-                          title={`Drop database ${database.name}?`}
-                          keyword={database.name}
-                          actionLabel="Drop"
-                          onConfirm={async () => {
-                            try {
-                              await api.mongo.dropDatabase(database.name);
-                              if (selected === database.name) setSelected(null);
-                              void reload();
-                            } catch (err) {
-                              toast.error(errorMessage(err));
-                            }
-                          }}
-                        />
-                      )}
-                    </div>
                   </TableCell>
                 </TableRow>
               ))}

@@ -363,21 +363,13 @@ export const api = {
       ),
   },
 
+  // No create or drop for a database itself. Cloud keeps the engines — what
+  // each daemon is carrying, and the introspection Forge has no answer for —
+  // while a database with a credential and a connection is a resource, and
+  // resources are provisioned from Forge.
   pg: {
     databases: (): Promise<PgDatabase[]> =>
       requestData(z.array(pgDatabaseSchema), "/api/db/postgres/databases"),
-    createDatabase: (name: string): Promise<{ name: string }> =>
-      requestData(
-        z.object({ name: z.string() }),
-        "/api/db/postgres/databases",
-        { method: "POST", body: { name } },
-      ),
-    dropDatabase: (name: string): Promise<unknown> =>
-      requestData(
-        z.unknown(),
-        `/api/db/postgres/databases/${encodeURIComponent(name)}`,
-        { method: "DELETE" },
-      ),
     schemas: (database: string): Promise<PgSchema[]> =>
       requestData(
         z.array(pgSchemaSchema),
@@ -429,17 +421,6 @@ export const api = {
   mongo: {
     databases: (): Promise<MongoDatabase[]> =>
       requestData(z.array(mongoDatabaseSchema), "/api/db/mongodb/databases"),
-    createDatabase: (name: string): Promise<{ name: string }> =>
-      requestData(z.object({ name: z.string() }), "/api/db/mongodb/databases", {
-        method: "POST",
-        body: { name },
-      }),
-    dropDatabase: (name: string): Promise<unknown> =>
-      requestData(
-        z.unknown(),
-        `/api/db/mongodb/databases/${encodeURIComponent(name)}`,
-        { method: "DELETE" },
-      ),
     collections: (database: string): Promise<MongoCollection[]> =>
       requestData(
         z.array(mongoCollectionSchema),

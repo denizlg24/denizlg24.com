@@ -7,15 +7,33 @@ import {
 } from "@repo/cloud-ui/format";
 import { Unreachable } from "@repo/cloud-ui/unreachable";
 import { usePoll } from "@repo/cloud-ui/use-poll";
+import type { ForgeContainer, ForgeImage } from "@repo/schemas/cloud";
+import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
 import dynamic from "next/dynamic";
+import { useMemo, useState } from "react";
+import { ContainersTable } from "@/components/observability/containers-table";
+import { ImagesTable } from "@/components/observability/images-table";
 import { PageHeading } from "@/components/page-heading";
+import { activeProject, ProjectFilter } from "@/components/project-group-ui";
+import { groupByProject } from "@/components/project-groups";
 import { api } from "@/lib/api";
 
 const HostCharts = dynamic(
   () => import("@/components/host-charts").then((module) => module.HostCharts),
   { ssr: false, loading: () => <Skeleton className="h-48" /> },
 );
+
+/**
+ * The host, its containers and its images on one page.
+ *
+ * They were three routes behind a section rail while the split moved them off
+ * the top-level nav, and all three polled the same `forge.overview` response to
+ * render a slice of it. Folded, that is one poll, one project filter scoping
+ * both tables, and no way for the two lists to disagree about which project you
+ * are looking at.
+ */
+const POLL_MS = 15_000;
 
 function Tile({
   label,
@@ -43,11 +61,27 @@ function Tile({
   );
 }
 
-export default function OverviewPage() {
+export default function ObservabilityPage() {
   const { data, error, unreachable, loading, reload } = usePoll(
     api.forge.overview,
-    30_000,
+    POLL_MS,
   );
+  const [project, setProject] = useState<string | null>(null);
+
+  const containers = data?.agent?.containers ?? [];
+  const images = data?.agent?.images ?? [];
+  // The union of both lists, so the filter offers a project that has an image
+  // left behind and no container still running — which is exactly the project
+  // worth looking at.
+  const filterGroups = useMemo(
+    () =>
+      groupByProject<ForgeContainer | ForgeImage>(
+        [...containers, ...images],
+        (item) => ({ projectSlug: item.projectSlug, kind: item.kind }),
+      ),
+    [containers, images],
+  );
+
   if (!data) {
     if (unreachable)
       return <Unreachable retrying={loading} onRetry={() => void reload()} />;
@@ -57,19 +91,22 @@ export default function OverviewPage() {
       <Skeleton className="h-40" />
     );
   }
+
   const agent = data.agent;
   const host = agent?.host;
   const memory = host?.memory;
   const disk = agent?.health.disk;
   const buildDisk = agent?.health.buildDisk;
-  const running =
-    agent?.containers.filter((container) => container.state === "running")
-      .length ?? 0;
+  const running = containers.filter(
+    (container) => container.state === "running",
+  ).length;
+  const imageBytes = images.reduce((sum, image) => sum + image.sizeBytes, 0);
+  const active = activeProject(filterGroups, project);
 
   return (
     <div className="flex flex-col gap-8">
       <PageHeading
-        title="overview"
+        title="observability"
         detail={`sampled ${new Date(data.timestamp).toLocaleTimeString()}`}
       />
       {data.errors.agent ? (
@@ -129,14 +166,12 @@ export default function OverviewPage() {
         <Tile
           label="containers"
           value={`${running}`}
-          detail={`${agent?.containers.length ?? 0} total`}
+          detail={`${containers.length} total`}
         />
         <Tile
           label="images"
-          value={`${agent?.images.length ?? 0}`}
-          detail={formatBytes(
-            agent?.images.reduce((sum, image) => sum + image.sizeBytes, 0) ?? 0,
-          )}
+          value={`${images.length}`}
+          detail={formatBytes(imageBytes)}
         />
         <Tile
           label="build queue"
@@ -144,7 +179,26 @@ export default function OverviewPage() {
           detail={agent?.health.status}
         />
       </section>
+
       <HostCharts />
+
+      <ProjectFilter
+        groups={filterGroups}
+        selected={project}
+        onSelect={setProject}
+      />
+
+      <Section title="containers">
+        <ContainersTable
+          containers={containers}
+          project={active}
+          onChanged={reload}
+        />
+      </Section>
+
+      <Section title="images">
+        <ImagesTable images={images} project={active} />
+      </Section>
     </div>
   );
 }

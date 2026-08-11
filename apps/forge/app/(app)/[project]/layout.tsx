@@ -89,7 +89,7 @@ export default function ProjectLayout({ children }: { children: ReactNode }) {
             </p>
           </div>
           {target.primaryHostname ? (
-            <Button asChild variant="outline" size="sm">
+            <Button asChild variant="outline" size="sm" className="truncate">
               <a
                 href={`https://${target.primaryHostname}`}
                 target="_blank"
