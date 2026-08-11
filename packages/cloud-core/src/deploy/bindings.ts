@@ -1,18 +1,18 @@
-import type { DbType } from "@repo/schemas/cloud";
-import { and, eq } from "drizzle-orm";
+import type { DbType, DeploymentKind } from "@repo/schemas/cloud";
+import { eq } from "drizzle-orm";
 
 import type { Database } from "../db";
-import {
-  type DeployEnvVarRow,
-  projectDatabases,
-  projects,
-  s3Credentials,
-} from "../db/schema";
+import { type DeployEnvVarRow, projects, s3Credentials } from "../db/schema";
 import { NotFoundError } from "../errors";
 import {
-  formatProjectDatabase,
+  formatDatabaseResource,
   type ProjectDatabaseHosts,
 } from "../projects/provisioning";
+import {
+  connectedResourceKinds,
+  databaseCredentials,
+  resolveConnectedResource,
+} from "../resources/resources";
 import {
   decryptS3Secret,
   encryptS3Secret,
@@ -60,19 +60,22 @@ export function decryptDeployEnvValue(
   );
 }
 
+/**
+ * Availability is not scoped to a deployment kind on purpose. This backs the
+ * pre-flight check and the bindings picker, both of which ask "can this target
+ * reference postgres at all" — narrowing it to production would grey out a
+ * reference that a preview build resolves perfectly well.
+ */
 export async function deployNamespaceAvailability(
   db: Database,
   projectId: string,
 ): Promise<DeployNamespaceAvailability> {
-  const rows = await db
-    .select({ type: projectDatabases.type })
-    .from(projectDatabases)
-    .where(eq(projectDatabases.projectId, projectId));
-  const provisioned = new Set<DbType>(rows.map((row) => row.type));
+  const connected = await connectedResourceKinds(db, projectId);
   return {
-    postgres: provisioned.has("postgres"),
-    mongodb: provisioned.has("mongodb"),
-    redis: provisioned.has("redis"),
+    postgres: connected.has("postgres"),
+    mongodb: connected.has("mongodb"),
+    redis: connected.has("redis"),
+    meilisearch: connected.has("meilisearch"),
   };
 }
 
@@ -82,30 +85,39 @@ function externalHost(type: DbType, hosts: ProjectDatabaseHosts): string {
   return hosts.redisExternal;
 }
 
+interface DatabaseBindingInput {
+  projectId: string;
+  deploymentKind: DeploymentKind;
+  encryptionSecret: string;
+  hosts: ProjectDatabaseHosts;
+}
+
 function databaseNamespace(
   type: DbType,
   db: Database,
-  input: {
-    projectId: string;
-    encryptionSecret: string;
-    hosts: ProjectDatabaseHosts;
-  },
+  input: DatabaseBindingInput,
 ) {
   return async (): Promise<NamespaceValues | null> => {
-    const record = await db.query.projectDatabases.findFirst({
-      where: and(
-        eq(projectDatabases.projectId, input.projectId),
-        eq(projectDatabases.type, type),
-      ),
+    const connected = await resolveConnectedResource(db, {
+      deploymentKind: input.deploymentKind,
+      kind: type,
+      projectId: input.projectId,
     });
-    if (!record) return null;
+    if (!connected) return null;
+    const { resource } = connected;
+    const record = databaseCredentials(resource);
     const password = decryptS3Secret(
       record.encryptedPassword,
       record.iv,
       record.authTag,
       input.encryptionSecret,
     );
-    const contract = formatProjectDatabase(record, password, input.hosts);
+    const contract = formatDatabaseResource(
+      resource,
+      input.projectId,
+      password,
+      input.hosts,
+    );
     // The external URI, not the internal one: a deployment runs on the forge
     // host and reaches the Pi over the tailnet. The internal host names a
     // compose service that does not resolve from over there.
@@ -121,9 +133,51 @@ function databaseNamespace(
   };
 }
 
+function parseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+export interface DeployMeilisearchBindingOptions {
+  projectId: string;
+  deploymentKind: DeploymentKind;
+  url: string;
+}
+
+/**
+ * The key is stored in cleartext on the resource, exactly as it was on the
+ * `projects` row it moved off. It is a Meilisearch tenant key scoped to one
+ * index prefix, not a password that unlocks the host, and it has to be handed
+ * to the search client verbatim.
+ */
+function meilisearchNamespace(
+  db: Database,
+  input: DeployMeilisearchBindingOptions,
+) {
+  return async (): Promise<NamespaceValues | null> => {
+    const connected = await resolveConnectedResource(db, {
+      deploymentKind: input.deploymentKind,
+      kind: "meilisearch",
+      projectId: input.projectId,
+    });
+    if (!connected?.resource.meiliApiKey) return null;
+    const parsed = parseUrl(input.url);
+    return {
+      url: input.url,
+      host: parsed?.hostname ?? input.url,
+      port: parsed?.port ?? "",
+      key: connected.resource.meiliApiKey,
+    };
+  };
+}
+
 export interface DeployS3BindingOptions {
   projectId: string;
   projectSlug: string;
+  deploymentKind: DeploymentKind;
   deploymentId: string;
   endpoint: string;
   region: string;
@@ -137,6 +191,16 @@ export interface DeployS3BindingOptions {
  */
 function s3Namespace(db: Database, input: DeployS3BindingOptions) {
   return async (): Promise<NamespaceValues | null> => {
+    // A connected `s3` resource names its bucket explicitly. Falling back to
+    // the slug preserves what every project got before resources existed: the
+    // credential is restricted to one bucket named exactly the project slug,
+    // and that bucket is created by the first CreateBucket rather than at
+    // provisioning time.
+    const connected = await resolveConnectedResource(db, {
+      deploymentKind: input.deploymentKind,
+      kind: "s3",
+      projectId: input.projectId,
+    });
     const issued = await issueS3Credential(db, {
       projectId: input.projectId,
       label: `deploy:${input.deploymentId}`,
@@ -145,10 +209,7 @@ function s3Namespace(db: Database, input: DeployS3BindingOptions) {
     return {
       endpoint: input.endpoint,
       region: input.region,
-      // The credential is restricted to one bucket named exactly the project
-      // slug, and that bucket is created by the first CreateBucket, not at
-      // provisioning time.
-      bucket: input.projectSlug,
+      bucket: connected?.resource.bucket ?? input.projectSlug,
       accessKeyId: issued.credential.accessKeyId,
       secretAccessKey: issued.secretAccessKey,
     };
@@ -160,8 +221,16 @@ export interface DeployBindingResolverOptions {
   projectId: string;
   projectSlug: string;
   deploymentId: string;
+  /**
+   * Which side of the project this deployment is. It selects between
+   * connections scoped `production` and `preview`, which is what lets one
+   * project hold a production database and a staging one without preview
+   * builds reaching production data.
+   */
+  deploymentKind: DeploymentKind;
   databaseEncryptionSecret: string;
   databaseHosts: ProjectDatabaseHosts;
+  meilisearchUrl: string;
   s3Endpoint: string;
   s3Region: string;
   s3CredentialEncryptionKey: string;
@@ -170,8 +239,9 @@ export interface DeployBindingResolverOptions {
 export function createDeployBindingResolvers(
   options: DeployBindingResolverOptions,
 ): DeployBindingResolvers {
-  const databaseInput = {
+  const databaseInput: DatabaseBindingInput = {
     projectId: options.projectId,
+    deploymentKind: options.deploymentKind,
     encryptionSecret: options.databaseEncryptionSecret,
     hosts: options.databaseHosts,
   };
@@ -183,9 +253,15 @@ export function createDeployBindingResolvers(
     ),
     "database.mongodb": databaseNamespace("mongodb", options.db, databaseInput),
     "database.redis": databaseNamespace("redis", options.db, databaseInput),
+    "search.meilisearch": meilisearchNamespace(options.db, {
+      projectId: options.projectId,
+      deploymentKind: options.deploymentKind,
+      url: options.meilisearchUrl,
+    }),
     s3: s3Namespace(options.db, {
       projectId: options.projectId,
       projectSlug: options.projectSlug,
+      deploymentKind: options.deploymentKind,
       deploymentId: options.deploymentId,
       endpoint: options.s3Endpoint,
       region: options.s3Region,

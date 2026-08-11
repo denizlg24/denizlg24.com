@@ -538,6 +538,9 @@ export async function createRuntimeApp() {
             envEncryptionKey: requiredEnv("DEPLOY_ENV_ENCRYPTION_KEY"),
             databaseEncryptionSecret,
             databaseHosts,
+            meilisearchUrl:
+              process.env.DEPLOY_MEILISEARCH_URL ??
+              requiredEnv("MEILISEARCH_URL"),
             s3Endpoint:
               process.env.DEPLOY_S3_ENDPOINT ?? "https://api.denizlg24.com/v2",
             s3Region: process.env.DEPLOY_S3_REGION ?? "auto",

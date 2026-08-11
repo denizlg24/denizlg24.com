@@ -1,0 +1,18 @@
+export {
+  availableResourceName,
+  type ConnectedResource,
+  type ConnectedResourceQuery,
+  type ConnectResourceOptions,
+  connectedResourceKinds,
+  connectResource,
+  type DatabaseResourceCredentials,
+  type DbExecutor,
+  databaseCredentials,
+  disconnectResource,
+  findConnectedResources,
+  getResource,
+  resolveConnectedResource,
+  resourceConnectionCounts,
+  toDatabaseMetadata,
+  toResourceContract,
+} from "./resources";

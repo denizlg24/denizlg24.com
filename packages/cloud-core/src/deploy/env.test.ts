@@ -52,6 +52,7 @@ function resolvers(
     }),
     "database.mongodb": async () => null,
     "database.redis": async () => null,
+    "search.meilisearch": async () => null,
     s3: async () => {
       throw new Error("s3 must not be resolved");
     },
@@ -68,6 +69,7 @@ describe("defaultDeployEnvBindings", () => {
         postgres: true,
         mongodb: true,
         redis: true,
+        meilisearch: true,
       }),
     ).toEqual([
       { key: "DATABASE_URL", reference: "database.postgres.url" },
@@ -98,7 +100,12 @@ describe("collectReferences", () => {
 });
 
 describe("assertBindingsResolvable", () => {
-  const available = { postgres: true, mongodb: false, redis: false };
+  const available = {
+    postgres: true,
+    mongodb: false,
+    redis: false,
+    meilisearch: false,
+  };
 
   test("passes when every reference names a provisioned namespace", () => {
     expect(() =>
@@ -380,6 +387,7 @@ describe("describeBindings", () => {
       postgres: true,
       mongodb: false,
       redis: false,
+      meilisearch: false,
     });
     const mongo = described.find(
       (entry) => entry.reference === "database.mongodb.url",

@@ -17,6 +17,12 @@ export const DEPLOY_BINDING_NAMESPACES = {
   "database.postgres": ["url", "host", "port", "user", "password", "database"],
   "database.mongodb": ["url", "host", "port", "user", "password", "database"],
   "database.redis": ["url", "host", "port", "user", "password"],
+  /**
+   * The search key used to live on the `projects` row, where no deployment
+   * could reference it — an app that wanted to query its own index had to be
+   * handed the key by hand.
+   */
+  "search.meilisearch": ["url", "host", "port", "key"],
   s3: ["endpoint", "region", "bucket", "accessKeyId", "secretAccessKey"],
   deployment: ["id", "sha", "ref", "hostname", "url", "kind"],
   project: ["slug", "name"],
@@ -49,6 +55,7 @@ export const SECRET_DEPLOY_BINDING_REFERENCES: ReadonlySet<string> = new Set([
   "database.mongodb.password",
   "database.redis.url",
   "database.redis.password",
+  "search.meilisearch.key",
   "s3.secretAccessKey",
 ]);
 

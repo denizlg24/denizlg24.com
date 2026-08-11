@@ -5,7 +5,7 @@ export {
 export {
   createProvisionerRegistry,
   deprovisionProjectDatabase,
-  formatProjectDatabase,
+  formatDatabaseResource,
   listProjectDatabases,
   MongoProvisioner,
   PostgresProvisioner,

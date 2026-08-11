@@ -1,5 +1,6 @@
 import {
   type AuthVariables,
+  availableResourceName,
   CloudCoreError,
   createApiKey,
   createCollection,
@@ -8,6 +9,7 @@ import {
   createProjectSearchKey,
   createProjectVectorIndex,
   type Database,
+  type DbExecutor,
   deleteAllProjectIndexes,
   deleteCollection,
   deleteProject,
@@ -17,6 +19,7 @@ import {
   deprovisionProjectDatabase,
   dropPgTrigger,
   ensureOutboxTable,
+  findConnectedResources,
   generateProjectToken,
   getCollection,
   getProject,
@@ -45,7 +48,11 @@ import {
   updateCollection,
   updateProject,
 } from "@repo/cloud-core";
-import { projectDatabases, projects } from "@repo/cloud-core/db/schema";
+import {
+  projects,
+  resourceConnections,
+  resources,
+} from "@repo/cloud-core/db/schema";
 import {
   createApiKeyInputSchema,
   createCollectionInputSchema,
@@ -58,7 +65,7 @@ import {
   updateCollectionInputSchema,
   updateProjectInputSchema,
 } from "@repo/schemas/cloud";
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { MongoClient } from "mongodb";
 
@@ -156,6 +163,37 @@ function superuserOrScope(scope: "storage:manage") {
   };
 }
 
+interface ProjectSearchKey {
+  apiKey: string;
+  apiKeyUid: string;
+  resourceId: string;
+}
+
+/**
+ * The search key moved off the `projects` row onto a `meilisearch` resource, so
+ * a deployment can bind `search.meilisearch.key`. Everything project-scoped
+ * still reads one key per project — the first connected resource that has one.
+ */
+async function projectSearchKey(
+  db: DbExecutor,
+  projectId: string,
+): Promise<ProjectSearchKey | null> {
+  const connected = await findConnectedResources(db, {
+    kind: "meilisearch",
+    projectId,
+  });
+  for (const { resource } of connected) {
+    if (resource.meiliApiKey && resource.meiliApiKeyUid) {
+      return {
+        apiKey: resource.meiliApiKey,
+        apiKeyUid: resource.meiliApiKeyUid,
+        resourceId: resource.id,
+      };
+    }
+  }
+  return null;
+}
+
 async function ensureMeiliKey(
   db: Database,
   meili: MeiliSearch,
@@ -172,18 +210,31 @@ async function ensureMeiliKey(
     if (!project) {
       throw new CloudCoreErrorImpl("Project not found", "PROJECT_NOT_FOUND");
     }
-    if (project.meiliApiKey && project.meiliApiKeyUid) {
-      return {
-        apiKey: project.meiliApiKey,
-        apiKeyUid: project.meiliApiKeyUid,
-      };
+    const existing = await projectSearchKey(tx, projectId);
+    if (existing) {
+      return { apiKey: existing.apiKey, apiKeyUid: existing.apiKeyUid };
     }
     const { key, uid } = await createProjectSearchKey(meili, projectSlug);
     try {
+      const name = await availableResourceName(tx, "meilisearch", projectSlug);
+      const [resource] = await tx
+        .insert(resources)
+        .values({
+          kind: "meilisearch",
+          meiliApiKey: key,
+          meiliApiKeyUid: uid,
+          name,
+          // The key is scoped to an index prefix derived from the slug, so the
+          // namespace record is what it is actually addressed by.
+          namespaceId: projectId,
+        })
+        .returning();
+      if (!resource) {
+        throw new Error("Failed to save search resource");
+      }
       await tx
-        .update(projects)
-        .set({ meiliApiKey: key, meiliApiKeyUid: uid, updatedAt: new Date() })
-        .where(eq(projects.id, projectId));
+        .insert(resourceConnections)
+        .values({ projectId, resourceId: resource.id });
       return { apiKey: key, apiKeyUid: uid };
     } catch (error) {
       await deleteProjectSearchKey(meili, uid).catch(() => undefined);
@@ -217,15 +268,11 @@ async function assertProjectDatabase(
   type: "postgres" | "mongodb",
   database: string,
 ): Promise<void> {
-  const record = await db.query.projectDatabases.findFirst({
-    columns: { id: true },
-    where: and(
-      eq(projectDatabases.projectId, projectId),
-      eq(projectDatabases.type, type),
-      eq(projectDatabases.dbName, database),
-    ),
+  const connected = await findConnectedResources(db, {
+    kind: type,
+    projectId,
   });
-  if (!record) {
+  if (!connected.some(({ resource }) => resource.dbName === database)) {
     throw new CloudCoreErrorImpl(
       `${type === "postgres" ? "Postgres" : "MongoDB"} database not found`,
       "DATABASE_NOT_FOUND",
@@ -288,10 +335,25 @@ export function projectRoutes(options: ProjectRouteOptions) {
     return context.json({ data: project }, 201);
   });
 
-  app.get("/:id", requireSession(), requireRole("superuser"), async (context) =>
-    context.json({
-      data: await getProject(options.db, context.req.param("id")),
-    }),
+  app.get(
+    "/:id",
+    requireSession(),
+    requireRole("superuser"),
+    async (context) => {
+      const project = await getProject(options.db, context.req.param("id"));
+      // The columns still exist and still hold the pre-backfill value, but a
+      // key minted after the resource split is only ever written to the
+      // resource. Overlaying keeps this response the single truth while the
+      // columns are still on the table.
+      const search = await projectSearchKey(options.db, project.id);
+      return context.json({
+        data: {
+          ...project,
+          meiliApiKey: search?.apiKey ?? project.meiliApiKey,
+          meiliApiKeyUid: search?.apiKeyUid ?? project.meiliApiKeyUid,
+        },
+      });
+    },
   );
 
   app.patch(
@@ -356,14 +418,21 @@ export function projectRoutes(options: ProjectRouteOptions) {
           database.id,
         );
       }
-      if (project.meiliApiKeyUid) {
+      const search = await projectSearchKey(options.db, projectId);
+      if (search) {
         await deleteAllProjectIndexes(options.meili, project.slug).catch(
           () => undefined,
         );
-        await deleteProjectSearchKey(
-          options.meili,
-          project.meiliApiKeyUid,
-        ).catch(() => undefined);
+        await deleteProjectSearchKey(options.meili, search.apiKeyUid).catch(
+          () => undefined,
+        );
+        // Deleting the project cascades the connection away but leaves the
+        // resource, which would otherwise hold the name against a future
+        // project with the same slug.
+        await options.db
+          .update(resources)
+          .set({ deletedAt: new Date() })
+          .where(eq(resources.id, search.resourceId));
       }
       await deleteProject(options.db, projectId);
       options.s3CredentialResolver.invalidate();
@@ -631,7 +700,8 @@ export function projectRoutes(options: ProjectRouteOptions) {
     requireScope("search:read"),
     async (context) => {
       const project = await getProject(options.db, context.req.param("id"));
-      if (!project.meiliApiKey || !project.meiliApiKeyUid) {
+      const search = await projectSearchKey(options.db, project.id);
+      if (!search) {
         return context.json(
           {
             error: {
@@ -658,8 +728,8 @@ export function projectRoutes(options: ProjectRouteOptions) {
           Math.min(parsed.data.expiresInHours ?? 24, 720) * 60 * 60 * 1_000,
       );
       const token = await generateProjectToken({
-        apiKey: project.meiliApiKey,
-        apiKeyUid: project.meiliApiKeyUid,
+        apiKey: search.apiKey,
+        apiKeyUid: search.apiKeyUid,
         projectName: project.slug,
         searchRules: parsed.data.searchRules,
         expiresAt,
@@ -673,15 +743,13 @@ export function projectRoutes(options: ProjectRouteOptions) {
   app.get("/:id/pg-databases", requireScope("search:read"), async (context) => {
     const projectId = context.req.param("id");
     await getProject(options.db, projectId);
-    const records = await options.db
-      .select({ name: projectDatabases.dbName })
-      .from(projectDatabases)
-      .where(
-        and(
-          eq(projectDatabases.projectId, projectId),
-          eq(projectDatabases.type, "postgres"),
-        ),
-      );
+    const connected = await findConnectedResources(options.db, {
+      kind: "postgres",
+      projectId,
+    });
+    const records = connected.flatMap(({ resource }) =>
+      resource.dbName === null ? [] : [{ name: resource.dbName }],
+    );
     return context.json({ data: records });
   });
 

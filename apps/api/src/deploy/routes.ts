@@ -134,6 +134,8 @@ export interface DeployRouteOptions {
   envEncryptionKey: string;
   databaseEncryptionSecret: string;
   databaseHosts: ProjectDatabaseHosts;
+  /** External, for the same reason the database bindings use external hosts. */
+  meilisearchUrl: string;
   s3Endpoint: string;
   s3Region: string;
   s3CredentialEncryptionKey: string;
@@ -2280,8 +2282,10 @@ export function deployRoutes(options: DeployRouteOptions) {
           projectId: project.id,
           projectSlug: project.slug,
           deploymentId: row.id,
+          deploymentKind: row.kind,
           databaseEncryptionSecret: options.databaseEncryptionSecret,
           databaseHosts: options.databaseHosts,
+          meilisearchUrl: options.meilisearchUrl,
           s3Endpoint: options.s3Endpoint,
           s3Region: options.s3Region,
           s3CredentialEncryptionKey: options.s3CredentialEncryptionKey,

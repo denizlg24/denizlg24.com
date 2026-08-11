@@ -18,6 +18,7 @@ export const MARKER_IDENTIFIER = "cloud-migration:012";
 export const NEVER_EXPIRES = new Date("9999-12-31T23:59:59.999Z");
 
 export const MARKERS = {
+  resources: "cloud-migration:016-resources",
   s3Legacy: "cloud-migration:012-s3-legacy",
   schema: "cloud-migration:012-schema",
   users: "cloud-migration:003-users",
@@ -31,6 +32,7 @@ export type MarkerId = (typeof MARKERS)[keyof typeof MARKERS];
  * permanently block the S3 preflight's predecessor check.
  */
 const MARKER_IDENTIFIERS: Record<MarkerId, string> = {
+  [MARKERS.resources]: "cloud-migration:016",
   [MARKERS.s3Legacy]: MARKER_IDENTIFIER,
   [MARKERS.schema]: MARKER_IDENTIFIER,
   [MARKERS.users]: "cloud-migration:003",
@@ -45,6 +47,7 @@ export const MARKER_SEQUENCE: readonly MarkerId[] = [
   MARKERS.schema,
   MARKERS.users,
   MARKERS.s3Legacy,
+  MARKERS.resources,
 ];
 
 export interface ScriptFlags {

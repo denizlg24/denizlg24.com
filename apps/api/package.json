@@ -8,6 +8,7 @@
     "auth:migrate-users": "bun --env-file=../../.env scripts/migrate-users.ts",
     "cutover:apply-migrations": "bun --env-file=../../.env scripts/apply-migrations.ts",
     "cutover:inventory": "bun --env-file=../../.env scripts/inventory-dependents.ts",
+    "cutover:migrate-resources": "bun --env-file=../../.env scripts/migrate-resources.ts",
     "cutover:migrate-s3-legacy": "bun --env-file=../../.env scripts/migrate-s3-legacy.ts",
     "cutover:rekey-disk-metrics": "bun --env-file=../../.env scripts/rekey-disk-metrics.ts",
     "cutover:snapshot": "bun --env-file=../../.env scripts/pre-cutover-snapshot.ts",
