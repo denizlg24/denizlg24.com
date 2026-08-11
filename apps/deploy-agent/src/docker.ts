@@ -131,9 +131,22 @@ function isDockerFrameHeader(buffer: Uint8Array): boolean {
   return length <= MAX_LOG_FRAME_BYTES;
 }
 
+/**
+ * Which of the container's two streams a frame came from. `null` is a TTY
+ * container, whose output the daemon sends unframed and therefore unlabelled —
+ * not an error, just genuinely unknown.
+ */
+export type DockerLogStream = "stdout" | "stderr" | null;
+
+function streamOf(indicator: number | undefined): DockerLogStream {
+  if (indicator === 1) return "stdout";
+  if (indicator === 2) return "stderr";
+  return null;
+}
+
 async function* dockerLogPayloads(
   body: ReadableStream<Uint8Array>,
-): AsyncGenerator<Uint8Array> {
+): AsyncGenerator<{ stream: DockerLogStream; payload: Uint8Array }> {
   const reader = body.getReader();
   let pending: Uint8Array<ArrayBufferLike> = new Uint8Array();
   let framed: boolean | null = null;
@@ -146,7 +159,7 @@ async function* dockerLogPayloads(
         framed = isDockerFrameHeader(pending);
       }
       if (framed === false) {
-        yield pending;
+        yield { stream: null, payload: pending };
         pending = new Uint8Array();
         continue;
       }
@@ -161,7 +174,10 @@ async function* dockerLogPayloads(
           4,
         ).getUint32(0);
         if (pending.byteLength < 8 + length) break;
-        yield pending.slice(8, 8 + length);
+        yield {
+          stream: streamOf(pending[0]),
+          payload: pending.slice(8, 8 + length),
+        };
         pending = pending.slice(8 + length);
       }
     }
@@ -172,26 +188,48 @@ async function* dockerLogPayloads(
   if (pending.byteLength > 0) {
     if (framed === true)
       throw new Error("Docker returned a truncated log frame");
-    yield pending;
+    yield { stream: null, payload: pending };
   }
+}
+
+export interface DockerLogEntry {
+  stream: DockerLogStream;
+  line: string;
+}
+
+/**
+ * Lines with the stream they came from.
+ *
+ * The stream label is carried on the *frame*, and a frame is not a line — a
+ * single write can hold several, and a line can span two. Each completed line is
+ * therefore attributed to the frame that supplied its first byte, which is the
+ * frame that named the stream it belongs to.
+ */
+async function* dockerLogEntries(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<DockerLogEntry> {
+  const decoder = new TextDecoder();
+  let pending = "";
+  let stream: DockerLogStream = null;
+  for await (const frame of dockerLogPayloads(body)) {
+    if (pending.length === 0) stream = frame.stream;
+    pending += decoder.decode(frame.payload, { stream: true });
+    let newline = pending.indexOf("\n");
+    while (newline >= 0) {
+      yield { stream, line: pending.slice(0, newline).replace(/\r$/, "") };
+      pending = pending.slice(newline + 1);
+      stream = frame.stream;
+      newline = pending.indexOf("\n");
+    }
+  }
+  pending += decoder.decode();
+  if (pending.length > 0) yield { stream, line: pending };
 }
 
 async function* dockerLogLines(
   body: ReadableStream<Uint8Array>,
 ): AsyncGenerator<string> {
-  const decoder = new TextDecoder();
-  let pending = "";
-  for await (const payload of dockerLogPayloads(body)) {
-    pending += decoder.decode(payload, { stream: true });
-    let newline = pending.indexOf("\n");
-    while (newline >= 0) {
-      yield pending.slice(0, newline).replace(/\r$/, "");
-      pending = pending.slice(newline + 1);
-      newline = pending.indexOf("\n");
-    }
-  }
-  pending += decoder.decode();
-  if (pending.length > 0) yield pending;
+  for await (const entry of dockerLogEntries(body)) yield entry.line;
 }
 
 /**
@@ -458,5 +496,43 @@ export class DockerClient {
     );
     if (!response.body) throw new Error("Docker returned no log stream");
     yield* dockerLogLines(response.body);
+  }
+
+  /**
+   * A closed time slice of a container's output, rather than a tail that
+   * follows.
+   *
+   * `since`/`until` are the daemon's own filters and are inclusive at both ends
+   * at one-second resolution, which is the finest the API offers — so a window
+   * asked for in milliseconds comes back rounded outwards. The caller narrows it
+   * again using the timestamps on the lines, which do carry sub-second
+   * precision.
+   */
+  async forgeContainerLogWindow(
+    reference: string | ForgeDockerContainer,
+    options: { since: Date; until: Date; signal?: AbortSignal },
+  ): Promise<DockerLogEntry[]> {
+    const container =
+      typeof reference === "string"
+        ? await this.resolveForgeContainer(reference)
+        : reference;
+    const query = new URLSearchParams({
+      follow: "0",
+      stdout: "1",
+      stderr: "1",
+      timestamps: "1",
+      since: String(Math.floor(options.since.getTime() / 1_000)),
+      until: String(Math.ceil(options.until.getTime() / 1_000)),
+    });
+    const response = await this.#request(
+      `/containers/${encodeURIComponent(container.id)}/logs?${query}`,
+      { signal: options.signal },
+    );
+    if (!response.body) return [];
+    const entries: DockerLogEntry[] = [];
+    for await (const entry of dockerLogEntries(response.body)) {
+      entries.push(entry);
+    }
+    return entries;
   }
 }

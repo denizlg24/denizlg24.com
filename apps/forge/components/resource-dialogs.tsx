@@ -20,8 +20,7 @@ import {
   DialogTrigger,
 } from "@repo/ui/dialog";
 import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import { NativeSelect } from "@repo/ui/native-select";
+import { OptionSelect } from "@repo/ui/option-select";
 import { type ReactNode, useCallback, useState } from "react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
@@ -44,20 +43,18 @@ function ScopeField({
 }) {
   return (
     <Field label="Scope">
-      <NativeSelect
-        size="sm"
+      <OptionSelect<ResourceConnectionScope>
+        className="w-full"
+        aria-label="Scope"
         value={value}
-        className="text-xs"
-        onChange={(event) =>
-          onChange(event.target.value as ResourceConnectionScope)
-        }
-      >
-        {RESOURCE_CONNECTION_SCOPES.map((scope) => (
-          <option key={scope} value={scope}>
-            {scope}
-          </option>
-        ))}
-      </NativeSelect>
+        onValueChange={(scope) => {
+          if (scope) onChange(scope);
+        }}
+        options={RESOURCE_CONNECTION_SCOPES.map((scope) => ({
+          value: scope,
+          label: scope,
+        }))}
+      />
     </Field>
   );
 }
@@ -149,27 +146,25 @@ export function CreateResourceDialog({
         </DialogHeader>
         <div className="flex flex-col gap-4">
           <Field label="Kind">
-            {/* A native option cannot hold a mark, so it sits beside the
-                control and follows the selection. */}
+            {/* Decorative and outside the trigger: it tracks the selection,
+                and the option's own label names the kind. */}
             <div className="flex items-center gap-2">
               <ResourceIcon
                 kind={kind}
-                className="size-4 text-muted-foreground"
+                className="size-4 shrink-0 text-muted-foreground"
               />
-              <NativeSelect
-                size="sm"
+              <OptionSelect<ResourceKind>
+                className="w-full"
+                aria-label="Kind"
                 value={kind}
-                className="w-full text-xs"
-                onChange={(event) =>
-                  setKind(event.target.value as ResourceKind)
-                }
-              >
-                {kinds.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </NativeSelect>
+                onValueChange={(next) => {
+                  if (next) setKind(next);
+                }}
+                options={kinds.map((option) => ({
+                  value: option,
+                  label: option,
+                }))}
+              />
             </div>
           </Field>
           <Field label={nameRequired ? "Name" : "Name (optional)"}>
@@ -266,26 +261,24 @@ export function ConnectResourceDialog({
         </DialogHeader>
         <div className="flex flex-col gap-4">
           <Field label={resourceId ? "Project" : "Resource"}>
-            <NativeSelect
-              size="sm"
-              value={selected}
-              className="text-xs"
-              onChange={(event) => setSelected(event.target.value)}
-            >
-              <option value="">—</option>
-              {resourceId
-                ? (projects ?? []).map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.slug}
-                      {project.hasTarget ? "" : " (no deployable)"}
-                    </option>
-                  ))
-                : (resources ?? []).map((resource: Resource) => (
-                    <option key={resource.id} value={resource.id}>
-                      {resource.kind} · {resource.name}
-                    </option>
-                  ))}
-            </NativeSelect>
+            <OptionSelect
+              className="w-full"
+              aria-label={resourceId ? "Project" : "Resource"}
+              value={selected || null}
+              onValueChange={(next) => setSelected(next ?? "")}
+              emptyLabel="—"
+              options={
+                resourceId
+                  ? (projects ?? []).map((project) => ({
+                      value: project.id,
+                      label: `${project.slug}${project.hasTarget ? "" : " (no deployable)"}`,
+                    }))
+                  : (resources ?? []).map((resource: Resource) => ({
+                      value: resource.id,
+                      label: `${resource.kind} · ${resource.name}`,
+                    }))
+              }
+            />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
             <ScopeField value={scopes} onChange={setScopes} />

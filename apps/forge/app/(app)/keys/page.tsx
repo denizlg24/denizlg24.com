@@ -1,7 +1,7 @@
 "use client";
 
 import { usePoll } from "@repo/cloud-ui/use-poll";
-import { NativeSelect } from "@repo/ui/native-select";
+import { OptionSelect } from "@repo/ui/option-select";
 import { Skeleton } from "@repo/ui/skeleton";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback } from "react";
@@ -47,21 +47,18 @@ function NamespacePanel() {
   return (
     <div className="flex flex-col gap-8">
       <PageHeading title="keys">
-        <NativeSelect
-          size="sm"
-          value={projectId ?? ""}
-          className="w-56 text-xs"
-          onChange={(event) =>
-            router.replace(`?project=${event.target.value}`, { scroll: false })
-          }
-        >
-          {projects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.slug}
-              {project.hasTarget ? "" : " (no deployable)"}
-            </option>
-          ))}
-        </NativeSelect>
+        <OptionSelect
+          className="w-56"
+          aria-label="Project"
+          value={projectId}
+          onValueChange={(next) => {
+            if (next) router.replace(`?project=${next}`, { scroll: false });
+          }}
+          options={projects.map((project) => ({
+            value: project.id,
+            label: `${project.slug}${project.hasTarget ? "" : " (no deployable)"}`,
+          }))}
+        />
       </PageHeading>
 
       {projectId ? (

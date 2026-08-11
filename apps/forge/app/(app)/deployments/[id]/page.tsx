@@ -25,7 +25,7 @@ import { toast } from "sonner";
 import { DeploymentActions } from "@/components/deployment-actions";
 import { LogStream } from "@/components/log-stream";
 import { PageHeading } from "@/components/page-heading";
-import { RequestTable } from "@/components/request-table";
+import { RequestExplorer } from "@/components/request-explorer";
 import { api, errorMessage } from "@/lib/api";
 
 export default function DeploymentDetailPage() {
@@ -219,7 +219,7 @@ export default function DeploymentDetailPage() {
               value="requests"
               className="flex max-h-96 min-h-0 flex-col"
             >
-              <RequestTable deploymentId={id} />
+              <RequestExplorer deploymentId={id} />
             </TabsContent>
           </Tabs>
         </div>

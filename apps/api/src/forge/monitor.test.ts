@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { Database, MetricSampleInput } from "@repo/cloud-core";
-import type { ForgeAgentSnapshot } from "@repo/schemas/cloud";
+import {
+  type ForgeAgentSnapshot,
+  forgeHostSnapshotSchema,
+} from "@repo/schemas/cloud";
 
 import type { DeployAgentProxy } from "../deploy/proxy";
 import { ForgeAgentUnavailableError, ForgeMonitor } from "./monitor";
@@ -27,7 +30,10 @@ function snapshot(networkBytes: number): ForgeAgentSnapshot {
       },
       queue: { running: 0, capacity: 1, deploymentIds: [] },
     },
-    host: {
+    // Parsed rather than written out, so the schema's defaults fill in the
+    // sections this test does not care about — and a new one added to the
+    // snapshot does not mean editing every fixture that never mentioned it.
+    host: forgeHostSnapshotSchema.parse({
       cpu: {
         usagePercent: 25,
         cores: 4,
@@ -42,7 +48,7 @@ function snapshot(networkBytes: number): ForgeAgentSnapshot {
         availableBytes: 50,
         usagePercent: 50,
       },
-    },
+    }),
     containers: [
       {
         id: "container-1",
@@ -143,6 +149,46 @@ describe("ForgeMonitor", () => {
     expect(first.agent?.containers).toHaveLength(1);
     expect(second).toBe(first);
     expect(deployAgent.json).toHaveBeenCalledTimes(1);
+  });
+
+  test("records reachability whether or not the agent answers", async () => {
+    spyOn(console, "error").mockImplementation(() => {});
+    const batches: MetricSampleInput[][] = [];
+    let answers = true;
+    const monitor = new ForgeMonitor({
+      db: metricsDb(batches),
+      deployAgent: {
+        json: mock(async () => {
+          if (!answers) throw new Error("connection refused");
+          return { status: 200, body: { snapshot: snapshot(100) } };
+        }),
+      } as unknown as DeployAgentProxy,
+      now: () => new Date("2026-08-09T12:00:00.000Z"),
+    });
+
+    await monitor.sample();
+    answers = false;
+    await monitor.sample();
+
+    const up = (index: number) =>
+      (batches[index] ?? []).find((row) => row.key === "agent.up")?.value;
+    expect(up(0)).toBe(1);
+    // The whole point: every other series stops here, and an alert window with
+    // no samples never evaluates, so an unreachable box must still write a row.
+    expect(up(1)).toBe(0);
+    expect(batches[1]).toHaveLength(1);
+  });
+
+  test("writes no reachability series when no agent is configured", async () => {
+    const batches: MetricSampleInput[][] = [];
+    const monitor = new ForgeMonitor({
+      db: metricsDb(batches),
+      deployAgent: null,
+    });
+
+    await monitor.sample().catch(() => undefined);
+
+    expect(batches).toHaveLength(0);
   });
 
   test("stores Docker network counters as per-second rates", async () => {

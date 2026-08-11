@@ -113,19 +113,32 @@ export async function deleteAlertRule(
 }
 
 /**
- * Seeds the shipped defaults exactly once, on a database that has never had a
- * rule. It deliberately does not reconcile: a rule the owner deleted or retuned
- * must stay deleted or retuned across restarts.
+ * Seeds the shipped defaults for each metric family that has no rule at all.
+ *
+ * The family — the `kind` before the colon — is the unit of seeding rather than
+ * the individual rule, and that is the whole design. Seeding per rule would
+ * resurrect every rule the owner ever deleted on the next restart; seeding once
+ * per database, as this did, means defaults shipped for a machine added later
+ * never arrive at all, because the table has had rules in it since the day the
+ * Pi was the only host. Per family, a new collector's defaults land the first
+ * time it is deployed and nothing already tuned is touched.
+ *
+ * The edge it accepts: deleting every rule of a family brings that family's
+ * defaults back. Deleting all of them is indistinguishable from never having
+ * had them, and the alternative is a marker table for a single-user cloud.
  */
 export async function seedDefaultAlertRules(db: Database): Promise<number> {
   const existing = await db
-    .select({ id: alertRules.id })
-    .from(alertRules)
-    .limit(1);
-  if (existing.length > 0) return 0;
+    .select({ series: alertRules.series })
+    .from(alertRules);
+  const present = new Set(existing.map((row) => splitSeries(row.series).kind));
+  const missing = DEFAULT_ALERT_RULES.filter(
+    (rule) => !present.has(splitSeries(rule.series).kind),
+  );
+  if (missing.length === 0) return 0;
   const rows = await db
     .insert(alertRules)
-    .values([...DEFAULT_ALERT_RULES])
+    .values([...missing])
     .returning({ id: alertRules.id });
   return rows.length;
 }

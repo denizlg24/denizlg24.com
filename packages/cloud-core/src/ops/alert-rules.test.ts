@@ -1,10 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import type { AlertRule } from "@repo/schemas/cloud";
+import { type AlertRule, DEFAULT_ALERT_RULES } from "@repo/schemas/cloud";
 
+import type { Database } from "../db";
 import {
   describeCondition,
   formatMetricValue,
   nextRuleState,
+  seedDefaultAlertRules,
 } from "./alert-rules";
 
 const BASE = new Date("2026-07-29T12:00:00.000Z");
@@ -130,6 +132,57 @@ describe("nextRuleState", () => {
     });
     expect(nextRuleState(low, 4, BASE).transition).toBe("fired");
     expect(nextRuleState(low, 40, BASE).transition).toBe("none");
+  });
+});
+
+function seedDb(existing: readonly string[]): {
+  db: Database;
+  inserted: { series: string }[][];
+} {
+  const inserted: { series: string }[][] = [];
+  const db = {
+    select: () => ({
+      from: async () => existing.map((series) => ({ series })),
+    }),
+    insert: () => ({
+      values: (rows: { series: string }[]) => {
+        inserted.push(rows);
+        return { returning: async () => rows.map(() => ({ id: "id" })) };
+      },
+    }),
+  } as unknown as Database;
+  return { db, inserted };
+}
+
+function kinds(rows: readonly { series: string }[]): Set<string> {
+  return new Set(rows.map((row) => row.series.split(":")[0] ?? ""));
+}
+
+describe("seedDefaultAlertRules", () => {
+  it("seeds every shipped family on a database with no rules", async () => {
+    const { db, inserted } = seedDb([]);
+    const count = await seedDefaultAlertRules(db);
+    expect(count).toBe(DEFAULT_ALERT_RULES.length);
+    expect(kinds(inserted[0] ?? [])).toEqual(kinds(DEFAULT_ALERT_RULES));
+  });
+
+  it("seeds a family added after the database was first populated", async () => {
+    // The production case: the Pi's rules have been there since day one, so a
+    // seed gated on the table being empty would never deliver the forge box's.
+    const { db, inserted } = seedDb(["host:swap.usage_percent"]);
+    await seedDefaultAlertRules(db);
+    expect(kinds(inserted[0] ?? []).has("host")).toBe(false);
+    expect(kinds(inserted[0] ?? []).has("forge-host")).toBe(true);
+  });
+
+  it("never re-seeds a family that still holds a rule", async () => {
+    // One surviving rule per family stands for the owner having tuned them —
+    // the deleted siblings must stay deleted across restarts.
+    const { db, inserted } = seedDb([
+      ...new Set(DEFAULT_ALERT_RULES.map((rule) => rule.series)),
+    ]);
+    expect(await seedDefaultAlertRules(db)).toBe(0);
+    expect(inserted).toHaveLength(0);
   });
 });
 

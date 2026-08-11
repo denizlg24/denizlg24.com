@@ -1,6 +1,7 @@
 import {
   type AuthVariables,
   type Database,
+  metricCatalog,
   queryMetricSeries,
 } from "@repo/cloud-core";
 import {
@@ -17,6 +18,7 @@ import {
   type ForgeDeploymentSort,
   forgeDeploymentQuerySchema,
   forgeRequestLogQuerySchema,
+  forgeRequestLogsQuerySchema,
   metricsQuerySchema,
 } from "@repo/schemas/cloud";
 import {
@@ -139,6 +141,24 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
   app.get("/overview", async (context) =>
     context.json({ data: await options.monitor.overview() }),
   );
+
+  /**
+   * Which host series actually exist, read back out of the samples table.
+   *
+   * The set cannot be declared anywhere: it is one series per sensor the board
+   * exposes, per core, per disk and per interface, and nothing in this repo
+   * knows what hardware is in the box. The observability page drives its chart
+   * pickers off this rather than a hard-coded list that would be wrong on the
+   * next machine — or after a fan is unplugged.
+   */
+  app.get("/series", async (context) => {
+    const series = await metricCatalog(options.db, { sinceHours: 48 });
+    return context.json({
+      data: {
+        series: series.filter((entry) => entry.name.startsWith("forge-")),
+      },
+    });
+  });
 
   app.get("/metrics", async (context) => {
     const now = new Date();
@@ -400,6 +420,36 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
     }
     return context.json({
       data: await options.monitor.requestLogs(id, query.data),
+    });
+  });
+
+  app.get("/deployments/:id/request-logs", async (context) => {
+    const id = context.req.param("id");
+    if (!z.uuid().safeParse(id).success) {
+      return context.json(
+        { error: { code: "INVALID_DEPLOYMENT_ID", message: "Not a uuid" } },
+        400,
+      );
+    }
+    const query = forgeRequestLogsQuerySchema.safeParse({
+      from: context.req.query("from"),
+      to: context.req.query("to"),
+      requestId: context.req.query("requestId") ?? null,
+      limit: context.req.query("limit") ?? undefined,
+    });
+    if (!query.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_WINDOW",
+            message: query.error.issues[0]?.message ?? "Invalid window",
+          },
+        },
+        400,
+      );
+    }
+    return context.json({
+      data: await options.monitor.requestOutput(id, query.data),
     });
   });
 

@@ -256,7 +256,8 @@ describe("buildCaddyConfig", () => {
         upstream: "127.0.0.1:24817",
       },
     ]);
-    const proxy = config.apps.http.servers.forge?.routes[0]?.handle[0] as {
+    // `handle[0]` stamps the request id; the proxy is the handler after it.
+    const proxy = config.apps.http.servers.forge?.routes[0]?.handle[1] as {
       handle_response: {
         match: { status_code: number[] };
         routes: { handle: { status_code: number; body: string }[] }[];
@@ -384,12 +385,57 @@ describe("buildCaddyConfig", () => {
         upstream: "127.0.0.1:24817",
       },
     ]);
-    const handler = config.apps.http.servers.forge?.routes[0]?.handle[0] as {
+    const handler = config.apps.http.servers.forge?.routes[0]?.handle[1] as {
       upstreams: { dial: string }[];
       headers: { request: { set: Record<string, string[]> } };
     };
     expect(handler.upstreams).toEqual([{ dial: "127.0.0.1:24817" }]);
     expect(handler.headers.request.set["X-Forwarded-Proto"]).toEqual(["https"]);
+  });
+
+  /**
+   * The id has to be stamped by a `headers` handler ahead of the proxy, not by
+   * the proxy's own `headers.request`. Only the former mutates the request the
+   * access logger serialises afterwards — set it on the proxy and the app
+   * receives an id the log has no record of, which is worse than no id at all
+   * because the join silently returns nothing.
+   */
+  it("stamps a request id before proxying, where the access log can see it", () => {
+    const config = buildCaddyConfig([
+      {
+        deploymentId: "a",
+        projectSlug: "app",
+        hostnames: ["a.denizlg24.com"],
+        upstream: "127.0.0.1:24817",
+      },
+    ]);
+    const handlers = config.apps.http.servers.forge?.routes[0]?.handle as {
+      handler: string;
+      request?: { set?: Record<string, string[]> };
+    }[];
+    expect(handlers[0]?.handler).toBe("headers");
+    expect(handlers[0]?.request?.set?.["X-Request-Id"]).toEqual([
+      "{http.request.uuid}",
+    ]);
+    expect(handlers[1]?.handler).toBe("reverse_proxy");
+  });
+
+  // A 308 never reaches a container, so there is no output to correlate and an
+  // id on it would only cost a placeholder evaluation per redirected request.
+  it("does not stamp redirect-only routes", () => {
+    const config = buildCaddyConfig([
+      {
+        deploymentId: "a",
+        projectSlug: "app",
+        hostnames: ["a.denizlg24.com"],
+        upstream: "127.0.0.1:24817",
+        redirects: [{ hostname: "www.a.com", to: "a.denizlg24.com" }],
+      },
+    ]);
+    const redirect = config.apps.http.servers.forge?.routes[1]?.handle as {
+      handler: string;
+    }[];
+    expect(redirect[0]?.handler).toBe("static_response");
   });
 
   it("serialises the same set of routes identically", () => {

@@ -1,9 +1,13 @@
 "use client";
 
-import { type DeployEnvScope, parseDotenv } from "@repo/schemas/cloud";
+import {
+  DEPLOY_ENV_SCOPES,
+  type DeployEnvScope,
+  parseDotenv,
+} from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
-import { NativeSelect } from "@repo/ui/native-select";
+import { OptionSelect } from "@repo/ui/option-select";
 import { Textarea } from "@repo/ui/textarea";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -13,6 +17,10 @@ export interface EnvDraftRow {
   value: string;
   scope: DeployEnvScope;
 }
+
+/** The scope enum as picker options. Exported so the target's env page agrees. */
+export const ENV_SCOPES: readonly { value: DeployEnvScope; label: string }[] =
+  DEPLOY_ENV_SCOPES.map((scope) => ({ value: scope, label: scope }));
 
 export function emptyEnvRow(): EnvDraftRow {
   return { key: "", value: "", scope: "all" };
@@ -102,17 +110,15 @@ export function EnvEditor({
                   update(index, { value: event.target.value })
                 }
               />
-              <NativeSelect
+              <OptionSelect<DeployEnvScope>
+                className="h-8 w-28"
+                aria-label="Scope"
                 value={row.scope}
-                className="h-8 w-28 text-xs"
-                onChange={(event) =>
-                  update(index, { scope: event.target.value as DeployEnvScope })
+                onValueChange={(scope) =>
+                  update(index, { scope: scope ?? "all" })
                 }
-              >
-                <option value="all">all</option>
-                <option value="production">production</option>
-                <option value="preview">preview</option>
-              </NativeSelect>
+                options={ENV_SCOPES}
+              />
               <Button
                 size="sm"
                 variant="ghost"

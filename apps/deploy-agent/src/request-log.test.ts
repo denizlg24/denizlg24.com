@@ -77,7 +77,71 @@ describe("parseAccessLogLine", () => {
       clientIp: "203.0.113.7",
       userAgent: "TestAgent/1.0",
       referer: "https://example.com/from",
+      requestId: null,
+      rayId: null,
+      geo: {
+        country: null,
+        city: null,
+        region: null,
+        continent: null,
+        latitude: null,
+        longitude: null,
+        colo: null,
+      },
     });
+  });
+
+  it("reads the visitor from Cloudflare's headers, not the tunnel", () => {
+    const record = parseAccessLogLine(
+      line(
+        {},
+        {
+          headers: {
+            "CF-Connecting-IP": ["198.51.100.42"],
+            "CF-IPCountry": ["PT"],
+            "CF-IPCity": ["Lisbon"],
+            "CF-Region": ["Lisboa"],
+            "CF-IPContinent": ["EU"],
+            "CF-IPLatitude": ["38.72225"],
+            "CF-IPLongitude": ["-9.13934"],
+            "CF-Ray": ["9a1f2c3d4e5f6789-LIS"],
+            "X-Request-Id": ["1f0c2a44-77bd-4c1e-9c2f-2b1f6b2a55e1"],
+          },
+        },
+      ),
+    );
+    // `client_ip` is the tunnel's own address on this box, so a record reporting
+    // it as the visitor is the bug this replaces.
+    expect(record?.clientIp).toBe("198.51.100.42");
+    expect(record?.rayId).toBe("9a1f2c3d4e5f6789");
+    expect(record?.requestId).toBe("1f0c2a44-77bd-4c1e-9c2f-2b1f6b2a55e1");
+    expect(record?.geo).toEqual({
+      country: "PT",
+      city: "Lisbon",
+      region: "Lisboa",
+      continent: "EU",
+      latitude: 38.72225,
+      longitude: -9.13934,
+      colo: "LIS",
+    });
+  });
+
+  // Cloudflare rewrites header casing depending on which product set it, so a
+  // case-sensitive lookup silently reports every field as absent.
+  it("matches Cloudflare headers whatever their casing", () => {
+    const record = parseAccessLogLine(
+      line({}, { headers: { "cf-connecting-ip": ["203.0.113.9"] } }),
+    );
+    expect(record?.clientIp).toBe("203.0.113.9");
+  });
+
+  // `XX` is Cloudflare saying it could not place the address. Rendered as-is it
+  // becomes a country named XX in every breakdown.
+  it("reads an unplaceable country as no country", () => {
+    const record = parseAccessLogLine(
+      line({}, { headers: { "CF-IPCountry": ["XX"] } }),
+    );
+    expect(record?.geo.country).toBeNull();
   });
 
   it("prefers client_ip but falls back to remote_ip", () => {

@@ -92,7 +92,12 @@ export function requestLogPredicate(
       record.uri.toLowerCase().includes(needle) ||
       record.clientIp.toLowerCase().includes(needle) ||
       String(record.status).includes(needle) ||
-      (record.userAgent?.toLowerCase().includes(needle) ?? false)
+      (record.userAgent?.toLowerCase().includes(needle) ?? false) ||
+      // Geo is searchable for the same reason the path is: "show me the 5xx
+      // from Portugal" is a question worth one field rather than a filter.
+      (record.geo.country?.toLowerCase().includes(needle) ?? false) ||
+      (record.geo.city?.toLowerCase().includes(needle) ?? false) ||
+      (record.geo.colo?.toLowerCase().includes(needle) ?? false)
     );
   };
 }
@@ -113,14 +118,65 @@ interface CaddyAccessLine {
   };
 }
 
+/**
+ * Caddy writes header names in the canonical casing it received them in, and
+ * Cloudflare is not consistent about it — `CF-IPCity` and `Cf-Ipcity` both turn
+ * up depending on which product set the header. Matching case-insensitively is
+ * cheaper than being wrong for half of them.
+ */
 function firstHeader(
   headers: Record<string, unknown> | undefined,
   name: string,
 ): string | null {
-  const value = headers?.[name];
+  if (!headers) return null;
+  const direct = headers[name];
+  const value =
+    direct ??
+    headers[
+      Object.keys(headers).find(
+        (key) => key.toLowerCase() === name.toLowerCase(),
+      ) ?? ""
+    ];
   if (!Array.isArray(value)) return null;
   const first = value[0];
   return typeof first === "string" && first.length > 0 ? first : null;
+}
+
+function headerNumber(
+  headers: Record<string, unknown> | undefined,
+  name: string,
+): number | null {
+  const raw = firstHeader(headers, name);
+  if (raw === null) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * `CF-Ray` is `<id>-<colo>`, e.g. `9a1f2c3d4e5f6789-LIS`. The colo is the
+ * Cloudflare datacentre that took the request, which is the only part of the
+ * header worth showing on its own.
+ */
+function parseRay(ray: string | null): {
+  rayId: string | null;
+  colo: string | null;
+} {
+  if (ray === null) return { rayId: null, colo: null };
+  const separator = ray.lastIndexOf("-");
+  if (separator <= 0) return { rayId: ray, colo: null };
+  return {
+    rayId: ray.slice(0, separator),
+    colo: ray.slice(separator + 1) || null,
+  };
+}
+
+/**
+ * Cloudflare reports an address it cannot place as `XX` (and `T1` for Tor).
+ * Both are the absence of an answer, not a country, and rendering them as one
+ * puts a country called "XX" in the dashboard.
+ */
+function parseCountry(value: string | null): string | null {
+  return value === null || value === "XX" || value === "T1" ? null : value;
 }
 
 /**
@@ -154,12 +210,21 @@ export function parseAccessLogLine(line: string): ForgeRequestLogRecord | null {
   if (typeof method !== "string" || typeof host !== "string") return null;
   if (typeof uri !== "string") return null;
 
+  const headers = request.headers;
+  // cloudflared speaks to Caddy over loopback, so `remote_ip` is the tunnel and
+  // `client_ip` only differs from it when Caddy has trusted proxies configured
+  // — which it does not. `CF-Connecting-IP` is therefore the only field on the
+  // line that is ever a real visitor; the others stay as the fallback so a
+  // request that reached Caddy some other way still reports something.
   const clientIp =
-    typeof request.client_ip === "string"
+    firstHeader(headers, "CF-Connecting-IP") ??
+    (typeof request.client_ip === "string"
       ? request.client_ip
       : typeof request.remote_ip === "string"
         ? request.remote_ip
-        : "";
+        : "");
+
+  const { rayId, colo } = parseRay(firstHeader(headers, "CF-Ray"));
 
   return {
     // Caddy writes float seconds; the wire format is an ISO timestamp.
@@ -178,8 +243,19 @@ export function parseAccessLogLine(line: string): ForgeRequestLogRecord | null {
         ? Math.trunc(size)
         : 0,
     clientIp,
-    userAgent: firstHeader(request.headers, "User-Agent"),
-    referer: firstHeader(request.headers, "Referer"),
+    userAgent: firstHeader(headers, "User-Agent"),
+    referer: firstHeader(headers, "Referer"),
+    requestId: firstHeader(headers, "X-Request-Id"),
+    rayId,
+    geo: {
+      country: parseCountry(firstHeader(headers, "CF-IPCountry")),
+      city: firstHeader(headers, "CF-IPCity"),
+      region: firstHeader(headers, "CF-Region"),
+      continent: firstHeader(headers, "CF-IPContinent"),
+      latitude: headerNumber(headers, "CF-IPLatitude"),
+      longitude: headerNumber(headers, "CF-IPLongitude"),
+      colo,
+    },
   };
 }
 

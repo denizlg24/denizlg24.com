@@ -2,7 +2,7 @@
 
 import { formatRelative } from "@repo/cloud-ui/format";
 import type { ForgeContainer } from "@repo/schemas/cloud";
-import { NativeSelect, NativeSelectOption } from "@repo/ui/native-select";
+import { OptionSelect } from "@repo/ui/option-select";
 
 /**
  * A short label for a container in a picker: the branch it is serving, or the
@@ -29,20 +29,16 @@ export function ContainerSelect({
   if (containers.length === 0) return null;
 
   return (
-    <NativeSelect
-      className="h-7 w-auto max-w-72 text-xs"
-      value={selected ?? ""}
-      onChange={(event) => onSelect(event.target.value || null)}
+    <OptionSelect
+      className="h-7 max-w-72"
       aria-label="Container"
-    >
-      {allLabel ? (
-        <NativeSelectOption value="">{allLabel}</NativeSelectOption>
-      ) : null}
-      {containers.map((container) => (
-        <NativeSelectOption key={container.id} value={container.id}>
-          {containerLabel(container)}
-        </NativeSelectOption>
-      ))}
-    </NativeSelect>
+      value={selected}
+      onValueChange={onSelect}
+      {...(allLabel ? { emptyLabel: allLabel } : {})}
+      options={containers.map((container) => ({
+        value: container.id,
+        label: containerLabel(container),
+      }))}
+    />
   );
 }

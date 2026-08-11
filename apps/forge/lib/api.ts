@@ -13,12 +13,17 @@ import {
   type ForgeProjectMetricsResponse,
   type ForgeRequestLogPage,
   type ForgeRequestLogQuery,
+  type ForgeRequestLogs,
+  type ForgeRequestLogsQuery,
   forgeDeploymentPageSchema,
   forgeDeploymentSummarySchema,
   forgeOverviewSchema,
   forgeProjectMetricsResponseSchema,
   forgeRequestLogPageSchema,
+  forgeRequestLogsSchema,
+  type MetricCatalogEntry,
   type MetricsResponse,
+  metricCatalogResponseSchema,
   metricsResponseSchema,
   type SafeUser,
   safeUserSchema,
@@ -154,6 +159,15 @@ export const api = {
   forge: {
     overview: (): Promise<ForgeOverview> =>
       data(forgeOverviewSchema, "/api/forge/overview"),
+    /**
+     * The host series that exist, with their last value. Read from the samples
+     * table rather than declared, because what a machine publishes depends on
+     * its hardware — the chart pickers are built from this.
+     */
+    series: (): Promise<MetricCatalogEntry[]> =>
+      data(metricCatalogResponseSchema, "/api/forge/series").then(
+        (page) => page.series,
+      ),
     deployments: (
       query: Partial<ForgeDeploymentQuery> = {},
     ): Promise<ForgeDeploymentPage> =>
@@ -231,6 +245,27 @@ export const api = {
             status: query.status,
             search: query.search,
             minDurationMs: query.minDurationMs,
+          },
+        },
+      ),
+    /**
+     * The container output for one request. `requestId` gives an exact join
+     * when the app logs the header Caddy stamps; without it the window is the
+     * best available answer, and the response says which one came back.
+     */
+    requestLogs: (
+      deploymentId: string,
+      query: ForgeRequestLogsQuery,
+    ): Promise<ForgeRequestLogs> =>
+      data(
+        forgeRequestLogsSchema,
+        `/api/forge/deployments/${encodeURIComponent(deploymentId)}/request-logs`,
+        {
+          query: {
+            from: query.from,
+            to: query.to,
+            requestId: query.requestId,
+            limit: query.limit,
           },
         },
       ),

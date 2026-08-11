@@ -802,15 +802,33 @@ export function deployRoutes(options: DeployRouteOptions) {
       .from(deployTargets)
       .innerJoin(projects, eq(projects.id, deployTargets.projectId))
       .orderBy(deployTargets.createdAt);
+
+    // One pass for every target's newest deployment overall and its newest
+    // production one, rather than a query per target per field. The card reads
+    // the production row — a failed preview is not a statement about what the
+    // domain is currently serving, and reading `latestDeployment` alone marked
+    // healthy projects as failed.
+    const [newestOverall, newestProduction] = await Promise.all([
+      db
+        .selectDistinctOn([deployments.targetId])
+        .from(deployments)
+        .orderBy(deployments.targetId, desc(deployments.createdAt)),
+      db
+        .selectDistinctOn([deployments.targetId])
+        .from(deployments)
+        .where(eq(deployments.kind, "production"))
+        .orderBy(deployments.targetId, desc(deployments.createdAt)),
+    ]);
+    const byTarget = new Map(newestOverall.map((row) => [row.targetId, row]));
+    const productionByTarget = new Map(
+      newestProduction.map((row) => [row.targetId, row]),
+    );
+
     const listed = await Promise.all(
       rows.map(async (row) => {
-        const [latest] = await db
-          .select()
-          .from(deployments)
-          .where(eq(deployments.targetId, row.target.id))
-          .orderBy(desc(deployments.createdAt))
-          .limit(1);
         const primary = await primaryHostname(row.target.id);
+        const latest = byTarget.get(row.target.id);
+        const production = productionByTarget.get(row.target.id);
         return {
           ...serializeTarget(row.target, {
             projectSlug: row.projectSlug,
@@ -818,6 +836,9 @@ export function deployRoutes(options: DeployRouteOptions) {
           }),
           latestDeployment: latest
             ? serializeDeployment(latest, primary)
+            : null,
+          latestProduction: production
+            ? serializeDeployment(production, primary)
             : null,
         };
       }),

@@ -1,6 +1,8 @@
 import type {
   ForgeAgentSnapshot,
   ForgeContainer,
+  ForgeRequestLogLine,
+  ForgeRequestLogs,
   ForgeRequestStats,
 } from "@repo/schemas/cloud";
 
@@ -15,6 +17,34 @@ import {
 } from "./request-log";
 
 const METRICS_CONCURRENCY = 4;
+
+/**
+ * Splits Docker's `timestamps=1` prefix off a line.
+ *
+ * The daemon writes an RFC3339 instant, a single space, then the line as the
+ * container wrote it. Left in place it would be repeated in front of every
+ * message in a UI that already has a time column, and would defeat any search
+ * for text at the start of a line.
+ */
+export function parseTimestampedLine(entry: {
+  stream: "stdout" | "stderr" | null;
+  line: string;
+}): ForgeRequestLogLine {
+  const boundary = entry.line.indexOf(" ");
+  if (boundary > 0) {
+    const stamp = new Date(entry.line.slice(0, boundary));
+    if (!Number.isNaN(stamp.getTime())) {
+      return {
+        ts: stamp.toISOString(),
+        stream: entry.stream,
+        message: entry.line.slice(boundary + 1),
+      };
+    }
+  }
+  // A line the daemon did not stamp is still a line worth showing; it just
+  // cannot be placed on the timeline.
+  return { ts: null, stream: entry.stream, message: entry.line };
+}
 
 async function mapWithConcurrency<T, R>(
   values: readonly T[],
@@ -162,6 +192,59 @@ export class ForgeTelemetry {
     const container =
       await this.#options.docker.resolveForgeContainer(containerId);
     return this.#options.docker.forgeContainerLogs(container, options);
+  }
+
+  /**
+   * The container output belonging to one request.
+   *
+   * Two mechanisms, and the answer says which one it used. Caddy stamps every
+   * proxied request with `X-Request-Id` and forwards it, so an app that logs the
+   * header gives an exact join — those lines are its request's and nobody
+   * else's. An app that does not gets the whole window the request was open
+   * for, which is right under low concurrency and wrong under high; conflating
+   * the two would let the second quietly pass for the first.
+   *
+   * The id is matched as a substring rather than by parsing the line: apps
+   * format their logs however they like, and requiring a shape would mean
+   * correlating for none of them.
+   */
+  async requestLogs(
+    deploymentId: string,
+    options: { from: Date; to: Date; requestId: string | null; limit: number },
+  ): Promise<ForgeRequestLogs> {
+    const containers = await this.#options.docker
+      .listForgeContainers()
+      .catch(() => []);
+    const container = containers.find(
+      (candidate) => candidate.deploymentId === deploymentId,
+    );
+    if (!container) {
+      return { lines: [], correlation: "time-window", truncated: false };
+    }
+
+    const entries = await this.#options.docker
+      .forgeContainerLogWindow(container, {
+        // Widened by a second at each end because the daemon filters at
+        // one-second resolution: a request that started at .95 would otherwise
+        // fall outside a window asked for from .95.
+        since: new Date(options.from.getTime() - 1_000),
+        until: new Date(options.to.getTime() + 1_000),
+      })
+      .catch(() => []);
+
+    const parsed = entries.map((entry) => parseTimestampedLine(entry));
+    const requestId = options.requestId;
+    const matched =
+      requestId === null
+        ? []
+        : parsed.filter((line) => line.message.includes(requestId));
+
+    const selected = matched.length > 0 ? matched : parsed;
+    return {
+      lines: selected.slice(-options.limit),
+      correlation: matched.length > 0 ? "request-id" : "time-window",
+      truncated: selected.length > options.limit,
+    };
   }
 
   async #withMetrics(container: ForgeDockerContainer): Promise<ForgeContainer> {

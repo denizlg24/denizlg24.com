@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { AgentHealth } from "@repo/schemas/cloud";
 
 import type { DockerClient, ForgeDockerContainer } from "./docker";
+import { hostSnapshot } from "./fixtures";
 import type { HealthService } from "./health";
 import { ForgeTelemetry } from "./telemetry";
 
@@ -45,24 +46,7 @@ function container(index: number): ForgeDockerContainer {
 const healthService = {
   check: async () => health,
 } as unknown as HealthService;
-const host = {
-  collect: async () => ({
-    cpu: {
-      usagePercent: 10,
-      cores: 4,
-      load1: 0.1,
-      load5: 0.2,
-      load15: 0.3,
-      temperatureCelsius: 42,
-    },
-    memory: {
-      totalBytes: 100,
-      usedBytes: 50,
-      availableBytes: 50,
-      usagePercent: 50,
-    },
-  }),
-};
+const host = { collect: async () => hostSnapshot() };
 
 describe("ForgeTelemetry", () => {
   it("bounds concurrent container stats calls", async () => {

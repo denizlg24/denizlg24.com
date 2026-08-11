@@ -7,19 +7,21 @@ import { api } from "@/lib/api";
 import { MetricChart } from "./metric-chart";
 
 /**
- * Everything the project route can aggregate, in one request. Four charts off one
- * round trip beats four requests that each re-resolve the same deployment set.
+ * What the container consumed, in one request. Four charts off one round trip
+ * beats four requests that each re-resolve the same deployment set.
+ *
+ * Resource metrics only. The request series — counts, status classes, latency
+ * percentiles, bytes out — describe traffic rather than the machine, and live
+ * on the logs page beside the requests they summarise. Splitting them was the
+ * point: one page answered "is the box healthy" and "who is hitting /checkout"
+ * at once, and neither question was easy to read off it.
  */
 const METRICS = [
-  "requests.count",
-  "requests.2xx",
-  "requests.4xx",
-  "requests.5xx",
-  "request.duration_ms.p50",
-  "request.duration_ms.p95",
   "cpu.usage_percent",
   "memory.bytes",
-  "response.bytes",
+  "memory.usage_percent",
+  "network.rx_bytes_per_second",
+  "network.tx_bytes_per_second",
 ] as const;
 
 const WINDOWS = [
@@ -27,14 +29,6 @@ const WINDOWS = [
   { label: "24h", hours: 24, step: 300 },
   { label: "7d", hours: 168, step: 1_800 },
 ] as const;
-
-/**
- * Request counters are stored per 30-second sample, so a per-minute reading is
- * the sample value doubled. Correct at every resolution because the rollup
- * averages samples rather than summing them — the value always means "per
- * sample", whatever bucket it ends up in.
- */
-const PER_MINUTE = 2;
 
 export function ProjectCharts({
   projectSlug,
@@ -112,36 +106,6 @@ export function ProjectCharts({
           }
         >
           <MetricChart
-            title="requests / min"
-            names={["requests.count"]}
-            data={data.series}
-            format="count"
-            scale={PER_MINUTE}
-            labels={{ "requests.count": "requests" }}
-          />
-          <MetricChart
-            title="by status / min"
-            names={["requests.2xx", "requests.4xx", "requests.5xx"]}
-            data={data.series}
-            format="count"
-            scale={PER_MINUTE}
-            labels={{
-              "requests.2xx": "2xx",
-              "requests.4xx": "4xx",
-              "requests.5xx": "5xx",
-            }}
-          />
-          <MetricChart
-            title="latency"
-            names={["request.duration_ms.p50", "request.duration_ms.p95"]}
-            data={data.series}
-            format="ms"
-            labels={{
-              "request.duration_ms.p50": "p50",
-              "request.duration_ms.p95": "p95",
-            }}
-          />
-          <MetricChart
             title="cpu"
             names={["cpu.usage_percent"]}
             data={data.series}
@@ -156,12 +120,24 @@ export function ProjectCharts({
             labels={{ "memory.bytes": "rss" }}
           />
           <MetricChart
-            title="response bytes / min"
-            names={["response.bytes"]}
+            title="memory headroom"
+            names={["memory.usage_percent"]}
+            data={data.series}
+            format="percent"
+            labels={{ "memory.usage_percent": "of limit" }}
+          />
+          <MetricChart
+            title="network"
+            names={[
+              "network.rx_bytes_per_second",
+              "network.tx_bytes_per_second",
+            ]}
             data={data.series}
             format="bytes"
-            scale={PER_MINUTE}
-            labels={{ "response.bytes": "out" }}
+            labels={{
+              "network.rx_bytes_per_second": "in/s",
+              "network.tx_bytes_per_second": "out/s",
+            }}
           />
         </div>
       ) : null}

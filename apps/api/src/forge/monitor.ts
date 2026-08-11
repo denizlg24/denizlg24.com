@@ -9,13 +9,17 @@ import {
   type ForgeOverview,
   type ForgeRequestLogPage,
   type ForgeRequestLogQuery,
+  type ForgeRequestLogs,
+  type ForgeRequestLogsQuery,
   forgeAgentSnapshotSchema,
   forgeRequestLogPageSchema,
   forgeRequestLogRecordSchema,
+  forgeRequestLogsSchema,
 } from "@repo/schemas/cloud";
 import { z } from "zod";
 
 import type { DeployAgentProxy } from "../deploy/proxy";
+import { hostMetricSamples } from "./host-series";
 
 const SAMPLE_INTERVAL_MS = 30_000;
 
@@ -168,6 +172,42 @@ export class ForgeMonitor {
       .parse(response.body);
   }
 
+  /**
+   * The container output for one request, forwarded to the agent.
+   *
+   * Nothing is cached or stored here for the same reason the request list is
+   * not: these are lines the container already wrote, held by Docker's own log
+   * driver, and a second copy in Postgres would outgrow every other table on the
+   * box within a week.
+   */
+  async requestOutput(
+    deploymentId: string,
+    query: ForgeRequestLogsQuery,
+  ): Promise<ForgeRequestLogs> {
+    if (!this.#options.deployAgent) {
+      throw new ForgeAgentUnavailableError();
+    }
+    const search = new URLSearchParams({
+      from: query.from,
+      to: query.to,
+      limit: String(query.limit),
+    });
+    if (query.requestId !== null) search.set("requestId", query.requestId);
+    const response = await this.#options.deployAgent.json<unknown>(
+      `/deployments/${encodeURIComponent(deploymentId)}/request-logs?${search}`,
+    );
+    if (response.status < 200 || response.status >= 300) {
+      throw new ForgeAgentRequestError(
+        typeof response.body === "object" &&
+          response.body !== null &&
+          "error" in response.body
+          ? JSON.stringify((response.body as { error: unknown }).error)
+          : `status ${response.status}`,
+      );
+    }
+    return forgeRequestLogsSchema.parse(response.body);
+  }
+
   async #agentSnapshot(): Promise<ForgeAgentSnapshot> {
     if (!this.#options.deployAgent) {
       throw new Error("The Forge deploy agent is not configured");
@@ -185,10 +225,12 @@ export class ForgeMonitor {
 
   async #collectAndPersist(): Promise<ForgeOverview> {
     const timestamp = this.#options.now?.() ?? new Date();
+    const startedAt = performance.now();
     const agentResult = await Promise.resolve(this.#agentSnapshot()).then(
       (value) => ({ status: "fulfilled" as const, value }),
       (reason: unknown) => ({ status: "rejected" as const, reason }),
     );
+    const latencyMs = performance.now() - startedAt;
     const overview: ForgeOverview = {
       timestamp: timestamp.toISOString(),
       agent: agentResult.status === "fulfilled" ? agentResult.value : null,
@@ -199,7 +241,7 @@ export class ForgeMonitor {
             : null,
       },
     };
-    const samples = this.#metricSamples(timestamp, overview);
+    const samples = this.#metricSamples(timestamp, overview, latencyMs);
     this.#latest = overview;
     if (samples.length > 0) {
       await insertMetricSamples(this.#options.db, samples).catch((error) => {
@@ -209,43 +251,40 @@ export class ForgeMonitor {
     return overview;
   }
 
-  #metricSamples(ts: Date, overview: ForgeOverview): MetricSampleInput[] {
+  #metricSamples(
+    ts: Date,
+    overview: ForgeOverview,
+    latencyMs: number,
+  ): MetricSampleInput[] {
     const samples: MetricSampleInput[] = [];
     const agent = overview.agent;
+    // Reachability is the one series that has to be written when the box is
+    // unreachable, because every other one stops. An alert rule aggregates the
+    // rows in its window and a window with no rows never evaluates, so a host
+    // that vanishes would otherwise stay silently "ok" forever. Skipped only
+    // when there is no agent configured at all: a control plane that was never
+    // pointed at a Forge host is not a Forge host that is down.
+    if (this.#options.deployAgent) {
+      samples.push({
+        ts,
+        kind: "forge-host",
+        key: "agent.up",
+        value: agent ? 1 : 0,
+      });
+      if (agent) {
+        samples.push({
+          ts,
+          kind: "forge-host",
+          key: "agent.latency_ms",
+          value: latencyMs,
+        });
+      }
+    }
     if (agent) {
-      const { cpu, memory } = agent.host;
-      samples.push(
-        {
-          ts,
-          kind: "forge-host",
-          key: "cpu.usage_percent",
-          value: cpu.usagePercent,
-        },
-        {
-          ts,
-          kind: "forge-host",
-          key: "load.1",
-          value: cpu.load1,
-        },
-        {
-          ts,
-          kind: "forge-host",
-          key: "load.5",
-          value: cpu.load5,
-        },
-        {
-          ts,
-          kind: "forge-host",
-          key: "load.15",
-          value: cpu.load15,
-        },
-        {
-          ts,
-          kind: "forge-host",
-          key: "memory.usage_percent",
-          value: memory.usagePercent,
-        },
-      );
+      // Every numeric leaf the host reported, derived from the snapshot rather
+      // than listed here — a tower publishes whichever sensors its kernel
+      // modules found, and that set is not knowable at compile time.
+      samples.push(...hostMetricSamples(ts, agent.host));
       if (agent.health.disk.usedPercent !== null) {
         samples.push({
           ts,

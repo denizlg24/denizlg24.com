@@ -24,6 +24,101 @@ export function inferMetricUnit(series: string): AlertRuleUnit {
   return "count";
 }
 
+/**
+ * The forge host publishes families whose members are not knowable in advance —
+ * one series per sensor the board exposes, per core, per disk, per interface.
+ * Naming them is therefore a pattern match on the key rather than a table.
+ */
+const FORGE_HOST_PATTERNS: {
+  pattern: RegExp;
+  label: (match: RegExpExecArray) => string;
+  group: string;
+}[] = [
+  {
+    pattern: /^cpu\.core\.(\d+)\.usage_percent$/,
+    label: (match) => `core ${match[1]} usage`,
+    group: "cpu cores",
+  },
+  {
+    pattern: /^cpu\.core\.(\d+)\.mhz$/,
+    label: (match) => `core ${match[1]} clock`,
+    group: "cpu cores",
+  },
+  {
+    pattern: /^sensor\.([^.]+)\.([^.]+)\.([^.]+)$/,
+    label: (match) => `${match[1]} ${match[2]} (${match[3]})`,
+    group: "sensors",
+  },
+  {
+    pattern: /^power\.([^.]+)\.watts$/,
+    label: (match) => `${match[1]} power`,
+    group: "power",
+  },
+  {
+    pattern: /^disk\.([^.]+)\.(.+)$/,
+    label: (match) => `${match[1]} ${match[2]?.replace(/_/g, " ")}`,
+    group: "disks",
+  },
+  {
+    pattern: /^fs\.(.+?)\.([a-z_]+)$/,
+    label: (match) =>
+      `${match[1]?.replace(/_/g, "/")} ${match[2]?.replace(/_/g, " ")}`,
+    group: "filesystems",
+  },
+  {
+    pattern: /^net\.([^.]+)\.(.+)$/,
+    label: (match) => `${match[1]} ${match[2]?.replace(/_/g, " ")}`,
+    group: "network",
+  },
+  {
+    pattern: /^pressure\.([^.]+)\.([^.]+)\.avg10$/,
+    label: (match) => `${match[1]} pressure (${match[2]})`,
+    group: "pressure",
+  },
+];
+
+/** Keys under `forge-host:` that are one of a kind. */
+const FORGE_HOST_LABELS: Record<string, string> = {
+  "agent.up": "agent reachable",
+  "agent.latency_ms": "agent response time",
+  "cpu.usage_percent": "cpu usage",
+  "cpu.temperature_celsius": "cpu temperature",
+  "cpu.context_switches_per_second": "context switches",
+  "cpu.interrupts_per_second": "interrupts",
+  "cpu.forks_per_second": "forks",
+  "cpu.procs_running": "processes running",
+  "cpu.procs_blocked": "processes blocked",
+  "load.1": "load (1m)",
+  "load.5": "load (5m)",
+  "load.15": "load (15m)",
+  "memory.usage_percent": "memory usage",
+  "memory.used_bytes": "memory used",
+  "memory.available_bytes": "memory available",
+  "memory.free_bytes": "memory free",
+  "memory.cached_bytes": "page cache",
+  "memory.buffers_bytes": "buffers",
+  "memory.dirty_bytes": "dirty pages",
+  "memory.slab_bytes": "kernel slab",
+  "memory.swap_used_bytes": "swap used",
+  "memory.swap_usage_percent": "swap usage",
+  "disk.usage_percent": "runtime disk usage",
+  "build_disk.usage_percent": "build disk usage",
+  "system.processes": "processes",
+  "system.threads": "threads",
+  "system.uptime_seconds": "host uptime",
+};
+
+function describeForgeHost(key: string): MetricDescription {
+  const unit = inferMetricUnit(key);
+  const known = FORGE_HOST_LABELS[key];
+  if (known) return { label: known, group: "host", unit };
+  for (const entry of FORGE_HOST_PATTERNS) {
+    const match = entry.pattern.exec(key);
+    if (match) return { label: entry.label(match), group: entry.group, unit };
+  }
+  return { label: key.replace(/[._]/g, " "), group: "host", unit };
+}
+
 /** Keys under `host:` whose plain-English name is not derivable from the key. */
 const HOST_LABELS: Record<string, string> = {
   "cpu.usage_percent": "cpu usage",
@@ -141,6 +236,12 @@ export function describeMetricSeries(
         unit,
       };
 
+    // The Pi's `host:` and the forge box's `forge-host:` are separate machines
+    // reporting separate series, and the forge one publishes families whose
+    // members depend on what hardware is in the box.
+    case "forge-host":
+      return describeForgeHost(key);
+
     case "db":
       return {
         label: DATABASE_LABELS[key] ?? key.replace(/[._]/g, " "),
@@ -191,8 +292,13 @@ export function describeMetricSeries(
 /** Host first, then the things most likely to be alerted on. */
 const GROUP_ORDER = [
   "host",
+  "cpu cores",
+  "sensors",
+  "power",
+  "pressure",
   "databases",
   "disks",
+  "filesystems",
   "network",
   "containers",
   "storage",

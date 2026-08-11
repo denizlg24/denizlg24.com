@@ -5,12 +5,43 @@ import { join } from "node:path";
 import {
   type AgentDeploymentRequest,
   agentDeploymentRequestSchema,
+  type ForgeHostSnapshot,
+  forgeHostSnapshotSchema,
 } from "@repo/schemas/cloud";
 import type { z } from "zod";
 
 import type { Exec, ExecOptions, ExecResult } from "./exec";
 
 type DeploymentRequestInput = z.input<typeof agentDeploymentRequestSchema>;
+type HostSnapshotInput = z.input<typeof forgeHostSnapshotSchema>;
+
+/**
+ * Test-only. Parsed rather than cast so the schema's defaults fill in every
+ * optional section — which is the whole point: a test that only cares about CPU
+ * should not have to restate the sensor, disk and process arrays every time one
+ * more field is collected.
+ */
+export function hostSnapshot(
+  overrides: Partial<HostSnapshotInput> = {},
+): ForgeHostSnapshot {
+  return forgeHostSnapshotSchema.parse({
+    cpu: {
+      usagePercent: 10,
+      cores: 4,
+      load1: 0.1,
+      load5: 0.2,
+      load15: 0.3,
+      temperatureCelsius: 42,
+    },
+    memory: {
+      totalBytes: 100,
+      usedBytes: 50,
+      availableBytes: 50,
+      usagePercent: 50,
+    },
+    ...overrides,
+  });
+}
 
 /**
  * Test-only. Parsed through the schema rather than cast, so a contract change

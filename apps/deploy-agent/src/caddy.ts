@@ -120,6 +120,32 @@ export class CaddyError extends Error {
 const NOOP_LOGGER: CaddyLogger = { info: () => {}, error: () => {} };
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+/** The header both the app and the access log identify a request by. */
+export const REQUEST_ID_HEADER = "X-Request-Id";
+
+/**
+ * Stamps a request id onto the request itself, before it is proxied.
+ *
+ * A `headers` handler mutates `r.Header` in place, and Caddy's access logger
+ * serialises that same object *after* the handler chain returns — so the id it
+ * writes is the one the app received, and the two can be joined. Setting the id
+ * inside `reverse_proxy`'s own `headers.request` instead would not work: that
+ * mutates the upstream request copy, which the logger never sees, leaving the
+ * app with an id the log has no record of.
+ *
+ * Overwritten unconditionally rather than preserved when a client sends one.
+ * Caddy is the edge for these apps, the value ends up in a log the dashboard
+ * joins on, and a client that can choose its own id can make its requests
+ * indistinguishable from someone else's. `HeaderOps` has no conditional set on
+ * the request side in any case — only responses carry `require`.
+ */
+function requestIdHandler(): Record<string, unknown> {
+  return {
+    handler: "headers",
+    request: { set: { [REQUEST_ID_HEADER]: ["{http.request.uuid}"] } },
+  };
+}
+
 /**
  * cloudflared speaks plain HTTP to Caddy. Without this the app sees `http` and
  * generates `http://` absolute URLs, and anything doing an HTTPS redirect
@@ -330,7 +356,10 @@ export function buildCaddyConfig(
     .flatMap((entry) => {
       const serve: CaddyConfigRoute = {
         match: [{ host: [...entry.hostnames].sort() }],
-        handle: [proxyHandler(entry.upstream)],
+        // The id handler runs first so the header exists both upstream and in
+        // the access log. Redirect routes below deliberately do not get one:
+        // a 308 never reaches a container, so there is no output to correlate.
+        handle: [requestIdHandler(), proxyHandler(entry.upstream)],
       };
       // Read legacy state as one canonical group, but every newly published
       // route carries independent source/destination pairs.
