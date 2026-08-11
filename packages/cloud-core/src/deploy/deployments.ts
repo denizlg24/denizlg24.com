@@ -121,7 +121,7 @@ export function toAgentRequest(input: {
       memoryReservationMb: deployment.memoryReservationMb,
       cpuLimit: Number(target.cpuLimit),
     },
-    timeouts: { buildMs: 20 * 60_000, healthMs: 90_000 },
+    timeouts: { healthMs: 90_000 },
   };
 }
 

@@ -34,5 +34,6 @@ describe("toAgentRequest", () => {
 
     expect(request.runtime.memoryReservationMb).toBe(256);
     expect(request.runtime.memoryLimitMb).toBe(1_024);
+    expect(request.timeouts).toEqual({ healthMs: 90_000 });
   });
 });

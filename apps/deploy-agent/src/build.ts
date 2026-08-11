@@ -63,8 +63,8 @@ export class BuildConfigError extends Error {
 }
 
 /**
- * Git will happily block on a credential prompt for a private repo, and a build
- * that hangs until the twenty-minute timeout looks nothing like "no access".
+ * Git will happily block on a credential prompt for a private repo, and a clone
+ * that hangs until its own deadline looks nothing like "no access".
  */
 const GIT_ENV: Record<string, string> = {
   GIT_TERMINAL_PROMPT: "0",
@@ -577,7 +577,6 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
           [BUILD_SECRET_ENV_VAR]: shellEnvFile(buildEnv),
         },
         signal,
-        timeoutMs: request.timeouts.buildMs,
         onOutput: (chunk) => log.write(chunk),
       });
     } else {
@@ -642,7 +641,6 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         cwd: contextDirectory,
         env: { ...nixpacksEnv, DOCKER_BUILDKIT: "1" },
         signal,
-        timeoutMs: request.timeouts.buildMs,
         onOutput: (chunk) => log.write(chunk),
       });
       if (usesExternalBuildkit) {
@@ -694,7 +692,6 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
           cwd: contextDirectory,
           env: { ...nixpacksEnv, DOCKER_BUILDKIT: "1" },
           signal,
-          timeoutMs: request.timeouts.buildMs,
           onOutput: (chunk) => log.write(chunk),
         });
       } else {

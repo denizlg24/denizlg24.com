@@ -209,6 +209,7 @@ describe("runBuild", () => {
       expect(docker?.command).toContain("--cache-from");
       expect(docker?.command).toContain(outcome.latestTag);
       expect(docker?.command).toContain("BUILDKIT_INLINE_CACHE=1");
+      expect(docker?.timeoutMs).toBeUndefined();
     });
   });
 
@@ -223,6 +224,7 @@ describe("runBuild", () => {
       const nixpacks = exec.find("nixpacks build");
       expect(nixpacks?.command).toContain("--cache-key");
       expect(nixpacks?.command).toContain(request.targetId);
+      expect(nixpacks?.timeoutMs).toBeUndefined();
       // The moving tag has to exist on this path too or the next build's
       // --cache-from finds nothing.
       expect(exec.find("docker tag")?.command).toContain(outcome.latestTag);
@@ -257,13 +259,15 @@ describe("runBuild", () => {
       );
 
       expect(exec.find("nixpacks build")?.command).toContain("--out");
-      const command = exec.find("docker buildx build")?.command ?? [];
+      const buildx = exec.find("docker buildx build");
+      const command = buildx?.command ?? [];
       expect(command).toContain("forge-hdd");
       expect(command).toContain("--output");
       expect(command).toContain("type=docker,compression=uncompressed");
       expect(command).not.toContain("--load");
       expect(command).toContain(outcome.latestTag);
       expect(command.join(" ")).toContain(".nixpacks/Dockerfile");
+      expect(buildx?.timeoutMs).toBeUndefined();
       expect(exec.find("docker tag")).toBeUndefined();
       expect(text).toContain("serializing install steps across builds");
     });

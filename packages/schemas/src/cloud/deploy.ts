@@ -320,12 +320,6 @@ export const deploymentRuntimeSpecSchema = z
 export type DeploymentRuntimeSpec = z.infer<typeof deploymentRuntimeSpecSchema>;
 
 export const deploymentTimeoutsSchema = z.object({
-  buildMs: z
-    .number()
-    .int()
-    .min(30_000)
-    .max(60 * 60_000)
-    .default(20 * 60_000),
   healthMs: z.number().int().min(5_000).max(600_000).default(90_000),
 });
 export type DeploymentTimeouts = z.infer<typeof deploymentTimeoutsSchema>;
