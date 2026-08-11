@@ -186,6 +186,11 @@ Two consequences worth knowing:
   mounts are all keyed by target rather than by deployment, so overlapping runs
   for one target fight over all three. Different targets still build in
   parallel, which is the case the extra slots exist for.
+- Nixpacks Bun installs are the deliberate exception to that parallelism. Their
+  per-target package caches all live in the same HDD-backed BuildKit store, so
+  the agent adds a worker-wide `sharing=locked` cache mount to generated Bun
+  install steps. Only installs take turns; setup, builds and image exports still
+  run concurrently, and the original warm package caches remain intact.
 
 ### Running and the health gate
 

@@ -1,4 +1,4 @@
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import type {
@@ -74,6 +74,33 @@ const GIT_ENV: Record<string, string> = {
 };
 
 const GIT_FLAGS = ["-c", "credential.helper=", "-c", "init.defaultBranch=main"];
+
+const BUN_CACHE_MOUNT_TARGET = "target=/root/.bun";
+const BUN_INSTALL_LOCK_MOUNT =
+  "--mount=type=cache,id=forge-bun-install-lock,target=/tmp/forge-bun-install-lock,sharing=locked";
+
+/**
+ * Nixpacks gives every target its own Bun cache mount. That prevents cache
+ * poisoning, but it also lets every concurrent build hammer the BuildKit
+ * worker's HDD at once. An otherwise unused, worker-wide locked cache mount
+ * acts as a mutex for just these install steps; the rest of each build remains
+ * concurrent and each target keeps its warm package cache.
+ */
+export function serializeBunInstallSteps(dockerfile: string): string {
+  return dockerfile
+    .split("\n")
+    .map((line) => {
+      if (
+        !line.startsWith("RUN ") ||
+        !line.includes(BUN_CACHE_MOUNT_TARGET) ||
+        line.includes(BUN_INSTALL_LOCK_MOUNT)
+      ) {
+        return line;
+      }
+      return line.replace("RUN ", `RUN ${BUN_INSTALL_LOCK_MOUNT} `);
+    })
+    .join("\n");
+}
 
 export function shortSha(sha: string): string {
   return sha.slice(0, 7);
@@ -625,6 +652,15 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         if (!(await exists(generatedDockerfile))) {
           throw new Error(
             "Nixpacks completed without generating .nixpacks/Dockerfile",
+          );
+        }
+        const dockerfileContents = await readFile(generatedDockerfile, "utf8");
+        const serializedDockerfile =
+          serializeBunInstallSteps(dockerfileContents);
+        if (serializedDockerfile !== dockerfileContents) {
+          await writeFile(generatedDockerfile, serializedDockerfile);
+          log.note(
+            "Bun installs share an HDD-backed cache; serializing install steps across builds",
           );
         }
         await execOrThrow(exec, "docker buildx build", {

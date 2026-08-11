@@ -10,6 +10,7 @@ import {
   cloneUrlFor,
   imageTagFor,
   runBuild,
+  serializeBunInstallSteps,
   shellEnvFile,
 } from "./build";
 
@@ -99,6 +100,32 @@ describe("naming", () => {
     expect(cloneUrlFor(request, null)).toBe(
       "https://github.com/denizlg24/hello-world.git",
     );
+  });
+});
+
+describe("serializeBunInstallSteps", () => {
+  it("adds a worker-wide lock to Nixpacks Bun cache mounts", () => {
+    const dockerfile =
+      "RUN --mount=type=cache,id=target-a-/root/bun,target=/root/.bun bun install\n";
+
+    const serialized = serializeBunInstallSteps(dockerfile);
+
+    expect(serialized).toContain(
+      "--mount=type=cache,id=forge-bun-install-lock,target=/tmp/forge-bun-install-lock,sharing=locked",
+    );
+    expect(serialized).toContain(
+      "--mount=type=cache,id=target-a-/root/bun,target=/root/.bun bun install",
+    );
+  });
+
+  it("does not change unrelated or already serialized steps", () => {
+    const dockerfile = [
+      "RUN --mount=type=cache,id=target-a-/root/npm,target=/root/.npm npm ci",
+      "RUN --mount=type=cache,id=forge-bun-install-lock,target=/tmp/forge-bun-install-lock,sharing=locked --mount=type=cache,id=target-a-/root/bun,target=/root/.bun bun install",
+      "",
+    ].join("\n");
+
+    expect(serializeBunInstallSteps(dockerfile)).toBe(dockerfile);
   });
 });
 
@@ -204,7 +231,7 @@ describe("runBuild", () => {
 
   it("generates a Nixpacks Dockerfile and builds it on external BuildKit", async () => {
     await withTempDir(async (dir) => {
-      const { exec, outcome } = await build(
+      const { exec, outcome, text } = await build(
         dir,
         {},
         { "package.json": "{}" },
@@ -215,7 +242,10 @@ describe("runBuild", () => {
             if (options.command[0] === "nixpacks" && options.cwd) {
               const output = join(options.cwd, ".nixpacks");
               await mkdir(output, { recursive: true });
-              await writeFile(join(output, "Dockerfile"), "FROM scratch");
+              await writeFile(
+                join(output, "Dockerfile"),
+                "FROM scratch\nRUN --mount=type=cache,id=target-a-/root/bun,target=/root/.bun bun install\n",
+              );
             }
             return undefined;
           };
@@ -233,6 +263,7 @@ describe("runBuild", () => {
       expect(command).toContain(outcome.latestTag);
       expect(command.join(" ")).toContain(".nixpacks/Dockerfile");
       expect(exec.find("docker tag")).toBeUndefined();
+      expect(text).toContain("serializing install steps across builds");
     });
   });
 
