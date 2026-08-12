@@ -12,9 +12,6 @@ export const maxDuration = 300;
  * not a recording the owner keeps — the resulting message is what gets saved.
  */
 export async function POST(request: NextRequest) {
-  if (isCrossOriginCookieRequest(request)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
   const authError = await requireAdmin(request);
   if (authError) return authError;
   try {

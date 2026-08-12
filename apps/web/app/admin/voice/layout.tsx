@@ -33,6 +33,6 @@ export default async function VoiceLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // if (!(await getAdminSession())) forbidden(); the voice ball returns unauthorized when not logged in.
+  if (!(await getAdminSession())) forbidden();
   return children;
 }
