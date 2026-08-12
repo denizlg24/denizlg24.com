@@ -19,6 +19,8 @@ export interface AgentConfig {
   buildkitEndpoint: string | null;
   /** Serialize Bun cache mounts when the BuildKit worker is rotational. */
   serializeBunInstalls: boolean;
+  /** Narrow a generated Dockerfile's pre-install copy to dependency manifests. */
+  scopeInstallCopy: boolean;
   dockerNetwork: string;
   caddyAdminUrl: string;
   caddyListen: string;
@@ -189,6 +191,11 @@ export function agentConfigFromEnv(): AgentConfig {
     // defaulting the other way would let an older agent.env overload the disk
     // as soon as a newer binary is deployed.
     serializeBunInstalls: booleanEnv("SERIALIZE_BUN_INSTALLS", true),
+    // On by default: the whole-tree copy it replaces makes every install layer
+    // a cache miss, which is a cost paid by every project on every build. It
+    // fails loudly at install time rather than silently, and flipping this in
+    // agent.env restores Nixpacks' own behaviour without a redeploy.
+    scopeInstallCopy: booleanEnv("SCOPE_INSTALL_COPY", true),
     dockerNetwork: dockerNetworkEnv(),
     caddyAdminUrl: caddyAdminUrlEnv(),
     caddyListen: process.env.CADDY_LISTEN?.trim() || DEFAULT_LISTEN,

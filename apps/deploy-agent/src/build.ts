@@ -1,4 +1,11 @@
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import type {
@@ -29,6 +36,12 @@ export interface BuildOptions {
   buildkitEndpoint?: string | null;
   /** Keep Bun install cache mounts mutually exclusive on rotational storage. */
   serializeBunInstalls?: boolean;
+  /**
+   * Narrow the pre-install copy in a generated Dockerfile to the manifests.
+   * Set false to restore Nixpacks' own whole-tree copy — the escape hatch for a
+   * repository whose install reads a file this cannot predict.
+   */
+  scopeInstallCopy?: boolean;
   /** Passed to `docker run`-style flags, e.g. `6144m`. */
   buildMemoryLimit: string;
   cloneToken?: string | null;
@@ -102,6 +115,141 @@ export function serializeBunInstallSteps(dockerfile: string): string {
       return line.replace("RUN ", `RUN ${BUN_INSTALL_LOCK_MOUNT} `);
     })
     .join("\n");
+}
+
+/**
+ * Files that decide what a package manager installs. Anything here is copied
+ * before the install step; everything else in the repository arrives after it.
+ *
+ * Deliberately wider than the lockfiles. A postinstall script is part of the
+ * install, and it reads whatever it likes — this repository's own root install
+ * runs `node scripts/fetch-tectonic.mjs`, which is not a manifest by any
+ * definition and whose absence fails the install outright. `scripts`, `patches`
+ * and `.husky` are therefore carried wholesale: they are small, and a build that
+ * dies in a package manager's own words is a bad trade for a few kilobytes.
+ */
+const INSTALL_MANIFEST_FILES: ReadonlySet<string> = new Set([
+  "package.json",
+  "bun.lock",
+  "bun.lockb",
+  "bunfig.toml",
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "yarn.lock",
+  ".npmrc",
+  ".yarnrc",
+  ".yarnrc.yml",
+  ".nvmrc",
+  ".node-version",
+  // The Python provider installs from these, and nixpacks emits the same
+  // copy-then-install shape for it.
+  "Pipfile",
+  "Pipfile.lock",
+  "poetry.lock",
+  "pyproject.toml",
+  "requirements.txt",
+  "setup.cfg",
+  "setup.py",
+  "uv.lock",
+]);
+
+const INSTALL_MANIFEST_DIRECTORIES: ReadonlySet<string> = new Set([
+  ".husky",
+  "patches",
+  "scripts",
+]);
+
+/** Never worth walking, and `node_modules` in particular is most of the tree. */
+const UNWALKED_DIRECTORIES: ReadonlySet<string> = new Set([
+  ".git",
+  ".next",
+  ".nixpacks",
+  ".turbo",
+  "dist",
+  "build",
+  "node_modules",
+  "target",
+  "vendor",
+]);
+
+/** A workspace nested deeper than this is not a layout worth guessing at. */
+const MANIFEST_WALK_DEPTH = 4;
+
+/**
+ * Every path in the checkout whose contents change what an install resolves.
+ *
+ * Enumerated from the checkout rather than emitted as globs on purpose: a glob
+ * matching nothing — `apps/*` in a repository with no `apps` — is a hard `COPY`
+ * failure, so a pattern that reads as harmless breaks every single-package
+ * project. Real paths cannot miss.
+ */
+export async function collectInstallManifests(
+  contextDirectory: string,
+  depth = MANIFEST_WALK_DEPTH,
+): Promise<string[]> {
+  const found: string[] = [];
+
+  async function walk(directory: string, remaining: number): Promise<void> {
+    const entries = await readdir(join(contextDirectory, directory), {
+      withFileTypes: true,
+    }).catch(() => []);
+    for (const entry of entries) {
+      const path = directory ? `${directory}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (INSTALL_MANIFEST_DIRECTORIES.has(entry.name)) {
+          found.push(path);
+          continue;
+        }
+        if (UNWALKED_DIRECTORIES.has(entry.name) || remaining <= 1) continue;
+        await walk(path, remaining - 1);
+        continue;
+      }
+      if (INSTALL_MANIFEST_FILES.has(entry.name)) found.push(path);
+    }
+  }
+
+  await walk("", depth);
+  return found.sort();
+}
+
+const INSTALL_COPY = /^COPY\s+\.\s+\/app\/?\.?\s*$/;
+
+/**
+ * Narrows the copy that precedes the install step to the manifests alone.
+ *
+ * Nixpacks copies the whole repository before installing, so any commit at all
+ * invalidates the install layer — `bun install` was rebuilt on every single
+ * build, 91 seconds and a 3.23 GB layer of it, for a set of dependencies that
+ * had not moved in weeks. Scoping this one copy is what lets BuildKit reuse the
+ * layer until a lockfile actually changes.
+ *
+ * Only the *first* full-tree copy is touched, and only when a `RUN` follows it
+ * before any other one. That is the install phase by construction of nixpacks'
+ * generator; the copies that follow the install are what put the source in the
+ * image, and narrowing those would build the wrong tree.
+ *
+ * A no-op when there is nothing to copy — a repository with no recognised
+ * manifest installs nothing, and an empty `COPY` is a build failure.
+ */
+export function scopeInstallCopy(
+  dockerfile: string,
+  manifests: readonly string[],
+): string {
+  if (manifests.length === 0) return dockerfile;
+  const lines = dockerfile.split("\n");
+  const first = lines.findIndex((line) => INSTALL_COPY.test(line));
+  if (first === -1) return dockerfile;
+
+  const following = lines.slice(first + 1);
+  const nextCopy = following.findIndex((line) => INSTALL_COPY.test(line));
+  const nextRun = following.findIndex((line) => line.startsWith("RUN "));
+  if (nextRun === -1) return dockerfile;
+  if (nextCopy !== -1 && nextCopy < nextRun) return dockerfile;
+
+  lines[first] = `COPY --parents ${manifests.join(" ")} /app/`;
+  return lines.join("\n");
 }
 
 export function shortSha(sha: string): string {
@@ -661,15 +809,27 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
           );
         }
         const dockerfileContents = await readFile(generatedDockerfile, "utf8");
-        const serializedDockerfile =
+        let rewritten =
           options.serializeBunInstalls === false
             ? dockerfileContents
             : serializeBunInstallSteps(dockerfileContents);
-        if (serializedDockerfile !== dockerfileContents) {
-          await writeFile(generatedDockerfile, serializedDockerfile);
+        if (rewritten !== dockerfileContents) {
           log.note(
             "Bun installs share an HDD-backed cache; serializing install steps across builds",
           );
+        }
+        if (options.scopeInstallCopy !== false) {
+          const manifests = await collectInstallManifests(contextDirectory);
+          const scoped = scopeInstallCopy(rewritten, manifests);
+          if (scoped !== rewritten) {
+            rewritten = scoped;
+            log.note(
+              `install layer scoped to ${manifests.length} manifest paths; it now caches until one of them changes`,
+            );
+          }
+        }
+        if (rewritten !== dockerfileContents) {
+          await writeFile(generatedDockerfile, rewritten);
         }
         await execOrThrow(exec, "docker buildx build", {
           command: [

@@ -33,6 +33,7 @@ and invokes the host's narrowly scoped installer.
 | `DOCKER_DATA_ROOT` | `/var/lib/docker` | Runtime images and container layers; kept on SSD and reported separately by `/healthz`. |
 | `BUILDX_BUILDER` | `forge` | Production sets `forge-hdd`. GC prunes this exact builder. |
 | `BUILDKIT_ENDPOINT` | — | Production sets `docker-container://forge-buildkit`; only this managed transport is accepted. |
+| `SCOPE_INSTALL_COPY` | `true` | Narrows a generated Dockerfile's pre-install `COPY` to dependency manifests so the install layer caches. Set `false` for a repository whose install reads a file the manifest set cannot predict. |
 | `DOCKER_NETWORK` | `forge-apps` | The network every deployment container joins. |
 | `CADDY_ADMIN_URL` | `http://127.0.0.1:2019` | Refused at startup unless it points at loopback. |
 | `CADDY_LISTEN` | `127.0.0.1:8080` | What cloudflared's catch-all ingress targets. Keep it on loopback. |

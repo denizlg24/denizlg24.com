@@ -40,6 +40,8 @@ import {
   assertBindingsResolvable,
   assertCapacityAvailable,
   BindingUnresolvableError,
+  backfillPullRequestNumber,
+  branchPreviewDeployments,
   buildSpecFromTarget,
   type ChangeDecision,
   COMMITTED_DEPLOYMENT_STATUSES,
@@ -68,9 +70,9 @@ import {
   loadDeployDomain,
   lockDeployCapacity,
   memoryCeilingMb,
+  planBranchTeardown,
   planPullRequestDeployment,
   planPushDeployment,
-  pullRequestDeployments,
   type RepositoryChangeMatcher,
   recordDeploymentStatus,
   recordGithubInstallation,
@@ -3147,13 +3149,23 @@ export function deployRoutes(options: DeployRouteOptions) {
     return created;
   }
 
-  async function teardownPullRequest(
+  /**
+   * Reaps every preview built for a branch: the container, its DNS record and
+   * S3 credentials, and the row itself.
+   *
+   * Deleting the row rather than marking it terminal is deliberate — the GC
+   * keep set is derived from rows, so a retired-but-present row keeps the agent
+   * holding its image for another `imageRetention` window. A merged branch is
+   * exactly the case where nobody will roll back to it.
+   */
+  async function teardownBranchPreviews(
     target: DeployTargetRow,
-    prNumber: number,
+    input: { gitRef: string; prNumber?: number | null },
   ): Promise<number> {
-    const rows = await pullRequestDeployments(db, {
+    const rows = await branchPreviewDeployments(db, {
       targetId: target.id,
-      prNumber,
+      gitRef: input.gitRef,
+      prNumber: input.prNumber,
     });
     if (rows.length === 0) return 0;
     await options.github?.surfaces.onPullRequestClosed(rows, target);
@@ -3220,6 +3232,19 @@ export function deployRoutes(options: DeployRouteOptions) {
         owner: parsed.data.repository.owner.login,
         repo: parsed.data.repository.name,
       });
+      // A deleted branch arrives as a push, and it is the signal that survives
+      // when a PR was never opened — or when GitHub's auto-delete fires after
+      // the merge and no `pull_request` teardown reached these rows.
+      const deletedBranch = planBranchTeardown(parsed.data);
+      if (deletedBranch !== null) {
+        let removed = 0;
+        for (const target of targets) {
+          removed += await teardownBranchPreviews(target, {
+            gitRef: deletedBranch,
+          });
+        }
+        return context.json({ data: { removed } });
+      }
       const enqueued: string[] = [];
       const changeCache: WebhookChangeCache = new Map();
       for (const target of targets) {
@@ -3247,12 +3272,28 @@ export function deployRoutes(options: DeployRouteOptions) {
         owner: parsed.data.repository.owner.login,
         repo: parsed.data.repository.name,
       });
+      const headRef = parsed.data.pull_request.head.ref;
       if (isPullRequestTeardown(parsed.data.action)) {
         let removed = 0;
         for (const target of targets) {
-          removed += await teardownPullRequest(target, parsed.data.number);
+          removed += await teardownBranchPreviews(target, {
+            gitRef: headRef,
+            prNumber: parsed.data.number,
+          });
         }
         return context.json({ data: { removed } });
+      }
+      // Before the build decision, and on every action rather than only the
+      // ones that deploy: a branch pushed before its pull request existed has
+      // previews with no number on them, and nothing else ever attaches one.
+      for (const target of targets) {
+        await backfillPullRequestNumber(db, {
+          targetId: target.id,
+          gitRef: headRef,
+          prNumber: parsed.data.number,
+        }).catch((error: unknown) => {
+          console.error("[deploy] pull request backfill failed", error);
+        });
       }
       const enqueued: string[] = [];
       const changeCache: WebhookChangeCache = new Map();

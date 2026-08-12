@@ -8,6 +8,7 @@ import type {
 import { GithubAppClient } from "./client";
 import {
   branchFromRef,
+  planBranchTeardown,
   planPullRequestDeployment,
   planPushDeployment,
   type WebhookTarget,
@@ -103,6 +104,27 @@ describe("planPushDeployment", () => {
       planPushDeployment(push({ ref: "refs/heads/feature" }), off),
     ).toBeNull();
     expect(planPushDeployment(push(), off)?.kind).toBe("production");
+  });
+});
+
+describe("planBranchTeardown", () => {
+  it("names the branch a deleting push removed", () => {
+    expect(
+      planBranchTeardown(push({ ref: "refs/heads/feature", deleted: true })),
+    ).toBe("feature");
+  });
+
+  it("ignores an ordinary push", () => {
+    // The same event shape carries both, and reading a live push as a teardown
+    // would reap the preview the push just built.
+    expect(planBranchTeardown(push({ ref: "refs/heads/feature" }))).toBeNull();
+  });
+
+  it("ignores a deleted tag", () => {
+    // Tags never produce a preview, so there is no branch to name.
+    expect(
+      planBranchTeardown(push({ ref: "refs/tags/v1", deleted: true })),
+    ).toBeNull();
   });
 });
 

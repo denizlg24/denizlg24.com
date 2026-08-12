@@ -7,7 +7,7 @@ import {
   isDeployNodeVersion,
   isTerminalDeploymentStatus,
 } from "@repo/schemas/cloud";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
 import {
@@ -240,18 +240,62 @@ export async function findInFlightDeploymentForSha(
   return row ?? null;
 }
 
-/** Every live preview built for one pull request, for teardown on close. */
-export async function pullRequestDeployments(
+/**
+ * Every preview built for a branch, for teardown when that branch goes away.
+ *
+ * Matching on the branch is what makes this work at all. A preview built from a
+ * `push` carries `prNumber: null` — the number is only backfilled when the
+ * `pull_request` event happens to arrive while that build is still in flight,
+ * which in practice only Dependabot achieves because it opens the PR and pushes
+ * at the same moment. Every preview of a hand-pushed branch therefore had a null
+ * number, and a teardown keyed on the number alone matched nothing and left the
+ * containers running for good.
+ *
+ * The number is still accepted, because a PR retargeted onto a new head branch
+ * leaves rows under the old ref that only the number still reaches.
+ *
+ * Restricted to previews. The branch is attacker-adjacent input — a fork PR
+ * names its own head ref — and without the filter a head branch named the same
+ * as a production branch would tear down the live site.
+ */
+export async function branchPreviewDeployments(
   db: Database,
-  input: { targetId: string; prNumber: number },
+  input: { targetId: string; gitRef: string; prNumber?: number | null },
 ): Promise<DeploymentRow[]> {
+  const matchesBranch = eq(deployments.gitRef, input.gitRef);
   return db
     .select()
     .from(deployments)
     .where(
       and(
         eq(deployments.targetId, input.targetId),
-        eq(deployments.prNumber, input.prNumber),
+        eq(deployments.kind, "preview"),
+        typeof input.prNumber === "number"
+          ? or(matchesBranch, eq(deployments.prNumber, input.prNumber))
+          : matchesBranch,
+      ),
+    );
+}
+
+/**
+ * Attaches a pull request number to the previews already built for its head
+ * branch. Runs on every `pull_request` event rather than only while a build is
+ * in flight, so a branch pushed before its PR existed still gets the number the
+ * PR comment and GitHub's environment inactivation both need.
+ */
+export async function backfillPullRequestNumber(
+  db: Database,
+  input: { targetId: string; gitRef: string; prNumber: number },
+): Promise<void> {
+  await db
+    .update(deployments)
+    .set({ prNumber: input.prNumber })
+    .where(
+      and(
+        eq(deployments.targetId, input.targetId),
+        eq(deployments.kind, "preview"),
+        eq(deployments.gitRef, input.gitRef),
+        isNull(deployments.prNumber),
       ),
     );
 }

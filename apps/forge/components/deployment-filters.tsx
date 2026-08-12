@@ -207,15 +207,28 @@ export function StatusFilter({
             </button>
           );
         })}
-        {active ? (
+        {/* Both, because the caller may hold a default selection: `reset` drops
+            back to whatever that is, which is not the same as asking for every
+            status. Without `all` there would be no way to reach the ones a
+            default leaves out except by checking each box by hand. */}
+        <div className="flex items-center justify-between gap-1 border-t px-2 pt-1 text-[11px] text-muted-foreground">
           <button
             type="button"
-            onClick={() => onChange([])}
-            className="w-full rounded-sm px-2 py-1.5 text-left text-[11px] text-muted-foreground hover:bg-accent"
+            onClick={() => onChange([...DEPLOYMENT_STATUSES])}
+            className="rounded-sm px-1 py-1 hover:bg-accent hover:text-foreground"
           >
-            reset
+            all
           </button>
-        ) : null}
+          {active ? (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="rounded-sm px-1 py-1 hover:bg-accent hover:text-foreground"
+            >
+              reset
+            </button>
+          ) : null}
+        </div>
       </PopoverContent>
     </Popover>
   );

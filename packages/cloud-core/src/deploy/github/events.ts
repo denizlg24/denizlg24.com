@@ -90,3 +90,18 @@ export function planPullRequestDeployment(
 export function isPullRequestTeardown(action: string): boolean {
   return action === "closed";
 }
+
+/**
+ * The branch a push destroyed, or null for an ordinary push.
+ *
+ * Deleting a branch is the other half of "the PR was merged" — GitHub's
+ * auto-delete fires right after the merge — and it is the only signal for a
+ * branch that never had a pull request at all. It arrives here rather than
+ * through the `delete` event because a branch deletion is *also* delivered as a
+ * push, so this needs no change to what the App subscribes to. `planPushDeployment`
+ * already discards these; this is what reads them instead of dropping them.
+ */
+export function planBranchTeardown(event: GithubPushEvent): string | null {
+  if (!event.deleted) return null;
+  return branchFromRef(event.ref);
+}
