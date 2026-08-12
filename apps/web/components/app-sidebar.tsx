@@ -21,6 +21,7 @@ import {
   Inbox,
   KeyRound,
   MessageSquare,
+  Mic,
   NotebookPen,
   Server,
   Settings2,
@@ -46,6 +47,11 @@ const items = [
     title: "Home",
     url: "/admin/dashboard",
     icon: Home,
+  },
+  {
+    title: "Voice",
+    url: "/admin/voice",
+    icon: Mic,
   },
   {
     title: "Inbox",

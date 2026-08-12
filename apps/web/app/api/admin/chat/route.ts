@@ -90,10 +90,13 @@ export const POST = async (req: NextRequest) => {
       executionMode: requestedExecutionMode,
       maxRounds,
       pageContext,
+      responseStyle: requestedResponseStyle,
     } = await req.json();
 
     const executionMode =
       requestedExecutionMode === "yolo" ? "yolo" : "interactive";
+    const responseStyle =
+      requestedResponseStyle === "voice" ? "voice" : undefined;
     const parsedPageContext =
       pageContext !== undefined
         ? backgroundAgentPageContextSchema.safeParse(pageContext)
@@ -253,9 +256,11 @@ export const POST = async (req: NextRequest) => {
     const timeZone = await getAppTimeZone();
     const logSystemPrompt = buildSystemPrompt(timeZone, null, {
       executionMode,
+      responseStyle,
     });
     const system = buildSystemPrompt(timeZone, personalMemoryContext, {
       executionMode,
+      responseStyle,
     });
     let contextualMessages = messages;
     let contextualMessageIndex: number | null = null;

@@ -59,6 +59,7 @@ export const triageTaskSuggestionSchema = z.object({
   courseName: z.string().optional(),
   updatesCourseDeadlineId: z.string().optional(),
   assignmentType: triageCourseAssignmentTypeSchema.optional(),
+  routedToCourseBoard: z.boolean().optional(),
   status: triageSuggestionStatusSchema,
   acceptedCardId: z.string().optional(),
   acceptedAssignmentId: z.string().optional(),
@@ -106,6 +107,9 @@ export const emailTriageSchema = z.object({
   userStatus: z.enum(["pending", "reviewed", "archived"]),
   modelUsed: z.string(),
   extractionModelUsed: z.string().optional(),
+  derivationStatus: z.enum(["pending", "done", "failed"]).optional(),
+  derivedAt: z.string().optional(),
+  derivationError: z.string().optional(),
   triagedAt: z.string(),
   email: z
     .object({

@@ -29,6 +29,7 @@ export interface ITriageTaskSuggestion {
   courseName?: string;
   updatesCourseDeadlineId?: mongoose.Types.ObjectId;
   assignmentType?: TriageCourseAssignmentType;
+  routedToCourseBoard?: boolean;
   status: TriageSuggestionStatus;
   acceptedCardId?: mongoose.Types.ObjectId;
   acceptedAssignmentId?: mongoose.Types.ObjectId;
@@ -74,6 +75,9 @@ export interface IEmailTriage extends Document {
   userStatus: "pending" | "reviewed" | "archived";
   modelUsed: string;
   extractionModelUsed?: string;
+  derivationStatus?: "pending" | "done" | "failed";
+  derivedAt?: Date;
+  derivationError?: string;
   triagedAt: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -100,6 +104,7 @@ const TaskSuggestionSchema = new Schema<ITriageTaskSuggestion>({
     type: String,
     enum: ["assignment", "exam", "quiz", "project", "lab", "reading", "other"],
   },
+  routedToCourseBoard: { type: Boolean },
   status: {
     type: String,
     enum: ["pending", "accepted", "dismissed"],
@@ -189,6 +194,12 @@ const EmailTriageSchema = new Schema<IEmailTriage>(
     },
     modelUsed: { type: String, required: true },
     extractionModelUsed: { type: String },
+    derivationStatus: {
+      type: String,
+      enum: ["pending", "done", "failed"],
+    },
+    derivedAt: { type: Date },
+    derivationError: { type: String },
     triagedAt: { type: Date, required: true, default: Date.now },
   },
   { timestamps: true },

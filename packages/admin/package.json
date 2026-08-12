@@ -5,6 +5,14 @@
   "type": "module",
   "exports": {
     "./*": "./src/*.tsx",
+    "./agent/agent-page-context": "./src/agent/agent-page-context.ts",
+    "./agent/agent-types": "./src/agent/agent-types.ts",
+    "./agent/audio-capture": "./src/agent/audio-capture.ts",
+    "./agent/chat-segments": "./src/agent/chat-segments.ts",
+    "./agent/use-agent-stream": "./src/agent/use-agent-stream.ts",
+    "./agent/use-dictation": "./src/agent/use-dictation.ts",
+    "./agent/use-model-catalog": "./src/agent/use-model-catalog.ts",
+    "./agent/launcher-prefs": "./src/agent/launcher-prefs.ts",
     "./client": "./src/client.ts",
     "./platform": "./src/platform.ts"
   },

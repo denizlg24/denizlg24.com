@@ -1,7 +1,9 @@
 import type { PlatformBridge } from "@repo/admin/platform";
+import { ModelSelector } from "@repo/ui/model-selector";
 
 /** Web PlatformBridge: plain browser APIs. */
 export const webPlatform: PlatformBridge = {
+  HostedModelSelector: ModelSelector,
   openExternal(url) {
     window.open(url, "_blank", "noopener,noreferrer");
   },

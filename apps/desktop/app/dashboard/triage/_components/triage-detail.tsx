@@ -30,6 +30,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { denizApi } from "@/lib/api-wrapper";
 import {
+  type IEmailTriage,
   type TriageAcceptanceResponse,
   type TriageCategory,
   type TriageDetailResponse,
@@ -43,17 +44,24 @@ function isTriageCategory(value: string): value is TriageCategory {
 
 export function TriageDetail({
   api,
-  triageId,
+  item,
+  detailCache,
   onBack,
   onChanged,
 }: {
   api: denizApi;
-  triageId: string;
+  item: IEmailTriage;
+  detailCache: React.RefObject<Map<string, TriageDetailResponse>>;
   onBack: () => void;
   onChanged: () => void | Promise<void>;
 }) {
-  const [detail, setDetail] = useState<TriageDetailResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const triageId = item._id;
+  const [detail, setDetail] = useState<TriageDetailResponse | null>(
+    () => detailCache.current.get(triageId) ?? null,
+  );
+  const [loading, setLoading] = useState(
+    () => !detailCache.current.has(triageId),
+  );
   const [loadFailed, setLoadFailed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
@@ -62,8 +70,14 @@ export function TriageDetail({
 
   useEffect(() => {
     let cancelled = false;
+    const cached = detailCache.current.get(triageId);
+    if (cached) {
+      setDetail(cached);
+      setLoading(false);
+      setLoadFailed(false);
+      return;
+    }
     setLoading(true);
-    setDetail(null);
     setLoadFailed(false);
     (async () => {
       const res = await api.GET<TriageDetailResponse>({
@@ -75,6 +89,11 @@ export function TriageDetail({
         toast.error("Failed to load triage");
         setLoadFailed(true);
       } else {
+        if (res.triage.derivationStatus === "pending") {
+          detailCache.current.delete(triageId);
+        } else {
+          detailCache.current.set(triageId, res);
+        }
         setDetail(res);
       }
       setLoading(false);
@@ -82,7 +101,33 @@ export function TriageDetail({
     return () => {
       cancelled = true;
     };
-  }, [api, triageId, reloadToken]);
+  }, [api, detailCache, triageId, reloadToken]);
+
+  useEffect(() => {
+    if (detail?.triage.derivationStatus !== "pending") return;
+    let cancelled = false;
+
+    void (async () => {
+      for (let attempt = 0; attempt < 30; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        if (cancelled) return;
+        const res = await api.GET<TriageDetailResponse>({
+          endpoint: `triage/${triageId}`,
+          schema: triageDetailResponseSchema,
+        });
+        if (cancelled || "code" in res) continue;
+        setDetail(res);
+        if (res.triage.derivationStatus !== "pending") {
+          detailCache.current.set(triageId, res);
+          return;
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, detail?.triage.derivationStatus, detailCache, triageId]);
 
   const decide = useCallback(
     async (
@@ -127,9 +172,12 @@ export function TriageDetail({
       const refreshed = await api.GET<TriageDetailResponse>({
         endpoint: `triage/${triageId}`,
       });
-      if (!("code" in refreshed)) setDetail(refreshed);
+      if (!("code" in refreshed)) {
+        detailCache.current.set(triageId, refreshed);
+        setDetail(refreshed);
+      }
     },
-    [api, triageId, onChanged],
+    [api, detailCache, triageId, onChanged],
   );
 
   const changeStatus = async (
@@ -170,6 +218,10 @@ export function TriageDetail({
         category: next,
         llmCategory: previous.triage.llmCategory ?? previous.triage.category,
         reviewRequired: false,
+        derivationStatus:
+          next === "action-needed" || next === "scheduled"
+            ? "pending"
+            : previous.triage.derivationStatus,
       },
     });
 
@@ -190,11 +242,9 @@ export function TriageDetail({
     }
 
     toast.success(`Moved to ${CATEGORY_LABELS[next]}`);
+    detailCache.current.delete(triageId);
     await onChanged();
-    const refreshed = await api.GET<TriageDetailResponse>({
-      endpoint: `triage/${triageId}`,
-    });
-    if (!("code" in refreshed)) setDetail(refreshed);
+    setReloadToken((token) => token + 1);
   };
 
   const confirmClassification = async () => {
@@ -220,7 +270,9 @@ export function TriageDetail({
     onBack();
   };
 
-  const archived = detail?.triage.userStatus === "archived";
+  const displayTriage = detail?.triage ?? item;
+  const displayEmail = detail?.email ?? item.email;
+  const archived = displayTriage.userStatus === "archived";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -235,10 +287,10 @@ export function TriageDetail({
           <ArrowLeft className="size-4" />
         </Button>
 
-        {detail && (
+        {displayTriage && (
           <>
             <Select
-              value={detail.triage.category}
+              value={displayTriage.category}
               disabled={savingCategory}
               onValueChange={(value) => {
                 if (isTriageCategory(value)) void changeCategory(value);
@@ -249,7 +301,7 @@ export function TriageDetail({
                 aria-label="Category"
                 className={cn(
                   "h-7 w-auto gap-1.5 border-none px-1.5 text-[10px] font-medium uppercase tracking-[0.12em] shadow-none",
-                  CATEGORY_ACCENT[detail.triage.category],
+                  CATEGORY_ACCENT[displayTriage.category],
                 )}
               >
                 <SelectValue />
@@ -271,17 +323,17 @@ export function TriageDetail({
               <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
             )}
 
-            {detail.triage.llmCategory ? (
+            {displayTriage.llmCategory ? (
               <span className="shrink-0 text-[11px] text-muted-foreground">
-                was {CATEGORY_LABELS[detail.triage.llmCategory]}
+                was {CATEGORY_LABELS[displayTriage.llmCategory]}
               </span>
             ) : (
               <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                {(detail.triage.confidence * 100).toFixed(0)}%
+                {(displayTriage.confidence * 100).toFixed(0)}%
               </span>
             )}
 
-            {detail.triage.attachmentTextUsed && (
+            {displayTriage.attachmentTextUsed && (
               <Paperclip
                 className="size-3.5 shrink-0 text-muted-foreground"
                 aria-label="Attachment text used"
@@ -327,18 +379,9 @@ export function TriageDetail({
             Retry
           </Button>
         </div>
-      ) : loading || !detail ? (
-        <div className="min-h-0 flex-1 space-y-4 overflow-hidden px-4 py-5 sm:px-8">
-          <Skeleton className="h-5 w-2/3" />
-          <Skeleton className="h-3 w-40" />
-          <Skeleton className="h-px w-full" />
-          <Skeleton className="h-3 w-full" />
-          <Skeleton className="h-3 w-11/12" />
-          <Skeleton className="h-3 w-4/5" />
-        </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {detail.triage.reviewRequired && (
+          {displayTriage.reviewRequired && (
             <section className="flex flex-wrap items-center gap-2 border-b border-l-2 border-l-status-warning bg-status-warning/5 px-4 py-2.5 sm:px-8">
               <span className="min-w-0 flex-1 text-xs font-medium">
                 Confirm the category
@@ -359,45 +402,64 @@ export function TriageDetail({
             </section>
           )}
 
-          <TriageSuggestions
-            triage={detail.triage}
-            pendingIds={pendingIds}
-            onDecide={(id, type, action) => void decide(id, type, action)}
-          />
+          {detail ? (
+            <TriageSuggestions
+              triage={detail.triage}
+              pendingIds={pendingIds}
+              onDecide={(id, type, action) => void decide(id, type, action)}
+            />
+          ) : null}
+
+          {displayTriage.derivationStatus === "pending" ? (
+            <p className="border-b px-4 py-2 text-[11px] text-muted-foreground sm:px-8">
+              extracting…
+            </p>
+          ) : null}
 
           <div className="px-4 py-5 sm:px-8 sm:py-6">
             <h1 className="text-lg font-semibold leading-snug sm:text-xl">
-              {detail.email.subject || "(No Subject)"}
+              {displayEmail?.subject || "(No Subject)"}
             </h1>
 
             <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <span className="text-sm font-medium">
-                {detail.email.from[0]?.name ??
-                  detail.email.from[0]?.address ??
+                {displayEmail?.from[0]?.name ??
+                  displayEmail?.from[0]?.address ??
                   "Unknown"}
               </span>
-              {detail.email.from[0]?.name && (
+              {displayEmail?.from[0]?.name && (
                 <span className="text-xs text-muted-foreground">
-                  &lt;{detail.email.from[0].address}&gt;
+                  &lt;{displayEmail.from[0].address}&gt;
                 </span>
               )}
               <span className="text-muted-foreground/40">·</span>
               <span className="text-xs tabular-nums text-muted-foreground">
-                {format(new Date(detail.email.date), "EEE, MMM d yyyy 'at' p")}
+                {displayEmail
+                  ? format(
+                      new Date(displayEmail.date),
+                      "EEE, MMM d yyyy 'at' p",
+                    )
+                  : "—"}
               </span>
             </div>
 
-            {detail.triage.summary && (
+            {displayTriage.summary && (
               <p className="mt-4 border-l-2 pl-3 text-xs leading-relaxed text-muted-foreground">
-                {detail.triage.summary}
+                {displayTriage.summary}
               </p>
             )}
 
             <hr className="my-5" />
 
-            {detail.email.body?.html ? (
+            {loading && !detail ? (
+              <div className="space-y-3 py-2">
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-11/12" />
+                <Skeleton className="h-3 w-4/5" />
+              </div>
+            ) : detail?.email.body?.html ? (
               <EmailIframe html={detail.email.body.html} />
-            ) : detail.email.body?.text ? (
+            ) : detail?.email.body?.text ? (
               <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">
                 {detail.email.body.text}
               </pre>
