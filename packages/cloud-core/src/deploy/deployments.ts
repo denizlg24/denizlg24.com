@@ -232,10 +232,17 @@ export async function supersedeQueuedDeployments(
  */
 const SUPERSEDED: DeploymentStatus = "superseded";
 
+/**
+ * Omitting `kind` asks "has this commit been built at all", which is what the
+ * create-deployment dialog needs — it reports a previous build before the owner
+ * has chosen anything, and a preview of this commit is just as much a reason to
+ * say so as a production one.
+ */
 export async function findDeploymentForSha(
   db: Database,
-  input: { targetId: string; sha: string; kind: DeploymentKind },
+  input: { targetId: string; sha: string; kind?: DeploymentKind },
 ): Promise<DeploymentRow | null> {
+  const kind = input.kind;
   const [row] = await db
     .select()
     .from(deployments)
@@ -243,7 +250,7 @@ export async function findDeploymentForSha(
       and(
         eq(deployments.targetId, input.targetId),
         eq(deployments.gitSha, input.sha),
-        eq(deployments.kind, input.kind),
+        ...(kind ? [eq(deployments.kind, kind)] : []),
         ne(deployments.status, SUPERSEDED),
       ),
     )

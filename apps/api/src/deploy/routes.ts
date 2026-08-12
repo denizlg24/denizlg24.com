@@ -65,14 +65,16 @@ import {
   findDeploymentForSha,
   GithubApiError,
   type GithubAppClient,
+  type GithubCommit,
   HostnameConflictError,
   isPullRequestTeardown,
   listDeployDomains,
   loadDeployDomain,
   lockDeployCapacity,
   memoryCeilingMb,
+  parseRefInput,
   planBranchTeardown,
-  planPullRequestDeployment,
+  planPullRequestAttach,
   planPushDeployment,
   type RepositoryChangeMatcher,
   recordDeploymentStatus,
@@ -107,6 +109,7 @@ import {
   type DeployEnvVarInput,
   DeployHostnameError,
   type DeploymentBuildSpec,
+  type DeploymentKind,
   deploymentStatusUpdateSchema,
   extractTemplateReferences,
   githubInstallationEventSchema,
@@ -2214,7 +2217,7 @@ export function deployRoutes(options: DeployRouteOptions) {
   async function resolveRef(
     target: DeployTargetRow,
     ref: string,
-  ): Promise<{ sha: string; message: string | null }> {
+  ): Promise<GithubCommit> {
     if (!options.github || target.githubInstallationId === null) {
       throw new ValidationError(
         "A commit SHA is required until the GitHub App is installed on this repository",
@@ -2228,6 +2231,82 @@ export function deployRoutes(options: DeployRouteOptions) {
       ref,
     });
   }
+
+  const REF_INPUT_ERRORS: Record<string, string> = {
+    empty: "Enter a branch, commit or GitHub URL",
+    "wrong-repository": "That URL is not on this project's repository",
+    unrecognised: "Not a branch, commit or GitHub URL",
+  };
+
+  /**
+   * What a typed ref resolves to, before anything is queued. Read on every
+   * keystroke the create-deployment dialog settles on, so it stays one GitHub
+   * commit lookup and two indexed queries — no comparison, no tree walk.
+   */
+  owner.get("/targets/:id/resolve-ref", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const parsed = parseRefInput(context.req.query("ref") ?? "", {
+        owner: target.repoOwner,
+        name: target.repoName,
+      });
+      if (!parsed.ok) {
+        throw new ValidationError(
+          REF_INPUT_ERRORS[parsed.reason] ?? "Invalid reference",
+          "INVALID_REF",
+        );
+      }
+
+      // The repository root names whatever GitHub calls the default branch,
+      // which is not necessarily what this target deploys. The production
+      // branch is the one that answers "deploy this project's main line".
+      const wanted =
+        parsed.input.ref === "HEAD"
+          ? target.productionBranch
+          : parsed.input.ref;
+      const commit = await resolveRef(target, wanted);
+
+      const branch = parsed.input.kind === "branch" ? wanted : null;
+      const kind: DeploymentKind =
+        branch !== null && branch === target.productionBranch
+          ? "production"
+          : "preview";
+
+      const [existing, currentProduction] = await Promise.all([
+        findDeploymentForSha(db, { targetId: target.id, sha: commit.sha }),
+        db
+          .select()
+          .from(deployments)
+          .where(
+            and(
+              eq(deployments.targetId, target.id),
+              eq(deployments.kind, "production"),
+              eq(deployments.status, "ready"),
+            ),
+          )
+          .orderBy(desc(deployments.createdAt))
+          .limit(1),
+      ]);
+      const primary = await primaryHostname(target.id);
+
+      return context.json({
+        data: {
+          ref: branch ?? commit.sha,
+          sha: commit.sha,
+          message: commit.message,
+          committedAt: commit.committedAt,
+          branch,
+          kind,
+          existing: existing ? serializeDeployment(existing, primary) : null,
+          existingIsCurrentProduction:
+            existing !== null && currentProduction[0]?.id === existing.id,
+        },
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
 
   owner.post("/targets/:id/deployments", async (context) => {
     const parsed = createDeploymentInputSchema.safeParse(
@@ -3129,41 +3208,44 @@ export function deployRoutes(options: DeployRouteOptions) {
     // decision about the commit that was never made.
     if (target.pausedAt !== null) return null;
 
-    // A pull request on a branch of this repository fires `push` and
-    // `pull_request` for the same commit. The first one through wins; the
-    // second only backfills the PR number the push could not know.
+    // Only `push` reaches here, so the two-events-per-commit duplicate this
+    // used to catch is gone — what is left is GitHub redelivering a delivery,
+    // and a re-push landing on a SHA already built.
     //
-    // Ahead of the change decision, because the two events do not have to reach
-    // the same one — they compare against different bases. A build that already
-    // exists for this commit is the answer, and reporting a skip over it puts a
-    // ✓ "no changes to this project" on a commit this target is building.
+    // Ahead of the change decision, because a build that already exists for
+    // this commit is the answer: reporting a skip over it would put a ✓ "no
+    // changes to this project" on a commit this target is building.
     const existing = await findDeploymentForSha(db, {
       targetId: target.id,
       sha: intent.sha,
       kind: intent.kind,
     });
-    if (existing) {
-      if (intent.prNumber !== null && existing.prNumber === null) {
-        await db
-          .update(deployments)
-          .set({ prNumber: intent.prNumber })
-          .where(eq(deployments.id, existing.id));
-      }
-      return null;
-    }
+    // No pull request number to reconcile here any more: a push never carries
+    // one, and `backfillPullRequestNumber` on the `pull_request` event is what
+    // attaches it.
+    if (existing) return null;
+
+    // Ahead of the change decision only so a reported skip can link at the
+    // project — there is no deployment to link at, and the slug is what Forge
+    // addresses a deployable by.
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, target.projectId),
+    });
+    if (!project) return null;
 
     const decision = await targetChanged(target, intent, changeCache);
     if (!decision.deploy) {
       // Vercel's behaviour, and for the same reason: a commit whose checks show
       // nothing for a project is indistinguishable from one where the webhook
       // never arrived. The skipped run says which it was.
-      await options.github?.surfaces.onSkipped(target, intent, decision);
+      await options.github?.surfaces.onSkipped(
+        target,
+        project.slug,
+        intent,
+        decision,
+      );
       return null;
     }
-    const project = await db.query.projects.findFirst({
-      where: eq(projects.id, target.projectId),
-    });
-    if (!project) return null;
 
     await forge.releaseSuperseded(
       await supersedeQueuedDeployments(db, {
@@ -3322,9 +3404,9 @@ export function deployRoutes(options: DeployRouteOptions) {
         }
         return context.json({ data: { removed } });
       }
-      // Before the build decision, and on every action rather than only the
-      // ones that deploy: a branch pushed before its pull request existed has
-      // previews with no number on them, and nothing else ever attaches one.
+      // On every action rather than only the ones that report: a branch pushed
+      // before its pull request existed has previews with no number on them,
+      // and nothing else ever attaches one.
       for (const target of targets) {
         await backfillPullRequestNumber(db, {
           targetId: target.id,
@@ -3334,22 +3416,26 @@ export function deployRoutes(options: DeployRouteOptions) {
           console.error("[deploy] pull request backfill failed", error);
         });
       }
-      const enqueued: string[] = [];
-      const changeCache: WebhookChangeCache = new Map();
+
+      // No build. The `push` for this same commit is the only thing that
+      // queues one; this attaches whatever it produced to the pull request.
+      const attachment = planPullRequestAttach(parsed.data);
+      if (!attachment) return context.json({ data: { attached: 0 } });
+      let attached = 0;
       for (const target of targets) {
-        const intent = planPullRequestDeployment(parsed.data, target);
-        if (!intent) continue;
-        const created = await deployFromWebhook(
-          target,
-          intent,
-          changeCache,
-        ).catch((error: unknown) => {
-          console.error("[deploy] webhook deployment failed", error);
-          return null;
+        // Read after the backfill, so the row carries the number the comment
+        // needs. A commit built before its pull request existed is exactly the
+        // case this exists for.
+        const row = await findDeploymentForSha(db, {
+          targetId: target.id,
+          sha: attachment.sha,
+          kind: "preview",
         });
-        if (created) enqueued.push(created.id);
+        if (!row) continue;
+        await github.surfaces.onPullRequestAttached(row, target);
+        attached += 1;
       }
-      return context.json({ data: { enqueued } });
+      return context.json({ data: { attached } });
     }
 
     return context.json({ data: { ignored: true } });

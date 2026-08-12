@@ -1007,6 +1007,35 @@ export const deployBranchSchema = z.object({
 export type DeployBranch = z.infer<typeof deployBranchSchema>;
 
 /**
+ * What a typed ref turns out to name, resolved against GitHub before anything
+ * is queued.
+ *
+ * `kind` is derived here rather than chosen in the dialog: whether a ref is
+ * production is a property of the target's production branch, and letting the
+ * caller assert it would let any branch be deployed over the live site by
+ * flipping one field.
+ */
+export const resolvedRefSchema = z.object({
+  /** What will be recorded as the deployment's ref — a branch, or the sha. */
+  ref: z.string(),
+  sha: z.string(),
+  message: z.string().nullable(),
+  committedAt: z.iso.datetime().nullable(),
+  /** Null when the input named a commit rather than a branch. */
+  branch: z.string().nullable(),
+  kind: deploymentKindSchema,
+  /**
+   * The newest non-superseded deployment of this exact commit, if the commit
+   * has been built before. What the dialog reports as "already built" — and,
+   * when it failed, why.
+   */
+  existing: deploymentSchema.nullable(),
+  /** True when `existing` is what the production domain is serving now. */
+  existingIsCurrentProduction: z.boolean(),
+});
+export type ResolvedRef = z.infer<typeof resolvedRefSchema>;
+
+/**
  * The list shape. A target with no deployment yet is the normal state right
  * after it is created, so `latestDeployment` is nullable rather than the list
  * being filtered.

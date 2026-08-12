@@ -55,6 +55,8 @@ export interface GithubAppClientOptions {
 export interface GithubCommit {
   sha: string;
   message: string | null;
+  /** The committer date, ISO-8601. Null when GitHub omitted it. */
+  committedAt: string | null;
 }
 
 export interface GithubCheckRunUpdate {
@@ -475,12 +477,16 @@ export class GithubAppClient {
     const token = await this.installationToken(input.installationId);
     const commit = await this.#json<{
       sha: string;
-      commit?: { message?: string };
+      commit?: { message?: string; committer?: { date?: string } };
     }>(
       `/repos/${input.owner}/${input.repo}/commits/${encodeURIComponent(input.ref)}`,
       { method: "GET", token },
     );
-    return { sha: commit.sha, message: commit.commit?.message ?? null };
+    return {
+      sha: commit.sha,
+      message: commit.commit?.message ?? null,
+      committedAt: commit.commit?.committer?.date ?? null,
+    };
   }
 
   /**

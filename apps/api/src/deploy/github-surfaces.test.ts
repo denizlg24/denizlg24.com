@@ -37,15 +37,34 @@ function deployment(status: DeploymentStatus): DeploymentRow {
 
 interface Recorded {
   checkRuns: { conclusion: unknown; title: unknown }[];
+  created: { detailsUrl: string; conclusion: unknown }[];
   states: unknown[];
+  comments: { issueNumber: unknown; body: string }[];
+  updated: Record<string, unknown>[];
 }
 
 function surfaces(targets: DeployTargetRow[] = [TARGET]): {
   surfaces: GithubSurfaces;
   recorded: Recorded;
 } {
-  const recorded: Recorded = { checkRuns: [], states: [] };
+  const recorded: Recorded = {
+    checkRuns: [],
+    created: [],
+    states: [],
+    comments: [],
+    updated: [],
+  };
   const client = {
+    createCheckRun: async (input: {
+      detailsUrl: string;
+      completed?: { conclusion?: unknown };
+    }) => {
+      recorded.created.push({
+        detailsUrl: input.detailsUrl,
+        conclusion: input.completed?.conclusion ?? null,
+      });
+      return 101;
+    },
     updateCheckRun: async (input: {
       update: { conclusion?: unknown; output?: { title?: unknown } };
     }) => {
@@ -54,20 +73,36 @@ function surfaces(targets: DeployTargetRow[] = [TARGET]): {
         title: input.update.output?.title,
       });
     },
+    createDeployment: async () => 11,
     createDeploymentStatus: async (input: { state: unknown }) => {
       recorded.states.push(input.state);
     },
-    upsertIssueComment: async () => {},
+    upsertIssueComment: async (input: {
+      issueNumber: unknown;
+      body: string;
+    }) => {
+      recorded.comments.push({
+        issueNumber: input.issueNumber,
+        body: input.body,
+      });
+    },
   } as unknown as GithubAppClient;
   const db = {
     select: () => ({ from: () => ({ where: async () => targets }) }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async () => {
+          recorded.updated.push(values);
+        },
+      }),
+    }),
   } as unknown as Database;
 
   return {
     surfaces: new GithubSurfaces({
       db,
       client,
-      adminBaseUrl: "https://forge.denizlg24.com",
+      forgeBaseUrl: "https://forge.denizlg24.com",
     }),
     recorded,
   };
@@ -132,5 +167,76 @@ describe("onFinished", () => {
       { conclusion: "success", title: "Deployed in 12s" },
     ]);
     expect(recorded.states).toEqual(["success"]);
+  });
+
+  it("links the deployment's own page, not the target's", async () => {
+    const { surfaces: subject, recorded } = surfaces();
+    const row = deployment("ready");
+    row.prNumber = 12;
+
+    await subject.onFinished(row, TARGET);
+
+    expect(recorded.comments[0]?.body).toContain(
+      `https://forge.denizlg24.com/deployments/${row.id}`,
+    );
+  });
+});
+
+describe("onPullRequestAttached", () => {
+  it("comments for a build that finished before the pull request existed", async () => {
+    const { surfaces: subject, recorded } = surfaces();
+    const row = deployment("ready");
+    row.prNumber = 31;
+
+    await subject.onPullRequestAttached(row, TARGET);
+
+    // The check run already exists on the commit from the push; only the
+    // comment was missing.
+    expect(recorded.created).toEqual([]);
+    expect(recorded.comments).toEqual([
+      { issueNumber: 31, body: expect.stringContaining("✅ Ready") },
+    ]);
+  });
+
+  it("creates a missing check run already completed", async () => {
+    const { surfaces: subject, recorded } = surfaces();
+    const row = deployment("failed");
+    row.githubCheckRunId = null;
+    row.prNumber = 31;
+
+    await subject.onPullRequestAttached(row, TARGET);
+
+    expect(recorded.created).toEqual([
+      {
+        detailsUrl: `https://forge.denizlg24.com/deployments/${row.id}`,
+        conclusion: "failure",
+      },
+    ]);
+    expect(recorded.updated).toEqual([{ githubCheckRunId: 101 }]);
+  });
+
+  it("leaves a check run for an in-flight build open", async () => {
+    const { surfaces: subject, recorded } = surfaces();
+    const row = deployment("building");
+    row.githubCheckRunId = null;
+    row.prNumber = 31;
+
+    await subject.onPullRequestAttached(row, TARGET);
+
+    expect(recorded.created[0]?.conclusion).toBeNull();
+  });
+
+  it("writes nothing for a target with no installation", async () => {
+    const { surfaces: subject, recorded } = surfaces();
+    const row = deployment("ready");
+    row.prNumber = 31;
+
+    await subject.onPullRequestAttached(row, {
+      ...TARGET,
+      githubInstallationId: null,
+    } as DeployTargetRow);
+
+    expect(recorded.comments).toEqual([]);
+    expect(recorded.created).toEqual([]);
   });
 });

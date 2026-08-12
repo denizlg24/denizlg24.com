@@ -366,8 +366,10 @@ export async function createRuntimeApp() {
             surfaces: new GithubSurfaces({
               db,
               client,
-              adminBaseUrl:
-                process.env.CLOUD_ADMIN_URL ?? "https://cloud.denizlg24.com",
+              // Forge, not the cloud admin: every link these write is to a
+              // deployment, and only Forge has a page for one.
+              forgeBaseUrl:
+                process.env.FORGE_URL ?? "https://forge.denizlg24.com",
             }),
           };
         })()

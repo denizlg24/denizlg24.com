@@ -7,6 +7,7 @@ import {
   SiDocker,
   SiFastapi,
   SiFlask,
+  SiGithub,
   SiGo,
   SiHono,
   SiMeilisearch,
@@ -67,6 +68,13 @@ const RESOURCE_ICONS: Record<ResourceKind, IconComponent> = {
   redis: SiRedis,
   s3: Box,
 };
+
+/**
+ * Re-exported so consuming apps get the mark without each taking a direct
+ * dependency on the icon set. Every deployable is a GitHub repository, so this
+ * one is not keyed off anything.
+ */
+export const GithubIcon: IconComponent = SiGithub;
 
 export function frameworkIcon(framework: string | null): IconComponent {
   if (!framework) return Terminal;
