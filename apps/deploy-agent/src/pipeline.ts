@@ -59,6 +59,7 @@ export interface PipelineOptions {
   buildxBuilder?: string;
   buildkitEndpoint?: string | null;
   serializeBunInstalls?: boolean;
+  scopeInstallCopy?: boolean;
   network: string;
   buildMemoryLimit: string;
   drainMs: number;
@@ -97,6 +98,7 @@ export function createDeploymentRunner(
         buildxBuilder: options.buildxBuilder,
         buildkitEndpoint: options.buildkitEndpoint,
         serializeBunInstalls: options.serializeBunInstalls,
+        scopeInstallCopy: options.scopeInstallCopy,
         buildMemoryLimit: options.buildMemoryLimit,
         cloneToken: resolved.cloneToken,
         env: resolved.env,

@@ -7,7 +7,7 @@ import {
   isDeployNodeVersion,
   isTerminalDeploymentStatus,
 } from "@repo/schemas/cloud";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
 import {
@@ -170,12 +170,6 @@ const LIVE_STATUSES: readonly DeploymentStatus[] = [
   "ready",
 ];
 
-const IN_FLIGHT_STATUSES: readonly DeploymentStatus[] = [
-  "queued",
-  "building",
-  "deploying",
-];
-
 /**
  * Pushing five times in a minute must produce one build, not five. Keyed on the
  * ref rather than the hostname the plan names: a preview hostname carries a
@@ -220,8 +214,24 @@ export async function supersedeQueuedDeployments(
  * `pull_request synchronize` for one commit. Both resolve to the same target,
  * kind and SHA, so the second one finds the first here and enqueues nothing —
  * which is cheaper and less confusing than building twice and superseding.
+ *
+ * Every status but one counts, not just the in-flight ones. Matching only what
+ * was still running lost the race whenever the first build finished inside the
+ * seconds between the two events — a fast target then built the same commit
+ * twice — and it also re-queued a build the owner had just cancelled, because a
+ * cancelled row looked like no row at all.
+ *
+ * `superseded` is the exception, and it is the only status that describes a
+ * build that never happened: a newer commit replaced it before it started. A
+ * SHA coming back after that — a revert of a force-push, a branch reset — is a
+ * commit nothing has built yet, so it is not a duplicate of anything.
+ *
+ * `failed`, `cancelled` and `interrupted` all deduplicate. A redelivered
+ * webhook is not a request to try again; `POST /deployments/:id/retry` is.
  */
-export async function findInFlightDeploymentForSha(
+const SUPERSEDED: DeploymentStatus = "superseded";
+
+export async function findDeploymentForSha(
   db: Database,
   input: { targetId: string; sha: string; kind: DeploymentKind },
 ): Promise<DeploymentRow | null> {
@@ -233,25 +243,72 @@ export async function findInFlightDeploymentForSha(
         eq(deployments.targetId, input.targetId),
         eq(deployments.gitSha, input.sha),
         eq(deployments.kind, input.kind),
-        inArray(deployments.status, [...IN_FLIGHT_STATUSES]),
+        ne(deployments.status, SUPERSEDED),
       ),
     )
+    // Newest first: a retried commit has several rows, and the one a caller
+    // wants to attach a pull request number to is the current attempt.
+    .orderBy(desc(deployments.createdAt))
     .limit(1);
   return row ?? null;
 }
 
-/** Every live preview built for one pull request, for teardown on close. */
-export async function pullRequestDeployments(
+/**
+ * Every preview built for a branch, for teardown when that branch goes away.
+ *
+ * Matching on the branch is what makes this work at all. A preview built from a
+ * `push` carries `prNumber: null` — the number is only backfilled when the
+ * `pull_request` event happens to arrive while that build is still in flight,
+ * which in practice only Dependabot achieves because it opens the PR and pushes
+ * at the same moment. Every preview of a hand-pushed branch therefore had a null
+ * number, and a teardown keyed on the number alone matched nothing and left the
+ * containers running for good.
+ *
+ * The number is still accepted, because a PR retargeted onto a new head branch
+ * leaves rows under the old ref that only the number still reaches.
+ *
+ * Restricted to previews. The branch is attacker-adjacent input — a fork PR
+ * names its own head ref — and without the filter a head branch named the same
+ * as a production branch would tear down the live site.
+ */
+export async function branchPreviewDeployments(
   db: Database,
-  input: { targetId: string; prNumber: number },
+  input: { targetId: string; gitRef: string; prNumber?: number | null },
 ): Promise<DeploymentRow[]> {
+  const matchesBranch = eq(deployments.gitRef, input.gitRef);
   return db
     .select()
     .from(deployments)
     .where(
       and(
         eq(deployments.targetId, input.targetId),
-        eq(deployments.prNumber, input.prNumber),
+        eq(deployments.kind, "preview"),
+        typeof input.prNumber === "number"
+          ? or(matchesBranch, eq(deployments.prNumber, input.prNumber))
+          : matchesBranch,
+      ),
+    );
+}
+
+/**
+ * Attaches a pull request number to the previews already built for its head
+ * branch. Runs on every `pull_request` event rather than only while a build is
+ * in flight, so a branch pushed before its PR existed still gets the number the
+ * PR comment and GitHub's environment inactivation both need.
+ */
+export async function backfillPullRequestNumber(
+  db: Database,
+  input: { targetId: string; gitRef: string; prNumber: number },
+): Promise<void> {
+  await db
+    .update(deployments)
+    .set({ prNumber: input.prNumber })
+    .where(
+      and(
+        eq(deployments.targetId, input.targetId),
+        eq(deployments.kind, "preview"),
+        eq(deployments.gitRef, input.gitRef),
+        isNull(deployments.prNumber),
       ),
     );
 }

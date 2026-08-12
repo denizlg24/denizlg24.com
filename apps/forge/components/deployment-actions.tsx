@@ -3,7 +3,6 @@
 import { isDeploymentLive } from "@repo/cloud-ui/deploy-status";
 import type { DeploymentKind, DeploymentStatus } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
-import { TypedConfirmDialog } from "@repo/ui/typed-confirm-dialog";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
@@ -22,12 +21,9 @@ export interface DeploymentActionTarget {
 export function DeploymentActions({
   deployment,
   onDone,
-  showDelete = false,
 }: {
   deployment: DeploymentActionTarget;
   onDone: () => Promise<unknown> | void;
-  /** Only where a removed row does not leave the page showing a 404 of itself. */
-  showDelete?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const live = isDeploymentLive(deployment.status);
@@ -106,21 +102,6 @@ export function DeploymentActions({
         >
           retry
         </Button>
-      )}
-      {showDelete && !live && (
-        <TypedConfirmDialog
-          title="Delete deployment"
-          keyword={deployment.id.slice(0, 8)}
-          actionLabel="Delete"
-          onConfirm={() =>
-            run("Deleted", () => api.deploy.remove(deployment.id))
-          }
-          trigger={
-            <Button variant="ghost" size="sm" disabled={busy}>
-              delete
-            </Button>
-          }
-        />
       )}
     </div>
   );

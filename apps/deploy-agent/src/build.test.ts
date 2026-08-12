@@ -8,8 +8,10 @@ import {
   BuildConfigError,
   branchFor,
   cloneUrlFor,
+  collectInstallManifests,
   imageTagFor,
   runBuild,
+  scopeInstallCopy,
   serializeBunInstallSteps,
   shellEnvFile,
 } from "./build";
@@ -55,6 +57,7 @@ async function build(
     buildxBuilder?: string;
     buildkitEndpoint?: string;
     serializeBunInstalls?: boolean;
+    scopeInstallCopy?: boolean;
   } = {},
 ) {
   const request = deploymentRequest(overrides);
@@ -127,6 +130,103 @@ describe("serializeBunInstallSteps", () => {
     ].join("\n");
 
     expect(serializeBunInstallSteps(dockerfile)).toBe(dockerfile);
+  });
+});
+
+/** The shape Nixpacks emits: copy everything, install, copy everything again. */
+const NIXPACKS_DOCKERFILE = [
+  "FROM ghcr.io/railwayapp/nixpacks:ubuntu",
+  "WORKDIR /app/",
+  "COPY . /app/.",
+  "RUN --mount=type=cache,id=a-/root/bun,target=/root/.bun bun install",
+  "COPY . /app/.",
+  "RUN bunx turbo run build",
+  "COPY . /app",
+  'CMD ["bun", "start"]',
+].join("\n");
+
+describe("scopeInstallCopy", () => {
+  it("narrows only the copy that precedes the install", () => {
+    const scoped = scopeInstallCopy(NIXPACKS_DOCKERFILE, [
+      "apps/cloud/package.json",
+      "bun.lock",
+      "package.json",
+    ]);
+
+    expect(scoped.split("\n")[2]).toBe(
+      'COPY --parents ["apps/cloud/package.json","bun.lock","package.json","/app/"]',
+    );
+    // The copies after the install are what put the source in the image.
+    expect(scoped).toContain("COPY . /app/.\nRUN bunx turbo run build");
+    expect(scoped).toContain("COPY . /app\n");
+  });
+
+  it("keeps a path with a space in it as one source", () => {
+    // The manifests come from walking the checkout, and a directory name is
+    // allowed to contain a space. Space-separated this is two sources, both
+    // missing, and `--parents` skips a missing source without failing — the
+    // install layer would then be cached against a manifest it never copied.
+    const scoped = scopeInstallCopy(NIXPACKS_DOCKERFILE, [
+      "apps/my app/package.json",
+      "package.json",
+    ]);
+
+    // The JSON array is what makes it one source rather than two: the
+    // Dockerfile parser reads the whole bracketed list, spaces included.
+    expect(scoped.split("\n")[2]).toBe(
+      'COPY --parents ["apps/my app/package.json","package.json","/app/"]',
+    );
+  });
+
+  it("leaves the Dockerfile alone when no manifest was found", () => {
+    // An empty COPY is a build failure, and a repository with no manifest has
+    // nothing to install anyway.
+    expect(scopeInstallCopy(NIXPACKS_DOCKERFILE, [])).toBe(NIXPACKS_DOCKERFILE);
+  });
+
+  it("leaves a copy that no install follows alone", () => {
+    // Two copies in a row means the first is not the install phase, and
+    // narrowing it would build a tree missing its own source.
+    const dockerfile = ["COPY . /app/.", "COPY . /app/.", "RUN echo hi"].join(
+      "\n",
+    );
+    expect(scopeInstallCopy(dockerfile, ["package.json"])).toBe(dockerfile);
+  });
+
+  it("leaves a Dockerfile with no whole-tree copy alone", () => {
+    const dockerfile = "FROM alpine\nRUN echo hi";
+    expect(scopeInstallCopy(dockerfile, ["package.json"])).toBe(dockerfile);
+  });
+});
+
+describe("collectInstallManifests", () => {
+  it("finds workspace manifests and the scripts an install may read", async () => {
+    await withTempDir(async (dir) => {
+      for (const path of [
+        "package.json",
+        "bun.lock",
+        "apps/cloud/package.json",
+        "packages/schemas/package.json",
+        "scripts/fetch-tectonic.mjs",
+        "node_modules/left-pad/package.json",
+        "apps/cloud/src/index.ts",
+      ]) {
+        await mkdir(join(dir, path, ".."), { recursive: true });
+        await writeFile(join(dir, path), "{}");
+      }
+
+      const manifests = await collectInstallManifests(dir);
+
+      expect(manifests).toEqual([
+        "apps/cloud/package.json",
+        "bun.lock",
+        "package.json",
+        "packages/schemas/package.json",
+        "scripts",
+      ]);
+      // The tree this exists to keep out of the install layer.
+      expect(manifests).not.toContain("node_modules/left-pad/package.json");
+    });
   });
 });
 
@@ -314,6 +414,107 @@ describe("runBuild", () => {
 
       expect(generatedDockerfile).not.toContain("forge-bun-install-lock");
       expect(text).not.toContain("serializing install steps across builds");
+    });
+  });
+
+  it("scopes the generated install copy to the checkout's manifests", async () => {
+    await withTempDir(async (dir) => {
+      const checkout = {
+        "package.json": "{}",
+        "bun.lock": "",
+        "apps/cloud/package.json": "{}",
+        "apps/cloud/src/index.ts": "export {};",
+      };
+      let generatedDockerfile = "";
+      const { text } = await build(
+        dir,
+        {},
+        checkout,
+        () => {
+          const writeCheckout = checkoutWriter(checkout);
+          return async (options) => {
+            await writeCheckout(options);
+            if (options.command[0] === "nixpacks" && options.cwd) {
+              const output = join(options.cwd, ".nixpacks");
+              await mkdir(output, { recursive: true });
+              await writeFile(
+                join(output, "Dockerfile"),
+                `${NIXPACKS_DOCKERFILE}\n`,
+              );
+            }
+            if (
+              options.command[0] === "docker" &&
+              options.command.includes("buildx") &&
+              options.cwd
+            ) {
+              generatedDockerfile = await Bun.file(
+                join(options.cwd, ".nixpacks", "Dockerfile"),
+              ).text();
+            }
+            return undefined;
+          };
+        },
+        {
+          buildxBuilder: "forge-ssd",
+          buildkitEndpoint: "docker-container://forge-buildkit",
+        },
+      );
+
+      expect(generatedDockerfile).toContain(
+        'COPY --parents ["apps/cloud/package.json","bun.lock","package.json","/app/"]',
+      );
+      // Source still arrives, just after the layer that must not depend on it.
+      expect(generatedDockerfile).toContain(
+        "COPY . /app/.\nRUN bunx turbo run",
+      );
+      expect(generatedDockerfile).not.toContain(
+        "apps/cloud/src/index.ts /app/",
+      );
+      expect(text).toContain("install layer scoped to 3 manifest paths");
+    });
+  });
+
+  it("leaves the generated Dockerfile alone when scoping is disabled", async () => {
+    await withTempDir(async (dir) => {
+      const checkout = { "package.json": "{}" };
+      let generatedDockerfile = "";
+      const { text } = await build(
+        dir,
+        {},
+        checkout,
+        () => {
+          const writeCheckout = checkoutWriter(checkout);
+          return async (options) => {
+            await writeCheckout(options);
+            if (options.command[0] === "nixpacks" && options.cwd) {
+              const output = join(options.cwd, ".nixpacks");
+              await mkdir(output, { recursive: true });
+              await writeFile(
+                join(output, "Dockerfile"),
+                `${NIXPACKS_DOCKERFILE}\n`,
+              );
+            }
+            if (
+              options.command[0] === "docker" &&
+              options.command.includes("buildx") &&
+              options.cwd
+            ) {
+              generatedDockerfile = await Bun.file(
+                join(options.cwd, ".nixpacks", "Dockerfile"),
+              ).text();
+            }
+            return undefined;
+          };
+        },
+        {
+          buildxBuilder: "forge-ssd",
+          buildkitEndpoint: "docker-container://forge-buildkit",
+          scopeInstallCopy: false,
+        },
+      );
+
+      expect(generatedDockerfile).not.toContain("--parents");
+      expect(text).not.toContain("install layer scoped");
     });
   });
 

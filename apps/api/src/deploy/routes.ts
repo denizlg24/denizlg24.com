@@ -40,10 +40,13 @@ import {
   assertBindingsResolvable,
   assertCapacityAvailable,
   BindingUnresolvableError,
+  backfillPullRequestNumber,
+  branchPreviewDeployments,
   buildSpecFromTarget,
   type ChangeDecision,
   COMMITTED_DEPLOYMENT_STATUSES,
   claimQueuedDeployment,
+  comparisonBase,
   createDeployBindingResolvers,
   createDeployDomain,
   createRepositoryChangeMatcher,
@@ -59,7 +62,7 @@ import {
   type EnvoyEnvSource,
   encryptDeployEnvValue,
   envoyLinkFor,
-  findInFlightDeploymentForSha,
+  findDeploymentForSha,
   GithubApiError,
   type GithubAppClient,
   HostnameConflictError,
@@ -68,9 +71,9 @@ import {
   loadDeployDomain,
   lockDeployCapacity,
   memoryCeilingMb,
+  planBranchTeardown,
   planPullRequestDeployment,
   planPushDeployment,
-  pullRequestDeployments,
   type RepositoryChangeMatcher,
   recordDeploymentStatus,
   recordGithubInstallation,
@@ -3018,23 +3021,22 @@ export function deployRoutes(options: DeployRouteOptions) {
     intent: WebhookDeployIntent,
     cache: WebhookChangeCache,
   ): Promise<ChangeDecision> {
-    // A repository-root target owns every path. A new branch or otherwise
-    // baseless event also builds because there is no complete diff to prove it
-    // is unaffected.
-    if (!target.rootDirectory || intent.baseSha === null) {
+    // A repository-root target owns every path, and a build with no comparison
+    // base has nothing to prove it is unaffected.
+    const base = comparisonBase(intent, target);
+    if (!target.rootDirectory || base === null) {
       return { deploy: true, reason: "root-target", files: [] };
     }
     if (target.githubInstallationId === null) {
       return { deploy: true, reason: "root-target", files: [] };
     }
     const installationId = target.githubInstallationId;
-    const baseSha = intent.baseSha;
 
     const key = [
       installationId,
       target.repoOwner.toLowerCase(),
       target.repoName.toLowerCase(),
-      baseSha,
+      base,
       intent.sha,
     ].join(":");
     let pending = cache.get(key);
@@ -3046,7 +3048,7 @@ export function deployRoutes(options: DeployRouteOptions) {
           installationId,
           owner: target.repoOwner,
           repo: target.repoName,
-          base: baseSha,
+          base,
           head: intent.sha,
         });
         if (!comparison.complete) return null;
@@ -3093,23 +3095,16 @@ export function deployRoutes(options: DeployRouteOptions) {
     // out of building, so a check run saying it was skipped would report a
     // decision about the commit that was never made.
     if (target.pausedAt !== null) return null;
-    const decision = await targetChanged(target, intent, changeCache);
-    if (!decision.deploy) {
-      // Vercel's behaviour, and for the same reason: a commit whose checks show
-      // nothing for a project is indistinguishable from one where the webhook
-      // never arrived. The skipped run says which it was.
-      await options.github?.surfaces.onSkipped(target, intent, decision);
-      return null;
-    }
-    const project = await db.query.projects.findFirst({
-      where: eq(projects.id, target.projectId),
-    });
-    if (!project) return null;
 
     // A pull request on a branch of this repository fires `push` and
     // `pull_request` for the same commit. The first one through wins; the
     // second only backfills the PR number the push could not know.
-    const existing = await findInFlightDeploymentForSha(db, {
+    //
+    // Ahead of the change decision, because the two events do not have to reach
+    // the same one — they compare against different bases. A build that already
+    // exists for this commit is the answer, and reporting a skip over it puts a
+    // ✓ "no changes to this project" on a commit this target is building.
+    const existing = await findDeploymentForSha(db, {
       targetId: target.id,
       sha: intent.sha,
       kind: intent.kind,
@@ -3123,6 +3118,19 @@ export function deployRoutes(options: DeployRouteOptions) {
       }
       return null;
     }
+
+    const decision = await targetChanged(target, intent, changeCache);
+    if (!decision.deploy) {
+      // Vercel's behaviour, and for the same reason: a commit whose checks show
+      // nothing for a project is indistinguishable from one where the webhook
+      // never arrived. The skipped run says which it was.
+      await options.github?.surfaces.onSkipped(target, intent, decision);
+      return null;
+    }
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, target.projectId),
+    });
+    if (!project) return null;
 
     await forge.releaseSuperseded(
       await supersedeQueuedDeployments(db, {
@@ -3147,13 +3155,23 @@ export function deployRoutes(options: DeployRouteOptions) {
     return created;
   }
 
-  async function teardownPullRequest(
+  /**
+   * Reaps every preview built for a branch: the container, its DNS record and
+   * S3 credentials, and the row itself.
+   *
+   * Deleting the row rather than marking it terminal is deliberate — the GC
+   * keep set is derived from rows, so a retired-but-present row keeps the agent
+   * holding its image for another `imageRetention` window. A merged branch is
+   * exactly the case where nobody will roll back to it.
+   */
+  async function teardownBranchPreviews(
     target: DeployTargetRow,
-    prNumber: number,
+    input: { gitRef: string; prNumber?: number | null },
   ): Promise<number> {
-    const rows = await pullRequestDeployments(db, {
+    const rows = await branchPreviewDeployments(db, {
       targetId: target.id,
-      prNumber,
+      gitRef: input.gitRef,
+      prNumber: input.prNumber,
     });
     if (rows.length === 0) return 0;
     await options.github?.surfaces.onPullRequestClosed(rows, target);
@@ -3220,6 +3238,19 @@ export function deployRoutes(options: DeployRouteOptions) {
         owner: parsed.data.repository.owner.login,
         repo: parsed.data.repository.name,
       });
+      // A deleted branch arrives as a push, and it is the signal that survives
+      // when a PR was never opened — or when GitHub's auto-delete fires after
+      // the merge and no `pull_request` teardown reached these rows.
+      const deletedBranch = planBranchTeardown(parsed.data);
+      if (deletedBranch !== null) {
+        let removed = 0;
+        for (const target of targets) {
+          removed += await teardownBranchPreviews(target, {
+            gitRef: deletedBranch,
+          });
+        }
+        return context.json({ data: { removed } });
+      }
       const enqueued: string[] = [];
       const changeCache: WebhookChangeCache = new Map();
       for (const target of targets) {
@@ -3247,12 +3278,28 @@ export function deployRoutes(options: DeployRouteOptions) {
         owner: parsed.data.repository.owner.login,
         repo: parsed.data.repository.name,
       });
+      const headRef = parsed.data.pull_request.head.ref;
       if (isPullRequestTeardown(parsed.data.action)) {
         let removed = 0;
         for (const target of targets) {
-          removed += await teardownPullRequest(target, parsed.data.number);
+          removed += await teardownBranchPreviews(target, {
+            gitRef: headRef,
+            prNumber: parsed.data.number,
+          });
         }
         return context.json({ data: { removed } });
+      }
+      // Before the build decision, and on every action rather than only the
+      // ones that deploy: a branch pushed before its pull request existed has
+      // previews with no number on them, and nothing else ever attaches one.
+      for (const target of targets) {
+        await backfillPullRequestNumber(db, {
+          targetId: target.id,
+          gitRef: headRef,
+          prNumber: parsed.data.number,
+        }).catch((error: unknown) => {
+          console.error("[deploy] pull request backfill failed", error);
+        });
       }
       const enqueued: string[] = [];
       const changeCache: WebhookChangeCache = new Map();

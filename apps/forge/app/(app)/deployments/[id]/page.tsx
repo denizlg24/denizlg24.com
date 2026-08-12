@@ -13,13 +13,15 @@ import {
   formatRelative,
 } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
+import type { DeploymentStatus } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Skeleton } from "@repo/ui/skeleton";
 import { StatusDot } from "@repo/ui/status-dot";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { TypedConfirmDialog } from "@repo/ui/typed-confirm-dialog";
 import { ArrowLeft, ExternalLink, RotateCw } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { DeploymentActions } from "@/components/deployment-actions";
@@ -113,7 +115,8 @@ export default function DeploymentDetailPage() {
                   restart
                 </Button>
               ) : null}
-              {/* No delete here: removing the row would leave this page
+              {/* No delete here: it lives in the danger section at the
+                  bottom, which navigates away rather than leaving this page
                   rendering a 404 of the deployment it is showing. */}
               <DeploymentActions
                 deployment={{
@@ -222,9 +225,65 @@ export default function DeploymentDetailPage() {
               <RequestExplorer deploymentId={id} />
             </TabsContent>
           </Tabs>
+
+          <DangerSection status={data.status} id={id} />
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Delete, at the bottom and behind a typed confirmation — the same placement
+ * and the same reasoning as a project's own danger section: a destructive
+ * action beside `Visit` in the header is one misclick from the link the owner
+ * actually wanted.
+ *
+ * Navigating away is what makes it safe to offer here at all. Deleting the row
+ * this page is rendering would otherwise leave it showing a 404 of itself,
+ * which is why the header action row still has no delete.
+ *
+ * Hidden while the deployment is in flight. The row is what the agent reports
+ * against, so removing one mid-build leaves a build running against a
+ * deployment that no longer exists — cancel is the action for that, and it is
+ * already in the header.
+ */
+function DangerSection({
+  status,
+  id,
+}: {
+  status: DeploymentStatus;
+  id: string;
+}) {
+  const router = useRouter();
+  if (isDeploymentLive(status)) return null;
+
+  return (
+    <section className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
+      <p className="text-xs text-muted-foreground">
+        Removes the container, its DNS record and its build history.
+      </p>
+      <TypedConfirmDialog
+        title="Delete deployment"
+        keyword={id.slice(0, 8)}
+        actionLabel="Delete"
+        // Uncaught on purpose. TypedConfirmDialog reports the failure and keeps
+        // itself open with the typed keyword intact; catching here would close
+        // it and clear the input as though the deployment had been deleted.
+        onConfirm={async () => {
+          await api.deploy.remove(id);
+          toast.success("Deployment deleted");
+          // Replace, not push: the route behind us renders a deployment that no
+          // longer exists, and Back is the obvious thing to press next.
+          router.replace("/deployments");
+        }}
+        trigger={
+          <Button variant="destructive" size="sm">
+            Delete
+          </Button>
+        }
+      />
+    </section>
   );
 }
 

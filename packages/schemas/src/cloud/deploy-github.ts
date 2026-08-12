@@ -65,7 +65,11 @@ export type GithubInstallationEvent = z.infer<
 export interface WebhookDeployIntent {
   kind: "production" | "preview";
   ref: string;
-  /** Null when GitHub cannot name a safe comparison base, so deployment wins. */
+  /**
+   * Null when GitHub cannot name a safe comparison base. A preview then
+   * compares against the target's production branch; a production build with
+   * nothing to compare against deploys.
+   */
   baseSha: string | null;
   sha: string;
   message: string | null;
