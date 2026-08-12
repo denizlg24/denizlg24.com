@@ -8,6 +8,7 @@ import type {
 import { GithubAppClient } from "./client";
 import {
   branchFromRef,
+  comparisonBase,
   planBranchTeardown,
   planPullRequestDeployment,
   planPushDeployment,
@@ -104,6 +105,47 @@ describe("planPushDeployment", () => {
       planPushDeployment(push({ ref: "refs/heads/feature" }), off),
     ).toBeNull();
     expect(planPushDeployment(push(), off)?.kind).toBe("production");
+  });
+});
+
+describe("comparisonBase", () => {
+  it("keeps the base a push named", () => {
+    const before = "c".repeat(40);
+    expect(comparisonBase({ kind: "preview", baseSha: before }, target)).toBe(
+      before,
+    );
+  });
+
+  it("compares a baseless preview against the production branch", () => {
+    // The first push of a branch. Reading a zero `before` as "no base" and
+    // building unconditionally rebuilt every target in the repository, and
+    // then the pull request event — which does have a base — reported those
+    // same targets as skipped while their containers were building.
+    const intent = planPushDeployment(
+      push({ ref: "refs/heads/feature", created: true }),
+      target,
+    );
+    expect(intent?.baseSha).toBeNull();
+    expect(comparisonBase({ kind: "preview", baseSha: null }, target)).toBe(
+      "main",
+    );
+  });
+
+  it("leaves a baseless production build with nothing to compare", () => {
+    // Production against the production branch is a comparison with itself,
+    // which reports no changes and would skip the deployment entirely.
+    expect(
+      comparisonBase({ kind: "production", baseSha: null }, target),
+    ).toBeNull();
+  });
+
+  it("does not invent a base from an unset production branch", () => {
+    expect(
+      comparisonBase(
+        { kind: "preview", baseSha: null },
+        { ...target, productionBranch: "" },
+      ),
+    ).toBeNull();
   });
 });
 

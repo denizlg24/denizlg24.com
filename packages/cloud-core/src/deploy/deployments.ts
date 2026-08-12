@@ -7,7 +7,7 @@ import {
   isDeployNodeVersion,
   isTerminalDeploymentStatus,
 } from "@repo/schemas/cloud";
-import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
 import {
@@ -170,12 +170,6 @@ const LIVE_STATUSES: readonly DeploymentStatus[] = [
   "ready",
 ];
 
-const IN_FLIGHT_STATUSES: readonly DeploymentStatus[] = [
-  "queued",
-  "building",
-  "deploying",
-];
-
 /**
  * Pushing five times in a minute must produce one build, not five. Keyed on the
  * ref rather than the hostname the plan names: a preview hostname carries a
@@ -220,8 +214,24 @@ export async function supersedeQueuedDeployments(
  * `pull_request synchronize` for one commit. Both resolve to the same target,
  * kind and SHA, so the second one finds the first here and enqueues nothing —
  * which is cheaper and less confusing than building twice and superseding.
+ *
+ * Every status but one counts, not just the in-flight ones. Matching only what
+ * was still running lost the race whenever the first build finished inside the
+ * seconds between the two events — a fast target then built the same commit
+ * twice — and it also re-queued a build the owner had just cancelled, because a
+ * cancelled row looked like no row at all.
+ *
+ * `superseded` is the exception, and it is the only status that describes a
+ * build that never happened: a newer commit replaced it before it started. A
+ * SHA coming back after that — a revert of a force-push, a branch reset — is a
+ * commit nothing has built yet, so it is not a duplicate of anything.
+ *
+ * `failed`, `cancelled` and `interrupted` all deduplicate. A redelivered
+ * webhook is not a request to try again; `POST /deployments/:id/retry` is.
  */
-export async function findInFlightDeploymentForSha(
+const SUPERSEDED: DeploymentStatus = "superseded";
+
+export async function findDeploymentForSha(
   db: Database,
   input: { targetId: string; sha: string; kind: DeploymentKind },
 ): Promise<DeploymentRow | null> {
@@ -233,9 +243,12 @@ export async function findInFlightDeploymentForSha(
         eq(deployments.targetId, input.targetId),
         eq(deployments.gitSha, input.sha),
         eq(deployments.kind, input.kind),
-        inArray(deployments.status, [...IN_FLIGHT_STATUSES]),
+        ne(deployments.status, SUPERSEDED),
       ),
     )
+    // Newest first: a retried commit has several rows, and the one a caller
+    // wants to attach a pull request number to is the current attempt.
+    .orderBy(desc(deployments.createdAt))
     .limit(1);
   return row ?? null;
 }

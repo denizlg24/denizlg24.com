@@ -154,11 +154,28 @@ describe("scopeInstallCopy", () => {
     ]);
 
     expect(scoped.split("\n")[2]).toBe(
-      "COPY --parents apps/cloud/package.json bun.lock package.json /app/",
+      'COPY --parents ["apps/cloud/package.json","bun.lock","package.json","/app/"]',
     );
     // The copies after the install are what put the source in the image.
     expect(scoped).toContain("COPY . /app/.\nRUN bunx turbo run build");
     expect(scoped).toContain("COPY . /app\n");
+  });
+
+  it("keeps a path with a space in it as one source", () => {
+    // The manifests come from walking the checkout, and a directory name is
+    // allowed to contain a space. Space-separated this is two sources, both
+    // missing, and `--parents` skips a missing source without failing — the
+    // install layer would then be cached against a manifest it never copied.
+    const scoped = scopeInstallCopy(NIXPACKS_DOCKERFILE, [
+      "apps/my app/package.json",
+      "package.json",
+    ]);
+
+    // The JSON array is what makes it one source rather than two: the
+    // Dockerfile parser reads the whole bracketed list, spaces included.
+    expect(scoped.split("\n")[2]).toBe(
+      'COPY --parents ["apps/my app/package.json","package.json","/app/"]',
+    );
   });
 
   it("leaves the Dockerfile alone when no manifest was found", () => {
@@ -444,7 +461,7 @@ describe("runBuild", () => {
       );
 
       expect(generatedDockerfile).toContain(
-        "COPY --parents apps/cloud/package.json bun.lock package.json /app/",
+        'COPY --parents ["apps/cloud/package.json","bun.lock","package.json","/app/"]',
       );
       // Source still arrives, just after the layer that must not depend on it.
       expect(generatedDockerfile).toContain(

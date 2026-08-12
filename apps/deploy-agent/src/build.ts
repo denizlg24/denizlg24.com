@@ -248,7 +248,12 @@ export function scopeInstallCopy(
   if (nextRun === -1) return dockerfile;
   if (nextCopy !== -1 && nextCopy < nextRun) return dockerfile;
 
-  lines[first] = `COPY --parents ${manifests.join(" ")} /app/`;
+  // JSON form, because these paths come from walking the checkout and a
+  // directory is allowed to have a space in its name. Space-separated, one
+  // `apps/my app/package.json` becomes two sources, neither of which exists,
+  // and `--parents` skips a missing source silently — so the install layer
+  // would build without the manifest that was supposed to invalidate it.
+  lines[first] = `COPY --parents ${JSON.stringify([...manifests, "/app/"])}`;
   return lines.join("\n");
 }
 

@@ -7,11 +7,9 @@ import {
 } from "@repo/cloud-ui/deploy-status";
 import { formatDurationMs, formatRelative } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
-import {
-  type DeploymentStatus,
-  type ForgeDeploymentSort,
-  type ForgeDeploymentSummary,
-  forgeDeploymentQuerySchema,
+import type {
+  ForgeDeploymentSort,
+  ForgeDeploymentSummary,
 } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
@@ -31,6 +29,7 @@ import {
 } from "@/components/deployment-filters";
 import { PageHeading } from "@/components/page-heading";
 import { api, errorMessage } from "@/lib/api";
+import { resolveDeploymentQuery } from "@/lib/deployment-query";
 
 const PAGE_STEP = 50;
 /** `forgeDeploymentQuerySchema` refuses more, and the feed stops being one. */
@@ -49,42 +48,6 @@ const ENVIRONMENTS = [
   { value: "preview" as const, label: "Preview" },
 ];
 
-/**
- * What the feed shows before anything is asked of it.
- *
- * The three it leaves out — `superseded`, `cancelled`, `interrupted` — are the
- * ones nothing is ever done about, and they are also the ones that accumulate:
- * every push supersedes the last preview, so the unfiltered feed is mostly
- * rows describing deployments that stopped mattering the moment they appeared.
- * The default is a starting view rather than a filter the owner set, so it does
- * not count towards `filtered` and `clear` returns to it.
- */
-const DEFAULT_STATUSES: DeploymentStatus[] = [
-  "queued",
-  "building",
-  "deploying",
-  "ready",
-  "failed",
-];
-
-/**
- * A day string carries no time and the filter compares timestamps, so a bare
- * date has to be widened to the day it names — local midnight to local
- * midnight. Parsing it as UTC instead shifts the boundary by the offset and
- * drops the first or last few hours of the range.
- */
-function dayStart(value: string | null): string | null {
-  if (!value) return null;
-  const parsed = new Date(`${value}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
-function dayEnd(value: string | null): string | null {
-  if (!value) return null;
-  const parsed = new Date(`${value}T23:59:59.999`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
 function shortRef(gitRef: string): string {
   return gitRef.replace(/^refs\/heads\//, "");
 }
@@ -93,38 +56,10 @@ function DeploymentsFeed() {
   const router = useRouter();
   const params = useSearchParams();
 
-  // The URL is the state. A filtered view stays linkable, survives a refresh
-  // and comes back intact from a deployment's detail page.
-  //
-  // Parsed safely because the URL is typed by hand as often as it is navigated
-  // to: `?size=`, a status the enum does not hold, or a stale link from before a
-  // filter was renamed would otherwise throw inside render and blank the page.
-  // An unparseable URL falls back to the unfiltered feed rather than to nothing.
-  // Absent, not empty. An empty `status` array means "every status" to the
-  // query schema, so the default can only be applied where the URL says nothing
-  // about status at all — and that same distinction is what keeps the default
-  // from reading as a filter the owner applied.
-  const statusInUrl = params.getAll("status");
-
-  const query = useMemo(() => {
-    const parsed = forgeDeploymentQuerySchema.safeParse({
-      limit: params.get("size") ?? undefined,
-      sort: params.get("sort") ?? undefined,
-      direction: params.get("direction") ?? undefined,
-      status:
-        params.getAll("status").length > 0
-          ? params.getAll("status")
-          : DEFAULT_STATUSES,
-      project: params.get("project"),
-      search: params.get("search"),
-      kind: params.get("kind"),
-      branch: params.get("branch"),
-      repo: params.get("repo"),
-      since: dayStart(params.get("since")),
-      until: dayEnd(params.get("until")),
-    });
-    return parsed.success ? parsed.data : forgeDeploymentQuerySchema.parse({});
-  }, [params]);
+  const { query, statusFromUrl } = useMemo(
+    () => resolveDeploymentQuery(new URLSearchParams(params.toString())),
+    [params],
+  );
 
   const setQuery = (
     next: Partial<Record<string, string | number | null | string[]>>,
@@ -177,7 +112,7 @@ function DeploymentsFeed() {
   const total = data?.total ?? 0;
   const shown = data?.deployments.length ?? 0;
   const filtered =
-    statusInUrl.length > 0 ||
+    statusFromUrl ||
     query.project !== null ||
     query.search !== null ||
     query.kind !== null ||

@@ -35,8 +35,10 @@ export function planPushDeployment(
   return {
     kind: production ? "production" : "preview",
     ref: branch,
-    // A created ref has no meaningful previous tree. Building is the safe
-    // answer even if GitHub sends a zero SHA in `before` as expected.
+    // A created or rewritten ref has no meaningful previous tree. Null says so
+    // rather than naming a commit the diff would be nonsense against; a preview
+    // still gets compared to the production branch by the caller, and only a
+    // production build with no base falls back to building unconditionally.
     baseSha:
       event.created || event.forced || ZERO_SHA.test(event.before)
         ? null
@@ -85,6 +87,29 @@ export function planPullRequestDeployment(
     message: event.pull_request.title ?? null,
     prNumber: event.number,
   };
+}
+
+/**
+ * What a change comparison for this deployment runs against, or null when there
+ * is nothing meaningful on the other side of it.
+ *
+ * `baseSha` is null for a created or rewritten ref, and reading that as "build
+ * everything" is what made the first push of every branch rebuild every target
+ * in the repository. It says the *previous tree* is unusable, which is not the
+ * same as having nothing to compare to: a preview changes whatever it changes
+ * relative to production, and that is the base the `pull_request` event for the
+ * same commit compares against seconds later anyway. Disagreeing with it is how
+ * a build ended up running under a check run that said it had been skipped.
+ *
+ * A production build with no previous tree is the case that really is baseless.
+ */
+export function comparisonBase(
+  intent: Pick<WebhookDeployIntent, "kind" | "baseSha">,
+  target: Pick<WebhookTarget, "productionBranch">,
+): string | null {
+  if (intent.baseSha !== null) return intent.baseSha;
+  if (intent.kind !== "preview") return null;
+  return target.productionBranch.length > 0 ? target.productionBranch : null;
 }
 
 export function isPullRequestTeardown(action: string): boolean {

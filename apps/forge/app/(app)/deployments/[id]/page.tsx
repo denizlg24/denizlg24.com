@@ -267,14 +267,15 @@ function DangerSection({
         title="Delete deployment"
         keyword={id.slice(0, 8)}
         actionLabel="Delete"
+        // Uncaught on purpose. TypedConfirmDialog reports the failure and keeps
+        // itself open with the typed keyword intact; catching here would close
+        // it and clear the input as though the deployment had been deleted.
         onConfirm={async () => {
-          try {
-            await api.deploy.remove(id);
-            toast.success("Deployment deleted");
-            router.push("/deployments");
-          } catch (error) {
-            toast.error(errorMessage(error));
-          }
+          await api.deploy.remove(id);
+          toast.success("Deployment deleted");
+          // Replace, not push: the route behind us renders a deployment that no
+          // longer exists, and Back is the obvious thing to press next.
+          router.replace("/deployments");
         }}
         trigger={
           <Button variant="destructive" size="sm">

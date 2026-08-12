@@ -46,6 +46,7 @@ import {
   type ChangeDecision,
   COMMITTED_DEPLOYMENT_STATUSES,
   claimQueuedDeployment,
+  comparisonBase,
   createDeployBindingResolvers,
   createDeployDomain,
   createRepositoryChangeMatcher,
@@ -61,7 +62,7 @@ import {
   type EnvoyEnvSource,
   encryptDeployEnvValue,
   envoyLinkFor,
-  findInFlightDeploymentForSha,
+  findDeploymentForSha,
   GithubApiError,
   type GithubAppClient,
   HostnameConflictError,
@@ -3020,23 +3021,22 @@ export function deployRoutes(options: DeployRouteOptions) {
     intent: WebhookDeployIntent,
     cache: WebhookChangeCache,
   ): Promise<ChangeDecision> {
-    // A repository-root target owns every path. A new branch or otherwise
-    // baseless event also builds because there is no complete diff to prove it
-    // is unaffected.
-    if (!target.rootDirectory || intent.baseSha === null) {
+    // A repository-root target owns every path, and a build with no comparison
+    // base has nothing to prove it is unaffected.
+    const base = comparisonBase(intent, target);
+    if (!target.rootDirectory || base === null) {
       return { deploy: true, reason: "root-target", files: [] };
     }
     if (target.githubInstallationId === null) {
       return { deploy: true, reason: "root-target", files: [] };
     }
     const installationId = target.githubInstallationId;
-    const baseSha = intent.baseSha;
 
     const key = [
       installationId,
       target.repoOwner.toLowerCase(),
       target.repoName.toLowerCase(),
-      baseSha,
+      base,
       intent.sha,
     ].join(":");
     let pending = cache.get(key);
@@ -3048,7 +3048,7 @@ export function deployRoutes(options: DeployRouteOptions) {
           installationId,
           owner: target.repoOwner,
           repo: target.repoName,
-          base: baseSha,
+          base,
           head: intent.sha,
         });
         if (!comparison.complete) return null;
@@ -3095,23 +3095,16 @@ export function deployRoutes(options: DeployRouteOptions) {
     // out of building, so a check run saying it was skipped would report a
     // decision about the commit that was never made.
     if (target.pausedAt !== null) return null;
-    const decision = await targetChanged(target, intent, changeCache);
-    if (!decision.deploy) {
-      // Vercel's behaviour, and for the same reason: a commit whose checks show
-      // nothing for a project is indistinguishable from one where the webhook
-      // never arrived. The skipped run says which it was.
-      await options.github?.surfaces.onSkipped(target, intent, decision);
-      return null;
-    }
-    const project = await db.query.projects.findFirst({
-      where: eq(projects.id, target.projectId),
-    });
-    if (!project) return null;
 
     // A pull request on a branch of this repository fires `push` and
     // `pull_request` for the same commit. The first one through wins; the
     // second only backfills the PR number the push could not know.
-    const existing = await findInFlightDeploymentForSha(db, {
+    //
+    // Ahead of the change decision, because the two events do not have to reach
+    // the same one — they compare against different bases. A build that already
+    // exists for this commit is the answer, and reporting a skip over it puts a
+    // ✓ "no changes to this project" on a commit this target is building.
+    const existing = await findDeploymentForSha(db, {
       targetId: target.id,
       sha: intent.sha,
       kind: intent.kind,
@@ -3125,6 +3118,19 @@ export function deployRoutes(options: DeployRouteOptions) {
       }
       return null;
     }
+
+    const decision = await targetChanged(target, intent, changeCache);
+    if (!decision.deploy) {
+      // Vercel's behaviour, and for the same reason: a commit whose checks show
+      // nothing for a project is indistinguishable from one where the webhook
+      // never arrived. The skipped run says which it was.
+      await options.github?.surfaces.onSkipped(target, intent, decision);
+      return null;
+    }
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, target.projectId),
+    });
+    if (!project) return null;
 
     await forge.releaseSuperseded(
       await supersedeQueuedDeployments(db, {
