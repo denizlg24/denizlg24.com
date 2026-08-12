@@ -57,8 +57,22 @@ export const deployBuilderSchema = z.enum(DEPLOY_BUILDERS);
 export type DeployBuilder = z.infer<typeof deployBuilderSchema>;
 
 /**
+ * Which interpreter runs the app, which is not the same question as which
+ * package manager installed it. A repository with a `bun.lock` that runs
+ * `node dist/index.js` is a Node app bun installed for; one that runs
+ * `bun run start` is a Bun app. Detection guesses from the lockfile because
+ * that is right nearly always, and this override exists for when it is not.
+ *
+ * Null means "whatever detection decided", the same as every other build
+ * field. There is no `auto` member: it would be a second spelling of null.
+ */
+export const DEPLOY_RUNTIMES = ["node", "bun"] as const;
+export const deployRuntimeSchema = z.enum(DEPLOY_RUNTIMES);
+export type DeployRuntime = z.infer<typeof deployRuntimeSchema>;
+
+/**
  * Pinned versions rather than a free-text box, and deliberately only the ones
- * the builder's nixpkgs still carries.
+ * the builder can actually produce.
  *
  * Unset means "whatever the repository says", which is not the safe default it
  * looks like: nixpacks resolves an `engines.node` range to its lower bound, so
@@ -72,17 +86,52 @@ export const deployNodeVersionSchema = z.enum(DEPLOY_NODE_VERSIONS);
 export type DeployNodeVersion = z.infer<typeof deployNodeVersionSchema>;
 
 /**
- * The column is a varchar, so a row written before a version left this list
- * still reads back as a string. Narrowing rather than asserting means such a
- * row builds as if unset instead of asking nixpacks for a Node that is gone.
+ * Bun versions are exact patches where Node versions are bare majors, and the
+ * asymmetry is not an oversight. Node arrives from a nixpkgs archive keyed by
+ * major, so the patch is whatever that archive holds and naming one would be a
+ * lie. Bun arrives as `oven/bun:<tag>` copied into the image, so the tag is
+ * exactly what runs — and being able to read the running version off the form
+ * is the entire reason this field exists. Builds sat on 1.3.0 for months
+ * because nixpacks hardcodes one nixpkgs commit for Bun and nothing surfaced
+ * it.
  */
-export function isDeployNodeVersion(
+export const DEPLOY_BUN_VERSIONS = ["1.2.23", "1.3.0", "1.3.14"] as const;
+export const deployBunVersionSchema = z.enum(DEPLOY_BUN_VERSIONS);
+export type DeployBunVersion = z.infer<typeof deployBunVersionSchema>;
+
+/** What a Bun target gets when it has not pinned one. */
+export const DEFAULT_BUN_VERSION: DeployBunVersion = "1.3.14";
+
+export const deployRuntimeVersionSchema = z.union([
+  deployNodeVersionSchema,
+  deployBunVersionSchema,
+]);
+export type DeployRuntimeVersion = z.infer<typeof deployRuntimeVersionSchema>;
+
+export const DEPLOY_RUNTIME_VERSIONS: Record<
+  DeployRuntime,
+  readonly DeployRuntimeVersion[]
+> = {
+  node: DEPLOY_NODE_VERSIONS,
+  bun: DEPLOY_BUN_VERSIONS,
+};
+
+/**
+ * One column holds both runtimes' versions, so the pair has to be checked
+ * together — `"24"` is a Node version and nonsense for Bun. The two lists do
+ * not overlap, which is what lets a single varchar carry either.
+ *
+ * The column is a varchar, so a row written before a version left the list
+ * still reads back as a string. Narrowing rather than asserting means such a
+ * row builds as if unset instead of asking the builder for something gone.
+ */
+export function isDeployRuntimeVersion(
+  runtime: DeployRuntime | null | undefined,
   value: string | null | undefined,
-): value is DeployNodeVersion {
-  return (
-    value !== null &&
-    value !== undefined &&
-    (DEPLOY_NODE_VERSIONS as readonly string[]).includes(value)
+): value is DeployRuntimeVersion {
+  if (!runtime || value === null || value === undefined) return false;
+  return (DEPLOY_RUNTIME_VERSIONS[runtime] as readonly string[]).includes(
+    value,
   );
 }
 
@@ -136,7 +185,8 @@ export const resolvedBuildConfigSchema = z.object({
   installCommand: resolvedCommandSchema,
   buildCommand: resolvedCommandSchema,
   startCommand: resolvedCommandSchema,
-  nodeVersion: resolvedFieldSchema(deployNodeVersionSchema.nullable()),
+  runtime: resolvedFieldSchema(deployRuntimeSchema.nullable()),
+  runtimeVersion: resolvedFieldSchema(deployRuntimeVersionSchema.nullable()),
   healthPath: resolvedFieldSchema(z.string()),
 });
 export type ResolvedBuildConfig = z.infer<typeof resolvedBuildConfigSchema>;
@@ -269,7 +319,8 @@ export const deploymentBuildSpecSchema = z.object({
   installCommand: commandSchema.optional(),
   buildCommand: commandSchema.optional(),
   startCommand: commandSchema.optional(),
-  nodeVersion: deployNodeVersionSchema.optional(),
+  runtime: deployRuntimeSchema.optional(),
+  runtimeVersion: deployRuntimeVersionSchema.optional(),
 });
 export type DeploymentBuildSpec = z.infer<typeof deploymentBuildSpecSchema>;
 
@@ -805,7 +856,14 @@ export const createDeployTargetInputSchema = z.object({
    */
   framework: z.string().max(64).nullish(),
   builder: deployBuilderSchema.default("auto"),
-  nodeVersion: deployNodeVersionSchema.nullish(),
+  runtime: deployRuntimeSchema.nullish(),
+  /**
+   * Validated against the union here and against the resolved runtime at the
+   * route, because the runtime it belongs to may be the detected one rather
+   * than a stored override. The two version lists do not overlap, so a version
+   * alone is never ambiguous about which runtime it means.
+   */
+  runtimeVersion: deployRuntimeVersionSchema.nullish(),
   dockerfilePath: relativePathSchema.nullish(),
   installCommand: commandSchema.nullish(),
   buildCommand: commandSchema.nullish(),
@@ -882,7 +940,8 @@ export const deployTargetSchema = z.object({
   rootDirectory: z.string().nullable(),
   framework: z.string().nullable(),
   builder: deployBuilderSchema,
-  nodeVersion: deployNodeVersionSchema.nullable(),
+  runtime: deployRuntimeSchema.nullable(),
+  runtimeVersion: deployRuntimeVersionSchema.nullable(),
   dockerfilePath: z.string().nullable(),
   installCommand: z.string().nullable(),
   buildCommand: z.string().nullable(),
@@ -946,6 +1005,35 @@ export const deployBranchSchema = z.object({
   latest: deploymentSchema,
 });
 export type DeployBranch = z.infer<typeof deployBranchSchema>;
+
+/**
+ * What a typed ref turns out to name, resolved against GitHub before anything
+ * is queued.
+ *
+ * `kind` is derived here rather than chosen in the dialog: whether a ref is
+ * production is a property of the target's production branch, and letting the
+ * caller assert it would let any branch be deployed over the live site by
+ * flipping one field.
+ */
+export const resolvedRefSchema = z.object({
+  /** What will be recorded as the deployment's ref — a branch, or the sha. */
+  ref: z.string(),
+  sha: z.string(),
+  message: z.string().nullable(),
+  committedAt: z.iso.datetime().nullable(),
+  /** Null when the input named a commit rather than a branch. */
+  branch: z.string().nullable(),
+  kind: deploymentKindSchema,
+  /**
+   * The newest non-superseded deployment of this exact commit, if the commit
+   * has been built before. What the dialog reports as "already built" — and,
+   * when it failed, why.
+   */
+  existing: deploymentSchema.nullable(),
+  /** True when `existing` is what the production domain is serving now. */
+  existingIsCurrentProduction: z.boolean(),
+});
+export type ResolvedRef = z.infer<typeof resolvedRefSchema>;
 
 /**
  * The list shape. A target with no deployment yet is the normal state right

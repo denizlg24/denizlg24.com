@@ -13,6 +13,7 @@ import {
   DEPLOY_DOMAIN_STATUSES,
   DEPLOY_ENV_SCOPES,
   DEPLOY_ENV_SOURCES,
+  DEPLOY_RUNTIMES,
   DEPLOY_TRIGGERS,
   DEPLOYMENT_KINDS,
   DEPLOYMENT_PHASES,
@@ -147,6 +148,7 @@ export const alertRuleStateEnum = pgEnum("alert_rule_state", ALERT_RULE_STATES);
 export const alertRuleUnitEnum = pgEnum("alert_rule_unit", ALERT_RULE_UNITS);
 
 export const deployBuilderEnum = pgEnum("deploy_builder", DEPLOY_BUILDERS);
+export const deployRuntimeEnum = pgEnum("deploy_runtime", DEPLOY_RUNTIMES);
 export const deploymentKindEnum = pgEnum("deployment_kind", DEPLOYMENT_KINDS);
 export const deploymentStatusEnum = pgEnum(
   "deployment_status",
@@ -1197,12 +1199,17 @@ export const deployTargets = pgTable(
     /** Detection's label, for display and re-detect. Nothing branches on it. */
     framework: varchar("framework", { length: 64 }),
     builder: deployBuilderEnum("builder").notNull().default("auto"),
+    /** Null defers to detection, which reads the lockfile. */
+    runtime: deployRuntimeEnum("runtime"),
     /**
-     * Passed to nixpacks as NIXPACKS_NODE_VERSION, which outranks the
-     * repository's `engines.node`. Null defers to the repository — see
-     * DEPLOY_NODE_VERSIONS for why that is the riskier of the two.
+     * One column for both runtimes. A Node version is passed to nixpacks as
+     * NIXPACKS_NODE_VERSION, which outranks the repository's `engines.node`;
+     * a Bun version names the `oven/bun` tag copied into the image. Null
+     * defers to the repository — see DEPLOY_NODE_VERSIONS for why that is the
+     * riskier of the two for Node, and DEPLOY_BUN_VERSIONS for why deferring
+     * on Bun means 1.3.0 forever.
      */
-    nodeVersion: varchar("node_version", { length: 8 }),
+    runtimeVersion: varchar("runtime_version", { length: 16 }),
     dockerfilePath: text("dockerfile_path"),
     installCommand: text("install_command"),
     buildCommand: text("build_command"),

@@ -49,42 +49,42 @@ export function planPushDeployment(
   };
 }
 
-const PULL_REQUEST_BUILD_ACTIONS = new Set([
+const PULL_REQUEST_ATTACH_ACTIONS = new Set([
   "opened",
   "synchronize",
   "reopened",
   "ready_for_review",
 ]);
 
+/** The commit a pull request event points at, and the number to report under. */
+export interface PullRequestAttachment {
+  ref: string;
+  sha: string;
+  prNumber: number;
+}
+
 /**
- * A pull request from the same repository has already produced a push event for
- * its head branch, so building on both would double every preview. This exists
- * for the pull-request number — it is what lets a preview be torn down when the
- * PR closes and tells the comment where to go — and the caller dedupes on the
- * SHA, which both events agree on.
+ * A pull request never queues a build. `push` is the only trigger.
+ *
+ * Both events fire for one commit on a same-repository branch, and deduping
+ * them at the row was a check-then-insert with a GitHub comparison in the
+ * middle — wide enough that two concurrently delivered webhooks both read no
+ * existing row and both enqueued one. Having a single event build removes the
+ * race rather than narrowing it.
+ *
+ * What the pull request is still needed for is reporting: the number, which a
+ * push cannot know, and the commit to hang the check run and the comment on.
+ * A fork PR produces no push here and so no longer builds at all, which is the
+ * deliberate half of this — an untrusted branch stops getting a container with
+ * this project's resource bindings in it.
  */
-export function planPullRequestDeployment(
+export function planPullRequestAttach(
   event: GithubPullRequestEvent,
-  target: WebhookTarget,
-): WebhookDeployIntent | null {
-  if (!PULL_REQUEST_BUILD_ACTIONS.has(event.action)) return null;
-  if (!target.autoDeploy || !target.previewDeploys) return null;
-  // A draft is not ready for review and not worth a container; the
-  // `ready_for_review` action is what brings it back.
-  if (event.pull_request.draft && event.action !== "ready_for_review") {
-    return null;
-  }
+): PullRequestAttachment | null {
+  if (!PULL_REQUEST_ATTACH_ACTIONS.has(event.action)) return null;
   return {
-    kind: "preview",
     ref: event.pull_request.head.ref,
-    baseSha:
-      event.action === "synchronize" &&
-      event.before &&
-      event.after === event.pull_request.head.sha
-        ? event.before
-        : event.pull_request.base.sha,
     sha: event.pull_request.head.sha,
-    message: event.pull_request.title ?? null,
     prNumber: event.number,
   };
 }

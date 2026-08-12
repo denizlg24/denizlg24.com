@@ -5,6 +5,7 @@ import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
 import { useCallback } from "react";
+import { CreateDeploymentDialog } from "@/components/create-deployment-dialog";
 import { useTarget } from "@/components/target-context";
 import { api } from "@/lib/api";
 
@@ -16,13 +17,19 @@ export default function ProjectDeploymentsPage() {
     () => api.deploy.deployments(target.id, { limit: 100 }),
     [target.id],
   );
-  const { data, error, loading } = usePoll(fetchDeployments, POLL_MS);
+  const { data, error, loading, reload } = usePoll(fetchDeployments, POLL_MS);
 
   if (error) return <p className="text-xs text-destructive">{error}</p>;
   if (!data && loading) return <Skeleton className="h-64 w-full" />;
 
   return (
-    <Section title="deployments" count={data?.pagination.total}>
+    <Section
+      title="deployments"
+      count={data?.pagination.total}
+      actions={
+        <CreateDeploymentDialog target={target} onCreated={() => reload()} />
+      }
+    >
       <DeploymentRows
         deployments={data?.items ?? []}
         deploymentHref={(deployment) => `/deployments/${deployment.id}`}

@@ -22,6 +22,7 @@ import type {
   ProjectResource,
   ReplaceDeployEnvInput,
   RepoBadge,
+  ResolvedRef,
   Resource,
   ResourceConnection,
   ResourceCredentials,
@@ -50,6 +51,7 @@ import {
   githubTreeEntrySchema,
   projectResourceListSchema,
   repoBadgeSchema,
+  resolvedRefSchema,
   resourceConnectionSchema,
   resourceCredentialsSchema,
   resourceDetailSchema,
@@ -235,6 +237,27 @@ export const deployApi = {
       z.array(deployBranchSchema),
       `/api/deploy/targets/${targetId}/branches`,
       { query },
+    ),
+
+  /**
+   * What a typed branch, commit or GitHub URL actually names. Rejects with an
+   * `INVALID_REF` ApiError for anything unparseable, and a GitHub 404 for a ref
+   * that parses but does not exist — the dialog reports both the same way.
+   */
+  resolveRef: (targetId: string, ref: string): Promise<ResolvedRef> =>
+    requestData(
+      resolvedRefSchema,
+      `/api/deploy/targets/${targetId}/resolve-ref`,
+      { query: { ref } },
+    ),
+  createDeployment: (
+    targetId: string,
+    input: CreateDeploymentInput,
+  ): Promise<Deployment> =>
+    requestData(
+      deploymentSchema,
+      `/api/deploy/targets/${targetId}/deployments`,
+      { method: "POST", body: input, timeoutMs: SLOW_TIMEOUT_MS },
     ),
 
   /** Every project, including the ones that hold a resource and nothing else. */

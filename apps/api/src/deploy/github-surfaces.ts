@@ -9,13 +9,19 @@ import type {
   DeploymentStatus,
   WebhookDeployIntent,
 } from "@repo/schemas/cloud";
+import { isTerminalDeploymentStatus } from "@repo/schemas/cloud";
 import { eq, inArray } from "drizzle-orm";
 
 export interface GithubSurfacesOptions {
   db: Database;
   client: GithubAppClient;
-  /** Where a check run's "Details" link points. */
-  adminBaseUrl: string;
+  /**
+   * Where a check run's "Details" link points: the Forge dashboard, which is
+   * the only surface that renders a deployment. Pointing this at the cloud
+   * admin sent every link on every pull request to a host that has no route
+   * for it, so they all landed on its home page.
+   */
+  forgeBaseUrl: string;
 }
 
 interface Repo {
@@ -144,8 +150,13 @@ export class GithubSurfaces {
     return true;
   }
 
+  #base(): string {
+    return this.options.forgeBaseUrl.replace(/\/$/, "");
+  }
+
+  /** `/deployments/:id` — the deployment detail page, build log included. */
   #detailsUrl(row: DeploymentRow): string {
-    return `${this.options.adminBaseUrl.replace(/\/$/, "")}/deployments/${row.targetId}?d=${row.id}`;
+    return `${this.#base()}/deployments/${row.id}`;
   }
 
   async #swallow(what: string, run: () => Promise<void>): Promise<void> {
@@ -292,14 +303,15 @@ export class GithubSurfaces {
    */
   async onSkipped(
     target: DeployTargetRow,
+    projectSlug: string,
     intent: WebhookDeployIntent,
     decision: ChangeDecision,
   ): Promise<void> {
     const repo = repoFor(target);
     if (!repo) return;
-    // A push to a branch with an open pull request arrives twice, as `push` and
-    // as `pull_request.synchronize`. A real deployment dedupes on the in-flight
-    // row it already created; a skip creates nothing, so it dedupes here.
+    // Only `push` decides to skip now, so this can no longer be reached twice
+    // for one commit by two event types. It still can by two pushes landing on
+    // the same SHA — a re-push of an unchanged tree, or a retried delivery.
     if (!this.#claimSkip(`${target.id}:${intent.sha}`)) return;
 
     await this.#swallow("skipped check run create", async () => {
@@ -307,7 +319,9 @@ export class GithubSurfaces {
         ...repo,
         name: `forge / ${target.name}`,
         headSha: intent.sha,
-        detailsUrl: `${this.options.adminBaseUrl.replace(/\/$/, "")}/deployments/${target.id}`,
+        // There is no deployment, so there is no detail page. The project's
+        // deployment list is the nearest thing that exists.
+        detailsUrl: `${this.#base()}/${encodeURIComponent(projectSlug)}/deployments`,
         completed: {
           conclusion: "skipped",
           output: {
@@ -317,6 +331,52 @@ export class GithubSurfaces {
         },
       });
     });
+  }
+
+  /**
+   * A pull request pointed at a commit. Nothing is built here — `push` already
+   * decided that — so this reports what exists onto the pull request.
+   *
+   * The comment is the part that was missing entirely: a branch pushed before
+   * its pull request was opened built under `prNumber: null`, and `#comment`
+   * returns on a null number, so the deployment never announced itself. It is
+   * also why the check run may need creating: the build has usually finished
+   * by the time the pull request appears, and a run created now has to be born
+   * completed rather than spinning for ever on a commit nothing will report on
+   * again.
+   */
+  async onPullRequestAttached(
+    row: DeploymentRow,
+    target: DeployTargetRow,
+  ): Promise<void> {
+    const repo = repoFor(target);
+    if (!repo) return;
+
+    if (row.githubCheckRunId === null) {
+      await this.#swallow("attached check run create", async () => {
+        const checkRunId = await this.options.client.createCheckRun({
+          ...repo,
+          name: `forge / ${target.name}`,
+          headSha: row.gitSha,
+          detailsUrl: this.#detailsUrl(row),
+          ...(isTerminalDeploymentStatus(row.status)
+            ? {
+                completed: {
+                  conclusion: checkConclusion(row.status),
+                  output: checkOutput(row),
+                },
+              }
+            : {}),
+        });
+        await this.options.db
+          .update(deployments)
+          .set({ githubCheckRunId: checkRunId })
+          .where(eq(deployments.id, row.id));
+        row.githubCheckRunId = checkRunId;
+      });
+    }
+
+    await this.#comment(row, target, repo);
   }
 
   /**

@@ -10,7 +10,7 @@ import {
   branchFromRef,
   comparisonBase,
   planBranchTeardown,
-  planPullRequestDeployment,
+  planPullRequestAttach,
   planPushDeployment,
   type WebhookTarget,
 } from "./events";
@@ -170,37 +170,22 @@ describe("planBranchTeardown", () => {
   });
 });
 
-describe("planPullRequestDeployment", () => {
-  it("carries the pull request number a push cannot know", () => {
-    expect(planPullRequestDeployment(pullRequest(), target)).toEqual({
-      kind: "preview",
+describe("planPullRequestAttach", () => {
+  it("names the commit to report on and the number a push cannot know", () => {
+    expect(planPullRequestAttach(pullRequest())).toEqual({
       ref: "feature",
-      baseSha: "a".repeat(40),
       sha: "b".repeat(40),
-      message: "Add a thing",
       prNumber: 7,
     });
   });
 
-  it("filters synchronize against only the latest head update", () => {
-    const before = "c".repeat(40);
-    expect(
-      planPullRequestDeployment(
-        pullRequest({ before, after: "b".repeat(40) }),
-        target,
-      )?.baseSha,
-    ).toBe(before);
-  });
-
-  it("ignores actions that are not a new commit", () => {
+  it("ignores actions that do not move the head commit", () => {
     for (const action of ["closed", "labeled", "edited", "assigned"]) {
-      expect(planPullRequestDeployment(pullRequest({ action }), target)).toBe(
-        null,
-      );
+      expect(planPullRequestAttach(pullRequest({ action }))).toBe(null);
     }
   });
 
-  it("skips a draft until it is marked ready", () => {
+  it("reports on a draft, because the push built it anyway", () => {
     const draft = {
       base: { sha: "a" },
       head: { ref: "f", sha: "c" },
@@ -208,14 +193,8 @@ describe("planPullRequestDeployment", () => {
       draft: true,
     };
     expect(
-      planPullRequestDeployment(pullRequest({ pull_request: draft }), target),
-    ).toBeNull();
-    expect(
-      planPullRequestDeployment(
-        pullRequest({ action: "ready_for_review", pull_request: draft }),
-        target,
-      )?.kind,
-    ).toBe("preview");
+      planPullRequestAttach(pullRequest({ pull_request: draft }))?.ref,
+    ).toBe("f");
   });
 });
 

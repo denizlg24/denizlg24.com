@@ -1,11 +1,14 @@
 "use client";
 
 import {
-  DEPLOY_NODE_VERSIONS,
+  DEPLOY_RUNTIME_VERSIONS,
+  DEPLOY_RUNTIMES,
   type DeployBuilder,
-  type DeployNodeVersion,
+  type DeployRuntime,
+  type DeployRuntimeVersion,
   type DeployTarget,
   deriveMemoryCeilingMb,
+  isDeployRuntimeVersion,
   MAX_MEMORY_MB,
   MIN_MEMORY_MB,
   type ResolvedBuildConfig,
@@ -30,7 +33,8 @@ export interface BuildConfigForm {
   /** The preset id. Null until detection has run. */
   framework: string | null;
   builder: DeployBuilder | null;
-  nodeVersion: DeployNodeVersion | null;
+  runtime: DeployRuntime | null;
+  runtimeVersion: DeployRuntimeVersion | null;
   dockerfilePath: string | null;
   installCommand: string | null;
   buildCommand: string | null;
@@ -51,7 +55,8 @@ export function defaultBuildConfig(): BuildConfigForm {
     rootDirectory: "",
     framework: null,
     builder: null,
-    nodeVersion: null,
+    runtime: null,
+    runtimeVersion: null,
     dockerfilePath: null,
     installCommand: null,
     buildCommand: null,
@@ -70,7 +75,8 @@ export function buildConfigFromTarget(target: DeployTarget): BuildConfigForm {
     // "auto" is the column default every target starts with, which is the
     // absence of a choice — the same thing the resolver reads it as.
     builder: target.builder === "auto" ? null : target.builder,
-    nodeVersion: target.nodeVersion,
+    runtime: target.runtime,
+    runtimeVersion: target.runtimeVersion,
     dockerfilePath: target.dockerfilePath,
     installCommand: target.installCommand,
     buildCommand: target.buildCommand,
@@ -95,7 +101,8 @@ export function buildConfigPatch(
     rootDirectory: optional(form.rootDirectory),
     framework: form.framework,
     builder: form.builder ?? "auto",
-    nodeVersion: form.nodeVersion,
+    runtime: form.runtime,
+    runtimeVersion: form.runtimeVersion,
     dockerfilePath: optional(form.dockerfilePath),
     installCommand: optional(form.installCommand),
     buildCommand: optional(form.buildCommand),
@@ -124,10 +131,16 @@ const BUILDER_OPTIONS: readonly { value: DeployBuilder; label: string }[] = [
   { value: "dockerfile", label: "dockerfile" },
 ];
 
-const NODE_OPTIONS = DEPLOY_NODE_VERSIONS.map((version) => ({
-  value: version,
-  label: version,
-}));
+const RUNTIME_OPTIONS: readonly { value: DeployRuntime; label: string }[] =
+  DEPLOY_RUNTIMES.map((runtime) => ({ value: runtime, label: runtime }));
+
+const VERSION_OPTIONS: Record<
+  DeployRuntime,
+  readonly { value: DeployRuntimeVersion; label: string }[]
+> = {
+  node: DEPLOY_RUNTIME_VERSIONS.node.map((v) => ({ value: v, label: v })),
+  bun: DEPLOY_RUNTIME_VERSIONS.bun.map((v) => ({ value: v, label: v })),
+};
 
 /**
  * What decides how the image is produced.
@@ -149,6 +162,11 @@ export function BuildFields({
   // with the override off, what runs is whatever the preset picked.
   const builder = form.builder ?? resolved?.builder.value ?? "auto";
   const dockerfile = builder === "dockerfile";
+  // Same reasoning as the builder: the version list has to follow what will
+  // actually run, which is the override where there is one and detection's
+  // answer otherwise. A Python or static target resolves to neither runtime
+  // and gets no version field at all.
+  const runtime = form.runtime ?? resolved?.runtime.value ?? null;
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -168,11 +186,30 @@ export function BuildFields({
         />
       ) : (
         <OverrideSelect
-          label="Node version"
-          preset={resolved?.nodeVersion.value ?? null}
-          value={form.nodeVersion}
-          options={NODE_OPTIONS}
-          onChange={(value) => onChange({ nodeVersion: value })}
+          label="Runtime"
+          preset={resolved?.runtime.value ?? null}
+          value={form.runtime}
+          options={RUNTIME_OPTIONS}
+          onChange={(value) =>
+            onChange({
+              runtime: value,
+              // A pinned version belongs to the runtime it was chosen under.
+              // Carrying "22" into Bun sends the API a pair it rejects, so the
+              // pin is dropped and the new runtime's preset stands in.
+              ...(isDeployRuntimeVersion(value, form.runtimeVersion)
+                ? {}
+                : { runtimeVersion: null }),
+            })
+          }
+        />
+      )}
+      {!dockerfile && runtime !== null && (
+        <OverrideSelect
+          label={`${runtime} version`}
+          preset={resolved?.runtimeVersion.value ?? null}
+          value={form.runtimeVersion}
+          options={VERSION_OPTIONS[runtime]}
+          onChange={(value) => onChange({ runtimeVersion: value })}
         />
       )}
       {/* A Dockerfile states its own install and build steps — and its own base

@@ -10,6 +10,7 @@ import {
   cloneUrlFor,
   collectInstallManifests,
   imageTagFor,
+  injectBunVersion,
   runBuild,
   scopeInstallCopy,
   serializeBunInstallSteps,
@@ -130,6 +131,46 @@ describe("serializeBunInstallSteps", () => {
     ].join("\n");
 
     expect(serializeBunInstallSteps(dockerfile)).toBe(dockerfile);
+  });
+});
+
+describe("injectBunVersion", () => {
+  /** Nixpacks assigns PATH outright, and does it more than once. */
+  const dockerfile = [
+    "FROM ghcr.io/railwayapp/nixpacks:debian",
+    "ENV PATH=/nix/var/nix/profiles/default/bin:$PATH",
+    "COPY . /app/.",
+    "ENV PATH=/app/node_modules/.bin:/nix/var/nix/profiles/default/bin:$PATH",
+    "RUN --mount=type=cache,target=/root/.bun bun install",
+    "CMD bun run start",
+    "",
+  ].join("\n");
+
+  it("copies the pinned Bun in after the last PATH nixpacks writes", () => {
+    const injected = injectBunVersion(dockerfile, "1.3.14").split("\n");
+    const copy = injected.findIndex((line) => line.includes("oven/bun:1.3.14"));
+    const lastNixPath = injected.reduce(
+      (found, line, index) =>
+        line.startsWith("ENV PATH=") && line.includes("/nix/var/nix/profiles")
+          ? index
+          : found,
+      -1,
+    );
+    const install = injected.findIndex((line) => line.includes("bun install"));
+
+    // Before it, and the override loses to whatever nixpacks assigns next.
+    // After the install, and the install ran on the wrong Bun.
+    expect(copy).toBeGreaterThan(lastNixPath);
+    expect(copy).toBeLessThan(install);
+    expect(injected[copy + 1]).toBe("ENV PATH=/usr/local/forge-bin:$PATH");
+  });
+
+  it("leaves a Dockerfile it does not recognise alone", () => {
+    // Building with the wrong Bun beats failing on a shape nixpacks changed;
+    // the caller logs the miss.
+    const bare = "FROM scratch\nCMD /app\n";
+
+    expect(injectBunVersion(bare, "1.3.14")).toBe(bare);
   });
 });
 
