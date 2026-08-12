@@ -43,6 +43,12 @@ function readString(value: unknown): string {
  * a domain is only usable when both are `active`. Collapsing them to one field
  * loses nothing the owner can act on: the DV records are the action, and they
  * are carried separately.
+ *
+ * Under HTTP DCV that action is normally empty, which is the point of it. The
+ * arrays are still read rather than assumed empty: Cloudflare falls back to
+ * asking for a record when it cannot reach the hostname, and a validation that
+ * has quietly stalled on a record nobody was shown is the failure this whole
+ * path exists to avoid.
  */
 export function readCustomHostnameStatus(result: Record<string, unknown>): {
   status: DeployDomainStatus;
@@ -52,26 +58,30 @@ export function readCustomHostnameStatus(result: Record<string, unknown>): {
   const ssl = readStrings(result.ssl);
   const sslStatus = readString(ssl.status);
 
-  const ownership = readStrings(result.ownership_verification);
-  const ownershipRecords =
-    ownership.name && ownership.value
-      ? [
-          {
-            name: readString(ownership.name),
-            type: readString(ownership.type) || "TXT",
-            value: readString(ownership.value),
-          },
-        ]
-      : [];
+  // Deliberately not read. `ownership_verification` is the TXT alternative to
+  // pointing the hostname at us, and pointing it at us is not optional — no
+  // traffic reaches this platform otherwise. Showing the record made every
+  // external domain a two-step job for a step that was never load-bearing.
+  const ownershipRecords: DomainVerificationRecords["ownership"] = [];
 
   const validation = Array.isArray(ssl.validation_records)
     ? ssl.validation_records
     : [];
   const sslRecords = validation.flatMap((entry) => {
     const record = readStrings(entry);
-    const name = readString(record.txt_name);
-    const value = readString(record.txt_value);
-    return name && value ? [{ name, type: "TXT", value }] : [];
+    const txtName = readString(record.txt_name);
+    const txtValue = readString(record.txt_value);
+    if (txtName && txtValue) {
+      return [{ name: txtName, type: "TXT", value: txtValue }];
+    }
+    // Manual HTTP validation: a body to serve at a URL rather than a record to
+    // add. Squeezed into the same three columns because it is the same job —
+    // put this string at that name — and a fourth shape would earn nothing.
+    const httpUrl = readString(record.http_url);
+    const httpBody = readString(record.http_body);
+    return httpUrl && httpBody
+      ? [{ name: httpUrl, type: "HTTP", value: httpBody }]
+      : [];
   });
 
   const errors = [
@@ -184,13 +194,26 @@ export class CloudflareCustomHostnameClient {
     };
   }
 
+  /**
+   * HTTP DCV, not TXT, and the difference is the whole onboarding flow. TXT
+   * validation asks the owner of the domain for two records before a
+   * certificate exists: the DV token and the CNAME. HTTP validation asks for
+   * the CNAME alone and then proves the domain over the connection that CNAME
+   * creates — Cloudflare serves the token from its own edge, so there is
+   * nothing to place at our origin either.
+   *
+   * The one requirement is that the hostname points at us and proxies through
+   * Cloudflare, which is exactly the state every working custom domain is in.
+   * Wildcards are the exception — they cannot use HTTP DCV at all — and this
+   * platform does not offer them.
+   */
   async create(hostname: string): Promise<CustomHostname> {
     const { status, envelope } = await this.#request("/custom_hostnames", {
       method: "POST",
       body: JSON.stringify({
         hostname,
         ssl: {
-          method: "txt",
+          method: "http",
           type: "dv",
           settings: { min_tls_version: "1.2" },
         },

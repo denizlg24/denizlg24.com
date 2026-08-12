@@ -62,7 +62,11 @@ describe("readCustomHostnameStatus", () => {
     ).toBe("active");
   });
 
-  it("surfaces the DV records the owner has to add", () => {
+  it("asks for nothing beyond the CNAME under HTTP DCV", () => {
+    // The shape Cloudflare returns while it waits for the CNAME to resolve.
+    // The ownership TXT it offers is the alternative to pointing the hostname,
+    // and pointing the hostname is not optional here, so showing it would make
+    // a one-record job look like two.
     const read = readCustomHostnameStatus({
       status: "pending",
       ownership_verification: {
@@ -70,6 +74,16 @@ describe("readCustomHostnameStatus", () => {
         name: "_cf-custom-hostname.clientsite.com",
         value: "abc",
       },
+      ssl: { status: "pending_validation" },
+    });
+
+    expect(read.verification.ownership).toEqual([]);
+    expect(read.verification.ssl).toEqual([]);
+  });
+
+  it("still surfaces a DV record when Cloudflare falls back to asking for one", () => {
+    const read = readCustomHostnameStatus({
+      status: "pending",
       ssl: {
         status: "pending_validation",
         validation_records: [
@@ -78,15 +92,32 @@ describe("readCustomHostnameStatus", () => {
       },
     });
 
-    expect(read.verification.ownership).toEqual([
-      {
-        name: "_cf-custom-hostname.clientsite.com",
-        type: "txt",
-        value: "abc",
-      },
-    ]);
     expect(read.verification.ssl).toEqual([
       { name: "_acme-challenge.clientsite.com", type: "TXT", value: "xyz" },
+    ]);
+  });
+
+  it("carries a manual HTTP token in the same three columns", () => {
+    const read = readCustomHostnameStatus({
+      status: "pending",
+      ssl: {
+        status: "pending_validation",
+        validation_records: [
+          {
+            http_url:
+              "http://clientsite.com/.well-known/pki-validation/ca3.txt",
+            http_body: "token-body",
+          },
+        ],
+      },
+    });
+
+    expect(read.verification.ssl).toEqual([
+      {
+        name: "http://clientsite.com/.well-known/pki-validation/ca3.txt",
+        type: "HTTP",
+        value: "token-body",
+      },
     ]);
   });
 
@@ -110,7 +141,7 @@ describe("readCustomHostnameStatus", () => {
 });
 
 describe("CloudflareCustomHostnameClient", () => {
-  it("asks for TXT DV so the owner never has to serve a file", async () => {
+  it("asks for HTTP DV so the owner only has to add the CNAME", async () => {
     const { instance, calls } = client(() =>
       envelope({
         id: "ch1",
@@ -123,7 +154,7 @@ describe("CloudflareCustomHostnameClient", () => {
 
     expect(created.id).toBe("ch1");
     const body = calls[0]?.body as { ssl: { method: string; type: string } };
-    expect(body.ssl.method).toBe("txt");
+    expect(body.ssl.method).toBe("http");
     expect(body.ssl.type).toBe("dv");
   });
 
