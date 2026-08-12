@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { markEmailsSeen } from "@/lib/email";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
@@ -59,11 +59,13 @@ export async function PATCH(request: NextRequest) {
     },
   );
 
-  try {
-    await markEmailsSeen(targets.map((t) => t.emailId));
-  } catch (err) {
-    console.error("mark seen failed:", err);
-  }
+  after(async () => {
+    try {
+      await markEmailsSeen(targets.map((t) => t.emailId));
+    } catch (err) {
+      console.error("mark seen failed:", err);
+    }
+  });
 
   return NextResponse.json({
     ok: true,

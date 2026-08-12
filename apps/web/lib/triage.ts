@@ -18,7 +18,7 @@ import {
   updateCourseDeadline,
 } from "@/lib/courses";
 import { type FetchedEmailBody, fetchEmailBodies } from "@/lib/email";
-import { saveEmailBodies } from "@/lib/email-body-store";
+import { readEmailBody, saveEmailBodies } from "@/lib/email-body-store";
 import { classifyEmail } from "@/lib/email-classifier";
 import { createCard } from "@/lib/kanban";
 import { generateToolResult } from "@/lib/llm-service";
@@ -584,7 +584,7 @@ function buildExtractionLogPrompt(
   ].join("\n");
 }
 
-async function getKanbanTargets(): Promise<CompactKanbanTarget[]> {
+export async function getKanbanTargets(): Promise<CompactKanbanTarget[]> {
   const boards = await KanbanBoard.find({ isArchived: false })
     .select("title")
     .sort({ createdAt: -1 })
@@ -675,7 +675,7 @@ function resolveTaskKanbanTarget(
   };
 }
 
-function buildCourseTargets(
+export function buildCourseTargets(
   candidates: CourseMatchCandidate[],
 ): CourseTarget[] {
   let courseCounter = 1;
@@ -740,7 +740,7 @@ function normalizeForMatch(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function matchCourseDeterministic(
+export function matchCourseDeterministic(
   email: TriageEmailContext,
   targets: CourseTarget[],
   bodySnippet = "",
@@ -794,7 +794,7 @@ function matchCourseDeterministic(
   return undefined;
 }
 
-function findCourseBoardTarget(
+export function findCourseBoardTarget(
   course: CourseTarget,
   kanbanTargets: CompactKanbanTarget[],
 ): CompactKanbanTarget | undefined {
@@ -1117,7 +1117,142 @@ export async function runExtraction(
   };
 }
 
-async function autoAccept(
+export interface DerivedTriageArtifacts {
+  result: FullTriageResult;
+  extractionModelUsed?: string;
+  attachmentTextSources: string[];
+  extractionFailed: boolean;
+}
+
+/**
+ * Runs task/event extraction and applies the course-routing rules shared by
+ * initial triage and a human-confirmed category change.
+ */
+export async function deriveTriageArtifacts({
+  email,
+  body,
+  classification: initialClassification,
+  settings,
+  kanbanTargets,
+  courseTargets,
+}: {
+  email: TriageEmailContext;
+  body: FetchedEmailBody;
+  classification: ClassificationResult;
+  settings: Pick<ITriageSettings, "fullModel">;
+  kanbanTargets: CompactKanbanTarget[];
+  courseTargets: CourseTarget[];
+}): Promise<DerivedTriageArtifacts> {
+  const classification = { ...initialClassification };
+  let bodyForExtraction: FetchedEmailBody = {
+    ...body,
+    attachmentText: [],
+  };
+  let result: FullTriageResult = {
+    ...classification,
+    tasks: [],
+    events: [],
+  };
+
+  if (
+    !classification.needsTaskExtraction &&
+    !classification.needsEventExtraction
+  ) {
+    return {
+      result,
+      attachmentTextSources: [],
+      extractionFailed: false,
+    };
+  }
+
+  const deterministicCourse = matchCourseDeterministic(
+    email,
+    courseTargets,
+    normalizeBodyForTriage(body.text, body.html, "classification"),
+  );
+  if (deterministicCourse) {
+    classification.needsTaskExtraction = true;
+    classification.needsEventExtraction = true;
+    result.matchedCourseId = deterministicCourse.courseId;
+    result.matchedCourseName = deterministicCourse.name;
+    bodyForExtraction = body;
+  }
+
+  let extraction = await runExtraction(
+    settings.fullModel,
+    email,
+    bodyForExtraction,
+    classification,
+    kanbanTargets,
+    courseTargets,
+    deterministicCourse,
+  );
+  if (!extraction) {
+    return {
+      result,
+      extractionModelUsed: settings.fullModel,
+      attachmentTextSources: [],
+      extractionFailed: true,
+    };
+  }
+
+  if (
+    !deterministicCourse &&
+    extraction.matchedCourseId &&
+    bodyForExtraction.attachmentText.length === 0
+  ) {
+    const matchedCourseForAttachments = courseTargets.find(
+      (course) => course.courseId === extraction?.matchedCourseId,
+    );
+    if (matchedCourseForAttachments && body.attachmentText.length > 0) {
+      const attachmentExtraction = await runExtraction(
+        settings.fullModel,
+        email,
+        body,
+        classification,
+        kanbanTargets,
+        courseTargets,
+        matchedCourseForAttachments,
+      );
+      if (attachmentExtraction) {
+        extraction = attachmentExtraction;
+        bodyForExtraction = body;
+      }
+    }
+  }
+
+  result = { ...classification, ...extraction };
+
+  const matchedCourse = result.matchedCourseId
+    ? courseTargets.find((course) => course.courseId === result.matchedCourseId)
+    : undefined;
+  if (matchedCourse && kanbanTargets.length > 0) {
+    const boardTarget = findCourseBoardTarget(matchedCourse, kanbanTargets);
+    if (boardTarget) {
+      for (const task of result.tasks) {
+        if (task.updatesCourseDeadlineId) continue;
+        task.kanbanBoardId = boardTarget.boardId;
+        task.kanbanBoardTitle = boardTarget.boardTitle;
+        task.kanbanColumnId = boardTarget.columnId;
+        task.kanbanColumnTitle = boardTarget.columnTitle;
+        task.routedToCourseBoard = true;
+      }
+    }
+  }
+
+  return {
+    result,
+    extractionModelUsed: settings.fullModel,
+    attachmentTextSources: result.matchedCourseId
+      ? bodyForExtraction.attachmentText.map(
+          (attachment) => attachment.filename,
+        )
+      : [],
+    extractionFailed: false,
+  };
+}
+
+export async function autoAccept(
   triageId: mongoose.Types.ObjectId,
   result: FullTriageResult,
   routing: ICategoryRouting,
@@ -1283,6 +1418,168 @@ async function autoAccept(
   }
 
   return { tasks: taskCount, events: eventCount };
+}
+
+const DERIVABLE_CATEGORIES = new Set<TriageCategory>([
+  "action-needed",
+  "scheduled",
+]);
+
+export function shouldRecomputeTriageDerivation(row: {
+  category: TriageCategory;
+  suggestedTasks?: Array<{ status: string }>;
+  suggestedEvents?: Array<{ status: string }>;
+}): boolean {
+  return (
+    DERIVABLE_CATEGORIES.has(row.category) &&
+    ![...(row.suggestedTasks ?? []), ...(row.suggestedEvents ?? [])].some(
+      (suggestion) => suggestion.status === "accepted",
+    )
+  );
+}
+
+export async function recomputeTriageDerivation(
+  triageId: string | mongoose.Types.ObjectId,
+): Promise<"done" | "skipped"> {
+  await connectDB();
+
+  const triage = await EmailTriageModel.findById(triageId).lean();
+  if (!triage || !shouldRecomputeTriageDerivation(triage)) {
+    return "skipped";
+  }
+
+  try {
+    const email = await EmailModel.findById(triage.emailId).lean();
+    if (!email) throw new Error("Email not found");
+
+    const accountId = email.accountId.toString();
+    const loadBody = async (): Promise<FetchedEmailBody> => {
+      try {
+        const fetched = await fetchEmailBodies(accountId, [email.uid], {
+          includeAttachmentText: true,
+        });
+        const body = fetched.bodies.get(email.uid);
+        if (body) return body;
+      } catch (error) {
+        console.error("manual triage body fetch failed:", error);
+      }
+
+      const stored = await readEmailBody({
+        accountId,
+        emailId: email._id.toString(),
+        uid: email.uid,
+      });
+      if (!stored) throw new Error("Email body unavailable");
+      return {
+        subject: email.subject,
+        from: email.from,
+        date: email.date,
+        text: stored.text,
+        html: stored.html,
+        attachmentCount: stored.attachmentCount,
+        attachmentText: [],
+      };
+    };
+
+    const [body, settings, kanbanTargets, courseCandidates] = await Promise.all(
+      [
+        loadBody(),
+        getOrCreateTriageSettings(),
+        getKanbanTargets(),
+        getCoursesForMatching(),
+      ],
+    );
+    const courseTargets = buildCourseTargets(courseCandidates);
+    const classification: ClassificationResult = {
+      category: triage.category,
+      // A human category verdict is stronger than the original classifier
+      // score for the auto-accept threshold gate.
+      confidence: 1,
+      summary:
+        triage.summary ??
+        normalizeSummary(email.subject, "Email classified without a subject."),
+      needsTaskExtraction: triage.category === "action-needed",
+      needsEventExtraction: triage.category === "scheduled",
+    };
+    const artifacts = await deriveTriageArtifacts({
+      email: {
+        subject: email.subject,
+        from: email.from,
+        date: email.date,
+      },
+      body,
+      classification,
+      settings,
+      kanbanTargets,
+      courseTargets,
+    });
+    if (artifacts.extractionFailed) {
+      throw new Error("Triage extraction failed");
+    }
+
+    const result = artifacts.result;
+    await EmailTriageModel.updateOne(
+      { _id: triage._id },
+      {
+        $set: {
+          matchedCourseId: result.matchedCourseId,
+          matchedCourseName: result.matchedCourseName,
+          attachmentTextUsed: artifacts.attachmentTextSources.length > 0,
+          attachmentTextSources: artifacts.attachmentTextSources,
+          extractionModelUsed: artifacts.extractionModelUsed,
+          suggestedTasks: result.tasks.map((task) => ({
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            dueDate: task.dueDate,
+            dueHasTime: task.dueHasTime,
+            kanbanBoardId: task.kanbanBoardId,
+            kanbanBoardTitle: task.kanbanBoardTitle,
+            kanbanColumnId: task.kanbanColumnId,
+            kanbanColumnTitle: task.kanbanColumnTitle,
+            courseId: task.courseId,
+            courseName: task.courseName,
+            updatesCourseDeadlineId: task.updatesCourseDeadlineId,
+            assignmentType: task.assignmentType,
+            routedToCourseBoard: task.routedToCourseBoard,
+            status: "pending",
+          })),
+          suggestedEvents: result.events.map((event) => ({
+            title: event.title,
+            date: event.date,
+            place: event.place,
+            courseId: event.courseId,
+            courseName: event.courseName,
+            updatesCalendarEventId: event.updatesCalendarEventId,
+            status: "pending",
+          })),
+        },
+      },
+    );
+
+    const routing = normalizeCategoryRouting(settings.categoryRouting);
+    await autoAccept(triage._id, result, routing[triage.category]);
+    await EmailTriageModel.updateOne(
+      { _id: triage._id },
+      {
+        $set: { derivationStatus: "done", derivedAt: new Date() },
+        $unset: { derivationError: 1 },
+      },
+    );
+    return "done";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await EmailTriageModel.updateOne(
+      { _id: triage._id },
+      {
+        $set: {
+          derivationStatus: "failed",
+          derivationError: message.slice(0, 1_000),
+        },
+      },
+    );
+    throw error;
+  }
 }
 
 export async function runTriage(
@@ -1498,7 +1795,6 @@ export async function runTriage(
         classificationThreshold,
       );
       let reviewReason = reviewRequired ? "low-confidence" : undefined;
-      let extractionModelUsed: string | undefined;
       const classification: ClassificationResult = {
         category: prediction.category,
         confidence: prediction.confidence,
@@ -1511,122 +1807,37 @@ export async function runTriage(
         needsEventExtraction:
           !reviewRequired && prediction.category === "scheduled",
       };
-      let bodyForExtraction: FetchedEmailBody = {
-        ...body,
-        attachmentText: [],
+      let artifacts: DerivedTriageArtifacts = {
+        result: { ...classification, tasks: [], events: [] },
+        attachmentTextSources: [],
+        extractionFailed: false,
       };
-      let fullResult: FullTriageResult = {
-        ...classification,
-        tasks: [],
-        events: [],
-      };
-
       if (
         classification.needsTaskExtraction ||
         classification.needsEventExtraction
       ) {
-        const courseTargets = await getCourseTargetsCached();
-        const deterministicCourse = matchCourseDeterministic(
-          emailContext,
-          courseTargets,
-          normalizeBodyForTriage(body.text, body.html, "classification"),
-        );
-        if (deterministicCourse) {
-          classification.needsTaskExtraction = true;
-          classification.needsEventExtraction = true;
-          fullResult.matchedCourseId = deterministicCourse.courseId;
-          fullResult.matchedCourseName = deterministicCourse.name;
-          bodyForExtraction = body;
-        }
-
-        // Loaded whenever extraction runs at all, not only when tasks were
-        // asked for. "Task extraction requested: no" is a hint in the prompt,
-        // not a constraint on the response schema — a scheduled email can still
-        // come back with a follow-up task, and if no boards were offered that
-        // task has nowhere to land and can never be accepted.
-        const kanbanTargets: CompactKanbanTarget[] =
-          await getKanbanTargetsCached();
-
-        extractionModelUsed = settings.fullModel;
-        let extraction = await limitExtraction(() =>
-          runExtraction(
-            settings.fullModel,
-            emailContext,
-            bodyForExtraction,
+        const [kanbanTargets, courseTargets] = await Promise.all([
+          getKanbanTargetsCached(),
+          getCourseTargetsCached(),
+        ]);
+        artifacts = await limitExtraction(() =>
+          deriveTriageArtifacts({
+            email: emailContext,
+            body,
             classification,
+            settings,
             kanbanTargets,
             courseTargets,
-            deterministicCourse,
-          ),
+          }),
         );
-        if (!extraction) {
+        if (artifacts.extractionFailed) {
           stats.errors++;
           reviewRequired = true;
           reviewReason = "extraction-failed";
-        } else {
-          if (
-            !deterministicCourse &&
-            extraction.matchedCourseId &&
-            bodyForExtraction.attachmentText.length === 0
-          ) {
-            const matchedCourseForAttachments = courseTargets.find(
-              (course) => course.courseId === extraction?.matchedCourseId,
-            );
-            if (matchedCourseForAttachments && body.attachmentText.length > 0) {
-              const attachmentExtraction = await limitExtraction(() =>
-                runExtraction(
-                  settings.fullModel,
-                  emailContext,
-                  body,
-                  classification,
-                  kanbanTargets,
-                  courseTargets,
-                  matchedCourseForAttachments,
-                ),
-              );
-              if (attachmentExtraction) {
-                extraction = attachmentExtraction;
-                bodyForExtraction = body;
-              }
-            }
-          }
-
-          fullResult = {
-            ...classification,
-            ...extraction,
-          };
-
-          // Route course-matched tasks onto the course's own board so they
-          // show up under that class without duplicating course deadlines.
-          const matchedCourse = fullResult.matchedCourseId
-            ? courseTargets.find(
-                (course) => course.courseId === fullResult.matchedCourseId,
-              )
-            : undefined;
-          if (matchedCourse && kanbanTargets.length > 0) {
-            const boardTarget = findCourseBoardTarget(
-              matchedCourse,
-              kanbanTargets,
-            );
-            if (boardTarget) {
-              for (const task of fullResult.tasks) {
-                if (task.updatesCourseDeadlineId) continue;
-                task.kanbanBoardId = boardTarget.boardId;
-                task.kanbanBoardTitle = boardTarget.boardTitle;
-                task.kanbanColumnId = boardTarget.columnId;
-                task.kanbanColumnTitle = boardTarget.columnTitle;
-                task.routedToCourseBoard = true;
-              }
-            }
-          }
         }
       }
-
-      const attachmentTextSources = fullResult.matchedCourseId
-        ? bodyForExtraction.attachmentText.map(
-            (attachment) => attachment.filename,
-          )
-        : [];
+      const fullResult = artifacts.result;
+      const attachmentTextSources = artifacts.attachmentTextSources;
 
       const doc = await EmailTriageModel.create({
         emailId: email._id,
@@ -1658,6 +1869,7 @@ export async function runTriage(
           courseName: task.courseName,
           updatesCourseDeadlineId: task.updatesCourseDeadlineId,
           assignmentType: task.assignmentType,
+          routedToCourseBoard: task.routedToCourseBoard,
           status: "pending",
         })),
         suggestedEvents: fullResult.events.map((event) => ({
@@ -1670,7 +1882,7 @@ export async function runTriage(
           status: "pending",
         })),
         modelUsed: `email-classifier:${prediction.modelVersion}`,
-        extractionModelUsed,
+        extractionModelUsed: artifacts.extractionModelUsed,
         triagedAt: new Date(),
       });
       stats.fullTriaged++;

@@ -206,6 +206,8 @@ describe("collectInstallManifests", () => {
         "package.json",
         "bun.lock",
         "apps/cloud/package.json",
+        "apps/envoy/prisma.config.ts",
+        "apps/envoy/prisma/schema.prisma",
         "packages/schemas/package.json",
         "scripts/fetch-tectonic.mjs",
         "node_modules/left-pad/package.json",
@@ -219,6 +221,8 @@ describe("collectInstallManifests", () => {
 
       expect(manifests).toEqual([
         "apps/cloud/package.json",
+        "apps/envoy/prisma",
+        "apps/envoy/prisma.config.ts",
         "bun.lock",
         "package.json",
         "packages/schemas/package.json",
@@ -514,6 +518,53 @@ describe("runBuild", () => {
       );
 
       expect(generatedDockerfile).not.toContain("--parents");
+      expect(text).not.toContain("install layer scoped");
+    });
+  });
+
+  it("keeps Python project sources available to the install phase", async () => {
+    await withTempDir(async (dir) => {
+      const checkout = {
+        "apps/classifier/pyproject.toml": "[project]\nname = 'classifier'",
+        "apps/classifier/src/classifier/__init__.py": "",
+      };
+      let generatedDockerfile = "";
+      const { text } = await build(
+        dir,
+        { build: { rootDirectory: "apps/classifier" } },
+        checkout,
+        () => {
+          const writeCheckout = checkoutWriter(checkout);
+          return async (options) => {
+            await writeCheckout(options);
+            if (options.command[0] === "nixpacks" && options.cwd) {
+              const output = join(options.cwd, ".nixpacks");
+              await mkdir(output, { recursive: true });
+              await writeFile(
+                join(output, "Dockerfile"),
+                `${NIXPACKS_DOCKERFILE}\n`,
+              );
+            }
+            if (
+              options.command[0] === "docker" &&
+              options.command.includes("buildx") &&
+              options.cwd
+            ) {
+              generatedDockerfile = await Bun.file(
+                join(options.cwd, ".nixpacks", "Dockerfile"),
+              ).text();
+            }
+            return undefined;
+          };
+        },
+        {
+          buildxBuilder: "forge-ssd",
+          buildkitEndpoint: "docker-container://forge-buildkit",
+        },
+      );
+
+      expect(generatedDockerfile).not.toContain("--parents");
+      expect(generatedDockerfile).toContain("COPY . /app/.");
       expect(text).not.toContain("install layer scoped");
     });
   });

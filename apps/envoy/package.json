@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "prisma generate",
+    "postinstall": "node scripts/postinstall.mjs",
     "dev": "next dev --webpack --port 3006",
     "build": "prisma generate && next build --webpack",
     "start": "next start --port 3006",

@@ -7,6 +7,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { getAdminSession } from "@/lib/require-admin";
 import { CalendarPreloader } from "./_components/calendar-preloader";
+import { WebAgentLauncher } from "./_components/web-agent-launcher";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -33,6 +34,7 @@ export default async function RootLayout({
     <SidebarProvider>
       <CalendarPreloader />
       <AppSidebar />
+      <WebAgentLauncher />
       <main className="-mt-26 flex min-h-[calc(100dvh-1.75rem)] max-h-screen min-w-0 w-full flex-col overflow-hidden">
         <PageHeader
           icon={<LayoutDashboard className="size-4 text-muted-foreground" />}

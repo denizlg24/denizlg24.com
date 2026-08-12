@@ -24,6 +24,7 @@ export function useDesktopAdmin(): {
       client: createDesktopAdminClient(settings.apiKey),
       platform: desktopPlatform,
       routes: {
+        dashboardRoot: "/dashboard",
         settings: "/dashboard/settings",
         markets: "/dashboard/markets",
         portfolios: "/dashboard/markets/portfolios",

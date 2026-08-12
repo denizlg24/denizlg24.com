@@ -11,6 +11,7 @@ import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import type {
   IEmailTriage,
+  TriageDetailResponse,
   TriageFilter,
   TriageListResponse,
   TriageUpdateInput,
@@ -113,11 +114,12 @@ export default function TriagePage() {
   const [pageIndex, setPageIndex] = useState(0);
   const [running, setRunning] = useState(false);
   const [archivingAll, setArchivingAll] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<IEmailTriage | null>(null);
   const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
   const loadedBlocksRef = useRef<Set<string>>(new Set());
   const inFlightBlocksRef = useRef<Set<string>>(new Set());
   const cacheGenerationRef = useRef(0);
+  const detailCacheRef = useRef<Map<string, TriageDetailResponse>>(new Map());
 
   const items = itemsByPage[pageIndex] ?? [];
   const currentPageLoading = loading && items.length === 0;
@@ -333,7 +335,7 @@ export default function TriagePage() {
     if (!api || filter === "archived") return;
 
     setArchivingAll(true);
-    setSelectedId(null);
+    setSelectedItem(null);
 
     const res = await api.PATCH<{
       ok: boolean;
@@ -374,12 +376,13 @@ export default function TriagePage() {
 
   // Selecting an item swaps the whole surface for the email, matching the
   // inbox's list/detail flow rather than overlaying a sheet.
-  if (api && selectedId) {
+  if (api && selectedItem) {
     return (
       <TriageDetail
         api={api}
-        triageId={selectedId}
-        onBack={() => setSelectedId(null)}
+        item={selectedItem}
+        detailCache={detailCacheRef}
+        onBack={() => setSelectedItem(null)}
         onChanged={() => refreshItems()}
       />
     );
@@ -438,7 +441,7 @@ export default function TriagePage() {
           value={filter}
           onValueChange={(value) => {
             if (isTriageFilter(value) && value !== filter) {
-              setSelectedId(null);
+              setSelectedItem(null);
               resetItemsCache();
               setPageIndex(0);
               setFilter(value);
@@ -493,9 +496,9 @@ export default function TriagePage() {
                 <TriageRow
                   key={item._id}
                   item={item}
-                  selected={item._id === selectedId}
+                  selected={item._id === selectedItem?._id}
                   busy={decidingIds.has(item._id)}
-                  onSelect={() => setSelectedId(item._id)}
+                  onSelect={() => setSelectedItem(item)}
                   onConfirm={() =>
                     void decideInline(item, {
                       category: item.category,

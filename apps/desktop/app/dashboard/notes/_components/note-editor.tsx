@@ -15,6 +15,7 @@ import {
 import { useTextareaEditor } from "@repo/ui/hooks/use-textarea-editor";
 import { Label } from "@repo/ui/label";
 import { MarkdownRenderer } from "@repo/ui/markdown-renderer";
+import { ModelSelector } from "@repo/ui/model-selector";
 import { Separator } from "@repo/ui/separator";
 import { Textarea } from "@repo/ui/textarea";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -42,7 +43,6 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { MarkdownPdfDocument } from "@/components/markdown/markdown-pdf-renderer";
-import { ModelSelector } from "@/components/ui/model-selector";
 import { useUserSettings } from "@/context/user-context";
 import { pickDefaultModel, useModelCatalog } from "@/hooks/use-model-catalog";
 import type { denizApi } from "@/lib/api-wrapper";

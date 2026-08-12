@@ -20,7 +20,10 @@
 **/*.pyc
 _archive
 coverage
-infra
+# Forge's scoped Nixpacks install layer copies every scripts directory it finds,
+# including infra/scripts and infra/compose/scripts. Keep those paths in the
+# build context; the generic .env rules below still exclude compose secrets.
+infra/systemd/*.env
 node_modules
 plans
 vendor

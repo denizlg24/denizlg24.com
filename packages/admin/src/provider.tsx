@@ -24,6 +24,8 @@ export interface AdminSlots {
 
 /** Where the host mounts shared multi-page features. */
 export interface AdminRoutes {
+  /** Root path accepted by agent navigation tools. */
+  dashboardRoot: string;
   /** Base path of the global settings pages, without a trailing slash. */
   settings: string;
   /** Full path of the markets dashboard, which finance links across to. */

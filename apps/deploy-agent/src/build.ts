@@ -149,6 +149,7 @@ const INSTALL_MANIFEST_FILES: ReadonlySet<string> = new Set([
   "Pipfile.lock",
   "poetry.lock",
   "pyproject.toml",
+  "prisma.config.ts",
   "requirements.txt",
   "setup.cfg",
   "setup.py",
@@ -158,6 +159,7 @@ const INSTALL_MANIFEST_FILES: ReadonlySet<string> = new Set([
 const INSTALL_MANIFEST_DIRECTORIES: ReadonlySet<string> = new Set([
   ".husky",
   "patches",
+  "prisma",
   "scripts",
 ]);
 
@@ -741,8 +743,9 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         contextDirectory,
         workingDirectory,
       );
+      const pythonWorkspace = await isPythonWorkspace(workingDirectory);
       const effectiveInstallCommand =
-        installCommand && (await isPythonWorkspace(workingDirectory))
+        installCommand && pythonWorkspace
           ? pythonInstallCommand(installCommand)
           : installCommand;
       const nixpacksEnv = {
@@ -823,7 +826,10 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
             "Bun installs share an HDD-backed cache; serializing install steps across builds",
           );
         }
-        if (options.scopeInstallCopy !== false) {
+        // Installing a Python project builds the project itself, so its module
+        // sources and readme are install inputs too. The manifest-only rewrite
+        // is safe for package-manager resolution, but not for `pip install .`.
+        if (options.scopeInstallCopy !== false && !pythonWorkspace) {
           const manifests = await collectInstallManifests(contextDirectory);
           const scoped = scopeInstallCopy(rewritten, manifests);
           if (scoped !== rewritten) {

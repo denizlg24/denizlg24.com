@@ -1,5 +1,5 @@
 import type { PlatformBridge } from "@repo/admin/platform";
-import { ModelSelector } from "@/components/ui/model-selector";
+import { ModelSelector } from "@repo/ui/model-selector";
 import { isTauri } from "./platform";
 import { saveFile } from "./platform-fs";
 

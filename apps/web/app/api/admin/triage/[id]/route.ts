@@ -1,12 +1,18 @@
 import { TRIAGE_CATEGORIES } from "@repo/schemas";
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { observeDomainRecordSafely } from "@/lib/agent-memory/domain-evidence";
 import { markEmailsSeen } from "@/lib/email";
 import { readEmailBody } from "@/lib/email-body-store";
 import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/require-admin";
+import {
+  recomputeTriageDerivation,
+  shouldRecomputeTriageDerivation,
+} from "@/lib/triage";
 import { EmailModel } from "@/models/Email";
 import { EmailTriageModel } from "@/models/EmailTriage";
+
+export const maxDuration = 300;
 
 const TRIAGE_USER_STATUSES = ["pending", "reviewed", "archived"] as const;
 
@@ -68,11 +74,13 @@ export async function GET(
   }
 
   if (!email.seen) {
-    try {
-      await markEmailsSeen([email._id]);
-    } catch (err) {
-      console.error("mark seen failed:", err);
-    }
+    after(async () => {
+      try {
+        await markEmailsSeen([email._id]);
+      } catch (err) {
+        console.error("mark seen failed:", err);
+      }
+    });
   }
 
   return NextResponse.json({
@@ -133,6 +141,7 @@ export async function PATCH(
   const payload = isRecord(body) ? body : {};
 
   const update: Record<string, unknown> = {};
+  let shouldDerive = false;
   if (isTriageUserStatus(payload.userStatus)) {
     update.userStatus = payload.userStatus;
   }
@@ -142,7 +151,7 @@ export async function PATCH(
 
   if (isTriageCategory(payload.category)) {
     const current = await EmailTriageModel.findById(id)
-      .select("category")
+      .select("category suggestedTasks.status suggestedEvents.status")
       .lean();
     if (!current) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -158,6 +167,13 @@ export async function PATCH(
       // A category override is a human verdict whether or not the caller said so.
       update.userStatus = update.userStatus ?? "reviewed";
       update.reviewRequired = false;
+      shouldDerive = shouldRecomputeTriageDerivation({
+        ...current,
+        category: payload.category,
+      });
+      if (shouldDerive) {
+        update.derivationStatus = "pending";
+      }
     }
   }
 
@@ -167,12 +183,16 @@ export async function PATCH(
 
   const clearsReviewReason =
     payload.userStatus === "reviewed" || update.reviewRequired === false;
+  const fieldsToUnset = [
+    ...(clearsReviewReason ? ["reviewReason"] : []),
+    ...(shouldDerive ? ["derivationError", "derivedAt"] : []),
+  ];
 
   const triage = await EmailTriageModel.findByIdAndUpdate(
     id,
     [
       { $set: update },
-      ...(clearsReviewReason ? [{ $unset: "reviewReason" }] : []),
+      ...(fieldsToUnset.length > 0 ? [{ $unset: fieldsToUnset }] : []),
     ],
     {
       returnDocument: "after",
@@ -184,6 +204,13 @@ export async function PATCH(
   ).lean();
   if (!triage) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (shouldDerive) {
+    after(() =>
+      recomputeTriageDerivation(id).catch((error) => {
+        console.error("triage derivation failed:", error);
+      }),
+    );
   }
   await observeDomainRecordSafely("email-triage", triage);
   return NextResponse.json({ ok: true });

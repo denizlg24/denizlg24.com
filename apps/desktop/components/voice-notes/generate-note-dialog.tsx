@@ -12,12 +12,12 @@ import {
   DialogTrigger,
 } from "@repo/ui/dialog";
 import { Label } from "@repo/ui/label";
+import { ModelSelector } from "@repo/ui/model-selector";
 import { Separator } from "@repo/ui/separator";
 import { Textarea } from "@repo/ui/textarea";
 import { FilePlus2, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ModelSelector } from "@/components/ui/model-selector";
 import { pickDefaultModel, useModelCatalog } from "@/hooks/use-model-catalog";
 import type { denizApi } from "@/lib/api-wrapper";
 
