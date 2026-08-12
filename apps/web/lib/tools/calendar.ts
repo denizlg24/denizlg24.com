@@ -197,8 +197,11 @@ export const calendarTools: ToolDefinition[] = [
       if (input.status) data.status = input.status;
       if (input.notifyBySlack !== undefined)
         data.notifyBySlack = input.notifyBySlack;
-      if (input.notifyBeforeMinutes !== undefined)
+      if (input.notifyBeforeMinutes !== undefined) {
         data.notifyBeforeMinutes = input.notifyBeforeMinutes;
+        data.notifyBySlack = true;
+      }
+
       if (input.links !== undefined) {
         const rawLinks = input.links as LinkInput;
         data.links = await Promise.all(
