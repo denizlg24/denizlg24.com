@@ -225,6 +225,20 @@
       "when": 1786449426890,
       "tag": "0031_deploy_target_pause",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1786571024533,
+      "tag": "0032_deploy_target_runtime",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786571056976,
+      "tag": "0033_deploy_target_drop_node_version",
+      "breakpoints": true
     }
   ]
 }

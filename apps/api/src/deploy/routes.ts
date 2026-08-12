@@ -112,7 +112,7 @@ import {
   githubInstallationEventSchema,
   githubPullRequestEventSchema,
   githubPushEventSchema,
-  isDeployNodeVersion,
+  isDeployRuntimeVersion,
   isSecretDeployBindingReference,
   isTerminalDeploymentStatus,
   linkEnvoyProjectInputSchema,
@@ -263,8 +263,12 @@ function serializeTarget(
     rootDirectory: target.rootDirectory,
     framework: target.framework,
     builder: target.builder,
-    nodeVersion: isDeployNodeVersion(target.nodeVersion)
-      ? target.nodeVersion
+    runtime: target.runtime,
+    runtimeVersion: isDeployRuntimeVersion(
+      target.runtime,
+      target.runtimeVersion,
+    )
+      ? target.runtimeVersion
       : null,
     dockerfilePath: target.dockerfilePath,
     installCommand: target.installCommand,
@@ -942,7 +946,8 @@ export function deployRoutes(options: DeployRouteOptions) {
             rootDirectory: input.rootDirectory ?? null,
             framework: input.framework ?? null,
             builder: input.builder,
-            nodeVersion: input.nodeVersion ?? null,
+            runtime: input.runtime ?? null,
+            runtimeVersion: input.runtimeVersion ?? null,
             dockerfilePath: input.dockerfilePath ?? null,
             installCommand: input.installCommand ?? null,
             buildCommand: input.buildCommand ?? null,
@@ -1174,6 +1179,29 @@ export function deployRoutes(options: DeployRouteOptions) {
         throw new ValidationError(
           "Memory ceiling must be at least the reservation",
           "INVALID_MEMORY_LIMIT",
+        );
+      }
+      // Zod checks the version against both lists; only here is it known which
+      // runtime it has to belong to. A patch that moves the runtime and leaves
+      // the version behind is rejected rather than half-applied — the resolver
+      // would fall back to a default and the form would then show a version
+      // nobody chose.
+      const nextRuntime =
+        parsed.data.runtime === undefined
+          ? target.runtime
+          : (parsed.data.runtime ?? null);
+      const nextRuntimeVersion =
+        parsed.data.runtimeVersion === undefined
+          ? target.runtimeVersion
+          : (parsed.data.runtimeVersion ?? null);
+      if (
+        nextRuntime !== null &&
+        nextRuntimeVersion !== null &&
+        !isDeployRuntimeVersion(nextRuntime, nextRuntimeVersion)
+      ) {
+        throw new ValidationError(
+          `${nextRuntimeVersion} is not a ${nextRuntime} version`,
+          "INVALID_RUNTIME_VERSION",
         );
       }
       if (parsed.data.name && parsed.data.name !== target.name) {
@@ -1988,8 +2016,12 @@ export function deployRoutes(options: DeployRouteOptions) {
           installCommand: target.installCommand,
           buildCommand: target.buildCommand,
           startCommand: target.startCommand,
-          nodeVersion: isDeployNodeVersion(target.nodeVersion)
-            ? target.nodeVersion
+          runtime: target.runtime,
+          runtimeVersion: isDeployRuntimeVersion(
+            target.runtime,
+            target.runtimeVersion,
+          )
+            ? target.runtimeVersion
             : null,
         },
       });
@@ -2010,8 +2042,9 @@ export function deployRoutes(options: DeployRouteOptions) {
         ...(resolved.startCommand.value
           ? { startCommand: resolved.startCommand.value }
           : {}),
-        ...(resolved.nodeVersion.value
-          ? { nodeVersion: resolved.nodeVersion.value }
+        ...(resolved.runtime.value ? { runtime: resolved.runtime.value } : {}),
+        ...(resolved.runtimeVersion.value
+          ? { runtimeVersion: resolved.runtimeVersion.value }
           : {}),
       };
     } catch (error) {

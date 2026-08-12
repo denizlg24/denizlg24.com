@@ -1,8 +1,12 @@
 import {
+  DEFAULT_BUN_VERSION,
   DEPLOY_NODE_VERSIONS,
   type DeployBuilder,
   type DeployNodeVersion,
   type DeployPreset,
+  type DeployRuntime,
+  type DeployRuntimeVersion,
+  isDeployRuntimeVersion,
   type RepoWorkspaceContext,
   type ResolvedBuildConfig,
 } from "@repo/schemas/cloud";
@@ -31,7 +35,8 @@ export interface DetectedBuildConfig {
   installCommand: string | null;
   buildCommand: string | null;
   startCommand: string | null;
-  nodeVersion: DeployNodeVersion | null;
+  runtime: DeployRuntime | null;
+  runtimeVersion: DeployRuntimeVersion | null;
   healthPath: string;
 }
 
@@ -43,7 +48,8 @@ export const UNKNOWN_FRAMEWORK: DetectedBuildConfig = {
   installCommand: null,
   buildCommand: null,
   startCommand: null,
-  nodeVersion: null,
+  runtime: null,
+  runtimeVersion: null,
   healthPath: "/",
 };
 
@@ -82,6 +88,31 @@ function detectNodeVersion(raw: string | undefined): DeployNodeVersion {
     DEPLOY_NODE_VERSIONS.find((version) => Number(version) >= wanted) ??
     NEWEST_NODE
   );
+}
+
+/**
+ * The lockfile decides, because it is the only signal present before anything
+ * is installed. It is wrong for the repository that installs with Bun and runs
+ * `node dist/index.js`, which is what the override is for.
+ */
+function detectRuntime(workspace: RepoWorkspaceContext): DeployRuntime {
+  return workspace.packageManager === "bun" ? "bun" : "node";
+}
+
+/**
+ * A Bun target is pinned rather than left unset, and that asymmetry with Node
+ * is the whole point of this field. Deferring to nixpacks on Node picks a
+ * plausible-but-wrong major; deferring on Bun picks 1.3.0 every time, because
+ * nixpacks hardcodes one nixpkgs commit for the `bun` package and has no
+ * version knob at all. Nothing about the resulting build says so.
+ */
+function defaultRuntimeVersion(
+  runtime: DeployRuntime,
+  enginesNode: string | undefined,
+): DeployRuntimeVersion {
+  return runtime === "bun"
+    ? DEFAULT_BUN_VERSION
+    : detectNodeVersion(enginesNode);
 }
 
 type PackageManager = RepoWorkspaceContext["packageManager"];
@@ -332,7 +363,8 @@ interface PresetOutput {
   installCommand: string | null;
   buildCommand: string | null;
   startCommand: string | null;
-  nodeVersion: DeployNodeVersion | null;
+  runtime: DeployRuntime | null;
+  runtimeVersion: DeployRuntimeVersion | null;
   healthPath: string;
 }
 
@@ -390,6 +422,7 @@ function nodePreset(
       context.names.has("package.json") && matches(context.pkg),
     resolve: (context) => {
       const { build, start } = commands(context);
+      const runtime = detectRuntime(context.workspace);
       return {
         builder: "nixpacks",
         dockerfilePath: null,
@@ -398,7 +431,8 @@ function nodePreset(
         installCommand: context.pm.install,
         buildCommand: build,
         startCommand: start,
-        nodeVersion: detectNodeVersion(context.pkg.enginesNode),
+        runtime,
+        runtimeVersion: defaultRuntimeVersion(runtime, context.pkg.enginesNode),
         healthPath: "/",
       };
     },
@@ -432,7 +466,8 @@ function pythonPreset(
         installCommand: inDirectory(context.dir, install),
         buildCommand: build,
         startCommand: start,
-        nodeVersion: null,
+        runtime: null,
+        runtimeVersion: null,
         healthPath: "/",
       };
     },
@@ -455,7 +490,8 @@ function barePreset(
       installCommand: null,
       buildCommand: null,
       startCommand: null,
-      nodeVersion: null,
+      runtime: null,
+      runtimeVersion: null,
       healthPath: "/",
       ...output,
     }),
@@ -482,7 +518,8 @@ const PRESETS: DeployPresetDefinition[] = [
       installCommand: null,
       buildCommand: null,
       startCommand: null,
-      nodeVersion: null,
+      runtime: null,
+      runtimeVersion: null,
       healthPath: "/",
     }),
   },
@@ -732,7 +769,8 @@ export interface BuildConfigOverrides {
   installCommand?: string | null;
   buildCommand?: string | null;
   startCommand?: string | null;
-  nodeVersion?: DeployNodeVersion | null;
+  runtime?: DeployRuntime | null;
+  runtimeVersion?: DeployRuntimeVersion | null;
   healthPath?: string | null;
 }
 
@@ -776,6 +814,27 @@ export async function resolveBuildConfig(
       ? overrides.builder
       : null;
 
+  const runtime = overlay(detected.runtime, overrides.runtime);
+  // A version belongs to a runtime, and the runtime can be overridden out from
+  // under it. Switching a target from Node to Bun leaves `"22"` in a column
+  // that now has to mean a Bun version, and detection's own answer is stale in
+  // exactly the same way. Either is replaced by the new runtime's default
+  // rather than carried across — for Bun that default is a real version, where
+  // dropping to null would hand the build back to nixpacks and its hardcoded
+  // 1.3.0.
+  const presetVersion =
+    runtime.value === null
+      ? null
+      : isDeployRuntimeVersion(runtime.value, detected.runtimeVersion)
+        ? detected.runtimeVersion
+        : defaultRuntimeVersion(runtime.value, undefined);
+  const runtimeVersion = overlay(
+    presetVersion,
+    isDeployRuntimeVersion(runtime.value, overrides.runtimeVersion)
+      ? overrides.runtimeVersion
+      : null,
+  );
+
   return {
     framework: detected.framework,
     frameworkLabel: detected.frameworkLabel,
@@ -784,7 +843,8 @@ export async function resolveBuildConfig(
     installCommand: overlay(detected.installCommand, overrides.installCommand),
     buildCommand: overlay(detected.buildCommand, overrides.buildCommand),
     startCommand: overlay(detected.startCommand, overrides.startCommand),
-    nodeVersion: overlay(detected.nodeVersion, overrides.nodeVersion),
+    runtime,
+    runtimeVersion,
     healthPath: overlay(detected.healthPath, overrides.healthPath),
   };
 }

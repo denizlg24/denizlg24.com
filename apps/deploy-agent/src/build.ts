@@ -118,6 +118,47 @@ export function serializeBunInstallSteps(dockerfile: string): string {
 }
 
 /**
+ * Where the overriding Bun lands. Ahead of the nix profile on PATH, and on a
+ * path nixpacks never writes to, so the copy is additive: the nix `bun` stays
+ * installed and simply loses.
+ */
+const BUN_OVERRIDE_DIR = "/usr/local/forge-bin";
+
+/**
+ * Replace the Bun nixpacks installed with the one the target asked for.
+ *
+ * Nixpacks resolves `bun` from a nixpkgs commit hardcoded in its own source
+ * (`BUN_NIXPKGS_ARCHIVE`), which is pinned to 1.3.0 and reachable by no
+ * environment variable — `NIXPACKS_BUN_VERSION` does not exist. Copying the
+ * binary out of the official image is therefore the only way to choose a
+ * version, and it is a cheap one: `oven/bun` is Debian-based like the nixpacks
+ * runtime image, so the binary's glibc and libstdc++ are already satisfied.
+ *
+ * The PATH edit is appended after the last `ENV PATH=` nixpacks writes rather
+ * than at the top of the file. Nixpacks assigns PATH outright in the setup
+ * phase, so an earlier export is overwritten by the time the install step
+ * runs.
+ */
+export function injectBunVersion(dockerfile: string, version: string): string {
+  const lines = dockerfile.split("\n");
+  const lastPath = lines.reduce(
+    (found, line, index) => (line.startsWith("ENV PATH=") ? index : found),
+    -1,
+  );
+  // No PATH assignment means this is not the Dockerfile shape this rewrite was
+  // written against. Leaving it alone builds with nixpacks' Bun, which is the
+  // behaviour that predates this function — a wrong-version build beats one
+  // that fails on a malformed Dockerfile.
+  if (lastPath === -1) return dockerfile;
+  return [
+    ...lines.slice(0, lastPath + 1),
+    `COPY --from=oven/bun:${version} /usr/local/bin/bun ${BUN_OVERRIDE_DIR}/bun`,
+    `ENV PATH=${BUN_OVERRIDE_DIR}:$PATH`,
+    ...lines.slice(lastPath + 1),
+  ].join("\n");
+}
+
+/**
  * Files that decide what a package manager installs. Anything here is copied
  * before the install step; everything else in the repository arrives after it.
  *
@@ -414,10 +455,11 @@ export function assertCommandsSupported(
     [
       ["installCommand", request.build.installCommand],
       ["buildCommand", request.build.buildCommand],
-      // A Dockerfile states its own base image. Accepting a Node version here
-      // and silently ignoring it is how someone spends an afternoon wondering
-      // why the selector does nothing.
-      ["nodeVersion", request.build.nodeVersion],
+      // A Dockerfile states its own base image, so it states its own runtime
+      // and version too. Accepting either here and silently ignoring it is how
+      // someone spends an afternoon wondering why the selector does nothing.
+      ["runtime", request.build.runtime],
+      ["runtimeVersion", request.build.runtimeVersion],
     ] as const
   )
     .filter(([, value]) => value !== undefined)
@@ -737,8 +779,15 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         onOutput: (chunk) => log.write(chunk),
       });
     } else {
-      const { installCommand, buildCommand, startCommand, nodeVersion } =
+      const { installCommand, buildCommand, startCommand, runtime } =
         request.build;
+      // The two runtimes take the version by different routes: Node's goes to
+      // nixpacks, which resolves it from a nixpkgs archive, while Bun's names
+      // an image tag copied over the top of what nixpacks installed.
+      const nodeVersion =
+        runtime === "bun" ? undefined : request.build.runtimeVersion;
+      const bunVersion =
+        runtime === "bun" ? request.build.runtimeVersion : undefined;
       const nixpacksConfig = await nixpacksConfigPath(
         contextDirectory,
         workingDirectory,
@@ -756,6 +805,12 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         ...buildEnv,
       };
       const usesExternalBuildkit = Boolean(options.buildkitEndpoint);
+      // Overriding Bun means editing the Dockerfile nixpacks generates, which
+      // only exists when it is asked to stop before building. That is already
+      // how the external-BuildKit path works; a host without one takes the
+      // same detour rather than going without the version it was told to use.
+      const generatesDockerfile =
+        usesExternalBuildkit || bunVersion !== undefined;
       const builderName = options.buildxBuilder ?? DEFAULT_BUILDER_NAME;
       if (usesExternalBuildkit) {
         const available = await ensureBuildxBuilder(exec, signal, {
@@ -775,7 +830,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
           ".",
           "--name",
           imageTag,
-          ...(usesExternalBuildkit ? ["--out", "."] : []),
+          ...(generatesDockerfile ? ["--out", "."] : []),
           // Scoped per target so two projects never poison each other's layers.
           "--cache-key",
           request.targetId,
@@ -801,7 +856,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         signal,
         onOutput: (chunk) => log.write(chunk),
       });
-      if (usesExternalBuildkit) {
+      if (generatesDockerfile) {
         // `nixpacks --out .` writes generated assets under `.nixpacks/` in
         // this disposable checkout without invoking Docker. The build context
         // must remain the repository root because the generated Dockerfile
@@ -839,36 +894,55 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
             );
           }
         }
+        if (bunVersion !== undefined) {
+          const injected = injectBunVersion(rewritten, bunVersion);
+          if (injected === rewritten) {
+            // Nixpacks changed the shape of what it emits. Saying so beats
+            // shipping an image that quietly runs whatever Bun nixpacks chose.
+            log.note(
+              `could not place bun ${bunVersion}: no PATH assignment in the generated Dockerfile; building with nixpacks' bun`,
+            );
+          } else {
+            rewritten = injected;
+            log.note(`bun ${bunVersion} copied from oven/bun over nixpacks'`);
+          }
+        }
         if (rewritten !== dockerfileContents) {
           await writeFile(generatedDockerfile, rewritten);
         }
-        await execOrThrow(exec, "docker buildx build", {
-          command: [
-            "docker",
-            "buildx",
-            "build",
-            "--builder",
-            builderName,
-            "--file",
-            join(".nixpacks", "Dockerfile"),
-            "--tag",
-            imageTag,
-            "--tag",
-            latestTag,
-            ...envFlags("--build-arg", nixpacksEnv),
-            // See the Dockerfile path above: this is a local hand-off, not a
-            // registry transfer, so compression only adds export latency.
-            "--output",
-            "type=docker,compression=uncompressed",
-            "--progress",
-            "plain",
-            ".",
-          ],
-          cwd: contextDirectory,
-          env: { ...nixpacksEnv, DOCKER_BUILDKIT: "1" },
-          signal,
-          onOutput: (chunk) => log.write(chunk),
-        });
+        await execOrThrow(
+          exec,
+          usesExternalBuildkit ? "docker buildx build" : "docker build",
+          {
+            command: [
+              "docker",
+              ...(usesExternalBuildkit
+                ? ["buildx", "build", "--builder", builderName]
+                : ["build"]),
+              "--file",
+              join(".nixpacks", "Dockerfile"),
+              "--tag",
+              imageTag,
+              "--tag",
+              latestTag,
+              ...envFlags("--build-arg", nixpacksEnv),
+              // See the Dockerfile path above: this is a local hand-off, not a
+              // registry transfer, so compression only adds export latency.
+              // Only buildx takes an exporter; plain `docker build` loads the
+              // image into the daemon it already built in.
+              ...(usesExternalBuildkit
+                ? ["--output", "type=docker,compression=uncompressed"]
+                : []),
+              "--progress",
+              "plain",
+              ".",
+            ],
+            cwd: contextDirectory,
+            env: { ...nixpacksEnv, DOCKER_BUILDKIT: "1" },
+            signal,
+            onOutput: (chunk) => log.write(chunk),
+          },
+        );
       } else {
         // Nixpacks tags one name; the moving tag is what makes the next build's
         // layer cache hit, so it is applied here rather than left to the builder.

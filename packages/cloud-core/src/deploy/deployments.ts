@@ -4,7 +4,7 @@ import {
   type DeploymentKind,
   type DeploymentStatus,
   type DeploymentStatusUpdate,
-  isDeployNodeVersion,
+  isDeployRuntimeVersion,
   isTerminalDeploymentStatus,
 } from "@repo/schemas/cloud";
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
@@ -86,8 +86,9 @@ export function buildSpecFromTarget(
     ...(target.installCommand ? { installCommand: target.installCommand } : {}),
     ...(target.buildCommand ? { buildCommand: target.buildCommand } : {}),
     ...(target.startCommand ? { startCommand: target.startCommand } : {}),
-    ...(isDeployNodeVersion(target.nodeVersion)
-      ? { nodeVersion: target.nodeVersion }
+    ...(target.runtime ? { runtime: target.runtime } : {}),
+    ...(isDeployRuntimeVersion(target.runtime, target.runtimeVersion)
+      ? { runtimeVersion: target.runtimeVersion }
       : {}),
   };
 }

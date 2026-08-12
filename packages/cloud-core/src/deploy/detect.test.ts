@@ -262,8 +262,8 @@ describe("detectBuildConfig", () => {
       }),
     );
 
-    expect(range.nodeVersion).toBe("20");
-    expect(undeclared.nodeVersion).toBe("22");
+    expect(range.runtimeVersion).toBe("20");
+    expect(undeclared.runtimeVersion).toBe("22");
   });
 
   it("honours an exact pin that is still offered", async () => {
@@ -277,7 +277,7 @@ describe("detectBuildConfig", () => {
       }),
     );
 
-    expect(detected.nodeVersion).toBe("24");
+    expect(detected.runtimeVersion).toBe("24");
   });
 
   it("rounds a pin newer than anything offered down to the newest", async () => {
@@ -291,7 +291,7 @@ describe("detectBuildConfig", () => {
       }),
     );
 
-    expect(detected.nodeVersion).toBe("24");
+    expect(detected.runtimeVersion).toBe("24");
   });
 
   it("leaves the version unset for stacks that have no Node", async () => {
@@ -305,10 +305,46 @@ describe("detectBuildConfig", () => {
       repo({ "": ["Dockerfile", "package.json"] }),
     );
 
-    expect(python.nodeVersion).toBeNull();
+    expect(python.runtimeVersion).toBeNull();
     // The agent refuses a Node version alongside a Dockerfile, which states
     // its own base image.
-    expect(dockerfile.nodeVersion).toBeNull();
+    expect(dockerfile.runtimeVersion).toBeNull();
+  });
+
+  it("reads the runtime off the lockfile and pins Bun to a real version", async () => {
+    const bun = await detectBuildConfig(
+      repo({
+        "": ["package.json", "bun.lock"],
+        "package.json": pkg({ dependencies: { next: "15.0.0" } }),
+      }),
+    );
+    const node = await detectBuildConfig(
+      repo({
+        "": ["package.json", "package-lock.json"],
+        "package.json": pkg({ dependencies: { next: "15.0.0" } }),
+      }),
+    );
+
+    expect(bun.runtime).toBe("bun");
+    // Not null: unset hands the choice back to nixpacks, which has no Bun
+    // version knob and resolves 1.3.0 from a hardcoded nixpkgs commit.
+    expect(bun.runtimeVersion).toBe("1.3.14");
+    expect(node.runtime).toBe("node");
+    expect(node.runtimeVersion).toBe("22");
+  });
+
+  it("ignores engines.node when the runtime is Bun", async () => {
+    const detected = await detectBuildConfig(
+      repo({
+        "": ["package.json", "bun.lock"],
+        "package.json": pkg({
+          engines: { node: "20" },
+          dependencies: { next: "15.0.0" },
+        }),
+      }),
+    );
+
+    expect(detected.runtimeVersion).toBe("1.3.14");
   });
 
   it("reports unknown for a directory it cannot read", async () => {
@@ -392,6 +428,44 @@ describe("resolveBuildConfig", () => {
     });
 
     expect(resolved.builder).toEqual({ value: "nixpacks", source: "preset" });
+  });
+
+  it("honours a pinned version for the runtime that will run", async () => {
+    const resolved = await resolveBuildConfig(tree, {
+      overrides: { runtimeVersion: "1.3.0" },
+    });
+
+    expect(resolved.runtime).toEqual({ value: "bun", source: "preset" });
+    expect(resolved.runtimeVersion).toEqual({
+      value: "1.3.0",
+      source: "override",
+    });
+  });
+
+  it("replaces a version stranded by a runtime override", async () => {
+    // The column still holds "22" from when this was a Node target. Carrying
+    // it across would ask the Bun path for a version that does not exist.
+    const resolved = await resolveBuildConfig(tree, {
+      overrides: { runtime: "node", runtimeVersion: "1.3.14" },
+    });
+
+    expect(resolved.runtime).toEqual({ value: "node", source: "override" });
+    expect(resolved.runtimeVersion).toEqual({ value: "22", source: "preset" });
+  });
+
+  it("moves the preset version to the overridden runtime's default", async () => {
+    const nodeRepo = repo({
+      "": ["package.json", "package-lock.json"],
+      "package.json": pkg({ dependencies: { next: "15.0.0" } }),
+    });
+    const resolved = await resolveBuildConfig(nodeRepo, {
+      overrides: { runtime: "bun" },
+    });
+
+    expect(resolved.runtimeVersion).toEqual({
+      value: "1.3.14",
+      source: "preset",
+    });
   });
 });
 
