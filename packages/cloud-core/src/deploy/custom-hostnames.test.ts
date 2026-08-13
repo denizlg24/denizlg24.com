@@ -97,6 +97,39 @@ describe("readCustomHostnameStatus", () => {
     ]);
   });
 
+  it("surfaces ownership and certificate records for TXT validation", () => {
+    const read = readCustomHostnameStatus({
+      status: "pending",
+      ownership_verification: {
+        type: "txt",
+        name: "_cf-custom-hostname.clientsite.com",
+        value: "ownership-token",
+      },
+      ssl: {
+        method: "txt",
+        status: "pending_validation",
+        validation_records: [
+          { txt_name: "_acme-challenge.clientsite.com", txt_value: "dv-token" },
+        ],
+      },
+    });
+
+    expect(read.verification.ownership).toEqual([
+      {
+        name: "_cf-custom-hostname.clientsite.com",
+        type: "TXT",
+        value: "ownership-token",
+      },
+    ]);
+    expect(read.verification.ssl).toEqual([
+      {
+        name: "_acme-challenge.clientsite.com",
+        type: "TXT",
+        value: "dv-token",
+      },
+    ]);
+  });
+
   it("carries a manual HTTP token in the same three columns", () => {
     const read = readCustomHostnameStatus({
       status: "pending",
@@ -156,6 +189,35 @@ describe("CloudflareCustomHostnameClient", () => {
     const body = calls[0]?.body as { ssl: { method: string; type: string } };
     expect(body.ssl.method).toBe("http");
     expect(body.ssl.type).toBe("dv");
+  });
+
+  it("can ask for TXT DV", async () => {
+    const { instance, calls } = client(() =>
+      envelope({
+        id: "ch1",
+        hostname: "www.clientsite.com",
+        status: "pending",
+        ownership_verification: {
+          name: "_cf-custom-hostname.clientsite.com",
+          value: "ownership-token",
+        },
+        // Some create responses omit the echoed method; the requested method
+        // must still govern which setup records are returned to the UI.
+        ssl: { status: "pending_validation" },
+      }),
+    );
+    const created = await instance.create("www.clientsite.com", "txt");
+
+    const body = calls[0]?.body as { ssl: { method: string; type: string } };
+    expect(body.ssl.method).toBe("txt");
+    expect(body.ssl.type).toBe("dv");
+    expect(created.verification.ownership).toEqual([
+      {
+        name: "_cf-custom-hostname.clientsite.com",
+        type: "TXT",
+        value: "ownership-token",
+      },
+    ]);
   });
 
   it("treats a hostname that is already gone as deleted", async () => {

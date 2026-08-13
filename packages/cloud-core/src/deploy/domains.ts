@@ -1,5 +1,6 @@
 import {
   assertDeployHostname,
+  type CustomHostnameSslMethod,
   type DeployDomainMode,
   type DeployDomainOrigin,
   type DeploymentKind,
@@ -138,6 +139,7 @@ export async function createDeployDomain(
     targetId: string;
     hostname: string;
     mode?: DeployDomainMode;
+    sslValidationMethod?: CustomHostnameSslMethod;
     origin?: DeployDomainOrigin;
     isPrimary?: boolean;
     redirectTo?: string | null;
@@ -162,6 +164,10 @@ export async function createDeployDomain(
       targetId: input.targetId,
       hostname,
       mode,
+      sslValidationMethod:
+        mode === "custom_hostname"
+          ? (input.sslValidationMethod ?? "http")
+          : null,
       // Manual unless the caller says otherwise: only target creation generates
       // a domain, and everything else reaching here was typed by the owner.
       origin: input.origin ?? "manual",
@@ -294,7 +300,10 @@ export async function provisionDeployDomain(
   }
 
   if (row.customHostnameId || !context.customHostnames) return row;
-  const created = await context.customHostnames.create(row.hostname);
+  const created = await context.customHostnames.create(
+    row.hostname,
+    row.sslValidationMethod ?? "http",
+  );
   const [updated] = await context.db
     .update(deployDomains)
     .set({
@@ -426,6 +435,7 @@ export async function renameDeployDomain(
   const created = await createDeployDomain(context, {
     targetId: row.targetId,
     hostname,
+    sslValidationMethod: row.sslValidationMethod ?? undefined,
     isPrimary: row.isPrimary,
     redirectTo: row.redirectTo,
   });

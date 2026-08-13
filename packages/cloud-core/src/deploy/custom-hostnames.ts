@@ -1,4 +1,5 @@
 import type {
+  CustomHostnameSslMethod,
   DeployDomainStatus,
   DomainVerificationRecords,
 } from "@repo/schemas/cloud";
@@ -50,19 +51,28 @@ function readString(value: unknown): string {
  * has quietly stalled on a record nobody was shown is the failure this whole
  * path exists to avoid.
  */
-export function readCustomHostnameStatus(result: Record<string, unknown>): {
+export function readCustomHostnameStatus(
+  result: Record<string, unknown>,
+  fallbackMethod: CustomHostnameSslMethod = "http",
+): {
   status: DeployDomainStatus;
   verification: DomainVerificationRecords;
 } {
   const hostnameStatus = readString(result.status);
   const ssl = readStrings(result.ssl);
   const sslStatus = readString(ssl.status);
+  const sslMethod = readString(ssl.method) || fallbackMethod;
 
-  // Deliberately not read. `ownership_verification` is the TXT alternative to
-  // pointing the hostname at us, and pointing it at us is not optional — no
-  // traffic reaches this platform otherwise. Showing the record made every
-  // external domain a two-step job for a step that was never load-bearing.
-  const ownershipRecords: DomainVerificationRecords["ownership"] = [];
+  // HTTP onboarding validates ownership through the CNAME the customer has to
+  // add anyway. TXT onboarding is the explicit pre-validation path, so expose
+  // the separate ownership token Cloudflare returns for that choice.
+  const ownership = readStrings(result.ownership_verification);
+  const ownershipName = readString(ownership.name);
+  const ownershipValue = readString(ownership.value);
+  const ownershipRecords: DomainVerificationRecords["ownership"] =
+    sslMethod === "txt" && ownershipName && ownershipValue
+      ? [{ name: ownershipName, type: "TXT", value: ownershipValue }]
+      : [];
 
   const validation = Array.isArray(ssl.validation_records)
     ? ssl.validation_records
@@ -184,43 +194,42 @@ export class CloudflareCustomHostnameClient {
     );
   }
 
-  #read(result: unknown): CustomHostname | null {
+  #read(
+    result: unknown,
+    fallbackMethod: CustomHostnameSslMethod = "http",
+  ): CustomHostname | null {
     const record = readStrings(result);
     if (typeof record.id !== "string") return null;
     return {
       id: record.id,
       hostname: readString(record.hostname),
-      ...readCustomHostnameStatus(record),
+      ...readCustomHostnameStatus(record, fallbackMethod),
     };
   }
 
   /**
-   * HTTP DCV, not TXT, and the difference is the whole onboarding flow. TXT
-   * validation asks the owner of the domain for two records before a
-   * certificate exists: the DV token and the CNAME. HTTP validation asks for
-   * the CNAME alone and then proves the domain over the connection that CNAME
-   * creates — Cloudflare serves the token from its own edge, so there is
-   * nothing to place at our origin either.
-   *
-   * The one requirement is that the hostname points at us and proxies through
-   * Cloudflare, which is exactly the state every working custom domain is in.
-   * Wildcards are the exception — they cannot use HTTP DCV at all — and this
-   * platform does not offer them.
+   * HTTP remains the one-record default: the CNAME sends the validation request
+   * through Cloudflare, so the owner has no separate certificate record to add.
+   * TXT is available for pre-validation and returns the ownership and DV tokens
+   * the dashboard carries to the owner's DNS provider alongside that CNAME.
    */
-  async create(hostname: string): Promise<CustomHostname> {
+  async create(
+    hostname: string,
+    method: CustomHostnameSslMethod = "http",
+  ): Promise<CustomHostname> {
     const { status, envelope } = await this.#request("/custom_hostnames", {
       method: "POST",
       body: JSON.stringify({
         hostname,
         ssl: {
-          method: "http",
+          method,
           type: "dv",
           settings: { min_tls_version: "1.2" },
         },
       }),
     });
     const created =
-      envelope.success === true ? this.#read(envelope.result) : null;
+      envelope.success === true ? this.#read(envelope.result, method) : null;
     if (!created) throw this.#fail("custom hostname create", status, envelope);
     return created;
   }

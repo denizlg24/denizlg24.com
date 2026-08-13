@@ -256,6 +256,15 @@ export const DEPLOY_DOMAIN_MODES = ["zone_record", "custom_hostname"] as const;
 export const deployDomainModeSchema = z.enum(DEPLOY_DOMAIN_MODES);
 export type DeployDomainMode = z.infer<typeof deployDomainModeSchema>;
 
+/** Certificate validation offered for Cloudflare for SaaS custom hostnames. */
+export const CUSTOM_HOSTNAME_SSL_METHODS = ["http", "txt"] as const;
+export const customHostnameSslMethodSchema = z.enum(
+  CUSTOM_HOSTNAME_SSL_METHODS,
+);
+export type CustomHostnameSslMethod = z.infer<
+  typeof customHostnameSslMethodSchema
+>;
+
 /**
  * Who asked for this domain. `mode` is the DNS mechanism and says nothing about
  * provenance — a hand-typed name in our own zone gets `zone_record` exactly like
@@ -1079,6 +1088,8 @@ export const createDeployDomainInputSchema = z.object({
    * is free and a custom hostname would spend quota for nothing.
    */
   mode: deployDomainModeSchema.optional(),
+  /** Only applies to external domains provisioned through Cloudflare for SaaS. */
+  sslValidationMethod: customHostnameSslMethodSchema.default("http"),
   isPrimary: z.boolean().default(false),
 });
 export type CreateDeployDomainInput = z.infer<

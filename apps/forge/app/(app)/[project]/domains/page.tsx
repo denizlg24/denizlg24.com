@@ -3,8 +3,10 @@
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
+import { Label } from "@repo/ui/label";
 import { Section } from "@repo/ui/section";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Switch } from "@repo/ui/switch";
 import { Search } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
@@ -26,6 +28,7 @@ export default function DomainsPage() {
   const [query, setQuery] = useState("");
   const [hostname, setHostname] = useState("");
   const [adding, setAdding] = useState(false);
+  const [useTxtValidation, setUseTxtValidation] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const act = useCallback(
@@ -49,6 +52,7 @@ export default function DomainsPage() {
     void act("Domain added", async () => {
       await api.deploy.addDomain(targetId, {
         hostname: hostname.trim(),
+        sslValidationMethod: useTxtValidation ? "txt" : "http",
         isPrimary: false,
       });
       setHostname("");
@@ -97,24 +101,45 @@ export default function DomainsPage() {
         </div>
 
         {adding ? (
-          <div className="flex flex-wrap items-center gap-2 border-b pb-4">
-            <Input
-              autoFocus
-              value={hostname}
-              placeholder="app.example.com"
-              className="max-w-sm font-mono text-xs"
-              onChange={(event) => setHostname(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !busy) submitHostname();
-              }}
-            />
-            <Button
-              size="sm"
-              disabled={busy || hostname.trim().length === 0}
-              onClick={submitHostname}
-            >
-              Add
-            </Button>
+          <div className="flex flex-col gap-3 border-b pb-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                autoFocus
+                value={hostname}
+                placeholder="app.example.com"
+                className="max-w-sm font-mono text-xs"
+                onChange={(event) => setHostname(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !busy) submitHostname();
+                }}
+              />
+              <Button
+                size="sm"
+                disabled={busy || hostname.trim().length === 0}
+                onClick={submitHostname}
+              >
+                Add
+              </Button>
+            </div>
+            <div className="flex items-start gap-2">
+              <Switch
+                id="domain-txt-validation"
+                size="sm"
+                checked={useTxtValidation}
+                disabled={busy}
+                onCheckedChange={setUseTxtValidation}
+              />
+              <div className="flex flex-col gap-0.5">
+                <Label htmlFor="domain-txt-validation" className="text-xs">
+                  Use TXT certificate validation
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {useTxtValidation
+                    ? "Add the CNAME and TXT records shown after creation."
+                    : "Add one CNAME; Cloudflare validates the certificate over HTTP."}
+                </p>
+              </div>
+            </div>
           </div>
         ) : null}
 

@@ -2808,6 +2808,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         targetId: target.id,
         hostname: parsed.data.hostname,
         mode: parsed.data.mode,
+        sslValidationMethod: parsed.data.sslValidationMethod,
         isPrimary: parsed.data.isPrimary,
       });
       // A custom hostname is not routable until it validates, so there is

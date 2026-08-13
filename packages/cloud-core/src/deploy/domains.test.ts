@@ -153,6 +153,7 @@ describe("supersedeGeneratedDomains", () => {
       zoneId: null,
       dnsRecordId: null,
       customHostnameId: "ch-1",
+      sslValidationMethod: "http",
       status,
       verification: null,
       lastCheckedAt: null,

@@ -7,6 +7,7 @@ import {
   ALERT_COMPARISONS,
   ALERT_RULE_STATES,
   ALERT_RULE_UNITS,
+  CUSTOM_HOSTNAME_SSL_METHODS,
   DEPLOY_BUILDERS,
   DEPLOY_DOMAIN_MODES,
   DEPLOY_DOMAIN_ORIGINS,
@@ -176,6 +177,10 @@ export const deployDomainStatusEnum = pgEnum(
 export const deployDomainOriginEnum = pgEnum(
   "deploy_domain_origin",
   DEPLOY_DOMAIN_ORIGINS,
+);
+export const customHostnameSslMethodEnum = pgEnum(
+  "custom_hostname_ssl_method",
+  CUSTOM_HOSTNAME_SSL_METHODS,
 );
 
 export interface FieldMapping {
@@ -1430,6 +1435,8 @@ export const deployDomains = pgTable(
     zoneId: varchar("zone_id", { length: 64 }),
     dnsRecordId: varchar("dns_record_id", { length: 64 }),
     customHostnameId: varchar("custom_hostname_id", { length: 64 }),
+    /** Null for managed-zone records; existing custom hostnames default to HTTP. */
+    sslValidationMethod: customHostnameSslMethodEnum("ssl_validation_method"),
     status: deployDomainStatusEnum("status").notNull().default("pending"),
     verification: jsonb("verification").$type<DomainVerificationRecords>(),
     lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
