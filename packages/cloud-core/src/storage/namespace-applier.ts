@@ -63,7 +63,7 @@ export async function applyWatchedPaths(
   };
   if (paths.length === 0) return outcome;
 
-  const removals: ReconcilePlan["reap"] = [];
+  const removals = new Map<string, ReconcilePlan["reap"][number]>();
   let branchesIntact: boolean | null = null;
 
   for (const relativePath of paths) {
@@ -96,8 +96,8 @@ export async function applyWatchedPaths(
         outcome.upserted += 1;
         continue;
       }
-      const row = await repository.findByPath(relativePath);
-      if (!row) continue;
+      const subtree = await repository.findSubtreeByPath(relativePath);
+      if (subtree.length === 0) continue;
       // Resolved once per batch, not per path: it is a fixed cost that would
       // otherwise scale with the size of a bulk delete.
       branchesIntact ??=
@@ -106,7 +106,7 @@ export async function applyWatchedPaths(
         outcome.withheld += 1;
         continue;
       }
-      removals.push(row);
+      for (const row of subtree) removals.set(row.id, row);
       continue;
     }
 
@@ -118,16 +118,16 @@ export async function applyWatchedPaths(
     outcome.upserted += 1;
   }
 
-  if (removals.length > 0) {
+  if (removals.size > 0) {
     // Reuses the scan's deletion path so folder ordering and the refusal to
     // delete a folder that still has children apply identically here.
     await repository.applyReapPlan({
       candidates: [],
       clearedCandidates: [],
-      reap: removals,
+      reap: [...removals.values()],
       withheld: [],
     });
-    outcome.removed = removals.length;
+    outcome.removed = removals.size;
   }
   return outcome;
 }

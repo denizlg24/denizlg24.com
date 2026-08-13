@@ -92,21 +92,35 @@ export function createProjectionRepository(db: Database): ProjectionRepository {
       return row?.generation ?? null;
     },
 
-    async findByPath(relativePath: string): Promise<ProjectedRow | null> {
+    async findSubtreeByPath(relativePath: string): Promise<ProjectedRow[]> {
       const path = absolutePath(relativePath);
-      const [file] = await db
-        .select({ id: files.id })
-        .from(files)
-        .where(eq(files.path, path))
-        .limit(1);
-      if (file) return { id: file.id, kind: "file", relativePath };
-      const [folder] = await db
-        .select({ id: folders.id })
-        .from(folders)
-        .where(eq(folders.path, path))
-        .limit(1);
-      if (folder) return { id: folder.id, kind: "folder", relativePath };
-      return null;
+      const descendantPrefix = path === "/" ? "/" : `${path}/`;
+      // `LIKE` would need escaping for perfectly valid `%` and `_` filename
+      // characters. Comparing the literal prefix keeps those paths exact.
+      const atOrBelow = <T>(column: T) =>
+        sql`${column} = ${path} OR left(${column}, ${descendantPrefix.length}) = ${descendantPrefix}`;
+      const [fileRows, folderRows] = await Promise.all([
+        db
+          .select({ id: files.id, path: files.path })
+          .from(files)
+          .where(atOrBelow(files.path)),
+        db
+          .select({ id: folders.id, path: folders.path })
+          .from(folders)
+          .where(atOrBelow(folders.path)),
+      ]);
+      return [
+        ...fileRows.map((row) => ({
+          id: row.id,
+          kind: "file" as const,
+          relativePath: row.path.replace(/^\//, ""),
+        })),
+        ...folderRows.map((row) => ({
+          id: row.id,
+          kind: "folder" as const,
+          relativePath: row.path.replace(/^\//, ""),
+        })),
+      ];
     },
 
     async nextGeneration(): Promise<number> {

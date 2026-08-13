@@ -98,11 +98,12 @@ function repository(
       );
       if (index >= 0) problems.splice(index, 1);
     },
-    async findByPath(relativePath) {
-      return (
-        (overrides.rows ?? []).find(
-          (row) => row.relativePath === relativePath,
-        ) ?? null
+    async findSubtreeByPath(relativePath) {
+      const prefix = `${relativePath}/`;
+      return (overrides.rows ?? []).filter(
+        (row) =>
+          row.relativePath === relativePath ||
+          row.relativePath.startsWith(prefix),
       );
     },
     async lastCompleteGeneration() {

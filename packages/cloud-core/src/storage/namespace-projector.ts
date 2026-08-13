@@ -17,8 +17,14 @@ export interface NamespaceSource {
 }
 
 export interface ProjectionRepository {
-  /** One projected row by namespace-relative path, for watcher-driven updates. */
-  findByPath(relativePath: string): Promise<ProjectedRow | null>;
+  /**
+   * A projected row and everything below it, for watcher-driven removals.
+   *
+   * A directory unlink is normally reported as one watched path. Returning
+   * only the directory would leave all of its projected children behind and
+   * make the repository's non-cascading deletion guard refuse the folder.
+   */
+  findSubtreeByPath(relativePath: string): Promise<ProjectedRow[]>;
   nextGeneration(): Promise<number>;
   lastCompleteGeneration(): Promise<number | null>;
   projectedRows(): Promise<ProjectedRow[]>;

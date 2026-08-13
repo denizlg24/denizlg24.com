@@ -62,10 +62,12 @@ function harness(options: {
     async applyReapPlan(plan: ReconcilePlan) {
       reaped = plan;
     },
-    async findByPath(relativePath: string) {
-      return (
-        (options.rows ?? []).find((row) => row.relativePath === relativePath) ??
-        null
+    async findSubtreeByPath(relativePath: string) {
+      const prefix = `${relativePath}/`;
+      return (options.rows ?? []).filter(
+        (row) =>
+          row.relativePath === relativePath ||
+          row.relativePath.startsWith(prefix),
       );
     },
     async upsertFile(value: NamespaceEntry) {
@@ -115,6 +117,39 @@ describe("applying watched paths", () => {
     );
     expect(outcome.removed).toBe(1);
     expect(context.reaped?.reap).toHaveLength(1);
+  });
+
+  it("removes the projected subtree when a populated folder is absent", async () => {
+    const context = harness({
+      rows: [
+        { id: "folder-mutts", kind: "folder", relativePath: "MUTTS/mutts.pt" },
+        {
+          id: "folder-modules",
+          kind: "folder",
+          relativePath: "MUTTS/mutts.pt/node_modules",
+        },
+        {
+          id: "file-pagination",
+          kind: "file",
+          relativePath:
+            "MUTTS/mutts.pt/node_modules/@nextui-org/use-pagination/dist/index.mjs",
+        },
+        { id: "file-other", kind: "file", relativePath: "MUTTS/keep.txt" },
+      ],
+    });
+
+    const outcome = await applyWatchedPaths(
+      context.source,
+      context.repository,
+      ["MUTTS/mutts.pt"],
+    );
+
+    expect(outcome.removed).toBe(3);
+    expect(context.reaped?.reap.map((row) => row.id).sort()).toEqual([
+      "file-pagination",
+      "folder-modules",
+      "folder-mutts",
+    ]);
   });
 
   it("never removes a row for a path it merely failed to read", async () => {
