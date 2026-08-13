@@ -62,6 +62,8 @@ import { storageRoutes, storageSearchRoutes } from "./storage/routes";
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_REQUESTS = 10;
 const SIGNUP_MAX_REQUESTS = 5;
+const PREVIEW_AUTH_WINDOW_MS = 60 * 1_000;
+const PREVIEW_AUTH_MAX_REQUESTS = 1_200;
 // Outside production clientIp() collapses to one key, so the whole machine
 // shares a single bucket and a normal debugging session exhausts it. The
 // production ceilings are the ones that matter and are left untouched.
@@ -304,6 +306,16 @@ export function createCloudApiApp(options: CloudApiOptions) {
 
   const previewAccess = options.previewAccess;
   if (previewAccess) {
+    app.use(
+      "/api/forge-preview-auth",
+      rateLimit({
+        keyGenerator: (context) =>
+          `preview-auth:${clientIp(context, options.isProduction)}`,
+        max: PREVIEW_AUTH_MAX_REQUESTS,
+        store: options.rateLimitStore,
+        windowMs: PREVIEW_AUTH_WINDOW_MS,
+      }),
+    );
     app.get("/api/forge-preview-auth", (context) =>
       authorizePreviewRequest(context.req.raw, {
         auth: options.auth,

@@ -196,7 +196,7 @@ function proxyHandler(upstream: string): Record<string, unknown> {
             },
             {
               search_regexp:
-                "^(__Host-forge-preview-share)=[^;]*|;[ \\t]*(__Host-forge-preview-share)=[^;]*",
+                "^(__Host-forge-preview-(share|auth-seen))=[^;]*|;[ \\t]*(__Host-forge-preview-(share|auth-seen))=[^;]*",
               replace: "",
             },
             {
@@ -222,16 +222,21 @@ function proxyHandler(upstream: string): Record<string, unknown> {
 function previewAuthHandler(authUrl: string): Record<string, unknown> {
   const url = new URL(authUrl);
   const port = url.port || (url.protocol === "https:" ? "443" : "80");
+  const transport = {
+    protocol: "http",
+    dial_timeout: "3s",
+    response_header_timeout: "5s",
+    ...(url.protocol === "https:" ? { tls: {} } : {}),
+  };
   return {
     handler: "reverse_proxy",
     upstreams: [{ dial: `${url.hostname}:${port}` }],
-    ...(url.protocol === "https:"
-      ? { transport: { protocol: "http", tls: {} } }
-      : {}),
+    transport,
     rewrite: { method: "GET", uri: `${url.pathname}${url.search}` },
     headers: {
       request: {
         set: {
+          "X-Forwarded-Host": ["{http.request.host}"],
           "X-Forwarded-Method": ["{http.request.method}"],
           "X-Forwarded-Uri": ["{http.request.uri}"],
         },
@@ -661,16 +666,27 @@ export class CaddyRouter implements RouteManager {
       return 0;
     }
 
-    const unresolved = entries.filter(
-      (entry) => entry?.deploymentId && !entry.kind,
+    this.#entries.clear();
+    for (const entry of entries) {
+      if (!entry?.deploymentId) continue;
+      this.#entries.set(entry.deploymentId, entry);
+      this.#claimHostnames(entry);
+    }
+    await this.#serialise(() => this.#apply());
+
+    const unresolved = [...this.#entries.values()].filter(
+      (entry) => !entry.kind,
     );
     if (unresolved.length > 0 && this.#options.resolveDeploymentKinds) {
       try {
         const kinds = await this.#options.resolveDeploymentKinds(
           unresolved.map((entry) => entry.deploymentId),
         );
-        for (const entry of unresolved)
+        for (const entry of unresolved) {
           entry.kind = kinds.get(entry.deploymentId);
+        }
+        // Re-apply so known production routes stop paying for the auth hop.
+        await this.#serialise(() => this.#apply());
       } catch (error) {
         // Unknown entries remain protected and the gateway resolves their kind
         // per request. A control-plane blip at boot must not reopen previews.
@@ -679,15 +695,6 @@ export class CaddyRouter implements RouteManager {
         });
       }
     }
-
-    this.#entries.clear();
-    for (const entry of entries) {
-      if (!entry?.deploymentId) continue;
-      this.#entries.set(entry.deploymentId, entry);
-      this.#claimHostnames(entry);
-    }
-    await this.#serialise(() => this.#apply());
-    if (unresolved.length > 0) await this.#persist();
     return this.#entries.size;
   }
 

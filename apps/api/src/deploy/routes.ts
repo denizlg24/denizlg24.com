@@ -134,6 +134,7 @@ import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { invalidatePreviewDeploymentCache } from "../forge/preview-auth";
 import { requireAgentToken } from "./agent-auth";
 import type { GithubSurfaces } from "./github-surfaces";
 import type { ForgeOps } from "./ops";
@@ -2772,6 +2773,7 @@ export function deployRoutes(options: DeployRouteOptions) {
       const row = await loadDeployment(context.req.param("id"));
       await agentProxy.delete(`/deployments/${row.id}`).catch(() => {});
       await forge.releaseDeployment(row);
+      invalidatePreviewDeploymentCache(db, row.hostname);
       await db.delete(deployments).where(eq(deployments.id, row.id));
       return context.json({ data: { id: row.id } });
     } catch (error) {
@@ -2981,6 +2983,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         404,
       );
     }
+    invalidatePreviewDeploymentCache(db, updated.hostname);
     if (updated.status === "ready") {
       await forge.releaseSuperseded(
         await supersedeOlderDeployments(db, {
@@ -3316,6 +3319,7 @@ export function deployRoutes(options: DeployRouteOptions) {
     for (const row of rows) {
       await agentProxy.delete(`/deployments/${row.id}`).catch(() => {});
       await forge.releaseDeployment(row);
+      invalidatePreviewDeploymentCache(db, row.hostname);
       await db.delete(deployments).where(eq(deployments.id, row.id));
     }
     return rows.length;

@@ -12,6 +12,12 @@ describe("safePreviewReturnTo", () => {
   });
 
   it("rejects external, credentialed, and stable hostnames", () => {
+    expect(
+      safePreviewReturnTo("http://my-app-feature-abc123.denizlg24.com/"),
+    ).toBeNull();
+    expect(
+      safePreviewReturnTo("https://my-app-feature-abc123.denizlg24.com:8443/"),
+    ).toBeNull();
     expect(safePreviewReturnTo("https://example.com/")).toBeNull();
     expect(
       safePreviewReturnTo(

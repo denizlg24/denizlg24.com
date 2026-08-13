@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   authorizePreviewRequest,
+  PREVIEW_AUTH_SEEN_COOKIE,
   PREVIEW_SHARE_COOKIE,
   type PreviewAuthorizationOptions,
 } from "./preview-auth";
@@ -20,6 +21,9 @@ function options(
     account?: unknown;
   } = {},
 ): PreviewAuthorizationOptions {
+  let grant:
+    | { deploymentId: string; expiresAt: Date | null; revokedAt: null }
+    | undefined;
   return {
     auth: {
       api: { getSession: async () => input.session ?? null },
@@ -29,8 +33,17 @@ function options(
         deployments: {
           findFirst: async () => ({ id: ID, kind: input.kind ?? "preview" }),
         },
+        previewShareGrants: { findFirst: async () => grant },
         users: { findFirst: async () => input.account ?? null },
       },
+      insert: () => ({
+        values: async (value: {
+          deploymentId: string;
+          expiresAt: Date | null;
+        }) => {
+          grant = { ...value, revokedAt: null };
+        },
+      }),
     },
     loginUrl: "https://forge.denizlg24.com/login",
     secret: SECRET,
@@ -50,16 +63,21 @@ function request(uri: string, cookie?: string): Request {
 
 describe("preview forward auth", () => {
   it("exchanges a scoped token for a host-only cookie and clean URL", async () => {
-    const token = generatePreviewShareToken(ID, "7d", SECRET, NOW);
+    const authOptions = options();
+    const token = await generatePreviewShareToken(
+      authOptions.db,
+      ID,
+      "7d",
+      SECRET,
+      NOW,
+    );
     const response = await authorizePreviewRequest(
       request(`/docs?keep=1&__forge_share=${token}`),
-      options(),
+      authOptions,
     );
 
-    expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe(
-      `https://${HOST}/docs?keep=1`,
-    );
+    expect(response.status).toBe(401);
+    expect(await response.text()).toContain("Authenticating");
     expect(response.headers.get("set-cookie")).toContain(
       `${PREVIEW_SHARE_COOKIE}=${token}`,
     );
@@ -68,36 +86,109 @@ describe("preview forward auth", () => {
   });
 
   it("accepts the exchanged share cookie on later paths", async () => {
-    const token = generatePreviewShareToken(ID, "7d", SECRET, NOW);
+    const authOptions = options();
+    const token = await generatePreviewShareToken(
+      authOptions.db,
+      ID,
+      "7d",
+      SECRET,
+      NOW,
+    );
     const response = await authorizePreviewRequest(
       request("/assets/app.js", `${PREVIEW_SHARE_COOKIE}=${token}`),
-      options(),
+      authOptions,
     );
     expect(response.status).toBe(204);
   });
 
   it("rejects a token minted for a different deployment", async () => {
-    const token = generatePreviewShareToken(OTHER_ID, "7d", SECRET, NOW);
+    const authOptions = options();
+    const token = await generatePreviewShareToken(
+      authOptions.db,
+      OTHER_ID,
+      "7d",
+      SECRET,
+      NOW,
+    );
     const response = await authorizePreviewRequest(
       request(`/?__forge_share=${token}`),
-      options(),
+      authOptions,
     );
     expect(response.status).toBe(403);
   });
 
   it("returns unauthenticated visitors to the exact preview URL after login", async () => {
     const response = await authorizePreviewRequest(
-      request("/docs?tab=api"),
+      request("/docs?tab=api", `${PREVIEW_AUTH_SEEN_COOKIE}=1`),
       options(),
     );
-    const location = new URL(response.headers.get("location") ?? "");
-    expect(response.status).toBe(302);
-    expect(location.origin + location.pathname).toBe(
-      "https://forge.denizlg24.com/login",
+    const body = await response.text();
+    expect(response.status).toBe(401);
+    expect(body).toContain("Authentication required.");
+    expect(body).toContain("https://forge.denizlg24.com/login");
+    expect(body).toContain(
+      encodeURIComponent(`https://${HOST}/docs?tab=api`).replaceAll("%", "%"),
     );
-    expect(location.searchParams.get("returnTo")).toBe(
-      `https://${HOST}/docs?tab=api`,
+  });
+
+  it("shows a one-time authentication splash before checking a session", async () => {
+    const response = await authorizePreviewRequest(request("/"), options());
+    expect(response.status).toBe(401);
+    expect(response.headers.get("set-cookie")).toContain(
+      `${PREVIEW_AUTH_SEEN_COOKIE}=1`,
     );
+    expect(await response.text()).toContain("Checking preview access…");
+  });
+
+  it("accepts only a current, MFA-enabled superuser session", async () => {
+    const activeSession = {
+      session: { expiresAt: new Date(NOW + 1_000) },
+      user: {
+        id: "user-1",
+        status: "active",
+        twoFactorEnabled: true,
+      },
+    };
+    const account = {
+      role: "superuser",
+      status: "active",
+      totpEnabled: true,
+    };
+    const cookie = `${PREVIEW_AUTH_SEEN_COOKIE}=1`;
+
+    expect(
+      (
+        await authorizePreviewRequest(
+          request("/", cookie),
+          options({ session: activeSession, account }),
+        )
+      ).status,
+    ).toBe(204);
+    expect(
+      (
+        await authorizePreviewRequest(
+          request("/", cookie),
+          options({
+            session: activeSession,
+            account: { ...account, role: "user" },
+          }),
+        )
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await authorizePreviewRequest(
+          request("/", cookie),
+          options({
+            session: {
+              ...activeSession,
+              session: { expiresAt: new Date(NOW - 1) },
+            },
+            account,
+          }),
+        )
+      ).status,
+    ).toBe(401);
   });
 
   it("lets production through when upgrading legacy Caddy state", async () => {

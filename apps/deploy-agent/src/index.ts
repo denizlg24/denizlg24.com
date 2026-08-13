@@ -58,7 +58,10 @@ const caddy = new CaddyRouter({
   adminUrl: config.caddyAdminUrl,
   listen: config.caddyListen,
   accessLogRoot: config.accessLogRoot,
-  previewAuthUrl: `${config.controlPlaneUrl}/api/forge-preview-auth`,
+  previewAuthUrl: new URL(
+    "/api/forge-preview-auth",
+    config.controlPlaneUrl,
+  ).toString(),
   resolveDeploymentKinds: (deploymentIds) =>
     controlPlane.deploymentKinds(deploymentIds),
   logger,

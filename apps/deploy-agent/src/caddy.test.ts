@@ -259,6 +259,8 @@ describe("buildCaddyConfig", () => {
       handler: string;
       rewrite?: { method: string; uri: string };
       upstreams?: { dial: string }[];
+      transport?: Record<string, unknown>;
+      headers?: { request: { set: Record<string, string[]> } };
       handle_response?: { match: { status_code: number[] } }[];
     }[];
 
@@ -272,6 +274,15 @@ describe("buildCaddyConfig", () => {
       uri: "/api/forge-preview-auth",
     });
     expect(handlers[0]?.upstreams).toEqual([{ dial: "api.denizlg24.com:443" }]);
+    expect(handlers[0]?.transport).toEqual({
+      protocol: "http",
+      dial_timeout: "3s",
+      response_header_timeout: "5s",
+      tls: {},
+    });
+    expect(handlers[0]?.headers?.request.set["X-Forwarded-Host"]).toEqual([
+      "{http.request.host}",
+    ]);
     expect(handlers[0]?.handle_response?.[0]?.match.status_code).toEqual([2]);
   });
 
@@ -486,10 +497,10 @@ describe("buildCaddyConfig", () => {
     expect(replacements).toHaveLength(3);
     expect(replacements[0]?.search_regexp).toContain("deniz-cloud");
     expect(replacements[1]?.search_regexp).toContain(
-      "__Host-forge-preview-share",
+      "__Host-forge-preview-(share|auth-seen)",
     );
     let cookies =
-      "__Secure-deniz-cloud.session_token=secret; deniz-cloud.two_factor=challenge; __Host-forge-preview-share=share; app_session=keep; theme=dark";
+      "__Secure-deniz-cloud.session_token=secret; deniz-cloud.two_factor=challenge; __Host-forge-preview-share=share; __Host-forge-preview-auth-seen=1; app_session=keep; theme=dark";
     for (const replacement of replacements) {
       cookies = cookies.replace(
         new RegExp(replacement.search_regexp, "g"),
@@ -780,7 +791,7 @@ describe("CaddyRouter", () => {
     });
   });
 
-  it("upgrades kind-less persisted routes before replaying them", async () => {
+  it("replays kind-less routes before resolving and upgrading them", async () => {
     await withTempDir(async (dir) => {
       const statePath = join(dir, "caddy", "config.json");
       await mkdir(join(dir, "caddy"), { recursive: true });
@@ -802,16 +813,20 @@ describe("CaddyRouter", () => {
         fetchImplementation: caddy.implementation,
         resolveDeploymentKinds: async (ids) => {
           requested.push(ids);
-          return new Map([["dep-preview", "preview"]]);
+          return new Map([["dep-preview", "production"]]);
         },
       });
 
       expect(await instance.restore()).toBe(1);
       expect(requested).toEqual([["dep-preview"]]);
-      expect(instance.routes()[0]?.kind).toBe("preview");
+      expect(instance.routes()[0]?.kind).toBe("production");
+      expect(caddy.loads).toHaveLength(2);
       expect(
         caddy.loads[0]?.apps.http.servers.forge?.routes[0]?.handle[0]?.handler,
       ).toBe("reverse_proxy");
+      expect(
+        caddy.loads[1]?.apps.http.servers.forge?.routes[0]?.handle[0]?.handler,
+      ).toBe("headers");
     });
   });
 

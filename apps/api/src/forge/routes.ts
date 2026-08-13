@@ -442,7 +442,8 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
     }
     return context.json({
       data: {
-        token: generatePreviewShareToken(
+        token: await generatePreviewShareToken(
+          options.db,
           deployment.id,
           input.data.expiresIn,
           options.previewShareSecret,
