@@ -102,6 +102,21 @@ export type DeployBunVersion = z.infer<typeof deployBunVersionSchema>;
 /** What a Bun target gets when it has not pinned one. */
 export const DEFAULT_BUN_VERSION: DeployBunVersion = "1.3.14";
 
+/**
+ * The Node a Bun target gets anyway.
+ *
+ * Nixpacks builds a Bun project with its Node provider, so `nodejs` is in the
+ * nix environment either way — and its default is 18, which the nixpkgs commit
+ * nixpacks pins no longer contains at all. A Bun target has no field to say
+ * otherwise, so without this every Bun build dies in the same nix evaluation
+ * trace the comment on `DEPLOY_NODE_VERSIONS` describes, before Bun is reached.
+ *
+ * It is not offered in the UI. A repository that cares which Node runs its
+ * build is a Node target wearing a `bun.lock`, and `runtime` is the field for
+ * saying so.
+ */
+export const DEFAULT_BUN_NODE_VERSION: DeployNodeVersion = "22";
+
 export const deployRuntimeVersionSchema = z.union([
   deployNodeVersionSchema,
   deployBunVersionSchema,

@@ -290,9 +290,24 @@ export const api = {
       buildUrl(`/api/storage/download-archive/${id}/download`).toString(),
   },
 
-  /** Fetches a file body directly — used by the text/code/pdf previews. */
-  fetchFile: (url: string, signal?: AbortSignal): Promise<Response> =>
-    fetch(url, { credentials: "include", signal }).then(async (response) => {
+  /**
+   * Fetches a file body directly — used by the text/code/pdf previews.
+   *
+   * `maxBytes` asks for a leading range instead of the whole body, which is how
+   * the unknown-type probe reads enough of a file to tell text from binary
+   * without pulling a gigabyte through the browser. A 206 is a success here; a
+   * server that ignores the range simply answers 200 with everything.
+   */
+  fetchFile: (
+    url: string,
+    signal?: AbortSignal,
+    maxBytes?: number,
+  ): Promise<Response> =>
+    fetch(url, {
+      credentials: "include",
+      signal,
+      headers: maxBytes ? { Range: `bytes=0-${maxBytes - 1}` } : undefined,
+    }).then(async (response) => {
       if (!response.ok) throw await toApiError(response);
       return response;
     }),

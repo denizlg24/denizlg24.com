@@ -34,6 +34,8 @@ export interface NamespaceTieringRepository {
   recordTier(id: string, tier: StorageTier): Promise<void>;
   /** Repairs many stale hints to one tier in a single statement. */
   recordTiers(ids: readonly string[], tier: StorageTier): Promise<void>;
+  /** Drops a checksum the host proved stale, so the backfill recomputes it. */
+  clearChecksum(id: string): Promise<void>;
   projectionDirty(): Promise<boolean>;
 }
 
@@ -66,6 +68,7 @@ function emptyReport(
     planned: [],
     quarantined: [],
     ssd: null,
+    verified: 0,
   };
 }
 
@@ -154,6 +157,15 @@ export function createNamespaceTieringRepository(
         .update(files)
         .set({ tier, updatedAt: new Date() })
         .where(inArray(files.id, [...ids]));
+    },
+
+    async clearChecksum(id) {
+      // Empty, not NULL: an absent checksum xattr projects as an empty string,
+      // so this is the same "not yet hashed" value the backfill looks for.
+      await db
+        .update(files)
+        .set({ checksum: "", updatedAt: new Date() })
+        .where(eq(files.id, id));
     },
 
     async projectionDirty() {
@@ -293,6 +305,9 @@ export async function runNamespaceTieringPass(
     await repository.recordTiers(staleOnHdd, "hdd");
   }
   report.onSsd = onSsd.length;
+  report.verified = onSsd.filter(
+    (candidate) => candidate.checksumState === "verified",
+  ).length;
 
   const moves = selectDemotions({
     batchCap: options.batchCap,
@@ -305,6 +320,7 @@ export async function runNamespaceTieringPass(
   report.planned = moves.map((move) => ({
     fileId: move.id,
     from: move.from,
+    planReason: move.reason,
     relativePath: move.relativePath,
     sizeBytes: move.sizeBytes,
     to: move.to,
@@ -332,6 +348,7 @@ export async function runNamespaceTieringPass(
     const applied: NamespaceTierMove = {
       fileId: move.id,
       from: move.from,
+      planReason: move.reason,
       // What the host saw, which is not always what the plan assumed: an
       // `already-placed` result means the source was on the destination all
       // along, and reporting the planned `ssd → hdd` for it would be a lie.
@@ -355,6 +372,19 @@ export async function runNamespaceTieringPass(
     // row alone: the next scan is what corrects a row whose entry is gone.
     if (result.outcome === "moved" || result.outcome === "already-placed") {
       await repository.recordTier(move.id, move.to);
+      continue;
+    }
+    // The host hashed the source again before publishing and got something other
+    // than what we planned against, so the recorded checksum describes bytes
+    // that are gone — an SMB overwrite lands on a file without touching its
+    // checksum xattr, and nothing else notices. Clearing it makes the backfill
+    // re-hash the file; leaving it would refuse this move on every future pass
+    // for the same reason.
+    if (
+      result.outcome === "deferred" &&
+      result.reason === "source-changed-during-copy"
+    ) {
+      await repository.clearChecksum(move.id);
     }
   }
 

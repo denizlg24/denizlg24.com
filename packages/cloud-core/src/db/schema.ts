@@ -87,6 +87,7 @@ export const taskTypeEnum = pgEnum("task_type", [
   "run_command",
   "namespace_scan",
   "namespace_tiering",
+  "namespace_checksum",
   "forge_gc",
   "domain_verification",
 ]);

@@ -62,6 +62,7 @@ interface Harness {
     }) => Promise<TierMovePayload>;
   };
   recorded: { id: string; tier: StorageTier }[];
+  cleared: string[];
   moved: string[];
   /** Calls to the batched writer, so a per-row regression is visible. */
   batchedTierWrites: () => number;
@@ -77,6 +78,7 @@ function harness(input: {
   usageError?: MetadataClientError;
 }): Harness {
   const recorded: { id: string; tier: StorageTier }[] = [];
+  const cleared: string[] = [];
   const moved: string[] = [];
   let batchedTierWrites = 0;
   return {
@@ -112,9 +114,13 @@ function harness(input: {
         };
       },
     },
+    cleared,
     moved,
     recorded,
     repository: {
+      async clearChecksum(id) {
+        cleared.push(id);
+      },
       async listSsdCandidates() {
         return input.candidates ?? [];
       },
@@ -378,6 +384,10 @@ describe("runNamespaceTieringPass", () => {
     );
     expect(report.applied[0]?.reason).toBe("source-changed-during-copy");
     expect(test.recorded).toEqual([]);
+    // The host re-hashed the source and disagreed, so the stored checksum
+    // describes bytes that are gone. Left in place it would refuse this move on
+    // every future pass; cleared, the backfill recomputes it.
+    expect(test.cleared).toEqual(["aaaaaaaa"]);
   });
 
   it("quarantines a path present on both branches rather than choosing", async () => {
@@ -428,6 +438,30 @@ describe("runNamespaceTieringPass", () => {
     );
     expect(report.applied[0]?.outcome).toBe("vanished");
     expect(test.recorded).toEqual([]);
+    // Only a proven checksum disagreement clears one. A vanished entry says
+    // nothing about the bytes, and re-hashing every one of them would make the
+    // backfill walk the namespace after any ordinary concurrent delete.
+    expect(test.cleared).toEqual([]);
+  });
+
+  it("counts how much of the batch has no checksum to move against", async () => {
+    const test = harness({
+      candidates: [
+        candidate({ id: "aaaaaaaa" }),
+        candidate({ checksum: "", id: "bbbbbbbb" }),
+        candidate({ checksum: "", id: "cccccccc" }),
+      ],
+    });
+    const report = await runNamespaceTieringPass(
+      test.repository,
+      test.client,
+      options(),
+    );
+    expect(report.onSsd).toBe(3);
+    expect(report.verified).toBe(1);
+    // Nothing unverified is planned, which before the backfill existed was 81%
+    // of the namespace and made a full disk look like an idle one.
+    expect(report.planned).toHaveLength(1);
   });
 
   it("stops once enough bytes are planned rather than draining the batch", async () => {

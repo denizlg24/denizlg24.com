@@ -32,6 +32,7 @@ export function NamespaceTieringReportView({
     sizeBytes: number;
     outcome: string;
     reason: string | null;
+    planReason: string;
   }[] =
     report.applied.length > 0
       ? report.applied.map((move) => ({
@@ -68,6 +69,13 @@ export function NamespaceTieringReportView({
         <span>
           {report.eligible} eligible · {report.onSsd} on ssd
         </span>
+        {report.onSsd > report.verified && (
+          // The count that separates "nothing needs moving" from "nothing can
+          // move until the checksum backfill reaches it".
+          <span className="text-amber-600 dark:text-amber-500">
+            {report.onSsd - report.verified} unverified
+          </span>
+        )}
         <span>
           {report.planned.length} planned ·{" "}
           {formatBytes(relocatedBytes(report))} moved
@@ -90,6 +98,7 @@ export function NamespaceTieringReportView({
               <TableRow className="hover:bg-transparent">
                 <TableHead>path</TableHead>
                 <TableHead>direction</TableHead>
+                <TableHead>why</TableHead>
                 <TableHead>outcome</TableHead>
                 <TableHead className="text-right">size</TableHead>
               </TableRow>
@@ -102,6 +111,9 @@ export function NamespaceTieringReportView({
                   </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {move.from} → {move.to}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {move.planReason}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {move.outcome}

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."task_type" ADD VALUE 'namespace_checksum' BEFORE 'forge_gc';

@@ -8,9 +8,10 @@ import {
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import type {
-  AgentDeploymentRequest,
-  DeploymentPhase,
+import {
+  type AgentDeploymentRequest,
+  DEFAULT_BUN_NODE_VERSION,
+  type DeploymentPhase,
 } from "@repo/schemas/cloud";
 
 import type { BuildLog } from "./build-log";
@@ -118,9 +119,8 @@ export function serializeBunInstallSteps(dockerfile: string): string {
 }
 
 /**
- * Where the overriding Bun lands. Ahead of the nix profile on PATH, and on a
- * path nixpacks never writes to, so the copy is additive: the nix `bun` stays
- * installed and simply loses.
+ * Where the overriding Bun lands. A path nixpacks never writes to, so the copy
+ * is additive: the nix `bun` stays installed and simply loses.
  */
 const BUN_OVERRIDE_DIR = "/usr/local/forge-bin";
 
@@ -134,27 +134,44 @@ const BUN_OVERRIDE_DIR = "/usr/local/forge-bin";
  * version, and it is a cheap one: `oven/bun` is Debian-based like the nixpacks
  * runtime image, so the binary's glibc and libstdc++ are already satisfied.
  *
- * The PATH edit is appended after the last `ENV PATH=` nixpacks writes rather
- * than at the top of the file. Nixpacks assigns PATH outright in the setup
- * phase, so an earlier export is overwritten by the time the install step
- * runs.
+ * Winning the PATH is the whole difficulty, and `ENV PATH` cannot do it. The
+ * generated Dockerfile never assigns PATH at all: the base image sets
+ * `SHELL ["/bin/bash", "-ol", "pipefail", "-c"]` and `ENTRYPOINT ["/bin/bash",
+ * "-l", "-c"]`, so every build step and the start command run through a login
+ * shell, and `/root/.profile` ends with
+ *
+ *     for i in $HOME/.nix-profile/etc/profile.d/*.sh; do . $i; done
+ *     PATH=$NIXPACKS_PATH:$PATH
+ *
+ * The nix profile puts its own bin directory in front of whatever the image
+ * inherited, which is how `bun` resolves at all — so an `ENV PATH` naming this
+ * directory is jumped by the profile in every step that would use it. That last
+ * line is the one hook that lands ahead of nix, which is why nixpacks itself
+ * reaches `/app/node_modules/.bin` through `NIXPACKS_PATH` rather than PATH.
  */
 export function injectBunVersion(dockerfile: string, version: string): string {
   const lines = dockerfile.split("\n");
-  const lastPath = lines.reduce(
-    (found, line, index) => (line.startsWith("ENV PATH=") ? index : found),
-    -1,
+  // After nixpacks installs its own Bun, before the first step that could run
+  // it. Nixpacks writes its `ENV NIXPACKS_PATH=` for the install phase in
+  // between, so the override also stays ahead of what that prepends.
+  const nixEnv = lines.findIndex((line) => line.startsWith("RUN nix-env "));
+  const anchor = lines.findIndex(
+    (line, index) => index > nixEnv && line.startsWith("RUN "),
   );
-  // No PATH assignment means this is not the Dockerfile shape this rewrite was
-  // written against. Leaving it alone builds with nixpacks' Bun, which is the
-  // behaviour that predates this function — a wrong-version build beats one
-  // that fails on a malformed Dockerfile.
-  if (lastPath === -1) return dockerfile;
+  // A Dockerfile with no build step still runs `bun` as its start command, and
+  // CMD is the last thing in every shape nixpacks emits.
+  const insertAt =
+    anchor === -1 ? lines.findIndex((line) => line.startsWith("CMD ")) : anchor;
+  // Neither means this is not the Dockerfile shape this rewrite was written
+  // against. Leaving it alone builds with nixpacks' Bun, which is the behaviour
+  // that predates this function — a wrong-version build beats one that fails on
+  // a malformed Dockerfile.
+  if (insertAt === -1) return dockerfile;
   return [
-    ...lines.slice(0, lastPath + 1),
+    ...lines.slice(0, insertAt),
     `COPY --from=oven/bun:${version} /usr/local/bin/bun ${BUN_OVERRIDE_DIR}/bun`,
-    `ENV PATH=${BUN_OVERRIDE_DIR}:$PATH`,
-    ...lines.slice(lastPath + 1),
+    `ENV NIXPACKS_PATH=${BUN_OVERRIDE_DIR}:$NIXPACKS_PATH`,
+    ...lines.slice(insertAt),
   ].join("\n");
 }
 
@@ -784,8 +801,14 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
       // The two runtimes take the version by different routes: Node's goes to
       // nixpacks, which resolves it from a nixpkgs archive, while Bun's names
       // an image tag copied over the top of what nixpacks installed.
+      //
+      // A Bun target still sends a Node version, because nixpacks installs Node
+      // for a Bun project too and its own default no longer exists in the
+      // nixpkgs it pins. Leaving it unset is not neutral — it fails the build.
       const nodeVersion =
-        runtime === "bun" ? undefined : request.build.runtimeVersion;
+        runtime === "bun"
+          ? DEFAULT_BUN_NODE_VERSION
+          : request.build.runtimeVersion;
       const bunVersion =
         runtime === "bun" ? request.build.runtimeVersion : undefined;
       const nixpacksConfig = await nixpacksConfigPath(
@@ -900,7 +923,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
             // Nixpacks changed the shape of what it emits. Saying so beats
             // shipping an image that quietly runs whatever Bun nixpacks chose.
             log.note(
-              `could not place bun ${bunVersion}: no PATH assignment in the generated Dockerfile; building with nixpacks' bun`,
+              `could not place bun ${bunVersion}: no build or start step in the generated Dockerfile; building with nixpacks' bun`,
             );
           } else {
             rewritten = injected;

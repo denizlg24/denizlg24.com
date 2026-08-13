@@ -3,9 +3,11 @@ import {
   aggregateSeries,
   assertLegacyTieringAllowed,
   countActivity,
+  createChecksumBackfillRepository,
   createNamespaceSource,
   createNamespaceTieringRepository,
   createProjectionRepository,
+  createStorageNamespace,
   createTieringRepository,
   type Database,
   describeCondition,
@@ -21,6 +23,7 @@ import {
   removeStorageDocuments,
   requestOutcomeCounts,
   rollupAndPruneMetrics,
+  runChecksumBackfill,
   runNamespaceTieringPass,
   runTieringPass,
   type StorageConfig,
@@ -31,6 +34,7 @@ import {
   type AlertEvaluationTaskConfig,
   alertEvaluationTaskConfigSchema,
   allBackupsTaskConfigSchema,
+  type ChecksumBackfillReport,
   domainVerificationTaskConfigSchema,
   type ForgeGcReport,
   filesBackupTaskConfigSchema,
@@ -40,6 +44,7 @@ import {
   type NamespaceTieringReport,
   type NotificationPayload,
   type NotificationType,
+  namespaceChecksumTaskConfigSchema,
   namespaceScanTaskConfigSchema,
   namespaceTieringTaskConfigSchema,
   parseTaskConfig,
@@ -135,7 +140,11 @@ async function executeAllBackups(
  */
 export function namespaceTieringSummary(
   report: NamespaceTieringReport,
-  options: { dryRun: boolean; highWatermarkPercent: number },
+  options: {
+    dryRun: boolean;
+    highWatermarkPercent: number;
+    targetWatermarkPercent: number;
+  },
 ): string {
   if (report.blockedBy) {
     return `Namespace tiering blocked: ${report.blockedBy}`;
@@ -143,12 +152,45 @@ export function namespaceTieringSummary(
   const kind = options.dryRun ? "dry run" : "completed";
   if (report.bytesToFree === 0) {
     const used = report.ssd ? `${report.ssd.usagePercent.toFixed(1)}%` : "?";
-    return `Namespace tiering ${kind}: nothing to free — ssd at ${used} is under the ${options.highWatermarkPercent}% high watermark, so no candidates were read`;
+    // Two different causes, and blaming the high watermark for both sent a real
+    // investigation the wrong way: a run with the high watermark lowered to 10%
+    // reported itself "under the 10% high watermark" at 16.9%, when what
+    // actually zeroed it was a target still sitting at 70%.
+    const cause =
+      report.ssd && report.ssd.usagePercent > options.highWatermarkPercent
+        ? `already under the ${options.targetWatermarkPercent}% target`
+        : `under the ${options.highWatermarkPercent}% high watermark`;
+    return `Namespace tiering ${kind}: nothing to free — ssd at ${used} is ${cause}, so no candidates were read`;
   }
   const moved = report.applied.filter(
     (move) => move.outcome === "moved",
   ).length;
-  return `Namespace tiering ${kind}: ${formatBytes(report.bytesToFree)} to free, ${report.eligible} eligible, ${report.onSsd} on SSD, ${report.planned.length} planned, ${moved} moved, ${report.quarantined.length} quarantined, ${report.failures.length} failed`;
+  const unverified = report.eligible - report.verified;
+  return `Namespace tiering ${kind}: ${formatBytes(report.bytesToFree)} to free, ${report.eligible} eligible, ${report.onSsd} on SSD, ${unverified} without a checksum, ${report.planned.length} planned, ${moved} moved, ${report.quarantined.length} quarantined, ${report.failures.length} failed`;
+}
+
+/**
+ * One line for the backfill.
+ *
+ * `remaining` leads the tail because it is the number that says whether tiering
+ * can work yet: a pass that hashed thousands of files and still has thousands
+ * left has not finished unblocking it.
+ */
+export function checksumBackfillSummary(
+  report: ChecksumBackfillReport,
+): string {
+  if (report.blockedBy) {
+    return `Checksum backfill blocked: ${report.blockedBy}`;
+  }
+  if (report.pending === 0) {
+    return "Checksum backfill completed: every entry already carries a checksum";
+  }
+  const extras = [
+    report.skipped.length > 0 ? `${report.skipped.length} skipped` : null,
+    report.failures.length > 0 ? `${report.failures.length} failed` : null,
+    report.exhausted ? `stopped on ${report.exhausted} budget` : null,
+  ].filter(Boolean);
+  return `Checksum backfill ${report.dryRun ? "dry run" : "completed"}: ${report.hashed} of ${report.pending} hashed (${formatBytes(report.bytesHashed)}), ${report.remaining} still unverified${extras.length > 0 ? `, ${extras.join(", ")}` : ""}`;
 }
 
 /**
@@ -786,6 +828,8 @@ export function getExecutor(
         const defaults = context.storageConfig.tiering;
         const highWatermarkPercent =
           config.highWatermarkPercent ?? defaults.highWatermarkPercent;
+        const targetWatermarkPercent =
+          config.targetWatermarkPercent ?? defaults.targetWatermarkPercent;
         const report = await runNamespaceTieringPass(
           createNamespaceTieringRepository(context.db),
           context.metadataClient,
@@ -802,18 +846,57 @@ export function getExecutor(
             minSizeBytes: config.minSizeBytes ?? defaults.minSizeBytes,
             placementLookahead:
               config.placementLookahead ?? defaults.placementLookahead,
-            targetWatermarkPercent:
-              config.targetWatermarkPercent ?? defaults.targetWatermarkPercent,
+            targetWatermarkPercent,
           },
         );
         return {
           output: namespaceTieringSummary(report, {
             dryRun: config.dryRun,
             highWatermarkPercent,
+            targetWatermarkPercent,
           }),
           metadata: {
             durationMs: Date.now() - startedAt,
             namespaceTiering: report,
+          },
+        };
+      };
+    case "namespace_checksum":
+      return async (rawConfig) => {
+        const config = namespaceChecksumTaskConfigSchema.parse(rawConfig);
+        const startedAt = Date.now();
+        const namespace = context.storageConfig.namespace;
+        // Legacy mode has no unverified entries to find: every file there was
+        // written through the API, which hashes on the way in.
+        if (namespace.mode !== "broker-mounted" || !context.metadataClient) {
+          throw new Error(
+            "Checksum backfill requires broker-mounted storage with a metadata socket",
+          );
+        }
+        const defaults = context.storageConfig.tiering;
+        // The same resolver the download path uses, so the bytes hashed here are
+        // by construction the bytes a client would be served — and it carries
+        // the path validation that a hand-rolled join would drop.
+        const layout = createStorageNamespace(context.storageConfig);
+        const report = await runChecksumBackfill(
+          createChecksumBackfillRepository(context.db, (file) =>
+            layout.resolveFilePath(file),
+          ),
+          context.metadataClient,
+          {
+            backupRestoreActive: defaults.restoreActive,
+            dryRun: config.dryRun,
+            maxBytes: config.maxBytes,
+            maxFiles: config.maxFiles,
+            migrationModeEnabled: defaults.migrationMode,
+            timeBudgetMs: config.timeBudgetMinutes * 60 * 1_000,
+          },
+        );
+        return {
+          output: checksumBackfillSummary(report),
+          metadata: {
+            durationMs: Date.now() - startedAt,
+            namespaceChecksum: report,
           },
         };
       };

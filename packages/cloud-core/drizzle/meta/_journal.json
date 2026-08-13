@@ -239,6 +239,13 @@
       "when": 1786571056976,
       "tag": "0033_deploy_target_drop_node_version",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786617464253,
+      "tag": "0034_namespace_checksum_task",
+      "breakpoints": true
     }
   ]
 }

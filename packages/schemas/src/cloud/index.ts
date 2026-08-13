@@ -7,6 +7,7 @@ export * from "./deploy-env";
 export * from "./deploy-github";
 export * from "./deploy-provision";
 export * from "./dotenv";
+export * from "./file-types";
 export * from "./forge";
 export * from "./notifications";
 export * from "./operations";

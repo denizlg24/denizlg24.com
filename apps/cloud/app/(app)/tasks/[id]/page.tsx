@@ -38,6 +38,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
+import { ChecksumBackfillReportView } from "../_components/checksum-backfill-report";
 import {
   NamespaceTieringReportView,
   relocatedBytes,
@@ -88,6 +89,11 @@ function RunDialog({
                 report={run.metadata.namespaceTiering}
               />
             )}
+            {run.metadata?.namespaceChecksum && (
+              <ChecksumBackfillReportView
+                report={run.metadata.namespaceChecksum}
+              />
+            )}
             {run.output && (
               <pre className="max-h-72 overflow-auto rounded bg-muted px-3 py-2 font-mono text-[11px] leading-relaxed">
                 {run.output}
@@ -100,7 +106,8 @@ function RunDialog({
             )}
             {run.metadata &&
               !run.metadata.tieringReport &&
-              !run.metadata.namespaceTiering && (
+              !run.metadata.namespaceTiering &&
+              !run.metadata.namespaceChecksum && (
                 <pre className="overflow-auto font-mono text-[11px] text-muted-foreground">
                   {JSON.stringify(run.metadata, null, 1)}
                 </pre>

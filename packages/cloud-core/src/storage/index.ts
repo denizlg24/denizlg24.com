@@ -116,6 +116,13 @@ export {
   applyWatchedPaths,
 } from "./namespace-applier";
 export {
+  type ChecksumBackfillCandidate,
+  type ChecksumBackfillOptions,
+  type ChecksumBackfillRepository,
+  createChecksumBackfillRepository,
+  runChecksumBackfill,
+} from "./namespace-checksum-backfill";
+export {
   type NamespaceHealth,
   type NamespaceHealthInput,
   type NamespaceHealthStatus,

@@ -149,12 +149,34 @@ Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
   matches `STORAGE_NAMESPACE_MODE` and disables an enabled legacy row on a
   broker box; `/storage/tiering` and the `/disks` panel resolve the type the
   same way. Anything new that names `tiering_pass` literally will silently do
-  nothing in production once the broker cutover lands.
+  nothing in production once the broker cutover lands. `namespace_checksum` is
+  seeded alongside the broker one, an hour earlier, and is what makes it able to
+  move anything at all.
 - **The broker pass only moves on the watermark.** Age and size choose *which*
   files go, never *whether* any do. Both branches carry the same path, so
   demoting off a half-empty SSD relocates data for no reason. The legacy pass
   demotes on age or size alone because HDD placement there is also the
   addressing scheme.
+- **Age and size rank the batch, they no longer filter it.** They used to be
+  ANDed into `selectDemotions`, which let them decide *whether* after all: a
+  namespace whose big files were recent and whose old files were small stayed
+  above the high watermark forever with the pass reporting nothing to do. Files
+  a rule names go first (`large`, then `cold`), and the coldest of the rest fill
+  the rest of the gap under `watermark`, which is the only reason that can reach
+  the target on its own. `planReason` on the report row says which applied —
+  distinct from `reason`, which is why a non-`moved` outcome happened.
+- **Nothing tiers until `namespace_checksum` has run.** A tier move verifies the
+  copy against the recorded checksum, and only an API upload writes one: an
+  entry adopted from SMB is stamped `checksumState: "pending"` and stays there.
+  `recordChecksum` — the one operation that reaches `verified` — had no caller at
+  all, so 81% of the store was unmovable regardless of disk pressure, and
+  `assign`'s comment about the projector recomputing it described work that was
+  never written. The backfill hashes those rows through the broker mount with
+  `computeChecksum` and stamps the xattr over the socket, so the value survives
+  re-projection. `verified` on the tiering report is what separates "nothing
+  needs moving" from "nothing *can* move yet". A checksum the host proves stale
+  (`deferred` / `source-changed-during-copy`, which is what an SMB overwrite
+  leaves behind) is cleared so the next backfill recomputes it.
 - **`files.tier` is a hint in broker mode, not a fact.** The projector never
   writes it; the branch holding the path is the authority. The pass over-reads
   by `placementLookahead`, asks `tier-locate` where each path actually is, and
@@ -190,6 +212,18 @@ Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
   notification fires). Reaping requires the tier root to be non-empty: an
   unmounted disk makes every blob look deleted, and that path reports a failure
   instead of emptying the `files` table.
+- **`files.mime_type` is null for most of the namespace, so nothing may key a
+  decision on it alone.** It comes from a protected xattr only an API upload
+  writes; 81% of rows have none, and 19 more carry a bare
+  `application/octet-stream` from a tus client that did not care. With `nosniff`
+  on, declaring that made every image, clip and PDF written over SMB unviewable.
+  `mimeTypeForFilename` in `packages/schemas/src/cloud/file-types.ts` is the one
+  table both sides use — `fileResponse` to declare a Content-Type and the storage
+  app's `fileKind` to pick a renderer, which is why that classifies on the
+  extension first and the MIME second. `isActiveContent` runs against the
+  *resolved* type, so a derived `image/svg+xml` is still forced to download.
+  An unknown extension is not refused: the preview reads a bounded head and
+  decides text or binary from the bytes.
 
 ### Migration and cutover scripts
 

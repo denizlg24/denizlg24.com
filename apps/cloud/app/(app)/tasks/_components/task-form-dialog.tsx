@@ -75,6 +75,17 @@ const TEMPLATES = [
       config: { dryRun: true },
     },
   },
+  {
+    label: "namespace_checksum",
+    value: {
+      name: "",
+      type: "namespace_checksum",
+      cronExpression: "0 2 * * *",
+      // Live by default, unlike tiering: this only reads bytes and stamps an
+      // xattr, and until it has run tiering has almost nothing it may move.
+      config: { dryRun: false },
+    },
+  },
 ] as const;
 
 function cronPreview(expression: unknown): string[] | null {

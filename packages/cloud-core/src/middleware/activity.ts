@@ -39,6 +39,18 @@ const NEVER_LOG_PATHS = new Set([
 ]);
 
 /**
+ * Machine-to-machine polls that mutate nothing on the overwhelming majority of
+ * calls. They are POSTs, so the mutation rule below would capture every one:
+ * the deploy agent claims every 3s, which measured 28,037 of 28,600 activity
+ * rows in a day — the log became a record of one idle loop. Only a failure is
+ * news, and a real claim is already recorded by the deployment it starts.
+ *
+ * Slow ones are dropped too, unlike an ordinary read: at this cadence a
+ * momentary database hiccup writes hundreds of rows saying so.
+ */
+const INTERNAL_POLL_PATHS = new Set(["/api/deploy/agent/claim"]);
+
+/**
  * S3 is the one surface where mutations are also high-volume — every multipart
  * part is a PUT — so only failures are recorded. Those are the interesting ones
  * anyway: AccessDenied for a wrong bucket, NoSuchBucket for one never created.
@@ -111,6 +123,9 @@ export function shouldCapture(decision: ActivityCaptureDecision): boolean {
     decision.path === S3_PREFIX ||
     decision.path.startsWith(`${S3_PREFIX}/`)
   ) {
+    return decision.status >= 400;
+  }
+  if (INTERNAL_POLL_PATHS.has(decision.path)) {
     return decision.status >= 400;
   }
   if (NEVER_LOG_PATHS.has(decision.path)) {

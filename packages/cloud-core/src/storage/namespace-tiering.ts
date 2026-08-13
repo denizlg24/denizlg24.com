@@ -1,3 +1,5 @@
+import type { TieringReason } from "@repo/schemas/cloud";
+
 import type { StorageTier } from "../db/schema";
 
 /**
@@ -61,45 +63,80 @@ export interface TierMove {
   to: StorageTier;
   sizeBytes: number;
   checksum: string;
+  reason: TieringReason;
+}
+
+/** Which rule named a file, or null when none of them does. */
+function demotionReason(
+  candidate: TierCandidate,
+  input: Pick<TierSelectionInput, "minAgeMs" | "minSizeBytes" | "now">,
+): Extract<TieringReason, "cold" | "large"> | null {
+  if (candidate.sizeBytes >= input.minSizeBytes) return "large";
+  if (
+    input.now.getTime() - candidate.lastAccessedAt.getTime() >=
+    input.minAgeMs
+  ) {
+    return "cold";
+  }
+  return null;
 }
 
 /**
- * Chooses demotions, coldest first.
+ * Chooses demotions, coldest first, until the SSD would sit at its target.
+ *
+ * The watermark decides *whether* anything moves — the caller does not get here
+ * below it — and age and size decide *which* files go first. They cannot decide
+ * whether: they used to be ANDed into the filter, so a namespace whose large
+ * files were all recent and whose old files were all small could sit above the
+ * high watermark forever with the pass reporting nothing to do. Files the rules
+ * name go first, and then the coldest of the rest fill the remaining gap under
+ * `watermark`, which is the only reason that can reach the target on its own.
  *
  * A file whose checksum is not `verified` is never moved. The move verifies
  * bytes against the recorded checksum on the destination, so an unverified
  * source gives the copy nothing to prove itself against — and a tier move that
- * cannot verify is just an unattended copy between disks.
+ * cannot verify is just an unattended copy between disks. Nothing populates a
+ * checksum for an SMB-written file until the backfill pass has reached it, so
+ * this is a real and temporary limit on what tiering can move, not a rare edge.
  */
 export function selectDemotions(input: TierSelectionInput): TierMove[] {
-  const eligible = input.candidates
-    .filter((candidate) => candidate.tier === "ssd")
-    .filter((candidate) => candidate.checksumState === "verified")
-    .filter((candidate) => candidate.sizeBytes >= input.minSizeBytes)
-    .filter(
+  const eligible = [
+    ...input.candidates.filter(
       (candidate) =>
-        input.now.getTime() - candidate.lastAccessedAt.getTime() >=
-        input.minAgeMs,
-    )
-    .sort(
-      (left, right) =>
-        left.lastAccessedAt.getTime() - right.lastAccessedAt.getTime(),
-    );
+        candidate.tier === "ssd" && candidate.checksumState === "verified",
+    ),
+  ].sort(
+    (left, right) =>
+      left.lastAccessedAt.getTime() - right.lastAccessedAt.getTime(),
+  );
 
   const moves: TierMove[] = [];
+  const chosen = new Set<string>();
   let freed = 0;
-  for (const candidate of eligible) {
-    if (moves.length >= input.batchCap) break;
-    if (freed >= input.bytesToFree) break;
+  const take = (candidate: TierCandidate, reason: TieringReason): void => {
+    chosen.add(candidate.id);
     moves.push({
       checksum: candidate.checksum,
       from: "ssd",
       id: candidate.id,
+      reason,
       relativePath: candidate.relativePath,
       sizeBytes: candidate.sizeBytes,
       to: "hdd",
     });
     freed += candidate.sizeBytes;
+  };
+  const room = (): boolean =>
+    moves.length < input.batchCap && freed < input.bytesToFree;
+
+  for (const candidate of eligible) {
+    if (!room()) return moves;
+    const reason = demotionReason(candidate, input);
+    if (reason) take(candidate, reason);
+  }
+  for (const candidate of eligible) {
+    if (!room()) return moves;
+    if (!chosen.has(candidate.id)) take(candidate, "watermark");
   }
   return moves;
 }

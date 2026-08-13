@@ -68,6 +68,24 @@ describe("shouldCapture", () => {
     expect(decision({ ...polled, status: 503 })).toBe(true);
   });
 
+  it("only records failures for the deploy agent's claim poll", () => {
+    const claim = { path: "/api/deploy/agent/claim", method: "POST" };
+    // A POST every 3s: the mutation rule would make this 98% of the log.
+    expect(decision({ ...claim })).toBe(false);
+    expect(decision({ ...claim, durationMs: 30_000 })).toBe(false);
+    expect(decision({ ...claim, status: 401 })).toBe(true);
+    expect(decision({ ...claim, status: 500 })).toBe(true);
+  });
+
+  it("still records the agent's other posts", () => {
+    expect(
+      decision({
+        path: "/api/deploy/agent/deployments/abc/status",
+        method: "POST",
+      }),
+    ).toBe(true);
+  });
+
   it("does not let the activity page log itself", () => {
     expect(decision({ path: "/api/ops/activity", method: "GET" })).toBe(false);
   });

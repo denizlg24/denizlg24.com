@@ -138,6 +138,24 @@ export async function seedDefaultOpsTasks(
       createdBy: creator.id,
     });
   }
+  // Broker mode only, and enabled: a file written over SMB carries no checksum,
+  // and tiering refuses to move a file it cannot verify, so without this the
+  // nightly pass has nothing it is allowed to relocate however full the SSD
+  // gets. It reads bytes and stamps an xattr — it never moves or deletes
+  // anything — so unlike tiering it does not need a dry run read first. An hour
+  // before tiering, so a fresh sweep is already in place when that runs.
+  if (
+    namespaceMode === "broker-mounted" &&
+    !existingTypes.has("namespace_checksum")
+  ) {
+    await createTask(db, {
+      name: "Namespace checksum backfill",
+      type: "namespace_checksum",
+      cronExpression: "0 2 * * *",
+      config: validatedTaskConfig("namespace_checksum", { dryRun: false }),
+      createdBy: creator.id,
+    });
+  }
   // The deploy platform's two passes. Neither exists on a host with no agent to
   // reach: they would fail on every tick with an error nobody can act on, which
   // is the same reasoning as seeding only one of the two tiering tasks.

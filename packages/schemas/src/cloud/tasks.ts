@@ -2,7 +2,11 @@ import { z } from "zod";
 
 import { cloudDateTimeSchema } from "./common";
 import { agentGcReportSchema } from "./deploy";
-import { namespaceTieringReportSchema, tieringReportSchema } from "./storage";
+import {
+  checksumBackfillReportSchema,
+  namespaceTieringReportSchema,
+  tieringReportSchema,
+} from "./storage";
 
 export const TASK_TYPES = [
   "backup_postgres",
@@ -17,6 +21,7 @@ export const TASK_TYPES = [
   "run_command",
   "namespace_scan",
   "namespace_tiering",
+  "namespace_checksum",
   "forge_gc",
   "domain_verification",
 ] as const;
@@ -133,6 +138,31 @@ export const namespaceTieringTaskConfigSchema = z.object({
 });
 export type NamespaceTieringTaskConfig = z.infer<
   typeof namespaceTieringTaskConfigSchema
+>;
+
+/**
+ * Hashes the entries no upload ever hashed, which is every file written over
+ * SMB. Tiering verifies a copy against a recorded checksum and refuses to move a
+ * file without one, so until this has run the pass has almost nothing it is
+ * allowed to relocate.
+ *
+ * The budgets exist because this is the one job that reads every byte in the
+ * namespace. Defaults are sized to finish a first sweep of the current store in
+ * a single nightly run and to be harmless if they do not.
+ */
+export const namespaceChecksumTaskConfigSchema = z.object({
+  dryRun: z.boolean().default(false),
+  maxFiles: z.number().int().min(1).max(1_000_000).default(20_000),
+  maxBytes: z
+    .number()
+    .int()
+    .min(1)
+    .max(64 * 1024 ** 4)
+    .default(512 * 1024 ** 3),
+  timeBudgetMinutes: z.number().int().min(1).max(1_440).default(90),
+});
+export type NamespaceChecksumTaskConfig = z.infer<
+  typeof namespaceChecksumTaskConfigSchema
 >;
 
 /**
@@ -303,6 +333,9 @@ export const taskConfigSchema = z.object({
   allowReap: z.boolean().optional(),
   maxEntries: z.number().optional(),
   placementLookahead: z.number().optional(),
+  maxFiles: z.number().optional(),
+  maxBytes: z.number().optional(),
+  timeBudgetMinutes: z.number().optional(),
   imageRetention: z.number().optional(),
   logRetentionDays: z.number().optional(),
   buildCacheMaxMb: z.number().optional(),
@@ -325,6 +358,7 @@ export const TASK_CONFIG_SCHEMAS = {
   run_command: runCommandTaskConfigSchema,
   namespace_scan: namespaceScanTaskConfigSchema,
   namespace_tiering: namespaceTieringTaskConfigSchema,
+  namespace_checksum: namespaceChecksumTaskConfigSchema,
   forge_gc: forgeGcTaskConfigSchema,
   domain_verification: domainVerificationTaskConfigSchema,
 } as const satisfies Record<TaskType, z.ZodType>;
@@ -347,6 +381,7 @@ export const taskRunMetadataSchema = z.object({
   exitCode: z.number().int().optional(),
   namespaceScan: namespaceScanReportSchema.optional(),
   namespaceTiering: namespaceTieringReportSchema.optional(),
+  namespaceChecksum: checksumBackfillReportSchema.optional(),
   forgeGc: forgeGcReportSchema.optional(),
   domainVerification: domainVerificationReportSchema.optional(),
 });

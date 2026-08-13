@@ -135,40 +135,90 @@ describe("serializeBunInstallSteps", () => {
 });
 
 describe("injectBunVersion", () => {
-  /** Nixpacks assigns PATH outright, and does it more than once. */
+  /**
+   * Verbatim from `nixpacks build . --out .` (v1.41.0) on a Bun project, minus
+   * the nixpkgs hash. Note what it does not contain: any assignment to PATH.
+   */
   const dockerfile = [
-    "FROM ghcr.io/railwayapp/nixpacks:debian",
-    "ENV PATH=/nix/var/nix/profiles/default/bin:$PATH",
+    "FROM ghcr.io/railwayapp/nixpacks:ubuntu-1745885067",
+    "",
+    'ENTRYPOINT ["/bin/bash", "-l", "-c"]',
+    "WORKDIR /app/",
+    "",
+    "",
+    "COPY .nixpacks/nixpkgs-abc.nix .nixpacks/nixpkgs-abc.nix",
+    "RUN nix-env -if .nixpacks/nixpkgs-abc.nix && nix-collect-garbage -d",
+    "",
+    "",
+    "ARG CI NIXPACKS_METADATA NODE_ENV NPM_CONFIG_PRODUCTION",
+    "ENV CI=$CI NIXPACKS_METADATA=$NIXPACKS_METADATA NODE_ENV=$NODE_ENV",
+    "",
+    "# install phase",
+    "ENV NIXPACKS_PATH=/app/node_modules/.bin:$NIXPACKS_PATH",
     "COPY . /app/.",
-    "ENV PATH=/app/node_modules/.bin:/nix/var/nix/profiles/default/bin:$PATH",
-    "RUN --mount=type=cache,target=/root/.bun bun install",
-    "CMD bun run start",
+    "RUN --mount=type=cache,id=x-/root/bun,target=/root/.bun bun install",
+    "",
+    "# build phase",
+    "COPY . /app/.",
+    "RUN --mount=type=cache,id=x-next/cache,target=/app/.next/cache bun run build",
+    "",
+    "# start",
+    "COPY . /app",
+    "",
+    'CMD ["bun run start"]',
     "",
   ].join("\n");
 
-  it("copies the pinned Bun in after the last PATH nixpacks writes", () => {
+  it("copies the pinned Bun in over the one nix installed", () => {
     const injected = injectBunVersion(dockerfile, "1.3.14").split("\n");
     const copy = injected.findIndex((line) => line.includes("oven/bun:1.3.14"));
-    const lastNixPath = injected.reduce(
-      (found, line, index) =>
-        line.startsWith("ENV PATH=") && line.includes("/nix/var/nix/profiles")
-          ? index
-          : found,
-      -1,
+    const nixEnv = injected.findIndex((line) =>
+      line.startsWith("RUN nix-env "),
     );
     const install = injected.findIndex((line) => line.includes("bun install"));
 
-    // Before it, and the override loses to whatever nixpacks assigns next.
+    // Before nix-env, and nixpacks installs its Bun over the top of this one.
     // After the install, and the install ran on the wrong Bun.
-    expect(copy).toBeGreaterThan(lastNixPath);
+    expect(copy).toBeGreaterThan(nixEnv);
     expect(copy).toBeLessThan(install);
-    expect(injected[copy + 1]).toBe("ENV PATH=/usr/local/forge-bin:$PATH");
+  });
+
+  it("prepends the override through NIXPACKS_PATH, which /root/.profile applies last", () => {
+    const injected = injectBunVersion(dockerfile, "1.3.14").split("\n");
+    const paths = injected.filter((line) =>
+      line.startsWith("ENV NIXPACKS_PATH="),
+    );
+
+    // An `ENV PATH` here would be jumped by the nix profile in every login
+    // shell, which is every RUN and the CMD.
+    expect(injected.some((line) => line.startsWith("ENV PATH="))).toBe(false);
+    // Ours comes after nixpacks', so it lands in front of it once expanded.
+    expect(paths.at(-1)).toBe(
+      "ENV NIXPACKS_PATH=/usr/local/forge-bin:$NIXPACKS_PATH",
+    );
+  });
+
+  it("still places it when there is nothing but a start command", () => {
+    const startOnly = [
+      "FROM ghcr.io/railwayapp/nixpacks:ubuntu-1745885067",
+      "RUN nix-env -if .nixpacks/nixpkgs-abc.nix && nix-collect-garbage -d",
+      "COPY . /app",
+      'CMD ["bun run start"]',
+      "",
+    ].join("\n");
+    const injected = injectBunVersion(startOnly, "1.3.14").split("\n");
+    const copy = injected.findIndex((line) => line.includes("oven/bun:1.3.14"));
+
+    expect(copy).toBeGreaterThan(0);
+    expect(copy).toBeLessThan(
+      injected.findIndex((line) => line.startsWith("CMD ")),
+    );
   });
 
   it("leaves a Dockerfile it does not recognise alone", () => {
     // Building with the wrong Bun beats failing on a shape nixpacks changed;
     // the caller logs the miss.
-    const bare = "FROM scratch\nCMD /app\n";
+    const bare = "FROM scratch\nENTRYPOINT /app\n";
 
     expect(injectBunVersion(bare, "1.3.14")).toBe(bare);
   });
@@ -416,6 +466,48 @@ describe("runBuild", () => {
       expect(buildx?.timeoutMs).toBeUndefined();
       expect(exec.find("docker tag")).toBeUndefined();
       expect(text).toContain("serializing install steps across builds");
+    });
+  });
+
+  it("pins a Node version on a Bun target, which has no field to ask for one", async () => {
+    await withTempDir(async (dir) => {
+      let generatedDockerfile = "";
+      const { exec } = await build(
+        dir,
+        { build: { runtime: "bun", runtimeVersion: "1.3.14" } },
+        { "package.json": "{}", "bun.lock": "" },
+        () => {
+          const checkout = checkoutWriter({
+            "package.json": "{}",
+            "bun.lock": "",
+          });
+          return async (options) => {
+            await checkout(options);
+            if (options.command[0] === "nixpacks" && options.cwd) {
+              const output = join(options.cwd, ".nixpacks");
+              await mkdir(output, { recursive: true });
+              await writeFile(
+                join(output, "Dockerfile"),
+                `${NIXPACKS_DOCKERFILE}\n`,
+              );
+            }
+            if (options.command[0] === "docker" && options.cwd) {
+              generatedDockerfile = await Bun.file(
+                join(options.cwd, ".nixpacks", "Dockerfile"),
+              ).text();
+            }
+            return undefined;
+          };
+        },
+      );
+
+      // Nixpacks installs Node for a Bun project too, and defaults to a major
+      // that its own pinned nixpkgs no longer contains. Unset fails the build
+      // in a nix trace before Bun is reached.
+      expect(exec.find("nixpacks build")?.command).toContain(
+        "NIXPACKS_NODE_VERSION=22",
+      );
+      expect(generatedDockerfile).toContain("oven/bun:1.3.14");
     });
   });
 

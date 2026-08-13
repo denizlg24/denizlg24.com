@@ -89,16 +89,70 @@ describe("demotion selection", () => {
     }
   });
 
-  it("respects age, size, batch cap and the free target", () => {
+  it("labels why each file was picked, size before age", () => {
+    const moves = select([
+      candidate({ id: "big", sizeBytes: 40 * 1024 * 1024 }),
+      candidate({
+        id: "small-and-old",
+        lastAccessedAt: new Date(now.getTime() - 90 * DAY),
+        sizeBytes: 1024,
+      }),
+    ]);
     expect(
-      select([
+      Object.fromEntries(moves.map((move) => [move.id, move.reason])),
+    ).toEqual({ big: "large", "small-and-old": "cold" });
+  });
+
+  it("keeps going past the rules to reach the target", () => {
+    // Neither of these is old or big enough to be named by a rule, and the old
+    // filter ANDed both — so a disk whose only remaining files looked like this
+    // stayed above the high watermark forever while the pass reported nothing
+    // to do. The watermark still decides *whether*; it now also gets to finish.
+    const moves = select(
+      [
         candidate({
           id: "recent",
           lastAccessedAt: new Date(now.getTime() - DAY),
+          sizeBytes: 1024,
         }),
-      ]),
-    ).toEqual([]);
-    expect(select([candidate({ id: "tiny", sizeBytes: 1024 })])).toEqual([]);
+        candidate({
+          id: "recent-2",
+          lastAccessedAt: new Date(now.getTime() - 2 * DAY),
+          sizeBytes: 1024,
+        }),
+      ],
+      { bytesToFree: 2048 },
+    );
+    expect(moves.map((move) => move.reason)).toEqual([
+      "watermark",
+      "watermark",
+    ]);
+    // Coldest of the two first, as with every other reason.
+    expect(moves.map((move) => move.id)).toEqual(["recent-2", "recent"]);
+  });
+
+  it("prefers a named file over a watermark filler", () => {
+    const moves = select(
+      [
+        candidate({
+          id: "young-and-huge",
+          lastAccessedAt: new Date(now.getTime() - DAY),
+          sizeBytes: 500 * 1024 * 1024,
+        }),
+        candidate({
+          id: "oldest-but-tiny",
+          lastAccessedAt: new Date(now.getTime() - 400 * DAY),
+          sizeBytes: 1,
+        }),
+      ],
+      { batchCap: 1, minAgeMs: 500 * DAY },
+    );
+    // The tiny one is colder, but nothing names it and the big one is `large`.
+    expect(moves).toHaveLength(1);
+    expect(moves[0]).toMatchObject({ id: "young-and-huge", reason: "large" });
+  });
+
+  it("respects the batch cap and the free target", () => {
     expect(
       select(
         [
@@ -115,6 +169,11 @@ describe("demotion selection", () => {
         bytesToFree: 1,
       }),
     ).toHaveLength(1);
+  });
+
+  it("never picks the same file twice", () => {
+    const moves = select([candidate({ id: "a" }), candidate({ id: "b" })]);
+    expect(new Set(moves.map((move) => move.id)).size).toBe(moves.length);
   });
 
   it("ignores files already on the HDD", () => {

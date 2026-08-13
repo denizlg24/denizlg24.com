@@ -55,6 +55,7 @@ describe("cloud database schema", () => {
       "run_command",
       "namespace_scan",
       "namespace_tiering",
+      "namespace_checksum",
       "forge_gc",
       "domain_verification",
     ]);

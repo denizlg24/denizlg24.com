@@ -378,6 +378,16 @@ export const namespaceTierPlanSchema = z.object({
   from: storageTierSchema,
   to: storageTierSchema,
   sizeBytes: z.number().nonnegative(),
+  /**
+   * Which rule named this file. `watermark` means no rule did — it is being
+   * moved only because the SSD is still above its target, which is the one
+   * reason that can reach the target when age and size run out of candidates.
+   *
+   * Not `reason`: the applied move below carries one of those already, for why
+   * an outcome was not `moved`. A plan reason and a refusal reason are different
+   * questions and a single field would answer neither reliably.
+   */
+  planReason: tieringReasonSchema,
 });
 export type NamespaceTierPlan = z.infer<typeof namespaceTierPlanSchema>;
 
@@ -414,6 +424,13 @@ export const namespaceTieringReportSchema = z.object({
   eligible: z.number().int().nonnegative(),
   /** Of those, the ones the privileged service confirmed were on the SSD. */
   onSsd: z.number().int().nonnegative(),
+  /**
+   * Of those, the ones carrying a checksum, which is what a move verifies the
+   * copy against. Reported because it is the difference between "nothing needs
+   * moving" and "nothing *can* move until the checksum backfill catches up",
+   * and the counts either side of it look identical without it.
+   */
+  verified: z.number().int().nonnegative(),
   bytesToFree: z.number().nonnegative(),
   planned: z.array(namespaceTierPlanSchema),
   applied: z.array(namespaceTierMoveSchema),
@@ -430,6 +447,44 @@ export type NamespaceTieringReport = z.infer<
 export const namespaceTieringReportResponseSchema = apiResponseSchema(
   namespaceTieringReportSchema,
 );
+
+/**
+ * Why a backfill run did nothing. Unlike the tiering gate this is a short list:
+ * the pass only reads bytes, so a dirty projection is not a reason to withhold
+ * it — a stale path simply hashes nothing and is reported as skipped.
+ */
+export const checksumBackfillBlockSchema = z.enum([
+  "migration-mode",
+  "backup-restore-active",
+  /** The socket went away mid-run; whatever was stamped before it stands. */
+  "metadata-unavailable",
+]);
+export type ChecksumBackfillBlock = z.infer<typeof checksumBackfillBlockSchema>;
+
+export const checksumBackfillReportSchema = z.object({
+  dryRun: z.boolean(),
+  blockedBy: checksumBackfillBlockSchema.nullable(),
+  /** Rows carrying no checksum when the run started. */
+  pending: z.number().int().nonnegative(),
+  hashed: z.number().int().nonnegative(),
+  bytesHashed: z.number().nonnegative(),
+  /** Still unverified afterwards, counted again rather than subtracted. */
+  remaining: z.number().int().nonnegative(),
+  /** Which budget ended the run, or null when it ran out of work instead. */
+  exhausted: z.enum(["files", "bytes", "time"]).nullable(),
+  skipped: z.array(
+    z.object({
+      relativePath: z.string(),
+      reason: z.enum(["missing", "identity-changed"]),
+    }),
+  ),
+  failures: z.array(
+    z.object({ relativePath: z.string(), message: z.string() }),
+  ),
+});
+export type ChecksumBackfillReport = z.infer<
+  typeof checksumBackfillReportSchema
+>;
 
 export const s3CredentialMetadataSchema = z.object({
   id: z.uuid(),

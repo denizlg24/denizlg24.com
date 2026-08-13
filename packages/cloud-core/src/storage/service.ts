@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 
 import {
   downloadArchiveInputSchema,
+  mimeTypeForFilename,
   shareExpiresInSchema,
   updateFileInputSchema,
 } from "@repo/schemas/cloud";
@@ -109,6 +110,23 @@ export class StorageServiceError extends Error {
 }
 
 const UNIQUE_VIOLATION = "23505";
+
+/**
+ * The stored type, refined by the name when the stored one says nothing.
+ *
+ * `application/octet-stream` counts as saying nothing: it is what a tus client
+ * sends when it does not care, not a considered claim, and 19 rows carry it.
+ * Treating it as authoritative would leave exactly those files unviewable while
+ * their neighbours with no type at all resolved correctly.
+ */
+function resolveContentType(file: {
+  filename: string;
+  mimeType: string | null;
+}): string {
+  const stored = file.mimeType?.trim().toLowerCase();
+  if (stored && stored !== "application/octet-stream") return stored;
+  return mimeTypeForFilename(file.filename) ?? "application/octet-stream";
+}
 
 const ACTIVE_CONTENT_TYPES = new Set([
   "application/xhtml+xml",
@@ -1963,17 +1981,25 @@ export class StorageService {
 
   private fileResponse(file: StorageFile, request: Request): Response {
     const url = new URL(request.url);
+    // Only an upload through the API declares a type. Everything written over
+    // SMB has no MIME xattr for the projector to read, so falling straight back
+    // to `application/octet-stream` made most of the namespace unviewable:
+    // `nosniff` is on, and a browser will not render an image, play a clip or
+    // open a PDF it has been told is opaque bytes. `isActiveContent` runs
+    // against whatever resolves, so a derived `image/svg+xml` is still forced
+    // to download.
+    const contentType = resolveContentType(file);
     const forceDownload =
-      url.searchParams.has("download") || isActiveContent(file.mimeType);
+      url.searchParams.has("download") || isActiveContent(contentType);
     const headers = new Headers({
-      "Content-Type": file.mimeType ?? "application/octet-stream",
+      "Content-Type": contentType,
       "Content-Disposition": contentDisposition(
         forceDownload ? "attachment" : "inline",
         file.filename,
       ),
       "Accept-Ranges": "bytes",
-      // The Content-Type here is whatever the uploader claimed, so sniffing
-      // must stay off.
+      // The Content-Type here is whatever the uploader claimed or the name
+      // implies, so sniffing must stay off.
       "X-Content-Type-Options": "nosniff",
     });
     const range = request.headers.get("Range");
