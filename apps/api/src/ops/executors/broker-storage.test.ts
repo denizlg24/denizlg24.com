@@ -66,6 +66,10 @@ describe("namespace tiering summary", () => {
     expect(line).toContain("20.0 GiB to free");
     expect(line).toContain("398 eligible");
     expect(line).toContain("371 on SSD");
+    // Every row on the SSD carries a checksum here. Subtracting from `eligible`
+    // instead reported 27 missing one, inventing a backfill gap out of the rows
+    // that were already on the HDD.
+    expect(line).toContain("0 without a checksum");
   });
 
   it("distinguishes a target that is already met from the high watermark", () => {

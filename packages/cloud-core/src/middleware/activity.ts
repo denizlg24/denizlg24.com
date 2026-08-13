@@ -39,16 +39,26 @@ const NEVER_LOG_PATHS = new Set([
 ]);
 
 /**
- * Machine-to-machine polls that mutate nothing on the overwhelming majority of
- * calls. They are POSTs, so the mutation rule below would capture every one:
- * the deploy agent claims every 3s, which measured 28,037 of 28,600 activity
- * rows in a day — the log became a record of one idle loop. Only a failure is
- * news, and a real claim is already recorded by the deployment it starts.
+ * The deploy agent's own control-plane surface. Every call under it is the
+ * agent talking to the API on a timer, and they are all POSTs, so the mutation
+ * rule below would capture each one: the claim alone measured 28,037 of 28,600
+ * activity rows in a day, and once that was excluded the 30s heartbeat
+ * re-posting an unchanged status became the next 849. Neither is news — a
+ * deployment that actually starts, changes phase or finishes is recorded on
+ * the deployment row, which is where anyone looks for it.
  *
  * Slow ones are dropped too, unlike an ordinary read: at this cadence a
  * momentary database hiccup writes hundreds of rows saying so.
  */
-const INTERNAL_POLL_PATHS = new Set(["/api/deploy/agent/claim"]);
+const INTERNAL_POLL_PREFIX = "/api/deploy/agent/";
+
+/**
+ * Responses held open for as long as the client keeps watching. Their duration
+ * is the viewer's attention span, not work the server did, so the slow-request
+ * rule reads every one as slow — a build log tailed for eight seconds is not a
+ * slow request. Only the duration test is skipped; a failure still records.
+ */
+const STREAMING_PATHS = /^\/api\/deploy\/deployments\/[^/]+\/(runtime-)?logs$/;
 
 /**
  * S3 is the one surface where mutations are also high-volume — every multipart
@@ -125,7 +135,7 @@ export function shouldCapture(decision: ActivityCaptureDecision): boolean {
   ) {
     return decision.status >= 400;
   }
-  if (INTERNAL_POLL_PATHS.has(decision.path)) {
+  if (decision.path.startsWith(INTERNAL_POLL_PREFIX)) {
     return decision.status >= 400;
   }
   if (NEVER_LOG_PATHS.has(decision.path)) {
@@ -133,6 +143,7 @@ export function shouldCapture(decision: ActivityCaptureDecision): boolean {
   }
   if (decision.status >= 400) return true;
   if (MUTATING_METHODS.has(decision.method)) return true;
+  if (STREAMING_PATHS.test(decision.path)) return false;
   return decision.durationMs >= decision.slowRequestMs;
 }
 

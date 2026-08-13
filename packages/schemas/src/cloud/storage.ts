@@ -449,6 +449,26 @@ export const namespaceTieringReportResponseSchema = apiResponseSchema(
 );
 
 /**
+ * The same report as it survives in `task_runs.metadata`, which is read back
+ * long after it was written. `verified` and `planReason` were added to runs
+ * that had already happened, and those rows genuinely do not carry them —
+ * defaulting either would put an invented count and an invented rule in front
+ * of a real past run, and the strict shape rejects the row outright.
+ *
+ * Only history is lenient. Anything producing a report still owes the full
+ * shape above, so a new writer cannot quietly drop a field.
+ */
+export const storedNamespaceTieringReportSchema =
+  namespaceTieringReportSchema.extend({
+    verified: z.number().int().nonnegative().optional(),
+    planned: z.array(namespaceTierPlanSchema.partial({ planReason: true })),
+    applied: z.array(namespaceTierMoveSchema.partial({ planReason: true })),
+  });
+export type StoredNamespaceTieringReport = z.infer<
+  typeof storedNamespaceTieringReportSchema
+>;
+
+/**
  * Why a backfill run did nothing. Unlike the tiering gate this is a short list:
  * the pass only reads bytes, so a dirty projection is not a reason to withhold
  * it — a stale path simply hashes nothing and is reported as skipped.

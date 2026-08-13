@@ -10,9 +10,9 @@ import { runTone } from "@repo/cloud-ui/status-tone";
 import { Unreachable } from "@repo/cloud-ui/unreachable";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import type {
-  NamespaceTieringReport,
   SafeScheduledTask,
   SafeTaskRun,
+  StoredNamespaceTieringReport,
   TieringReport,
 } from "@repo/schemas/cloud";
 import { Button } from "@repo/ui/button";
@@ -144,7 +144,7 @@ export default function TaskDetailPage() {
   const [dryRunBusy, setDryRunBusy] = useState(false);
   const [dryRunReport, setDryRunReport] = useState<TieringReport | null>(null);
   const [namespaceDryRunReport, setNamespaceDryRunReport] =
-    useState<NamespaceTieringReport | null>(null);
+    useState<StoredNamespaceTieringReport | null>(null);
 
   // The dry-run wait loop runs for up to two minutes; without this it keeps
   // polling, toasting and setting state after the page is gone.

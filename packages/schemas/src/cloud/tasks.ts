@@ -4,7 +4,7 @@ import { cloudDateTimeSchema } from "./common";
 import { agentGcReportSchema } from "./deploy";
 import {
   checksumBackfillReportSchema,
-  namespaceTieringReportSchema,
+  storedNamespaceTieringReportSchema,
   tieringReportSchema,
 } from "./storage";
 
@@ -380,7 +380,7 @@ export const taskRunMetadataSchema = z.object({
   alerts: z.array(z.string()).optional(),
   exitCode: z.number().int().optional(),
   namespaceScan: namespaceScanReportSchema.optional(),
-  namespaceTiering: namespaceTieringReportSchema.optional(),
+  namespaceTiering: storedNamespaceTieringReportSchema.optional(),
   namespaceChecksum: checksumBackfillReportSchema.optional(),
   forgeGc: forgeGcReportSchema.optional(),
   domainVerification: domainVerificationReportSchema.optional(),

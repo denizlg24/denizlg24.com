@@ -77,12 +77,38 @@ describe("shouldCapture", () => {
     expect(decision({ ...claim, status: 500 })).toBe(true);
   });
 
-  it("still records the agent's other posts", () => {
+  it("covers the agent's whole surface, not just the claim", () => {
+    // The heartbeat re-posts an unchanged status every 30s and was the largest
+    // remaining source once the claim was excluded. The deployment row already
+    // records the transitions, so only a rejected report is news.
+    const status = {
+      path: "/api/deploy/agent/deployments/abc/status",
+      method: "POST",
+    };
+    expect(decision(status)).toBe(false);
+    expect(decision({ ...status, durationMs: 30_000 })).toBe(false);
+    expect(decision({ ...status, status: 404 })).toBe(true);
     expect(
       decision({
-        path: "/api/deploy/agent/deployments/abc/status",
+        path: "/api/deploy/agent/deployments/abc/module-graph",
         method: "POST",
+        status: 204,
       }),
+    ).toBe(false);
+  });
+
+  it("does not read a tailed log stream as a slow request", () => {
+    // Duration here is how long someone watched, not work the server did.
+    for (const path of [
+      "/api/deploy/deployments/abc/logs",
+      "/api/deploy/deployments/abc/runtime-logs",
+    ]) {
+      expect(decision({ path, durationMs: 30_000 })).toBe(false);
+      expect(decision({ path, status: 404 })).toBe(true);
+    }
+    // The owner-facing deployment surface around it is untouched.
+    expect(
+      decision({ path: "/api/deploy/deployments/abc", durationMs: 30_000 }),
     ).toBe(true);
   });
 

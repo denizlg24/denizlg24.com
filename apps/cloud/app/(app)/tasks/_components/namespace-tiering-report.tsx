@@ -1,7 +1,7 @@
 "use client";
 
 import { formatBytes } from "@repo/cloud-ui/format";
-import type { NamespaceTieringReport } from "@repo/schemas/cloud";
+import type { StoredNamespaceTieringReport } from "@repo/schemas/cloud";
 import {
   Table,
   TableBody,
@@ -11,16 +11,20 @@ import {
   TableRow,
 } from "@repo/ui/table";
 
-export function relocatedBytes(report: NamespaceTieringReport): number {
+export function relocatedBytes(report: StoredNamespaceTieringReport): number {
   return report.applied
     .filter((move) => move.outcome === "moved")
     .reduce((total, move) => total + move.sizeBytes, 0);
 }
 
+/**
+ * Takes the stored shape so it can render a run recorded before `verified` and
+ * `planReason` existed. A fresh report satisfies it too.
+ */
 export function NamespaceTieringReportView({
   report,
 }: {
-  report: NamespaceTieringReport;
+  report: StoredNamespaceTieringReport;
 }) {
   // A plan carries no outcome by construction, so the two lists render as one
   // table with the outcome column filled only for what was actually attempted.
@@ -32,7 +36,7 @@ export function NamespaceTieringReportView({
     sizeBytes: number;
     outcome: string;
     reason: string | null;
-    planReason: string;
+    planReason?: string;
   }[] =
     report.applied.length > 0
       ? report.applied.map((move) => ({
@@ -69,9 +73,10 @@ export function NamespaceTieringReportView({
         <span>
           {report.eligible} eligible · {report.onSsd} on ssd
         </span>
-        {report.onSsd > report.verified && (
+        {report.verified !== undefined && report.onSsd > report.verified && (
           // The count that separates "nothing needs moving" from "nothing can
-          // move until the checksum backfill reaches it".
+          // move until the checksum backfill reaches it". A run recorded before
+          // the count existed shows nothing rather than a fabricated zero.
           <span className="text-amber-600 dark:text-amber-500">
             {report.onSsd - report.verified} unverified
           </span>
@@ -113,7 +118,7 @@ export function NamespaceTieringReportView({
                     {move.from} → {move.to}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {move.planReason}
+                    {move.planReason ?? "—"}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {move.outcome}

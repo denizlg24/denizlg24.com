@@ -165,7 +165,12 @@ export function namespaceTieringSummary(
   const moved = report.applied.filter(
     (move) => move.outcome === "moved",
   ).length;
-  const unverified = report.eligible - report.verified;
+  // Against `onSsd`, not `eligible`: `verified` is counted from the rows the
+  // privileged service confirmed were on the SSD, so subtracting it from the
+  // wider set adds every row that was simply already on the HDD. A pass with
+  // 398 eligible, 371 on SSD and all 371 verified reported "27 without a
+  // checksum" — a backfill gap that did not exist.
+  const unverified = report.onSsd - report.verified;
   return `Namespace tiering ${kind}: ${formatBytes(report.bytesToFree)} to free, ${report.eligible} eligible, ${report.onSsd} on SSD, ${unverified} without a checksum, ${report.planned.length} planned, ${moved} moved, ${report.quarantined.length} quarantined, ${report.failures.length} failed`;
 }
 
