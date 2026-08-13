@@ -96,6 +96,7 @@ import {
 } from "@repo/cloud-core/deploy";
 import {
   type AgentApplyEnvResult,
+  agentDeploymentKindsRequestSchema,
   agentModuleGraphReportSchema,
   assertDeployHostname,
   bindingReferenceResourceKind,
@@ -133,6 +134,7 @@ import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { invalidatePreviewDeploymentCache } from "../forge/preview-auth";
 import { requireAgentToken } from "./agent-auth";
 import type { GithubSurfaces } from "./github-surfaces";
 import type { ForgeOps } from "./ops";
@@ -2771,6 +2773,7 @@ export function deployRoutes(options: DeployRouteOptions) {
       const row = await loadDeployment(context.req.param("id"));
       await agentProxy.delete(`/deployments/${row.id}`).catch(() => {});
       await forge.releaseDeployment(row);
+      invalidatePreviewDeploymentCache(db, row.hostname);
       await db.delete(deployments).where(eq(deployments.id, row.id));
       return context.json({ data: { id: row.id } });
     } catch (error) {
@@ -2935,6 +2938,27 @@ export function deployRoutes(options: DeployRouteOptions) {
     });
   });
 
+  agent.post("/deployment-kinds", async (context) => {
+    const parsed = agentDeploymentKindsRequestSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        { error: { code: "INVALID_INPUT", message: "Invalid deployment ids" } },
+        400,
+      );
+    }
+    if (parsed.data.deploymentIds.length === 0) {
+      return context.json({ deployments: [] });
+    }
+    return context.json({
+      deployments: await db
+        .select({ id: deployments.id, kind: deployments.kind })
+        .from(deployments)
+        .where(inArray(deployments.id, parsed.data.deploymentIds)),
+    });
+  });
+
   agent.post("/deployments/:id/status", async (context) => {
     const parsed = deploymentStatusUpdateSchema.safeParse(
       await context.req.json().catch(() => null),
@@ -2959,6 +2983,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         404,
       );
     }
+    invalidatePreviewDeploymentCache(db, updated.hostname);
     if (updated.status === "ready") {
       await forge.releaseSuperseded(
         await supersedeOlderDeployments(db, {
@@ -3294,6 +3319,7 @@ export function deployRoutes(options: DeployRouteOptions) {
     for (const row of rows) {
       await agentProxy.delete(`/deployments/${row.id}`).catch(() => {});
       await forge.releaseDeployment(row);
+      invalidatePreviewDeploymentCache(db, row.hostname);
       await db.delete(deployments).where(eq(deployments.id, row.id));
     }
     return rows.length;

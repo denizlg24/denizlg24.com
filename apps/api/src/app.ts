@@ -52,6 +52,7 @@ import type {
   postgresDbAdminRoutes,
 } from "./db-admin/routes";
 import type { deployRoutes } from "./deploy/routes";
+import { authorizePreviewRequest } from "./forge/preview-auth";
 import type { forgeManagementRoutes } from "./forge/routes";
 import type { opsRoutes } from "./ops/routes";
 import { type OpsToolsConfig, toolsProxyRoutes } from "./ops/tools-proxy";
@@ -61,6 +62,8 @@ import { storageRoutes, storageSearchRoutes } from "./storage/routes";
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_REQUESTS = 10;
 const SIGNUP_MAX_REQUESTS = 5;
+const PREVIEW_AUTH_WINDOW_MS = 60 * 1_000;
+const PREVIEW_AUTH_MAX_REQUESTS = 1_200;
 // Outside production clientIp() collapses to one key, so the whole machine
 // shares a single bucket and a normal debugging session exhausts it. The
 // production ceilings are the ones that matter and are left untouched.
@@ -121,6 +124,11 @@ export interface CloudApiOptions {
   deploy?: ReturnType<typeof deployRoutes>;
   /** Superuser-only Forge host management and telemetry. */
   forge?: ReturnType<typeof forgeManagementRoutes>;
+  /** Caddy's public forward-auth check for preview deployment hostnames. */
+  previewAccess?: {
+    loginUrl: string;
+    secret: string;
+  };
   activity?: {
     recorder: ActivityRecorder;
     slowRequestMs?: number;
@@ -295,6 +303,28 @@ export function createCloudApiApp(options: CloudApiOptions) {
       version: process.env.APP_VERSION ?? pkg.version,
     }),
   );
+
+  const previewAccess = options.previewAccess;
+  if (previewAccess) {
+    app.use(
+      "/api/forge-preview-auth",
+      rateLimit({
+        keyGenerator: (context) =>
+          `preview-auth:${clientIp(context, options.isProduction)}`,
+        max: PREVIEW_AUTH_MAX_REQUESTS,
+        store: options.rateLimitStore,
+        windowMs: PREVIEW_AUTH_WINDOW_MS,
+      }),
+    );
+    app.get("/api/forge-preview-auth", (context) =>
+      authorizePreviewRequest(context.req.raw, {
+        auth: options.auth,
+        db: options.db,
+        loginUrl: previewAccess.loginUrl,
+        secret: previewAccess.secret,
+      }),
+    );
+  }
 
   app.use("/api/auth/*", async (context, next) => {
     const session = await options.auth.api.getSession({

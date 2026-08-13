@@ -1363,6 +1363,30 @@ export const deployments = pgTable(
 );
 
 /**
+ * Server-side authority for preview share links. The signed URL carries this
+ * row's id, but possession is useful only while the grant still exists and has
+ * not expired or been revoked.
+ */
+export const previewShareGrants = pgTable(
+  "preview_share_grants",
+  {
+    id: uuid("id").primaryKey(),
+    deploymentId: uuid("deployment_id")
+      .notNull()
+      .references(() => deployments.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("preview_share_grants_deployment_idx").on(table.deploymentId),
+    index("preview_share_grants_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
+/**
  * One table, not two: a binding is an env var whose value the platform owns
  * rather than one that was typed. The check constraint is what keeps the three
  * shapes from drifting into each other, which is the failure this design would
@@ -1582,6 +1606,7 @@ export type DeployTargetRow = InferSelectModel<typeof deployTargets>;
 export type NewDeployTargetRow = InferInsertModel<typeof deployTargets>;
 export type DeploymentRow = InferSelectModel<typeof deployments>;
 export type NewDeploymentRow = InferInsertModel<typeof deployments>;
+export type PreviewShareGrantRow = InferSelectModel<typeof previewShareGrants>;
 export type DeployEnvVarRow = InferSelectModel<typeof deployEnvVars>;
 export type NewDeployEnvVarRow = InferInsertModel<typeof deployEnvVars>;
 export type DeployDomainRow = InferSelectModel<typeof deployDomains>;

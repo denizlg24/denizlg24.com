@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { DeploymentActions } from "@/components/deployment-actions";
 import { LogStream } from "@/components/log-stream";
 import { PageHeading } from "@/components/page-heading";
+import { PreviewShare } from "@/components/preview-share";
 import { RequestExplorer } from "@/components/request-explorer";
 import { api, errorMessage } from "@/lib/api";
 
@@ -102,6 +103,9 @@ export default function DeploymentDetailPage() {
               {formatRelative(data.createdAt)}
             </span>
             <div className="ml-auto flex flex-wrap items-center gap-1">
+              {data.kind === "preview" && data.status === "ready" ? (
+                <PreviewShare deploymentId={data.id} hostname={data.hostname} />
+              ) : null}
               {data.status === "ready" ? (
                 <Button
                   variant="ghost"

@@ -141,11 +141,12 @@ export async function createRuntimeApp() {
     await Promise.all([mongoSync.connect(), mongoAdmin.connect()]);
 
     const baseURL = cloudEnv("BETTER_AUTH_URL");
+    const sharedAuthSecret = authSecret();
     const auth = createCloudAuth({
       baseURL,
       cookieDomain: process.env.COOKIE_DOMAIN,
       db,
-      secret: authSecret(),
+      secret: sharedAuthSecret,
       trustedOrigins: CLOUD_AUTH_TRUSTED_ORIGINS,
     });
     const storageConfig = storageConfigFromEnv();
@@ -617,7 +618,20 @@ export async function createRuntimeApp() {
       }),
       deploy,
       forge: forgeMonitor
-        ? forgeManagementRoutes({ db, monitor: forgeMonitor })
+        ? forgeManagementRoutes({
+            db,
+            monitor: forgeMonitor,
+            previewShareSecret: sharedAuthSecret,
+          })
+        : undefined,
+      previewAccess: forgeMonitor
+        ? {
+            loginUrl: new URL(
+              "/login",
+              process.env.FORGE_URL ?? "https://forge.denizlg24.com",
+            ).toString(),
+            secret: sharedAuthSecret,
+          }
         : undefined,
       opsTools: {
         adminerUrl:

@@ -9,6 +9,7 @@ import {
   type ForgeDeploymentQuery,
   type ForgeDeploymentSummary,
   type ForgeOverview,
+  type ForgePreviewShare,
   type ForgeProjectMetricName,
   type ForgeProjectMetricsResponse,
   type ForgeRequestLogPage,
@@ -18,6 +19,7 @@ import {
   forgeDeploymentPageSchema,
   forgeDeploymentSummarySchema,
   forgeOverviewSchema,
+  forgePreviewShareSchema,
   forgeProjectMetricsResponseSchema,
   forgeRequestLogPageSchema,
   forgeRequestLogsSchema,
@@ -26,6 +28,7 @@ import {
   metricCatalogResponseSchema,
   metricsResponseSchema,
   type SafeUser,
+  type ShareExpiresIn,
   safeUserSchema,
 } from "@repo/schemas/cloud";
 import { z } from "zod";
@@ -191,6 +194,15 @@ export const api = {
       data(
         forgeDeploymentSummarySchema,
         `/api/forge/deployments/${encodeURIComponent(deploymentId)}`,
+      ),
+    createPreviewShare: (
+      deploymentId: string,
+      expiresIn: ShareExpiresIn,
+    ): Promise<ForgePreviewShare> =>
+      data(
+        forgePreviewShareSchema,
+        `/api/forge/deployments/${encodeURIComponent(deploymentId)}/share`,
+        { method: "POST", body: { expiresIn } },
       ),
     metrics: (query: {
       series: string[];

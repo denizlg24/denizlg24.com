@@ -40,6 +40,11 @@ Mongo sync worker deliberately uses the lower-privilege `MONGODB_URI`.
 Configure `POSTGRES_EXTERNAL_HOST`, `MONGODB_EXTERNAL_HOST`, and
 `REDIS_EXTERNAL_HOST` with the addresses returned to project clients.
 
+When the Forge agent is configured, `/api/forge-preview-auth` is the public
+forward-auth target for preview hostnames. It accepts the existing Better Auth
+superuser session or a deployment-scoped share grant; set `FORGE_URL` to the
+Forge origin used for login redirects.
+
 The superuser-only operations plane is served at `/api/ops/*`:
 
 - `/api/ops/overview` and `/api/ops/metrics` expose current and historical

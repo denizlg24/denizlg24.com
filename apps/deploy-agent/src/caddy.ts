@@ -1,6 +1,10 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import {
+  type DeploymentKind,
+  FORGE_PREVIEW_SHARE_QUERY,
+} from "@repo/schemas/cloud";
 import type { DeploymentRoute, RouteManager } from "./run";
 
 export const DEFAULT_ADMIN_URL = "http://127.0.0.1:2019";
@@ -25,6 +29,8 @@ export const SERVER_NAME = "forge";
 export interface CaddyRouteEntry {
   deploymentId: string;
   projectSlug: string;
+  /** Missing only in route state written before preview auth existed. */
+  kind?: DeploymentKind;
   hostnames: string[];
   upstream: string;
   /**
@@ -54,7 +60,22 @@ interface CaddyLogSink {
     roll_size_mb: number;
     roll_keep: number;
   };
-  encoder: { format: "json" };
+  encoder:
+    | { format: "json" }
+    | {
+        format: "filter";
+        fields: Record<
+          string,
+          {
+            filter: "query";
+            actions: {
+              parameter: string;
+              type: "replace";
+              value: string;
+            }[];
+          }
+        >;
+      };
   include: string[];
   level: "INFO";
 }
@@ -108,6 +129,10 @@ export interface CaddyRouterOptions {
   timeoutMs?: number;
   fetchImplementation?: typeof fetch;
   logger?: CaddyLogger;
+  previewAuthUrl?: string;
+  resolveDeploymentKinds?: (
+    deploymentIds: string[],
+  ) => Promise<Map<string, DeploymentKind>>;
 }
 
 export class CaddyError extends Error {
@@ -155,7 +180,33 @@ function proxyHandler(upstream: string): Record<string, unknown> {
   return {
     handler: "reverse_proxy",
     upstreams: [{ dial: upstream }],
-    headers: { request: { set: { "X-Forwarded-Proto": ["https"] } } },
+    headers: {
+      request: {
+        set: { "X-Forwarded-Proto": ["https"] },
+        // Cross-subdomain Cloud auth is what lets the forward-auth check reuse
+        // a Forge session, but the deployment itself must never receive that
+        // credential. Remove only platform cookies and preserve the app's own
+        // cookies so a preview still behaves like the site it is previewing.
+        replace: {
+          Cookie: [
+            {
+              search_regexp:
+                "^((__Secure-)?deniz-cloud\\.[^=;]+)=[^;]*|;[ \\t]*((__Secure-)?deniz-cloud\\.[^=;]+)=[^;]*",
+              replace: "",
+            },
+            {
+              search_regexp:
+                "^(__Host-forge-preview-(share|auth-seen))=[^;]*|;[ \\t]*(__Host-forge-preview-(share|auth-seen))=[^;]*",
+              replace: "",
+            },
+            {
+              search_regexp: "^[; \\t]+",
+              replace: "",
+            },
+          ],
+        },
+      },
+    },
     // A response from the application is not a Caddy handler error, even when
     // it is a 5xx. Intercept the whole status class here; dial failures and
     // containers which disappear mid-request use the server error route below.
@@ -163,6 +214,40 @@ function proxyHandler(upstream: string): Record<string, unknown> {
       {
         match: { status_code: [5] },
         routes: [{ handle: [unavailablePageHandler()] }],
+      },
+    ],
+  };
+}
+
+function previewAuthHandler(authUrl: string): Record<string, unknown> {
+  const url = new URL(authUrl);
+  const port = url.port || (url.protocol === "https:" ? "443" : "80");
+  const transport = {
+    protocol: "http",
+    dial_timeout: "3s",
+    response_header_timeout: "5s",
+    ...(url.protocol === "https:" ? { tls: {} } : {}),
+  };
+  return {
+    handler: "reverse_proxy",
+    upstreams: [{ dial: `${url.hostname}:${port}` }],
+    transport,
+    rewrite: { method: "GET", uri: `${url.pathname}${url.search}` },
+    headers: {
+      request: {
+        set: {
+          "X-Forwarded-Host": ["{http.request.host}"],
+          "X-Forwarded-Method": ["{http.request.method}"],
+          "X-Forwarded-Uri": ["{http.request.uri}"],
+        },
+      },
+    },
+    // A successful auth check runs a no-op route and then continues to the
+    // deployment proxy. Redirects and errors are copied back to the browser.
+    handle_response: [
+      {
+        match: { status_code: [2] },
+        routes: [{ handle: [{ handler: "vars" }] }],
       },
     ],
   };
@@ -333,6 +418,7 @@ export interface BuildCaddyConfigOptions {
   listen?: string;
   adminListen?: string;
   accessLogRoot?: string;
+  previewAuthUrl?: string;
 }
 
 export function buildCaddyConfig(
@@ -346,6 +432,8 @@ export function buildCaddyConfig(
   const listen = resolved.listen ?? DEFAULT_LISTEN;
   const adminListen = resolved.adminListen ?? DEFAULT_ADMIN_LISTEN;
   const accessLogRoot = resolved.accessLogRoot ?? DEFAULT_ACCESS_LOG_ROOT;
+  const previewAuthUrl =
+    resolved.previewAuthUrl ?? "http://127.0.0.1:3001/api/forge-preview-auth";
   // Sorted so an unchanged set of deployments always serialises identically —
   // otherwise every republish looks like a change and Caddy reloads for nothing.
   const sorted = [...entries].sort((a, b) =>
@@ -356,10 +444,20 @@ export function buildCaddyConfig(
     .flatMap((entry) => {
       const serve: CaddyConfigRoute = {
         match: [{ host: [...entry.hostnames].sort() }],
-        // The id handler runs first so the header exists both upstream and in
-        // the access log. Redirect routes below deliberately do not get one:
-        // a 308 never reaches a container, so there is no output to correlate.
-        handle: [requestIdHandler(), proxyHandler(entry.upstream)],
+        // The id handler runs immediately before the app proxy so the header
+        // exists both upstream and in the access log. Preview auth stays ahead
+        // of it; a redirect that never reaches a container has no output to
+        // correlate. Redirect-only routes below omit the id for the same reason.
+        handle: [
+          // Unknown is legacy persisted state. Fail closed through the auth
+          // gateway; it looks up the authoritative kind and immediately lets
+          // production through while this state is upgraded.
+          ...(entry.kind !== "production"
+            ? [previewAuthHandler(previewAuthUrl)]
+            : []),
+          requestIdHandler(),
+          proxyHandler(entry.upstream),
+        ],
       };
       // Read legacy state as one canonical group, but every newly published
       // route carries independent source/destination pairs.
@@ -408,7 +506,21 @@ export function buildCaddyConfig(
         roll_size_mb: ACCESS_LOG_ROLL_SIZE_MB,
         roll_keep: ACCESS_LOG_ROLL_KEEP,
       },
-      encoder: { format: "json" },
+      encoder: {
+        format: "filter",
+        fields: {
+          "request>uri": {
+            filter: "query",
+            actions: [
+              {
+                parameter: FORGE_PREVIEW_SHARE_QUERY,
+                type: "replace",
+                value: "REDACTED",
+              },
+            ],
+          },
+        },
+      },
       include: [`http.log.access.${logger}`],
       level: "INFO",
     };
@@ -530,6 +642,7 @@ export class CaddyRouter implements RouteManager {
         this.#options.adminUrl ?? DEFAULT_ADMIN_URL,
       ),
       accessLogRoot: this.#options.accessLogRoot,
+      previewAuthUrl: this.#options.previewAuthUrl,
     });
   }
 
@@ -560,6 +673,28 @@ export class CaddyRouter implements RouteManager {
       this.#claimHostnames(entry);
     }
     await this.#serialise(() => this.#apply());
+
+    const unresolved = [...this.#entries.values()].filter(
+      (entry) => !entry.kind,
+    );
+    if (unresolved.length > 0 && this.#options.resolveDeploymentKinds) {
+      try {
+        const kinds = await this.#options.resolveDeploymentKinds(
+          unresolved.map((entry) => entry.deploymentId),
+        );
+        for (const entry of unresolved) {
+          entry.kind = kinds.get(entry.deploymentId);
+        }
+        // Re-apply so known production routes stop paying for the auth hop.
+        await this.#serialise(() => this.#apply());
+      } catch (error) {
+        // Unknown entries remain protected and the gateway resolves their kind
+        // per request. A control-plane blip at boot must not reopen previews.
+        this.#logger.error("could not upgrade persisted deployment kinds", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     return this.#entries.size;
   }
 
@@ -567,6 +702,7 @@ export class CaddyRouter implements RouteManager {
     await this.publishEntry({
       deploymentId: route.deploymentId,
       projectSlug: route.projectSlug,
+      kind: route.kind,
       hostnames: [route.hostname],
       upstream: `127.0.0.1:${route.port}`,
     });

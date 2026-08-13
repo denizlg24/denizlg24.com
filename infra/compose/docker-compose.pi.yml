@@ -327,6 +327,7 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://api.denizlg24.com}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-.denizlg24.com}
       CLOUD_ADMIN_URL: ${CLOUD_ADMIN_URL:-https://cloud.denizlg24.com}
+      FORGE_URL: ${FORGE_URL:-https://forge.denizlg24.com}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       DATABASE_CREDENTIAL_ENCRYPTION_KEY: ${DATABASE_CREDENTIAL_ENCRYPTION_KEY:?DATABASE_CREDENTIAL_ENCRYPTION_KEY is required}
       DB_POOL_MAX: ${DB_POOL_MAX:-25}

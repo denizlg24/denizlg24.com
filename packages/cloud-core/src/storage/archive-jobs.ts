@@ -423,6 +423,7 @@ export class ArchiveJobStore {
     job: ArchiveJob,
     entries: readonly ArchiveEntry[],
   ): Promise<void> {
+    let finalState: Exclude<ArchiveJobState, "building"> = "ready";
     try {
       await ensureDir(this.#directory);
       const written = await writeArchive(entries, job.diskPath, (bytes) => {
@@ -430,26 +431,30 @@ export class ArchiveJobStore {
       });
       job.writtenBytes = written;
       job.totalBytes = written;
-      job.state = "ready";
     } catch (error) {
       // Cleanup first: a job that reports "failed" must not still have a
       // half-written archive on disk for a poller to race against.
       await deletePath(job.diskPath).catch(() => undefined);
       job.error =
         error instanceof Error ? error.message : "Archive build failed";
-      job.state = "failed";
+      finalState = "failed";
     } finally {
       job.expiresAt = Date.now() + this.#ttlMs;
-      await this.#persistActiveJobs();
+      // The public job state is the completion signal used by pollers and
+      // tests. Publish the corresponding private snapshot first so nobody can
+      // observe a terminal job while out-of-process maintenance still sees it
+      // as active (or tear the directory down while this write is in flight).
+      await this.#persistActiveJobs(job.id);
+      job.state = finalState;
     }
   }
 
-  #persistActiveJobs(): Promise<void> {
+  #persistActiveJobs(completedJobId?: string): Promise<void> {
     // Capture at the transition, not when a queued write eventually runs. Each
     // atomic file therefore represents one real ordering of active-job states.
     const snapshot: ArchiveJobSnapshot = {
       activeJobs: [...this.#jobs.values()]
-        .filter((job) => job.state === "building")
+        .filter((job) => job.state === "building" && job.id !== completedJobId)
         .map((job) => ({
           id: job.id,
           startedAt: this.#jobStartedAt.get(job.id) ?? new Date().toISOString(),

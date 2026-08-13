@@ -26,6 +26,8 @@ import {
 } from "@repo/schemas/cloud";
 import { and, desc, eq } from "drizzle-orm";
 
+import { invalidatePreviewDeploymentCache } from "../forge/preview-auth";
+import { revokePreviewShareGrants } from "../forge/preview-share";
 import type { GithubSurfaces } from "./github-surfaces";
 import type { DeployAgentProxy } from "./proxy";
 
@@ -99,6 +101,7 @@ export class ForgeOps {
    * previous release rather than taking the site down.
    */
   async publishRoutes(row: DeploymentRow): Promise<boolean> {
+    invalidatePreviewDeploymentCache(this.db, row.hostname);
     const routing = await routeHostnames(this.db, row);
     const hostnames = routing.serve;
     // Let either side of a rolling upgrade go first. The previous agent can
@@ -240,6 +243,10 @@ export class ForgeOps {
   }
 
   async releaseDeployment(row: DeploymentRow): Promise<void> {
+    invalidatePreviewDeploymentCache(this.db, row.hostname);
+    if (row.kind === "preview") {
+      await revokePreviewShareGrants(this.db, row.id);
+    }
     await releaseDeploymentResources(this.db, this.dns, row);
   }
 
@@ -254,6 +261,17 @@ export class ForgeOps {
    */
   async releaseSuperseded(rows: readonly DeploymentRow[]): Promise<void> {
     for (const row of rows) {
+      invalidatePreviewDeploymentCache(this.db, row.hostname);
+      if (row.kind === "preview") {
+        await revokePreviewShareGrants(this.db, row.id).catch(
+          (error: unknown) => {
+            console.error(
+              `[deploy] revoking preview shares ${row.id} failed`,
+              error,
+            );
+          },
+        );
+      }
       await releaseDeploymentResources(this.db, this.dns, row, {
         // A ready production hostname may be the CNAME target of a domain at a
         // provider we cannot update. GC has the domain rows needed to decide

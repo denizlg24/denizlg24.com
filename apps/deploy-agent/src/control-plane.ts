@@ -3,7 +3,9 @@ import {
   type AgentDeploymentRequest,
   agentClaimResponseSchema,
   agentDeploymentEnvSchema,
+  agentDeploymentKindsResponseSchema,
   type DeployModuleGraph,
+  type DeploymentKind,
   type DeploymentStatusUpdate,
 } from "@repo/schemas/cloud";
 
@@ -76,6 +78,17 @@ export class ControlPlaneClient {
   async claim(): Promise<AgentDeploymentRequest | null> {
     const body = await this.#post("/api/deploy/agent/claim", {});
     return agentClaimResponseSchema.parse(body).deployment;
+  }
+
+  async deploymentKinds(
+    deploymentIds: string[],
+  ): Promise<Map<string, DeploymentKind>> {
+    if (deploymentIds.length === 0) return new Map();
+    const body = await this.#post("/api/deploy/agent/deployment-kinds", {
+      deploymentIds,
+    });
+    const parsed = agentDeploymentKindsResponseSchema.parse(body);
+    return new Map(parsed.deployments.map((row) => [row.id, row.kind]));
   }
 
   /**
