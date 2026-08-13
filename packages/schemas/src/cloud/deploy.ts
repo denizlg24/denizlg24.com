@@ -429,6 +429,13 @@ export const agentClaimResponseSchema = z.object({
 });
 export type AgentClaimResponse = z.infer<typeof agentClaimResponseSchema>;
 
+export const agentDeploymentKindsRequestSchema = z.object({
+  deploymentIds: z.array(z.uuid()).max(10_000),
+});
+export const agentDeploymentKindsResponseSchema = z.object({
+  deployments: z.array(z.object({ id: z.uuid(), kind: deploymentKindSchema })),
+});
+
 export const deploymentStatusUpdateSchema = z.object({
   status: deploymentStatusSchema,
   phase: deploymentPhaseSchema.nullish(),

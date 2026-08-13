@@ -11,6 +11,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { api, errorMessage, isApiError } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
+import { safePreviewReturnTo } from "@/lib/preview-return-to";
 
 type Step = "credentials" | "signup" | "challenge" | "enroll" | "backup-codes";
 
@@ -28,6 +29,7 @@ function LoginForm() {
   const reason = searchParams.get("reason");
   const enrollPending = searchParams.get("enroll") === "1";
   const tokenParam = searchParams.get("token");
+  const returnTo = safePreviewReturnTo(searchParams.get("returnTo"));
   const [step, setStep] = useState<Step>(tokenParam ? "signup" : "credentials");
   const [password, setPassword] = useState("");
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
@@ -43,7 +45,11 @@ function LoginForm() {
         setError("Superuser required");
         return;
       }
-      router.replace("/");
+      if (returnTo) {
+        window.location.assign(returnTo);
+      } else {
+        router.replace("/");
+      }
     } catch (err) {
       if (isApiError(err) && err.code === "MFA_ENROLLMENT_REQUIRED") {
         if (!password) {

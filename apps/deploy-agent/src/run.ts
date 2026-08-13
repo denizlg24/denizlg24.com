@@ -1,5 +1,6 @@
 import type {
   AgentDeploymentRequest,
+  DeploymentKind,
   DeploymentPhase,
 } from "@repo/schemas/cloud";
 import type { ResolvedBuilder } from "./build";
@@ -11,6 +12,7 @@ export const DEFAULT_CONTAINER_PORT = 3_000;
 export interface DeploymentRoute {
   deploymentId: string;
   projectSlug: string;
+  kind: DeploymentKind;
   hostname: string;
   port: number;
 }
@@ -1006,6 +1008,7 @@ export async function runDeployment(options: RunOptions): Promise<RunOutcome> {
   await options.routes.publish({
     deploymentId: options.request.deploymentId,
     projectSlug: options.request.projectSlug,
+    kind: options.request.kind,
     hostname: options.request.hostname,
     port: outcome.port,
   });

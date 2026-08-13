@@ -43,6 +43,10 @@ and invokes the host's narrowly scoped installer.
 | `HEALTH_POLL_MS` | `2000` | The gate's poll interval; the budget comes from the request. |
 | `CONTAINER_DRAIN_MS` | `10000` | How long a superseded container keeps serving after the route flips. |
 
+Preview routes use Caddy forward-auth against the control plane. Existing
+Cloud/Forge superuser sessions pass; signed share links are exchanged for a
+host-only HttpOnly cookie before the request reaches the deployment container.
+
 The agent refuses to start on a bad bind address rather than falling back to
 loopback. A silent fallback would mean the API cannot reach it and the failure
 surfaces as a mysterious timeout hours later.

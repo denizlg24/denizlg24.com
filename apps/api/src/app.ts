@@ -52,6 +52,7 @@ import type {
   postgresDbAdminRoutes,
 } from "./db-admin/routes";
 import type { deployRoutes } from "./deploy/routes";
+import { authorizePreviewRequest } from "./forge/preview-auth";
 import type { forgeManagementRoutes } from "./forge/routes";
 import type { opsRoutes } from "./ops/routes";
 import { type OpsToolsConfig, toolsProxyRoutes } from "./ops/tools-proxy";
@@ -121,6 +122,11 @@ export interface CloudApiOptions {
   deploy?: ReturnType<typeof deployRoutes>;
   /** Superuser-only Forge host management and telemetry. */
   forge?: ReturnType<typeof forgeManagementRoutes>;
+  /** Caddy's public forward-auth check for preview deployment hostnames. */
+  previewAccess?: {
+    loginUrl: string;
+    secret: string;
+  };
   activity?: {
     recorder: ActivityRecorder;
     slowRequestMs?: number;
@@ -295,6 +301,18 @@ export function createCloudApiApp(options: CloudApiOptions) {
       version: process.env.APP_VERSION ?? pkg.version,
     }),
   );
+
+  const previewAccess = options.previewAccess;
+  if (previewAccess) {
+    app.get("/api/forge-preview-auth", (context) =>
+      authorizePreviewRequest(context.req.raw, {
+        auth: options.auth,
+        db: options.db,
+        loginUrl: previewAccess.loginUrl,
+        secret: previewAccess.secret,
+      }),
+    );
+  }
 
   app.use("/api/auth/*", async (context, next) => {
     const session = await options.auth.api.getSession({

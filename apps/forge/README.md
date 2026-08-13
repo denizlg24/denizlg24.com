@@ -13,6 +13,11 @@ bun run dev:forge
 The app listens on `http://localhost:3006` and defaults to the API at
 `http://localhost:3001`.
 
+Ready preview deployment pages expose a share control with expiring links. The
+first visit exchanges the URL token for a host-only HttpOnly cookie and removes
+the token from the address bar; normal preview visits reuse the Forge
+superuser session and return to the requested preview after login.
+
 ## Vercel
 
 Create a Next.js project rooted at `apps/forge`, with access to files outside

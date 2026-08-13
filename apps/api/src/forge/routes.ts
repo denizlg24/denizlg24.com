@@ -17,6 +17,7 @@ import {
   type ForgeDeploymentQuery,
   type ForgeDeploymentSort,
   forgeDeploymentQuerySchema,
+  forgePreviewShareInputSchema,
   forgeRequestLogQuerySchema,
   forgeRequestLogsQuerySchema,
   metricsQuerySchema,
@@ -40,10 +41,12 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import type { ForgeMonitor } from "./monitor";
+import { generatePreviewShareToken } from "./preview-share";
 
 export interface ForgeManagementRouteOptions {
   db: Database;
   monitor: ForgeMonitor;
+  previewShareSecret: string;
 }
 
 const DEPLOYMENT_COLUMNS = {
@@ -382,6 +385,70 @@ export function forgeManagementRoutes(options: ForgeManagementRouteOptions) {
       );
     }
     return context.json({ data: serialize(row) });
+  });
+
+  app.post("/deployments/:id/share", async (context) => {
+    const id = z.uuid().safeParse(context.req.param("id"));
+    const input = forgePreviewShareInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!id.success || !input.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_SHARE_LINK",
+            message: "A valid deployment and expiry are required",
+          },
+        },
+        400,
+      );
+    }
+    const deployment = await options.db.query.deployments.findFirst({
+      columns: { id: true, kind: true, status: true },
+      where: eq(deployments.id, id.data),
+    });
+    if (!deployment) {
+      return context.json(
+        {
+          error: {
+            code: "DEPLOYMENT_NOT_FOUND",
+            message: "No deployment with that id",
+          },
+        },
+        404,
+      );
+    }
+    if (deployment.kind !== "preview") {
+      return context.json(
+        {
+          error: {
+            code: "PREVIEW_REQUIRED",
+            message: "Share links are only available for preview deployments",
+          },
+        },
+        409,
+      );
+    }
+    if (deployment.status !== "ready") {
+      return context.json(
+        {
+          error: {
+            code: "PREVIEW_NOT_READY",
+            message: "Only a ready preview can be shared",
+          },
+        },
+        409,
+      );
+    }
+    return context.json({
+      data: {
+        token: generatePreviewShareToken(
+          deployment.id,
+          input.data.expiresIn,
+          options.previewShareSecret,
+        ),
+      },
+    });
   });
 
   app.get("/containers/:id/logs", async (context) =>

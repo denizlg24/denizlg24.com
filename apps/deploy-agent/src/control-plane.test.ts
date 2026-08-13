@@ -27,6 +27,28 @@ describe("ControlPlaneClient.claim", () => {
   });
 });
 
+describe("ControlPlaneClient.deploymentKinds", () => {
+  test("resolves persisted route ids through the agent-authenticated route", async () => {
+    let seen: Request | null = null;
+    const control = client(async (request) => {
+      seen = request;
+      return Response.json({
+        deployments: [{ id: DEPLOYMENT_ID, kind: "preview" }],
+      });
+    });
+
+    expect(await control.deploymentKinds([DEPLOYMENT_ID])).toEqual(
+      new Map([[DEPLOYMENT_ID, "preview"]]),
+    );
+    const request = seen as unknown as Request;
+    expect(request.url).toBe(
+      "https://api.denizlg24.com/api/deploy/agent/deployment-kinds",
+    );
+    expect(request.headers.get("authorization")).toBe(`Bearer ${TOKEN}`);
+    expect(await request.json()).toEqual({ deploymentIds: [DEPLOYMENT_ID] });
+  });
+});
+
 describe("ControlPlaneClient.env", () => {
   test("presents the agent token on the env route", async () => {
     let seen: Request | null = null;

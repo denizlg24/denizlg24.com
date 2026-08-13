@@ -96,6 +96,7 @@ import {
 } from "@repo/cloud-core/deploy";
 import {
   type AgentApplyEnvResult,
+  agentDeploymentKindsRequestSchema,
   agentModuleGraphReportSchema,
   assertDeployHostname,
   bindingReferenceResourceKind,
@@ -2932,6 +2933,27 @@ export function deployRoutes(options: DeployRouteOptions) {
         target,
         projectSlug: project.slug,
       }),
+    });
+  });
+
+  agent.post("/deployment-kinds", async (context) => {
+    const parsed = agentDeploymentKindsRequestSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        { error: { code: "INVALID_INPUT", message: "Invalid deployment ids" } },
+        400,
+      );
+    }
+    if (parsed.data.deploymentIds.length === 0) {
+      return context.json({ deployments: [] });
+    }
+    return context.json({
+      deployments: await db
+        .select({ id: deployments.id, kind: deployments.kind })
+        .from(deployments)
+        .where(inArray(deployments.id, parsed.data.deploymentIds)),
     });
   });
 

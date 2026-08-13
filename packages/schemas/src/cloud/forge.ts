@@ -8,6 +8,10 @@ import {
   deploymentStatusSchema,
 } from "./deploy";
 import { metricPointSchema } from "./ops";
+import { shareExpiresInSchema } from "./storage";
+
+/** Query key used once to exchange a share link for a host-only cookie. */
+export const FORGE_PREVIEW_SHARE_QUERY = "__forge_share";
 
 export const forgeContainerMetricsSchema = z.object({
   cpuPercent: z.number().nonnegative(),
@@ -551,6 +555,16 @@ export const forgeDeploymentSummarySchema = z.object({
 export type ForgeDeploymentSummary = z.infer<
   typeof forgeDeploymentSummarySchema
 >;
+
+export const forgePreviewShareInputSchema = z.object({
+  expiresIn: shareExpiresInSchema,
+});
+export type ForgePreviewShareInput = z.infer<
+  typeof forgePreviewShareInputSchema
+>;
+
+export const forgePreviewShareSchema = z.object({ token: z.string().min(1) });
+export type ForgePreviewShare = z.infer<typeof forgePreviewShareSchema>;
 
 export const FORGE_DEPLOYMENT_SORTS = [
   "createdAt",

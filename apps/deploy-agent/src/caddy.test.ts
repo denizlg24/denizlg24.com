@@ -93,6 +93,7 @@ describe("access-log rejection fallback", () => {
       await instance.publish({
         deploymentId: "dep-1",
         projectSlug: "app",
+        kind: "production" as const,
         hostname: "app.denizlg24.com",
         port: 24_817,
       });
@@ -124,6 +125,7 @@ describe("access-log rejection fallback", () => {
         instance.publish({
           deploymentId: "dep-1",
           projectSlug: "app",
+          kind: "production" as const,
           hostname: "app.denizlg24.com",
           port: 24_817,
         }),
@@ -137,6 +139,7 @@ describe("buildCaddyConfig access logging", () => {
   const entry = {
     deploymentId: "dep-1",
     projectSlug: "app",
+    kind: "production" as const,
     hostnames: ["b.denizlg24.com", "a.denizlg24.com"],
     upstream: "127.0.0.1:24817",
   };
@@ -170,7 +173,21 @@ describe("buildCaddyConfig access logging", () => {
         roll_size_mb: 16,
         roll_keep: 2,
       },
-      encoder: { format: "json" },
+      encoder: {
+        format: "filter",
+        fields: {
+          "request>uri": {
+            filter: "query",
+            actions: [
+              {
+                parameter: "__forge_share",
+                type: "replace",
+                value: "REDACTED",
+              },
+            ],
+          },
+        },
+      },
       include: [`http.log.access.${logger}`],
       level: "INFO",
     });
@@ -214,6 +231,7 @@ describe("buildCaddyConfig access logging", () => {
     const second = {
       deploymentId: "dep-2",
       projectSlug: "other",
+      kind: "production" as const,
       hostnames: ["z.denizlg24.com"],
       upstream: "127.0.0.1:24818",
     };
@@ -224,11 +242,59 @@ describe("buildCaddyConfig access logging", () => {
 });
 
 describe("buildCaddyConfig", () => {
+  it("checks preview auth before stamping or proxying the request", () => {
+    const config = buildCaddyConfig(
+      [
+        {
+          deploymentId: "preview",
+          projectSlug: "app",
+          kind: "preview",
+          hostnames: ["app-feature-abc123.denizlg24.com"],
+          upstream: "127.0.0.1:24817",
+        },
+      ],
+      { previewAuthUrl: "https://api.denizlg24.com/api/forge-preview-auth" },
+    );
+    const handlers = config.apps.http.servers.forge?.routes[0]?.handle as {
+      handler: string;
+      rewrite?: { method: string; uri: string };
+      upstreams?: { dial: string }[];
+      handle_response?: { match: { status_code: number[] } }[];
+    }[];
+
+    expect(handlers.map((handler) => handler.handler)).toEqual([
+      "reverse_proxy",
+      "headers",
+      "reverse_proxy",
+    ]);
+    expect(handlers[0]?.rewrite).toEqual({
+      method: "GET",
+      uri: "/api/forge-preview-auth",
+    });
+    expect(handlers[0]?.upstreams).toEqual([{ dial: "api.denizlg24.com:443" }]);
+    expect(handlers[0]?.handle_response?.[0]?.match.status_code).toEqual([2]);
+  });
+
+  it("fails legacy kind-less state through the auth gateway", () => {
+    const config = buildCaddyConfig([
+      {
+        deploymentId: "legacy",
+        projectSlug: "app",
+        hostnames: ["app-feature-abc123.denizlg24.com"],
+        upstream: "127.0.0.1:24817",
+      },
+    ]);
+    expect(config.apps.http.servers.forge?.routes[0]?.handle[0]?.handler).toBe(
+      "reverse_proxy",
+    );
+  });
+
   it("always ends with a branded catch-all 404", () => {
     const config = buildCaddyConfig([
       {
         deploymentId: "a",
         projectSlug: "app",
+        kind: "production" as const,
         hostnames: ["a.denizlg24.com"],
         upstream: "127.0.0.1:24817",
       },
@@ -252,6 +318,7 @@ describe("buildCaddyConfig", () => {
       {
         deploymentId: "a",
         projectSlug: "app",
+        kind: "production" as const,
         hostnames: ["a.denizlg24.com"],
         upstream: "127.0.0.1:24817",
       },
@@ -290,6 +357,7 @@ describe("buildCaddyConfig", () => {
       {
         deploymentId: "a",
         projectSlug: "app",
+        kind: "production" as const,
         hostnames: ["denizlg24.com"],
         redirects: [
           { hostname: "www.denizlg24.com", to: "denizlg24.com" },
@@ -321,6 +389,7 @@ describe("buildCaddyConfig", () => {
       {
         deploymentId: "a",
         projectSlug: "app",
+        kind: "production" as const,
         hostnames: ["denizlg24.com", "docs.denizlg24.com"],
         redirects: [
           { hostname: "www.denizlg24.com", to: "denizlg24.com" },
@@ -348,6 +417,7 @@ describe("buildCaddyConfig", () => {
       {
         deploymentId: "a",
         projectSlug: "app",
+        kind: "production" as const,
         hostnames: ["a.denizlg24.com"],
         redirectHostnames: ["www.denizlg24.com"],
         canonical: null,
@@ -363,6 +433,7 @@ describe("buildCaddyConfig", () => {
       {
         deploymentId: "a",
         projectSlug: "app",
+        kind: "production" as const,
         hostnames: ["a.denizlg24.com", "denizlg24.com"],
         redirects: [{ hostname: "a.denizlg24.com", to: "denizlg24.com" }],
         upstream: "127.0.0.1:24817",
@@ -381,6 +452,7 @@ describe("buildCaddyConfig", () => {
       {
         deploymentId: "a",
         projectSlug: "app",
+        kind: "production" as const,
         hostnames: ["a.denizlg24.com"],
         upstream: "127.0.0.1:24817",
       },
@@ -391,6 +463,40 @@ describe("buildCaddyConfig", () => {
     };
     expect(handler.upstreams).toEqual([{ dial: "127.0.0.1:24817" }]);
     expect(handler.headers.request.set["X-Forwarded-Proto"]).toEqual(["https"]);
+  });
+
+  it("strips platform credentials while preserving deployment cookies", () => {
+    const config = buildCaddyConfig([
+      {
+        deploymentId: "a",
+        projectSlug: "app",
+        kind: "production" as const,
+        hostnames: ["a.denizlg24.com"],
+        upstream: "127.0.0.1:24817",
+      },
+    ]);
+    const proxy = config.apps.http.servers.forge?.routes[0]?.handle[1] as {
+      headers: {
+        request: {
+          replace: Record<string, { search_regexp: string; replace: string }[]>;
+        };
+      };
+    };
+    const replacements = proxy.headers.request.replace.Cookie ?? [];
+    expect(replacements).toHaveLength(3);
+    expect(replacements[0]?.search_regexp).toContain("deniz-cloud");
+    expect(replacements[1]?.search_regexp).toContain(
+      "__Host-forge-preview-share",
+    );
+    let cookies =
+      "__Secure-deniz-cloud.session_token=secret; deniz-cloud.two_factor=challenge; __Host-forge-preview-share=share; app_session=keep; theme=dark";
+    for (const replacement of replacements) {
+      cookies = cookies.replace(
+        new RegExp(replacement.search_regexp, "g"),
+        replacement.replace,
+      );
+    }
+    expect(cookies).toBe("app_session=keep; theme=dark");
   });
 
   /**
@@ -405,6 +511,7 @@ describe("buildCaddyConfig", () => {
       {
         deploymentId: "a",
         projectSlug: "app",
+        kind: "production" as const,
         hostnames: ["a.denizlg24.com"],
         upstream: "127.0.0.1:24817",
       },
@@ -427,6 +534,7 @@ describe("buildCaddyConfig", () => {
       {
         deploymentId: "a",
         projectSlug: "app",
+        kind: "production" as const,
         hostnames: ["a.denizlg24.com"],
         upstream: "127.0.0.1:24817",
         redirects: [{ hostname: "www.a.com", to: "a.denizlg24.com" }],
@@ -443,12 +551,14 @@ describe("buildCaddyConfig", () => {
       {
         deploymentId: "b",
         projectSlug: "app",
+        kind: "production" as const,
         hostnames: ["b.x"],
         upstream: "1",
       },
       {
         deploymentId: "a",
         projectSlug: "app",
+        kind: "production" as const,
         hostnames: ["a.x"],
         upstream: "2",
       },
@@ -474,6 +584,7 @@ describe("CaddyRouter", () => {
       await instance.publish({
         deploymentId: "dep-1",
         projectSlug: "app",
+        kind: "production" as const,
         hostname: "app.denizlg24.com",
         port: 24_817,
       });
@@ -492,6 +603,7 @@ describe("CaddyRouter", () => {
       const route = {
         deploymentId: "dep-1",
         projectSlug: "app",
+        kind: "production" as const,
         hostname: "app.denizlg24.com",
         port: 24_817,
       };
@@ -510,6 +622,7 @@ describe("CaddyRouter", () => {
       await instance.publish({
         deploymentId: "dep-old",
         projectSlug: "forge",
+        kind: "production" as const,
         hostname: "old.forge.denizlg24.com",
         port: 20_555,
       });
@@ -520,6 +633,7 @@ describe("CaddyRouter", () => {
       await instance.publish({
         deploymentId: "dep-new",
         projectSlug: "forge",
+        kind: "production" as const,
         hostname: "new.forge.denizlg24.com",
         port: 21_769,
       });
@@ -548,12 +662,14 @@ describe("CaddyRouter", () => {
       await instance.publish({
         deploymentId: "dep-1",
         projectSlug: "app",
+        kind: "production" as const,
         hostname: "a.denizlg24.com",
         port: 1,
       });
       await instance.publish({
         deploymentId: "dep-2",
         projectSlug: "app",
+        kind: "production" as const,
         hostname: "b.denizlg24.com",
         port: 2,
       });
@@ -581,6 +697,7 @@ describe("CaddyRouter", () => {
         instance.publish({
           deploymentId: "dep-1",
           projectSlug: "app",
+          kind: "production" as const,
           hostname: "a.denizlg24.com",
           port: 1,
         }),
@@ -601,6 +718,7 @@ describe("CaddyRouter", () => {
         instance.publish({
           deploymentId: "dep-1",
           projectSlug: "app",
+          kind: "production" as const,
           hostname: "a.denizlg24.com",
           port: 1,
         }),
@@ -616,12 +734,14 @@ describe("CaddyRouter", () => {
         instance.publish({
           deploymentId: "dep-1",
           projectSlug: "app",
+          kind: "production" as const,
           hostname: "a.denizlg24.com",
           port: 1,
         }),
         instance.publish({
           deploymentId: "dep-2",
           projectSlug: "app",
+          kind: "production" as const,
           hostname: "b.denizlg24.com",
           port: 2,
         }),
@@ -643,6 +763,7 @@ describe("CaddyRouter", () => {
       await first.publish({
         deploymentId: "dep-1",
         projectSlug: "app",
+        kind: "production" as const,
         hostname: "a.denizlg24.com",
         port: 24_817,
       });
@@ -659,6 +780,41 @@ describe("CaddyRouter", () => {
     });
   });
 
+  it("upgrades kind-less persisted routes before replaying them", async () => {
+    await withTempDir(async (dir) => {
+      const statePath = join(dir, "caddy", "config.json");
+      await mkdir(join(dir, "caddy"), { recursive: true });
+      await writeFile(
+        statePath,
+        JSON.stringify([
+          {
+            deploymentId: "dep-preview",
+            projectSlug: "app",
+            hostnames: ["app-feature-abc123.denizlg24.com"],
+            upstream: "127.0.0.1:24817",
+          },
+        ]),
+      );
+      const caddy = fakeCaddy();
+      const requested: string[][] = [];
+      const instance = new CaddyRouter({
+        statePath,
+        fetchImplementation: caddy.implementation,
+        resolveDeploymentKinds: async (ids) => {
+          requested.push(ids);
+          return new Map([["dep-preview", "preview"]]);
+        },
+      });
+
+      expect(await instance.restore()).toBe(1);
+      expect(requested).toEqual([["dep-preview"]]);
+      expect(instance.routes()[0]?.kind).toBe("preview");
+      expect(
+        caddy.loads[0]?.apps.http.servers.forge?.routes[0]?.handle[0]?.handler,
+      ).toBe("reverse_proxy");
+    });
+  });
+
   it("repairs duplicate persisted hostname owners on restore", async () => {
     await withTempDir(async (dir) => {
       const statePath = join(dir, "caddy", "config.json");
@@ -669,12 +825,14 @@ describe("CaddyRouter", () => {
           {
             deploymentId: "dep-old",
             projectSlug: "forge",
+            kind: "production" as const,
             hostnames: ["old.forge.denizlg24.com", "forge.denizlg24.com"],
             upstream: "127.0.0.1:20555",
           },
           {
             deploymentId: "dep-new",
             projectSlug: "forge",
+            kind: "production" as const,
             hostnames: ["new.forge.denizlg24.com", "forge.denizlg24.com"],
             upstream: "127.0.0.1:21769",
           },
