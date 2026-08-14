@@ -1,5 +1,9 @@
 import type { Database } from "@repo/cloud-core";
-import { type DeploymentRow, deployments } from "@repo/cloud-core/db/schema";
+import {
+  type DeploymentRow,
+  deployEnvironments,
+  deployments,
+} from "@repo/cloud-core/db/schema";
 import {
   type CloudflareCustomHostnameClient,
   type CloudflareDnsClient,
@@ -30,6 +34,16 @@ import { invalidatePreviewDeploymentCache } from "../forge/preview-auth";
 import { revokePreviewShareGrants } from "../forge/preview-share";
 import type { GithubSurfaces } from "./github-surfaces";
 import type { DeployAgentProxy } from "./proxy";
+
+/**
+ * A stable name that has to keep pointing at whatever is live behind it.
+ * `environmentId: null` is production, whose stable names are the target's
+ * custom domains; an id is a custom environment, whose stable name is its own.
+ */
+export interface RouteSlot {
+  targetId: string;
+  environmentId: string | null;
+}
 
 export interface ForgeOpsOptions {
   db: Database;
@@ -138,17 +152,24 @@ export class ForgeOps {
     return response?.ok ?? false;
   }
 
-  /** The deployment a target's stable domains currently point at. */
-  async liveProductionDeployment(
-    targetId: string,
-  ): Promise<DeploymentRow | null> {
+  /**
+   * The deployment a stable name currently points at.
+   *
+   * A slot is `(target, environment)`: null names production, whose stable
+   * names are the target's custom domains, and an id names a custom
+   * environment, whose stable name is its own generated hostname. Previews have
+   * no stable name and are never a slot.
+   */
+  async liveSlotDeployment(slot: RouteSlot): Promise<DeploymentRow | null> {
     const [row] = await this.db
       .select()
       .from(deployments)
       .where(
         and(
-          eq(deployments.targetId, targetId),
-          eq(deployments.kind, "production"),
+          eq(deployments.targetId, slot.targetId),
+          slot.environmentId === null
+            ? eq(deployments.kind, "production")
+            : eq(deployments.environmentId, slot.environmentId),
           eq(deployments.status, "ready"),
         ),
       )
@@ -158,18 +179,37 @@ export class ForgeOps {
   }
 
   /**
-   * Targets whose live production deployment is not serving every hostname it
-   * should be.
+   * Slots whose live deployment is not serving every hostname it should be.
    *
-   * One request for the agent's whole table, then a set comparison per target.
-   * An agent that cannot be asked yields nothing rather than everything: with
-   * the agent unreachable a republish would fail anyway, and reporting every
-   * target as unrouted would turn one outage into a wall of failures that says
-   * nothing the agent's own unreachability does not.
+   * One request for the agent's whole table, then a set comparison per slot. An
+   * agent that cannot be asked yields nothing rather than everything: with the
+   * agent unreachable a republish would fail anyway, and reporting every slot as
+   * unrouted would turn one outage into a wall of failures that says nothing the
+   * agent's own unreachability does not.
+   *
+   * Environments are included even though they have no `deploy_domains` row.
+   * Their hostname is generated at creation and always exists, so unlike
+   * production — which is only a slot once a custom domain is attached — every
+   * environment is always one.
    */
-  async unroutedTargets(failures: StepFailure[]): Promise<string[]> {
-    const targetIds = await targetsWithActiveDomains(this.db);
-    if (targetIds.length === 0) return [];
+  async unroutedSlots(failures: StepFailure[]): Promise<RouteSlot[]> {
+    const [targetIds, environments] = await Promise.all([
+      targetsWithActiveDomains(this.db),
+      this.db
+        .select({
+          id: deployEnvironments.id,
+          targetId: deployEnvironments.targetId,
+        })
+        .from(deployEnvironments),
+    ]);
+    const slots: RouteSlot[] = [
+      ...targetIds.map((targetId) => ({ targetId, environmentId: null })),
+      ...environments.map((row) => ({
+        targetId: row.targetId,
+        environmentId: row.id,
+      })),
+    ];
+    if (slots.length === 0) return [];
 
     const live = await this.agent
       .json<{
@@ -210,9 +250,9 @@ export class ForgeOps {
       });
     }
 
-    const stale: string[] = [];
-    for (const targetId of targetIds) {
-      const deployment = await this.liveProductionDeployment(targetId);
+    const stale: RouteSlot[] = [];
+    for (const slot of slots) {
+      const deployment = await this.liveSlotDeployment(slot);
       if (!deployment) continue;
       const expected = await routeHostnames(this.db, deployment);
       const actual = served.get(deployment.id);
@@ -226,7 +266,7 @@ export class ForgeOps {
         expected.redirects.some(
           (entry) => !actual.redirects.has(`${entry.hostname}\0${entry.to}`),
         );
-      if (drifted) stale.push(targetId);
+      if (drifted) stale.push(slot);
     }
     return stale;
   }
@@ -236,8 +276,8 @@ export class ForgeOps {
    * every mutation is what keeps a custom domain from lagging a deploy behind
    * the deployment it names.
    */
-  async republishTargetRoutes(targetId: string): Promise<boolean> {
-    const live = await this.liveProductionDeployment(targetId);
+  async republishSlotRoutes(slot: RouteSlot): Promise<boolean> {
+    const live = await this.liveSlotDeployment(slot);
     if (!live) return false;
     return this.publishRoutes(live);
   }
@@ -431,7 +471,12 @@ export class ForgeOps {
     const failures: StepFailure[] = [];
     const activated: string[] = [];
     const failed: string[] = [];
-    const republish = new Set<string>();
+    // Keyed by slot rather than by target: a target with two environments has
+    // three stable names to keep straight, and a set of target ids collapses
+    // them into one republish that would only ever fix production.
+    const republish = new Map<string, RouteSlot>();
+    const slotKey = (slot: RouteSlot) =>
+      `${slot.targetId}\0${slot.environmentId ?? ""}`;
 
     const pending = (await pendingVerificationDomains(this.db)).slice(
       0,
@@ -442,7 +487,13 @@ export class ForgeOps {
         const refreshed = await refreshDeployDomain(this.domainContext, row);
         if (refreshed.status === "active" && row.status !== "active") {
           activated.push(refreshed.hostname);
-          republish.add(refreshed.targetId);
+          // A custom domain is production's, always: `deploy_domains` carries
+          // no environment.
+          const slot: RouteSlot = {
+            targetId: refreshed.targetId,
+            environmentId: null,
+          };
+          republish.set(slotKey(slot), slot);
         } else if (refreshed.status === "failed" && row.status !== "failed") {
           failed.push(refreshed.hostname);
         }
@@ -465,23 +516,28 @@ export class ForgeOps {
     // Diffed against the agent's live table rather than republished blindly:
     // this runs every two minutes, and a full `POST /load` per target per tick
     // is a lot of Caddy reloads to fix something that is almost never wrong.
-    for (const targetId of await this.unroutedTargets(failures)) {
-      republish.add(targetId);
+    for (const slot of await this.unroutedSlots(failures)) {
+      republish.set(slotKey(slot), slot);
     }
 
     const republishedTargetIds: string[] = [];
-    for (const targetId of republish) {
-      const published = await this.republishTargetRoutes(targetId).catch(
+    for (const slot of republish.values()) {
+      const published = await this.republishSlotRoutes(slot).catch(
         (error: unknown) => {
           failures.push({
             step: "publish",
-            subject: targetId,
+            subject: slot.environmentId ?? slot.targetId,
             error: describe(error),
           });
           return false;
         },
       );
-      if (published) republishedTargetIds.push(targetId);
+      // Reported as target ids because that is what the report has always
+      // meant: which projects were repaired. A target with two environments
+      // repaired in one pass appears once.
+      if (published && !republishedTargetIds.includes(slot.targetId)) {
+        republishedTargetIds.push(slot.targetId);
+      }
     }
 
     return {

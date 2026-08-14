@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { DeploymentKind } from "./deploy";
+
 /**
  * Only the fields forge acts on. GitHub's payloads are enormous and grow, and
  * validating the whole of one would turn an added field into a dropped webhook.
@@ -88,12 +90,14 @@ export type GithubInstallationEvent = z.infer<
 >;
 
 export interface WebhookDeployIntent {
-  kind: "production" | "preview";
+  kind: DeploymentKind;
+  /** Set exactly when `kind` is `environment`; the branch rule decided it. */
+  environmentId: string | null;
   ref: string;
   /**
-   * Null when GitHub cannot name a safe comparison base. A preview then
-   * compares against the target's production branch; a production build with
-   * nothing to compare against deploys.
+   * Null when GitHub cannot name a safe comparison base. A preview or a custom
+   * environment then compares against the target's production branch; a
+   * production build with nothing to compare against deploys.
    */
   baseSha: string | null;
   sha: string;

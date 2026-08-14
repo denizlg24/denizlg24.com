@@ -1,6 +1,9 @@
 import type { Database } from "@repo/cloud-core";
 import { deployments, users } from "@repo/cloud-core/db/schema";
-import { FORGE_PREVIEW_SHARE_QUERY } from "@repo/schemas/cloud";
+import {
+  type DeploymentKind,
+  FORGE_PREVIEW_SHARE_QUERY,
+} from "@repo/schemas/cloud";
 import { eq } from "drizzle-orm";
 
 import type { CloudAuth } from "../auth/better-auth";
@@ -11,7 +14,7 @@ export const PREVIEW_AUTH_SEEN_COOKIE = "__Host-forge-preview-auth-seen";
 const DEPLOYMENT_CACHE_TTL_MS = 5_000;
 
 type CachedDeployment = {
-  deployment: { id: string; kind: "production" | "preview" } | null;
+  deployment: { id: string; kind: DeploymentKind } | null;
   expiresAt: number;
 };
 
@@ -177,7 +180,11 @@ export async function authorizePreviewRequest(
   // Legacy Caddy state does not carry a kind. It may ask about production once
   // during the rolling upgrade; the database remains the authority and lets it
   // through without turning a production site into an authenticated surface.
-  if (deployment.kind !== "preview") {
+  //
+  // Production is the only public surface. A custom environment is gated exactly
+  // like a preview: it is an internal staging box that happens to have a stable
+  // name, and a stable name is if anything more findable than a random one.
+  if (deployment.kind === "production") {
     const response = new Response(null, { status: 204 });
     noStore(response.headers);
     return response;

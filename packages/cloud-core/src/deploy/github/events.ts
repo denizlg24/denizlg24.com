@@ -4,11 +4,11 @@ import type {
   WebhookDeployIntent,
 } from "@repo/schemas/cloud";
 
+import { type BranchRoutingConfig, resolveBranchRoute } from "../environments";
+
 /** What a target must look like for the decision; the row has far more on it. */
-export interface WebhookTarget {
-  productionBranch: string;
+export interface WebhookTarget extends BranchRoutingConfig {
   autoDeploy: boolean;
-  previewDeploys: boolean;
 }
 
 export function branchFromRef(ref: string): string | null {
@@ -18,8 +18,9 @@ export function branchFromRef(ref: string): string | null {
 const ZERO_SHA = /^0+$/;
 
 /**
- * A push either builds production or a preview or nothing, and which one is a
- * property of the branch and the target's two toggles. A tag push and a branch
+ * A push builds production, a custom environment, a preview, or nothing, and
+ * which one is a property of the branch, the target's toggles and its branch
+ * rules — `resolveBranchRoute` owns that whole decision. A tag push and a branch
  * deletion both arrive here as pushes and neither is a deployment.
  */
 export function planPushDeployment(
@@ -30,10 +31,11 @@ export function planPushDeployment(
   const branch = branchFromRef(event.ref);
   if (!branch) return null;
   if (!target.autoDeploy) return null;
-  const production = branch === target.productionBranch;
-  if (!production && !target.previewDeploys) return null;
+  const route = resolveBranchRoute(branch, target);
+  if (!route) return null;
   return {
-    kind: production ? "production" : "preview",
+    kind: route.kind,
+    environmentId: route.environmentId,
     ref: branch,
     // A created or rewritten ref has no meaningful previous tree. Null says so
     // rather than naming a commit the diff would be nonsense against; a preview
@@ -102,13 +104,16 @@ export function planPullRequestAttach(
  * a build ended up running under a check run that said it had been skipped.
  *
  * A production build with no previous tree is the case that really is baseless.
+ * A custom environment is not: like a preview it is a branch off production, so
+ * the first push into `staging` compares against `main` rather than rebuilding
+ * every target in the repository.
  */
 export function comparisonBase(
   intent: Pick<WebhookDeployIntent, "kind" | "baseSha">,
   target: Pick<WebhookTarget, "productionBranch">,
 ): string | null {
   if (intent.baseSha !== null) return intent.baseSha;
-  if (intent.kind !== "preview") return null;
+  if (intent.kind === "production") return null;
   return target.productionBranch.length > 0 ? target.productionBranch : null;
 }
 

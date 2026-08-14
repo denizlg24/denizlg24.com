@@ -277,7 +277,10 @@ export async function findDeploymentForSha(
  *
  * Restricted to previews. The branch is attacker-adjacent input — a fork PR
  * names its own head ref — and without the filter a head branch named the same
- * as a production branch would tear down the live site.
+ * as a production branch would tear down the live site. A custom environment is
+ * excluded for the same reason and one more: an environment is a slot, not a
+ * branch, so deleting the branch that fed it should leave the last build
+ * serving rather than empty a staging box nobody asked to empty.
  */
 export async function branchPreviewDeployments(
   db: Database,
@@ -299,10 +302,16 @@ export async function branchPreviewDeployments(
 }
 
 /**
- * Attaches a pull request number to the previews already built for its head
- * branch. Runs on every `pull_request` event rather than only while a build is
- * in flight, so a branch pushed before its PR existed still gets the number the
- * PR comment and GitHub's environment inactivation both need.
+ * Attaches a pull request number to the non-production builds already made for
+ * its head branch. Runs on every `pull_request` event rather than only while a
+ * build is in flight, so a branch pushed before its PR existed still gets the
+ * number the PR comment and GitHub's environment inactivation both need.
+ *
+ * Environments are included: a branch rule can put a pull request's head branch
+ * into staging, and that build is exactly the one whose URL the PR comment
+ * should be showing. Production is excluded for the reason the branch teardown
+ * gives — the head ref is attacker-adjacent input, and a fork PR naming the
+ * production branch as its head must not reach production's rows.
  */
 export async function backfillPullRequestNumber(
   db: Database,
@@ -314,7 +323,7 @@ export async function backfillPullRequestNumber(
     .where(
       and(
         eq(deployments.targetId, input.targetId),
-        eq(deployments.kind, "preview"),
+        ne(deployments.kind, "production"),
         eq(deployments.gitRef, input.gitRef),
         isNull(deployments.prNumber),
       ),
@@ -325,11 +334,21 @@ export async function backfillPullRequestNumber(
  * Called when a deployment goes ready. The agent has already reaped the
  * containers those rows named; this is the database catching up, and it is
  * what stops the UI showing two live production deployments.
+ *
+ * The environment is part of the slot, not decoration. Without it every custom
+ * environment shares one `kind`, so staging going ready would supersede the live
+ * `qa` deployment and mark a container that is still serving as replaced.
  */
 export async function supersedeOlderDeployments(
   db: Database,
-  input: { targetId: string; kind: DeploymentKind; keepDeploymentId: string },
+  input: {
+    targetId: string;
+    kind: DeploymentKind;
+    environmentId?: string | null;
+    keepDeploymentId: string;
+  },
 ): Promise<DeploymentRow[]> {
+  const environmentId = input.environmentId ?? null;
   return db
     .update(deployments)
     .set({ status: "superseded", stoppedAt: new Date(), phase: null })
@@ -337,6 +356,9 @@ export async function supersedeOlderDeployments(
       and(
         eq(deployments.targetId, input.targetId),
         eq(deployments.kind, input.kind),
+        environmentId === null
+          ? isNull(deployments.environmentId)
+          : eq(deployments.environmentId, environmentId),
         ne(deployments.id, input.keepDeploymentId),
         inArray(deployments.status, [...LIVE_STATUSES]),
       ),

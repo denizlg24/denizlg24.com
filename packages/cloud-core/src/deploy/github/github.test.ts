@@ -26,6 +26,7 @@ const target: WebhookTarget = {
   productionBranch: "main",
   autoDeploy: true,
   previewDeploys: true,
+  rules: [],
 };
 
 function push(overrides: Partial<GithubPushEvent> = {}): GithubPushEvent {
@@ -59,6 +60,7 @@ describe("planPushDeployment", () => {
   it("builds production off the production branch", () => {
     expect(planPushDeployment(push(), target)).toEqual({
       kind: "production",
+      environmentId: null,
       ref: "main",
       baseSha: null,
       sha: "a".repeat(40),
@@ -74,6 +76,37 @@ describe("planPushDeployment", () => {
     );
     expect(intent?.kind).toBe("preview");
     expect(intent?.ref).toBe("feature/thing");
+  });
+
+  it("builds into an environment when a branch rule claims the branch", () => {
+    const withRule = {
+      ...target,
+      rules: [
+        {
+          id: "rule-1",
+          targetId: "t1",
+          environmentId: "env-staging",
+          matchType: "exact" as const,
+          pattern: "staging",
+          priority: 100,
+          enabled: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ],
+    };
+    const intent = planPushDeployment(
+      push({ ref: "refs/heads/staging" }),
+      withRule,
+    );
+    expect(intent?.kind).toBe("environment");
+    expect(intent?.environmentId).toBe("env-staging");
+    // Everything the rule does not claim is still a preview.
+    expect(
+      planPushDeployment(push({ ref: "refs/heads/other" }), withRule)?.kind,
+    ).toBe("preview");
+    // And the production branch stays production whatever the rules say.
+    expect(planPushDeployment(push(), withRule)?.kind).toBe("production");
   });
 
   it("carries the previous commit as the change-detection base", () => {
@@ -148,6 +181,14 @@ describe("comparisonBase", () => {
         { ...target, productionBranch: "" },
       ),
     ).toBeNull();
+  });
+
+  it("compares a baseless environment build against production", () => {
+    // Like a preview, a custom environment is a branch off production. Reading
+    // its first push as baseless would rebuild every target in the repository.
+    expect(comparisonBase({ kind: "environment", baseSha: null }, target)).toBe(
+      "main",
+    );
   });
 });
 

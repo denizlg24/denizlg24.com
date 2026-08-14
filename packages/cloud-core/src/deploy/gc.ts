@@ -2,7 +2,12 @@ import type { DeploymentKind, DeploymentStatus } from "@repo/schemas/cloud";
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
-import { type DeploymentRow, deployDomains, deployments } from "../db/schema";
+import {
+  type DeploymentRow,
+  deployDomains,
+  deployEnvironments,
+  deployments,
+} from "../db/schema";
 import { revokeDeploymentS3Credentials } from "./bindings";
 import {
   type CloudflareDnsClient,
@@ -143,6 +148,7 @@ export async function markInterruptedDeployments(
 export interface DeploymentDnsCandidate {
   id: string;
   targetId: string;
+  environmentId: string | null;
   hostname: string;
   kind: DeploymentKind;
   status: DeploymentStatus;
@@ -152,19 +158,24 @@ export interface DeploymentDnsCandidate {
 
 /**
  * A live preview is reached only through its deployment hostname. Production
- * needs that record only until the target has a stable domain; terminal rows
- * never need one. Kept pure so the nightly drift repair is independently
- * testable from its database reads.
+ * needs that record only until the target has a stable domain, and a custom
+ * environment only until its own generated hostname exists — which it always
+ * does, so the record is redundant the moment the deployment is routed.
+ * Terminal rows never need one. Kept pure so the nightly drift repair is
+ * independently testable from its database reads.
  */
 export function planDeploymentDnsCleanup(
   rows: readonly DeploymentDnsCandidate[],
   targetsWithActiveDomains: ReadonlySet<string>,
   targetsWithExternalDomains: ReadonlySet<string>,
+  environmentsWithHostname: ReadonlySet<string> = new Set(),
 ): DeploymentDnsCandidate[] {
   return rows.filter((row) => {
     // The external DNS provider may still CNAME to any production hostname we
     // previously showed as its target. We cannot inspect or rewrite that zone,
-    // so deleting the record would take the external domain offline.
+    // so deleting the record would take the external domain offline. Only
+    // production is ever named that way — an environment hostname is generated
+    // here and never handed out as a CNAME target.
     if (
       row.kind === "production" &&
       row.readyAt !== null &&
@@ -173,9 +184,16 @@ export function planDeploymentDnsCleanup(
       return false;
     }
     if (!KEEP_STATUSES.includes(row.status)) return true;
-    return (
-      row.kind === "production" && targetsWithActiveDomains.has(row.targetId)
-    );
+    if (row.kind === "production") {
+      return targetsWithActiveDomains.has(row.targetId);
+    }
+    if (row.kind === "environment") {
+      return (
+        row.environmentId !== null &&
+        environmentsWithHostname.has(row.environmentId)
+      );
+    }
+    return false;
   });
 }
 
@@ -183,33 +201,41 @@ export function planDeploymentDnsCleanup(
 export async function unneededDeploymentDnsRecords(
   db: Database,
 ): Promise<DeploymentDnsCandidate[]> {
-  const [rows, activeDomains, externalDomains] = await Promise.all([
-    db
-      .select({
-        id: deployments.id,
-        targetId: deployments.targetId,
-        hostname: deployments.hostname,
-        kind: deployments.kind,
-        status: deployments.status,
-        readyAt: deployments.readyAt,
-        dnsRecordId: deployments.dnsRecordId,
-      })
-      .from(deployments)
-      .where(sql`${deployments.dnsRecordId} IS NOT NULL`),
-    db
-      .select({ targetId: deployDomains.targetId })
-      .from(deployDomains)
-      .where(eq(deployDomains.status, "active")),
-    db
-      .selectDistinct({ targetId: deployDomains.targetId })
-      .from(deployDomains)
-      .where(
-        and(
-          eq(deployDomains.mode, "custom_hostname"),
-          isNull(deployDomains.retiredAt),
+  const [rows, activeDomains, externalDomains, environments] =
+    await Promise.all([
+      db
+        .select({
+          id: deployments.id,
+          targetId: deployments.targetId,
+          environmentId: deployments.environmentId,
+          hostname: deployments.hostname,
+          kind: deployments.kind,
+          status: deployments.status,
+          readyAt: deployments.readyAt,
+          dnsRecordId: deployments.dnsRecordId,
+        })
+        .from(deployments)
+        .where(sql`${deployments.dnsRecordId} IS NOT NULL`),
+      db
+        .select({ targetId: deployDomains.targetId })
+        .from(deployDomains)
+        .where(eq(deployDomains.status, "active")),
+      db
+        .selectDistinct({ targetId: deployDomains.targetId })
+        .from(deployDomains)
+        .where(
+          and(
+            eq(deployDomains.mode, "custom_hostname"),
+            isNull(deployDomains.retiredAt),
+          ),
         ),
-      ),
-  ]);
+      // Only environments whose own DNS record actually exists. One that failed
+      // to provision has nothing else answering, so its deployments keep theirs.
+      db
+        .select({ id: deployEnvironments.id })
+        .from(deployEnvironments)
+        .where(sql`${deployEnvironments.dnsRecordId} IS NOT NULL`),
+    ]);
   const candidates = rows.flatMap((row) =>
     row.dnsRecordId ? [{ ...row, dnsRecordId: row.dnsRecordId }] : [],
   );
@@ -217,6 +243,7 @@ export async function unneededDeploymentDnsRecords(
     candidates,
     new Set(activeDomains.map((row) => row.targetId)),
     new Set(externalDomains.map((row) => row.targetId)),
+    new Set(environments.map((row) => row.id)),
   );
 }
 

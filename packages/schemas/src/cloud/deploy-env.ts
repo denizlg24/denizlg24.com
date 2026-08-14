@@ -25,7 +25,12 @@ export const DEPLOY_BINDING_NAMESPACES = {
    */
   "search.meilisearch": ["url", "host", "port", "key"],
   s3: ["endpoint", "region", "bucket", "accessKeyId", "secretAccessKey"],
-  deployment: ["id", "sha", "ref", "hostname", "url", "kind"],
+  /**
+   * `kind` is the enum; `environment` is the name people configure against —
+   * `production`, `preview`, or the custom environment's own name. An app that
+   * branches on which environment it is in wants the second one.
+   */
+  deployment: ["id", "sha", "ref", "hostname", "url", "kind", "environment"],
   project: ["slug", "name"],
 } as const satisfies Record<string, readonly string[]>;
 
@@ -158,6 +163,13 @@ export const deployEnvKeySchema = z
 const envVarBaseSchema = z.object({
   key: deployEnvKeySchema,
   scope: deployEnvScopeSchema.default("all"),
+  /**
+   * Which environment, when `scope` is `environment`. Required for that scope
+   * and refused for every other one — a var scoped to production that also
+   * names an environment has no meaning, and silently ignoring the id would
+   * hide a mis-set row until the wrong value reached a container.
+   */
+  environmentId: z.uuid().nullish(),
 });
 
 /**
@@ -165,25 +177,34 @@ const envVarBaseSchema = z.object({
  * same rule twice is deliberate: the constraint is the guarantee, and this is
  * the error message.
  */
-export const deployEnvVarInputSchema = z.discriminatedUnion("source", [
-  envVarBaseSchema.extend({
-    source: z.literal("literal"),
-    /**
-     * Absent means "keep what is stored". `GET .../env` never returns a
-     * literal's value, so a full replace that demanded one would force the
-     * editor to re-type every secret on the target to change a scope.
-     */
-    value: z.string().max(32_768).optional(),
-  }),
-  envVarBaseSchema.extend({
-    source: z.literal("binding"),
-    reference: deployBindingReferenceSchema,
-  }),
-  envVarBaseSchema.extend({
-    source: z.literal("template"),
-    template: z.string().min(1).max(32_768),
-  }),
-]);
+export const deployEnvVarInputSchema = z
+  .discriminatedUnion("source", [
+    envVarBaseSchema.extend({
+      source: z.literal("literal"),
+      /**
+       * Absent means "keep what is stored". `GET .../env` never returns a
+       * literal's value, so a full replace that demanded one would force the
+       * editor to re-type every secret on the target to change a scope.
+       */
+      value: z.string().max(32_768).optional(),
+    }),
+    envVarBaseSchema.extend({
+      source: z.literal("binding"),
+      reference: deployBindingReferenceSchema,
+    }),
+    envVarBaseSchema.extend({
+      source: z.literal("template"),
+      template: z.string().min(1).max(32_768),
+    }),
+  ])
+  .refine(
+    (row) => (row.scope === "environment") === (row.environmentId != null),
+    {
+      message:
+        "environmentId is required for the environment scope and not allowed otherwise",
+      path: ["environmentId"],
+    },
+  );
 export type DeployEnvVarInput = z.infer<typeof deployEnvVarInputSchema>;
 
 export const replaceDeployEnvInputSchema = z.object({
@@ -204,6 +225,7 @@ export const deployEnvVarSchema = z.object({
   template: z.string().nullable(),
   hasValue: z.boolean(),
   scope: deployEnvScopeSchema,
+  environmentId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
 });
 export type DeployEnvVar = z.infer<typeof deployEnvVarSchema>;

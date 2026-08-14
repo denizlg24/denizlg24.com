@@ -58,9 +58,28 @@ const DEFAULT_CONNECTION_FIRST = [
   asc(resourceConnections.createdAt),
 ];
 
+/**
+ * A connection scope is `production`, `preview` or `both` — there is no
+ * per-environment scope, because the useful distinction a resource connection
+ * draws is "the live data or not". A custom environment is not live, so it
+ * resolves the same connections a preview does.
+ *
+ * Erring the other way is the failure that matters: a staging environment
+ * silently inheriting production's `production`-scoped database would write to
+ * the live data with nothing in the UI saying it had.
+ */
+function connectionScopeFor(
+  deploymentKind: DeploymentKind,
+): ResourceConnectionScope {
+  return deploymentKind === "production" ? "production" : "preview";
+}
+
 function scopeFilter(deploymentKind: DeploymentKind | undefined) {
   if (!deploymentKind) return undefined;
-  return inArray(resourceConnections.scopes, ["both", deploymentKind]);
+  return inArray(resourceConnections.scopes, [
+    "both",
+    connectionScopeFor(deploymentKind),
+  ]);
 }
 
 export interface ConnectedResourceQuery {

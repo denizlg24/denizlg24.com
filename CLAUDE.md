@@ -320,6 +320,43 @@ extraction and is re-derived per run.
 - `DELETE /resources/{id}/sub-resources/{subId}` → `{ status: "deleted" }` (also deletes health logs)
 - Checks run from the backend in the health-check cron (`runAllSubResourceChecks` in `lib/resource-agent.ts`); logs share `HealthCheckLog` keyed by sub-resource id; public `/api/public/resource-status` nests `subResources` per parent
 
+### Forge environments and branch rules
+
+A deploy target has three kinds of slot, and `deployments.kind` names which:
+`production`, `environment` (a named custom environment such as staging) and
+`preview`. `resolveBranchRoute` in `packages/cloud-core/src/deploy/environments.ts`
+owns the whole branch-to-slot decision — production branch first and
+unconditionally, then the highest-priority matching branch rule, then a preview.
+
+- **`kind === "production"` almost never means what it used to.** The two places
+  that genuinely mean production are custom domains, which only production
+  carries, and promote, which only production is the target of. Everywhere else
+  — routing, DNS GC, capacity, apply-env ordering, the preview auth gate — the
+  question is stable-vs-ephemeral, and `isStableDeploymentKind` is that test.
+- **An environment owns a hostname, not a domain row.** `deploy_domains` stays
+  production-only. An environment is reached at a generated
+  `<slug>-<env>-<random>.<zone>` stored on its own row, provisioned once at
+  creation. That is what keeps promoting to production a real operation.
+- **A capacity slot is `(target, kind, environment)`.** Each environment is
+  charged the host's memory continuously, exactly like production — that is the
+  real cost of adding one on a Pi. `supersedeOlderDeployments` keys on the same
+  triple: without the environment, staging going ready supersedes the live `qa`
+  container.
+- **The `environment` env-var scope names one environment**, through
+  `environmentId`. A staging deployment resolves `all` plus its own rows and
+  never production's — inheriting them would hand staging the live database.
+  The same reasoning maps `kind: "environment"` onto the *preview* side of a
+  resource connection's scope.
+- **A custom environment is gated like a preview, not like production.** Only
+  production is public; `authorizePreviewRequest` tests `kind === "production"`.
+- **Adding an enum value and using it need two migrations.** Postgres allows
+  `ALTER TYPE ... ADD VALUE` in a transaction but refuses to let the new value
+  be used in the same one, which is why `0037` holds only the two `ADD VALUE`
+  statements and `0038` holds everything that compares against `'environment'`.
+- **A manual deploy no longer chooses its kind.** `POST /targets/:id/deployments`
+  derives it from the branch, so deploying the `staging` branch by hand lands in
+  staging. The `kind` field on the input is accepted and ignored.
+
 ### Markets orders and margin
 - `GET /markets/portfolios/{id}/orders` → `{ orders: Order[] }`; repeatable `?status=` narrows to the live book
 - `POST /markets/portfolios/{id}/orders` → `OrderInput` → `{ orders }` (the entry plus any bracket legs). **422, not 400**, when the order is well-formed but refused — no buying power, no position to reduce, shorting off
