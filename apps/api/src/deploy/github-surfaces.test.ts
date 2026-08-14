@@ -41,6 +41,7 @@ interface Recorded {
   states: unknown[];
   comments: { issueNumber: unknown; body: string }[];
   updated: Record<string, unknown>[];
+  reactions: { commentId: unknown; content: unknown }[];
 }
 
 function surfaces(targets: DeployTargetRow[] = [TARGET]): {
@@ -53,6 +54,7 @@ function surfaces(targets: DeployTargetRow[] = [TARGET]): {
     states: [],
     comments: [],
     updated: [],
+    reactions: [],
   };
   const client = {
     createCheckRun: async (input: {
@@ -84,6 +86,15 @@ function surfaces(targets: DeployTargetRow[] = [TARGET]): {
       recorded.comments.push({
         issueNumber: input.issueNumber,
         body: input.body,
+      });
+    },
+    reactToIssueComment: async (input: {
+      commentId: unknown;
+      content: unknown;
+    }) => {
+      recorded.reactions.push({
+        commentId: input.commentId,
+        content: input.content,
       });
     },
   } as unknown as GithubAppClient;
@@ -238,5 +249,60 @@ describe("onPullRequestAttached", () => {
 
     expect(recorded.comments).toEqual([]);
     expect(recorded.created).toEqual([]);
+  });
+});
+
+describe("comment commands", () => {
+  const REPO = {
+    installationId: 42,
+    owner: "denizlg24",
+    repo: "denizlg24.com",
+  };
+
+  it("acknowledges with 👀 and settles on what it produced", async () => {
+    const { surfaces: subject, recorded } = surfaces();
+
+    await subject.onCommandRead(REPO, 555);
+    await subject.onCommandSettled(REPO, 555, true);
+    await subject.onCommandSettled(REPO, 556, false);
+
+    expect(recorded.reactions).toEqual([
+      { commentId: 555, content: "eyes" },
+      { commentId: 555, content: "rocket" },
+      { commentId: 556, content: "confused" },
+    ]);
+  });
+
+  it("keys a refusal on the comment that asked, so a redelivery edits it", async () => {
+    const { surfaces: subject, recorded } = surfaces();
+
+    await subject.onCommandRefused(REPO, {
+      prNumber: 31,
+      commentId: 555,
+      reason: "`denizlg24/fork` is a fork.",
+    });
+
+    expect(recorded.comments).toEqual([
+      {
+        issueNumber: 31,
+        body: "<!-- forge:command:555 -->\n`denizlg24/fork` is a fork.",
+      },
+    ]);
+  });
+
+  it("survives GitHub refusing the reaction", async () => {
+    // Everything written back to GitHub is decoration; a 403 on a reaction must
+    // not become a failed webhook and an unbuilt deployment.
+    const subject = new GithubSurfaces({
+      db: {} as unknown as Database,
+      client: {
+        reactToIssueComment: async () => {
+          throw new Error("403");
+        },
+      } as unknown as GithubAppClient,
+      forgeBaseUrl: "https://forge.denizlg24.com",
+    });
+
+    await expect(subject.onCommandRead(REPO, 555)).resolves.toBeUndefined();
   });
 });

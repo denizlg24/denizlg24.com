@@ -43,6 +43,31 @@ export type GithubPullRequestEvent = z.infer<
   typeof githubPullRequestEventSchema
 >;
 
+/**
+ * `issue.pull_request` is the only thing separating a pull request comment from
+ * an issue comment — GitHub delivers both under `issue_comment` and the key is
+ * simply absent on an issue.
+ */
+export const githubIssueCommentEventSchema = z.object({
+  action: z.string(),
+  repository: repositorySchema,
+  installation: installationRefSchema.optional(),
+  issue: z.object({
+    number: z.number().int(),
+    state: z.string().nullish(),
+    pull_request: z.object({ url: z.string().nullish() }).nullish(),
+  }),
+  comment: z.object({
+    id: z.number().int(),
+    body: z.string().nullish(),
+    user: z.object({ login: z.string() }).nullish(),
+    author_association: z.string().nullish(),
+  }),
+});
+export type GithubIssueCommentEvent = z.infer<
+  typeof githubIssueCommentEventSchema
+>;
+
 const repositoryRefSchema = z.object({ full_name: z.string() });
 
 export const githubInstallationEventSchema = z.object({

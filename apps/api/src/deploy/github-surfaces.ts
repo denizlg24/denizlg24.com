@@ -24,7 +24,7 @@ export interface GithubSurfacesOptions {
   forgeBaseUrl: string;
 }
 
-interface Repo {
+export interface Repo {
   installationId: number;
   owner: string;
   repo: string;
@@ -401,6 +401,59 @@ export class GithubSurfaces {
         });
       });
     }
+  }
+
+  /**
+   * The 👀 that says the comment was read, before there is anything to link at.
+   * A command that has to resolve a pull request and several targets is seconds
+   * of silence otherwise, which is indistinguishable from a dropped webhook.
+   */
+  async onCommandRead(repo: Repo, commentId: number): Promise<void> {
+    await this.#swallow("command reaction", async () => {
+      await this.options.client.reactToIssueComment({
+        ...repo,
+        commentId,
+        content: "eyes",
+      });
+    });
+  }
+
+  /** 🚀 when the command produced deployments, 😕 when it produced none. */
+  async onCommandSettled(
+    repo: Repo,
+    commentId: number,
+    deployed: boolean,
+  ): Promise<void> {
+    await this.#swallow("command reaction", async () => {
+      await this.options.client.reactToIssueComment({
+        ...repo,
+        commentId,
+        content: deployed ? "rocket" : "confused",
+      });
+    });
+  }
+
+  /**
+   * Why a command built nothing. A reaction alone cannot carry a reason, and
+   * every case that reaches here — a fork, a closed pull request, a name that
+   * matches no target — looks identical to a broken bot without one.
+   *
+   * Keyed on the comment that asked, so a redelivered webhook edits its own
+   * reply instead of posting a second one.
+   */
+  async onCommandRefused(
+    repo: Repo,
+    input: { prNumber: number; commentId: number; reason: string },
+  ): Promise<void> {
+    const marker = `<!-- forge:command:${input.commentId} -->`;
+    await this.#swallow("command refusal comment", async () => {
+      await this.options.client.upsertIssueComment({
+        ...repo,
+        issueNumber: input.prNumber,
+        marker,
+        body: `${marker}\n${input.reason}`,
+      });
+    });
   }
 
   /**

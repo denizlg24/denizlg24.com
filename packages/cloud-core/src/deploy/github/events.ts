@@ -116,6 +116,60 @@ export function isPullRequestTeardown(action: string): boolean {
   return action === "closed";
 }
 
+/** What a comment asked for. A null name means every target in the repository. */
+export interface DeployCommand {
+  targetName: string | null;
+}
+
+/**
+ * `@app-slug deploy [target]` anywhere in a comment line.
+ *
+ * A verb is required, so talking *about* the bot never builds anything, and a
+ * quoted line is skipped — a reply that quotes the command it is replying to is
+ * otherwise a command itself, and a thread of them redeploys on every reply.
+ * `[bot]` is optional because GitHub's own autocomplete inserts the bare slug
+ * while the account it belongs to is `slug[bot]`.
+ *
+ * Everything after the verb is the target name rather than the first word of
+ * one: a target name is a free string that may contain spaces, and the caller
+ * matches what this returns against the names it has.
+ */
+export function parseDeployCommand(
+  body: string | null | undefined,
+  slug: string | null | undefined,
+): DeployCommand | null {
+  if (!body || !slug) return null;
+  const wanted = slug.toLowerCase();
+  const pattern = /@([a-z0-9][a-z0-9-]*)(?:\[bot\])?\s+([a-z]+)([^\n]*)/gi;
+  for (const raw of body.split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith(">")) continue;
+    pattern.lastIndex = 0;
+    for (
+      let match = pattern.exec(line);
+      match !== null;
+      match = pattern.exec(line)
+    ) {
+      const [, mentioned, verb, rest] = match;
+      if (mentioned?.toLowerCase() !== wanted) continue;
+      if (verb?.toLowerCase() !== "deploy") continue;
+      const name = (rest ?? "").replace(/[`"']/g, "").trim();
+      return { targetName: name.length > 0 ? name : null };
+    }
+  }
+  return null;
+}
+
+/**
+ * Only the repository owner. Forge is single-tenant, so this is the whole
+ * authorization model: anyone else's comment is not refused, it is unread.
+ */
+export function canRunDeployCommand(
+  authorAssociation: string | null | undefined,
+): boolean {
+  return authorAssociation === "OWNER";
+}
+
 /**
  * The branch a push destroyed, or null for an ordinary push.
  *

@@ -8,7 +8,9 @@ import type {
 import { GithubAppClient } from "./client";
 import {
   branchFromRef,
+  canRunDeployCommand,
   comparisonBase,
+  parseDeployCommand,
   planBranchTeardown,
   planPullRequestAttach,
   planPushDeployment,
@@ -288,6 +290,136 @@ describe("GithubAppClient.compareFiles", () => {
         })
       ).complete,
     ).toBe(false);
+  });
+});
+
+describe("parseDeployCommand", () => {
+  it("reads the verb and an optional target name", () => {
+    expect(parseDeployCommand("@forge deploy", "forge")).toEqual({
+      targetName: null,
+    });
+    expect(parseDeployCommand("@forge deploy web", "forge")).toEqual({
+      targetName: "web",
+    });
+    expect(parseDeployCommand("@forge[bot] deploy `web`", "forge")).toEqual({
+      targetName: "web",
+    });
+    expect(parseDeployCommand("@FORGE DEPLOY Web", "forge")).toEqual({
+      targetName: "Web",
+    });
+  });
+
+  it("keeps a multi-word target name whole", () => {
+    expect(parseDeployCommand("@forge deploy admin api", "forge")).toEqual({
+      targetName: "admin api",
+    });
+  });
+
+  it("needs the verb, so talking about the bot builds nothing", () => {
+    expect(parseDeployCommand("@forge", "forge")).toBeNull();
+    expect(parseDeployCommand("thanks @forge!", "forge")).toBeNull();
+    expect(parseDeployCommand("@forge status", "forge")).toBeNull();
+    expect(parseDeployCommand("deploy this please", "forge")).toBeNull();
+  });
+
+  it("ignores another app's mention and an unset slug", () => {
+    expect(parseDeployCommand("@other deploy", "forge")).toBeNull();
+    expect(parseDeployCommand("@forge deploy", null)).toBeNull();
+  });
+
+  it("does not read a quoted command", () => {
+    expect(parseDeployCommand("> @forge deploy\nagreed", "forge")).toBeNull();
+    expect(
+      parseDeployCommand("> @forge deploy\n@forge deploy web", "forge"),
+    ).toEqual({ targetName: "web" });
+  });
+
+  it("finds a command later in the line", () => {
+    expect(parseDeployCommand("looks good, @forge deploy", "forge")).toEqual({
+      targetName: null,
+    });
+  });
+});
+
+describe("canRunDeployCommand", () => {
+  it("admits the owner and nobody else", () => {
+    expect(canRunDeployCommand("OWNER")).toBe(true);
+    expect(canRunDeployCommand("MEMBER")).toBe(false);
+    expect(canRunDeployCommand("COLLABORATOR")).toBe(false);
+    expect(canRunDeployCommand("CONTRIBUTOR")).toBe(false);
+    expect(canRunDeployCommand("NONE")).toBe(false);
+    expect(canRunDeployCommand(null)).toBe(false);
+  });
+});
+
+describe("GithubAppClient.getPullRequest", () => {
+  function clientReturning(body: unknown, status = 200): GithubAppClient {
+    return new GithubAppClient({
+      config: {
+        appId: "1",
+        privateKey: "unused with a cached token",
+        webhookSecret: "secret",
+        slug: null,
+      },
+      cache: {
+        get: async () => "installation-token",
+        set: async () => {},
+        delete: async () => {},
+      },
+      fetchImplementation: Object.assign(
+        async () =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          }),
+        { preconnect: () => {} },
+      ),
+    });
+  }
+
+  it("reports the head commit and which repository it is on", async () => {
+    const client = clientReturning({
+      number: 7,
+      state: "open",
+      draft: false,
+      title: "Add a thing",
+      head: {
+        ref: "feature",
+        sha: "b".repeat(40),
+        repo: { full_name: "denizlg24/site" },
+      },
+      base: { repo: { full_name: "denizlg24/site" } },
+    });
+
+    await expect(
+      client.getPullRequest({
+        installationId: 1,
+        owner: "denizlg24",
+        repo: "site",
+        number: 7,
+      }),
+    ).resolves.toEqual({
+      number: 7,
+      state: "open",
+      draft: false,
+      title: "Add a thing",
+      headRef: "feature",
+      headSha: "b".repeat(40),
+      headRepoFullName: "denizlg24/site",
+      baseRepoFullName: "denizlg24/site",
+    });
+  });
+
+  it("is null for a pull request that is gone", async () => {
+    const client = clientReturning({ message: "Not Found" }, 404);
+    await expect(
+      client.getPullRequest({
+        installationId: 1,
+        owner: "denizlg24",
+        repo: "site",
+        number: 7,
+      }),
+    ).resolves.toBeNull();
   });
 });
 

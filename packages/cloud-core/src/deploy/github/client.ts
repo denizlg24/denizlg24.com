@@ -89,6 +89,22 @@ export interface GithubBranch {
   sha: string;
 }
 
+/**
+ * What a comment-triggered deploy needs and the `issue_comment` payload does
+ * not carry: the head commit, and whose repository it is on.
+ */
+export interface GithubPullRequestSummary {
+  number: number;
+  state: string;
+  draft: boolean;
+  title: string | null;
+  headRef: string;
+  headSha: string;
+  /** Null when GitHub omitted it — a deleted fork leaves the head repo unset. */
+  headRepoFullName: string | null;
+  baseRepoFullName: string | null;
+}
+
 export interface GithubChangedFiles {
   /** New and previous names are both present when a file was renamed. */
   paths: string[];
@@ -487,6 +503,73 @@ export class GithubAppClient {
       message: commit.commit?.message ?? null,
       committedAt: commit.commit?.committer?.date ?? null,
     };
+  }
+
+  /** Null for a pull request that no longer exists. */
+  async getPullRequest(input: {
+    installationId: number;
+    owner: string;
+    repo: string;
+    number: number;
+  }): Promise<GithubPullRequestSummary | null> {
+    const token = await this.installationToken(input.installationId);
+    const body = await this.#maybeJson<{
+      number?: unknown;
+      state?: unknown;
+      draft?: unknown;
+      title?: unknown;
+      head?: { ref?: unknown; sha?: unknown; repo?: { full_name?: unknown } };
+      base?: { repo?: { full_name?: unknown } };
+    }>(`/repos/${input.owner}/${input.repo}/pulls/${input.number}`, {
+      method: "GET",
+      token,
+    });
+    if (
+      body === null ||
+      typeof body.head?.ref !== "string" ||
+      typeof body.head?.sha !== "string"
+    ) {
+      return null;
+    }
+    return {
+      number: typeof body.number === "number" ? body.number : input.number,
+      state: typeof body.state === "string" ? body.state : "open",
+      draft: body.draft === true,
+      title: typeof body.title === "string" ? body.title : null,
+      headRef: body.head.ref,
+      headSha: body.head.sha,
+      headRepoFullName:
+        typeof body.head.repo?.full_name === "string"
+          ? body.head.repo.full_name
+          : null,
+      baseRepoFullName:
+        typeof body.base?.repo?.full_name === "string"
+          ? body.base.repo.full_name
+          : null,
+    };
+  }
+
+  /**
+   * An emoji on the comment that asked for something. It is the cheapest
+   * acknowledgement there is — no thread noise, and it appears before the build
+   * exists, which is the window where silence reads as a dropped webhook.
+   */
+  async reactToIssueComment(input: {
+    installationId: number;
+    owner: string;
+    repo: string;
+    commentId: number;
+    content: "eyes" | "rocket" | "confused" | "+1" | "-1";
+  }): Promise<void> {
+    const token = await this.installationToken(input.installationId);
+    await this.#json(
+      `/repos/${input.owner}/${input.repo}/issues/comments/${input.commentId}/reactions`,
+      {
+        method: "POST",
+        token,
+        body: JSON.stringify({ content: input.content }),
+      },
+    );
   }
 
   /**

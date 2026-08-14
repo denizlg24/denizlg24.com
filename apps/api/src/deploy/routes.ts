@@ -45,6 +45,7 @@ import {
   buildSpecFromTarget,
   type ChangeDecision,
   COMMITTED_DEPLOYMENT_STATUSES,
+  canRunDeployCommand,
   claimQueuedDeployment,
   comparisonBase,
   createDeployBindingResolvers,
@@ -72,6 +73,7 @@ import {
   loadDeployDomain,
   lockDeployCapacity,
   memoryCeilingMb,
+  parseDeployCommand,
   parseRefInput,
   planBranchTeardown,
   planPullRequestAttach,
@@ -111,9 +113,12 @@ import {
   DeployHostnameError,
   type DeploymentBuildSpec,
   type DeploymentKind,
+  type DeploymentStatus,
   deploymentStatusUpdateSchema,
   extractTemplateReferences,
+  type GithubIssueCommentEvent,
   githubInstallationEventSchema,
+  githubIssueCommentEventSchema,
   githubPullRequestEventSchema,
   githubPushEventSchema,
   isDeployRuntimeVersion,
@@ -3297,6 +3302,202 @@ export function deployRoutes(options: DeployRouteOptions) {
   }
 
   /**
+   * A deployment that already exists for this commit is the answer to a command
+   * only while it is still one. A run that failed, was cancelled or was
+   * interrupted is exactly when somebody types the command, and handing back the
+   * failure it already reported would make it a no-op at the only moment it is
+   * useful. (`findDeploymentForSha` never returns a superseded row.)
+   */
+  const REUSABLE_COMMAND_STATUSES = new Set<DeploymentStatus>([
+    "queued",
+    "building",
+    "deploying",
+    "ready",
+  ]);
+
+  interface CommentCommandResult {
+    enqueued: string[];
+    reused: string[];
+  }
+
+  /**
+   * `@app-slug deploy [target]` on a pull request.
+   *
+   * The only deployment path that is not a push, and it exists for the cases a
+   * push cannot serve: a target with `previewDeploys` off, one whose change
+   * detection decided this commit missed it, or a branch whose build the owner
+   * simply wants again. Those toggles are therefore not consulted — the comment
+   * *is* the decision — and change detection is skipped for the same reason.
+   * `pausedAt` still holds, because `enqueueDeployment` refuses a paused target
+   * whoever asked.
+   *
+   * A fork head is refused rather than built. Nothing else here is a security
+   * boundary: the command runs untrusted code with this project's resource
+   * bindings, and the owner check on the comment is what stands between the two.
+   */
+  async function deployFromComment(
+    github: NonNullable<DeployRouteOptions["github"]>,
+    event: GithubIssueCommentEvent,
+  ): Promise<CommentCommandResult> {
+    const nothing: CommentCommandResult = { enqueued: [], reused: [] };
+    // `created` only. An edit that adds the verb to an old comment is not a
+    // request, and GitHub redelivers `edited` for any body change at all.
+    if (event.action !== "created") return nothing;
+    // Absent on a plain issue, which is the only thing separating the two.
+    if (!event.issue.pull_request) return nothing;
+    if (!canRunDeployCommand(event.comment.author_association)) return nothing;
+    const command = parseDeployCommand(
+      event.comment.body,
+      options.githubAppSlug,
+    );
+    if (!command) return nothing;
+
+    const owner = event.repository.owner.login;
+    const repoName = event.repository.name;
+    const targets = (
+      await targetsForRepository(db, { owner, repo: repoName })
+    ).filter((target) => target.githubInstallationId !== null);
+    const installationId =
+      event.installation?.id ?? targets[0]?.githubInstallationId ?? null;
+    // Nothing to authenticate with, so nothing can be said either. A command on
+    // a repository the App is not installed on cannot reach here at all.
+    if (installationId === null) return nothing;
+    const repo = { installationId, owner, repo: repoName };
+    const commentId = event.comment.id;
+    const prNumber = event.issue.number;
+
+    await github.surfaces.onCommandRead(repo, commentId);
+
+    const refuse = async (reason: string): Promise<CommentCommandResult> => {
+      await github.surfaces.onCommandRefused(repo, {
+        prNumber,
+        commentId,
+        reason,
+      });
+      await github.surfaces.onCommandSettled(repo, commentId, false);
+      return nothing;
+    };
+
+    if (targets.length === 0) {
+      return refuse("No Forge project deploys this repository.");
+    }
+
+    // The head commit, which the `issue_comment` payload does not carry.
+    const pull = await github.client
+      .getPullRequest({ ...repo, number: prNumber })
+      .catch((error: unknown) => {
+        console.error("[deploy] command pull request read failed", error);
+        return null;
+      });
+    if (!pull) return refuse("Could not read this pull request from GitHub.");
+    if (pull.state !== "open") return refuse("This pull request is closed.");
+    if (
+      pull.headRepoFullName !== null &&
+      pull.baseRepoFullName !== null &&
+      pull.headRepoFullName.toLowerCase() !==
+        pull.baseRepoFullName.toLowerCase()
+    ) {
+      return refuse(
+        `\`${pull.headRepoFullName}\` is a fork. Forge deploys branches on this repository only.`,
+      );
+    }
+
+    const wanted = command.targetName?.toLowerCase() ?? null;
+    const selected =
+      wanted === null
+        ? targets
+        : targets.filter((target) => target.name.toLowerCase() === wanted);
+    if (selected.length === 0) {
+      const names = targets.map((target) => `\`${target.name}\``).join(", ");
+      return refuse(
+        `No deploy target named \`${command.targetName}\`. This repository has ${names}.`,
+      );
+    }
+
+    // Before anything reads a row back: a preview built from a branch push that
+    // predates this pull request carries no number, and the comment a reused
+    // deployment posts returns on a null one.
+    for (const target of selected) {
+      await backfillPullRequestNumber(db, {
+        targetId: target.id,
+        gitRef: pull.headRef,
+        prNumber,
+      }).catch((error: unknown) => {
+        console.error("[deploy] command backfill failed", error);
+      });
+    }
+
+    const commit = await github.client
+      .resolveCommit({ ...repo, ref: pull.headSha })
+      .catch(() => null);
+
+    const result: CommentCommandResult = { enqueued: [], reused: [] };
+    const failures: string[] = [];
+    for (const target of selected) {
+      try {
+        const existing = await findDeploymentForSha(db, {
+          targetId: target.id,
+          sha: pull.headSha,
+          kind: "preview",
+        });
+        if (existing && REUSABLE_COMMAND_STATUSES.has(existing.status)) {
+          await github.surfaces.onPullRequestAttached(existing, target);
+          result.reused.push(existing.id);
+          continue;
+        }
+
+        const project = await db.query.projects.findFirst({
+          where: eq(projects.id, target.projectId),
+        });
+        if (!project) continue;
+
+        await forge.releaseSuperseded(
+          await supersedeQueuedDeployments(db, {
+            targetId: target.id,
+            gitRef: pull.headRef,
+            kind: "preview",
+          }),
+        );
+        const created = await enqueueDeployment({
+          target,
+          projectSlug: project.slug,
+          ref: pull.headRef,
+          sha: pull.headSha,
+          message: commit?.message ?? pull.title,
+          kind: "preview",
+          // No `comment` trigger: the enum is a Postgres type and nothing in
+          // this repo migrates one at boot. A command is a person asking, which
+          // is what `manual` already means; `createdBy` stays null because the
+          // column is a cloud user id and a GitHub login is not one.
+          triggeredBy: "manual",
+          createdBy: null,
+          prNumber,
+        });
+        await github.surfaces.onEnqueued(created, target);
+        result.enqueued.push(created.id);
+      } catch (error) {
+        // One target being unresolvable, paused or over capacity must not stop
+        // the others; the reply names which and why.
+        console.error("[deploy] command deployment failed", error);
+        failures.push(
+          `\`${target.name}\`: ${error instanceof Error ? error.message : "failed to queue"}`,
+        );
+      }
+    }
+
+    const deployed = result.enqueued.length + result.reused.length > 0;
+    if (failures.length > 0) {
+      await github.surfaces.onCommandRefused(repo, {
+        prNumber,
+        commentId,
+        reason: `Not deployed — ${failures.join("; ")}`,
+      });
+    }
+    await github.surfaces.onCommandSettled(repo, commentId, deployed);
+    return result;
+  }
+
+  /**
    * Reaps every preview built for a branch: the container, its DNS record and
    * S3 credentials, and the row itself.
    *
@@ -3463,6 +3664,18 @@ export function deployRoutes(options: DeployRouteOptions) {
         attached += 1;
       }
       return context.json({ data: { attached } });
+    }
+
+    if (event === "issue_comment") {
+      const parsed = githubIssueCommentEventSchema.safeParse(payload);
+      if (!parsed.success) return context.json({ data: { ignored: true } });
+      const result = await deployFromComment(github, parsed.data).catch(
+        (error: unknown) => {
+          console.error("[deploy] comment command failed", error);
+          return null;
+        },
+      );
+      return context.json({ data: result ?? { ignored: true } });
     }
 
     return context.json({ data: { ignored: true } });
