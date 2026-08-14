@@ -66,10 +66,15 @@ jobs:
       # The key rolls per run so a cache written from a partly-fetched run is
       # topped up by the next one rather than pinned forever; restore-keys is
       # what makes the newest previous one the starting point.
+      # Not ~/.cache/Tectonic: latex-compiler.ts pins XDG_CACHE_HOME to
+      # `tmpdir()/deniz-tectonic-cache` when it spawns tectonic, so the cache
+      # lands under /tmp and $HOME stays empty. Caching the home path silently
+      # stores nothing — the only sign is a Path Validation Error in the post
+      # step, long after the check has already gone green.
       - name: Cache Tectonic bundle
         uses: actions/cache@v4
         with:
-          path: ~/.cache/Tectonic
+          path: /tmp/deniz-tectonic-cache
           key: tectonic-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             tectonic-${{ runner.os }}-
