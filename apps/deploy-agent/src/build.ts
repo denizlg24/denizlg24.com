@@ -16,6 +16,7 @@ import {
 
 import type { BuildLog } from "./build-log";
 import { DEFAULT_BUILDER_NAME, ensureBuildxBuilder } from "./buildx";
+import { loadDockerignore } from "./dockerignore";
 import { type Exec, execOrThrow } from "./exec";
 
 export type ResolvedBuilder = "dockerfile" | "nixpacks";
@@ -244,11 +245,24 @@ const MANIFEST_WALK_DEPTH = 4;
  * matching nothing — `apps/*` in a repository with no `apps` — is a hard `COPY`
  * failure, so a pattern that reads as harmless breaks every single-package
  * project. Real paths cannot miss.
+ *
+ * Except that existing on disk is not the same as being in the build context.
+ * `.dockerignore` is what decides the latter, and a literal source it excludes
+ * fails the build the same way a missing one does — which is how a commit
+ * predating this repository's own `.dockerignore` fix (`infra` was ignored
+ * wholesale, `infra/compose/scripts` was not) became unbuildable while the
+ * branch tip built fine. The walk therefore filters through the same matcher
+ * the daemon uses.
  */
 export async function collectInstallManifests(
   contextDirectory: string,
-  depth = MANIFEST_WALK_DEPTH,
+  options: { depth?: number; dockerfilePath?: string | null } = {},
 ): Promise<string[]> {
+  const depth = options.depth ?? MANIFEST_WALK_DEPTH;
+  const ignored = await loadDockerignore(
+    contextDirectory,
+    options.dockerfilePath,
+  );
   const found: string[] = [];
 
   async function walk(directory: string, remaining: number): Promise<void> {
@@ -259,14 +273,18 @@ export async function collectInstallManifests(
       const path = directory ? `${directory}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         if (INSTALL_MANIFEST_DIRECTORIES.has(entry.name)) {
-          found.push(path);
+          if (!ignored.excludes(path)) found.push(path);
           continue;
         }
         if (UNWALKED_DIRECTORIES.has(entry.name) || remaining <= 1) continue;
+        // Not pruned on the ignore matcher: a negation can re-include a path
+        // under an excluded directory, so every candidate is judged on its own.
         await walk(path, remaining - 1);
         continue;
       }
-      if (INSTALL_MANIFEST_FILES.has(entry.name)) found.push(path);
+      if (INSTALL_MANIFEST_FILES.has(entry.name) && !ignored.excludes(path)) {
+        found.push(path);
+      }
     }
   }
 
@@ -908,7 +926,9 @@ export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
         // sources and readme are install inputs too. The manifest-only rewrite
         // is safe for package-manager resolution, but not for `pip install .`.
         if (options.scopeInstallCopy !== false && !pythonWorkspace) {
-          const manifests = await collectInstallManifests(contextDirectory);
+          const manifests = await collectInstallManifests(contextDirectory, {
+            dockerfilePath: join(".nixpacks", "Dockerfile"),
+          });
           const scoped = scopeInstallCopy(rewritten, manifests);
           if (scoped !== rewritten) {
             rewritten = scoped;

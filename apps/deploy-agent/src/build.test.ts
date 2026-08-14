@@ -323,6 +323,71 @@ describe("collectInstallManifests", () => {
       expect(manifests).not.toContain("node_modules/left-pad/package.json");
     });
   });
+
+  it("drops what .dockerignore keeps out of the build context", async () => {
+    await withTempDir(async (dir) => {
+      for (const path of [
+        "package.json",
+        "infra/compose/scripts/deploy.sh",
+        "infra/scripts/install.sh",
+        "scripts/build.mjs",
+      ]) {
+        await mkdir(join(dir, path, ".."), { recursive: true });
+        await writeFile(join(dir, path), "{}");
+      }
+      await writeFile(join(dir, ".dockerignore"), "node_modules\ninfra\n");
+
+      // On disk but not in the context: copying either is a hard build
+      // failure, which is what broke every commit predating the ignore fix.
+      expect(await collectInstallManifests(dir)).toEqual([
+        "package.json",
+        "scripts",
+      ]);
+    });
+  });
+
+  it("keeps a path a later negation puts back", async () => {
+    await withTempDir(async (dir) => {
+      for (const path of [
+        "package.json",
+        "infra/compose/scripts/deploy.sh",
+        "infra/systemd/api.env",
+      ]) {
+        await mkdir(join(dir, path, ".."), { recursive: true });
+        await writeFile(join(dir, path), "{}");
+      }
+      await writeFile(
+        join(dir, ".dockerignore"),
+        "infra\n!infra/compose/scripts\n",
+      );
+
+      expect(await collectInstallManifests(dir)).toEqual([
+        "infra/compose/scripts",
+        "package.json",
+      ]);
+    });
+  });
+
+  it("prefers the Dockerfile-specific ignore file, as BuildKit does", async () => {
+    await withTempDir(async (dir) => {
+      for (const path of ["package.json", "scripts/build.mjs"]) {
+        await mkdir(join(dir, path, ".."), { recursive: true });
+        await writeFile(join(dir, path), "{}");
+      }
+      await mkdir(join(dir, ".nixpacks"), { recursive: true });
+      await writeFile(join(dir, ".dockerignore"), "package.json\n");
+      await writeFile(
+        join(dir, ".nixpacks", "Dockerfile.dockerignore"),
+        "scripts\n",
+      );
+
+      expect(
+        await collectInstallManifests(dir, {
+          dockerfilePath: ".nixpacks/Dockerfile",
+        }),
+      ).toEqual(["package.json"]);
+    });
+  });
 });
 
 describe("runBuild", () => {
