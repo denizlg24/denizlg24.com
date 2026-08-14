@@ -8,7 +8,6 @@ export async function cronPing(c: Context) {
     return c.json({ error: "ENVOY_CRON_SECRET not configured" }, 500);
   }
 
-  // Accept token via query param or Authorization header
   const queryToken = c.req.query("token");
   const authHeader = c.req.header("Authorization");
   const headerToken = authHeader?.startsWith("Bearer ")
@@ -20,7 +19,6 @@ export async function cronPing(c: Context) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  // Perform health check and record to database
   const result = await runAndRecordHealthCheck();
 
   return c.json({

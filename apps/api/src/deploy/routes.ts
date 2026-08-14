@@ -4081,9 +4081,9 @@ export function deployRoutes(options: DeployRouteOptions) {
     // decision about the commit that was never made.
     if (target.pausedAt !== null) return null;
 
-    // Only `push` reaches here, so the two-events-per-commit duplicate this
-    // used to catch is gone — what is left is GitHub redelivering a delivery,
-    // and a re-push landing on a SHA already built.
+    // Only `push` reaches here, so one commit cannot arrive twice by two event
+    // types. What remains is GitHub redelivering a delivery, and a re-push
+    // landing on a SHA already built.
     //
     // Ahead of the change decision, because a build that already exists for
     // this commit is the answer: reporting a skip over it would put a ✓ "no

@@ -480,13 +480,13 @@ export async function getPerformance(
   // Quotes are read before the curve is built, not after, because the curve's
   // final point is priced from them.
   //
-  // Everything below exists because the curve used to be driven entirely by
-  // cached daily bars, and a daily bar for today does not exist until after the
-  // close. So the curve stopped at the previous session while `positions` were
-  // already live — the header disagreed with the table beneath it, and "day"
-  // P&L was yesterday's move. On a portfolio opened today there were no bars at
-  // all: no curve, no contributions, and metrics falling back to bare cash, so a
-  // book that had just bought stock reported only the cash it had left.
+  // The curve has to run to today, not to the last cached bar. A daily bar for
+  // today does not exist until after the close, so a bars-only curve stops at
+  // the previous session while `positions` are already live: the header
+  // disagrees with the table beneath it and "day" P&L reports yesterday's move.
+  // A portfolio opened today has no bars at all, which leaves it with no curve,
+  // no contributions, and metrics falling back to bare cash — a book that has
+  // just bought stock reporting only the cash it has left.
   const quoteTickers = portfolio.benchmark
     ? [...new Set([...tickers, portfolio.benchmark])]
     : tickers;

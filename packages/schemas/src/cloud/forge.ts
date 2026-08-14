@@ -532,8 +532,8 @@ export const forgeDeploymentSummarySchema = z.object({
   targetName: z.string(),
   projectId: z.uuid(),
   projectSlug: z.string(),
-  // These are pgEnum columns selected straight out of `deployments`, so the
-  // loose `z.string()` they used to carry only cost every consumer a cast.
+  // pgEnum columns selected straight out of `deployments`, so they carry the
+  // enum types here rather than a loose `z.string()` every consumer has to cast.
   kind: deploymentKindSchema,
   status: deploymentStatusSchema,
   phase: deploymentPhaseSchema.nullable(),

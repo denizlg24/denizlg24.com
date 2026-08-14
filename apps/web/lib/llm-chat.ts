@@ -860,7 +860,6 @@ export function createAgenticSSEStream({
         // ===== Loop exited =====
         const hitMaxIterations = iterations >= maxIterations;
         if (hitMaxIterations) {
-          // Check if last assistant message still has unanswered tool_use
           const last = workingMessages[workingMessages.length - 1];
           const hasUnansweredTools =
             last?.role === "assistant" &&

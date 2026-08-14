@@ -3,9 +3,8 @@ import * as controller from "./status.controller";
 
 export const statusRoutes = new Hono();
 
-// GET /status/cron?token=<CRON_SECRET> - Called by external cron to trigger health check
-// The endpoint pings /api/health internally and records the result
+// Driven by an external cron, authenticated with ENVOY_CRON_SECRET as either a
+// `token` query param or a bearer header. Pings /api/health and stores the result.
 statusRoutes.get("/cron", controller.cronPing);
 
-// GET /status/stats - Get aggregated status statistics
 statusRoutes.get("/stats", controller.getStats);

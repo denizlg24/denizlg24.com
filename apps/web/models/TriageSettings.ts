@@ -97,7 +97,6 @@ const TriageSettingsSchema = new Schema<ITriageSettings>(
   { timestamps: true, _id: false },
 );
 
-// validate routing shape
 TriageSettingsSchema.path("categoryRouting").validate((value: unknown) => {
   if (!value || typeof value !== "object") return false;
   return true;
