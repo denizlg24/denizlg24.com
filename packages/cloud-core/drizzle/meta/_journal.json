@@ -274,6 +274,13 @@
       "when": 1786714166401,
       "tag": "0038_deploy_environments",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786722715934,
+      "tag": "0039_resource_connection_environment",
+      "breakpoints": true
     }
   ]
 }

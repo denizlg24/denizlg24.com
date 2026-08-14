@@ -134,7 +134,7 @@ export default function EnvironmentsPage() {
               value={name}
               placeholder="staging"
               aria-label="Environment name"
-              className="h-8 w-40 font-mono text-xs"
+              className="h-8 w-full min-w-0 font-mono text-xs sm:w-40"
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") create();
@@ -145,7 +145,7 @@ export default function EnvironmentsPage() {
               placeholder="branch"
               aria-label="Branch"
               list="environment-branches"
-              className="h-8 w-48 font-mono text-xs"
+              className="h-8 w-full min-w-0 font-mono text-xs sm:w-48"
               onChange={(event) => setBranch(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") create();
@@ -217,30 +217,36 @@ function EnvironmentRow({
   const latest = environment.latestDeployment;
   const paused = environment.pausedAt !== null;
   return (
-    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b py-3">
-      <span className="font-mono text-sm">{environment.name}</span>
-      <Link
-        href={environment.url}
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex items-baseline gap-1 truncate text-xs text-muted-foreground hover:text-foreground"
-      >
-        {environment.hostname}
-        <ArrowUpRight className="size-3 self-center" />
-      </Link>
-      <span className="text-xs tabular-nums text-muted-foreground">
-        {environment.memoryReservationResolvedMb} MB
-      </span>
-      <span className="text-xs text-muted-foreground">
-        {environment.branchRuleCount} rule
-        {environment.branchRuleCount === 1 ? "" : "s"}
-      </span>
-      <span className="text-xs text-muted-foreground">
-        {latest
-          ? `${latest.status} · ${latest.gitRef} · ${formatRelative(latest.createdAt)}`
-          : `never deployed · not ${productionBranch}`}
-      </span>
-      <div className="ml-auto flex items-center gap-3">
+    <div className="flex flex-col gap-2 border-b py-3 sm:flex-row sm:items-baseline sm:gap-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <span className="shrink-0 font-mono text-sm">{environment.name}</span>
+          <Link
+            href={environment.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <span className="truncate">{environment.hostname}</span>
+            <ArrowUpRight className="size-3 shrink-0 self-center" />
+          </Link>
+        </div>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span className="tabular-nums">
+            {environment.memoryReservationResolvedMb} MB
+          </span>
+          <span>
+            {environment.branchRuleCount} rule
+            {environment.branchRuleCount === 1 ? "" : "s"}
+          </span>
+          <span className="min-w-0 truncate">
+            {latest
+              ? `${latest.status} · ${latest.gitRef} · ${formatRelative(latest.createdAt)}`
+              : `never deployed · not ${productionBranch}`}
+          </span>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-3 sm:ml-auto">
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           auto
           <Switch

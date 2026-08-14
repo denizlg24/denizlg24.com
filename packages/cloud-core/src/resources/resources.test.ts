@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { connectionAppliesTo } from "@repo/schemas/cloud";
+import {
+  connectionAppliesTo,
+  type ResourceConnectionScope,
+} from "@repo/schemas/cloud";
 
 import type { ResourceRow } from "../db/schema";
 import {
@@ -32,14 +35,63 @@ function row(overrides: Partial<ResourceRow> = {}): ResourceRow {
 }
 
 describe("connectionAppliesTo", () => {
-  test("`both` satisfies either side", () => {
-    expect(connectionAppliesTo("both", "production")).toBe(true);
-    expect(connectionAppliesTo("both", "preview")).toBe(true);
+  const unnamed = (scopes: ResourceConnectionScope) => ({
+    scopes,
+    environmentId: null,
+  });
+  const staging = { kind: "environment" as const, environmentId: "env-1" };
+
+  test("`both` satisfies every slot", () => {
+    expect(
+      connectionAppliesTo(unnamed("both"), {
+        kind: "production",
+        environmentId: null,
+      }),
+    ).toBe(true);
+    expect(
+      connectionAppliesTo(unnamed("both"), {
+        kind: "preview",
+        environmentId: null,
+      }),
+    ).toBe(true);
+    expect(connectionAppliesTo(unnamed("both"), staging)).toBe(true);
   });
 
   test("a production connection is invisible to a preview deployment", () => {
-    expect(connectionAppliesTo("production", "preview")).toBe(false);
-    expect(connectionAppliesTo("preview", "production")).toBe(false);
+    expect(
+      connectionAppliesTo(unnamed("production"), {
+        kind: "preview",
+        environmentId: null,
+      }),
+    ).toBe(false);
+    expect(
+      connectionAppliesTo(unnamed("preview"), {
+        kind: "production",
+        environmentId: null,
+      }),
+    ).toBe(false);
+  });
+
+  test("`preview` no longer covers a custom environment", () => {
+    expect(connectionAppliesTo(unnamed("preview"), staging)).toBe(false);
+    expect(connectionAppliesTo(unnamed("production"), staging)).toBe(false);
+  });
+
+  test("an environment connection matches only the environment it names", () => {
+    const named = { scopes: "environment" as const, environmentId: "env-1" };
+    expect(connectionAppliesTo(named, staging)).toBe(true);
+    expect(
+      connectionAppliesTo(named, {
+        kind: "environment",
+        environmentId: "env-2",
+      }),
+    ).toBe(false);
+    expect(
+      connectionAppliesTo(named, { kind: "preview", environmentId: null }),
+    ).toBe(false);
+    expect(
+      connectionAppliesTo(named, { kind: "production", environmentId: null }),
+    ).toBe(false);
   });
 });
 

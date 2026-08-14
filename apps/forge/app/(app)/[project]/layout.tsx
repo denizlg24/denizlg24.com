@@ -30,7 +30,7 @@ const SECTIONS = [
   { segment: "analytics", label: "analytics", icon: ChartLine },
   { segment: "logs", label: "logs", icon: ScrollText },
   { segment: "resources", label: "resources", icon: Database },
-  { segment: "environment", label: "environment", icon: KeyRound },
+  { segment: "environment", label: "env vars", icon: KeyRound },
   { segment: "environments", label: "environments", icon: Layers },
   { segment: "domains", label: "domains", icon: Globe },
   { segment: "settings", label: "settings", icon: Settings },

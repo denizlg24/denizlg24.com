@@ -1,5 +1,6 @@
 import type {
   BranchRoutePreview,
+  ConnectableEnvironment,
   ConnectableProject,
   ConnectResourceInput,
   CreateDeployBranchRuleInput,
@@ -40,6 +41,7 @@ import type {
 } from "@repo/schemas/cloud";
 import {
   branchRoutePreviewSchema,
+  connectableEnvironmentListSchema,
   connectableProjectListSchema,
   createdResourceSchema,
   deployBindingsSchema,
@@ -275,6 +277,14 @@ export const deployApi = {
     requestData(connectableProjectListSchema, "/api/deploy/projects").then(
       (page) => page.projects,
     ),
+  /** The environments a connection to this project may be scoped to. */
+  connectableEnvironments: (
+    projectId: string,
+  ): Promise<ConnectableEnvironment[]> =>
+    requestData(
+      connectableEnvironmentListSchema,
+      `/api/deploy/projects/${projectId}/environments`,
+    ).then((page) => page.environments),
   /** Every resource on the box, whether or not anything connects to it. */
   resources: (query?: Partial<ResourceListQuery>): Promise<Resource[]> =>
     requestData(resourceListSchema, "/api/deploy/resources", {

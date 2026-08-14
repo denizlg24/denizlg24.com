@@ -142,7 +142,7 @@ export default function DeploymentDetailPage() {
           <dl className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
             <Field label="commit">
               <span className="font-mono">{data.gitSha.slice(0, 12)}</span>
-              <span className="block text-[11px] text-muted-foreground">
+              <span className="block text-[11px] text-muted-foreground line-clamp-3">
                 {data.gitMessage ?? data.gitRef}
               </span>
             </Field>

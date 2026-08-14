@@ -1,7 +1,9 @@
 import {
   type AuthVariables,
+  assertEnvironmentInProject,
   CloudCoreError,
   ConflictError,
+  connectableEnvironments,
   connectResource,
   createProject,
   type Database,
@@ -589,6 +591,18 @@ export function deployRoutes(options: DeployRouteOptions) {
       .from(deployEnvironments)
       .where(inArray(deployEnvironments.id, ids));
     return new Map(found.map((row) => [row.id, row]));
+  }
+
+  /**
+   * The same lookup for resource connections, which carry an environment only
+   * when their scope is `environment`. A bare id tells a reader nothing, so
+   * every connection payload ships the name beside it.
+   */
+  async function connectionEnvironmentNames(
+    rows: readonly { environmentId: string | null }[],
+  ): Promise<(id: string | null) => string | null> {
+    const found = await environmentLookup(rows);
+    return (id) => (id === null ? null : (found.get(id)?.name ?? null));
   }
 
   /** The single-row case, which is most of them. */
@@ -1217,6 +1231,21 @@ export function deployRoutes(options: DeployRouteOptions) {
         })),
       },
     });
+  });
+
+  /**
+   * The environments a connection made against this project may be scoped to.
+   * Environments hang off a target and connections off a project, so this
+   * flattens every target's — the target's name rides along because two of
+   * them may each hold a `staging`.
+   */
+  owner.get("/projects/:id/environments", async (context) => {
+    const projectId = context.req.param("id");
+    if (!uuidParam.safeParse(projectId).success) {
+      return context.json({ data: { environments: [] } });
+    }
+    const rows = await connectableEnvironments(db, projectId);
+    return context.json({ data: { environments: rows } });
   });
 
   /**
@@ -2513,12 +2542,17 @@ export function deployRoutes(options: DeployRouteOptions) {
         db,
         connected.map((entry) => entry.resource.id),
       );
+      const environmentNames = await connectionEnvironmentNames(
+        connected.map((entry) => entry.connection),
+      );
 
       return context.json({
         data: {
           resources: connected.map((entry) => ({
             connection: {
               createdAt: entry.connection.createdAt.toISOString(),
+              environmentId: entry.connection.environmentId,
+              environmentName: environmentNames(entry.connection.environmentId),
               envPrefix: entry.connection.envPrefix,
               id: entry.connection.id,
               projectId: entry.connection.projectId,
@@ -2562,6 +2596,9 @@ export function deployRoutes(options: DeployRouteOptions) {
         resourceConnectionDetails(db, resource.id),
         resourceConnectionCounts(db, [resource.id]),
       ]);
+      const connectionEnvironments = await connectionEnvironmentNames(
+        connections.map((entry) => entry.connection),
+      );
       const namespace = resource.namespaceId
         ? await db.query.projects.findFirst({
             where: eq(projects.id, resource.namespaceId),
@@ -2572,6 +2609,10 @@ export function deployRoutes(options: DeployRouteOptions) {
           ...toResourceContract(resource, counts.get(resource.id) ?? 0),
           connections: connections.map((entry) => ({
             createdAt: entry.connection.createdAt.toISOString(),
+            environmentId: entry.connection.environmentId,
+            environmentName: connectionEnvironments(
+              entry.connection.environmentId,
+            ),
             envPrefix: entry.connection.envPrefix,
             id: entry.connection.id,
             projectId: entry.connection.projectId,
@@ -2629,10 +2670,18 @@ export function deployRoutes(options: DeployRouteOptions) {
   owner.post("/resources", async (context) => {
     try {
       const input = createResourceInputSchema.parse(await context.req.json());
+      if (input.environmentId && input.projectId) {
+        await assertEnvironmentInProject(
+          db,
+          input.projectId,
+          input.environmentId,
+        );
+      }
       const { password, resource } = await provisionResource(
         db,
         provisionDeps,
         {
+          environmentId: input.environmentId,
           envPrefix: input.envPrefix,
           kind: input.kind,
           name: input.name ?? null,
@@ -2680,16 +2729,27 @@ export function deployRoutes(options: DeployRouteOptions) {
       if (!project) {
         throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
       }
+      if (input.environmentId) {
+        await assertEnvironmentInProject(
+          db,
+          input.projectId,
+          input.environmentId,
+        );
+      }
       const connection = await connectResource(db, {
+        environmentId: input.environmentId,
         envPrefix: input.envPrefix,
         projectId: input.projectId,
         resourceId: resource.id,
         scopes: input.scopes,
       });
+      const names = await connectionEnvironmentNames([connection]);
       return context.json(
         {
           data: {
             createdAt: connection.createdAt.toISOString(),
+            environmentId: connection.environmentId,
+            environmentName: names(connection.environmentId),
             envPrefix: connection.envPrefix,
             id: connection.id,
             projectId: connection.projectId,
@@ -3950,6 +4010,7 @@ export function deployRoutes(options: DeployRouteOptions) {
           projectSlug: project.slug,
           deploymentId: row.id,
           deploymentKind: row.kind,
+          environmentId: row.environmentId,
           databaseEncryptionSecret: options.databaseEncryptionSecret,
           databaseHosts: options.databaseHosts,
           meilisearchUrl: options.meilisearchUrl,

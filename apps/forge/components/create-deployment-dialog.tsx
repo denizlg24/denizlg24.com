@@ -97,7 +97,7 @@ function ExistingNotice({
           </Link>
         </p>
         {failed && existing.error ? (
-          <p className="whitespace-pre-wrap break-words font-mono text-[11px] opacity-90">
+          <p className="whitespace-pre-wrap break-words font-mono text-[11px] opacity-90 line-clamp-3">
             {existing.error}
           </p>
         ) : isCurrentProduction ? (

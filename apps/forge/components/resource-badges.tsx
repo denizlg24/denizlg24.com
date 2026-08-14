@@ -26,15 +26,22 @@ export function ResourceKindBadge({ kind }: { kind: ResourceKind }) {
 /**
  * `both` is the overwhelmingly common case — it is what every pre-split project
  * effectively had — so it reads as plain text and only a narrowed scope earns
- * an outline.
+ * an outline. An `environment` scope reads as the environment's own name:
+ * "environment" says nothing, "staging" says all of it.
  */
-export function ScopeBadge({ scopes }: { scopes: ResourceConnectionScope }) {
+export function ScopeBadge({
+  scopes,
+  environmentName,
+}: {
+  scopes: ResourceConnectionScope;
+  environmentName?: string | null;
+}) {
   if (scopes === "both") {
     return <span className="text-xs text-muted-foreground">both</span>;
   }
   return (
-    <Badge variant="outline" className="text-[10px]">
-      {scopes}
+    <Badge variant="outline" className="max-w-40 truncate text-[10px]">
+      {scopes === "environment" ? (environmentName ?? "environment") : scopes}
     </Badge>
   );
 }

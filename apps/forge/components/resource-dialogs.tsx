@@ -3,8 +3,8 @@
 import { ResourceIcon } from "@repo/cloud-ui/tech-icon";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import {
+  type ConnectableEnvironment,
   DATABASE_RESOURCE_KINDS,
-  RESOURCE_CONNECTION_SCOPES,
   RESOURCE_KINDS,
   type Resource,
   type ResourceConnectionScope,
@@ -34,29 +34,92 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+const ENVIRONMENT_VALUE_PREFIX = "environment:";
+
+interface Scope {
+  scopes: ResourceConnectionScope;
+  environmentId: string | null;
+}
+
+function scopeValue(scope: Scope): string {
+  return scope.environmentId === null
+    ? scope.scopes
+    : `${ENVIRONMENT_VALUE_PREFIX}${scope.environmentId}`;
+}
+
+function parseScopeValue(value: string): Scope {
+  if (value.startsWith(ENVIRONMENT_VALUE_PREFIX)) {
+    return {
+      scopes: "environment",
+      environmentId: value.slice(ENVIRONMENT_VALUE_PREFIX.length),
+    };
+  }
+  return {
+    scopes: value === "production" || value === "preview" ? value : "both",
+    environmentId: null,
+  };
+}
+
+/**
+ * The scope and the environment it may name are one control, because they are
+ * one decision: `both`, one of the two unnamed sides, or a named environment.
+ * Encoding the environment into the option value keeps them from ever
+ * disagreeing — a separate environment picker could sit on `environment` with
+ * nothing selected, which the API refuses.
+ */
 function ScopeField({
   value,
+  environments,
   onChange,
 }: {
-  value: ResourceConnectionScope;
-  onChange: (scope: ResourceConnectionScope) => void;
+  value: Scope;
+  environments: readonly ConnectableEnvironment[];
+  onChange: (scope: Scope) => void;
 }) {
+  // Two targets under one project may each hold a `staging`, and only then is
+  // the target's name worth the width.
+  const targets = new Set(environments.map((row) => row.targetId));
+  const options = [
+    { value: "both", label: "both" },
+    { value: "production", label: "production" },
+    { value: "preview", label: "preview" },
+    ...environments.map((environment) => ({
+      value: `${ENVIRONMENT_VALUE_PREFIX}${environment.id}`,
+      label:
+        targets.size > 1
+          ? `${environment.targetName} · ${environment.name}`
+          : environment.name,
+    })),
+  ];
   return (
     <Field label="Scope">
-      <OptionSelect<ResourceConnectionScope>
-        className="w-full"
+      <OptionSelect
+        className="w-full min-w-0"
+        contentClassName="max-w-[min(20rem,calc(100vw-2rem))]"
         aria-label="Scope"
-        value={value}
-        onValueChange={(scope) => {
-          if (scope) onChange(scope);
+        value={scopeValue(value)}
+        onValueChange={(next) => {
+          if (next) onChange(parseScopeValue(next));
         }}
-        options={RESOURCE_CONNECTION_SCOPES.map((scope) => ({
-          value: scope,
-          label: scope,
-        }))}
+        options={options}
       />
     </Field>
   );
+}
+
+/** The environments a connection to this project can be scoped to. */
+function useConnectableEnvironments(
+  projectId: string | undefined,
+): ConnectableEnvironment[] {
+  const fetchEnvironments = useCallback(
+    () =>
+      projectId
+        ? api.deploy.connectableEnvironments(projectId)
+        : Promise.resolve([]),
+    [projectId],
+  );
+  const { data } = usePoll(fetchEnvironments, null);
+  return data ?? [];
 }
 
 /**
@@ -96,9 +159,13 @@ export function CreateResourceDialog({
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<ResourceKind>("postgres");
   const [name, setName] = useState("");
-  const [scopes, setScopes] = useState<ResourceConnectionScope>("both");
+  const [scope, setScope] = useState<Scope>({
+    scopes: "both",
+    environmentId: null,
+  });
   const [envPrefix, setEnvPrefix] = useState("");
   const [busy, setBusy] = useState(false);
+  const environments = useConnectableEnvironments(projectId);
 
   // s3 and meilisearch are addressed by a project's slug — a bucket is a
   // directory named exactly that, and a search key is scoped to an index
@@ -113,8 +180,9 @@ export function CreateResourceDialog({
     try {
       const { password, resource } = await api.deploy.createResource({
         envPrefix,
+        environmentId: scope.environmentId,
         kind,
-        scopes,
+        scopes: scope.scopes,
         ...(name.trim() ? { name: name.trim() } : {}),
         ...(projectId ? { projectId } : {}),
       });
@@ -177,7 +245,11 @@ export function CreateResourceDialog({
           </Field>
           {projectId ? (
             <div className="grid gap-4 sm:grid-cols-2">
-              <ScopeField value={scopes} onChange={setScopes} />
+              <ScopeField
+                value={scope}
+                environments={environments}
+                onChange={setScope}
+              />
               <PrefixField value={envPrefix} onChange={setEnvPrefix} />
             </div>
           ) : null}
@@ -212,9 +284,15 @@ export function ConnectResourceDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState("");
-  const [scopes, setScopes] = useState<ResourceConnectionScope>("both");
+  const [scope, setScope] = useState<Scope>({
+    scopes: "both",
+    environmentId: null,
+  });
   const [envPrefix, setEnvPrefix] = useState("");
   const [busy, setBusy] = useState(false);
+  // From this side the project is fixed; from the other it is whatever the
+  // picker above is sitting on, so the environment list follows the selection.
+  const environments = useConnectableEnvironments(projectId ?? selected);
 
   const fetchProjects = useCallback(
     () => (resourceId ? api.deploy.projects() : Promise.resolve([])),
@@ -235,13 +313,15 @@ export function ConnectResourceDialog({
     try {
       await api.deploy.connectResource(targetResource, {
         envPrefix,
+        environmentId: scope.environmentId,
         projectId: targetProject,
-        scopes,
+        scopes: scope.scopes,
       });
       toast.success("Connected");
       setOpen(false);
       setSelected("");
       setEnvPrefix("");
+      setScope({ scopes: "both", environmentId: null });
       await onConnected();
     } catch (error) {
       toast.error(errorMessage(error));
@@ -265,7 +345,13 @@ export function ConnectResourceDialog({
               className="w-full"
               aria-label={resourceId ? "Project" : "Resource"}
               value={selected || null}
-              onValueChange={(next) => setSelected(next ?? "")}
+              onValueChange={(next) => {
+                setSelected(next ?? "");
+                // The old project's environments are gone from the list, so a
+                // scope naming one of them would post an id this project
+                // cannot resolve.
+                setScope({ scopes: "both", environmentId: null });
+              }}
               emptyLabel="—"
               options={
                 resourceId
@@ -281,7 +367,11 @@ export function ConnectResourceDialog({
             />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <ScopeField value={scopes} onChange={setScopes} />
+            <ScopeField
+              value={scope}
+              environments={environments}
+              onChange={setScope}
+            />
             <PrefixField value={envPrefix} onChange={setEnvPrefix} />
           </div>
         </div>

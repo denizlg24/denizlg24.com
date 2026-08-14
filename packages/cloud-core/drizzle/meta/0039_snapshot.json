@@ -1,6 +1,6 @@
 {
-  "id": "1fa8723e-0e4b-4500-8563-58c9bacf7728",
-  "prevId": "21368b6b-94e4-4878-b2b3-8316c6ff0fe8",
+  "id": "9edc4706-eab1-40ad-a49c-a8770391f8c5",
+  "prevId": "1fa8723e-0e4b-4500-8563-58c9bacf7728",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3457,6 +3457,12 @@
           "notNull": true,
           "default": "'both'"
         },
+        "environment_id": {
+          "name": "environment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "env_prefix": {
           "name": "env_prefix",
           "type": "varchar(48)",
@@ -3473,6 +3479,68 @@
         }
       },
       "indexes": {
+        "resource_connections_resource_project_prefix_key": {
+          "name": "resource_connections_resource_project_prefix_key",
+          "columns": [
+            {
+              "expression": "resource_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "env_prefix",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"resource_connections\".\"environment_id\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "resource_connections_resource_project_prefix_env_key": {
+          "name": "resource_connections_resource_project_prefix_env_key",
+          "columns": [
+            {
+              "expression": "resource_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "env_prefix",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "environment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"resource_connections\".\"environment_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "resource_connections_project_id_idx": {
           "name": "resource_connections_project_id_idx",
           "columns": [
@@ -3502,9 +3570,33 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "resource_connections_environment_id_idx": {
+          "name": "resource_connections_environment_id_idx",
+          "columns": [
+            {
+              "expression": "environment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
+        "resource_connections_environment_id_deploy_environments_id_fk": {
+          "name": "resource_connections_environment_id_deploy_environments_id_fk",
+          "tableFrom": "resource_connections",
+          "tableTo": "deploy_environments",
+          "columnsFrom": ["environment_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "resource_connections_resource_id_fkey": {
           "name": "resource_connections_resource_id_fkey",
           "tableFrom": "resource_connections",
@@ -3525,13 +3617,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "resource_connections_resource_project_prefix_key": {
-          "name": "resource_connections_resource_project_prefix_key",
-          "nullsNotDistinct": false,
-          "columns": ["resource_id", "project_id", "env_prefix"]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -5320,7 +5406,7 @@
     "public.resource_connection_scope": {
       "name": "resource_connection_scope",
       "schema": "public",
-      "values": ["production", "preview", "both"]
+      "values": ["production", "preview", "both", "environment"]
     },
     "public.resource_kind": {
       "name": "resource_kind",

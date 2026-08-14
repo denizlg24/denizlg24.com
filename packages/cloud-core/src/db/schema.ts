@@ -37,6 +37,7 @@ import {
   sql,
 } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -648,6 +649,15 @@ export const resourceConnections = pgTable(
     projectId: uuid("project_id").notNull(),
     scopes: resourceConnectionScopeEnum("scopes").notNull().default("both"),
     /**
+     * Set only on an `environment` connection. Declared as a thunk because
+     * `deploy_environments` is defined further down this file; the reference is
+     * resolved when the foreign key is built, not when the table is.
+     */
+    environmentId: uuid("environment_id").references(
+      (): AnyPgColumn => deployEnvironments.id,
+      { onDelete: "cascade" },
+    ),
+    /**
      * Empty is the default connection — what a bare `database.postgres.*`
      * binding resolves to. A non-empty prefix is how a second resource of the
      * same kind reaches the same project without colliding with the first.
@@ -658,13 +668,26 @@ export const resourceConnections = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique("resource_connections_resource_project_prefix_key").on(
-      table.resourceId,
-      table.projectId,
-      table.envPrefix,
-    ),
+    /**
+     * Two partial indexes rather than one four-column unique: a NULL
+     * `environment_id` is distinct from every other NULL in Postgres, so
+     * including the column in a plain unique constraint would stop it
+     * enforcing one default connection per prefix at all.
+     */
+    uniqueIndex("resource_connections_resource_project_prefix_key")
+      .on(table.resourceId, table.projectId, table.envPrefix)
+      .where(sql`${table.environmentId} IS NULL`),
+    uniqueIndex("resource_connections_resource_project_prefix_env_key")
+      .on(
+        table.resourceId,
+        table.projectId,
+        table.envPrefix,
+        table.environmentId,
+      )
+      .where(sql`${table.environmentId} IS NOT NULL`),
     index("resource_connections_project_id_idx").on(table.projectId),
     index("resource_connections_resource_id_idx").on(table.resourceId),
+    index("resource_connections_environment_id_idx").on(table.environmentId),
     foreignKey({
       name: "resource_connections_resource_id_fkey",
       columns: [table.resourceId],
@@ -999,6 +1022,10 @@ export const resourceConnectionsRelations = relations(
     project: one(projects, {
       fields: [resourceConnections.projectId],
       references: [projects.id],
+    }),
+    environment: one(deployEnvironments, {
+      fields: [resourceConnections.environmentId],
+      references: [deployEnvironments.id],
     }),
   }),
 );
@@ -1468,7 +1495,7 @@ export const deployments = pgTable(
     index("deployments_environment_idx").on(table.environmentId),
     check(
       "deployments_environment_shape",
-      sql`(kind = 'environment') = (environment_id IS NOT NULL)`,
+      sql`(kind::text = 'environment') = (environment_id IS NOT NULL)`,
     ),
   ],
 );
@@ -1549,7 +1576,7 @@ export const deployEnvVars = pgTable(
     ),
     check(
       "deploy_env_vars_environment_shape",
-      sql`(scope = 'environment') = (environment_id IS NOT NULL)`,
+      sql`(scope::text = 'environment') = (environment_id IS NOT NULL)`,
     ),
   ],
 );
@@ -1719,6 +1746,7 @@ export const deployEnvironmentsRelations = relations(
     deployments: many(deployments),
     branchRules: many(deployBranchRules),
     envVars: many(deployEnvVars),
+    resourceConnections: many(resourceConnections),
   }),
 );
 

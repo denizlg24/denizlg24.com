@@ -11,7 +11,7 @@ import { Input } from "@repo/ui/input";
 import { OptionSelect } from "@repo/ui/option-select";
 import { Switch } from "@repo/ui/switch";
 import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 const MATCH_TYPES: readonly { value: DeployBranchMatchType; label: string }[] =
   [
@@ -44,8 +44,17 @@ export interface BranchRulesProps {
   onDelete: (id: string) => void;
 }
 
-const COLUMNS =
-  "grid gap-2 md:grid-cols-[5rem_minmax(0,1.6fr)_minmax(0,1fr)_4.5rem_2.5rem_2rem]";
+/**
+ * Narrow lays the six controls out as two rows of three — match/branch/remove
+ * over priority/environment/enabled — so the branch keeps a whole flexible
+ * column to itself. Wide is the single row the header describes, which the DOM
+ * cannot also be in: `md:order-*` on each cell reorders it there.
+ */
+const GRID =
+  "grid grid-cols-[5rem_minmax(0,1fr)_2rem] items-center gap-2 md:grid-cols-[5rem_minmax(0,1.6fr)_minmax(0,1fr)_4.5rem_2rem_2rem]";
+
+/** Long branch names are the norm, so every branch control has to clip. */
+const BRANCH_CONTENT = "max-w-[min(28rem,calc(100vw-2rem))]";
 
 export function BranchRules({
   rules,
@@ -62,7 +71,7 @@ export function BranchRules({
 
   const environmentOptions = environments.map((environment) => ({
     value: environment.id,
-    label: environment.name,
+    label: truncated(environment.name),
   }));
   // The next rule sits below the current lowest-priority one, spaced so a rule
   // can later be slotted between two without renumbering the set.
@@ -84,7 +93,7 @@ export function BranchRules({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="hidden gap-2 border-b pb-2 text-xs text-muted-foreground md:grid md:grid-cols-[5rem_minmax(0,1.6fr)_minmax(0,1fr)_4.5rem_2.5rem_2rem]">
+      <div className="hidden gap-2 border-b pb-2 text-xs text-muted-foreground md:grid md:grid-cols-[5rem_minmax(0,1.6fr)_minmax(0,1fr)_4.5rem_2rem_2rem]">
         <span>match</span>
         <span>branch</span>
         <span>environment</span>
@@ -93,83 +102,91 @@ export function BranchRules({
         <span />
       </div>
 
-      {rules.map((rule) => (
-        <div key={rule.id} className={`${COLUMNS} items-center`}>
-          <OptionSelect<DeployBranchMatchType>
-            aria-label="Match type"
-            className="h-8"
-            value={rule.matchType}
-            onValueChange={(value) =>
-              onUpdate(rule.id, { matchType: value ?? "exact" })
-            }
-            options={MATCH_TYPES}
-          />
-          {rule.matchType === "exact" && branches.length > 0 ? (
-            <OptionSelect<string>
-              aria-label="Branch"
-              className="h-8 font-mono text-xs"
-              value={rule.pattern}
+      <div className="flex flex-col divide-y md:gap-3 md:divide-y-0">
+        {rules.map((rule) => (
+          <div key={rule.id} className={`${GRID} py-3 first:pt-0 md:py-0`}>
+            <OptionSelect<DeployBranchMatchType>
+              aria-label="Match type"
+              className="h-8 w-full min-w-0 md:order-1"
+              value={rule.matchType}
               onValueChange={(value) =>
-                value && onUpdate(rule.id, { pattern: value })
+                onUpdate(rule.id, { matchType: value ?? "exact" })
               }
-              options={branchOptions(branches, rule.pattern)}
+              options={MATCH_TYPES}
             />
-          ) : (
+            {rule.matchType === "exact" && branches.length > 0 ? (
+              <OptionSelect<string>
+                aria-label="Branch"
+                className="h-8 w-full min-w-0 font-mono text-xs md:order-2"
+                contentClassName={BRANCH_CONTENT}
+                value={rule.pattern}
+                onValueChange={(value) =>
+                  value && onUpdate(rule.id, { pattern: value })
+                }
+                options={branchOptions(branches, rule.pattern)}
+              />
+            ) : (
+              <Input
+                aria-label="Branch"
+                defaultValue={rule.pattern}
+                className="h-8 min-w-0 font-mono text-xs md:order-2"
+                onBlur={(event) => {
+                  const next = event.target.value.trim();
+                  if (next.length > 0 && next !== rule.pattern) {
+                    onUpdate(rule.id, { pattern: next });
+                  }
+                }}
+              />
+            )}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Remove rule"
+              disabled={busy}
+              className="md:order-6"
+              onClick={() => onDelete(rule.id)}
+            >
+              <Trash2 className="size-3" />
+            </Button>
             <Input
-              defaultValue={rule.pattern}
-              className="h-8 font-mono text-xs"
+              type="number"
+              aria-label="Priority"
+              defaultValue={rule.priority}
+              className="h-8 min-w-0 tabular-nums text-xs md:order-4"
               onBlur={(event) => {
-                const next = event.target.value.trim();
-                if (next.length > 0 && next !== rule.pattern) {
-                  onUpdate(rule.id, { pattern: next });
+                const next = Number.parseInt(event.target.value, 10);
+                if (Number.isFinite(next) && next !== rule.priority) {
+                  onUpdate(rule.id, { priority: next });
                 }
               }}
             />
-          )}
-          <OptionSelect<string>
-            aria-label="Environment"
-            className="h-8"
-            value={rule.environmentId}
-            onValueChange={(value) =>
-              value && onUpdate(rule.id, { environmentId: value })
-            }
-            options={environmentOptions}
-          />
-          <Input
-            type="number"
-            defaultValue={rule.priority}
-            className="h-8 tabular-nums text-xs"
-            onBlur={(event) => {
-              const next = Number.parseInt(event.target.value, 10);
-              if (Number.isFinite(next) && next !== rule.priority) {
-                onUpdate(rule.id, { priority: next });
+            <OptionSelect<string>
+              aria-label="Environment"
+              className="h-8 w-full min-w-0 md:order-3"
+              value={rule.environmentId}
+              onValueChange={(value) =>
+                value && onUpdate(rule.id, { environmentId: value })
               }
-            }}
-          />
-          <Switch
-            aria-label="Enabled"
-            checked={rule.enabled}
-            onCheckedChange={(enabled) => onUpdate(rule.id, { enabled })}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={busy}
-            onClick={() => onDelete(rule.id)}
-          >
-            <Trash2 className="size-3" />
-          </Button>
-        </div>
-      ))}
+              options={environmentOptions}
+            />
+            <Switch
+              aria-label="Enabled"
+              checked={rule.enabled}
+              className="justify-self-center md:order-5 md:justify-self-start"
+              onCheckedChange={(enabled) => onUpdate(rule.id, { enabled })}
+            />
+          </div>
+        ))}
+      </div>
 
       {rules.length === 0 && (
         <p className="py-1 text-xs text-muted-foreground">—</p>
       )}
 
-      <div className={`${COLUMNS} items-center border-t pt-3`}>
+      <div className={`${GRID} border-t pt-3`}>
         <OptionSelect<DeployBranchMatchType>
           aria-label="New match type"
-          className="h-8"
+          className="h-8 w-full min-w-0 md:order-1"
           value={matchType}
           onValueChange={(value) => setMatchType(value ?? "exact")}
           options={MATCH_TYPES}
@@ -177,7 +194,8 @@ export function BranchRules({
         {matchType === "exact" && branches.length > 0 ? (
           <OptionSelect<string>
             aria-label="New branch"
-            className="h-8 font-mono text-xs"
+            className="h-8 w-full min-w-0 font-mono text-xs md:order-2"
+            contentClassName={BRANCH_CONTENT}
             value={pattern.length > 0 ? pattern : null}
             emptyLabel="branch"
             onValueChange={(value) => setPattern(value ?? "")}
@@ -185,32 +203,44 @@ export function BranchRules({
           />
         ) : (
           <Input
+            aria-label="New branch"
             value={pattern}
             placeholder={matchType === "glob" ? "release/*" : "staging"}
-            className="h-8 font-mono text-xs"
+            className="h-8 min-w-0 font-mono text-xs md:order-2"
             onChange={(event) => setPattern(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") submit();
             }}
           />
         )}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Add rule"
+          disabled={!canAdd}
+          className="md:order-6"
+          onClick={submit}
+        >
+          <Plus className="size-3" />
+        </Button>
+        <span className="text-xs tabular-nums text-muted-foreground md:order-4">
+          {nextPriority}
+        </span>
         <OptionSelect<string>
           aria-label="New environment"
-          className="h-8"
+          className="h-8 w-full min-w-0 md:order-3"
           value={target}
           onValueChange={(value) => setEnvironmentId(value)}
           options={environmentOptions}
         />
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {nextPriority}
-        </span>
-        <span />
-        <Button variant="ghost" size="sm" disabled={!canAdd} onClick={submit}>
-          <Plus className="size-3" />
-        </Button>
+        <span className="hidden md:order-5 md:block" />
       </div>
     </div>
   );
+}
+
+function truncated(label: string): ReactNode {
+  return <span className="block truncate">{label}</span>;
 }
 
 /**
@@ -221,10 +251,13 @@ export function BranchRules({
 function branchOptions(
   branches: readonly string[],
   current: string,
-): { value: string; label: string }[] {
-  const options = branches.map((name) => ({ value: name, label: name }));
+): { value: string; label: ReactNode }[] {
+  const options = branches.map((name) => ({
+    value: name,
+    label: truncated(name),
+  }));
   if (current.length > 0 && !branches.includes(current)) {
-    options.unshift({ value: current, label: `${current} (gone)` });
+    options.unshift({ value: current, label: truncated(`${current} (gone)`) });
   }
   return options;
 }
@@ -249,14 +282,16 @@ export function BranchRoutes({
           key={route.branch}
           className="flex items-baseline justify-between gap-3 border-b py-1.5 last:border-b-0"
         >
-          <span className="truncate font-mono text-xs">{route.branch}</span>
+          <span className="min-w-0 truncate font-mono text-xs">
+            {route.branch}
+          </span>
           <span
             className={
               route.kind === "production"
-                ? "text-xs font-medium"
+                ? "shrink-0 text-xs font-medium"
                 : route.kind === null
-                  ? "text-xs text-muted-foreground line-through"
-                  : "text-xs text-muted-foreground"
+                  ? "shrink-0 text-xs text-muted-foreground line-through"
+                  : "shrink-0 text-xs text-muted-foreground"
             }
           >
             {route.environmentName ?? route.kind ?? "not deployed"}

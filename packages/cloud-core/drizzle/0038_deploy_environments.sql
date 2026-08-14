@@ -41,5 +41,5 @@ ALTER TABLE "deploy_env_vars" ADD CONSTRAINT "deploy_env_vars_environment_id_dep
 ALTER TABLE "deployments" ADD CONSTRAINT "deployments_environment_id_deploy_environments_id_fk" FOREIGN KEY ("environment_id") REFERENCES "public"."deploy_environments"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "deployments_environment_idx" ON "deployments" USING btree ("environment_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "deploy_env_vars_target_key_scope_key" ON "deploy_env_vars" USING btree ("target_id","key","scope",coalesce("environment_id", '00000000-0000-0000-0000-000000000000'::uuid));--> statement-breakpoint
-ALTER TABLE "deploy_env_vars" ADD CONSTRAINT "deploy_env_vars_environment_shape" CHECK ((scope = 'environment') = (environment_id IS NOT NULL));--> statement-breakpoint
-ALTER TABLE "deployments" ADD CONSTRAINT "deployments_environment_shape" CHECK ((kind = 'environment') = (environment_id IS NOT NULL));
+ALTER TABLE "deploy_env_vars" ADD CONSTRAINT "deploy_env_vars_environment_shape" CHECK ((scope::text = 'environment') = (environment_id IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "deployments" ADD CONSTRAINT "deployments_environment_shape" CHECK ((kind::text = 'environment') = (environment_id IS NOT NULL));

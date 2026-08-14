@@ -11,10 +11,12 @@ export {
   type SearchKeyClient,
 } from "./provision";
 export {
+  assertEnvironmentInProject,
   availableResourceName,
   type ConnectedResource,
   type ConnectedResourceQuery,
   type ConnectResourceOptions,
+  connectableEnvironments,
   connectedResourceKinds,
   connectResource,
   type DatabaseResourceCredentials,

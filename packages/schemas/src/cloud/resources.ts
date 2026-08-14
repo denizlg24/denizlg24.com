@@ -33,12 +33,19 @@ export function isDatabaseResourceKind(
 /**
  * Which deployments of a project a connection applies to. `both` is the
  * default because it is what every pre-split project effectively had: one
- * database, used by production and previews alike.
+ * database, used by every deployment alike.
+ *
+ * `preview` is the ephemeral side only — a custom environment no longer falls
+ * under it, and reaches a resource either through `both` or through an
+ * `environment` connection naming it. A staging box left off both lists
+ * resolves nothing, which is the honest failure: the alternative was staging
+ * quietly sharing whatever the previews were pointed at.
  */
 export const RESOURCE_CONNECTION_SCOPES = [
   "production",
   "preview",
   "both",
+  "environment",
 ] as const;
 export type ResourceConnectionScope =
   (typeof RESOURCE_CONNECTION_SCOPES)[number];
@@ -94,10 +101,31 @@ export const resourceConnectionSchema = z.object({
   resourceId: z.uuid(),
   projectId: z.uuid(),
   scopes: resourceConnectionScopeSchema,
+  /** Set on an `environment` connection and null on every other scope. */
+  environmentId: z.uuid().nullable(),
+  /** Carried with the id because a bare uuid tells a reader nothing. */
+  environmentName: z.string().nullable(),
   envPrefix: resourceEnvPrefixSchema,
   createdAt: z.iso.datetime(),
 });
 export type ResourceConnection = z.infer<typeof resourceConnectionSchema>;
+
+/**
+ * The two halves of the scope have to agree: `environment` is the only scope
+ * that names one, and it is the only one that may. Written as a refinement so
+ * the wire shape stays a flat object rather than a discriminated union.
+ */
+function scopeNamesItsEnvironment(value: {
+  scopes: ResourceConnectionScope;
+  environmentId: string | null;
+}): boolean {
+  return (value.environmentId !== null) === (value.scopes === "environment");
+}
+
+const SCOPE_ENVIRONMENT_MISMATCH = {
+  error: "An `environment` scope names an environment, and no other scope may",
+  path: ["environmentId"],
+};
 
 /**
  * `projectId` connects the new resource in the same transaction that creates
@@ -107,21 +135,27 @@ export type ResourceConnection = z.infer<typeof resourceConnectionSchema>;
  * postgres — and required for `s3` and `meilisearch`, which are addressed by a
  * namespace slug rather than by a name they choose.
  */
-export const createResourceInputSchema = z.object({
-  kind: resourceKindSchema,
-  /** Derived from the connected project's slug when absent. */
-  name: resourceNameSchema.optional(),
-  projectId: z.uuid().optional(),
-  scopes: resourceConnectionScopeSchema.default("both"),
-  envPrefix: resourceEnvPrefixSchema.default(""),
-});
+export const createResourceInputSchema = z
+  .object({
+    kind: resourceKindSchema,
+    /** Derived from the connected project's slug when absent. */
+    name: resourceNameSchema.optional(),
+    projectId: z.uuid().optional(),
+    scopes: resourceConnectionScopeSchema.default("both"),
+    environmentId: z.uuid().nullable().default(null),
+    envPrefix: resourceEnvPrefixSchema.default(""),
+  })
+  .refine(scopeNamesItsEnvironment, SCOPE_ENVIRONMENT_MISMATCH);
 export type CreateResourceInput = z.infer<typeof createResourceInputSchema>;
 
-export const connectResourceInputSchema = z.object({
-  projectId: z.uuid(),
-  scopes: resourceConnectionScopeSchema.default("both"),
-  envPrefix: resourceEnvPrefixSchema.default(""),
-});
+export const connectResourceInputSchema = z
+  .object({
+    projectId: z.uuid(),
+    scopes: resourceConnectionScopeSchema.default("both"),
+    environmentId: z.uuid().nullable().default(null),
+    envPrefix: resourceEnvPrefixSchema.default(""),
+  })
+  .refine(scopeNamesItsEnvironment, SCOPE_ENVIRONMENT_MISMATCH);
 export type ConnectResourceInput = z.infer<typeof connectResourceInputSchema>;
 
 /**
@@ -247,13 +281,50 @@ export const projectResourceListSchema = z.object({
 export type ProjectResourceList = z.infer<typeof projectResourceListSchema>;
 
 /**
- * `both` satisfies either side. Anything else has to match the deployment being
+ * `both` satisfies every slot. Anything else has to match the deployment being
  * resolved, which is what lets one project hold a production database and a
  * staging database without the preview builds reaching the production one.
+ *
+ * An environment matches only a connection naming that exact environment — it
+ * is deliberately not covered by `preview`. `scopeFilter` in cloud-core is the
+ * SQL mirror of this; the two have to move together.
  */
 export function connectionAppliesTo(
-  scopes: ResourceConnectionScope,
-  kind: "production" | "preview",
+  connection: {
+    scopes: ResourceConnectionScope;
+    environmentId: string | null;
+  },
+  slot: {
+    kind: "production" | "preview" | "environment";
+    environmentId: string | null;
+  },
 ): boolean {
-  return scopes === "both" || scopes === kind;
+  if (connection.scopes === "both") return true;
+  if (slot.kind === "environment") {
+    return (
+      connection.scopes === "environment" &&
+      connection.environmentId === slot.environmentId
+    );
+  }
+  return connection.scopes === slot.kind;
 }
+
+/**
+ * An environment as the connect picker sees it. Environments belong to a
+ * target and connections belong to a project, so a project with two
+ * deployables can offer two environments called `staging` — the target's name
+ * travels with each so the picker can tell them apart.
+ */
+export const connectableEnvironmentSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  targetId: z.uuid(),
+  targetName: z.string(),
+});
+export type ConnectableEnvironment = z.infer<
+  typeof connectableEnvironmentSchema
+>;
+
+export const connectableEnvironmentListSchema = z.object({
+  environments: z.array(connectableEnvironmentSchema),
+});
