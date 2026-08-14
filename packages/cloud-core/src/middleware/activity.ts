@@ -36,21 +36,37 @@ const NEVER_LOG_PATHS = new Set([
   "/api/ops/metrics",
   "/api/ops/activity",
   "/api/ops/activity/facets",
+  // Caddy's forward-auth check, run once per request to a preview hostname.
+  // Its 401 is the gate working — the answer that sends an anonymous visitor
+  // to the login page — so recording it counts visitors, not events.
+  "/api/forge-preview-auth",
+  // Polled by the Forge dashboard on the same cadence as /api/ops/overview.
+  "/api/forge/overview",
 ]);
 
 /**
- * The deploy agent's own control-plane surface. Every call under it is the
- * agent talking to the API on a timer, and they are all POSTs, so the mutation
- * rule below would capture each one: the claim alone measured 28,037 of 28,600
- * activity rows in a day, and once that was excluded the 30s heartbeat
- * re-posting an unchanged status became the next 849. Neither is news — a
- * deployment that actually starts, changes phase or finishes is recorded on
- * the deployment row, which is where anyone looks for it.
+ * Surfaces driven by a machine rather than a person. Every call under one is a
+ * timer or a remote service talking to the API, and they are all POSTs, so the
+ * mutation rule below would capture each one:
+ *
+ * - `/agent` is the deploy agent. The claim alone measured 28,037 of 28,600
+ *   activity rows in a day, and once that was excluded the 30s heartbeat
+ *   re-posting an unchanged status became the next 849.
+ * - `/hooks` is GitHub. It delivers an event for every push, PR, comment and
+ *   check run across the whole App installation, and most are answered
+ *   `{ ignored: true }` because no target watches that repository. Measured at
+ *   ~100 rows a day, and the largest single source left once the agent was
+ *   excluded.
+ *
+ * Neither is news: a deployment that actually starts, changes phase or
+ * finishes is recorded on the deployment row, which is where anyone looks for
+ * it. A rejected call still records, which is what makes a bad agent token or
+ * a failed webhook signature visible.
  *
  * Slow ones are dropped too, unlike an ordinary read: at this cadence a
  * momentary database hiccup writes hundreds of rows saying so.
  */
-const INTERNAL_POLL_PREFIX = "/api/deploy/agent/";
+const MACHINE_DRIVEN_PREFIXES = ["/api/deploy/agent/", "/api/deploy/hooks/"];
 
 /**
  * Responses held open for as long as the client keeps watching. Their duration
@@ -135,11 +151,22 @@ export function shouldCapture(decision: ActivityCaptureDecision): boolean {
   ) {
     return decision.status >= 400;
   }
-  if (decision.path.startsWith(INTERNAL_POLL_PREFIX)) {
+  if (
+    MACHINE_DRIVEN_PREFIXES.some((prefix) => decision.path.startsWith(prefix))
+  ) {
     return decision.status >= 400;
   }
   if (NEVER_LOG_PATHS.has(decision.path)) {
     return decision.status >= 500;
+  }
+  // A rejected read returned nothing and changed nothing, and in practice it is
+  // never an intruder: it is a dashboard tab left open after its session
+  // expired, still polling on a timer. Two of them measured 108 rows in 36
+  // hours. A real sign-in attempt is recorded by name as `auth.sign_in_failed`,
+  // and a rejected *mutation* — the shape an intrusion actually takes — still
+  // falls through to the rule below.
+  if (decision.status === 401 && !MUTATING_METHODS.has(decision.method)) {
+    return false;
   }
   if (decision.status >= 400) return true;
   if (MUTATING_METHODS.has(decision.method)) return true;
