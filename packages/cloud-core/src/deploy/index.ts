@@ -6,6 +6,7 @@ export * from "./deployments";
 export * from "./detect";
 export * from "./domains";
 export * from "./env";
+export * from "./environments";
 export * from "./envoy-env";
 export * from "./gc";
 export * from "./github";

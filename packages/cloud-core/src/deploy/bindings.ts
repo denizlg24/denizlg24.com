@@ -88,6 +88,7 @@ function externalHost(type: DbType, hosts: ProjectDatabaseHosts): string {
 interface DatabaseBindingInput {
   projectId: string;
   deploymentKind: DeploymentKind;
+  environmentId: string | null;
   encryptionSecret: string;
   hosts: ProjectDatabaseHosts;
 }
@@ -100,6 +101,7 @@ function databaseNamespace(
   return async (): Promise<NamespaceValues | null> => {
     const connected = await resolveConnectedResource(db, {
       deploymentKind: input.deploymentKind,
+      environmentId: input.environmentId,
       kind: type,
       projectId: input.projectId,
     });
@@ -144,6 +146,7 @@ function parseUrl(value: string): URL | null {
 export interface DeployMeilisearchBindingOptions {
   projectId: string;
   deploymentKind: DeploymentKind;
+  environmentId: string | null;
   url: string;
 }
 
@@ -160,6 +163,7 @@ function meilisearchNamespace(
   return async (): Promise<NamespaceValues | null> => {
     const connected = await resolveConnectedResource(db, {
       deploymentKind: input.deploymentKind,
+      environmentId: input.environmentId,
       kind: "meilisearch",
       projectId: input.projectId,
     });
@@ -178,6 +182,7 @@ export interface DeployS3BindingOptions {
   projectId: string;
   projectSlug: string;
   deploymentKind: DeploymentKind;
+  environmentId: string | null;
   deploymentId: string;
   endpoint: string;
   region: string;
@@ -198,6 +203,7 @@ function s3Namespace(db: Database, input: DeployS3BindingOptions) {
     // provisioning time.
     const connected = await resolveConnectedResource(db, {
       deploymentKind: input.deploymentKind,
+      environmentId: input.environmentId,
       kind: "s3",
       projectId: input.projectId,
     });
@@ -222,12 +228,14 @@ export interface DeployBindingResolverOptions {
   projectSlug: string;
   deploymentId: string;
   /**
-   * Which side of the project this deployment is. It selects between
-   * connections scoped `production` and `preview`, which is what lets one
-   * project hold a production database and a staging one without preview
-   * builds reaching production data.
+   * Which slot of the project this deployment is. It selects between
+   * connections scoped `production`, `preview` and `environment`, which is
+   * what lets one project hold a production database and a staging one
+   * without preview builds reaching production data.
    */
   deploymentKind: DeploymentKind;
+  /** Which environment, when `deploymentKind` is `environment`. */
+  environmentId: string | null;
   databaseEncryptionSecret: string;
   databaseHosts: ProjectDatabaseHosts;
   meilisearchUrl: string;
@@ -242,6 +250,7 @@ export function createDeployBindingResolvers(
   const databaseInput: DatabaseBindingInput = {
     projectId: options.projectId,
     deploymentKind: options.deploymentKind,
+    environmentId: options.environmentId,
     encryptionSecret: options.databaseEncryptionSecret,
     hosts: options.databaseHosts,
   };
@@ -256,12 +265,14 @@ export function createDeployBindingResolvers(
     "search.meilisearch": meilisearchNamespace(options.db, {
       projectId: options.projectId,
       deploymentKind: options.deploymentKind,
+      environmentId: options.environmentId,
       url: options.meilisearchUrl,
     }),
     s3: s3Namespace(options.db, {
       projectId: options.projectId,
       projectSlug: options.projectSlug,
       deploymentKind: options.deploymentKind,
+      environmentId: options.environmentId,
       deploymentId: options.deploymentId,
       endpoint: options.s3Endpoint,
       region: options.s3Region,

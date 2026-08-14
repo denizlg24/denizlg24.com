@@ -56,11 +56,13 @@ export function NetworkDriveSection() {
     }
   };
 
-  // Each device authenticates as its own principal, so the mount guide is only
-  // exact once one exists. Before that it shows a placeholder rather than a
-  // username that would silently fail.
-  const latestPrincipal =
-    issued?.principal ?? credentials?.[0]?.principal ?? null;
+  // Only the principal just issued, never one picked out of the list. Each
+  // device authenticates as its own, so any other row's principal paired with
+  // the secret shown below is a login that cannot work — and the guide sits
+  // above the reveal panel, so that is the pairing someone reads. Before an
+  // issue, and again after the panel is dismissed, it shows a placeholder;
+  // an existing device's username is on its own row in the list.
+  const latestPrincipal = issued?.principal ?? null;
 
   return (
     <div className="flex flex-col gap-6">

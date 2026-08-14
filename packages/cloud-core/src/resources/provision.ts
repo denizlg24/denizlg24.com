@@ -72,6 +72,8 @@ export interface CreateResourceOptions {
    */
   projectId?: string | null;
   scopes?: ResourceConnectionScope;
+  /** Required by an `environment` scope and meaningless to every other one. */
+  environmentId?: string | null;
   envPrefix?: string;
 }
 
@@ -146,6 +148,7 @@ async function insertResource(
   connect: {
     projectId: string;
     scopes: ResourceConnectionScope;
+    environmentId: string | null;
     envPrefix: string;
   } | null,
 ): Promise<ResourceRow> {
@@ -156,6 +159,7 @@ async function insertResource(
     }
     if (connect) {
       await tx.insert(resourceConnections).values({
+        environmentId: connect.environmentId,
         envPrefix: connect.envPrefix,
         projectId: connect.projectId,
         resourceId: resource.id,
@@ -171,10 +175,13 @@ function connectionFor(
   options: CreateResourceOptions,
 ) {
   if (!project) return null;
+  const scopes = options.scopes ?? ("both" as const);
   return {
+    environmentId:
+      scopes === "environment" ? (options.environmentId ?? null) : null,
     envPrefix: options.envPrefix ?? "",
     projectId: project.id,
-    scopes: options.scopes ?? ("both" as const),
+    scopes,
   };
 }
 

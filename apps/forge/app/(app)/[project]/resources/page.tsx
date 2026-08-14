@@ -115,7 +115,10 @@ export default function ProjectStoragePage() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <ScopeBadge scopes={row.connection.scopes} />
+                  <ScopeBadge
+                    scopes={row.connection.scopes}
+                    environmentName={row.connection.environmentName}
+                  />
                 </TableCell>
                 <TableCell>
                   {row.injectedKeys.length === 0 ? (

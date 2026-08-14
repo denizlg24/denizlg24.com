@@ -23,6 +23,7 @@ function row(overrides: Partial<DeployEnvVarRow>): DeployEnvVarRow {
     reference: null,
     template: null,
     scope: "all",
+    environmentId: null,
     createdAt: new Date(),
     ...overrides,
   };
@@ -288,6 +289,80 @@ describe("resolveDeploymentEnv", () => {
     });
     expect(production.env.A).toBeUndefined();
     expect(production.env.B).toBe("plain:B");
+  });
+
+  test("an environment gets its own rows and never production's", async () => {
+    const rows = [
+      row({ key: "SHARED", encryptedValue: "x", scope: "all" }),
+      row({ key: "PROD_ONLY", encryptedValue: "x", scope: "production" }),
+      row({ key: "PREVIEW_ONLY", encryptedValue: "x", scope: "preview" }),
+      row({
+        key: "STAGING",
+        encryptedValue: "x",
+        scope: "environment",
+        environmentId: "env-staging",
+      }),
+      row({
+        key: "QA",
+        encryptedValue: "x",
+        scope: "environment",
+        environmentId: "env-qa",
+      }),
+    ];
+    const resolved = await resolveDeploymentEnv({
+      rows,
+      deployment: {
+        ...deployment,
+        kind: "environment",
+        environmentId: "env-staging",
+      },
+      project,
+      resolvers: resolvers(),
+      decrypt,
+    });
+    // Inheriting production's rows would hand staging the live database.
+    expect(resolved.keys).toEqual(["SHARED", "STAGING"]);
+  });
+
+  test("the environment binding names the environment, not the enum", async () => {
+    const resolved = await resolveDeploymentEnv({
+      rows: [
+        row({
+          key: "STAGE",
+          source: "binding",
+          reference: "deployment.environment",
+        }),
+        row({ key: "KIND", source: "binding", reference: "deployment.kind" }),
+      ],
+      deployment: {
+        ...deployment,
+        kind: "environment",
+        environmentId: "env-staging",
+        environmentName: "staging",
+      },
+      project,
+      resolvers: resolvers(),
+      decrypt,
+    });
+    expect(resolved.env.STAGE).toBe("staging");
+    expect(resolved.env.KIND).toBe("environment");
+  });
+
+  test("the environment binding falls back to the kind outside an environment", async () => {
+    const resolved = await resolveDeploymentEnv({
+      rows: [
+        row({
+          key: "STAGE",
+          source: "binding",
+          reference: "deployment.environment",
+        }),
+      ],
+      deployment,
+      project,
+      resolvers: resolvers(),
+      decrypt,
+    });
+    expect(resolved.env.STAGE).toBe("production");
   });
 
   test("an explicit row wins over Envoy", async () => {

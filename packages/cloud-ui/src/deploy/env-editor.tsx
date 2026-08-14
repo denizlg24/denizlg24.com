@@ -18,9 +18,64 @@ export interface EnvDraftRow {
   scope: DeployEnvScope;
 }
 
-/** The scope enum as picker options. Exported so the target's env page agrees. */
+/**
+ * The scope enum as picker options, minus `environment`.
+ *
+ * The bare enum value means nothing on its own — it names an environment
+ * through a separate id — so offering it as a choice would let a row be saved
+ * with a scope the API refuses. The target's env page uses `envScopeOptions`
+ * below, which expands it into one entry per environment; this list is for the
+ * create-target editor, which runs before any environment can exist.
+ */
 export const ENV_SCOPES: readonly { value: DeployEnvScope; label: string }[] =
-  DEPLOY_ENV_SCOPES.map((scope) => ({ value: scope, label: scope }));
+  DEPLOY_ENV_SCOPES.filter((scope) => scope !== "environment").map((scope) => ({
+    value: scope,
+    label: scope,
+  }));
+
+/**
+ * One control for both fields.
+ *
+ * `scope` and `environmentId` are two columns but one decision — "where does
+ * this variable apply" — and splitting them across two selects makes the
+ * illegal states (an environment scope with no id, an id on a production row)
+ * reachable by clicking. The composite string is parsed back at the edges.
+ */
+export type EnvScopeValue = string;
+
+export function envScopeValue(row: {
+  scope: DeployEnvScope;
+  environmentId?: string | null;
+}): EnvScopeValue {
+  return row.scope === "environment" && row.environmentId
+    ? `env:${row.environmentId}`
+    : row.scope;
+}
+
+export function parseEnvScopeValue(value: EnvScopeValue): {
+  scope: DeployEnvScope;
+  environmentId: string | null;
+} {
+  if (value.startsWith("env:")) {
+    return { scope: "environment", environmentId: value.slice(4) };
+  }
+  const scope = DEPLOY_ENV_SCOPES.find(
+    (candidate) => candidate === value && candidate !== "environment",
+  );
+  return { scope: scope ?? "all", environmentId: null };
+}
+
+export function envScopeOptions(
+  environments: readonly { id: string; name: string }[],
+): { value: EnvScopeValue; label: string }[] {
+  return [
+    ...ENV_SCOPES.map((option) => ({ ...option })),
+    ...environments.map((environment) => ({
+      value: `env:${environment.id}`,
+      label: environment.name,
+    })),
+  ];
+}
 
 export function emptyEnvRow(): EnvDraftRow {
   return { key: "", value: "", scope: "all" };

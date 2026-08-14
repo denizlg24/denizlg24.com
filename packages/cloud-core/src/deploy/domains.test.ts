@@ -293,4 +293,49 @@ describe("planRouting", () => {
     expect(routing.serve).toEqual(["pr-4.denizlg24.com"]);
     expect(routing.redirects).toEqual([]);
   });
+
+  it("serves an environment on its own hostname and no custom domain", () => {
+    const routing = planRouting(
+      {
+        hostname: "app-staging-a1b2c3.denizlg24.com",
+        kind: "environment",
+        environmentHostname: "app-staging-zz9x8w.denizlg24.com",
+      },
+      // Custom domains are production's. Handing them to an environment would
+      // put staging on the live domain.
+      [{ hostname: "denizlg24.com", redirectTo: null }],
+    );
+
+    expect(routing.serve).toEqual([
+      "app-staging-a1b2c3.denizlg24.com",
+      "app-staging-zz9x8w.denizlg24.com",
+    ]);
+    expect(routing.redirects).toEqual([]);
+  });
+
+  it("does not serve an environment hostname twice", () => {
+    const routing = planRouting(
+      {
+        hostname: "app-staging-zz9x8w.denizlg24.com",
+        kind: "environment",
+        environmentHostname: "app-staging-zz9x8w.denizlg24.com",
+      },
+      [],
+    );
+
+    expect(routing.serve).toEqual(["app-staging-zz9x8w.denizlg24.com"]);
+  });
+
+  it("falls back to the deployment hostname when the environment has none", () => {
+    const routing = planRouting(
+      {
+        hostname: "app-staging-a1b2c3.denizlg24.com",
+        kind: "environment",
+        environmentHostname: null,
+      },
+      [],
+    );
+
+    expect(routing.serve).toEqual(["app-staging-a1b2c3.denizlg24.com"]);
+  });
 });

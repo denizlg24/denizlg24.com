@@ -97,6 +97,43 @@ describe("shouldCapture", () => {
     ).toBe(false);
   });
 
+  it("ignores an unauthorized read but keeps an unauthorized write", () => {
+    // An expired dashboard tab polling on a timer, not an intruder.
+    expect(decision({ path: "/api/ops/tasks/abc/runs", status: 401 })).toBe(
+      false,
+    );
+    expect(decision({ path: "/api/forge/deployments", status: 401 })).toBe(
+      false,
+    );
+    expect(
+      decision({ path: "/api/storage/folders", method: "POST", status: 401 }),
+    ).toBe(true);
+    // Only 401. A 403 means something was reached and refused.
+    expect(decision({ path: "/api/ops/tasks/abc/runs", status: 403 })).toBe(
+      true,
+    );
+  });
+
+  it("only records failures for GitHub webhook deliveries", () => {
+    // GitHub delivers an event for every push, PR, comment and check run in
+    // the whole installation; most are answered `{ ignored: true }`.
+    const hook = { path: "/api/deploy/hooks/github", method: "POST" };
+    expect(decision(hook)).toBe(false);
+    expect(decision({ ...hook, durationMs: 30_000 })).toBe(false);
+    // A rejected signature is the one thing worth keeping.
+    expect(decision({ ...hook, status: 401 })).toBe(true);
+    expect(decision({ ...hook, status: 503 })).toBe(true);
+  });
+
+  it("does not count preview visitors as activity", () => {
+    // Caddy runs this once per request to a preview hostname, and its 401 is
+    // the gate working rather than a denial worth recording.
+    const gate = { path: "/api/forge-preview-auth" };
+    expect(decision({ ...gate, status: 401 })).toBe(false);
+    expect(decision({ ...gate, durationMs: 30_000 })).toBe(false);
+    expect(decision({ ...gate, status: 502 })).toBe(true);
+  });
+
   it("does not read a tailed log stream as a slow request", () => {
     // Duration here is how long someone watched, not work the server did.
     for (const path of [
@@ -150,11 +187,17 @@ describe("shouldCapture", () => {
 
   it("still records those reads when they fail", () => {
     expect(
-      decision({ path: "/dav/home", method: "PROPFIND", status: 401 }),
+      decision({ path: "/dav/home", method: "PROPFIND", status: 403 }),
     ).toBe(true);
     expect(decision({ path: "/dav/home", method: "LOCK", status: 423 })).toBe(
       true,
     );
+    // Except a 401, which a mount re-issues on every request until someone
+    // fixes its keychain entry — the same expired-client noise as a polling
+    // dashboard, and covered by the rule above.
+    expect(
+      decision({ path: "/dav/home", method: "PROPFIND", status: 401 }),
+    ).toBe(false);
   });
 });
 

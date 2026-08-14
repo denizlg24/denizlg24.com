@@ -12,6 +12,7 @@ import {
   Database,
   Globe,
   KeyRound,
+  Layers,
   LayoutGrid,
   Rocket,
   ScrollText,
@@ -29,7 +30,8 @@ const SECTIONS = [
   { segment: "analytics", label: "analytics", icon: ChartLine },
   { segment: "logs", label: "logs", icon: ScrollText },
   { segment: "resources", label: "resources", icon: Database },
-  { segment: "environment", label: "environment", icon: KeyRound },
+  { segment: "environment", label: "env vars", icon: KeyRound },
+  { segment: "environments", label: "environments", icon: Layers },
   { segment: "domains", label: "domains", icon: Globe },
   { segment: "settings", label: "settings", icon: Settings },
 ] as const;
@@ -38,9 +40,14 @@ const SECTIONS = [
  * Overview is the bare project route, so a `startsWith` test would mark it
  * active on every section. It matches exactly; the others own their subtree,
  * which is what keeps "deployments" lit while a single deployment is open.
+ *
+ * Owning a subtree means the path or a path *under* it, not any path with it as
+ * a prefix: `environment` and `environments` are two sections, and a bare
+ * `startsWith` lights the first one whenever the second is open.
  */
 function isActive(pathname: string, href: string, segment: string): boolean {
-  return segment === "" ? pathname === href : pathname.startsWith(href);
+  if (segment === "") return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export default function ProjectLayout({ children }: { children: ReactNode }) {

@@ -29,6 +29,14 @@ export interface DeploymentIdentity {
   ref: string;
   hostname: string;
   kind: DeploymentKind;
+  /** Set exactly when `kind` is `environment`. */
+  environmentId?: string | null;
+  /**
+   * What `deployment.environment` resolves to: the environment's name, or
+   * `production` / `preview`. The enum is already available as
+   * `deployment.kind`; this is the label an app would branch on.
+   */
+  environmentName?: string | null;
 }
 
 export interface ProjectIdentity {
@@ -204,11 +212,24 @@ export interface ResolvedDeploymentEnv {
   keys: string[];
 }
 
-function scopeMatches(
-  scope: DeployEnvVarRow["scope"],
-  kind: DeploymentKind,
+/**
+ * `environment` does not mean "any environment" — it names one. A staging
+ * deployment picks up `all` and the rows scoped to staging, and nothing else.
+ * Inheriting production's rows would hand staging production's database
+ * credentials, which is the exact failure separate environments exist to
+ * prevent; that is why this is an equality on the id and not on the scope.
+ */
+export function envVarAppliesTo(
+  row: Pick<DeployEnvVarRow, "scope" | "environmentId">,
+  deployment: Pick<DeploymentIdentity, "kind" | "environmentId">,
 ): boolean {
-  return scope === "all" || scope === kind;
+  if (row.scope === "all") return true;
+  if (row.scope !== deployment.kind) return false;
+  if (row.scope !== "environment") return true;
+  return (
+    row.environmentId !== null &&
+    row.environmentId === (deployment.environmentId ?? null)
+  );
 }
 
 export function deploymentNamespaceValues(
@@ -221,6 +242,7 @@ export function deploymentNamespaceValues(
     hostname: deployment.hostname,
     url: `https://${deployment.hostname}`,
     kind: deployment.kind,
+    environment: deployment.environmentName ?? deployment.kind,
   };
 }
 
@@ -250,7 +272,7 @@ export async function resolveDeploymentEnv(
   options: ResolveDeploymentEnvOptions,
 ): Promise<ResolvedDeploymentEnv> {
   const rows = options.rows.filter((row) =>
-    scopeMatches(row.scope, options.deployment.kind),
+    envVarAppliesTo(row, options.deployment),
   );
   const byReference = collectReferences(rows);
 

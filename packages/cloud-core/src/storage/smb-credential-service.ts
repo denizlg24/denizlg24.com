@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 
 import type { Database } from "../db";
 import { smbCredentials } from "../db/schema";
@@ -63,7 +63,10 @@ export async function listSmbCredentials(
     .from(smbCredentials)
     .where(
       and(eq(smbCredentials.userId, userId), isNull(smbCredentials.revokedAt)),
-    );
+    )
+    // Newest first, and ordered at all: an unordered select returns rows in
+    // whatever order Postgres finds them, so the list reshuffled between polls.
+    .orderBy(desc(smbCredentials.createdAt));
   return rows.map(toSafe);
 }
 

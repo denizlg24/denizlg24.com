@@ -179,7 +179,10 @@ export default function ResourceDetailPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <ScopeBadge scopes={connection.scopes} />
+                    <ScopeBadge
+                      scopes={connection.scopes}
+                      environmentName={connection.environmentName}
+                    />
                   </TableCell>
                   <TableCell className="font-mono text-[11px] text-muted-foreground">
                     {connection.envPrefix ? `${connection.envPrefix}_` : "—"}

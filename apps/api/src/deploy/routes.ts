@@ -1,7 +1,9 @@
 import {
   type AuthVariables,
+  assertEnvironmentInProject,
   CloudCoreError,
   ConflictError,
+  connectableEnvironments,
   connectResource,
   createProject,
   type Database,
@@ -25,11 +27,15 @@ import {
   ValidationError,
 } from "@repo/cloud-core";
 import {
+  type DeployBranchRuleRow,
   type DeployDomainRow,
+  type DeployEnvironmentRow,
   type DeployEnvVarRow,
   type DeploymentRow,
   type DeployTargetRow,
+  deployBranchRules,
   deployDomains,
+  deployEnvironments,
   deployEnvVars,
   deployGithubInstallations,
   deployments,
@@ -37,11 +43,13 @@ import {
   projects,
 } from "@repo/cloud-core/db/schema";
 import {
+  allocateEnvironmentHostname,
   assertBindingsResolvable,
   assertCapacityAvailable,
   BindingUnresolvableError,
   backfillPullRequestNumber,
   branchPreviewDeployments,
+  branchRulesForTarget,
   buildSpecFromTarget,
   type ChangeDecision,
   COMMITTED_DEPLOYMENT_STATUSES,
@@ -62,8 +70,14 @@ import {
   detectWorkspaceContext,
   type EnvoyEnvSource,
   encryptDeployEnvValue,
+  environmentLabel,
+  environmentMemory,
+  environmentsForTarget,
   envoyLinkFor,
+  envVarAppliesTo,
   findDeploymentForSha,
+  findEnvironment,
+  findEnvironmentByName,
   GithubApiError,
   type GithubAppClient,
   type GithubCommit,
@@ -84,6 +98,7 @@ import {
   refreshDeployDomain,
   releaseDeployDomain,
   renameDeployDomain,
+  resolveBranchRoute,
   resolveBuildConfig,
   resolveDeploymentEnv,
   resolveEnvoyEnv,
@@ -103,11 +118,14 @@ import {
   assertDeployHostname,
   bindingReferenceResourceKind,
   connectResourceInputSchema,
+  createDeployBranchRuleInputSchema,
   createDeployDomainInputSchema,
+  createDeployEnvironmentInputSchema,
   createDeploymentInputSchema,
   createDeployTargetRequestSchema,
   createResourceInputSchema,
   type DbType,
+  type DeployBranchMatchType,
   type DeployDomainRole,
   type DeployEnvVarInput,
   DeployHostnameError,
@@ -131,7 +149,9 @@ import {
   repoBadgeRequestSchema,
   resourceListQuerySchema,
   slugifyHostnameLabel,
+  updateDeployBranchRuleInputSchema,
   updateDeployDomainInputSchema,
+  updateDeployEnvironmentInputSchema,
   updateDeployTargetInputSchema,
   type WebhookDeployIntent,
 } from "@repo/schemas/cloud";
@@ -142,7 +162,7 @@ import { z } from "zod";
 import { invalidatePreviewDeploymentCache } from "../forge/preview-auth";
 import { requireAgentToken } from "./agent-auth";
 import type { GithubSurfaces } from "./github-surfaces";
-import type { ForgeOps } from "./ops";
+import type { ForgeOps, RouteSlot } from "./ops";
 import { DeployAgentUnavailableError } from "./proxy";
 
 export interface DeployRouteOptions {
@@ -339,30 +359,51 @@ function injectedKeysFor(
   return injected;
 }
 
+/**
+ * Environments referenced by a set of deployment rows, keyed by id. Passed into
+ * the serializer rather than looked up inside it so a list of fifty rows is one
+ * query, and so the serializer stays synchronous.
+ */
+type EnvironmentLookup = ReadonlyMap<
+  string,
+  Pick<DeployEnvironmentRow, "name" | "hostname">
+>;
+
 function serializeDeployment(
   row: DeploymentRow,
   /** The target's primary domain, when the caller has it to hand. */
   resolvableHostname?: string | null,
+  environments?: EnvironmentLookup,
 ) {
+  const environment = row.environmentId
+    ? (environments?.get(row.environmentId) ?? null)
+    : null;
   return {
     id: row.id,
     targetId: row.targetId,
     kind: row.kind,
+    environmentId: row.environmentId,
+    environmentName: environment?.name ?? null,
     status: row.status,
     phase: row.phase,
     gitRef: row.gitRef,
     gitSha: row.gitSha,
     gitMessage: row.gitMessage,
     hostname: row.hostname,
-    // A production deployment with no record of its own is not reachable on its
-    // own hostname: that name is generated per deployment and its record is
-    // deliberately not created once the target has a stable domain, because
-    // nothing resolves it and the zone has only 200 records. The stable domain is
-    // where it actually answers, so that is what `url` has to be — a link to the
-    // ephemeral name would simply fail to open.
+    // A deployment holding a stable slot with no record of its own is not
+    // reachable on its own hostname: that name is generated per deployment and
+    // its record is deliberately not created once the slot has a stable name,
+    // because nothing resolves it and the zone has only 200 records. The stable
+    // name is where it actually answers, so that is what `url` has to be — a
+    // link to the ephemeral name would simply fail to open.
+    //
+    // For production the stable name is the target's primary domain; for a
+    // custom environment it is the environment's own generated hostname.
     url: `https://${
-      row.kind === "production" && row.dnsRecordId === null
-        ? (resolvableHostname ?? row.hostname)
+      row.dnsRecordId === null
+        ? row.kind === "production"
+          ? (resolvableHostname ?? row.hostname)
+          : (environment?.hostname ?? row.hostname)
         : row.hostname
     }`,
     port: row.port,
@@ -431,6 +472,7 @@ function serializeEnvVar(row: DeployEnvVarRow) {
     template: row.template,
     hasValue: row.encryptedValue !== null,
     scope: row.scope,
+    environmentId: row.environmentId,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -445,7 +487,12 @@ function newEnvRow(
   input: DeployEnvVarInput,
   encryptionKey: string,
 ) {
-  const base = { targetId, key: input.key, scope: input.scope };
+  const base = {
+    targetId,
+    key: input.key,
+    scope: input.scope,
+    environmentId: input.environmentId ?? null,
+  };
   if (input.source === "binding") {
     return { ...base, source: "binding" as const, reference: input.reference };
   }
@@ -522,6 +569,52 @@ export function deployRoutes(options: DeployRouteOptions) {
       ),
     });
     return row?.hostname ?? null;
+  }
+
+  /**
+   * The environments a set of deployment rows point at, in one query. Every
+   * serializer call that can see an `environment` row needs this: without it the
+   * row is labelled `null` and its `url` falls back to a per-deployment hostname
+   * whose DNS record was deliberately never created.
+   */
+  async function environmentLookup(
+    rows: readonly Pick<DeploymentRow, "environmentId">[],
+  ): Promise<EnvironmentLookup> {
+    const ids = [
+      ...new Set(
+        rows.flatMap((row) => (row.environmentId ? [row.environmentId] : [])),
+      ),
+    ];
+    if (ids.length === 0) return new Map();
+    const found = await db
+      .select()
+      .from(deployEnvironments)
+      .where(inArray(deployEnvironments.id, ids));
+    return new Map(found.map((row) => [row.id, row]));
+  }
+
+  /**
+   * The same lookup for resource connections, which carry an environment only
+   * when their scope is `environment`. A bare id tells a reader nothing, so
+   * every connection payload ships the name beside it.
+   */
+  async function connectionEnvironmentNames(
+    rows: readonly { environmentId: string | null }[],
+  ): Promise<(id: string | null) => string | null> {
+    const found = await environmentLookup(rows);
+    return (id) => (id === null ? null : (found.get(id)?.name ?? null));
+  }
+
+  /** The single-row case, which is most of them. */
+  async function serializeOne(
+    row: DeploymentRow,
+    resolvableHostname?: string | null,
+  ) {
+    return serializeDeployment(
+      row,
+      resolvableHostname,
+      await environmentLookup([row]),
+    );
   }
 
   // ---- Owner-facing routes -------------------------------------------------
@@ -854,6 +947,10 @@ export function deployRoutes(options: DeployRouteOptions) {
       primaryRows.map((row) => [row.targetId, row.hostname]),
     );
 
+    const environments = await environmentLookup([
+      ...byTarget.values(),
+      ...productionByTarget.values(),
+    ]);
     const listed = rows.map((row) => {
       const primary = primaryByTarget.get(row.target.id) ?? null;
       const latest = byTarget.get(row.target.id);
@@ -863,9 +960,11 @@ export function deployRoutes(options: DeployRouteOptions) {
           projectSlug: row.projectSlug,
           primaryHostname: primary,
         }),
-        latestDeployment: latest ? serializeDeployment(latest, primary) : null,
+        latestDeployment: latest
+          ? serializeDeployment(latest, primary, environments)
+          : null,
         latestProduction: production
-          ? serializeDeployment(production, primary)
+          ? serializeDeployment(production, primary, environments)
           : null,
       };
     });
@@ -1135,6 +1234,21 @@ export function deployRoutes(options: DeployRouteOptions) {
   });
 
   /**
+   * The environments a connection made against this project may be scoped to.
+   * Environments hang off a target and connections off a project, so this
+   * flattens every target's — the target's name rides along because two of
+   * them may each hold a `staging`.
+   */
+  owner.get("/projects/:id/environments", async (context) => {
+    const projectId = context.req.param("id");
+    if (!uuidParam.safeParse(projectId).success) {
+      return context.json({ data: { environments: [] } });
+    }
+    const rows = await connectableEnvironments(db, projectId);
+    return context.json({ data: { environments: rows } });
+  });
+
+  /**
    * Forge routes a deployable at `/<project slug>`, so every page under it
    * resolves the target from the slug rather than an id it never sees. Ordered
    * by creation so the answer is stable: the schema permits a project to hold
@@ -1380,12 +1494,18 @@ export function deployRoutes(options: DeployRouteOptions) {
 
   /**
    * Resume is a rebuild, not a resurrection. Pausing removes the container and
-   * its image, so there is nothing left to start — the last production SHA is
+   * its image, so there is nothing left to start — the last SHA in each slot is
    * built again, exactly as `rollback` does, and the site is back when it goes
    * ready rather than immediately.
    *
-   * A target with no production deployment to rebuild resumes anyway: it is
-   * un-paused and the next push deploys it.
+   * Every stable slot, not only production: pausing a target tore down its
+   * custom environments too, so resuming it has to put them back or a staging
+   * box would stay dark with nothing in the UI saying why. A paused environment
+   * is left alone — it was paused on its own and resuming the target is not a
+   * request to resume it.
+   *
+   * A target with nothing to rebuild resumes anyway: it is un-paused and the
+   * next push deploys it.
    */
   owner.post("/targets/:id/resume", async (context) => {
     try {
@@ -1400,34 +1520,61 @@ export function deployRoutes(options: DeployRouteOptions) {
       const project = await db.query.projects.findFirst({
         where: eq(projects.id, resumed.projectId),
       });
-      // Still `ready`, because pause never touched the row — which is what
-      // makes it the thing to rebuild.
-      const last = await forge.liveProductionDeployment(resumed.id);
+      const environments = await environmentsForTarget(db, resumed.id);
+      const slots: RouteSlot[] = [
+        { targetId: resumed.id, environmentId: null },
+        ...environments
+          .filter((row) => row.pausedAt === null)
+          .map((row) => ({ targetId: resumed.id, environmentId: row.id })),
+      ];
+
       let rebuilt: DeploymentRow | null = null;
-      if (last && project) {
+      const alsoRebuilt: DeploymentRow[] = [];
+      for (const slot of slots) {
+        // Still `ready`, because pause never touched the row — which is what
+        // makes it the thing to rebuild.
+        const last = await forge.liveSlotDeployment(slot);
+        if (!last || !project) continue;
         // Capacity is checked here rather than at pause: a host that filled up
         // while this was paused should refuse the resume instead of
         // overcommitting. The target is un-paused either way, so a refusal
-        // leaves it deployable by hand once there is room.
-        rebuilt = await enqueueDeployment({
+        // leaves it deployable by hand once there is room. One slot refused
+        // must not stop the others, so this is per-slot rather than fatal.
+        const created = await enqueueDeployment({
           target: resumed,
           projectSlug: project.slug,
           ref: last.gitRef,
           sha: last.gitSha,
           message: last.gitMessage,
-          kind: "production",
+          kind: last.kind,
+          environmentId: last.environmentId,
           triggeredBy: "manual",
           createdBy: context.get("user").id,
+        }).catch((error: unknown) => {
+          console.error("[deploy] resume rebuild failed", {
+            targetId: resumed.id,
+            environmentId: slot.environmentId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
         });
-        await options.github?.surfaces.onEnqueued(rebuilt, resumed);
+        if (!created) continue;
+        await options.github?.surfaces.onEnqueued(created, resumed);
+        if (slot.environmentId === null) rebuilt = created;
+        else alsoRebuilt.push(created);
       }
+
       const hostname = await primaryHostname(resumed.id);
+      const lookup = await environmentLookup(alsoRebuilt);
       return context.json({
         data: serializeTarget(resumed, {
           projectSlug: project?.slug ?? "",
           primaryHostname: hostname,
         }),
         deployment: rebuilt ? serializeDeployment(rebuilt, hostname) : null,
+        environmentDeployments: alsoRebuilt.map((row) =>
+          serializeDeployment(row, hostname, lookup),
+        ),
       });
     } catch (error) {
       const response = errorResponse(error);
@@ -1549,15 +1696,36 @@ export function deployRoutes(options: DeployRouteOptions) {
         .select()
         .from(deployEnvVars)
         .where(eq(deployEnvVars.targetId, target.id));
-      const stored = new Map(
-        existing.map((row) => [`${row.key}:${row.scope}`, row]),
+      // The environment id is part of a row's identity, not decoration: two
+      // rows can share a key and the `environment` scope and differ only by
+      // which environment they name.
+      const storedKey = (row: {
+        key: string;
+        scope: string;
+        environmentId: string | null;
+      }) => `${row.key}:${row.scope}:${row.environmentId ?? ""}`;
+      const stored = new Map(existing.map((row) => [storedKey(row), row]));
+
+      // Every environment the input names has to be one of this target's, or a
+      // var could be scoped into another project's staging box.
+      const ownEnvironments = new Set(
+        (await environmentsForTarget(db, target.id)).map((row) => row.id),
       );
+      for (const input of parsed.data.vars) {
+        if (input.environmentId && !ownEnvironments.has(input.environmentId)) {
+          throw new ValidationError(
+            `${input.key} names an environment that is not on this project`,
+            "ENVIRONMENT_NOT_FOUND",
+          );
+        }
+      }
 
       const values = parsed.data.vars.map((input: DeployEnvVarInput) => {
         const base = {
           targetId: target.id,
           key: input.key,
           scope: input.scope,
+          environmentId: input.environmentId ?? null,
         };
         if (input.source === "binding") {
           return {
@@ -1586,7 +1754,13 @@ export function deployRoutes(options: DeployRouteOptions) {
             valueAuthTag: cipher.authTag,
           };
         }
-        const previous = stored.get(`${input.key}:${input.scope}`);
+        const previous = stored.get(
+          storedKey({
+            key: input.key,
+            scope: input.scope,
+            environmentId: input.environmentId ?? null,
+          }),
+        );
         if (!previous?.encryptedValue) {
           throw new ValidationError(
             `${input.key} has no stored value to keep`,
@@ -1618,6 +1792,586 @@ export function deployRoutes(options: DeployRouteOptions) {
         return tx.insert(deployEnvVars).values(values).returning();
       });
       return context.json({ data: written.map(serializeEnvVar) });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  // ---- Custom environments and branch rules --------------------------------
+
+  /**
+   * The production branch is resolved before any rule is consulted and can never
+   * be diverted, so a rule that matches it would sit in the list looking like it
+   * did something. Refused at the write instead of silently ignored at the push.
+   *
+   * Only an exact match is checked. A glob wide enough to catch `main` — `*`, or
+   * `m*` — also catches everything else, and refusing it would be refusing a
+   * legitimate catch-all rule whose effect on `main` is already nil.
+   */
+  function assertNotProductionBranch(
+    target: DeployTargetRow,
+    rule: { matchType: DeployBranchMatchType; pattern: string },
+  ): void {
+    if (rule.matchType !== "exact") return;
+    if (rule.pattern !== target.productionBranch) return;
+    throw new ValidationError(
+      `${target.productionBranch} is the production branch and always deploys to production`,
+      "BRANCH_RULE_PRODUCTION",
+    );
+  }
+
+  /**
+   * Stops everything running in an environment, for pause and for delete.
+   *
+   * Same shape as the target pause: cancel what has not finished so the claim
+   * query cannot pick it up, tell the agent to drop the container either way,
+   * and leave `ready` rows alone as the record of what was last deployed.
+   */
+  async function teardownEnvironmentDeployments(
+    environment: DeployEnvironmentRow,
+  ): Promise<void> {
+    const held = await db
+      .select()
+      .from(deployments)
+      .where(
+        and(
+          eq(deployments.environmentId, environment.id),
+          inArray(deployments.status, [...COMMITTED_DEPLOYMENT_STATUSES]),
+        ),
+      );
+    const stopped: DeploymentRow[] = [];
+    for (const row of held) {
+      if (row.status !== "ready") {
+        const cancelled = await recordDeploymentStatus(db, row.id, {
+          status: "cancelled",
+          error: "The environment was paused",
+        });
+        stopped.push(cancelled ?? row);
+        await forge.releaseDeployment(row);
+      }
+      await agentProxy.delete(`/deployments/${row.id}`).catch(() => {});
+    }
+    await forge.reportRetired(stopped);
+  }
+
+  function serializeEnvironment(
+    row: DeployEnvironmentRow,
+    target: DeployTargetRow,
+    extra: { latestDeployment?: DeploymentRow | null; branchRuleCount: number },
+  ) {
+    const memory = environmentMemory(target, row);
+    return {
+      id: row.id,
+      targetId: row.targetId,
+      name: row.name,
+      hostname: row.hostname,
+      url: `https://${row.hostname}`,
+      memoryReservationMb: row.memoryReservationMb,
+      memoryLimitMb: row.memoryLimitMb,
+      memoryReservationResolvedMb: memory.reservationMb,
+      memoryCeilingResolvedMb: memory.ceilingMb,
+      autoDeploy: row.autoDeploy,
+      pausedAt: row.pausedAt?.toISOString() ?? null,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      latestDeployment: extra.latestDeployment
+        ? serializeDeployment(
+            extra.latestDeployment,
+            null,
+            new Map([[row.id, row]]),
+          )
+        : null,
+      branchRuleCount: extra.branchRuleCount,
+    };
+  }
+
+  function serializeBranchRule(
+    row: DeployBranchRuleRow,
+    environments: ReadonlyMap<string, Pick<DeployEnvironmentRow, "name">>,
+  ) {
+    return {
+      id: row.id,
+      targetId: row.targetId,
+      environmentId: row.environmentId,
+      environmentName: environments.get(row.environmentId)?.name ?? "",
+      matchType: row.matchType,
+      pattern: row.pattern,
+      priority: row.priority,
+      enabled: row.enabled,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  /**
+   * The newest non-superseded deployment in each environment, so the list can
+   * say what is actually running in staging without a query per row.
+   */
+  async function latestByEnvironment(
+    environmentIds: readonly string[],
+  ): Promise<Map<string, DeploymentRow>> {
+    if (environmentIds.length === 0) return new Map();
+    const rows = await db
+      .selectDistinctOn([deployments.environmentId])
+      .from(deployments)
+      .where(inArray(deployments.environmentId, [...environmentIds]))
+      .orderBy(desc(deployments.environmentId), desc(deployments.createdAt));
+    return new Map(
+      rows.flatMap((row) =>
+        row.environmentId ? [[row.environmentId, row]] : [],
+      ),
+    );
+  }
+
+  async function loadEnvironment(
+    id: string,
+  ): Promise<{ environment: DeployEnvironmentRow; target: DeployTargetRow }> {
+    if (!uuidParam.safeParse(id).success) {
+      throw new NotFoundError("Environment not found", "ENVIRONMENT_NOT_FOUND");
+    }
+    const environment = await db.query.deployEnvironments.findFirst({
+      where: eq(deployEnvironments.id, id),
+    });
+    if (!environment) {
+      throw new NotFoundError("Environment not found", "ENVIRONMENT_NOT_FOUND");
+    }
+    return { environment, target: await loadTarget(environment.targetId) };
+  }
+
+  owner.get("/targets/:id/environments", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const [rows, rules] = await Promise.all([
+        environmentsForTarget(db, target.id),
+        branchRulesForTarget(db, target.id),
+      ]);
+      const latest = await latestByEnvironment(rows.map((row) => row.id));
+      const ruleCounts = new Map<string, number>();
+      for (const rule of rules) {
+        ruleCounts.set(
+          rule.environmentId,
+          (ruleCounts.get(rule.environmentId) ?? 0) + 1,
+        );
+      }
+      return context.json({
+        data: rows.map((row) =>
+          serializeEnvironment(row, target, {
+            latestDeployment: latest.get(row.id) ?? null,
+            branchRuleCount: ruleCounts.get(row.id) ?? 0,
+          }),
+        ),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.post("/targets/:id/environments", async (context) => {
+    const parsed = createDeployEnvironmentInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid environment",
+            issues: parsed.error.issues,
+          },
+        },
+        400,
+      );
+    }
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, target.projectId),
+      });
+      if (!project) throw new NotFoundError("Project not found", "NOT_FOUND");
+
+      const duplicate = await findEnvironmentByName(db, {
+        targetId: target.id,
+        name: parsed.data.name,
+      });
+      if (duplicate) {
+        throw new ConflictError(
+          `${parsed.data.name} already exists on this project`,
+          "ENVIRONMENT_TAKEN",
+        );
+      }
+
+      const hostname = await allocateEnvironmentHostname(db, {
+        projectSlug: project.slug,
+        environment: parsed.data.name,
+        zoneName,
+      });
+
+      const created = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(deployEnvironments)
+          .values({
+            targetId: target.id,
+            name: parsed.data.name,
+            hostname,
+            memoryReservationMb: parsed.data.memoryReservationMb ?? null,
+            memoryLimitMb: parsed.data.memoryLimitMb ?? null,
+            autoDeploy: parsed.data.autoDeploy,
+          })
+          .returning();
+        if (!row) throw new Error("Environment insert returned no row");
+        if (parsed.data.branches.length > 0) {
+          await tx.insert(deployBranchRules).values(
+            parsed.data.branches.map((branch, index) => ({
+              targetId: target.id,
+              environmentId: row.id,
+              matchType: branch.matchType,
+              pattern: branch.pattern,
+              // Spaced so a later rule can be slotted between two of these
+              // without renumbering the whole set.
+              priority: 100 + index * 10,
+            })),
+          );
+        }
+        return row;
+      });
+
+      // After the row exists, for the same reason `enqueueDeployment` does it in
+      // that order: a Cloudflare record with no row is an orphan nothing knows
+      // about, while a row with no record is repaired by the next GC pass and
+      // visible in the meantime.
+      if (forge.dns) {
+        try {
+          const record = await forge.dns.createDeploymentRecord({
+            hostname,
+            deploymentId: created.id,
+          });
+          await db
+            .update(deployEnvironments)
+            .set({ dnsRecordId: record.id })
+            .where(eq(deployEnvironments.id, created.id));
+          created.dnsRecordId = record.id;
+        } catch (error) {
+          console.error("[deploy] environment DNS record failed", error);
+        }
+      }
+
+      return context.json(
+        {
+          data: serializeEnvironment(created, target, {
+            branchRuleCount: parsed.data.branches.length,
+          }),
+        },
+        201,
+      );
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.patch("/environments/:id", async (context) => {
+    const parsed = updateDeployEnvironmentInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid environment",
+            issues: parsed.error.issues,
+          },
+        },
+        400,
+      );
+    }
+    try {
+      const { environment, target } = await loadEnvironment(
+        context.req.param("id"),
+      );
+      const paused = parsed.data.paused;
+      const [updated] = await db
+        .update(deployEnvironments)
+        .set({
+          ...(parsed.data.memoryReservationMb !== undefined
+            ? { memoryReservationMb: parsed.data.memoryReservationMb ?? null }
+            : {}),
+          ...(parsed.data.memoryLimitMb !== undefined
+            ? { memoryLimitMb: parsed.data.memoryLimitMb ?? null }
+            : {}),
+          ...(parsed.data.autoDeploy !== undefined
+            ? { autoDeploy: parsed.data.autoDeploy }
+            : {}),
+          ...(paused === undefined
+            ? {}
+            : { pausedAt: paused ? new Date() : null }),
+          updatedAt: new Date(),
+        })
+        .where(eq(deployEnvironments.id, environment.id))
+        .returning();
+      if (!updated) throw new Error("Environment update returned no row");
+
+      // Pausing has to actually stop the container, or the reservation the
+      // capacity arithmetic just gave up is still being spent on the host.
+      if (paused === true && environment.pausedAt === null) {
+        await teardownEnvironmentDeployments(updated);
+      }
+
+      const rules = await branchRulesForTarget(db, target.id);
+      return context.json({
+        data: serializeEnvironment(updated, target, {
+          latestDeployment:
+            (await latestByEnvironment([updated.id])).get(updated.id) ?? null,
+          branchRuleCount: rules.filter(
+            (rule) => rule.environmentId === updated.id,
+          ).length,
+        }),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.delete("/environments/:id", async (context) => {
+    try {
+      const { environment } = await loadEnvironment(context.req.param("id"));
+      // Containers first. The row cascade takes the deployments with it, and a
+      // deleted row is one nothing can later use to find what to stop.
+      await teardownEnvironmentDeployments(environment);
+      if (forge.dns && environment.dnsRecordId) {
+        await forge.dns
+          .deleteRecord(environment.dnsRecordId)
+          .catch((error: unknown) => {
+            console.error("[deploy] environment DNS delete failed", error);
+          });
+      }
+      await db
+        .delete(deployEnvironments)
+        .where(eq(deployEnvironments.id, environment.id));
+      return context.json({ data: { deleted: true } });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.get("/targets/:id/branch-rules", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const [rules, environments] = await Promise.all([
+        branchRulesForTarget(db, target.id),
+        environmentsForTarget(db, target.id),
+      ]);
+      const byId = new Map(environments.map((row) => [row.id, row]));
+      return context.json({
+        data: rules.map((rule) => serializeBranchRule(rule, byId)),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.post("/targets/:id/branch-rules", async (context) => {
+    const parsed = createDeployBranchRuleInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid branch rule",
+            issues: parsed.error.issues,
+          },
+        },
+        400,
+      );
+    }
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const environment = await findEnvironment(db, {
+        targetId: target.id,
+        environmentId: parsed.data.environmentId,
+      });
+      if (!environment) {
+        throw new NotFoundError(
+          "Environment not found",
+          "ENVIRONMENT_NOT_FOUND",
+        );
+      }
+      // The production branch is checked first in `resolveBranchRoute` and can
+      // never be diverted, so a rule naming it would sit there doing nothing
+      // and reading as though it did something. Refused instead.
+      assertNotProductionBranch(target, parsed.data);
+
+      const [row] = await db
+        .insert(deployBranchRules)
+        .values({
+          targetId: target.id,
+          environmentId: environment.id,
+          matchType: parsed.data.matchType,
+          pattern: parsed.data.pattern,
+          priority: parsed.data.priority,
+          enabled: parsed.data.enabled,
+        })
+        .returning()
+        .onConflictDoNothing();
+      if (!row) {
+        throw new ConflictError(
+          `${parsed.data.pattern} already has a rule on this project`,
+          "BRANCH_RULE_TAKEN",
+        );
+      }
+      return context.json(
+        {
+          data: serializeBranchRule(
+            row,
+            new Map([[environment.id, environment]]),
+          ),
+        },
+        201,
+      );
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.patch("/branch-rules/:id", async (context) => {
+    const parsed = updateDeployBranchRuleInputSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: "INVALID_INPUT",
+            message: "Invalid branch rule",
+            issues: parsed.error.issues,
+          },
+        },
+        400,
+      );
+    }
+    try {
+      const id = context.req.param("id");
+      if (!uuidParam.safeParse(id).success) {
+        throw new NotFoundError("Branch rule not found", "NOT_FOUND");
+      }
+      const existing = await db.query.deployBranchRules.findFirst({
+        where: eq(deployBranchRules.id, id),
+      });
+      if (!existing) {
+        throw new NotFoundError("Branch rule not found", "NOT_FOUND");
+      }
+      const target = await loadTarget(existing.targetId);
+      if (parsed.data.environmentId) {
+        const environment = await findEnvironment(db, {
+          targetId: target.id,
+          environmentId: parsed.data.environmentId,
+        });
+        if (!environment) {
+          throw new NotFoundError(
+            "Environment not found",
+            "ENVIRONMENT_NOT_FOUND",
+          );
+        }
+      }
+      assertNotProductionBranch(target, {
+        matchType: parsed.data.matchType ?? existing.matchType,
+        pattern: parsed.data.pattern ?? existing.pattern,
+      });
+
+      const [row] = await db
+        .update(deployBranchRules)
+        .set({ ...parsed.data, updatedAt: new Date() })
+        .where(eq(deployBranchRules.id, existing.id))
+        .returning();
+      if (!row) throw new Error("Branch rule update returned no row");
+      const environments = await environmentsForTarget(db, target.id);
+      return context.json({
+        data: serializeBranchRule(
+          row,
+          new Map(environments.map((entry) => [entry.id, entry])),
+        ),
+      });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  owner.delete("/branch-rules/:id", async (context) => {
+    try {
+      const id = context.req.param("id");
+      if (!uuidParam.safeParse(id).success) {
+        throw new NotFoundError("Branch rule not found", "NOT_FOUND");
+      }
+      const existing = await db.query.deployBranchRules.findFirst({
+        where: eq(deployBranchRules.id, id),
+      });
+      if (!existing) {
+        throw new NotFoundError("Branch rule not found", "NOT_FOUND");
+      }
+      await loadTarget(existing.targetId);
+      await db.delete(deployBranchRules).where(eq(deployBranchRules.id, id));
+      return context.json({ data: { deleted: true } });
+    } catch (error) {
+      const response = errorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  /**
+   * What each of the repository's branches would do if it were pushed now.
+   *
+   * A rule set is only comprehensible next to the branches it sorts: a pattern
+   * that matches nothing and a pattern that swallows every branch look identical
+   * in a list of patterns and obvious here.
+   */
+  owner.get("/targets/:id/branch-routes", async (context) => {
+    try {
+      const target = await loadTarget(context.req.param("id"));
+      const rules = await branchRulesForTarget(db, target.id);
+      const environments = new Map(
+        (await environmentsForTarget(db, target.id)).map((row) => [
+          row.id,
+          row,
+        ]),
+      );
+
+      const branches =
+        options.github && target.githubInstallationId !== null
+          ? await options.github.client
+              .listBranches({
+                installationId: target.githubInstallationId,
+                owner: target.repoOwner,
+                repo: target.repoName,
+              })
+              .catch((error: unknown) => {
+                console.error("[deploy] branch listing failed", error);
+                return [];
+              })
+          : [];
+
+      return context.json({
+        data: branches.map((branch) => {
+          const route = resolveBranchRoute(branch.name, { ...target, rules });
+          return {
+            branch: branch.name,
+            kind: route?.kind ?? null,
+            environmentId: route?.environmentId ?? null,
+            environmentName: route?.environmentId
+              ? (environments.get(route.environmentId)?.name ?? null)
+              : null,
+            ruleId: route?.ruleId ?? null,
+          };
+        }),
+      });
     } catch (error) {
       const response = errorResponse(error);
       return context.json(response.body, response.status);
@@ -1667,8 +2421,11 @@ export function deployRoutes(options: DeployRouteOptions) {
         .from(deployments)
         .where(eq(deployments.targetId, target.id));
       const primary = await primaryHostname(target.id);
+      const environments = await environmentLookup(rows);
       return context.json({
-        data: rows.map((row) => serializeDeployment(row, primary)),
+        data: rows.map((row) =>
+          serializeDeployment(row, primary, environments),
+        ),
         pagination: {
           page: query.page,
           limit: query.limit,
@@ -1739,11 +2496,15 @@ export function deployRoutes(options: DeployRouteOptions) {
         });
       }
 
+      const listed = [...branches.values()].slice(0, query.limit);
+      const environments = await environmentLookup(
+        listed.map((branch) => branch.latest),
+      );
       return context.json({
-        data: [...branches.values()].slice(0, query.limit).map((branch) => ({
+        data: listed.map((branch) => ({
           deploymentCount: branch.count,
           gitRef: branch.gitRef,
-          latest: serializeDeployment(branch.latest, primary),
+          latest: serializeDeployment(branch.latest, primary, environments),
           prNumber: branch.prNumber,
         })),
       });
@@ -1781,12 +2542,17 @@ export function deployRoutes(options: DeployRouteOptions) {
         db,
         connected.map((entry) => entry.resource.id),
       );
+      const environmentNames = await connectionEnvironmentNames(
+        connected.map((entry) => entry.connection),
+      );
 
       return context.json({
         data: {
           resources: connected.map((entry) => ({
             connection: {
               createdAt: entry.connection.createdAt.toISOString(),
+              environmentId: entry.connection.environmentId,
+              environmentName: environmentNames(entry.connection.environmentId),
               envPrefix: entry.connection.envPrefix,
               id: entry.connection.id,
               projectId: entry.connection.projectId,
@@ -1830,6 +2596,9 @@ export function deployRoutes(options: DeployRouteOptions) {
         resourceConnectionDetails(db, resource.id),
         resourceConnectionCounts(db, [resource.id]),
       ]);
+      const connectionEnvironments = await connectionEnvironmentNames(
+        connections.map((entry) => entry.connection),
+      );
       const namespace = resource.namespaceId
         ? await db.query.projects.findFirst({
             where: eq(projects.id, resource.namespaceId),
@@ -1840,6 +2609,10 @@ export function deployRoutes(options: DeployRouteOptions) {
           ...toResourceContract(resource, counts.get(resource.id) ?? 0),
           connections: connections.map((entry) => ({
             createdAt: entry.connection.createdAt.toISOString(),
+            environmentId: entry.connection.environmentId,
+            environmentName: connectionEnvironments(
+              entry.connection.environmentId,
+            ),
             envPrefix: entry.connection.envPrefix,
             id: entry.connection.id,
             projectId: entry.connection.projectId,
@@ -1897,10 +2670,18 @@ export function deployRoutes(options: DeployRouteOptions) {
   owner.post("/resources", async (context) => {
     try {
       const input = createResourceInputSchema.parse(await context.req.json());
+      if (input.environmentId && input.projectId) {
+        await assertEnvironmentInProject(
+          db,
+          input.projectId,
+          input.environmentId,
+        );
+      }
       const { password, resource } = await provisionResource(
         db,
         provisionDeps,
         {
+          environmentId: input.environmentId,
           envPrefix: input.envPrefix,
           kind: input.kind,
           name: input.name ?? null,
@@ -1948,16 +2729,27 @@ export function deployRoutes(options: DeployRouteOptions) {
       if (!project) {
         throw new NotFoundError("Project not found", "PROJECT_NOT_FOUND");
       }
+      if (input.environmentId) {
+        await assertEnvironmentInProject(
+          db,
+          input.projectId,
+          input.environmentId,
+        );
+      }
       const connection = await connectResource(db, {
+        environmentId: input.environmentId,
         envPrefix: input.envPrefix,
         projectId: input.projectId,
         resourceId: resource.id,
         scopes: input.scopes,
       });
+      const names = await connectionEnvironmentNames([connection]);
       return context.json(
         {
           data: {
             createdAt: connection.createdAt.toISOString(),
+            environmentId: connection.environmentId,
+            environmentName: names(connection.environmentId),
             envPrefix: connection.envPrefix,
             id: connection.id,
             projectId: connection.projectId,
@@ -2092,7 +2884,8 @@ export function deployRoutes(options: DeployRouteOptions) {
     ref: string;
     sha: string;
     message: string | null;
-    kind: "production" | "preview";
+    kind: DeploymentKind;
+    environmentId?: string | null;
     triggeredBy: "manual" | "rollback" | "api" | "git";
     createdBy: string | null;
     prNumber?: number | null;
@@ -2107,6 +2900,35 @@ export function deployRoutes(options: DeployRouteOptions) {
         "TARGET_PAUSED",
       );
     }
+
+    // The environment is resolved once, here, and everything downstream reads
+    // it: the memory slot, the env scope, and whether the run needs a DNS
+    // record of its own.
+    const environmentId = input.environmentId ?? null;
+    if ((input.kind === "environment") !== (environmentId !== null)) {
+      throw new ValidationError(
+        "An environment deployment needs an environment, and only an environment deployment may name one",
+        "ENVIRONMENT_REQUIRED",
+      );
+    }
+    const environment = environmentId
+      ? await findEnvironment(db, {
+          targetId: input.target.id,
+          environmentId,
+        })
+      : null;
+    if (environmentId && !environment) {
+      throw new NotFoundError("Environment not found", "ENVIRONMENT_NOT_FOUND");
+    }
+    // Same reasoning as the target check above, one level down. A paused
+    // environment that still built would take back the memory pause released.
+    if (environment?.pausedAt != null) {
+      throw new ValidationError(
+        `The ${environment.name} environment is paused. Resume it before deploying.`,
+        "ENVIRONMENT_PAUSED",
+      );
+    }
+
     const rows = await db
       .select()
       .from(deployEnvVars)
@@ -2118,9 +2940,13 @@ export function deployRoutes(options: DeployRouteOptions) {
     // The pre-flight check. Failing here costs a request; failing at build
     // time costs three minutes and a container.
     assertBindingsResolvable(
-      rows.filter((row) => row.scope === "all" || row.scope === input.kind),
+      rows.filter((row) =>
+        envVarAppliesTo(row, { kind: input.kind, environmentId }),
+      ),
       availability,
     );
+
+    const memory = environmentMemory(input.target, environment);
 
     const hostname = assertDeployHostname(
       `${previewHostnameLabel({
@@ -2149,7 +2975,8 @@ export function deployRoutes(options: DeployRouteOptions) {
       await assertCapacityAvailable(tx, {
         targetId: input.target.id,
         kind: input.kind,
-        requestedMb: input.target.memoryReservationMb,
+        environmentId,
+        requestedMb: memory.reservationMb,
         allocatableMb,
       });
       const [row] = await tx
@@ -2157,6 +2984,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         .values({
           targetId: input.target.id,
           kind: input.kind,
+          environmentId,
           gitRef: input.ref,
           gitSha: input.sha,
           gitMessage: input.message,
@@ -2165,30 +2993,33 @@ export function deployRoutes(options: DeployRouteOptions) {
           createdBy: input.createdBy,
           prNumber: input.prNumber ?? null,
           buildSpec,
-          memoryReservationMb: input.target.memoryReservationMb,
-          memoryCeilingMb: memoryCeilingMb(input.target),
+          memoryReservationMb: memory.reservationMb,
+          memoryCeilingMb: memory.ceilingMb,
         })
         .returning();
       if (!row) throw new Error("Deployment insert returned no row");
       return row;
     });
 
-    // A production deployment is reached through the target's stable domains, so
+    // A deployment holding a stable slot is reached through that slot's name, so
     // its own random-suffixed hostname is a record nobody resolves — one burned
-    // per production deploy, forever, against a 200-record zone. Previews are the
-    // opposite: the per-deployment name is the only way to reach them.
+    // per deploy, forever, against a 200-record zone. Previews are the opposite:
+    // the per-deployment name is the only way to reach them.
     //
-    // Only skipped when a stable domain is actually active. Production with no
-    // domain yet has nothing else to answer on, and leaving it unreachable would
-    // make a first deploy look broken.
+    // Only skipped when the stable name actually exists. Production with no
+    // domain yet, or an environment whose DNS record failed to provision, has
+    // nothing else to answer on, and leaving it unreachable would make a first
+    // deploy look broken.
     const needsOwnRecord =
-      created.kind !== "production" ||
-      (await db.query.deployDomains.findFirst({
-        where: and(
-          eq(deployDomains.targetId, input.target.id),
-          eq(deployDomains.status, "active"),
-        ),
-      })) === undefined;
+      created.kind === "preview" ||
+      (created.kind === "environment"
+        ? environment?.dnsRecordId == null
+        : (await db.query.deployDomains.findFirst({
+            where: and(
+              eq(deployDomains.targetId, input.target.id),
+              eq(deployDomains.status, "active"),
+            ),
+          })) === undefined);
 
     if (forge.dns && needsOwnRecord) {
       try {
@@ -2274,10 +3105,23 @@ export function deployRoutes(options: DeployRouteOptions) {
       const commit = await resolveRef(target, wanted);
 
       const branch = parsed.input.kind === "branch" ? wanted : null;
-      const kind: DeploymentKind =
-        branch !== null && branch === target.productionBranch
-          ? "production"
-          : "preview";
+      // Derived, never chosen by the caller: which slot a ref belongs to is a
+      // property of the production branch and the branch rules. Letting the
+      // dialog assert it would let any branch be deployed over the live site by
+      // flipping one field. A typed commit is not a branch and has no rule, so
+      // it is a preview.
+      const rules = await branchRulesForTarget(db, target.id);
+      const route =
+        branch === null
+          ? null
+          : resolveBranchRoute(branch, { ...target, rules });
+      const kind: DeploymentKind = route?.kind ?? "preview";
+      const environment = route?.environmentId
+        ? await findEnvironment(db, {
+            targetId: target.id,
+            environmentId: route.environmentId,
+          })
+        : null;
 
       const [existing, currentProduction] = await Promise.all([
         findDeploymentForSha(db, { targetId: target.id, sha: commit.sha }),
@@ -2304,7 +3148,9 @@ export function deployRoutes(options: DeployRouteOptions) {
           committedAt: commit.committedAt,
           branch,
           kind,
-          existing: existing ? serializeDeployment(existing, primary) : null,
+          environmentId: environment?.id ?? null,
+          environmentName: environment?.name ?? null,
+          existing: existing ? await serializeOne(existing, primary) : null,
           existingIsCurrentProduction:
             existing !== null && currentProduction[0]?.id === existing.id,
         },
@@ -2336,21 +3182,35 @@ export function deployRoutes(options: DeployRouteOptions) {
       const resolved = parsed.data.sha
         ? { sha: parsed.data.sha, message: parsed.data.message ?? null }
         : await resolveRef(target, parsed.data.ref);
+
+      // Derived here rather than taken from the request, for the reason
+      // `resolvedRefSchema` already gives: which slot a ref belongs to is a
+      // property of the production branch and the branch rules, and a caller
+      // that could assert it could deploy any branch over the live site by
+      // flipping one field. It is also the only way a manual deploy of the
+      // `staging` branch lands in staging rather than in a preview.
+      //
+      // `promote` is what moves an existing build into production.
+      const rules = await branchRulesForTarget(db, target.id);
+      const route = resolveBranchRoute(parsed.data.ref, { ...target, rules });
+
       const created = await enqueueDeployment({
         target,
         projectSlug: project.slug,
         ref: parsed.data.ref,
         sha: resolved.sha,
         message: parsed.data.message ?? resolved.message,
-        kind: parsed.data.kind,
+        // A ref that resolves to nothing is a branch the owner has excluded
+        // from automatic builds; asking for it by hand is still a request, so
+        // it builds as a preview rather than being refused.
+        kind: route?.kind ?? "preview",
+        environmentId: route?.environmentId ?? null,
         triggeredBy: "manual",
         createdBy: context.get("user").id,
       });
       await options.github?.surfaces.onEnqueued(created, target);
       return context.json(
-        {
-          data: serializeDeployment(created, await primaryHostname(target.id)),
-        },
+        { data: await serializeOne(created, await primaryHostname(target.id)) },
         202,
       );
     } catch (error) {
@@ -2363,7 +3223,7 @@ export function deployRoutes(options: DeployRouteOptions) {
     try {
       const row = await loadDeployment(context.req.param("id"));
       return context.json({
-        data: serializeDeployment(row, await primaryHostname(row.targetId)),
+        data: await serializeOne(row, await primaryHostname(row.targetId)),
       });
     } catch (error) {
       const response = errorResponse(error);
@@ -2442,7 +3302,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         // closed out from here or it never completes.
         await forge.reportRetired([cancelled ?? row]);
         return context.json({
-          data: serializeDeployment(
+          data: await serializeOne(
             cancelled ?? row,
             await primaryHostname(row.targetId),
           ),
@@ -2505,7 +3365,7 @@ export function deployRoutes(options: DeployRouteOptions) {
       await options.github?.surfaces.onEnqueued(created, target);
       return context.json(
         {
-          data: serializeDeployment(created, await primaryHostname(target.id)),
+          data: await serializeOne(created, await primaryHostname(target.id)),
         },
         202,
       );
@@ -2541,7 +3401,7 @@ export function deployRoutes(options: DeployRouteOptions) {
       await options.github?.surfaces.onEnqueued(created, target);
       return context.json(
         {
-          data: serializeDeployment(created, await primaryHostname(target.id)),
+          data: await serializeOne(created, await primaryHostname(target.id)),
         },
         202,
       );
@@ -2552,9 +3412,15 @@ export function deployRoutes(options: DeployRouteOptions) {
   });
 
   /**
-   * A preview becomes the production one without rebuilding: the image is
-   * already built and already healthy, and rebuilding it to change which names
-   * point at it would reintroduce every way a build can fail.
+   * A preview or a custom environment becomes the production one without
+   * rebuilding: the image is already built and already healthy, and rebuilding
+   * it to change which names point at it would reintroduce every way a build
+   * can fail.
+   *
+   * Promoting out of an environment empties that environment's slot rather than
+   * leaving the row in both. `environment_id` has to be cleared along with the
+   * kind — the check constraint pairs them, so setting one without the other is
+   * a failed update rather than a half-promoted row.
    */
   owner.post("/deployments/:id/promote", async (context) => {
     try {
@@ -2573,7 +3439,7 @@ export function deployRoutes(options: DeployRouteOptions) {
 
       const [promoted] = await db
         .update(deployments)
-        .set({ kind: "production" })
+        .set({ kind: "production", environmentId: null })
         .where(eq(deployments.id, row.id))
         .returning();
       if (!promoted) throw new Error("Promote returned no row");
@@ -2585,7 +3451,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         // second promote is idempotent where a revert is not.
         return context.json(
           {
-            data: serializeDeployment(
+            data: await serializeOne(
               promoted,
               await primaryHostname(promoted.targetId),
             ),
@@ -2602,7 +3468,7 @@ export function deployRoutes(options: DeployRouteOptions) {
         }),
       );
       return context.json({
-        data: serializeDeployment(
+        data: await serializeOne(
           promoted,
           await primaryHostname(promoted.targetId),
         ),
@@ -2686,10 +3552,16 @@ export function deployRoutes(options: DeployRouteOptions) {
       // containers per deployment at once and briefly double the target's whole
       // memory footprint — on a host where `enqueueDeployment` takes a capacity
       // lock and refuses a single build that would not fit. Serialising keeps the
-      // extra to one container's worth, and puts production at the front so the
-      // release that matters is applied before any preview can fail.
-      const ordered = [...live].sort((left, right) =>
-        left.kind === right.kind ? 0 : left.kind === "production" ? -1 : 1,
+      // extra to one container's worth, and works down from the deployment that
+      // matters most so the release that matters is applied before any preview
+      // can fail.
+      const applyOrder: Record<DeploymentKind, number> = {
+        production: 0,
+        environment: 1,
+        preview: 2,
+      };
+      const ordered = [...live].sort(
+        (left, right) => applyOrder[left.kind] - applyOrder[right.kind],
       );
       const applyTo = async (row: (typeof ordered)[number]) => {
         const outcome = {
@@ -2822,7 +3694,10 @@ export function deployRoutes(options: DeployRouteOptions) {
       // A custom hostname is not routable until it validates, so there is
       // nothing to publish yet and the verification task does it later.
       if (created.status === "active")
-        await forge.republishTargetRoutes(target.id);
+        await forge.republishSlotRoutes({
+          targetId: target.id,
+          environmentId: null,
+        });
       return context.json({ data: serializeDomain(created) }, 201);
     } catch (error) {
       const response = errorResponse(error);
@@ -2850,7 +3725,10 @@ export function deployRoutes(options: DeployRouteOptions) {
         );
         // Both names route until the grace period expires, which is the whole
         // point of add-swap-remove — the old links keep working.
-        await forge.republishTargetRoutes(row.targetId);
+        await forge.republishSlotRoutes({
+          targetId: row.targetId,
+          environmentId: null,
+        });
         return context.json({ data: serializeDomain(created) });
       }
       if (parsed.data.redirectTo !== undefined) {
@@ -2859,11 +3737,17 @@ export function deployRoutes(options: DeployRouteOptions) {
           row,
           parsed.data.redirectTo,
         );
-        await forge.republishTargetRoutes(row.targetId);
+        await forge.republishSlotRoutes({
+          targetId: row.targetId,
+          environmentId: null,
+        });
         return context.json({ data: serializeDomain(updated) });
       }
       const updated = await setPrimaryDeployDomain(domainContext, row);
-      await forge.republishTargetRoutes(row.targetId);
+      await forge.republishSlotRoutes({
+        targetId: row.targetId,
+        environmentId: null,
+      });
       return context.json({ data: serializeDomain(updated) });
     } catch (error) {
       const response = errorResponse(error);
@@ -2886,7 +3770,10 @@ export function deployRoutes(options: DeployRouteOptions) {
         );
       }
       await deleteDeployDomain(domainContext, row);
-      await forge.republishTargetRoutes(row.targetId);
+      await forge.republishSlotRoutes({
+        targetId: row.targetId,
+        environmentId: null,
+      });
       return context.json({ data: { id: row.id } });
     } catch (error) {
       const response = errorResponse(error);
@@ -2899,7 +3786,10 @@ export function deployRoutes(options: DeployRouteOptions) {
       const row = await loadDeployDomain(db, context.req.param("id"));
       const refreshed = await refreshDeployDomain(domainContext, row);
       if (refreshed.status === "active" && row.status !== "active") {
-        await forge.republishTargetRoutes(refreshed.targetId);
+        await forge.republishSlotRoutes({
+          targetId: refreshed.targetId,
+          environmentId: null,
+        });
       }
       return context.json({ data: serializeDomain(refreshed) });
     } catch (error) {
@@ -2994,13 +3884,15 @@ export function deployRoutes(options: DeployRouteOptions) {
         await supersedeOlderDeployments(db, {
           targetId: updated.targetId,
           kind: updated.kind,
+          environmentId: updated.environmentId,
           keepDeploymentId: updated.id,
         }),
       );
       // The agent routed the deployment's own hostname when the gate passed;
-      // this adds the target's stable domains on top, which is what makes a
-      // custom domain follow the release rather than lag it.
-      if (updated.kind === "production") await forge.publishRoutes(updated);
+      // this adds the slot's stable name on top, which is what makes a custom
+      // domain — or an environment's hostname — follow the release rather than
+      // lag it. A preview has no stable name and needs nothing here.
+      if (updated.kind !== "preview") await forge.publishRoutes(updated);
     } else if (isTerminalDeploymentStatus(updated.status)) {
       await forge.releaseDeployment(updated);
     }
@@ -3091,6 +3983,14 @@ export function deployRoutes(options: DeployRouteOptions) {
           decryptDeployEnvValue(candidate, options.envEncryptionKey),
         ),
       );
+      // The environment is what makes `scope: "environment"` rows resolve at
+      // all, and what `deployment.environment` reports to the container.
+      const environment = row.environmentId
+        ? await findEnvironment(db, {
+            targetId: target.id,
+            environmentId: row.environmentId,
+          })
+        : null;
       const resolved = await resolveDeploymentEnv({
         envoy,
         rows,
@@ -3100,6 +4000,8 @@ export function deployRoutes(options: DeployRouteOptions) {
           ref: row.gitRef,
           hostname: row.hostname,
           kind: row.kind,
+          environmentId: row.environmentId,
+          environmentName: environmentLabel(row.kind, environment),
         },
         project: { slug: project.slug, name: project.name },
         resolvers: createDeployBindingResolvers({
@@ -3108,6 +4010,7 @@ export function deployRoutes(options: DeployRouteOptions) {
           projectSlug: project.slug,
           deploymentId: row.id,
           deploymentKind: row.kind,
+          environmentId: row.environmentId,
           databaseEncryptionSecret: options.databaseEncryptionSecret,
           databaseHosts: options.databaseHosts,
           meilisearchUrl: options.meilisearchUrl,
@@ -3239,9 +4142,9 @@ export function deployRoutes(options: DeployRouteOptions) {
     // decision about the commit that was never made.
     if (target.pausedAt !== null) return null;
 
-    // Only `push` reaches here, so the two-events-per-commit duplicate this
-    // used to catch is gone — what is left is GitHub redelivering a delivery,
-    // and a re-push landing on a SHA already built.
+    // Only `push` reaches here, so one commit cannot arrive twice by two event
+    // types. What remains is GitHub redelivering a delivery, and a re-push
+    // landing on a SHA already built.
     //
     // Ahead of the change decision, because a build that already exists for
     // this commit is the answer: reporting a skip over it would put a ✓ "no
@@ -3293,6 +4196,7 @@ export function deployRoutes(options: DeployRouteOptions) {
       sha: intent.sha,
       message: intent.message,
       kind: intent.kind,
+      environmentId: intent.environmentId,
       triggeredBy: "git",
       createdBy: null,
       prNumber: intent.prNumber,
@@ -3435,10 +4339,24 @@ export function deployRoutes(options: DeployRouteOptions) {
     const failures: string[] = [];
     for (const target of selected) {
       try {
+        // The command re-runs what the branch would have done, so it resolves
+        // the branch the same way. A `@forge deploy` on a pull request from the
+        // staging branch rebuilds staging, not a stray preview beside it.
+        const rules = await branchRulesForTarget(db, target.id);
+        const route = resolveBranchRoute(pull.headRef, { ...target, rules });
+        // Never production, whatever the rules say. The head ref is
+        // attacker-adjacent — a fork PR names its own — and this path
+        // deliberately bypasses the target's toggles, so the two together would
+        // be a way to deploy over the live site from a comment.
+        const kind: DeploymentKind =
+          route && route.kind !== "production" ? route.kind : "preview";
+        const environmentId =
+          kind === "environment" ? (route?.environmentId ?? null) : null;
+
         const existing = await findDeploymentForSha(db, {
           targetId: target.id,
           sha: pull.headSha,
-          kind: "preview",
+          kind,
         });
         if (existing && REUSABLE_COMMAND_STATUSES.has(existing.status)) {
           await github.surfaces.onPullRequestAttached(existing, target);
@@ -3455,7 +4373,7 @@ export function deployRoutes(options: DeployRouteOptions) {
           await supersedeQueuedDeployments(db, {
             targetId: target.id,
             gitRef: pull.headRef,
-            kind: "preview",
+            kind,
           }),
         );
         const created = await enqueueDeployment({
@@ -3464,7 +4382,8 @@ export function deployRoutes(options: DeployRouteOptions) {
           ref: pull.headRef,
           sha: pull.headSha,
           message: commit?.message ?? pull.title,
-          kind: "preview",
+          kind,
+          environmentId,
           // No `comment` trigger: the enum is a Postgres type and nothing in
           // this repo migrates one at boot. A command is a person asking, which
           // is what `manual` already means; `createdBy` stays null because the
@@ -3597,7 +4516,11 @@ export function deployRoutes(options: DeployRouteOptions) {
       const enqueued: string[] = [];
       const changeCache: WebhookChangeCache = new Map();
       for (const target of targets) {
-        const intent = planPushDeployment(parsed.data, target);
+        // Read per target rather than once for the repository: two targets in
+        // one monorepo have their own environments and their own rules, and a
+        // branch can mean staging for one of them and a preview for the other.
+        const rules = await branchRulesForTarget(db, target.id);
+        const intent = planPushDeployment(parsed.data, { ...target, rules });
         if (!intent) continue;
         const created = await deployFromWebhook(
           target,
@@ -3651,13 +4574,20 @@ export function deployRoutes(options: DeployRouteOptions) {
       if (!attachment) return context.json({ data: { attached: 0 } });
       let attached = 0;
       for (const target of targets) {
+        // Which kind the push produced is a property of the head branch, so it
+        // is resolved the same way the push resolved it. Asking for a preview
+        // unconditionally found nothing whenever a branch rule put the head
+        // branch into an environment, and the pull request then showed no
+        // deployment at all for a build that had run.
+        const rules = await branchRulesForTarget(db, target.id);
+        const route = resolveBranchRoute(attachment.ref, { ...target, rules });
         // Read after the backfill, so the row carries the number the comment
         // needs. A commit built before its pull request existed is exactly the
         // case this exists for.
         const row = await findDeploymentForSha(db, {
           targetId: target.id,
           sha: attachment.sha,
-          kind: "preview",
+          kind: route?.kind ?? "preview",
         });
         if (!row) continue;
         await github.surfaces.onPullRequestAttached(row, target);

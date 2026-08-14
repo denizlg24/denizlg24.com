@@ -1,8 +1,25 @@
 import { z } from "zod";
 
-export const DEPLOYMENT_KINDS = ["production", "preview"] as const;
+export const DEPLOYMENT_KINDS = [
+  "production",
+  "environment",
+  "preview",
+] as const;
 export const deploymentKindSchema = z.enum(DEPLOYMENT_KINDS);
 export type DeploymentKind = z.infer<typeof deploymentKindSchema>;
+
+/**
+ * Kinds that hold a slot rather than occupy one for a while: they answer on a
+ * name that outlives any single build, they are not swept, and each is charged
+ * the host's memory continuously.
+ *
+ * Nearly every place that used to read `kind === "production"` meant this. The
+ * two that genuinely mean production are custom domains, which only production
+ * carries, and the promote operation, which only production is the target of.
+ */
+export function isStableDeploymentKind(kind: DeploymentKind): boolean {
+  return kind === "production" || kind === "environment";
+}
 
 export const DEPLOYMENT_STATUSES = [
   "queued",
@@ -248,7 +265,18 @@ export const DEPLOY_ENV_SOURCES = ["literal", "binding", "template"] as const;
 export const deployEnvSourceSchema = z.enum(DEPLOY_ENV_SOURCES);
 export type DeployEnvSource = z.infer<typeof deployEnvSourceSchema>;
 
-export const DEPLOY_ENV_SCOPES = ["all", "production", "preview"] as const;
+/**
+ * `environment` is not "any custom environment" — it names one, through the
+ * row's `environmentId`. Scoping to every environment at once is what `all`
+ * already does, and a staging environment inheriting production's secrets by
+ * default is the failure this separation exists to prevent.
+ */
+export const DEPLOY_ENV_SCOPES = [
+  "all",
+  "production",
+  "environment",
+  "preview",
+] as const;
 export const deployEnvScopeSchema = z.enum(DEPLOY_ENV_SCOPES);
 export type DeployEnvScope = z.infer<typeof deployEnvScopeSchema>;
 
@@ -865,7 +893,110 @@ export function previewHostnameLabel(options: {
   return branch ? `${slug}-${branch}-${suffix}` : `${slug}-${suffix}`;
 }
 
+/**
+ * A custom environment's stable name, generated once when the environment is
+ * created and kept for its whole life — every deployment into the environment
+ * is routed onto it, which is what makes the environment addressable at all.
+ *
+ * Random-suffixed for the same reason a preview is: `staging` is a reserved
+ * label, two projects both wanting a staging environment would otherwise
+ * collide in one zone, and nobody types this name — it is clicked.
+ */
+export function environmentHostnameLabel(options: {
+  projectSlug: string;
+  environment: string;
+  suffix?: string;
+}): string {
+  return previewHostnameLabel({
+    projectSlug: options.projectSlug,
+    branch: options.environment,
+    suffix: options.suffix,
+  });
+}
+
 const branchSchema = z.string().min(1).max(128);
+
+/**
+ * `production` and `preview` are the two kinds an environment is not, and a
+ * name that collides with either makes every scope selector ambiguous.
+ */
+export const RESERVED_ENVIRONMENT_NAMES: ReadonlySet<string> = new Set([
+  "production",
+  "prod",
+  "preview",
+  "previews",
+]);
+
+export const environmentNameSchema = z
+  .string()
+  .min(1)
+  .max(32)
+  .regex(
+    /^[a-z0-9][a-z0-9-]*$/,
+    "Name must be lowercase alphanumeric with hyphens",
+  )
+  .refine((value) => !RESERVED_ENVIRONMENT_NAMES.has(value), {
+    message: "That name is reserved",
+  });
+
+export const DEPLOY_BRANCH_MATCH_TYPES = ["exact", "glob"] as const;
+export const deployBranchMatchTypeSchema = z.enum(DEPLOY_BRANCH_MATCH_TYPES);
+export type DeployBranchMatchType = z.infer<typeof deployBranchMatchTypeSchema>;
+
+/**
+ * `*` deliberately spans `/`. Branch names are paths and the pattern people
+ * write for them is `release/*`, meaning every release branch — a matcher that
+ * stopped at the separator would answer no to `release/2026/01` and there would
+ * be nothing in the pattern language to say what was meant.
+ *
+ * Only `*` and `?` are special. Regex is not offered: it is one user, the
+ * patterns are branch names, and an unbounded regex on a webhook path is a
+ * denial of service waiting for a bad `(a+)+`.
+ */
+export function matchBranchPattern(
+  pattern: string,
+  matchType: DeployBranchMatchType,
+  branch: string,
+): boolean {
+  if (matchType === "exact") return pattern === branch;
+  const source = pattern.replace(/[.*+?^${}()|[\]\\]/g, (character) =>
+    character === "*"
+      ? "[\\s\\S]*"
+      : character === "?"
+        ? "[\\s\\S]"
+        : `\\${character}`,
+  );
+  return new RegExp(`^${source}$`).test(branch);
+}
+
+export interface BranchRuleCandidate {
+  environmentId: string;
+  matchType: DeployBranchMatchType;
+  pattern: string;
+  priority: number;
+  enabled: boolean;
+}
+
+/**
+ * Which environment a branch belongs to, or null for none of them.
+ *
+ * The production branch is checked by the caller and always wins; this answers
+ * only the question the rules exist for. Ties are broken by priority ascending
+ * and then by the order the caller passed, so a caller that sorts by `(priority,
+ * createdAt)` gets a stable answer rather than whatever the planner returned.
+ */
+export function matchBranchRule<T extends BranchRuleCandidate>(
+  rules: readonly T[],
+  branch: string,
+): T | null {
+  let best: T | null = null;
+  for (const rule of rules) {
+    if (!rule.enabled) continue;
+    if (!matchBranchPattern(rule.pattern, rule.matchType, branch)) continue;
+    if (best === null || rule.priority < best.priority) best = rule;
+  }
+  return best;
+}
 
 export const createDeployTargetInputSchema = z.object({
   projectId: z.uuid(),
@@ -955,7 +1086,16 @@ export const createDeploymentInputSchema = z.object({
   ref: z.string().min(1).max(255),
   sha: gitShaSchema.optional(),
   message: z.string().max(4_096).optional(),
-  kind: deploymentKindSchema.default("production"),
+  /**
+   * Accepted and ignored. The route derives the kind from the production branch
+   * and the branch rules, because a caller that could assert it could deploy any
+   * branch over the live site by flipping one field — and because a manual
+   * deploy of a branch a rule owns has to land in that rule's environment, not
+   * in a preview. Kept on the schema so older clients still parse.
+   *
+   * @deprecated
+   */
+  kind: deploymentKindSchema.optional(),
 });
 export type CreateDeploymentInput = z.infer<typeof createDeploymentInputSchema>;
 
@@ -1002,6 +1142,10 @@ export const deploymentSchema = z.object({
   id: z.uuid(),
   targetId: z.uuid(),
   kind: deploymentKindSchema,
+  /** Set only for `kind: "environment"`, and always set for it. */
+  environmentId: z.uuid().nullable(),
+  /** Denormalised so a deployment row can be labelled without a second fetch. */
+  environmentName: z.string().nullable(),
   status: deploymentStatusSchema,
   phase: deploymentPhaseSchema.nullable(),
   gitRef: z.string(),
@@ -1022,6 +1166,130 @@ export const deploymentSchema = z.object({
   stoppedAt: z.iso.datetime().nullable(),
 });
 export type Deployment = z.infer<typeof deploymentSchema>;
+
+/**
+ * A long-lived slot beside production. It owns a hostname, a memory
+ * reservation and its own env vars; what puts a build into it is a branch rule.
+ *
+ * Deliberately not part of the custom-domain system: `deploy_domains` stays
+ * production-only. An environment is reached at the generated name below and
+ * nowhere else, which is what keeps "promote to production" a real operation.
+ */
+export const deployEnvironmentSchema = z.object({
+  id: z.uuid(),
+  targetId: z.uuid(),
+  name: z.string(),
+  hostname: z.string(),
+  url: z.string(),
+  /** Null inherits the target's. Resolved values are the two `*Resolved` below. */
+  memoryReservationMb: z.number().int().nullable(),
+  memoryLimitMb: z.number().int().nullable(),
+  memoryReservationResolvedMb: z.number().int(),
+  memoryCeilingResolvedMb: z.number().int(),
+  autoDeploy: z.boolean(),
+  /** Same meaning as a target's: nothing builds and the reservation is freed. */
+  pausedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type DeployEnvironment = z.infer<typeof deployEnvironmentSchema>;
+
+export const deployEnvironmentListEntrySchema = deployEnvironmentSchema.extend({
+  latestDeployment: deploymentSchema.nullable().default(null),
+  branchRuleCount: z.number().int().nonnegative(),
+});
+export type DeployEnvironmentListEntry = z.infer<
+  typeof deployEnvironmentListEntrySchema
+>;
+
+export const createDeployEnvironmentInputSchema = z.object({
+  name: environmentNameSchema,
+  memoryReservationMb: z.number().int().min(64).max(16_384).nullish(),
+  memoryLimitMb: z.number().int().min(64).max(16_384).nullish(),
+  autoDeploy: z.boolean().default(true),
+  /**
+   * Created alongside the environment so the common case — "staging deploys
+   * from the staging branch" — is one request rather than two.
+   */
+  branches: z
+    .array(
+      z.object({
+        matchType: deployBranchMatchTypeSchema.default("exact"),
+        pattern: branchSchema,
+      }),
+    )
+    .max(16)
+    .default([]),
+});
+export type CreateDeployEnvironmentInput = z.infer<
+  typeof createDeployEnvironmentInputSchema
+>;
+
+export const updateDeployEnvironmentInputSchema = z.object({
+  memoryReservationMb: z.number().int().min(64).max(16_384).nullish(),
+  memoryLimitMb: z.number().int().min(64).max(16_384).nullish(),
+  autoDeploy: z.boolean().optional(),
+  paused: z.boolean().optional(),
+});
+export type UpdateDeployEnvironmentInput = z.infer<
+  typeof updateDeployEnvironmentInputSchema
+>;
+
+/**
+ * One pattern, one environment. Rules are evaluated in `priority` order and the
+ * first match wins, so an overlap between `release/*` and `release/hotfix-*` is
+ * resolved by whichever the owner ranked higher rather than by insertion order.
+ */
+export const deployBranchRuleSchema = z.object({
+  id: z.uuid(),
+  targetId: z.uuid(),
+  environmentId: z.uuid(),
+  environmentName: z.string(),
+  matchType: deployBranchMatchTypeSchema,
+  pattern: z.string(),
+  priority: z.number().int(),
+  enabled: z.boolean(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type DeployBranchRule = z.infer<typeof deployBranchRuleSchema>;
+
+export const createDeployBranchRuleInputSchema = z.object({
+  environmentId: z.uuid(),
+  matchType: deployBranchMatchTypeSchema.default("exact"),
+  pattern: branchSchema,
+  priority: z.number().int().min(0).max(10_000).default(100),
+  enabled: z.boolean().default(true),
+});
+export type CreateDeployBranchRuleInput = z.infer<
+  typeof createDeployBranchRuleInputSchema
+>;
+
+export const updateDeployBranchRuleInputSchema = z.object({
+  environmentId: z.uuid().optional(),
+  matchType: deployBranchMatchTypeSchema.optional(),
+  pattern: branchSchema.optional(),
+  priority: z.number().int().min(0).max(10_000).optional(),
+  enabled: z.boolean().optional(),
+});
+export type UpdateDeployBranchRuleInput = z.infer<
+  typeof updateDeployBranchRuleInputSchema
+>;
+
+/**
+ * What a branch would do if it were pushed right now. The settings page shows
+ * this against the repository's real branches, because a rule set is only
+ * comprehensible next to the branches it sorts.
+ */
+export const branchRoutePreviewSchema = z.object({
+  branch: z.string(),
+  kind: deploymentKindSchema.nullable(),
+  environmentId: z.uuid().nullable(),
+  environmentName: z.string().nullable(),
+  /** The rule that decided it, when a rule did. */
+  ruleId: z.uuid().nullable(),
+});
+export type BranchRoutePreview = z.infer<typeof branchRoutePreviewSchema>;
 
 /**
  * A branch that has had a preview deployment, with its latest one. Derived from
@@ -1055,6 +1323,9 @@ export const resolvedRefSchema = z.object({
   /** Null when the input named a commit rather than a branch. */
   branch: z.string().nullable(),
   kind: deploymentKindSchema,
+  /** Which environment the branch rules put this ref in, when they put it in one. */
+  environmentId: z.uuid().nullable().default(null),
+  environmentName: z.string().nullable().default(null),
   /**
    * The newest non-superseded deployment of this exact commit, if the commit
    * has been built before. What the dialog reports as "already built" — and,

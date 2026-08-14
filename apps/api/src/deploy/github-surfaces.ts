@@ -309,9 +309,9 @@ export class GithubSurfaces {
   ): Promise<void> {
     const repo = repoFor(target);
     if (!repo) return;
-    // Only `push` decides to skip now, so this can no longer be reached twice
-    // for one commit by two event types. It still can by two pushes landing on
-    // the same SHA — a re-push of an unchanged tree, or a retried delivery.
+    // Only `push` decides to skip, so one commit cannot reach here via two
+    // event types. Two pushes landing on the same SHA still can — a re-push of
+    // an unchanged tree, or a retried delivery.
     if (!this.#claimSkip(`${target.id}:${intent.sha}`)) return;
 
     await this.#swallow("skipped check run create", async () => {

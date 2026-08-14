@@ -8,6 +8,7 @@ import {
   ALERT_RULE_STATES,
   ALERT_RULE_UNITS,
   CUSTOM_HOSTNAME_SSL_METHODS,
+  DEPLOY_BRANCH_MATCH_TYPES,
   DEPLOY_BUILDERS,
   DEPLOY_DOMAIN_MODES,
   DEPLOY_DOMAIN_ORIGINS,
@@ -36,6 +37,7 @@ import {
   sql,
 } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -166,6 +168,10 @@ export const deployEnvSourceEnum = pgEnum(
   DEPLOY_ENV_SOURCES,
 );
 export const deployEnvScopeEnum = pgEnum("deploy_env_scope", DEPLOY_ENV_SCOPES);
+export const deployBranchMatchTypeEnum = pgEnum(
+  "deploy_branch_match_type",
+  DEPLOY_BRANCH_MATCH_TYPES,
+);
 export const deployDomainModeEnum = pgEnum(
   "deploy_domain_mode",
   DEPLOY_DOMAIN_MODES,
@@ -643,6 +649,15 @@ export const resourceConnections = pgTable(
     projectId: uuid("project_id").notNull(),
     scopes: resourceConnectionScopeEnum("scopes").notNull().default("both"),
     /**
+     * Set only on an `environment` connection. Declared as a thunk because
+     * `deploy_environments` is defined further down this file; the reference is
+     * resolved when the foreign key is built, not when the table is.
+     */
+    environmentId: uuid("environment_id").references(
+      (): AnyPgColumn => deployEnvironments.id,
+      { onDelete: "cascade" },
+    ),
+    /**
      * Empty is the default connection — what a bare `database.postgres.*`
      * binding resolves to. A non-empty prefix is how a second resource of the
      * same kind reaches the same project without colliding with the first.
@@ -653,13 +668,26 @@ export const resourceConnections = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique("resource_connections_resource_project_prefix_key").on(
-      table.resourceId,
-      table.projectId,
-      table.envPrefix,
-    ),
+    /**
+     * Two partial indexes rather than one four-column unique: a NULL
+     * `environment_id` is distinct from every other NULL in Postgres, so
+     * including the column in a plain unique constraint would stop it
+     * enforcing one default connection per prefix at all.
+     */
+    uniqueIndex("resource_connections_resource_project_prefix_key")
+      .on(table.resourceId, table.projectId, table.envPrefix)
+      .where(sql`${table.environmentId} IS NULL`),
+    uniqueIndex("resource_connections_resource_project_prefix_env_key")
+      .on(
+        table.resourceId,
+        table.projectId,
+        table.envPrefix,
+        table.environmentId,
+      )
+      .where(sql`${table.environmentId} IS NOT NULL`),
     index("resource_connections_project_id_idx").on(table.projectId),
     index("resource_connections_resource_id_idx").on(table.resourceId),
+    index("resource_connections_environment_id_idx").on(table.environmentId),
     foreignKey({
       name: "resource_connections_resource_id_fkey",
       columns: [table.resourceId],
@@ -995,6 +1023,10 @@ export const resourceConnectionsRelations = relations(
       fields: [resourceConnections.projectId],
       references: [projects.id],
     }),
+    environment: one(deployEnvironments, {
+      fields: [resourceConnections.environmentId],
+      references: [deployEnvironments.id],
+    }),
   }),
 );
 
@@ -1290,6 +1322,97 @@ export const deployTargets = pgTable(
   ],
 );
 
+/**
+ * A long-lived slot beside production: its own hostname, its own memory
+ * reservation, its own env vars, fed by branch rules.
+ *
+ * It owns a hostname column rather than rows in `deploy_domains` because a
+ * custom domain is a production-only concept — an environment is reachable at
+ * one generated name and nowhere else, which is what keeps promoting to
+ * production a real operation rather than a relabelling.
+ */
+export const deployEnvironments = pgTable(
+  "deploy_environments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    targetId: uuid("target_id")
+      .notNull()
+      .references(() => deployTargets.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 32 }).notNull(),
+    /** Generated once at creation and stable for the environment's whole life. */
+    hostname: varchar("hostname", { length: 255 }).notNull().unique(),
+    dnsRecordId: varchar("dns_record_id", { length: 64 }),
+    /** Null inherits the target's. A staging box rarely needs production's RAM. */
+    memoryReservationMb: integer("memory_reservation_mb"),
+    memoryLimitMb: integer("memory_limit_mb"),
+    autoDeploy: boolean("auto_deploy").notNull().default(true),
+    /** Same semantics as a target's `pausedAt`, scoped to this slot. */
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("deploy_environments_target_name_key").on(
+      table.targetId,
+      table.name,
+    ),
+    index("deploy_environments_target_idx").on(table.targetId),
+  ],
+);
+
+/**
+ * Which branches land in which environment. Evaluated in `priority` order with
+ * the lowest number winning, so an overlap between `release/*` and
+ * `release/hotfix-*` is settled by a number the owner set rather than by
+ * whichever row the planner happened to return first.
+ *
+ * `targetId` is denormalised off the environment so the webhook can read every
+ * rule for a repository's target in one query without a join, and so a rule
+ * cannot be pointed at another target's environment.
+ */
+export const deployBranchRules = pgTable(
+  "deploy_branch_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    targetId: uuid("target_id")
+      .notNull()
+      .references(() => deployTargets.id, { onDelete: "cascade" }),
+    environmentId: uuid("environment_id")
+      .notNull()
+      .references(() => deployEnvironments.id, { onDelete: "cascade" }),
+    matchType: deployBranchMatchTypeEnum("match_type")
+      .notNull()
+      .default("exact"),
+    pattern: varchar("pattern", { length: 255 }).notNull(),
+    priority: integer("priority").notNull().default(100),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // One pattern decides one thing. The same string pointing at two
+    // environments is a configuration error however the priorities are set.
+    uniqueIndex("deploy_branch_rules_target_pattern_key").on(
+      table.targetId,
+      table.matchType,
+      table.pattern,
+    ),
+    index("deploy_branch_rules_target_priority_idx").on(
+      table.targetId,
+      table.priority,
+    ),
+    index("deploy_branch_rules_environment_idx").on(table.environmentId),
+  ],
+);
+
 export const deployments = pgTable(
   "deployments",
   {
@@ -1298,6 +1421,16 @@ export const deployments = pgTable(
       .notNull()
       .references(() => deployTargets.id, { onDelete: "cascade" }),
     kind: deploymentKindEnum("kind").notNull(),
+    /**
+     * Set exactly when `kind` is `environment`, enforced by the check below.
+     * Cascading matches the target relationship: deleting an environment tears
+     * its containers down, and history for a slot that no longer exists is not
+     * worth the orphan rows whose `kind` would then be a lie.
+     */
+    environmentId: uuid("environment_id").references(
+      () => deployEnvironments.id,
+      { onDelete: "cascade" },
+    ),
     status: deploymentStatusEnum("status").notNull().default("queued"),
     /**
      * Where a run got to inside `building`, which is four minutes long. The
@@ -1359,6 +1492,11 @@ export const deployments = pgTable(
     index("deployments_status_idx").on(table.status),
     index("deployments_created_at_idx").on(table.createdAt),
     index("deployments_pr_idx").on(table.targetId, table.prNumber),
+    index("deployments_environment_idx").on(table.environmentId),
+    check(
+      "deployments_environment_shape",
+      sql`(kind::text = 'environment') = (environment_id IS NOT NULL)`,
+    ),
   ],
 );
 
@@ -1407,15 +1545,26 @@ export const deployEnvVars = pgTable(
     reference: varchar("reference", { length: 255 }),
     template: text("template"),
     scope: deployEnvScopeEnum("scope").notNull().default("all"),
+    /** Which environment, for `scope = 'environment'`. Null for every other. */
+    environmentId: uuid("environment_id").references(
+      () => deployEnvironments.id,
+      { onDelete: "cascade" },
+    ),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [
+    // Coalesced rather than indexed raw, because a null environment id is the
+    // normal case — every non-environment row has one — and Postgres treats
+    // nulls as distinct in a unique index. Left bare, this would stop
+    // constraining the very rows it existed for: two `production` copies of the
+    // same key would both be accepted.
     uniqueIndex("deploy_env_vars_target_key_scope_key").on(
       table.targetId,
       table.key,
       table.scope,
+      sql`coalesce(${table.environmentId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
     ),
     check(
       "deploy_env_vars_source_shape",
@@ -1424,6 +1573,10 @@ export const deployEnvVars = pgTable(
     (source = 'binding'  AND reference       IS NOT NULL AND encrypted_value IS NULL AND template IS NULL) OR
     (source = 'template' AND template        IS NOT NULL AND encrypted_value IS NULL AND reference IS NULL)
   `,
+    ),
+    check(
+      "deploy_env_vars_environment_shape",
+      sql`(scope::text = 'environment') = (environment_id IS NOT NULL)`,
     ),
   ],
 );
@@ -1578,6 +1731,36 @@ export const deployTargetsRelations = relations(
     deployments: many(deployments),
     envVars: many(deployEnvVars),
     domains: many(deployDomains),
+    environments: many(deployEnvironments),
+    branchRules: many(deployBranchRules),
+  }),
+);
+
+export const deployEnvironmentsRelations = relations(
+  deployEnvironments,
+  ({ many, one }) => ({
+    target: one(deployTargets, {
+      fields: [deployEnvironments.targetId],
+      references: [deployTargets.id],
+    }),
+    deployments: many(deployments),
+    branchRules: many(deployBranchRules),
+    envVars: many(deployEnvVars),
+    resourceConnections: many(resourceConnections),
+  }),
+);
+
+export const deployBranchRulesRelations = relations(
+  deployBranchRules,
+  ({ one }) => ({
+    target: one(deployTargets, {
+      fields: [deployBranchRules.targetId],
+      references: [deployTargets.id],
+    }),
+    environment: one(deployEnvironments, {
+      fields: [deployBranchRules.environmentId],
+      references: [deployEnvironments.id],
+    }),
   }),
 );
 
@@ -1586,12 +1769,20 @@ export const deploymentsRelations = relations(deployments, ({ one }) => ({
     fields: [deployments.targetId],
     references: [deployTargets.id],
   }),
+  environment: one(deployEnvironments, {
+    fields: [deployments.environmentId],
+    references: [deployEnvironments.id],
+  }),
 }));
 
 export const deployEnvVarsRelations = relations(deployEnvVars, ({ one }) => ({
   target: one(deployTargets, {
     fields: [deployEnvVars.targetId],
     references: [deployTargets.id],
+  }),
+  environment: one(deployEnvironments, {
+    fields: [deployEnvVars.environmentId],
+    references: [deployEnvironments.id],
   }),
 }));
 
@@ -1604,6 +1795,12 @@ export const deployDomainsRelations = relations(deployDomains, ({ one }) => ({
 
 export type DeployTargetRow = InferSelectModel<typeof deployTargets>;
 export type NewDeployTargetRow = InferInsertModel<typeof deployTargets>;
+export type DeployEnvironmentRow = InferSelectModel<typeof deployEnvironments>;
+export type NewDeployEnvironmentRow = InferInsertModel<
+  typeof deployEnvironments
+>;
+export type DeployBranchRuleRow = InferSelectModel<typeof deployBranchRules>;
+export type NewDeployBranchRuleRow = InferInsertModel<typeof deployBranchRules>;
 export type DeploymentRow = InferSelectModel<typeof deployments>;
 export type NewDeploymentRow = InferInsertModel<typeof deployments>;
 export type PreviewShareGrantRow = InferSelectModel<typeof previewShareGrants>;

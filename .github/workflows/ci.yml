@@ -57,6 +57,28 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      # Tectonic resolves .sty files on demand from a public bundle relay, so a
+      # LaTeX compile test is a few dozen HTTP requests against a third party.
+      # From a shared Actions IP that earns a 429, and Tectonic gives up after
+      # three tries on any single file: `failed to open input file "pgf.cfg"`
+      # is what that looks like from the test. Roughly 60 MB once warm.
+      #
+      # The key rolls per run so a cache written from a partly-fetched run is
+      # topped up by the next one rather than pinned forever; restore-keys is
+      # what makes the newest previous one the starting point.
+      # Not ~/.cache/Tectonic: latex-compiler.ts pins XDG_CACHE_HOME to
+      # `tmpdir()/deniz-tectonic-cache` when it spawns tectonic, so the cache
+      # lands under /tmp and $HOME stays empty. Caching the home path silently
+      # stores nothing — the only sign is a Path Validation Error in the post
+      # step, long after the check has already gone green.
+      - name: Cache Tectonic bundle
+        uses: actions/cache@v4
+        with:
+          path: /tmp/deniz-tectonic-cache
+          key: tectonic-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            tectonic-${{ runner.os }}-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -65,6 +87,21 @@ jobs:
 
       - name: Typecheck
         run: bunx turbo typecheck
+
+      # Only for the run that fills the cache — a cold one, or the first after
+      # a bundle version bump. Tectonic keeps every file it did manage to
+      # fetch, so an attempt that dies on a 429 still leaves the next one less
+      # to ask for. Never fails the job: the Test step below is the gate, and
+      # this exists so that step is not the one paying for a rate limit.
+      - name: Warm the Tectonic cache
+        working-directory: apps/web
+        run: |
+          for attempt in 1 2 3; do
+            if bun test lib/latex-compiler.test.ts; then exit 0; fi
+            echo "::warning::Tectonic fetch incomplete (attempt ${attempt}/3)"
+            sleep $((attempt * 20))
+          done
+          echo "::warning::Proceeding with a cold Tectonic cache"
 
       - name: Test
         run: bunx turbo test

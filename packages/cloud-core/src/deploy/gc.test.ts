@@ -208,6 +208,7 @@ describe("planDeploymentDnsCleanup", () => {
   ): DeploymentDnsCandidate {
     return {
       targetId: "target-a",
+      environmentId: null,
       hostname: `${overrides.id}.denizlg24.com`,
       kind: "production",
       status: "ready",
@@ -242,6 +243,50 @@ describe("planDeploymentDnsCleanup", () => {
         new Set(),
       ),
     ).toEqual([]);
+  });
+
+  it("removes an environment record once the environment has its own", () => {
+    const candidates = planDeploymentDnsCleanup(
+      [deployment({ id: "staging", kind: "environment", environmentId: "e1" })],
+      new Set(),
+      new Set(),
+      new Set(["e1"]),
+    );
+
+    expect(candidates.map((row) => row.id)).toEqual(["staging"]);
+  });
+
+  it("keeps an environment record while the environment has no hostname record", () => {
+    // Provisioning the environment's own record is best-effort, and a
+    // deployment whose per-deployment name is the only one that resolves must
+    // keep it or the environment is unreachable.
+    expect(
+      planDeploymentDnsCleanup(
+        [
+          deployment({
+            id: "staging",
+            kind: "environment",
+            environmentId: "e1",
+          }),
+        ],
+        new Set(),
+        new Set(),
+        new Set(),
+      ),
+    ).toEqual([]);
+  });
+
+  it("never treats an environment as an external CNAME target", () => {
+    // Only production is ever named as one; an environment hostname is
+    // generated here and handed to nobody.
+    const candidates = planDeploymentDnsCleanup(
+      [deployment({ id: "staging", kind: "environment", environmentId: "e1" })],
+      new Set(),
+      new Set(["target-a"]),
+      new Set(["e1"]),
+    );
+
+    expect(candidates.map((row) => row.id)).toEqual(["staging"]);
   });
 
   it("keeps ready production records that may be external CNAME targets", () => {

@@ -1,6 +1,10 @@
 "use client";
 
-import { ENV_SCOPES } from "@repo/cloud-ui/deploy/env-editor";
+import {
+  envScopeOptions,
+  envScopeValue,
+  parseEnvScopeValue,
+} from "@repo/cloud-ui/deploy/env-editor";
 import { TemplateInput } from "@repo/cloud-ui/deploy/template-input";
 import { usePoll } from "@repo/cloud-ui/use-poll";
 import type {
@@ -45,6 +49,8 @@ type Draft = {
   reference: string;
   template: string;
   scope: DeployEnvScope;
+  /** Set exactly when `scope` is `environment`; the two move together. */
+  environmentId: string | null;
 };
 
 const ENV_SOURCES: readonly { value: Draft["source"]; label: string }[] = [
@@ -63,11 +69,16 @@ function toDraft(row: DeployEnvVar): Draft {
     reference: row.reference ?? "",
     template: row.template ?? "",
     scope: row.scope,
+    environmentId: row.environmentId,
   };
 }
 
 function toInput(draft: Draft): DeployEnvVarInput {
-  const base = { key: draft.key, scope: draft.scope };
+  const base = {
+    key: draft.key,
+    scope: draft.scope,
+    environmentId: draft.environmentId,
+  };
   if (draft.source === "binding") {
     return { ...base, source: "binding", reference: draft.reference };
   }
@@ -95,6 +106,7 @@ function emptyDraft(): Draft {
     reference: "",
     template: "",
     scope: "all",
+    environmentId: null,
   };
 }
 
@@ -162,13 +174,22 @@ export default function EnvironmentPage() {
     [targetId],
   );
   const { data: bindings } = usePoll(fetchBindings, null);
+  const fetchEnvironments = useCallback(
+    () => api.deploy.environments(targetId),
+    [targetId],
+  );
+  const { data: environments } = usePoll(fetchEnvironments, null);
+  const scopeOptions = useMemo(
+    () => envScopeOptions(environments ?? []),
+    [environments],
+  );
 
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<EnvEffect>("none");
   const [applying, setApplying] = useState(false);
   const [search, setSearch] = useState("");
-  const [scopeFilter, setScopeFilter] = useState<DeployEnvScope | "">("");
+  const [scopeFilter, setScopeFilter] = useState("");
 
   useEffect(() => {
     if (data) setDrafts(data.map(toDraft));
@@ -187,7 +208,7 @@ export default function EnvironmentPage() {
       if (needle.length > 0 && !draft.key.toLowerCase().includes(needle)) {
         return false;
       }
-      return scopeFilter === "" || draft.scope === scopeFilter;
+      return scopeFilter === "" || envScopeValue(draft) === scopeFilter;
     });
   }, [rows, search, scopeFilter]);
 
@@ -293,13 +314,13 @@ export default function EnvironmentPage() {
           className="h-8 w-48 text-xs"
           onChange={(event) => setSearch(event.target.value)}
         />
-        <OptionSelect<DeployEnvScope>
+        <OptionSelect<string>
           className="w-32"
           aria-label="Scope filter"
           value={scopeFilter === "" ? null : scopeFilter}
           onValueChange={(scope) => setScopeFilter(scope ?? "")}
           emptyLabel="every scope"
-          options={ENV_SCOPES}
+          options={scopeOptions}
         />
       </div>
 
@@ -362,13 +383,13 @@ export default function EnvironmentPage() {
                 }
               />
             )}
-            <OptionSelect<DeployEnvScope>
+            <OptionSelect<string>
               aria-label="Scope"
-              value={draft.scope}
-              onValueChange={(scope) =>
-                patch(draft.id, { scope: scope ?? "all" })
+              value={envScopeValue(draft)}
+              onValueChange={(value) =>
+                patch(draft.id, parseEnvScopeValue(value ?? "all"))
               }
-              options={ENV_SCOPES}
+              options={scopeOptions}
             />
             <Button
               variant="ghost"

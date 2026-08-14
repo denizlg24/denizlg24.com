@@ -38,13 +38,13 @@ export async function getStatusStats() {
   const ninetyDaysAgo = new Date(now.getTime() - NINETY_DAYS_MS);
   const twentyFourHoursAgo = new Date(now.getTime() - TWENTY_FOUR_HOURS_MS);
 
-  // Fetch health checks for timeline
   const healthChecks = await prisma.healthCheck.findMany({
     where: { timestamp: { gte: ninetyDaysAgo } },
     orderBy: { timestamp: "asc" },
   });
 
-  // Fetch API requests for error rate (last 24h for recent stats, 90d for timeline)
+  // Two windows over the same table: 24h drives the headline stats, 90d only
+  // ever feeds the timeline, so it selects the two columns that needs.
   const recentRequests = await prisma.apiRequest.findMany({
     where: { timestamp: { gte: twentyFourHoursAgo } },
   });
@@ -57,18 +57,16 @@ export async function getStatusStats() {
     },
   });
 
-  // Calculate current service status from most recent health check
   const latestHealth = healthChecks[healthChecks.length - 1];
 
-  // Calculate 90-day uptime
   const uptimePercent =
     healthChecks.length > 0
       ? (healthChecks.filter((c) => c.healthy).length / healthChecks.length) *
         100
       : null;
 
-  // Calculate 24h server error rate. Client errors (4xx, e.g. unauthorized
-  // access) mean the API behaved correctly and never count as service errors.
+  // Client errors (4xx, e.g. unauthorized access) mean the API behaved
+  // correctly, so they never count against the service error rate.
   const errorCount = recentRequests.filter((r) =>
     isServerError(r.statusCode),
   ).length;
@@ -77,7 +75,6 @@ export async function getStatusStats() {
       ? (errorCount / recentRequests.length) * 100
       : null;
 
-  // Calculate average response times
   const avgResponseTime =
     recentRequests.length > 0
       ? Math.round(
@@ -86,14 +83,10 @@ export async function getStatusStats() {
         )
       : null;
 
-  // Build timeline with combined health + error data
   const timeline = buildTimeline(healthChecks, allRequests, ninetyDaysAgo, now);
-
-  // Group errors by broad problem category for insights
   const errorsByCategory = getErrorsByCategory(recentRequests);
 
   return {
-    // Current status
     currentStatus: latestHealth
       ? {
           healthy: latestHealth.healthy,
@@ -114,20 +107,13 @@ export async function getStatusStats() {
         }
       : null,
 
-    // Aggregate stats
     uptime:
       uptimePercent !== null ? Math.round(uptimePercent * 100) / 100 : null,
     errorRate: errorRate !== null ? Math.round(errorRate * 100) / 100 : null,
     avgResponseTime,
     totalRequests24h: recentRequests.length,
-
-    // Timeline for visualization
     timeline,
-
-    // Error insights
     errorsByCategory,
-
-    // Metadata
     lastCheck: latestHealth?.timestamp || null,
   };
 }
@@ -148,7 +134,8 @@ function buildTimeline(
     }
   >();
 
-  // Initialize all 90 days
+  // Seed every day in the window so a day nothing was recorded on comes back
+  // as an explicit "no-data" bar rather than being missing from the series.
   for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
     const key = d.toISOString().split("T")[0];
     dayMap.set(key, {
@@ -159,7 +146,6 @@ function buildTimeline(
     });
   }
 
-  // Populate health check data
   for (const check of healthChecks) {
     const key = check.timestamp.toISOString().split("T")[0];
     const day = dayMap.get(key);
@@ -169,7 +155,6 @@ function buildTimeline(
     }
   }
 
-  // Populate request data
   for (const req of requests) {
     const key = req.timestamp.toISOString().split("T")[0];
     const day = dayMap.get(key);
@@ -203,18 +188,14 @@ function getStatusForDay(stats: {
   successRequests: number;
   totalRequests: number;
 }): DayStatus {
-  // No data at all
   if (stats.totalChecks === 0 && stats.totalRequests === 0) return "no-data";
 
-  // Calculate health ratio (if we have health checks)
+  // A day with one signal but not the other scores on the one it has: the
+  // absent side defaults to 1 so it cannot drag an otherwise clean day down.
   const healthRatio =
     stats.totalChecks > 0 ? stats.healthyChecks / stats.totalChecks : 1;
-
-  // Calculate success ratio (if we have requests)
   const successRatio =
     stats.totalRequests > 0 ? stats.successRequests / stats.totalRequests : 1;
-
-  // Combined score - both matter
   const score = (healthRatio + successRatio) / 2;
 
   if (score >= 0.99) return "operational";
@@ -247,5 +228,5 @@ function getErrorsByCategory(
   return Array.from(errorMap.entries())
     .map(([category, data]) => ({ category, ...data }))
     .sort((a, b) => b.count - a.count)
-    .slice(0, 5); // Top 5 problem categories
+    .slice(0, 5);
 }

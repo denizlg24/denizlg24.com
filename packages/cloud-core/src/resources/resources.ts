@@ -21,6 +21,7 @@ import {
 
 import type { Database } from "../db";
 import {
+  deployEnvironments,
   deployTargets,
   projects,
   type ResourceConnectionRow,
@@ -54,12 +55,44 @@ export interface ConnectedResource {
  * no default.
  */
 const DEFAULT_CONNECTION_FIRST = [
+  /**
+   * A connection naming this exact environment outranks the `both` one it
+   * shares a prefix with — otherwise giving staging its own database would
+   * depend on which row happened to be created first.
+   */
+  asc(sql`${resourceConnections.environmentId} IS NULL`),
   asc(sql`${resourceConnections.envPrefix} <> ''`),
   asc(resourceConnections.createdAt),
 ];
 
-function scopeFilter(deploymentKind: DeploymentKind | undefined) {
+/**
+ * The SQL mirror of `connectionAppliesTo`. `both` satisfies every slot; a
+ * custom environment otherwise resolves only a connection naming it, because
+ * `preview` covers the ephemeral side alone.
+ *
+ * Erring the other way is the failure that matters: an environment silently
+ * inheriting whatever the previews — or worse, production — were pointed at
+ * would write to data it was never given, with nothing in the UI saying so.
+ * An environment nobody connected anything to resolves nothing, and an unset
+ * namespace is a visible failure where a borrowed database is not.
+ */
+function scopeFilter(
+  deploymentKind: DeploymentKind | undefined,
+  environmentId: string | null | undefined,
+) {
   if (!deploymentKind) return undefined;
+  if (deploymentKind === "environment") {
+    // An `environment` deployment with no environment on it cannot match a
+    // named connection, so it is left with the unscoped ones.
+    if (!environmentId) return eq(resourceConnections.scopes, "both");
+    return or(
+      eq(resourceConnections.scopes, "both"),
+      and(
+        eq(resourceConnections.scopes, "environment"),
+        eq(resourceConnections.environmentId, environmentId),
+      ),
+    );
+  }
   return inArray(resourceConnections.scopes, ["both", deploymentKind]);
 }
 
@@ -72,6 +105,8 @@ export interface ConnectedResourceQuery {
    * still makes `database.postgres.*` a bindable reference on the target.
    */
   deploymentKind?: DeploymentKind;
+  /** Which environment, when `deploymentKind` is `environment`. */
+  environmentId?: string | null;
   envPrefix?: string;
 }
 
@@ -88,7 +123,7 @@ export async function findConnectedResources(
         eq(resourceConnections.projectId, query.projectId),
         eq(resources.kind, query.kind),
         isNull(resources.deletedAt),
-        scopeFilter(query.deploymentKind),
+        scopeFilter(query.deploymentKind, query.environmentId),
         query.envPrefix === undefined
           ? undefined
           : eq(resourceConnections.envPrefix, query.envPrefix),
@@ -116,6 +151,7 @@ export async function connectedResourceKinds(
   db: DbExecutor,
   projectId: string,
   deploymentKind?: DeploymentKind,
+  environmentId?: string | null,
 ): Promise<Set<ResourceKind>> {
   const rows = await db
     .selectDistinct({ kind: resources.kind })
@@ -125,7 +161,7 @@ export async function connectedResourceKinds(
       and(
         eq(resourceConnections.projectId, projectId),
         isNull(resources.deletedAt),
-        scopeFilter(deploymentKind),
+        scopeFilter(deploymentKind, environmentId),
       ),
     );
   return new Set(rows.map((row) => row.kind));
@@ -177,6 +213,8 @@ export interface ConnectResourceOptions {
   resourceId: string;
   projectId: string;
   scopes?: ResourceConnectionScope;
+  /** Required by an `environment` scope and meaningless to every other one. */
+  environmentId?: string | null;
   envPrefix?: string;
 }
 
@@ -184,13 +222,15 @@ export async function connectResource(
   db: DbExecutor,
   options: ConnectResourceOptions,
 ): Promise<ResourceConnectionRow> {
+  const scopes = options.scopes ?? "both";
   const [row] = await db
     .insert(resourceConnections)
     .values({
+      environmentId: scopes === "environment" ? options.environmentId : null,
       envPrefix: options.envPrefix ?? "",
       projectId: options.projectId,
       resourceId: options.resourceId,
-      scopes: options.scopes ?? "both",
+      scopes,
     })
     .onConflictDoNothing()
     .returning();
@@ -201,6 +241,55 @@ export async function connectResource(
     );
   }
   return row;
+}
+
+/**
+ * A connection is project-scoped and an environment is target-scoped, so
+ * nothing in the column types stops one project's connection naming another
+ * project's environment. This is the check that does.
+ */
+export async function assertEnvironmentInProject(
+  db: DbExecutor,
+  projectId: string,
+  environmentId: string,
+): Promise<void> {
+  const [row] = await db
+    .select({ id: deployEnvironments.id })
+    .from(deployEnvironments)
+    .innerJoin(deployTargets, eq(deployTargets.id, deployEnvironments.targetId))
+    .where(
+      and(
+        eq(deployEnvironments.id, environmentId),
+        eq(deployTargets.projectId, projectId),
+      ),
+    )
+    .limit(1);
+  if (!row) {
+    throw new NotFoundError(
+      "Environment not found on this project",
+      "ENVIRONMENT_NOT_FOUND",
+    );
+  }
+}
+
+/** The environments a project can scope a connection to, across its targets. */
+export async function connectableEnvironments(
+  db: DbExecutor,
+  projectId: string,
+): Promise<
+  { id: string; name: string; targetId: string; targetName: string }[]
+> {
+  return db
+    .select({
+      id: deployEnvironments.id,
+      name: deployEnvironments.name,
+      targetId: deployTargets.id,
+      targetName: deployTargets.name,
+    })
+    .from(deployEnvironments)
+    .innerJoin(deployTargets, eq(deployTargets.id, deployEnvironments.targetId))
+    .where(eq(deployTargets.projectId, projectId))
+    .orderBy(asc(deployTargets.name), asc(deployEnvironments.name));
 }
 
 export async function disconnectResource(

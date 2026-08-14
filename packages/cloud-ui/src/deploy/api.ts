@@ -1,15 +1,21 @@
 import type {
+  BranchRoutePreview,
+  ConnectableEnvironment,
   ConnectableProject,
   ConnectResourceInput,
+  CreateDeployBranchRuleInput,
   CreateDeployDomainInput,
+  CreateDeployEnvironmentInput,
   CreateDeploymentInput,
   CreateDeployTargetRequest,
   CreatedResource,
   CreateResourceInput,
   DeployBindings,
   DeployBranch,
+  DeployBranchRule,
   DeployCapacity,
   DeployDomain,
+  DeployEnvironmentListEntry,
   DeployEnvVar,
   Deployment,
   DeployTarget,
@@ -28,16 +34,22 @@ import type {
   ResourceCredentials,
   ResourceDetail,
   ResourceListQuery,
+  UpdateDeployBranchRuleInput,
   UpdateDeployDomainInput,
+  UpdateDeployEnvironmentInput,
   UpdateDeployTargetInput,
 } from "@repo/schemas/cloud";
 import {
+  branchRoutePreviewSchema,
+  connectableEnvironmentListSchema,
   connectableProjectListSchema,
   createdResourceSchema,
   deployBindingsSchema,
+  deployBranchRuleSchema,
   deployBranchSchema,
   deployCapacitySchema,
   deployDomainSchema,
+  deployEnvironmentListEntrySchema,
   deployEnvVarSchema,
   deploymentKindSchema,
   deploymentSchema,
@@ -265,6 +277,14 @@ export const deployApi = {
     requestData(connectableProjectListSchema, "/api/deploy/projects").then(
       (page) => page.projects,
     ),
+  /** The environments a connection to this project may be scoped to. */
+  connectableEnvironments: (
+    projectId: string,
+  ): Promise<ConnectableEnvironment[]> =>
+    requestData(
+      connectableEnvironmentListSchema,
+      `/api/deploy/projects/${projectId}/environments`,
+    ).then((page) => page.environments),
   /** Every resource on the box, whether or not anything connects to it. */
   resources: (query?: Partial<ResourceListQuery>): Promise<Resource[]> =>
     requestData(resourceListSchema, "/api/deploy/resources", {
@@ -439,6 +459,75 @@ export const deployApi = {
     ),
   bindings: (targetId: string): Promise<DeployBindings> =>
     requestData(deployBindingsSchema, `/api/deploy/bindings/${targetId}`),
+
+  environments: (targetId: string): Promise<DeployEnvironmentListEntry[]> =>
+    requestData(
+      z.array(deployEnvironmentListEntrySchema),
+      `/api/deploy/targets/${targetId}/environments`,
+    ),
+  createEnvironment: (
+    targetId: string,
+    input: CreateDeployEnvironmentInput,
+  ): Promise<DeployEnvironmentListEntry> =>
+    requestData(
+      deployEnvironmentListEntrySchema,
+      `/api/deploy/targets/${targetId}/environments`,
+      { method: "POST", body: input },
+    ),
+  updateEnvironment: (
+    id: string,
+    input: UpdateDeployEnvironmentInput,
+  ): Promise<DeployEnvironmentListEntry> =>
+    requestData(
+      deployEnvironmentListEntrySchema,
+      `/api/deploy/environments/${id}`,
+      { method: "PATCH", body: input },
+    ),
+  deleteEnvironment: (id: string): Promise<{ deleted: boolean }> =>
+    requestData(
+      z.object({ deleted: z.boolean() }),
+      `/api/deploy/environments/${id}`,
+      { method: "DELETE" },
+    ),
+
+  branchRules: (targetId: string): Promise<DeployBranchRule[]> =>
+    requestData(
+      z.array(deployBranchRuleSchema),
+      `/api/deploy/targets/${targetId}/branch-rules`,
+    ),
+  createBranchRule: (
+    targetId: string,
+    input: CreateDeployBranchRuleInput,
+  ): Promise<DeployBranchRule> =>
+    requestData(
+      deployBranchRuleSchema,
+      `/api/deploy/targets/${targetId}/branch-rules`,
+      { method: "POST", body: input },
+    ),
+  updateBranchRule: (
+    id: string,
+    input: UpdateDeployBranchRuleInput,
+  ): Promise<DeployBranchRule> =>
+    requestData(deployBranchRuleSchema, `/api/deploy/branch-rules/${id}`, {
+      method: "PATCH",
+      body: input,
+    }),
+  deleteBranchRule: (id: string): Promise<{ deleted: boolean }> =>
+    requestData(
+      z.object({ deleted: z.boolean() }),
+      `/api/deploy/branch-rules/${id}`,
+      { method: "DELETE" },
+    ),
+  /**
+   * What every branch in the repository would do if it were pushed now. Reads
+   * the git remote, so it is a slower call than the rule list itself.
+   */
+  branchRoutes: (targetId: string): Promise<BranchRoutePreview[]> =>
+    requestData(
+      z.array(branchRoutePreviewSchema),
+      `/api/deploy/targets/${targetId}/branch-routes`,
+      { timeoutMs: SLOW_TIMEOUT_MS },
+    ),
 
   domains: (targetId: string): Promise<DeployDomain[]> =>
     requestData(

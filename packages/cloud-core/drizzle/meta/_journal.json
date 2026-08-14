@@ -260,6 +260,27 @@
       "when": 1786646394150,
       "tag": "0036_boring_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786714166400,
+      "tag": "0037_flawless_ser_duncan",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786714166401,
+      "tag": "0038_deploy_environments",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786722715934,
+      "tag": "0039_resource_connection_environment",
+      "breakpoints": true
     }
   ]
 }

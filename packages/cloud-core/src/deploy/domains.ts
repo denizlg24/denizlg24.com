@@ -8,7 +8,12 @@ import {
 import { and, asc, desc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 
 import type { Database } from "../db";
-import { type DeployDomainRow, deployDomains, deployments } from "../db/schema";
+import {
+  type DeployDomainRow,
+  deployDomains,
+  deployEnvironments,
+  deployments,
+} from "../db/schema";
 import { ConflictError, NotFoundError, ValidationError } from "../errors";
 import {
   type CloudflareDnsClient,
@@ -99,6 +104,21 @@ export async function assertDomainAvailable(
   if (collision) {
     throw new ConflictError(
       `${normalised} is currently a deployment hostname`,
+      "DOMAIN_TAKEN",
+    );
+  }
+
+  // Environment hostnames live outside `deploy_domains`, so nothing above sees
+  // them. Attaching one as a custom domain would route the same name at two
+  // slots and let a typed domain take a running environment off the air.
+  const [environmentCollision] = await context.db
+    .select({ id: deployEnvironments.id })
+    .from(deployEnvironments)
+    .where(eq(deployEnvironments.hostname, normalised))
+    .limit(1);
+  if (environmentCollision) {
+    throw new ConflictError(
+      `${normalised} is an environment hostname`,
       "DOMAIN_TAKEN",
     );
   }
@@ -641,9 +661,14 @@ export interface DeploymentRouting {
 
 /**
  * What Caddy should do for a deployment: its own ephemeral hostname always
- * serves, plus the target's stable domains when it is the production one. A
- * preview never carries a stable domain — that is what makes promote a real
- * operation rather than a relabelling.
+ * serves, plus the stable name of the slot it occupies. For production that is
+ * the target's custom domains; for a custom environment it is the one hostname
+ * generated when the environment was created.
+ *
+ * Custom domains are production-only on purpose. An environment is reachable at
+ * its generated name and nowhere else, which is what keeps promoting to
+ * production a real operation rather than a relabelling. A preview carries no
+ * stable name at all.
  *
  * A primary domain is only the preferred URL displayed by the control plane.
  * Redirects are explicit per-domain choices. Two rules keep routing safe:
@@ -653,9 +678,23 @@ export interface DeploymentRouting {
  * - With no explicit redirect, every stable domain serves.
  */
 export function planRouting(
-  deployment: { hostname: string; kind: DeploymentKind },
+  deployment: {
+    hostname: string;
+    kind: DeploymentKind;
+    environmentHostname?: string | null;
+  },
   domains: readonly { hostname: string; redirectTo: string | null }[],
 ): DeploymentRouting {
+  if (deployment.kind === "environment") {
+    const stable = deployment.environmentHostname;
+    return {
+      serve:
+        stable && stable !== deployment.hostname
+          ? [deployment.hostname, stable]
+          : [deployment.hostname],
+      redirects: [],
+    };
+  }
   if (deployment.kind !== "production") {
     return { serve: [deployment.hostname], redirects: [] };
   }
@@ -686,8 +725,24 @@ export function planRouting(
 
 export async function routeHostnames(
   db: Database,
-  deployment: { targetId: string; hostname: string; kind: DeploymentKind },
+  deployment: {
+    targetId: string;
+    hostname: string;
+    kind: DeploymentKind;
+    environmentId?: string | null;
+  },
 ): Promise<DeploymentRouting> {
+  if (deployment.kind === "environment") {
+    const environment = deployment.environmentId
+      ? await db.query.deployEnvironments.findFirst({
+          where: eq(deployEnvironments.id, deployment.environmentId),
+        })
+      : undefined;
+    return planRouting(
+      { ...deployment, environmentHostname: environment?.hostname ?? null },
+      [],
+    );
+  }
   if (deployment.kind !== "production") {
     return planRouting(deployment, []);
   }
