@@ -79,7 +79,7 @@
     "mongodb": "^7.5.0",
     "mongoose": "^9.9.1",
     "motion": "^12.43.0",
-    "next": "16.3.0",
+    "next": "16.2.12",
     "next-share": "^0.27.0",
     "next-themes": "^0.4.6",
     "node-latex-compiler": "^1.0.5",
