@@ -72,7 +72,7 @@ jobs:
       # stores nothing — the only sign is a Path Validation Error in the post
       # step, long after the check has already gone green.
       - name: Cache Tectonic bundle
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /tmp/deniz-tectonic-cache
           key: tectonic-${{ runner.os }}-${{ github.run_id }}
