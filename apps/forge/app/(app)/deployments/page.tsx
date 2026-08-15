@@ -4,6 +4,7 @@ import {
   DeploymentKindBadge,
   deploymentLabel,
   deploymentTone,
+  isDeploymentRetryable,
 } from "@repo/cloud-ui/deploy-status";
 import { formatDurationMs, formatRelative } from "@repo/cloud-ui/format";
 import { usePoll } from "@repo/cloud-ui/use-poll";
@@ -17,7 +18,12 @@ import { OptionSelect } from "@repo/ui/option-select";
 import { Skeleton } from "@repo/ui/skeleton";
 import { StatusDot } from "@repo/ui/status-dot";
 import { cn } from "@repo/ui/utils";
-import { GitBranch, GitCommitHorizontal, RotateCw } from "lucide-react";
+import {
+  GitBranch,
+  GitCommitHorizontal,
+  RotateCcw,
+  RotateCw,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -91,23 +97,46 @@ function DeploymentsFeed() {
     query.limit > PAGE_STEP ? 120_000 : 30_000,
   );
 
-  const [restarting, setRestarting] = useState<Set<string>>(() => new Set());
-  const restart = async (id: string) => {
-    setRestarting((current) => new Set(current).add(id));
+  // One set for both row actions: a row offers exactly one of them, and the
+  // button it offers is the one that has to go busy.
+  const [busy, setBusy] = useState<Set<string>>(() => new Set());
+  const withBusy = async (id: string, action: () => Promise<unknown>) => {
+    setBusy((current) => new Set(current).add(id));
     try {
-      await api.forge.restart(id);
-      toast.success("Deployment restarted");
-      await reload();
-    } catch (restartError) {
-      toast.error(errorMessage(restartError));
+      await action();
     } finally {
-      setRestarting((current) => {
+      setBusy((current) => {
         const next = new Set(current);
         next.delete(id);
         return next;
       });
     }
   };
+
+  const restart = (id: string) =>
+    withBusy(id, async () => {
+      try {
+        await api.forge.restart(id);
+        toast.success("Deployment restarted");
+        await reload();
+      } catch (restartError) {
+        toast.error(errorMessage(restartError));
+      }
+    });
+
+  // A retry is a new deployment of the same commit, so following it is the
+  // point — staying on the feed leaves you watching a row that will not change
+  // while the one you asked for builds somewhere off screen.
+  const retry = (id: string) =>
+    withBusy(id, async () => {
+      try {
+        const created = await api.deploy.retry(id);
+        toast.success(`Queued ${created.gitSha.slice(0, 7)}`);
+        router.push(`/deployments/${created.id}`);
+      } catch (retryError) {
+        toast.error(errorMessage(retryError));
+      }
+    });
 
   const total = data?.total ?? 0;
   const shown = data?.deployments.length ?? 0;
@@ -242,8 +271,9 @@ function DeploymentsFeed() {
               <DeploymentRow
                 key={deployment.id}
                 deployment={deployment}
-                restarting={restarting.has(deployment.id)}
+                busy={busy.has(deployment.id)}
                 onRestart={() => void restart(deployment.id)}
+                onRetry={() => void retry(deployment.id)}
               />
             ))}
             {data.deployments.length === 0 ? (
@@ -284,15 +314,18 @@ function DeploymentsFeed() {
  */
 function DeploymentRow({
   deployment,
-  restarting,
+  busy,
   onRestart,
+  onRetry,
 }: {
   deployment: ForgeDeploymentSummary;
-  restarting: boolean;
+  busy: boolean;
   onRestart: () => void;
+  onRetry: () => void;
 }) {
   const router = useRouter();
   const href = `/deployments/${deployment.id}`;
+  const retryable = isDeploymentRetryable(deployment.status);
 
   return (
     <div
@@ -313,15 +346,21 @@ function DeploymentRow({
         {deployment.gitMessage ?? shortRef(deployment.gitRef)}
       </Link>
 
-      <span className="flex w-40 shrink-0 items-center gap-1.5">
+      {/* The feed already carries the failure reason; there is no room to print
+          it, but hiding it entirely means opening a row to learn what a red dot
+          meant. */}
+      <span
+        className="flex w-40 shrink-0 items-center gap-1.5"
+        title={deployment.error ?? undefined}
+      >
         <StatusDot
           tone={deploymentTone(deployment.status)}
           label={deployment.status}
         />
-        <span className="capitalize">
+        <span className="truncate capitalize">
           {deploymentLabel(deployment.status, deployment.phase)}
         </span>
-        <span className="tabular-nums text-muted-foreground">
+        <span className="shrink-0 tabular-nums text-muted-foreground">
           {formatDurationMs(deployment.buildDurationMs)}
         </span>
       </span>
@@ -359,19 +398,34 @@ function DeploymentRow({
         {formatRelative(deployment.createdAt)}
       </span>
 
+      {/* One action per row, chosen by state: a live container restarts, a run
+          that stopped without shipping builds the same commit again. Neither is
+          offered while a build is still in flight — cancel is the only thing
+          that applies there, and it lives on the deployment's own page. */}
       <span className="flex w-7 shrink-0 justify-end">
         {deployment.status === "ready" ? (
           <Button
             variant="ghost"
             size="icon"
             className="size-7"
-            disabled={restarting}
+            disabled={busy}
             onClick={onRestart}
             aria-label="Restart deployment"
+            title="Restart"
           >
-            <RotateCw
-              className={cn("size-3.5", restarting && "animate-spin")}
-            />
+            <RotateCw className={cn("size-3.5", busy && "animate-spin")} />
+          </Button>
+        ) : retryable ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            disabled={busy}
+            onClick={onRetry}
+            aria-label={`Retry deployment of ${deployment.gitSha.slice(0, 7)}`}
+            title="Retry this commit"
+          >
+            <RotateCcw className={cn("size-3.5", busy && "animate-spin")} />
           </Button>
         ) : null}
       </span>

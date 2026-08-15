@@ -48,6 +48,7 @@ export function ActiveBranches({ targetId }: { targetId: string }) {
             <Link
               href={`/deployments/${branch.latest.id}`}
               className="min-w-0 flex-1 truncate font-mono text-xs hover:underline"
+              title={branch.gitRef}
             >
               {branch.gitRef}
             </Link>

@@ -6,6 +6,7 @@ import {
   deploymentTone,
   isDeploymentLive,
 } from "@repo/cloud-ui/deploy-status";
+import { ErrorBlock } from "@repo/cloud-ui/error-block";
 import {
   formatBytes,
   formatDateTime,
@@ -134,24 +135,34 @@ export default function DeploymentDetailPage() {
           </div>
 
           {data.error ? (
-            <pre className="overflow-x-auto border-l-2 border-destructive/50 py-1 pl-3 font-mono text-xs whitespace-pre-wrap text-destructive">
-              {data.error}
-            </pre>
+            <ErrorBlock
+              message={data.error}
+              maxHeightClass="max-h-48"
+              className="border-l-2 border-destructive/50 py-1 pl-3"
+            />
           ) : null}
 
           <dl className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
             <Field label="commit">
               <span className="font-mono">{data.gitSha.slice(0, 12)}</span>
-              <span className="block text-[11px] text-muted-foreground line-clamp-3">
+              {/* A commit body can be a changelog. Three lines here, the whole
+                  thing on hover — `wrap-anywhere` so a bare URL in the subject
+                  breaks instead of widening the grid column. */}
+              <span
+                className="block wrap-anywhere text-[11px] text-muted-foreground line-clamp-3"
+                title={data.gitMessage ?? data.gitRef}
+              >
                 {data.gitMessage ?? data.gitRef}
               </span>
             </Field>
             <Field label="ref">
-              <span className="font-mono">{data.gitRef}</span>
+              <span className="block wrap-anywhere font-mono">
+                {data.gitRef}
+              </span>
             </Field>
             <Field label="host">
               <a
-                className="inline-flex items-center gap-1 hover:underline"
+                className="inline-flex items-baseline gap-1 wrap-anywhere hover:underline"
                 href={`https://${data.hostname}`}
                 target="_blank"
                 rel="noreferrer"

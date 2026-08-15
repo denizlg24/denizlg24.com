@@ -31,9 +31,12 @@ keeping plaintext secrets and encryption keys on the user's machine.
 | `apps/authenticator-extension` | Chrome and Firefox extension holding an offline authenticator vault | Personal |
 | `apps/api` | API for my self-hosted cloud | Personal |
 | `apps/cloud` | Administration interface for cloud services | Personal |
+| `apps/forge` | Deployment dashboard: build history, containers, logs, and host telemetry | Personal |
+| `apps/deploy-agent` | Executor on the deploy host that builds images and runs containers | Personal |
 | `apps/email-classifier` | Python Logistic Regression Email Classifier API | Personal |
 | `apps/markets-relay` | Bun WebSocket relay fanning out Tiingo market quotes | Personal |
 | `apps/storage` | Browser-based file manager | Personal |
+| `apps/storage-metadata` | Privileged metadata, checksum, and tiering service for the storage namespace | Personal |
 | `apps/terminal` | Web-terminal daemon for the cloud host | Personal |
 | `apps/envoy` | Envoy website and encrypted-storage API | Public |
 | `apps/envoy-cli` | Rust command-line client for Envoy | Public |
@@ -64,8 +67,10 @@ desktop application, and shared packages keep contracts and UI consistent
 across applications.
 
 The self-hosted cloud runs a Bun and Hono API backed by PostgreSQL, MongoDB,
-Redis, and S3-compatible storage. Envoy combines a Next.js service with a Rust
-CLI and shares versioned API fixtures across both implementations.
+Redis, and S3-compatible storage. Forge is the deployment platform on top of
+it: the API holds the control plane and `deploy-agent` builds images and runs
+containers on the host. Envoy combines a Next.js service with a Rust CLI and
+shares versioned API fixtures across both implementations.
 
 ## Technology
 

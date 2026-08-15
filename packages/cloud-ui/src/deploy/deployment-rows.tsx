@@ -47,8 +47,13 @@ export function DeploymentRow({
       <span className="w-16 shrink-0 font-mono">
         {deployment.gitSha.slice(0, 7)}
       </span>
-      <span className="min-w-0 flex-1 truncate">
-        {deployment.gitMessage ?? deployment.gitRef}
+      {/* A commit message is the one field with no bound — a squash carries
+          every message it swallowed. One line, and the rest on hover. */}
+      <span
+        className="min-w-0 flex-1 truncate"
+        title={deployment.gitMessage ?? deployment.gitRef}
+      >
+        {deployment.gitMessage?.split("\n")[0] ?? deployment.gitRef}
       </span>
       <DeploymentBadges
         kind={deployment.kind}
@@ -150,9 +155,11 @@ function Fact({
   mono?: boolean;
 }) {
   return (
-    <div className="flex flex-col">
+    <div className="flex min-w-0 flex-col">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className={cn("truncate", mono && "font-mono")}>{value}</dd>
+      <dd className={cn("truncate", mono && "font-mono")} title={value}>
+        {value}
+      </dd>
     </div>
   );
 }

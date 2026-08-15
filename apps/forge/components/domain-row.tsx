@@ -145,7 +145,7 @@ function DnsPanel({
         </>
       ) : null}
       {domain.verification?.error ? (
-        <p className="pt-2 text-xs text-destructive">
+        <p className="pt-2 wrap-anywhere text-xs text-destructive">
           {domain.verification.error}
         </p>
       ) : null}

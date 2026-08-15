@@ -4,6 +4,7 @@ import {
   deploymentLabel,
   isDeploymentLive,
 } from "@repo/cloud-ui/deploy-status";
+import { ErrorBlock } from "@repo/cloud-ui/error-block";
 import { formatDateTime, formatRelative } from "@repo/cloud-ui/format";
 import { GithubIcon } from "@repo/cloud-ui/tech-icon";
 import type {
@@ -84,7 +85,10 @@ function ExistingNotice({
       )}
     >
       <Icon className="mt-px size-3.5 shrink-0" />
-      <div className="flex flex-col gap-0.5">
+      {/* `min-w-0` is what keeps a build error inside the dialog: without it
+          this column is sized by its content and a single long line pushes the
+          footer buttons off the edge. */}
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p>
           {headline}—
           <Link
@@ -97,9 +101,12 @@ function ExistingNotice({
           </Link>
         </p>
         {failed && existing.error ? (
-          <p className="whitespace-pre-wrap break-words font-mono text-[11px] opacity-90 line-clamp-3">
-            {existing.error}
-          </p>
+          <ErrorBlock
+            message={existing.error}
+            maxHeightClass="max-h-24"
+            tone="inherit"
+            className="opacity-90"
+          />
         ) : isCurrentProduction ? (
           <p className="text-muted-foreground">
             It is the current production deployment
@@ -117,11 +124,15 @@ function ExistingNotice({
 
 /** The resolved commit, in the shape the row under the input takes. */
 function ResolvedCommit({ resolved }: { resolved: ResolvedRef }) {
+  const subject = resolved.message?.split("\n")[0] ?? "—";
   return (
     <div className="flex flex-col gap-1 rounded-md border px-3 py-2">
       <div className="flex items-center gap-2">
         <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="truncate font-mono text-xs">
+        <span
+          className="truncate font-mono text-xs"
+          title={resolved.branch ?? resolved.sha}
+        >
           {resolved.branch ?? resolved.sha.slice(0, 7)}
         </span>
         <Badge
@@ -136,8 +147,10 @@ function ResolvedCommit({ resolved }: { resolved: ResolvedRef }) {
         <span className="shrink-0 font-mono tabular-nums">
           {resolved.sha.slice(0, 7)}
         </span>
-        <span className="truncate">
-          {resolved.message?.split("\n")[0] ?? "—"}
+        {/* Only the subject line, and only as much of it as fits. A commit
+            body runs to paragraphs and this row is one line tall. */}
+        <span className="truncate" title={resolved.message ?? undefined}>
+          {subject}
         </span>
         <span
           className="ml-auto shrink-0 tabular-nums"
@@ -268,7 +281,11 @@ export function CreateDeploymentDialog({
           create deployment
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      {/* The dialog grows by two blocks once a ref resolves — the commit row
+          and the notice about its previous deployment — and `DialogContent`
+          does not cap its own height, so on a short window the footer ends up
+          below the fold with no way to reach it. */}
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Create Deployment</DialogTitle>
         </DialogHeader>
@@ -338,7 +355,9 @@ export function CreateDeploymentDialog({
             </div>
           ) : null}
 
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {error ? (
+            <p className="wrap-anywhere text-xs text-destructive">{error}</p>
+          ) : null}
           {resolved ? <ResolvedCommit resolved={resolved} /> : null}
           {resolved?.existing ? (
             <ExistingNotice

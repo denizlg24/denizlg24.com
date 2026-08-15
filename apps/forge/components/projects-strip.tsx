@@ -50,11 +50,13 @@ export function ProjectsStrip() {
                 <Link
                   href={`/deployments/${deployment.id}`}
                   className="min-w-0 flex-1 truncate text-xs hover:underline"
+                  title={deployment.gitMessage ?? deployment.gitSha}
                 >
                   <span className="text-muted-foreground">
                     {deployment.projectSlug}
                   </span>{" "}
-                  {deployment.gitMessage ?? deployment.gitSha.slice(0, 7)}
+                  {deployment.gitMessage?.split("\n")[0] ??
+                    deployment.gitSha.slice(0, 7)}
                 </Link>
                 <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                   {formatRelative(deployment.createdAt)}
@@ -108,7 +110,10 @@ export function ProjectsStrip() {
           {overview?.errors.agent ? (
             <li className="flex items-baseline gap-2 text-xs">
               <StatusDot tone="critical" label="agent unreachable" />
-              <span className="min-w-0 flex-1 truncate">
+              <span
+                className="min-w-0 flex-1 truncate"
+                title={overview.errors.agent}
+              >
                 agent: {overview.errors.agent}
               </span>
             </li>
@@ -133,6 +138,7 @@ export function ProjectsStrip() {
               <Link
                 href={`/deployments/${deployment.id}`}
                 className="min-w-0 flex-1 truncate hover:underline"
+                title={deployment.error ?? undefined}
               >
                 {deployment.projectSlug} · build failed
               </Link>
