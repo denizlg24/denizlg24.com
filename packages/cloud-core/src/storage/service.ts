@@ -420,6 +420,13 @@ export class StorageService {
           "Project storage folder not found",
         );
       }
+      // `createProject` writes the row inside a transaction and leaves the
+      // directory to whichever write lands first, so a project root reaches the
+      // namespace unstamped exactly the way a user root used to. It sits at the
+      // top level, so nothing can adopt it afterwards — ensure both here, where
+      // the namespace and the metadata socket are actually in reach.
+      await ensureDir(this.#namespace.resolveFolderPath(folder.path));
+      await ensureRootIdentity(this.#metadata, folder);
       return {
         projectRoot: { id: folder.id, path: folder.path, name: folder.name },
       };
