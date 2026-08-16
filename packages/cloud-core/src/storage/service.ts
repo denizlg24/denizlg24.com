@@ -54,6 +54,7 @@ import {
   getDiskStats,
   pathExists,
 } from "./fs";
+import type { ProtectedMetadata } from "./metadata";
 import {
   MetadataClientError,
   NamespaceMetadataClient,
@@ -266,7 +267,64 @@ function parseTusMetadata(header: string): Record<string, string> {
   return result;
 }
 
+/**
+ * Stamps the protected identity xattrs on a namespace root.
+ *
+ * Only roots need this from here. A folder created deeper in the tree that
+ * reaches the projector unstamped is adopted, inheriting an owner from an
+ * ancestor that carries one. A root has no ancestor but the namespace root
+ * itself, which carries no identity, so `stat("/")` throws, inheritance finds
+ * nothing and adoption refuses rather than invent an owner. The entry is then
+ * reported as `NO_IDENTITY` on every scan, which holds the projection dirty —
+ * and a dirty projection blocks the nightly tiering pass outright.
+ *
+ * Run on every resolution rather than only on creation, so a root provisioned
+ * before this existed, or one whose stamp failed, repairs itself the next time
+ * its owner opens storage. `assign` rewrites the same values when the id
+ * already matches, so repeating it changes nothing.
+ *
+ * A failure is logged rather than raised. The directory and the row are already
+ * consistent with each other, the next call retries, and refusing to list a
+ * user's storage because one xattr could not be written trades a metadata fault
+ * for an outage. The projector still reports the entry until it is stamped, so
+ * this cannot fail quietly forever.
+ */
+export async function ensureRootIdentity(
+  metadata: Pick<NamespaceMetadataClient, "assign"> | null,
+  root: Folder,
+): Promise<void> {
+  // Legacy mode keeps PostgreSQL authoritative: there is no namespace to stamp.
+  if (!metadata) return;
+  const protectedMetadata: ProtectedMetadata = {
+    createdAt: root.createdAt.toISOString(),
+    id: root.id,
+    ownerId: root.ownerId,
+    ...(root.ownerId ? {} : { scope: "shared" as const }),
+  };
+  try {
+    await metadata.assign(root.path, protectedMetadata);
+  } catch (error) {
+    console.error(
+      `Failed to stamp identity on storage root ${root.path}`,
+      error,
+    );
+  }
+}
+
 async function storageRoot(
+  db: Database,
+  namespace: StorageNamespace,
+  metadata: Pick<NamespaceMetadataClient, "assign"> | null,
+  ownerId: string | null,
+  path: string,
+  name: string,
+): Promise<Folder> {
+  const root = await resolveStorageRoot(db, namespace, ownerId, path, name);
+  await ensureRootIdentity(metadata, root);
+  return root;
+}
+
+async function resolveStorageRoot(
   db: Database,
   namespace: StorageNamespace,
   ownerId: string | null,
@@ -370,11 +428,19 @@ export class StorageService {
       storageRoot(
         this.db,
         this.#namespace,
+        this.#metadata,
         principal.user.id,
         buildUserRootPath(principal.user.id),
         principal.user.id,
       ),
-      storageRoot(this.db, this.#namespace, null, SHARED_ROOT_PATH, "shared"),
+      storageRoot(
+        this.db,
+        this.#namespace,
+        this.#metadata,
+        null,
+        SHARED_ROOT_PATH,
+        "shared",
+      ),
     ]);
     return {
       userRoot: { id: userRoot.id, path: userRoot.path, name: userRoot.name },
