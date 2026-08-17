@@ -1,6 +1,11 @@
+import { markEmailsSeen } from "@/lib/email";
 import { connectDB } from "@/lib/mongodb";
 import { acceptSuggestion, dismissSuggestion, runTriage } from "@/lib/triage";
 import { EmailTriageModel } from "@/models/EmailTriage";
+import {
+  getOrCreateTriageSettings,
+  normalizeCategoryRouting,
+} from "@/models/TriageSettings";
 import type { ToolDefinition } from "./types";
 
 const TRIAGE_CATEGORIES = [
@@ -19,6 +24,12 @@ const TRIAGE_USER_STATUSES = [
   "reviewed",
   "archived",
 ] as const;
+
+type TriageCategory = (typeof TRIAGE_CATEGORIES)[number];
+
+function isTriageCategory(value: unknown): value is TriageCategory {
+  return TRIAGE_CATEGORIES.some((category) => category === value);
+}
 
 export const triageTools: ToolDefinition[] = [
   {
@@ -202,6 +213,172 @@ export const triageTools: ToolDefinition[] = [
         throw new Error("since is not a valid date");
       }
       return runTriage(since ? { since } : undefined);
+    },
+  },
+  {
+    schema: {
+      name: "get_triage_settings",
+      description:
+        "Triage configuration: whether it runs, how often, which models classify, and the per-category routing that decides when a suggestion is auto-accepted.",
+      input_schema: { type: "object", properties: {} },
+    },
+    isWrite: false,
+    category: "triage",
+    execute: async () => {
+      await connectDB();
+      const settings = (await getOrCreateTriageSettings()).toObject();
+      return {
+        ...settings,
+        classificationConfidenceThreshold:
+          settings.classificationConfidenceThreshold ?? 0.8,
+        categoryRouting: normalizeCategoryRouting(settings.categoryRouting),
+      };
+    },
+  },
+  {
+    schema: {
+      name: "update_triage_settings",
+      description:
+        "Change triage configuration. categoryRouting is merged per category, not replaced, so naming one category leaves the rest alone. Lowering an autoAcceptThreshold makes triage act on its own more often.",
+      input_schema: {
+        type: "object",
+        properties: {
+          enabled: {
+            type: "boolean",
+            description: "Whether the triage run is active at all.",
+          },
+          runIntervalMinutes: {
+            type: "number",
+            description: "Minutes between runs.",
+            minimum: 1,
+          },
+          prefilterModel: {
+            type: "string",
+            description: "Model id for the cheap first pass.",
+          },
+          fullModel: {
+            type: "string",
+            description: "Model id for full classification.",
+          },
+          classificationConfidenceThreshold: {
+            type: "number",
+            description:
+              "Below this confidence a classification is held for review, 0-1.",
+            minimum: 0,
+            maximum: 1,
+          },
+          categoryRouting: {
+            type: "object",
+            description:
+              'Per-category routing, e.g. {"action-needed":{"autoCreateCard":true,"autoAcceptThreshold":0.9}}. Categories: spam, newsletter, promo, purchases, fyi, action-needed, scheduled.',
+          },
+        },
+      },
+    },
+    isWrite: true,
+    category: "triage",
+    execute: async (input) => {
+      await connectDB();
+      const settings = await getOrCreateTriageSettings();
+      const update: Record<string, unknown> = {};
+
+      if (typeof input.enabled === "boolean") update.enabled = input.enabled;
+      if (typeof input.runIntervalMinutes === "number") {
+        if (!Number.isFinite(input.runIntervalMinutes)) {
+          throw new Error("runIntervalMinutes must be a finite number");
+        }
+        update.runIntervalMinutes = input.runIntervalMinutes;
+      }
+      if (typeof input.prefilterModel === "string") {
+        update.prefilterModel = input.prefilterModel;
+      }
+      if (typeof input.fullModel === "string") {
+        update.fullModel = input.fullModel;
+      }
+      if (typeof input.classificationConfidenceThreshold === "number") {
+        const value = input.classificationConfidenceThreshold;
+        if (!Number.isFinite(value) || value < 0 || value > 1) {
+          throw new Error(
+            "classificationConfidenceThreshold must be between 0 and 1",
+          );
+        }
+        update.classificationConfidenceThreshold = value;
+      }
+      if (input.categoryRouting !== undefined) {
+        const routing = normalizeCategoryRouting(input.categoryRouting);
+        // Merged over the current routing rather than replacing it: naming one
+        // category must not silently reset the other six to their defaults,
+        // which is what normalizeCategoryRouting alone would do.
+        const current = normalizeCategoryRouting(settings.categoryRouting);
+        const incoming =
+          typeof input.categoryRouting === "object" &&
+          input.categoryRouting !== null
+            ? (input.categoryRouting as Record<string, unknown>)
+            : {};
+        update.categoryRouting = {
+          ...current,
+          ...Object.fromEntries(
+            TRIAGE_CATEGORIES.filter((category) => category in incoming).map(
+              (category) => [category, routing[category]],
+            ),
+          ),
+        };
+      }
+
+      if (Object.keys(update).length === 0) {
+        throw new Error("Nothing to update");
+      }
+      settings.set(update);
+      await settings.save();
+      const saved = settings.toObject();
+      return {
+        ...saved,
+        categoryRouting: normalizeCategoryRouting(saved.categoryRouting),
+      };
+    },
+  },
+  {
+    schema: {
+      name: "archive_triage_category",
+      description:
+        "Archive every open row in one triage category at once. Items held for review are left alone — they sit in their own bucket and are not part of the category listing.",
+      input_schema: {
+        type: "object",
+        properties: {
+          category: {
+            type: "string",
+            description: "Category to clear.",
+            enum: [...TRIAGE_CATEGORIES],
+          },
+        },
+        required: ["category"],
+      },
+    },
+    isWrite: true,
+    category: "triage",
+    execute: async (input) => {
+      const category = input.category;
+      if (!isTriageCategory(category)) throw new Error("Invalid category");
+      await connectDB();
+      const targets = await EmailTriageModel.find({
+        category,
+        reviewRequired: { $ne: true },
+        userStatus: { $ne: "archived" },
+      })
+        .select("emailId")
+        .lean();
+      const result = await EmailTriageModel.updateMany(
+        { _id: { $in: targets.map((target) => target._id) } },
+        { $set: { userStatus: "archived" } },
+      );
+      try {
+        await markEmailsSeen(targets.map((target) => target.emailId));
+      } catch (error) {
+        // The rows are archived either way; failing the whole call over the
+        // IMAP flag would report no progress when most of the work landed.
+        console.error("mark seen failed:", error);
+      }
+      return { archived: result.modifiedCount };
     },
   },
 ];

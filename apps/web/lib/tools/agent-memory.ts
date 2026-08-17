@@ -196,12 +196,28 @@ export const agentMemoryTools: ToolDefinition[] = [
         type: "object",
         properties: {
           id: { type: "string", description: "Goal ID from list_agent_goals" },
+          title: { type: "string", description: "Updated title" },
           status: {
             type: "string",
             description: "New status",
             enum: ["suggested", "active", "paused", "completed", "abandoned"],
           },
           description: { type: "string", description: "Updated details" },
+          kind: {
+            type: "string",
+            description: "Updated goal kind",
+            enum: ["goal", "user-commitment", "agent-follow-up"],
+          },
+          targetUntil: {
+            type: "string",
+            description: "Updated ISO 8601 target date",
+          },
+          motivation: { type: "string", description: "Updated motivation" },
+          pauseOrAbandonReason: {
+            type: "string",
+            description:
+              "Why the goal was paused or abandoned. Set it alongside those statuses.",
+          },
           reason: { type: "string", description: "Reason for the update" },
         },
         required: ["id", "reason"],
@@ -211,12 +227,12 @@ export const agentMemoryTools: ToolDefinition[] = [
     category: "agent-memory",
     execute: async (input) => {
       await assertGateE();
-      const parsed = updateAgentGoalSchema.parse({
-        status: input.status,
-        description: input.description,
-        reason: input.reason,
-      });
-      return serializeAgentGoal(await updateGoal(input.id as string, parsed));
+      const { id, ...patch } = input;
+      // The whole partial is forwarded. Naming only status and description
+      // here made title, kind, targetUntil and motivation permanently
+      // unsettable after creation even though the schema accepts them.
+      const parsed = updateAgentGoalSchema.parse(patch);
+      return serializeAgentGoal(await updateGoal(id as string, parsed));
     },
   },
   {

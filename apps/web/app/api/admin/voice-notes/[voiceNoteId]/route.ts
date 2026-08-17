@@ -1,14 +1,11 @@
 import { voiceNoteTitleSchema } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
-import { redactAgentMemorySource } from "@/lib/agent-memory/source-deletion";
 import { connectDB } from "@/lib/mongodb";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
-import { deleteFileFromStorage } from "@/lib/storage-api";
+import { deleteVoiceNote, renameVoiceNote } from "@/lib/voice-notes/mutations";
 import { serializeVoiceNote } from "@/lib/voice-notes/serialize";
-import { AgentMemoryJob } from "@/models/AgentMemoryJob";
-import { Note } from "@/models/Note";
 import { type ILeanVoiceNote, VoiceNote } from "@/models/VoiceNote";
 
 export async function GET(
@@ -59,15 +56,7 @@ export async function PATCH(
     if (!parsed.success) {
       return NextResponse.json({ error: "Title is required" }, { status: 400 });
     }
-    const { title } = parsed.data;
-    await connectDB();
-    const voiceNote = await VoiceNote.findByIdAndUpdate(
-      voiceNoteId,
-      { $set: { title, titleSource: "manual" } },
-      { returnDocument: "after", runValidators: true },
-    )
-      .lean<ILeanVoiceNote>()
-      .exec();
+    const voiceNote = await renameVoiceNote(voiceNoteId, parsed.data.title);
     if (!voiceNote) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
@@ -95,48 +84,10 @@ export async function DELETE(
     if (!mongoose.Types.ObjectId.isValid(voiceNoteId)) {
       return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
     }
-    await connectDB();
-    const voiceNote = await VoiceNote.findById(voiceNoteId)
-      .lean<ILeanVoiceNote>()
-      .exec();
-    if (!voiceNote) {
+    const deleted = await deleteVoiceNote(voiceNoteId);
+    if (!deleted) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    await redactAgentMemorySource({
-      entityType: "voice-note",
-      entityId: voiceNoteId,
-    });
-    await Promise.all([
-      Note.updateMany(
-        { voiceNoteIds: voiceNote._id },
-        {
-          $pull: { voiceNoteIds: voiceNote._id },
-          // Losing an attachment changes what the note is; it has to be
-          // re-indexed for the same reason attaching one does.
-          $set: { semanticStatus: "stale" },
-        },
-      ).exec(),
-      AgentMemoryJob.updateMany(
-        {
-          operation: "voice-transcription",
-          "checkpoint.voiceNoteId": voiceNoteId,
-          // "leased" included to match redactAgentMemorySource: a job a worker
-          // is holding still refers to audio that is about to stop existing.
-          status: { $in: ["pending", "retry", "leased"] },
-        },
-        { $set: { status: "cancelled", completedAt: new Date() } },
-      ).exec(),
-    ]);
-    // Storage first: an orphaned blob is invisible and cheap, whereas a row
-    // pointing at a deleted object makes the note unplayable and undeletable.
-    // A storage failure here is logged rather than fatal — the record is gone
-    // either way, and reporting a failure would invite a retry that 404s.
-    try {
-      await deleteFileFromStorage(voiceNote.storageKey);
-    } catch (error) {
-      console.error("Failed to delete voice note audio", error);
-    }
-    await VoiceNote.deleteOne({ _id: voiceNote._id }).exec();
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete voice note", error);

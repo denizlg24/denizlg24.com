@@ -542,6 +542,12 @@ export const kanbanTools: ToolDefinition[] = [
             type: "boolean",
             description: "Archive or unarchive the card (optional)",
           },
+          labels: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Full replacement label list. An empty array removes all labels (optional)",
+          },
         },
         required: ["id"],
       },
@@ -558,6 +564,11 @@ export const kanbanTools: ToolDefinition[] = [
       if (input.dueDate !== undefined) data.dueDate = input.dueDate;
       if (input.hasDueTime !== undefined) data.hasDueTime = input.hasDueTime;
       if (input.isArchived !== undefined) data.isArchived = input.isArchived;
+      if (input.labels !== undefined) {
+        if (!Array.isArray(input.labels))
+          throw new Error("labels must be an array");
+        data.labels = input.labels.map(String);
+      }
       const result = await updateCard(input.id as string, data);
       if (!result) return { success: false, message: "Card not found" };
       return result;

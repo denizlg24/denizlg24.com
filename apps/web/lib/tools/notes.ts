@@ -524,4 +524,166 @@ export const notesTools: ToolDefinition[] = [
       return { success: true };
     },
   },
+  {
+    schema: {
+      name: "list_note_tags",
+      description: "Every tag in use across notes.",
+      input_schema: { type: "object", properties: {} },
+    },
+    isWrite: false,
+    category: "notes",
+    execute: async () => {
+      await connectDB();
+      const tags = (await Note.distinct("tags").exec()).filter(
+        (tag): tag is string => typeof tag === "string",
+      );
+      return { tags: tags.sort((left, right) => left.localeCompare(right)) };
+    },
+  },
+  {
+    schema: {
+      name: "list_note_edges",
+      description:
+        "Links in the note graph. Edges are undirected in practice — from and to are stored but a link exists only once between a pair. Pass noteId to get just that note's links.",
+      input_schema: {
+        type: "object",
+        properties: {
+          noteId: {
+            type: "string",
+            description: "Only edges touching this note (optional).",
+          },
+          source: {
+            type: "string",
+            description: "Filter by how the edge was created.",
+            enum: ["manual", "semantic"],
+          },
+          limit: {
+            type: "number",
+            description: "Max edges to return, 1-200 (default 100).",
+            minimum: 1,
+            maximum: 200,
+          },
+        },
+      },
+    },
+    isWrite: false,
+    category: "notes",
+    execute: async (input) => {
+      await connectDB();
+      const { NoteEdge } = await import("@/models/NoteEdge");
+      const filter: Record<string, unknown> = {};
+      if (input.noteId !== undefined) {
+        const noteId = String(input.noteId);
+        if (!mongoose.Types.ObjectId.isValid(noteId)) {
+          throw new Error("Invalid note ID");
+        }
+        filter.$or = [{ from: noteId }, { to: noteId }];
+      }
+      if (input.source !== undefined) filter.source = input.source;
+      const limit = Math.min(Math.max(Number(input.limit ?? 100), 1), 200);
+      const edges = await NoteEdge.find(filter)
+        .sort({ strength: -1 })
+        .limit(limit)
+        .lean();
+      return {
+        edges: edges.map((edge) => ({
+          _id: String(edge._id),
+          from: String(edge.from),
+          to: String(edge.to),
+          strength: edge.strength,
+          reason: edge.reason,
+          source: edge.source,
+        })),
+      };
+    },
+  },
+  {
+    schema: {
+      name: "link_notes",
+      description:
+        "Link two notes in the graph. Linking a pair that is already linked returns the existing edge rather than creating a duplicate, in either direction.",
+      input_schema: {
+        type: "object",
+        properties: {
+          from: { type: "string", description: "First note ID." },
+          to: { type: "string", description: "Second note ID." },
+          reason: {
+            type: "string",
+            description: "Why they are related (optional).",
+          },
+        },
+        required: ["from", "to"],
+      },
+    },
+    isWrite: true,
+    category: "notes",
+    execute: async (input) => {
+      const from = String(input.from ?? "");
+      const to = String(input.to ?? "");
+      if (
+        !mongoose.Types.ObjectId.isValid(from) ||
+        !mongoose.Types.ObjectId.isValid(to) ||
+        from === to
+      ) {
+        throw new Error("from and to must be two distinct note ids");
+      }
+      await connectDB();
+      const [fromNote, toNote] = await Promise.all([
+        Note.exists({ _id: from }),
+        Note.exists({ _id: to }),
+      ]);
+      if (!fromNote || !toNote) throw new Error("Note not found");
+
+      const { NoteEdge } = await import("@/models/NoteEdge");
+      // Checked in both directions: the graph is conceptually undirected, so
+      // a B→A edge already expresses the link A→B is asking for.
+      const existing = await NoteEdge.findOne({
+        $or: [
+          { from, to },
+          { from: to, to: from },
+        ],
+      }).lean();
+      if (existing) {
+        return { _id: String(existing._id), existed: true };
+      }
+      const reason =
+        typeof input.reason === "string" && input.reason.trim()
+          ? input.reason.trim()
+          : undefined;
+      const created = await NoteEdge.create({
+        from,
+        to,
+        strength: 1,
+        reason,
+        source: "manual",
+      });
+      return { _id: String(created._id), existed: false };
+    },
+  },
+  {
+    schema: {
+      name: "unlink_notes",
+      description: "Remove a link from the note graph by its edge ID.",
+      input_schema: {
+        type: "object",
+        properties: {
+          edgeId: { type: "string", description: "Edge ID." },
+        },
+        required: ["edgeId"],
+      },
+    },
+    isWrite: true,
+    category: "notes",
+    execute: async (input) => {
+      const edgeId = String(input.edgeId ?? "");
+      if (!mongoose.Types.ObjectId.isValid(edgeId)) {
+        throw new Error("Invalid edge ID");
+      }
+      await connectDB();
+      const { NoteEdge } = await import("@/models/NoteEdge");
+      const result = await NoteEdge.deleteOne({ _id: edgeId });
+      if (result.deletedCount === 0) throw new Error("Edge not found");
+      return { success: true };
+    },
+  },
 ];

@@ -1,4 +1,5 @@
-import type { ICapability } from "@/models/Resource";
+import { connectDB } from "@/lib/mongodb";
+import { type ICapability, Resource } from "@/models/Resource";
 import { decryptPassword, encryptPassword } from "../safe-email-password";
 
 export interface EncryptedField {
@@ -66,5 +67,27 @@ export function buildPiCronConfig(
   return {
     username: encryptPassword(username),
     password: encryptPassword(password),
+  };
+}
+
+/**
+ * Resolves a PiCron capability into the connection `piCronFetch` needs. The
+ * capability id doubles as the token cache key, so every caller reusing this
+ * shares one login rather than each acquiring its own token.
+ */
+export async function getPiCronConnection(resourceId: string, capId: string) {
+  await connectDB();
+  const resource = await Resource.findById(resourceId);
+  if (!resource) throw new Error("Resource not found");
+
+  const cap = resource.capabilities.id(capId);
+  if (cap?.type !== "picron") throw new Error("PiCron capability not found");
+
+  const { username, password } = getPiCronCredentials(cap);
+  return {
+    baseUrl: cap.baseUrl,
+    username,
+    password,
+    cacheKey: capId,
   };
 }

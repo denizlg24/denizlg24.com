@@ -15,7 +15,19 @@ import type {
   Resolution,
   ValuationPoint,
 } from "@repo/markets/schemas";
-import { DEFAULT_MARGIN } from "@repo/markets/schemas";
+import {
+  DEFAULT_MARGIN,
+  orderAmendSchema,
+  orderInputSchema,
+  orderStatusSchema,
+} from "@repo/markets/schemas";
+import {
+  amendOrder,
+  cancelOrder,
+  listOrders,
+  OrderRejected,
+  placeOrder,
+} from "@/lib/markets/orders";
 import {
   addTrade,
   createPortfolio,
@@ -25,6 +37,7 @@ import {
   getPortfolio,
   listPortfolios,
   listTrades,
+  PortfolioRejected,
   syncPortfolioActions,
   updatePortfolio,
 } from "@/lib/markets/portfolios";
@@ -826,7 +839,7 @@ export const marketsTools: ToolDefinition[] = [
     schema: {
       name: "update_portfolio",
       description:
-        "Update a portfolio's name, benchmark, starting cash, inception date or dividend handling.",
+        "Update a portfolio's name, benchmark, starting cash, inception date, dividend handling, shorting or margin. Changing initialCash, inceptionDate, allowShorts or margin re-runs the trade replay, so every historical metric and curve point can move.",
       input_schema: {
         type: "object",
         properties: {
@@ -841,6 +854,16 @@ export const marketsTools: ToolDefinition[] = [
           reinvestDividends: {
             type: "boolean",
             description: "Reinvest dividends into the paying symbol.",
+          },
+          allowShorts: {
+            type: "boolean",
+            description:
+              "Allow selling into a flat book to open a short. Turning it off is refused while a short is open — cover first.",
+          },
+          margin: {
+            type: "boolean",
+            description:
+              "Enable Reg-T margin: buying power against equity, maintenance requirements and daily borrow on shorts.",
           },
         },
         required: ["portfolioId"],
@@ -863,12 +886,30 @@ export const marketsTools: ToolDefinition[] = [
       if (input.reinvestDividends !== undefined) {
         updates.reinvestDividends = input.reinvestDividends === true;
       }
-      const portfolio = await updatePortfolio(
-        String(input.portfolioId ?? ""),
-        updates,
-      );
-      if (!portfolio) return { success: false, message: "Portfolio not found" };
-      return portfolio;
+      if (input.allowShorts !== undefined) {
+        updates.allowShorts = input.allowShorts === true;
+      }
+      if (input.margin !== undefined) {
+        // Same shape as create: the retail baseline with `enabled` toggled. The
+        // rates stay off the tool surface because an agent has no basis for
+        // choosing a maintenance requirement.
+        updates.margin = { ...DEFAULT_MARGIN, enabled: input.margin === true };
+      }
+      try {
+        const portfolio = await updatePortfolio(
+          String(input.portfolioId ?? ""),
+          updates,
+        );
+        if (!portfolio) {
+          return { success: false, message: "Portfolio not found" };
+        }
+        return portfolio;
+      } catch (error) {
+        if (error instanceof PortfolioRejected) {
+          return { success: false, message: error.message };
+        }
+        throw error;
+      }
     },
   },
   {
@@ -1190,6 +1231,219 @@ export const marketsTools: ToolDefinition[] = [
       const deleted = await deleteWatchlist(String(input.watchlistId ?? ""));
       if (!deleted) return { success: false, message: "Watchlist not found" };
       return { success: true };
+    },
+  },
+  {
+    schema: {
+      name: "list_orders",
+      description:
+        "Orders on a portfolio. Pass statuses to narrow to the live book — working and pending — rather than pulling a fill history that only grows.",
+      input_schema: {
+        type: "object",
+        properties: {
+          portfolioId: { type: "string", description: "Portfolio ID." },
+          status: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Statuses to include: pending, working, filled, cancelled, expired, rejected. Omit for all.",
+          },
+        },
+        required: ["portfolioId"],
+      },
+    },
+    isWrite: false,
+    category: "markets",
+    execute: async (input) => {
+      const requested = Array.isArray(input.status)
+        ? orderStatusSchema.array().safeParse(input.status)
+        : undefined;
+      if (requested && !requested.success) {
+        throw new Error(
+          "status must contain only: pending, working, filled, cancelled, expired, rejected",
+        );
+      }
+      const orders = await listOrders(
+        String(input.portfolioId ?? ""),
+        requested?.data,
+      );
+      return { orders };
+    },
+  },
+  {
+    schema: {
+      name: "place_order",
+      description:
+        "Place an order. Fills are simulated on the markets cron against cached quotes and daily bars, so nothing fills the instant this returns. A bracket attaches a take-profit and stop-loss OCO pair to the entry and is returned alongside it.",
+      input_schema: {
+        type: "object",
+        properties: {
+          portfolioId: { type: "string", description: "Portfolio ID." },
+          ticker: { type: "string", description: "Symbol to trade." },
+          side: {
+            type: "string",
+            description: "buy or sell.",
+            enum: ["buy", "sell"],
+          },
+          type: {
+            type: "string",
+            description:
+              "market fills at the next quote; limit needs limitPrice; stop needs stopPrice; stop_limit needs both; trailing_stop needs trailBasis and trailValue.",
+            enum: ["market", "limit", "stop", "stop_limit", "trailing_stop"],
+          },
+          quantity: {
+            type: "number",
+            description: "Number of shares.",
+            minimum: 0,
+          },
+          limitPrice: {
+            type: "number",
+            description:
+              "Worst price accepted. Required for limit and stop_limit.",
+          },
+          stopPrice: {
+            type: "number",
+            description:
+              "Price that arms the order. Required for stop and stop_limit.",
+          },
+          trailBasis: {
+            type: "string",
+            description: "How trailValue is read, for a trailing stop.",
+            enum: ["amount", "percent"],
+          },
+          trailValue: {
+            type: "number",
+            description:
+              "Trail distance: a currency amount, or a fraction when trailBasis is percent (0.05 is 5%).",
+          },
+          timeInForce: {
+            type: "string",
+            description: "day, gtc, or gtd (which needs expiresAt).",
+            enum: ["day", "gtc", "gtd"],
+          },
+          expiresAt: {
+            type: "string",
+            description: "ISO 8601 expiry, required when timeInForce is gtd.",
+          },
+          reduceOnly: {
+            type: "boolean",
+            description:
+              "Only ever closes exposure. Cannot carry a bracket, since its own fill removes the position the exits would arm against.",
+          },
+          fees: { type: "number", description: "Commission.", minimum: 0 },
+          note: { type: "string", description: "Free-text note." },
+          bracket: {
+            type: "object",
+            description:
+              "Exits to attach as an OCO pair: {takeProfitPrice, stopLossPrice, stopLossTrailBasis, stopLossTrailValue}. Not allowed with reduceOnly.",
+          },
+        },
+        required: ["portfolioId", "ticker", "side", "type", "quantity"],
+      },
+    },
+    isWrite: true,
+    category: "markets",
+    execute: async (input) => {
+      const { portfolioId, ...order } = input;
+      const parsed = orderInputSchema.safeParse({
+        ...order,
+        ticker: upper(order.ticker),
+      });
+      if (!parsed.success) {
+        throw new Error(parsed.error.issues[0]?.message ?? "Invalid order");
+      }
+      const id = String(portfolioId ?? "");
+      if (!(await getPortfolio(id))) throw new Error("Portfolio not found");
+      try {
+        // Returns the entry plus any bracket legs, so the caller can see what
+        // was actually created rather than only the order it asked for.
+        return { orders: await placeOrder(id, parsed.data) };
+      } catch (error) {
+        if (error instanceof OrderRejected) {
+          // The order was understood and refused — no buying power, no
+          // position to reduce, shorting off. That reason is the answer, not
+          // a failure to report.
+          return { rejected: true, reason: error.message };
+        }
+        throw error;
+      }
+    },
+  },
+  {
+    schema: {
+      name: "amend_order",
+      description:
+        "Change a working order's price, size or time-in-force. Side, type and symbol are not amendable — cancel and replace instead. A price can be moved but never cleared.",
+      input_schema: {
+        type: "object",
+        properties: {
+          portfolioId: { type: "string", description: "Portfolio ID." },
+          orderId: { type: "string", description: "Order ID." },
+          quantity: { type: "number", description: "New size.", minimum: 0 },
+          limitPrice: { type: "number", description: "New limit price." },
+          stopPrice: { type: "number", description: "New stop price." },
+          trailValue: { type: "number", description: "New trail distance." },
+          timeInForce: {
+            type: "string",
+            description: "New time-in-force.",
+            enum: ["day", "gtc", "gtd"],
+          },
+          expiresAt: {
+            type: "string",
+            description: "New ISO 8601 expiry, or null to clear.",
+          },
+          note: { type: "string", description: "New note." },
+        },
+        required: ["portfolioId", "orderId"],
+      },
+    },
+    isWrite: true,
+    category: "markets",
+    execute: async (input) => {
+      const { portfolioId, orderId, ...amend } = input;
+      const parsed = orderAmendSchema.safeParse(amend);
+      if (!parsed.success) {
+        throw new Error(parsed.error.issues[0]?.message ?? "Invalid amendment");
+      }
+      const order = await amendOrder(
+        String(portfolioId ?? ""),
+        String(orderId ?? ""),
+        parsed.data,
+      );
+      // A terminal order is not amendable, so a miss is reported rather than
+      // passed off as an edit that landed.
+      if (!order) throw new Error("Order not found or no longer amendable");
+      return order;
+    },
+  },
+  {
+    schema: {
+      name: "cancel_order",
+      description:
+        "Cancel a working order. Any pending bracket legs beneath it are cancelled with it.",
+      input_schema: {
+        type: "object",
+        properties: {
+          portfolioId: { type: "string", description: "Portfolio ID." },
+          orderId: { type: "string", description: "Order ID." },
+          reason: {
+            type: "string",
+            description: "Recorded against the cancellation.",
+          },
+        },
+        required: ["portfolioId", "orderId"],
+      },
+    },
+    isWrite: true,
+    category: "markets",
+    execute: async (input) => {
+      const order = await cancelOrder(
+        String(input.portfolioId ?? ""),
+        String(input.orderId ?? ""),
+        input.reason === undefined ? undefined : String(input.reason),
+      );
+      if (!order) throw new Error("Order not found or already terminal");
+      return order;
     },
   },
 ];

@@ -61,6 +61,16 @@ export const calendarTools: ToolDefinition[] = [
             type: "string",
             description: "Event date/time in ISO 8601 format",
           },
+          endDate: {
+            type: "string",
+            description:
+              "When the event ends, ISO 8601. Use for a multi-day or timed span (optional)",
+          },
+          isAllDay: {
+            type: "boolean",
+            description:
+              "All-day event. The time of day in `date` is ignored and the event anchors to calendarDate (optional, default false)",
+          },
           calendarDate: {
             type: "string",
             description: "Event day in YYYY-MM-DD format (optional)",
@@ -117,8 +127,9 @@ export const calendarTools: ToolDefinition[] = [
       const result = await createCalendarEvent({
         title: input.title as string,
         date: new Date(input.date as string),
+        endDate: input.endDate ? new Date(input.endDate as string) : undefined,
         calendarDate: input.calendarDate as string | undefined,
-        isAllDay: false,
+        isAllDay: input.isAllDay === true,
         kind: (input.kind as UserCalendarEventKind | undefined) ?? "manual",
         place: input.place as string | undefined,
         status:
@@ -145,11 +156,23 @@ export const calendarTools: ToolDefinition[] = [
             type: "string",
             description: "New date in ISO 8601 (optional)",
           },
+          endDate: {
+            type: "string",
+            description: "New end, ISO 8601. Pass null to clear it (optional)",
+          },
+          isAllDay: {
+            type: "boolean",
+            description:
+              "Turn the event into or out of an all-day one (optional)",
+          },
           calendarDate: {
             type: "string",
             description: "New event day in YYYY-MM-DD format (optional)",
           },
-          place: { type: "string", description: "New location (optional)" },
+          place: {
+            type: "string",
+            description: "New location. Pass null to clear it (optional)",
+          },
           kind: {
             type: "string",
             description: "New event type (optional)",
@@ -162,11 +185,13 @@ export const calendarTools: ToolDefinition[] = [
           },
           notifyBySlack: {
             type: "boolean",
-            description: "Enable or disable Slack notification (optional)",
+            description:
+              "Enable or disable the Slack notification (optional). Set it explicitly — changing notifyBeforeMinutes alone does not turn notifications on.",
           },
           notifyBeforeMinutes: {
             type: "number",
-            description: "Minutes before the event to notify (optional)",
+            description:
+              "Minutes before the event to notify (optional). Changing this reschedules an enabled notification; it does not enable one.",
           },
           links: {
             type: "array",
@@ -188,19 +213,29 @@ export const calendarTools: ToolDefinition[] = [
     isWrite: true,
     category: "calendar",
     execute: async (input) => {
+      // Every field is guarded on `!== undefined`, not on truthiness: a
+      // truthy guard cannot express clearing a location or moving an event to
+      // an all-day one, because "" and false are exactly the values it drops.
       const data: Record<string, unknown> = {};
-      if (input.title) data.title = input.title;
-      if (input.date) data.date = new Date(input.date as string);
-      if (input.calendarDate) data.calendarDate = input.calendarDate;
-      if (input.place) data.place = input.place;
-      if (input.kind) data.kind = input.kind;
-      if (input.status) data.status = input.status;
+      if (input.title !== undefined) data.title = input.title;
+      if (input.date !== undefined) data.date = new Date(input.date as string);
+      if (input.endDate !== undefined) {
+        data.endDate = input.endDate ? new Date(input.endDate as string) : null;
+      }
+      if (input.isAllDay !== undefined) data.isAllDay = input.isAllDay;
+      if (input.calendarDate !== undefined)
+        data.calendarDate = input.calendarDate;
+      if (input.place !== undefined) data.place = input.place || null;
+      if (input.kind !== undefined) data.kind = input.kind;
+      if (input.status !== undefined) data.status = input.status;
       if (input.notifyBySlack !== undefined)
         data.notifyBySlack = input.notifyBySlack;
-      if (input.notifyBeforeMinutes !== undefined) {
+      // Deliberately does not force notifyBySlack on. Setting the lead time
+      // used to enable Slack as a side effect, which made "remind me 30 minutes
+      // before, but no Slack" impossible to express. The lib reschedules an
+      // already-enabled notification on its own.
+      if (input.notifyBeforeMinutes !== undefined)
         data.notifyBeforeMinutes = input.notifyBeforeMinutes;
-        data.notifyBySlack = true;
-      }
 
       if (input.links !== undefined) {
         const rawLinks = input.links as LinkInput;

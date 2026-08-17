@@ -76,6 +76,11 @@ export const timetableTools: ToolDefinition[] = [
               "destructive",
             ],
           },
+          isActive: {
+            type: "boolean",
+            description:
+              "Whether the entry shows on the timetable (optional, default true)",
+          },
           links: {
             type: "array",
             description: "Related links for the entry (optional)",
@@ -103,7 +108,7 @@ export const timetableTools: ToolDefinition[] = [
         endTime: input.endTime as string,
         place: input.place as string | undefined,
         color: (input.color as TimetableColor) ?? "accent",
-        isActive: true,
+        isActive: input.isActive !== false,
         links:
           (input.links as { label: string; url: string; icon?: string }[]) ??
           [],
@@ -131,7 +136,19 @@ export const timetableTools: ToolDefinition[] = [
           },
           endTime: { type: "string", description: "New end time (optional)" },
           place: { type: "string", description: "New location (optional)" },
-          color: { type: "string", description: "New color (optional)" },
+          color: {
+            type: "string",
+            description: "New color (optional)",
+            enum: [
+              "background",
+              "surface",
+              "muted",
+              "accent",
+              "accent-strong",
+              "foreground",
+              "destructive",
+            ],
+          },
           isActive: {
             type: "boolean",
             description: "Enable or disable entry (optional)",

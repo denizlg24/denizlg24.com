@@ -1,4 +1,5 @@
 import {
+  deleteContact,
   getAllContacts,
   getContactByTicketId,
   updateContactStatus,
@@ -127,6 +128,27 @@ export const contactsTools: ToolDefinition[] = [
         };
       }
       await updateContactStatus(contact.ticketId, "responded");
+      return { success: true };
+    },
+  },
+  {
+    schema: {
+      name: "delete_contact",
+      description:
+        "Permanently delete a contact submission. Prefer archiving with update_contact_status unless removal is actually wanted — this cannot be undone.",
+      input_schema: {
+        type: "object",
+        properties: {
+          ticketId: { type: "string", description: "Contact ticket ID" },
+        },
+        required: ["ticketId"],
+      },
+    },
+    isWrite: true,
+    category: "contacts",
+    execute: async (input) => {
+      const deleted = await deleteContact(input.ticketId as string);
+      if (!deleted) throw new Error("Contact not found");
       return { success: true };
     },
   },

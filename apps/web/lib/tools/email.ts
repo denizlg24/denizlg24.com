@@ -7,6 +7,7 @@ import {
 } from "@/lib/email";
 import { connectDB } from "@/lib/mongodb";
 import { isSmtpConfigured, sendMailFromAccount } from "@/lib/smtp";
+import { syncInbox } from "@/lib/sync-email";
 import { EmailModel } from "@/models/Email";
 import {
   EmailAccountModel,
@@ -719,6 +720,67 @@ export const emailTools: ToolDefinition[] = [
         bcc: draft.bcc,
         subject: draft.subject,
         sentAt: sentAt.toISOString(),
+      };
+    },
+  },
+  {
+    schema: {
+      name: "sync_email_accounts",
+      description:
+        "Fetch new mail over IMAP. Syncs one account when accountId is given, otherwise every account. Reaches the mail server, so it takes seconds per account — call it when mail looks stale, not before every read.",
+      input_schema: {
+        type: "object",
+        properties: {
+          accountId: {
+            type: "string",
+            description: "Sync only this account. Omit to sync all of them.",
+          },
+        },
+      },
+    },
+    isWrite: true,
+    category: "email",
+    execute: async (input) => {
+      await connectDB();
+      const accountId = input.accountId as string | undefined;
+      if (accountId && !mongoose.Types.ObjectId.isValid(accountId)) {
+        throw new Error("Invalid account ID");
+      }
+      // Hydrated, not lean: syncInbox takes a document.
+      const accounts = accountId
+        ? await EmailAccountModel.find({ _id: accountId })
+        : await EmailAccountModel.find();
+      if (accounts.length === 0) {
+        throw new Error(
+          accountId ? "Email account not found" : "No email accounts",
+        );
+      }
+
+      const results: {
+        account: string;
+        synced: boolean;
+        lastUid?: number;
+        error?: string;
+      }[] = [];
+      for (const account of accounts) {
+        try {
+          const lastUid = await syncInbox(account);
+          await EmailAccountModel.findByIdAndUpdate(account._id, { lastUid });
+          results.push({ account: account.user, synced: true, lastUid });
+        } catch (error) {
+          // One unreachable mailbox must not abort the rest: a partial sync is
+          // the useful outcome, and the failure is reported per account.
+          results.push({
+            account: account.user,
+            synced: false,
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+        }
+      }
+      return {
+        synced: results.filter((result) => result.synced).length,
+        failed: results.filter((result) => !result.synced).length,
+        results,
       };
     },
   },

@@ -1,12 +1,15 @@
 import { agentMemoryTools } from "./agent-memory";
 import { agentTaskTools } from "./agent-tasks";
+import { authenticatorTools } from "./authenticator";
 import { blogTools } from "./blog";
 import { calendarTools } from "./calendar";
 import { clientTools } from "./client";
 import { commentsTools } from "./comments";
 import { contactsTools } from "./contacts";
 import { coursesTools } from "./courses";
+import { cvTools } from "./cv";
 import { emailTools } from "./email";
+import { financeTools } from "./finance";
 import { journalTools } from "./journal";
 import { kanbanTools } from "./kanban";
 import { latexTools } from "./latex";
@@ -15,11 +18,14 @@ import { notesTools } from "./notes";
 import { nowTools } from "./now";
 import { papersTools } from "./papers";
 import { peopleTools } from "./people";
+import { picronTools } from "./picron";
 import { projectsTools } from "./projects";
 import { resourceTools } from "./resources";
 import { sandboxTools } from "./sandbox";
+import { semanticTools } from "./semantic";
 import { spreadsheetTools } from "./spreadsheets";
 import { subResourceTools } from "./sub-resources";
+import { systemTools } from "./system";
 import { timelineTools } from "./timeline";
 import { timetableTools } from "./timetable";
 import { todayBoardTools } from "./today-board";
@@ -43,15 +49,20 @@ const allTools: ToolDefinition[] = [
   ...whiteboardTools,
   ...todayBoardTools,
   ...journalTools,
+  ...semanticTools,
 
   // Academic
   ...coursesTools,
   ...papersTools,
   ...latexTools,
+  ...cvTools,
   ...spreadsheetTools,
 
   // Markets
   ...marketsTools,
+
+  // Finance
+  ...financeTools,
 
   // People
   ...peopleTools,
@@ -72,7 +83,12 @@ const allTools: ToolDefinition[] = [
   // Infrastructure
   ...resourceTools,
   ...subResourceTools,
+  ...picronTools,
   ...sandboxTools,
+
+  // System
+  ...systemTools,
+  ...authenticatorTools,
 ];
 
 const toolMap = new Map<string, ToolDefinition>();

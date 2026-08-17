@@ -3,13 +3,14 @@ import { connectDB } from "@/lib/mongodb";
 import { readSandboxFileBytes } from "@/lib/sandbox";
 import {
   computeStats,
+  deleteStoredBook,
   fetchBookFromStorage,
   getAllSpreadsheets,
   getSpreadsheetById,
   uploadBookToStorage,
   xlsxBufferToBook,
 } from "@/lib/spreadsheets";
-import { Spreadsheet } from "@/models/Spreadsheet";
+import { type ILeanSpreadsheet, Spreadsheet } from "@/models/Spreadsheet";
 import { requireConversation } from "./require-conversation";
 import type { ToolDefinition } from "./types";
 
@@ -183,6 +184,57 @@ export const spreadsheetTools: ToolDefinition[] = [
         throw new Error(`No sheet named "${wanted}"`);
       }
       return { title: record.title, sheets };
+    },
+  },
+  {
+    schema: {
+      name: "rename_spreadsheet",
+      description: "Rename a spreadsheet. Does not touch its contents.",
+      input_schema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Spreadsheet ID." },
+          title: { type: "string", description: "New title." },
+        },
+        required: ["id", "title"],
+      },
+    },
+    isWrite: true,
+    category: "spreadsheets",
+    execute: async (input) => {
+      const title = String(input.title ?? "").trim();
+      if (!title) throw new Error("Title is required");
+      await connectDB();
+      const doc = await Spreadsheet.findByIdAndUpdate(
+        String(input.id ?? ""),
+        { $set: { title } },
+        { returnDocument: "after", runValidators: true },
+      ).lean<ILeanSpreadsheet>();
+      if (!doc) throw new Error("Spreadsheet not found");
+      return { _id: String(doc._id), title: doc.title };
+    },
+  },
+  {
+    schema: {
+      name: "delete_spreadsheet",
+      description:
+        "Delete a spreadsheet and the stored workbook behind it. Not reversible.",
+      input_schema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Spreadsheet ID." },
+        },
+        required: ["id"],
+      },
+    },
+    isWrite: true,
+    category: "spreadsheets",
+    execute: async (input) => {
+      await connectDB();
+      const doc = await Spreadsheet.findByIdAndDelete(String(input.id ?? ""));
+      if (!doc) throw new Error("Spreadsheet not found");
+      await deleteStoredBook(doc.pinataFileId, doc.pinataHash);
+      return { success: true };
     },
   },
 ];

@@ -260,6 +260,16 @@ export const updateCalendarEvent = async ({
       update.isNotificationSent = false;
     }
 
+    // An optional field is cleared by passing null. Leaving it as undefined in
+    // a `$set` is a no-op in Mongo, so without this an event's place or end
+    // date could be changed but never removed.
+    for (const field of ["place", "endDate"] as const) {
+      if (field in update && update[field] == null) {
+        unset[field] = "";
+        delete update[field];
+      }
+    }
+
     const updateOperation =
       Object.keys(unset).length > 0 ? { $set: update, $unset: unset } : update;
 

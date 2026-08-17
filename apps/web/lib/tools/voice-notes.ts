@@ -6,6 +6,7 @@ import {
   normalizeVoiceNoteIds,
   syncVoiceNoteLinks,
 } from "@/lib/voice-notes/linking";
+import { deleteVoiceNote, renameVoiceNote } from "@/lib/voice-notes/mutations";
 import { serializeVoiceNote } from "@/lib/voice-notes/serialize";
 import { enqueueVoiceNoteTranscription } from "@/lib/voice-notes/transcription";
 import { type ILeanNote, Note } from "@/models/Note";
@@ -211,6 +212,53 @@ export const voiceNotesTools: ToolDefinition[] = [
         note: serializeNote(result.note),
         usage: result.usage,
       };
+    },
+  },
+  {
+    schema: {
+      name: "rename_voice_note",
+      description:
+        "Rename a voice note. Marks the title as manually set, so the automatic titler will not overwrite it.",
+      input_schema: {
+        type: "object",
+        properties: {
+          voiceNoteId: { type: "string", description: "Voice note ID" },
+          title: { type: "string", description: "New title" },
+        },
+        required: ["voiceNoteId", "title"],
+      },
+    },
+    isWrite: true,
+    category: "notes",
+    execute: async (input) => {
+      const voiceNoteId = requireId(input.voiceNoteId, "voice note");
+      const title = String(input.title ?? "").trim();
+      if (!title) throw new Error("Title is required");
+      const voiceNote = await renameVoiceNote(voiceNoteId, title);
+      if (!voiceNote) throw new Error("Voice note not found");
+      return serializeVoiceNote(voiceNote);
+    },
+  },
+  {
+    schema: {
+      name: "delete_voice_note",
+      description:
+        "Delete a voice note and its audio. Detaches it from any notes, cancels a pending transcription and redacts memories formed from it. Not reversible — the audio is gone.",
+      input_schema: {
+        type: "object",
+        properties: {
+          voiceNoteId: { type: "string", description: "Voice note ID" },
+        },
+        required: ["voiceNoteId"],
+      },
+    },
+    isWrite: true,
+    category: "notes",
+    execute: async (input) => {
+      const voiceNoteId = requireId(input.voiceNoteId, "voice note");
+      const deleted = await deleteVoiceNote(voiceNoteId);
+      if (!deleted) throw new Error("Voice note not found");
+      return { success: true };
     },
   },
 ];

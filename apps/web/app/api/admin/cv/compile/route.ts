@@ -1,36 +1,12 @@
-import {
-  type ICvFile,
-  type ILatexProject,
-  latexProjectSchema,
-} from "@repo/schemas";
+import { type ILatexProject, latexProjectSchema } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
-import {
-  compileLatexProject,
-  LatexCompilationError,
-  tryAcquireLatexCompileLock,
-} from "@/lib/latex-compiler";
-import { connectDB } from "@/lib/mongodb";
+import { CvCompileBusyError, compileCvProject } from "@/lib/cv-project";
+import { LatexCompilationError } from "@/lib/latex-compiler";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
-import { deleteFileFromStorage, uploadFileToStorage } from "@/lib/storage-api";
-import {
-  AppSettings,
-  type ILeanAppSettings,
-  type IStoredCv,
-} from "@/models/AppSettings";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-function serializeCv(cv: IStoredCv | null | undefined): ICvFile | null {
-  if (!cv) return null;
-  return {
-    url: cv.url,
-    filename: cv.filename,
-    size: cv.size,
-    updatedAt: new Date(cv.updatedAt).toISOString(),
-  };
-}
 
 export async function POST(request: NextRequest) {
   if (isCrossOriginCookieRequest(request)) {
@@ -54,99 +30,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const releaseCompileLock = tryAcquireLatexCompileLock("cv");
-  if (!releaseCompileLock) {
-    return NextResponse.json(
-      { error: "A compilation is already running" },
-      { status: 409 },
-    );
-  }
-
   try {
-    await connectDB();
-    const previous = await AppSettings.findById("singleton")
-      .lean<ILeanAppSettings>()
-      .exec();
-
-    await AppSettings.findByIdAndUpdate(
-      "singleton",
-      { $set: { cvProject: project } },
-      { upsert: true },
-    ).exec();
-
-    let compilation: Awaited<ReturnType<typeof compileLatexProject>>;
-    try {
-      compilation = await compileLatexProject(project);
-    } catch (error) {
-      if (error instanceof LatexCompilationError) {
-        return NextResponse.json(
-          { error: error.message, log: error.log },
-          { status: 422 },
-        );
-      }
-      throw error;
-    }
-
-    const filename = "DenizGunesCV.pdf";
-    const file = new File([new Uint8Array(compilation.pdf)], filename, {
-      type: "application/pdf",
-    });
-    const uploaded = await uploadFileToStorage(file, "file");
-
-    let settings: ILeanAppSettings | null;
-    try {
-      settings = await AppSettings.findByIdAndUpdate(
-        "singleton",
-        {
-          $set: {
-            cvProject: project,
-            cvDraft: {
-              url: uploaded.publicUrl,
-              filename,
-              size: uploaded.sizeBytes,
-              storageKey: uploaded.id,
-              updatedAt: new Date(),
-            },
-          },
-        },
-        { upsert: true, returnDocument: "after" },
-      )
-        .lean<ILeanAppSettings>()
-        .exec();
-    } catch (error) {
-      await deleteFileFromStorage(uploaded.id).catch(() => undefined);
-      throw error;
-    }
-
-    if (!settings?.cvDraft) {
-      await deleteFileFromStorage(uploaded.id).catch(() => undefined);
-      throw new Error("CV draft metadata was not persisted");
-    }
-    // Drop the superseded draft object, but never the currently published one.
-    const staleDraftKey = previous?.cvDraft?.storageKey;
-    if (
-      staleDraftKey &&
-      staleDraftKey !== uploaded.id &&
-      staleDraftKey !== previous?.cv?.storageKey
-    ) {
-      await deleteFileFromStorage(staleDraftKey).catch((error) => {
-        console.error("Failed to remove previous CV draft", error);
-      });
-    }
-
-    return NextResponse.json({
-      cv: serializeCv(settings.cv),
-      draft: serializeCv(settings.cvDraft),
-      project,
-      log: compilation.log,
-    });
+    return NextResponse.json(await compileCvProject(project));
   } catch (error) {
+    if (error instanceof CvCompileBusyError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    if (error instanceof LatexCompilationError) {
+      return NextResponse.json(
+        { error: error.message, log: error.log },
+        { status: 422 },
+      );
+    }
     console.error("CV compilation failed", error);
     return NextResponse.json(
       { error: "Failed to compile CV" },
       { status: 500 },
     );
-  } finally {
-    releaseCompileLock();
   }
 }

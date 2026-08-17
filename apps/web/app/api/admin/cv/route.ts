@@ -1,49 +1,24 @@
-import {
-  type ICvFile,
-  type ILatexProject,
-  latexProjectSchema,
-} from "@repo/schemas";
+import { type ILatexProject, latexProjectSchema } from "@repo/schemas";
 import { revalidatePath } from "next/cache";
 import { type NextRequest, NextResponse } from "next/server";
+import { getCvState, saveCvProject, serializeCv } from "@/lib/cv-project";
 import { connectDB } from "@/lib/mongodb";
 import { isCrossOriginCookieRequest } from "@/lib/request-security";
 import { requireAdmin } from "@/lib/require-admin";
 import { deleteFileFromStorage, uploadFileToStorage } from "@/lib/storage-api";
-import {
-  AppSettings,
-  type ILeanAppSettings,
-  type IStoredCv,
-} from "@/models/AppSettings";
+import { AppSettings, type ILeanAppSettings } from "@/models/AppSettings";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-function serializeCv(cv: IStoredCv | null | undefined): ICvFile | null {
-  if (!cv) return null;
-  return {
-    url: cv.url,
-    filename: cv.filename,
-    size: cv.size,
-    updatedAt: new Date(cv.updatedAt).toISOString(),
-  };
-}
-
 export async function GET(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
 
   try {
-    await connectDB();
-    const settings = await AppSettings.findById("singleton")
-      .lean<ILeanAppSettings>()
-      .exec();
-    return NextResponse.json({
-      cv: serializeCv(settings?.cv),
-      draft: serializeCv(settings?.cvDraft),
-      project: settings?.cvProject ?? null,
-    });
+    return NextResponse.json(await getCvState());
   } catch {
     return NextResponse.json(
       { error: "Internal Server Error" },
@@ -75,19 +50,7 @@ export async function PUT(request: NextRequest) {
   }
 
   try {
-    await connectDB();
-    const settings = await AppSettings.findByIdAndUpdate(
-      "singleton",
-      { $set: { cvProject: project } },
-      { upsert: true, returnDocument: "after" },
-    )
-      .lean<ILeanAppSettings>()
-      .exec();
-    return NextResponse.json({
-      cv: serializeCv(settings?.cv),
-      draft: serializeCv(settings?.cvDraft),
-      project,
-    });
+    return NextResponse.json(await saveCvProject(project));
   } catch {
     return NextResponse.json(
       { error: "Failed to save CV source" },

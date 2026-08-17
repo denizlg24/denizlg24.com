@@ -1,6 +1,11 @@
 import { Resource } from "@/models/Resource";
 import { connectDB } from "../mongodb";
-import { rebootResource, restartService } from "../resource-agent";
+import {
+  getServicesList,
+  rebootResource,
+  restartService,
+  runAllHealthChecks,
+} from "../resource-agent";
 import { encryptPassword } from "../safe-email-password";
 import type { ToolDefinition } from "./types";
 
@@ -385,6 +390,65 @@ export const resourceTools: ToolDefinition[] = [
       return {
         success: true,
         message: `Service "${serviceName}" restart initiated on ${resource.name}`,
+      };
+    },
+  },
+  {
+    schema: {
+      name: "list_resource_services",
+      description:
+        "Services running on a resource, with their status. Call this before restart_resource_service to get the exact service name.",
+      input_schema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "ID of the resource" },
+        },
+        required: ["id"],
+      },
+    },
+    isWrite: false,
+    category: "resources",
+    execute: async (input) => {
+      const { id } = input;
+      await connectDB();
+      const resource = await Resource.findById(id);
+      if (!resource) throw new Error("Resource not found");
+      const result = await getServicesList(resource);
+      // An unreachable host reports the reason rather than an empty list: the
+      // two are very different answers to "what is running here".
+      if (result.error) {
+        throw new Error(`${resource.name} is unreachable: ${result.error}`);
+      }
+      return { resource: resource.name, services: result.services };
+    },
+  },
+  {
+    schema: {
+      name: "run_resource_health_checks",
+      description:
+        "Run the health check across every active resource with an agent service and record the results. Normally the cron does this; call it to force a check now.",
+      input_schema: {
+        type: "object",
+        properties: {
+          force: {
+            type: "boolean",
+            description:
+              "Re-check resources checked recently too, instead of skipping them.",
+          },
+        },
+      },
+    },
+    isWrite: true,
+    category: "resources",
+    execute: async (input) => {
+      const results = await runAllHealthChecks(input.force === true);
+      return {
+        checked: results.length,
+        results: results.map((result) => ({
+          name: result.name,
+          status: result.status,
+          error: result.error,
+        })),
       };
     },
   },

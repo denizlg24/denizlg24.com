@@ -1,21 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getPiCronCredentials } from "@/lib/capabilities/picron";
-import { connectDB } from "@/lib/mongodb";
+import { getPiCronConnection as getConnection } from "@/lib/capabilities/picron";
 import { type PiCronJob, type PiCronJobInput, piCronFetch } from "@/lib/picron";
 import { requireAdmin } from "@/lib/require-admin";
-import { Resource } from "@/models/Resource";
-
-async function getConnection(resourceId: string, capId: string) {
-  await connectDB();
-  const resource = await Resource.findById(resourceId);
-  if (!resource) throw new Error("Resource not found");
-
-  const cap = resource.capabilities.id(capId);
-  if (cap?.type !== "picron") throw new Error("PiCron capability not found");
-
-  const { username, password } = getPiCronCredentials(cap);
-  return { baseUrl: cap.baseUrl, username, password, cacheKey: capId };
-}
 
 export async function PUT(
   request: NextRequest,

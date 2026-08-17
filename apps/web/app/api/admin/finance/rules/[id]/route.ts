@@ -2,11 +2,12 @@ import { financeRecurringRuleInputSchema } from "@repo/schemas";
 import mongoose from "mongoose";
 import { after, type NextRequest, NextResponse } from "next/server";
 import { serializeFinanceRecurringRule } from "@/lib/finance/dashboard";
-import { materializeRecurringFinanceEntries } from "@/lib/finance/ledger";
 import { observeFinanceMemorySafely } from "@/lib/finance/memory";
-import { connectDB } from "@/lib/mongodb";
+import {
+  deleteFinanceRecurringRule,
+  updateFinanceRecurringRule,
+} from "@/lib/finance/rules";
 import { requireAdmin } from "@/lib/require-admin";
-import { FinanceLedgerEntry, FinanceRecurringRule } from "@/models/Finance";
 
 type Context = { params: Promise<{ id: string }> };
 const updateSchema = financeRecurringRuleInputSchema.partial();
@@ -25,16 +26,10 @@ export async function PATCH(request: NextRequest, context: Context) {
       { status: 400 },
     );
   }
-  await connectDB();
-  const rule = await FinanceRecurringRule.findByIdAndUpdate(
-    id,
-    { $set: parsed.data },
-    { returnDocument: "after", runValidators: true },
-  );
+  const rule = await updateFinanceRecurringRule(id, parsed.data);
   if (!rule) {
     return NextResponse.json({ error: "Rule not found" }, { status: 404 });
   }
-  await materializeRecurringFinanceEntries();
   after(() => observeFinanceMemorySafely());
   return NextResponse.json({ rule: serializeFinanceRecurringRule(rule) });
 }
@@ -46,18 +41,10 @@ export async function DELETE(request: NextRequest, context: Context) {
   if (!mongoose.isValidObjectId(id)) {
     return NextResponse.json({ error: "Invalid rule" }, { status: 400 });
   }
-  await connectDB();
-  const rule = await FinanceRecurringRule.findByIdAndDelete(id);
+  const rule = await deleteFinanceRecurringRule(id);
   if (!rule) {
     return NextResponse.json({ error: "Rule not found" }, { status: 404 });
   }
-  await FinanceLedgerEntry.updateMany(
-    {
-      recurringRuleId: rule._id,
-      state: { $in: ["expected", "missed"] },
-    },
-    { $set: { state: "void" } },
-  );
   after(() => observeFinanceMemorySafely());
   return NextResponse.json({ success: true });
 }
