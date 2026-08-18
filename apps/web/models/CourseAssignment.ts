@@ -50,6 +50,12 @@ export interface ICourseAssignment extends Document {
   links: mongoose.Types.DocumentArray<ICourseAssignmentLink>;
   files: mongoose.Types.DocumentArray<ICourseAssignmentFile>;
   grade?: ICourseAssignmentGrade;
+  /**
+   * Set when triage accepted one course task into both the gradebook and a
+   * board. `buildDeadlines` drops the card this points at, so the assignment
+   * row is the single deadline for the pair.
+   */
+  kanbanCardId?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -113,6 +119,7 @@ const CourseAssignmentSchema = new Schema<ICourseAssignment>(
     links: { type: [AssignmentLinkSchema], default: [] },
     files: { type: [AssignmentFileSchema], default: [] },
     grade: { type: AssignmentGradeSchema },
+    kanbanCardId: { type: Schema.Types.ObjectId, ref: "KanbanCard" },
   },
   { timestamps: true },
 );

@@ -15,6 +15,7 @@ import {
   type CourseMatchCandidate,
   createCourseAssignment,
   getCoursesForMatching,
+  updateCourseAssignment,
   updateCourseDeadline,
 } from "@/lib/courses";
 import { type FetchedEmailBody, fetchEmailBodies } from "@/lib/email";
@@ -30,13 +31,13 @@ import {
   type TriagePriority,
 } from "@/models/EmailTriage";
 import { KanbanBoard } from "@/models/KanbanBoard";
-import type { KanbanPriority } from "@/models/KanbanCard";
 import { KanbanColumn } from "@/models/KanbanColumn";
 import {
   getOrCreateTriageSettings,
   type ICategoryRouting,
   type ITriageSettings,
   normalizeCategoryRouting,
+  normalizeCourseSenderDomains,
 } from "@/models/TriageSettings";
 
 const PRIORITIES: TriagePriority[] = [
@@ -246,6 +247,14 @@ function getStringOverride(
 ): string | undefined {
   const value = overrides?.[key];
   return typeof value === "string" ? value : undefined;
+}
+
+/** An owner-supplied priority, kept only when it is one of the real values. */
+function coercePriorityOverride(
+  overrides: Record<string, unknown> | undefined,
+): TriagePriority | undefined {
+  const value = getStringOverride(overrides, "priority");
+  return isTriagePriority(value) ? value : undefined;
 }
 
 function getDateOverride(
@@ -740,6 +749,67 @@ function normalizeForMatch(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function domainOf(address: string): string {
+  const at = address.lastIndexOf("@");
+  return at < 0
+    ? ""
+    : address
+        .slice(at + 1)
+        .trim()
+        .toLowerCase();
+}
+
+/**
+ * Whether this sender may match a course at all.
+ *
+ * Course matching used to be offered on every action-needed or scheduled
+ * email, so any newsletter that happened to contain a course's room name or a
+ * four-letter context value could put coursework in the semester overview.
+ * An empty allowlist keeps the old behaviour rather than silently disabling
+ * every match.
+ */
+export function isCourseEligibleSender(
+  from: TriageEmailContext["from"],
+  allowedDomains: string[],
+): boolean {
+  if (allowedDomains.length === 0) return true;
+
+  return from.some((sender) => {
+    const domain = domainOf(sender.address ?? "");
+    if (!domain) return false;
+    return allowedDomains.some(
+      (allowed) => domain === allowed || domain.endsWith(`.${allowed}`),
+    );
+  });
+}
+
+/**
+ * Substring matching would fire on a needle buried inside an unrelated word,
+ * which is how a course whose context value is "lab" claimed every email
+ * mentioning "collaborate".
+ */
+function containsPhrase(haystack: string, needle: string): boolean {
+  if (!needle) return false;
+  let from = 0;
+  while (true) {
+    const at = haystack.indexOf(needle, from);
+    if (at < 0) return false;
+    const before = at === 0 ? "" : haystack[at - 1];
+    const after = haystack[at + needle.length] ?? "";
+    if (!/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after)) return true;
+    from = at + 1;
+  }
+}
+
+/**
+ * Matches an email to a course on signals strong enough to stand alone.
+ *
+ * Only the course code is trusted against the body — it is unique to one
+ * course and rarely appears by accident. An instructor name or an owner-written
+ * triage context value has to appear in the subject or the sender, because a
+ * long thread quotes half the inbox and body matches on those turned ordinary
+ * mail into coursework.
+ */
 export function matchCourseDeterministic(
   email: TriageEmailContext,
   targets: CourseTarget[],
@@ -757,10 +827,10 @@ export function matchCourseDeterministic(
       const codeCompact = code.replace(/\s+/g, "");
       if (
         codeCompact.length >= 3 &&
-        (subject.includes(code) ||
-          subjectCompact.includes(codeCompact) ||
-          bodyText.includes(code) ||
-          bodyCompact.includes(codeCompact))
+        (containsPhrase(subject, code) ||
+          containsPhrase(subjectCompact, codeCompact) ||
+          containsPhrase(bodyText, code) ||
+          containsPhrase(bodyCompact, codeCompact))
       ) {
         return target;
       }
@@ -769,9 +839,8 @@ export function matchCourseDeterministic(
       const instructor = normalizeForMatch(target.instructorName);
       if (
         instructor.length >= 4 &&
-        (fromText.includes(instructor) ||
-          subject.includes(instructor) ||
-          bodyText.includes(instructor))
+        (containsPhrase(fromText, instructor) ||
+          containsPhrase(subject, instructor))
       ) {
         return target;
       }
@@ -781,10 +850,9 @@ export function matchCourseDeterministic(
       const compactValue = value.replace(/\s+/g, "");
       if (
         compactValue.length >= 4 &&
-        (subject.includes(value) ||
-          subjectCompact.includes(compactValue) ||
-          bodyText.includes(value) ||
-          bodyCompact.includes(compactValue))
+        (containsPhrase(subject, value) ||
+          containsPhrase(subjectCompact, compactValue) ||
+          containsPhrase(fromText, value))
       ) {
         return target;
       }
@@ -1134,15 +1202,25 @@ export async function deriveTriageArtifacts({
   classification: initialClassification,
   settings,
   kanbanTargets,
-  courseTargets,
+  courseTargets: allCourseTargets,
 }: {
   email: TriageEmailContext;
   body: FetchedEmailBody;
   classification: ClassificationResult;
-  settings: Pick<ITriageSettings, "fullModel">;
+  settings: Pick<ITriageSettings, "fullModel" | "courseSenderDomains">;
   kanbanTargets: CompactKanbanTarget[];
   courseTargets: CourseTarget[];
 }): Promise<DerivedTriageArtifacts> {
+  // Withholding the targets is what disables course routing, not a flag read
+  // later: with an empty list the extraction tool carries no courseKey,
+  // updatesDeadlineKey or assignmentType at all, so the model cannot name a
+  // course however much the body sounds like one.
+  const courseTargets = isCourseEligibleSender(
+    email.from,
+    normalizeCourseSenderDomains(settings.courseSenderDomains),
+  )
+    ? allCourseTargets
+    : [];
   const classification = { ...initialClassification };
   let bodyForExtraction: FetchedEmailBody = {
     ...body,
@@ -1252,12 +1330,75 @@ export async function deriveTriageArtifacts({
   };
 }
 
+/**
+ * Accepts one coursework task into both places it belongs: the gradebook
+ * record that carries its type and grade, and a card on the board where work
+ * actually moves. The assignment stores the card id, and `buildDeadlines`
+ * reads that to drop the card, so the pair is one row on the deadline radar
+ * rather than two.
+ *
+ * The card is best-effort. A gradebook entry with no card is a smaller loss
+ * than refusing an assignment the owner just accepted.
+ */
+async function acceptCourseAssignmentTask(
+  courseId: string,
+  task: {
+    title: string;
+    description?: string;
+    priority?: TriagePriority;
+    dueAt?: string;
+    dueHasTime?: boolean;
+    assignmentType: CourseAssignmentType;
+    kanbanBoardId?: string;
+    kanbanColumnId?: string;
+  },
+): Promise<{ assignmentId: string; cardId?: string } | null> {
+  const assignment = await createCourseAssignment(courseId, {
+    title: task.title,
+    type: task.assignmentType,
+    status: task.dueAt ? "planned" : "in-progress",
+    dueAt: task.dueAt,
+    notes: task.description,
+  });
+  if (!assignment) return null;
+
+  if (!task.kanbanBoardId || !task.kanbanColumnId) {
+    return { assignmentId: assignment._id };
+  }
+
+  try {
+    const card = await createCard(task.kanbanBoardId, task.kanbanColumnId, {
+      title: task.title,
+      description: task.description,
+      priority: task.priority,
+      dueDate: task.dueAt,
+      hasDueTime: task.dueHasTime,
+      courseIds: [courseId],
+    });
+    await updateCourseAssignment(courseId, assignment._id, {
+      kanbanCardId: card._id,
+    });
+    return { assignmentId: assignment._id, cardId: card._id };
+  } catch (err) {
+    console.error("course assignment card mirror failed:", err);
+    return { assignmentId: assignment._id };
+  }
+}
+
 export async function autoAccept(
   triageId: mongoose.Types.ObjectId,
   result: FullTriageResult,
   routing: ICategoryRouting,
 ): Promise<{ tasks: number; events: number }> {
-  const confOk = result.confidence >= routing.autoAcceptThreshold;
+  // The one gate over everything this function writes. It used to cover the
+  // kanban branch alone, so a category switched off still filled the semester
+  // with assignments, deadlines and calendar events.
+  if (!routing.autoAccept) return { tasks: 0, events: 0 };
+
+  if (result.confidence < routing.autoAcceptThreshold) {
+    return { tasks: 0, events: 0 };
+  }
+
   let taskCount = 0;
   let eventCount = 0;
 
@@ -1266,7 +1407,6 @@ export async function autoAccept(
 
     // Update to an existing course deadline (e.g. a deadline was extended).
     if (task.updatesCourseDeadlineId && task.courseId) {
-      if (!confOk) continue;
       try {
         const updated = await updateCourseDeadline(
           task.courseId,
@@ -1291,23 +1431,31 @@ export async function autoAccept(
     }
 
     if (task.assignmentType && task.courseId) {
-      if (!confOk) continue;
       try {
-        const assignment = await createCourseAssignment(task.courseId, {
+        const accepted = await acceptCourseAssignmentTask(task.courseId, {
           title: task.title,
-          type: task.assignmentType,
-          status: task.dueDate ? "planned" : "in-progress",
+          description: task.description,
+          priority: task.priority,
           dueAt: task.dueDate ? task.dueDate.toISOString() : undefined,
-          notes: task.description,
+          dueHasTime: task.dueHasTime,
+          assignmentType: task.assignmentType,
+          kanbanBoardId: task.kanbanBoardId,
+          kanbanColumnId: task.kanbanColumnId,
         });
-        if (assignment) {
+        if (accepted) {
           await EmailTriageModel.updateOne(
             { _id: triageId },
             {
               $set: {
                 [`suggestedTasks.${index}.status`]: "accepted",
                 [`suggestedTasks.${index}.acceptedAssignmentId`]:
-                  assignment._id,
+                  accepted.assignmentId,
+                ...(accepted.cardId
+                  ? {
+                      [`suggestedTasks.${index}.acceptedCardId`]:
+                        accepted.cardId,
+                    }
+                  : {}),
               },
             },
           );
@@ -1319,7 +1467,6 @@ export async function autoAccept(
       continue;
     }
 
-    if (!routing.autoCreateCard || !confOk) continue;
     if (!task.kanbanBoardId || !task.kanbanColumnId) continue;
 
     try {
@@ -1360,7 +1507,6 @@ export async function autoAccept(
 
   for (let index = 0; index < result.events.length; index++) {
     const event = result.events[index];
-    if (!confOk) continue;
 
     // Update to an existing course event (e.g. a meeting was rescheduled).
     if (event.updatesCalendarEventId) {
@@ -2084,28 +2230,41 @@ async function applyAcceptance(
       return { ok: true, acceptedId: task.updatesCourseDeadlineId.toString() };
     }
 
+    const priorityOverride = coercePriorityOverride(overrides);
+
     if (task.assignmentType && task.courseId) {
-      const assignment = await createCourseAssignment(
+      const accepted = await acceptCourseAssignmentTask(
         task.courseId.toString(),
         {
           title: getStringOverride(overrides, "title") ?? task.title,
-          type: task.assignmentType,
-          status: task.dueDate ? "planned" : "in-progress",
+          description:
+            getStringOverride(overrides, "description") ?? task.description,
+          priority: priorityOverride ?? task.priority,
           dueAt:
             getStringOverride(overrides, "dueDate") ??
             (task.dueDate ? task.dueDate.toISOString() : undefined),
-          notes:
-            getStringOverride(overrides, "description") ?? task.description,
+          dueHasTime: task.dueHasTime,
+          assignmentType: task.assignmentType,
+          kanbanBoardId:
+            getStringOverride(overrides, "boardId") ??
+            task.kanbanBoardId?.toString(),
+          kanbanColumnId:
+            getStringOverride(overrides, "columnId") ??
+            task.kanbanColumnId?.toString(),
         },
       );
-      if (!assignment) {
+      if (!accepted) {
         return { ok: false, error: "Failed to create course assignment" };
       }
       triage.suggestedTasks[index].status = "accepted";
       triage.suggestedTasks[index].acceptedAssignmentId =
-        new mongoose.Types.ObjectId(assignment._id);
+        new mongoose.Types.ObjectId(accepted.assignmentId);
+      if (accepted.cardId) {
+        triage.suggestedTasks[index].acceptedCardId =
+          new mongoose.Types.ObjectId(accepted.cardId);
+      }
       await triage.save();
-      return { ok: true, acceptedId: assignment._id };
+      return { ok: true, acceptedId: accepted.assignmentId };
     }
 
     // A suggestion can reach here with no board: extraction used to be run
@@ -2156,9 +2315,7 @@ async function applyAcceptance(
       title: getStringOverride(overrides, "title") ?? task.title,
       description:
         getStringOverride(overrides, "description") ?? task.description,
-      priority: (getStringOverride(overrides, "priority") ?? task.priority) as
-        | KanbanPriority
-        | undefined,
+      priority: priorityOverride ?? task.priority,
       dueDate:
         getStringOverride(overrides, "dueDate") ??
         (task.dueDate ? task.dueDate.toISOString() : undefined),

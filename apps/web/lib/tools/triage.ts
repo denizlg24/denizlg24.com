@@ -5,6 +5,7 @@ import { EmailTriageModel } from "@/models/EmailTriage";
 import {
   getOrCreateTriageSettings,
   normalizeCategoryRouting,
+  normalizeCourseSenderDomains,
 } from "@/models/TriageSettings";
 import type { ToolDefinition } from "./types";
 
@@ -232,6 +233,9 @@ export const triageTools: ToolDefinition[] = [
         classificationConfidenceThreshold:
           settings.classificationConfidenceThreshold ?? 0.8,
         categoryRouting: normalizeCategoryRouting(settings.categoryRouting),
+        courseSenderDomains: normalizeCourseSenderDomains(
+          settings.courseSenderDomains,
+        ),
       };
     },
   },
@@ -270,7 +274,13 @@ export const triageTools: ToolDefinition[] = [
           categoryRouting: {
             type: "object",
             description:
-              'Per-category routing, e.g. {"action-needed":{"autoCreateCard":true,"autoAcceptThreshold":0.9}}. Categories: spam, newsletter, promo, purchases, fyi, action-needed, scheduled.',
+              'Per-category routing, e.g. {"action-needed":{"autoAccept":true,"autoAcceptThreshold":0.9}}. autoAccept gates every artifact triage writes on its own for that category — cards, course assignments, deadlines and events. Categories: spam, newsletter, promo, purchases, fyi, action-needed, scheduled.',
+          },
+          courseSenderDomains: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Sender domains whose mail may match a course; subdomains count. An empty list makes every sender eligible.",
           },
         },
       },
@@ -304,6 +314,14 @@ export const triageTools: ToolDefinition[] = [
         }
         update.classificationConfidenceThreshold = value;
       }
+      if (input.courseSenderDomains !== undefined) {
+        if (!Array.isArray(input.courseSenderDomains)) {
+          throw new Error("courseSenderDomains must be an array of domains");
+        }
+        update.courseSenderDomains = normalizeCourseSenderDomains(
+          input.courseSenderDomains,
+        );
+      }
       if (input.categoryRouting !== undefined) {
         const routing = normalizeCategoryRouting(input.categoryRouting);
         // Merged over the current routing rather than replacing it: naming one
@@ -334,6 +352,9 @@ export const triageTools: ToolDefinition[] = [
       return {
         ...saved,
         categoryRouting: normalizeCategoryRouting(saved.categoryRouting),
+        courseSenderDomains: normalizeCourseSenderDomains(
+          saved.courseSenderDomains,
+        ),
       };
     },
   },
