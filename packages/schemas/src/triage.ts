@@ -148,7 +148,8 @@ export const triageDetailResponseSchema = z.object({
 export type TriageDetailResponse = z.infer<typeof triageDetailResponseSchema>;
 
 export const triageCategoryRoutingSchema = z.object({
-  autoCreateCard: z.boolean(),
+  /** Master gate: off means triage proposes and writes nothing on its own. */
+  autoAccept: z.boolean(),
   autoAcceptThreshold: z.number(),
 });
 export type ITriageCategoryRouting = z.infer<
@@ -163,6 +164,8 @@ export const triageSettingsSchema = z.object({
   fullModel: z.string(),
   classificationConfidenceThreshold: z.number().min(0).max(1),
   categoryRouting: z.record(triageCategorySchema, triageCategoryRoutingSchema),
+  /** Sender domains eligible to match a course; subdomains match too. */
+  courseSenderDomains: z.array(z.string()),
   lastRunAt: z.string().optional(),
 });
 export type ITriageSettings = z.infer<typeof triageSettingsSchema>;

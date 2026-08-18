@@ -11,6 +11,7 @@ import { Skeleton } from "@repo/ui/skeleton";
 import { Slider } from "@repo/ui/slider";
 import { Switch } from "@repo/ui/switch";
 import { cn } from "@repo/ui/utils";
+import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useModelCatalog } from "../../llm/model-select";
@@ -24,7 +25,7 @@ import { RequiredSettingsModelPicker } from "../settings-model-picker";
 import { SettingsGroup, SettingsRow } from "../settings-shell";
 
 const DEFAULT_ROUTING: ITriageCategoryRouting = {
-  autoCreateCard: false,
+  autoAccept: false,
   autoAcceptThreshold: 0.85,
 };
 
@@ -36,6 +37,7 @@ type TriagePatch = Partial<
     | "fullModel"
     | "classificationConfidenceThreshold"
     | "categoryRouting"
+    | "courseSenderDomains"
   >
 >;
 
@@ -68,7 +70,7 @@ function RoutingRow({
           min={0.5}
           max={1}
           step={0.05}
-          disabled={!routing.autoCreateCard}
+          disabled={!routing.autoAccept}
           value={[routing.autoAcceptThreshold]}
           aria-label={`${CATEGORY_LABELS[category]} auto-accept threshold`}
           onValueChange={([value]) =>
@@ -81,9 +83,7 @@ function RoutingRow({
         <span
           className={cn(
             "w-9 shrink-0 text-right text-[11px] tabular-nums",
-            routing.autoCreateCard
-              ? "text-foreground"
-              : "text-muted-foreground/50",
+            routing.autoAccept ? "text-foreground" : "text-muted-foreground/50",
           )}
         >
           {(routing.autoAcceptThreshold * 100).toFixed(0)}%
@@ -91,9 +91,76 @@ function RoutingRow({
       </div>
 
       <Switch
-        checked={routing.autoCreateCard}
-        aria-label={`Auto-create cards for ${CATEGORY_LABELS[category]}`}
-        onCheckedChange={(value) => onCommit({ autoCreateCard: value })}
+        checked={routing.autoAccept}
+        aria-label={`Auto-accept ${CATEGORY_LABELS[category]}`}
+        onCheckedChange={(value) => onCommit({ autoAccept: value })}
+      />
+    </div>
+  );
+}
+
+/**
+ * The sender allowlist that decides which mail may match a course at all. A
+ * subdomain of a listed domain counts, so `dtu.dk` also admits
+ * `student.dtu.dk`. Empty means every sender is eligible.
+ */
+function CourseSenderDomains({
+  domains,
+  onChange,
+}: {
+  domains: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const add = () => {
+    const domain = draft
+      .trim()
+      .toLowerCase()
+      .replace(/^[@.]+/, "");
+    setDraft("");
+    if (!domain.includes(".") || domains.includes(domain)) return;
+    onChange([...domains, domain]);
+  };
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {domains.map((domain) => (
+          <span
+            key={domain}
+            className="inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[11px]"
+          >
+            {domain}
+            <button
+              type="button"
+              aria-label={`Remove ${domain}`}
+              className="text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() =>
+                onChange(domains.filter((entry) => entry !== domain))
+              }
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+        ))}
+        {domains.length === 0 && (
+          <span className="text-[11px] text-muted-foreground">any sender</span>
+        )}
+      </div>
+      <Input
+        value={draft}
+        placeholder="dtu.dk"
+        aria-label="Add course sender domain"
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={add}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            add();
+          }
+        }}
+        className="h-8 max-w-xs text-xs"
       />
     </div>
   );
@@ -289,6 +356,13 @@ export function TriageSection() {
             value !== undefined &&
             void commit({ classificationConfidenceThreshold: value })
           }
+        />
+      </SettingsGroup>
+
+      <SettingsGroup label="Course senders">
+        <CourseSenderDomains
+          domains={data.courseSenderDomains}
+          onChange={(next) => void commit({ courseSenderDomains: next })}
         />
       </SettingsGroup>
 

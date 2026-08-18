@@ -391,6 +391,9 @@ function serializeCourseAssignment(
     links: serializeAssignmentLinks(assignment.links),
     files: serializeAssignmentFiles(assignment.files),
     grade: serializeAssignmentGrade(assignment.grade),
+    kanbanCardId: assignment.kanbanCardId
+      ? toId(assignment.kanbanCardId)
+      : undefined,
     createdAt,
     updatedAt,
   };
@@ -453,6 +456,12 @@ function normalizeAssignmentMutation(data: CourseAssignmentMutationInput) {
   }
 
   if ("notes" in data) update.notes = cleanString(data.notes) ?? "";
+  if ("kanbanCardId" in data) {
+    const cardId = cleanString(data.kanbanCardId);
+    if (cardId && mongoose.Types.ObjectId.isValid(cardId)) {
+      update.kanbanCardId = new mongoose.Types.ObjectId(cardId);
+    }
+  }
   if ("links" in data) update.links = normalizeAssignmentLinks(data.links);
   if ("files" in data) update.files = normalizeAssignmentFiles(data.files);
   if ("grade" in data) update.grade = normalizeAssignmentGrade(data.grade);
@@ -584,8 +593,18 @@ function buildDeadlines(
       };
     });
 
+  // A course task accepted from triage writes both an assignment and a card on
+  // the course board. The assignment row carries the type and the grade, so it
+  // is the one that survives; without this the radar lists the same deadline
+  // twice.
+  const mirroredCardIds = new Set(
+    assignments
+      .map((assignment) => assignment.kanbanCardId)
+      .filter((cardId): cardId is string => Boolean(cardId)),
+  );
+
   const kanban = kanbanCards
-    .filter((card) => Boolean(card.dueDate))
+    .filter((card) => Boolean(card.dueDate) && !mirroredCardIds.has(card._id))
     .map((card) => {
       const dueAt = card.dueDate ?? new Date().toISOString();
       return {

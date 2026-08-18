@@ -6,6 +6,7 @@ import {
   getOrCreateTriageSettings,
   type ICategoryRouting,
   normalizeCategoryRouting,
+  normalizeCourseSenderDomains,
   TriageSettingsModel,
 } from "@/models/TriageSettings";
 
@@ -27,7 +28,7 @@ function isCategoryRouting(value: unknown): value is ICategoryRouting {
   if (!isRecord(value)) return false;
 
   return (
-    typeof value.autoCreateCard === "boolean" &&
+    typeof value.autoAccept === "boolean" &&
     typeof value.autoAcceptThreshold === "number" &&
     Number.isFinite(value.autoAcceptThreshold)
   );
@@ -48,7 +49,7 @@ function parseCategoryRouting(
     }
 
     next[category] = {
-      autoCreateCard: entry.autoCreateCard,
+      autoAccept: entry.autoAccept,
       autoAcceptThreshold: entry.autoAcceptThreshold,
     };
     hasEntries = true;
@@ -71,6 +72,9 @@ export async function GET(request: NextRequest) {
       classificationConfidenceThreshold:
         settingsObject.classificationConfidenceThreshold ?? 0.8,
       categoryRouting: normalizeCategoryRouting(settingsObject.categoryRouting),
+      courseSenderDomains: normalizeCourseSenderDomains(
+        settingsObject.courseSenderDomains,
+      ),
     },
   });
 }
@@ -106,6 +110,12 @@ export async function PATCH(request: NextRequest) {
       payload.classificationConfidenceThreshold;
   }
 
+  if (Array.isArray(payload.courseSenderDomains)) {
+    update.courseSenderDomains = normalizeCourseSenderDomains(
+      payload.courseSenderDomains,
+    );
+  }
+
   const categoryRouting = parseCategoryRouting(payload.categoryRouting);
   if (categoryRouting) {
     update.categoryRouting = {
@@ -134,6 +144,9 @@ export async function PATCH(request: NextRequest) {
             updatedObject.classificationConfidenceThreshold ?? 0.8,
           categoryRouting: normalizeCategoryRouting(
             updatedObject.categoryRouting,
+          ),
+          courseSenderDomains: normalizeCourseSenderDomains(
+            updatedObject.courseSenderDomains,
           ),
         }
       : null,

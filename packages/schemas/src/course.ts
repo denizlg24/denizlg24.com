@@ -101,6 +101,12 @@ export const courseAssignmentSchema = z.object({
   links: z.array(courseAssignmentLinkSchema),
   files: z.array(courseAssignmentFileSchema),
   grade: courseAssignmentGradeSchema.optional(),
+  /**
+   * The kanban card mirroring this assignment, when triage accepted a course
+   * task into both places. The deadline builder suppresses that card so the
+   * radar shows one row, not two.
+   */
+  kanbanCardId: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
