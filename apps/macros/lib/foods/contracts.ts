@@ -1,26 +1,26 @@
-import { z } from "zod"
+import { z } from "zod";
 
-import { isNutrientKey } from "@/lib/foods/nutrients"
+import { isNutrientKey } from "@/lib/foods/nutrients";
 
-const numericValueSchema = z.union([z.number(), z.string()]).transform(Number)
+const numericValueSchema = z.union([z.number(), z.string()]).transform(Number);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function collectNutrients(record: Record<string, unknown>) {
-  const nutrients: Record<string, number> = {}
+  const nutrients: Record<string, number> = {};
 
   for (const [key, value] of Object.entries(record)) {
     if (
       isNutrientKey(key) &&
       (typeof value === "number" || typeof value === "string")
     ) {
-      nutrients[key] = Number(value)
+      nutrients[key] = Number(value);
     }
   }
 
-  return nutrients
+  return nutrients;
 }
 
 export const foodSearchParamsSchema = z.object({
@@ -29,7 +29,7 @@ export const foodSearchParamsSchema = z.object({
   lang: z.enum(["english", "portuguese", "spanish", "french"]).optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   minScore: z.coerce.number().min(0).optional(),
-})
+});
 
 export const externalFoodSummarySchema = z.object({
   id: z.uuid(),
@@ -45,7 +45,7 @@ export const externalFoodSummarySchema = z.object({
   updatedAt: z.string().optional(),
   rank: numericValueSchema.optional(),
   score: numericValueSchema.optional(),
-})
+});
 
 const passthroughNutritionSchema = z
   .object({
@@ -59,43 +59,43 @@ const passthroughNutritionSchema = z
   })
   .passthrough()
   .transform((nutrition, ctx) => {
-    const servingQuantity = nutrition.servingQuantity ?? nutrition.servingQnty
+    const servingQuantity = nutrition.servingQuantity ?? nutrition.servingQnty;
 
     if (servingQuantity === undefined) {
       ctx.addIssue({
         code: "custom",
         message: "servingQuantity is required",
-      })
-      return z.NEVER
+      });
+      return z.NEVER;
     }
 
-    const nutrients = collectNutrients(nutrition)
-    const nestedNutrients = nutrition.nutrients
+    const nutrients = collectNutrients(nutrition);
+    const nestedNutrients = nutrition.nutrients;
 
     if (isRecord(nestedNutrients)) {
-      Object.assign(nutrients, collectNutrients(nestedNutrients))
+      Object.assign(nutrients, collectNutrients(nestedNutrients));
     }
 
     return {
       ...nutrition,
       servingQuantity,
       nutrients,
-    }
-  })
+    };
+  });
 
-export const externalFoodNutritionSchema = passthroughNutritionSchema
+export const externalFoodNutritionSchema = passthroughNutritionSchema;
 
 export const externalSearchResponseSchema = z.object({
   success: z.literal(true),
   data: z.array(externalFoodSummarySchema),
   requestId: z.string().optional(),
-})
+});
 
 export const externalSummaryResponseSchema = z.object({
   success: z.literal(true),
   data: externalFoodSummarySchema,
   requestId: z.string().optional(),
-})
+});
 
 export const externalCreateResponseSchema = z.object({
   success: z.literal(true),
@@ -104,33 +104,33 @@ export const externalCreateResponseSchema = z.object({
     nutrition: externalFoodNutritionSchema,
   }),
   requestId: z.string().optional(),
-})
+});
 
 export const externalNutritionResponseSchema = z.object({
   success: z.literal(true),
   data: externalFoodNutritionSchema,
   requestId: z.string().optional(),
-})
+});
 
 export const foodHistoryQuerySchema = z.object({
   at: z.coerce.number().int().min(0).max(23).optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
-})
+});
 
 export const foodRevalidateBodySchema = z.object({
   itemIds: z.array(z.uuid()).min(1).max(50),
-})
+});
 
 const nutrientAmountSchema = z
   .union([z.number(), z.string()])
   .transform(Number)
-  .pipe(z.number().min(0).finite())
+  .pipe(z.number().min(0).finite());
 
 export const createFoodServingSizeSchema = z.object({
   label: z.string().trim().min(1).max(80),
   quantity: z.coerce.number().positive().max(999_999),
   unit: z.string().trim().min(1).max(24),
-})
+});
 
 export const createFoodBodySchema = z.object({
   clientMutationId: z.uuid().optional(),
@@ -148,14 +148,14 @@ export const createFoodBodySchema = z.object({
     .refine((nutrients) => Object.keys(nutrients).every(isNutrientKey), {
       message: "Unknown nutrient key",
     }),
-})
+});
 
 export const updateFoodBodySchema = createFoodBodySchema.omit({
   clientMutationId: true,
   barcode: true,
-})
+});
 
-export const mealTypeSchema = z.enum(["breakfast", "lunch", "dinner", "snack"])
+export const mealTypeSchema = z.enum(["breakfast", "lunch", "dinner", "snack"]);
 
 export const foodSearchItemSchema = z.object({
   id: z.uuid(),
@@ -171,7 +171,7 @@ export const foodSearchItemSchema = z.object({
   rank: z.number().nullable(),
   score: z.number().nullable(),
   isUserFood: z.boolean().default(false),
-})
+});
 
 export const foodHistoryItemSchema = foodSearchItemSchema.extend({
   localFoodId: z.uuid(),
@@ -183,17 +183,17 @@ export const foodHistoryItemSchema = foodSearchItemSchema.extend({
   lastServingQuantity: z.number(),
   lastServingUnit: z.string(),
   lastServingLabel: z.string().nullable(),
-})
+});
 
 export const foodSearchResponseSchema = z.object({
   items: z.array(foodSearchItemSchema),
   fetchedAt: z.string(),
-})
+});
 
 export const foodHistoryResponseSchema = z.object({
   items: z.array(foodHistoryItemSchema),
   fetchedAt: z.string(),
-})
+});
 
 export const foodRevalidateResponseSchema = z.object({
   items: z.array(
@@ -202,10 +202,10 @@ export const foodRevalidateResponseSchema = z.object({
       localFoodId: z.uuid(),
       snapshotId: z.uuid(),
       createdSnapshot: z.boolean(),
-    })
+    }),
   ),
   fetchedAt: z.string(),
-})
+});
 
 export const createFoodResponseSchema = z.object({
   clientMutationId: z.uuid().optional(),
@@ -214,7 +214,7 @@ export const createFoodResponseSchema = z.object({
   localFoodId: z.uuid(),
   snapshotId: z.uuid(),
   fetchedAt: z.string(),
-})
+});
 
 export const foodMutationResponseSchema = z.object({
   item: foodSearchItemSchema,
@@ -222,12 +222,12 @@ export const foodMutationResponseSchema = z.object({
   localFoodId: z.uuid().optional(),
   snapshotId: z.uuid().optional(),
   fetchedAt: z.string(),
-})
+});
 
 export const userCustomFoodsResponseSchema = z.object({
   items: z.array(foodSearchItemSchema),
   fetchedAt: z.string(),
-})
+});
 
 export const logFoodBodySchema = z.object({
   clientMutationId: z.uuid().optional(),
@@ -237,7 +237,7 @@ export const logFoodBodySchema = z.object({
   logDate: z.iso.date().optional(),
   mealType: mealTypeSchema.optional(),
   notes: z.string().trim().max(500).optional(),
-})
+});
 
 export const logFoodResponseSchema = z.object({
   entry: z.object({
@@ -255,31 +255,31 @@ export const logFoodResponseSchema = z.object({
     carbs: z.number(),
     fat: z.number(),
   }),
-})
+});
 
-export type FoodSearchItem = z.infer<typeof foodSearchItemSchema>
+export type FoodSearchItem = z.infer<typeof foodSearchItemSchema>;
 
-export type FoodHistoryItem = z.infer<typeof foodHistoryItemSchema>
+export type FoodHistoryItem = z.infer<typeof foodHistoryItemSchema>;
 
 export interface LogFoodResult {
-  entryId: string
-  clientMutationId?: string
-  foodId: string
-  snapshotId: string
-  logDate: string
-  eatenAt: string
-  mealType: z.infer<typeof mealTypeSchema>
+  entryId: string;
+  clientMutationId?: string;
+  foodId: string;
+  snapshotId: string;
+  logDate: string;
+  eatenAt: string;
+  mealType: z.infer<typeof mealTypeSchema>;
   totals: {
-    calories: number
-    protein: number
-    carbs: number
-    fat: number
-  }
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
 }
 
-export type FoodSearchParams = z.infer<typeof foodSearchParamsSchema>
-export type ExternalFoodSummary = z.infer<typeof externalFoodSummarySchema>
-export type ExternalFoodNutrition = z.infer<typeof externalFoodNutritionSchema>
-export type CreateFoodInput = z.infer<typeof createFoodBodySchema>
-export type UpdateFoodInput = z.infer<typeof updateFoodBodySchema>
-export type LogFoodInput = z.infer<typeof logFoodBodySchema>
+export type FoodSearchParams = z.infer<typeof foodSearchParamsSchema>;
+export type ExternalFoodSummary = z.infer<typeof externalFoodSummarySchema>;
+export type ExternalFoodNutrition = z.infer<typeof externalFoodNutritionSchema>;
+export type CreateFoodInput = z.infer<typeof createFoodBodySchema>;
+export type UpdateFoodInput = z.infer<typeof updateFoodBodySchema>;
+export type LogFoodInput = z.infer<typeof logFoodBodySchema>;

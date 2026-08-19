@@ -1,13 +1,13 @@
-import { nutrientDefinitionSeed } from "@/db/schema"
+import { nutrientDefinitionSeed } from "@/db/schema";
 
-export type NutrientKey = (typeof nutrientDefinitionSeed)[number]
+export type NutrientKey = (typeof nutrientDefinitionSeed)[number];
 
 export interface NutrientDefinitionInput {
-  key: NutrientKey
-  label: string
-  group: string
-  unit: string
-  sortOrder: number
+  key: NutrientKey;
+  label: string;
+  group: string;
+  unit: string;
+  sortOrder: number;
 }
 
 const labels: Record<NutrientKey, string> = {
@@ -66,7 +66,7 @@ const labels: Record<NutrientKey, string> = {
   selenium: "Selenium",
   sodium: "Sodium",
   zinc: "Zinc",
-}
+};
 
 const macroKeys = new Set<NutrientKey>([
   "calories",
@@ -88,7 +88,7 @@ const macroKeys = new Set<NutrientKey>([
   "saturated",
   "transFat",
   "protein",
-])
+]);
 
 const vitaminKeys = new Set<NutrientKey>([
   "a",
@@ -103,7 +103,7 @@ const vitaminKeys = new Set<NutrientKey>([
   "e",
   "k",
   "folate",
-])
+]);
 
 const gramKeys = new Set<NutrientKey>([
   "water",
@@ -135,7 +135,7 @@ const gramKeys = new Set<NutrientKey>([
   "tryptophan",
   "tyrosine",
   "valine",
-])
+]);
 
 const mcgKeys = new Set<NutrientKey>([
   "a",
@@ -144,14 +144,14 @@ const mcgKeys = new Set<NutrientKey>([
   "k",
   "folate",
   "selenium",
-])
+]);
 
 function getNutrientGroup(key: NutrientKey) {
   if (macroKeys.has(key)) {
-    return "macro"
+    return "macro";
   }
   if (vitaminKeys.has(key)) {
-    return "vitamin"
+    return "vitamin";
   }
   if (
     key === "cysteine" ||
@@ -166,22 +166,22 @@ function getNutrientGroup(key: NutrientKey) {
     key === "tyrosine" ||
     key === "valine"
   ) {
-    return "amino_acid"
+    return "amino_acid";
   }
-  return "mineral"
+  return "mineral";
 }
 
 function getNutrientUnit(key: NutrientKey) {
   if (key === "calories") {
-    return "kcal"
+    return "kcal";
   }
   if (gramKeys.has(key)) {
-    return "g"
+    return "g";
   }
   if (mcgKeys.has(key)) {
-    return "mcg"
+    return "mcg";
   }
-  return "mg"
+  return "mg";
 }
 
 export const nutrientDefinitionsInput: NutrientDefinitionInput[] =
@@ -191,8 +191,8 @@ export const nutrientDefinitionsInput: NutrientDefinitionInput[] =
     group: getNutrientGroup(key),
     unit: getNutrientUnit(key),
     sortOrder,
-  }))
+  }));
 
 export function isNutrientKey(key: string): key is NutrientKey {
-  return nutrientDefinitionSeed.includes(key as NutrientKey)
+  return nutrientDefinitionSeed.includes(key as NutrientKey);
 }

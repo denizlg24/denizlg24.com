@@ -1,70 +1,70 @@
-import { and, asc, eq } from "drizzle-orm"
+import { and, asc, eq } from "drizzle-orm";
 
-import { db } from "@/db/connection"
+import { db } from "@/db/connection";
 import {
   dailyNutritionSummaries,
   foodLogEntries,
   foodLogEntryNutrients,
   nutritionPlans,
   userProfiles,
-} from "@/db/schema"
+} from "@/db/schema";
 
 export interface FoodLogEntry {
-  id: string
-  logDate: string
-  eatenAt: string | null
-  mealType: "breakfast" | "lunch" | "dinner" | "snack"
-  entryType: "food" | "recipe" | "quick_add"
-  foodId: string | null
-  recipeId: string | null
-  foodName: string
-  brand: string | null
-  servingLabel: string | null
-  servingQuantity: number
-  servingUnit: string
-  servingsConsumed: number
-  notes: string | null
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
+  id: string;
+  logDate: string;
+  eatenAt: string | null;
+  mealType: "breakfast" | "lunch" | "dinner" | "snack";
+  entryType: "food" | "recipe" | "quick_add";
+  foodId: string | null;
+  recipeId: string | null;
+  foodName: string;
+  brand: string | null;
+  servingLabel: string | null;
+  servingQuantity: number;
+  servingUnit: string;
+  servingsConsumed: number;
+  notes: string | null;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
 }
 
 export interface FoodLogDayMacros {
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
 }
 
 export interface FoodLogDayTargets {
-  calories: number | null
-  protein: number | null
-  carbs: number | null
-  fat: number | null
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
 }
 
 export interface FoodLogDayPayload {
-  date: string
-  timezone: string
-  entries: FoodLogEntry[]
-  totals: FoodLogDayMacros
-  targets: FoodLogDayTargets
+  date: string;
+  timezone: string;
+  entries: FoodLogEntry[];
+  totals: FoodLogDayMacros;
+  targets: FoodLogDayTargets;
 }
 
 export function toIsoDate(date: Date, timezone: string): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(date)
+  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(date);
 }
 
 export async function getFoodLogDay(
   userId: string,
-  date: string
+  date: string,
 ): Promise<FoodLogDayPayload> {
   const profile = await db.query.userProfiles.findFirst({
     where: eq(userProfiles.userId, userId),
     columns: { timezone: true },
-  })
-  const timezone = profile?.timezone ?? "UTC"
+  });
+  const timezone = profile?.timezone ?? "UTC";
 
   const [entryRows, nutrientRows, summary, plan] = await Promise.all([
     db
@@ -86,7 +86,10 @@ export async function getFoodLogDay(
       })
       .from(foodLogEntries)
       .where(
-        and(eq(foodLogEntries.userId, userId), eq(foodLogEntries.logDate, date))
+        and(
+          eq(foodLogEntries.userId, userId),
+          eq(foodLogEntries.logDate, date),
+        ),
       )
       .orderBy(asc(foodLogEntries.eatenAt), asc(foodLogEntries.createdAt)),
     db
@@ -98,22 +101,25 @@ export async function getFoodLogDay(
       .from(foodLogEntryNutrients)
       .innerJoin(
         foodLogEntries,
-        eq(foodLogEntries.id, foodLogEntryNutrients.entryId)
+        eq(foodLogEntries.id, foodLogEntryNutrients.entryId),
       )
       .where(
-        and(eq(foodLogEntries.userId, userId), eq(foodLogEntries.logDate, date))
+        and(
+          eq(foodLogEntries.userId, userId),
+          eq(foodLogEntries.logDate, date),
+        ),
       ),
     db.query.dailyNutritionSummaries.findFirst({
       where: and(
         eq(dailyNutritionSummaries.userId, userId),
-        eq(dailyNutritionSummaries.logDate, date)
+        eq(dailyNutritionSummaries.logDate, date),
       ),
       columns: { calories: true, protein: true, carbs: true, fat: true },
     }),
     db.query.nutritionPlans.findFirst({
       where: and(
         eq(nutritionPlans.userId, userId),
-        eq(nutritionPlans.status, "active")
+        eq(nutritionPlans.status, "active"),
       ),
       columns: {
         calorieTarget: true,
@@ -122,17 +128,17 @@ export async function getFoodLogDay(
         fatTarget: true,
       },
     }),
-  ])
+  ]);
 
-  const nutrientByEntry = new Map<string, Record<string, number>>()
+  const nutrientByEntry = new Map<string, Record<string, number>>();
   for (const row of nutrientRows) {
-    const bucket = nutrientByEntry.get(row.entryId) ?? {}
-    bucket[row.nutrientKey] = Number(row.amount)
-    nutrientByEntry.set(row.entryId, bucket)
+    const bucket = nutrientByEntry.get(row.entryId) ?? {};
+    bucket[row.nutrientKey] = Number(row.amount);
+    nutrientByEntry.set(row.entryId, bucket);
   }
 
   const entries: FoodLogEntry[] = entryRows.map((row) => {
-    const n = nutrientByEntry.get(row.id) ?? {}
+    const n = nutrientByEntry.get(row.id) ?? {};
     return {
       id: row.id,
       logDate: row.logDate,
@@ -152,8 +158,8 @@ export async function getFoodLogDay(
       protein: n.protein ?? 0,
       carbs: n.carbs ?? 0,
       fat: n.fat ?? 0,
-    }
-  })
+    };
+  });
 
   const totals: FoodLogDayMacros = summary
     ? {
@@ -169,15 +175,15 @@ export async function getFoodLogDay(
           carbs: acc.carbs + e.carbs,
           fat: acc.fat + e.fat,
         }),
-        { calories: 0, protein: 0, carbs: 0, fat: 0 }
-      )
+        { calories: 0, protein: 0, carbs: 0, fat: 0 },
+      );
 
   const targets: FoodLogDayTargets = {
     calories: plan?.calorieTarget != null ? Number(plan.calorieTarget) : null,
     protein: plan?.proteinTarget != null ? Number(plan.proteinTarget) : null,
     carbs: plan?.carbsTarget != null ? Number(plan.carbsTarget) : null,
     fat: plan?.fatTarget != null ? Number(plan.fatTarget) : null,
-  }
+  };
 
-  return { date, timezone, entries, totals, targets }
+  return { date, timezone, entries, totals, targets };
 }

@@ -1,16 +1,16 @@
-import type { NutrientKey } from "@/lib/foods/nutrients"
+import type { NutrientKey } from "@/lib/foods/nutrients";
 
-export const WHO_REFERENCE_WEIGHT_KG = 70
+export const WHO_REFERENCE_WEIGHT_KG = 70;
 
 export function scaleWhoValue(
   baseValue: number | null | undefined,
-  weightKg: number | null | undefined
+  weightKg: number | null | undefined,
 ): number | null {
-  if (baseValue == null) return null
+  if (baseValue == null) return null;
   if (weightKg == null || !Number.isFinite(weightKg) || weightKg <= 0) {
-    return baseValue
+    return baseValue;
   }
-  return baseValue * (weightKg / WHO_REFERENCE_WEIGHT_KG)
+  return baseValue * (weightKg / WHO_REFERENCE_WEIGHT_KG);
 }
 
 export const WHO_DAILY_VALUES: Partial<Record<NutrientKey, number>> = {
@@ -71,7 +71,7 @@ export const WHO_DAILY_VALUES: Partial<Record<NutrientKey, number>> = {
   valine: 1.82,
 
   caffeine: 400,
-}
+};
 
 export const NUTRIENT_UPPER_LIMITS: Partial<Record<NutrientKey, number>> = {
   // Vitamins
@@ -95,12 +95,12 @@ export const NUTRIENT_UPPER_LIMITS: Partial<Record<NutrientKey, number>> = {
   choline: 3500, // mg
   sodium: 2300, // mg (WHO recommended limit, not IOM UL)
   caffeine: 400, // mg
-}
+};
 
 export type NutrientSection = {
-  title: string
-  keys: NutrientKey[]
-}
+  title: string;
+  keys: NutrientKey[];
+};
 
 export const NUTRIENT_SECTIONS: NutrientSection[] = [
   {
@@ -175,4 +175,4 @@ export const NUTRIENT_SECTIONS: NutrientSection[] = [
     title: "Other",
     keys: ["cholesterol", "choline", "water", "alcohol", "caffeine"],
   },
-]
+];

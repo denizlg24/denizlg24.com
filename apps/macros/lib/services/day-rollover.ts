@@ -1,17 +1,17 @@
-import { sql } from "drizzle-orm"
-import { db } from "@/db/connection"
+import { sql } from "drizzle-orm";
+import { db } from "@/db/connection";
 
 export type DayRolloverResult = {
-  usersChecked: number
-  usersAdvanced: number
-  summaryDaysUpserted: number
-}
+  usersChecked: number;
+  usersAdvanced: number;
+  summaryDaysUpserted: number;
+};
 
 type DayRolloverRow = {
-  users_checked: number
-  users_advanced: number
-  summary_days_upserted: number
-}
+  users_checked: number;
+  users_advanced: number;
+  summary_days_upserted: number;
+};
 
 export async function finalizeClosedNutritionDays(): Promise<DayRolloverResult> {
   const result = await db.execute<DayRolloverRow>(sql`
@@ -136,13 +136,13 @@ export async function finalizeClosedNutritionDays(): Promise<DayRolloverResult> 
       (select count(*) from eligible_users)::int as users_checked,
       (select count(*) from advanced_states)::int as users_advanced,
       (select count(*) from upserted_summaries)::int as summary_days_upserted
-  `)
+  `);
 
-  const row = result.rows[0]
+  const row = result.rows[0];
 
   return {
     usersChecked: row?.users_checked ?? 0,
     usersAdvanced: row?.users_advanced ?? 0,
     summaryDaysUpserted: row?.summary_days_upserted ?? 0,
-  }
+  };
 }

@@ -1,19 +1,20 @@
-import { and, eq } from "drizzle-orm"
-import { headers } from "next/headers"
-import { NextResponse } from "next/server"
-import { z } from "zod"
-import { db } from "@/db/connection"
+import { and, eq } from "drizzle-orm";
+import { headers } from "next/headers";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { db } from "@/db/connection";
 import {
   nutritionPlanDays,
   nutritionPlans,
+  nutritionPrograms,
   userProfiles,
   weighIns,
   weightGoals,
-} from "@/db/schema"
-import { auth } from "@/lib/auth"
-import { planDayInputSchema } from "@/lib/plans/contracts"
+} from "@/db/schema";
+import { auth } from "@/lib/auth";
+import { planDayInputSchema } from "@/lib/plans/contracts";
 
-const dateSchema = z.iso.date()
+const dateSchema = z.iso.date();
 
 const completeRegistrationSchema = z.object({
   profile: z.object({
@@ -43,69 +44,69 @@ const completeRegistrationSchema = z.object({
     name: z.string().min(1).max(120).default("Coached Program"),
     days: z.array(planDayInputSchema).length(7),
   }),
-})
+});
 
 function getTodayInTimezone(now: Date, timezone: string) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now)
+  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now);
 }
 
 function getBirthDateFromAge(ageYears: number, now: Date) {
-  const birthDate = new Date(now)
-  birthDate.setUTCFullYear(birthDate.getUTCFullYear() - ageYears)
-  return birthDate.toISOString().slice(0, 10)
+  const birthDate = new Date(now);
+  birthDate.setUTCFullYear(birthDate.getUTCFullYear() - ageYears);
+  return birthDate.toISOString().slice(0, 10);
 }
 
 function getProfileBirthDate(
   profile: z.infer<typeof completeRegistrationSchema>["profile"],
-  now: Date
+  now: Date,
 ) {
-  if (profile.birthDate) return profile.birthDate
-  if (profile.ageYears === undefined) return undefined
-  return getBirthDateFromAge(profile.ageYears, now)
+  if (profile.birthDate) return profile.birthDate;
+  if (profile.ageYears === undefined) return undefined;
+  return getBirthDateFromAge(profile.ageYears, now);
 }
 
 function toNumericString(value: number | undefined | null) {
-  return value == null ? null : value.toString()
+  return value == null ? null : value.toString();
 }
 
 function averageOfDays(values: number[]): number | null {
-  if (values.length === 0) return null
-  const sum = values.reduce((a, b) => a + b, 0)
-  return Math.round((sum / values.length) * 100) / 100
+  if (values.length === 0) return null;
+  const sum = values.reduce((a, b) => a + b, 0);
+  return Math.round((sum / values.length) * 100) / 100;
 }
 
 export async function POST(request: Request) {
   const session = await auth.api.getSession({
     headers: await headers(),
-  })
+  });
 
   if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   if (!session.user.emailVerified) {
     return NextResponse.json(
       { error: "Email is not verified" },
-      { status: 403 }
-    )
+      { status: 403 },
+    );
   }
 
-  const body = await request.json().catch(() => null)
-  const parsed = completeRegistrationSchema.safeParse(body)
+  const body = await request.json().catch(() => null);
+  const parsed = completeRegistrationSchema.safeParse(body);
 
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid registration profile", issues: parsed.error.issues },
-      { status: 400 }
-    )
+      { status: 400 },
+    );
   }
 
-  const { profile, metrics, weightGoal, nutritionPlan } = parsed.data
+  const { profile, metrics, weightGoal, nutritionPlan } = parsed.data;
 
   const existingProfile = await db.query.userProfiles.findFirst({
     where: eq(userProfiles.userId, session.user.id),
     columns: { onboardingCompletedAt: true },
-  })
+  });
 
   if (
     existingProfile?.onboardingCompletedAt !== null &&
@@ -113,24 +114,24 @@ export async function POST(request: Request) {
   ) {
     return NextResponse.json(
       { error: "Onboarding already completed" },
-      { status: 409 }
-    )
+      { status: 409 },
+    );
   }
 
-  const now = new Date()
-  const today = getTodayInTimezone(now, profile.timezone)
-  const logDate = metrics.logDate ?? today
-  const measuredAt = metrics.measuredAt ? new Date(metrics.measuredAt) : now
-  const birthDate = getProfileBirthDate(profile, now)
+  const now = new Date();
+  const today = getTodayInTimezone(now, profile.timezone);
+  const logDate = metrics.logDate ?? today;
+  const measuredAt = metrics.measuredAt ? new Date(metrics.measuredAt) : now;
+  const birthDate = getProfileBirthDate(profile, now);
 
   const calorieAvg = averageOfDays(
-    nutritionPlan.days.map((d) => d.calorieTarget)
-  )
+    nutritionPlan.days.map((d) => d.calorieTarget),
+  );
   const proteinAvg = averageOfDays(
-    nutritionPlan.days.map((d) => d.proteinTarget)
-  )
-  const carbsAvg = averageOfDays(nutritionPlan.days.map((d) => d.carbsTarget))
-  const fatAvg = averageOfDays(nutritionPlan.days.map((d) => d.fatTarget))
+    nutritionPlan.days.map((d) => d.proteinTarget),
+  );
+  const carbsAvg = averageOfDays(nutritionPlan.days.map((d) => d.carbsTarget));
+  const fatAvg = averageOfDays(nutritionPlan.days.map((d) => d.fatTarget));
 
   await db.transaction(async (tx) => {
     await tx
@@ -160,22 +161,53 @@ export async function POST(request: Request) {
           onboardingCompletedAt: now,
           updatedAt: now,
         },
-      })
+      });
 
     await tx
       .update(weightGoals)
       .set({ status: "archived", updatedAt: now })
-      .where(eq(weightGoals.userId, session.user.id))
+      .where(eq(weightGoals.userId, session.user.id));
 
-    await tx.insert(weightGoals).values({
-      userId: session.user.id,
-      goalType: weightGoal.goalType,
-      startDate: today,
-      startWeightKg: metrics.weightKg.toString(),
-      targetWeightKg: toNumericString(weightGoal.targetWeightKg),
-      targetDate: weightGoal.targetDate,
-      weeklyRateKg: toNumericString(weightGoal.weeklyRateKg),
-    })
+    const [insertedGoal] = await tx
+      .insert(weightGoals)
+      .values({
+        userId: session.user.id,
+        goalType: weightGoal.goalType,
+        startDate: today,
+        startWeightKg: metrics.weightKg.toString(),
+        targetWeightKg: toNumericString(weightGoal.targetWeightKg),
+        targetDate: weightGoal.targetDate,
+        weeklyRateKg: toNumericString(weightGoal.weeklyRateKg),
+      })
+      .returning({ id: weightGoals.id });
+    if (!insertedGoal) throw new Error("Failed to create weight goal");
+
+    const [program] = await tx
+      .insert(nutritionPrograms)
+      .values({
+        userId: session.user.id,
+        activeWeightGoalId: insertedGoal.id,
+        goalType: weightGoal.goalType,
+        proteinGramsPerKg: (
+          (proteinAvg ?? metrics.weightKg * 1.6) / metrics.weightKg
+        ).toFixed(2),
+        fatPercent:
+          calorieAvg && fatAvg
+            ? ((fatAvg * 9 * 100) / calorieAvg).toFixed(2)
+            : "30",
+        distributionProfile: "balanced",
+        calorieCycling: { highDays: [], highDayAdjustment: 0 },
+        checkInWeekday: 1,
+        mode: "coached",
+        dietPhase:
+          weightGoal.goalType === "lose"
+            ? "cut"
+            : weightGoal.goalType === "gain"
+              ? "bulk"
+              : "maintain",
+      })
+      .returning({ id: nutritionPrograms.id });
+    if (!program) throw new Error("Failed to create nutrition program");
 
     await tx
       .insert(weighIns)
@@ -193,39 +225,50 @@ export async function POST(request: Request) {
           weightKg: metrics.weightKg.toString(),
           updatedAt: now,
         },
-      })
+      });
 
     const existingActivePlan = await tx.query.nutritionPlans.findFirst({
       where: and(
         eq(nutritionPlans.userId, session.user.id),
-        eq(nutritionPlans.status, "active")
+        eq(nutritionPlans.status, "active"),
       ),
-    })
+    });
 
-    let planId: string
+    let planId: string;
     if (existingActivePlan) {
-      planId = existingActivePlan.id
+      planId = existingActivePlan.id;
+      await tx
+        .update(nutritionPlans)
+        .set({ programId: program.id, updatedAt: now })
+        .where(eq(nutritionPlans.id, existingActivePlan.id));
     } else {
       await tx
         .update(nutritionPlans)
         .set({ status: "archived", updatedAt: now })
-        .where(eq(nutritionPlans.userId, session.user.id))
+        .where(eq(nutritionPlans.userId, session.user.id));
 
       const [insertedPlan] = await tx
         .insert(nutritionPlans)
         .values({
           userId: session.user.id,
+          programId: program.id,
           name: nutritionPlan.name,
           goalType: weightGoal.goalType,
           startDate: today,
+          effectiveFrom: today,
+          reason: "onboarding",
           calorieTarget: toNumericString(calorieAvg),
           proteinTarget: toNumericString(proteinAvg),
           carbsTarget: toNumericString(carbsAvg),
           fatTarget: toNumericString(fatAvg),
         })
-        .returning({ id: nutritionPlans.id })
+        .returning({ id: nutritionPlans.id });
 
-      planId = insertedPlan.id
+      if (!insertedPlan) {
+        throw new Error("Failed to create nutrition plan");
+      }
+
+      planId = insertedPlan.id;
 
       await tx.insert(nutritionPlanDays).values(
         nutritionPlan.days.map((d) => ({
@@ -235,10 +278,10 @@ export async function POST(request: Request) {
           proteinTarget: toNumericString(d.proteinTarget),
           carbsTarget: toNumericString(d.carbsTarget),
           fatTarget: toNumericString(d.fatTarget),
-        }))
-      )
+        })),
+      );
     }
-  })
+  });
 
-  return NextResponse.json({ status: "completed" })
+  return NextResponse.json({ status: "completed" });
 }

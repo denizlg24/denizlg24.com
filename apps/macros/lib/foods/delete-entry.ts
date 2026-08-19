@@ -1,34 +1,34 @@
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm";
 
-import { db } from "@/db/connection"
+import { db } from "@/db/connection";
 import {
   dailyNutritionSummaries,
   foodLogEntries,
   foodLogEntryNutrients,
-} from "@/db/schema"
+} from "@/db/schema";
 
 export async function deleteFoodLogEntry(
   userId: string,
-  entryId: string
+  entryId: string,
 ): Promise<{ logDate: string } | null> {
   return db.transaction(async (tx) => {
     const existing = await tx.query.foodLogEntries.findFirst({
       where: and(
         eq(foodLogEntries.id, entryId),
-        eq(foodLogEntries.userId, userId)
+        eq(foodLogEntries.userId, userId),
       ),
       columns: { id: true, logDate: true },
-    })
+    });
 
     if (!existing) {
-      return null
+      return null;
     }
 
     await tx
       .delete(foodLogEntries)
       .where(
-        and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId))
-      )
+        and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)),
+      );
 
     const remainingCount = await tx
       .select({ count: sql<number>`count(*)::int` })
@@ -36,9 +36,9 @@ export async function deleteFoodLogEntry(
       .where(
         and(
           eq(foodLogEntries.userId, userId),
-          eq(foodLogEntries.logDate, existing.logDate)
-        )
-      )
+          eq(foodLogEntries.logDate, existing.logDate),
+        ),
+      );
 
     if (remainingCount[0]?.count === 0) {
       await tx
@@ -46,9 +46,9 @@ export async function deleteFoodLogEntry(
         .where(
           and(
             eq(dailyNutritionSummaries.userId, userId),
-            eq(dailyNutritionSummaries.logDate, existing.logDate)
-          )
-        )
+            eq(dailyNutritionSummaries.logDate, existing.logDate),
+          ),
+        );
     } else {
       await tx.execute(sql`
         insert into ${dailyNutritionSummaries} (
@@ -84,9 +84,9 @@ export async function deleteFoodLogEntry(
           "carbs" = excluded."carbs",
           "fat" = excluded."fat",
           "updatedAt" = excluded."updatedAt"
-      `)
+      `);
     }
 
-    return { logDate: existing.logDate }
-  })
+    return { logDate: existing.logDate };
+  });
 }

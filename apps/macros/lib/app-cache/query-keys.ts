@@ -3,4 +3,4 @@ export const queryKeys = {
   calorieSummary: ["app", "calorie-summary"] as const,
   weightOverview: ["weight", "overview"] as const,
   foodHistory: (limit: number) => ["foods", "history", { limit }] as const,
-}
+};

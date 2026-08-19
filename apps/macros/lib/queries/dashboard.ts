@@ -1,5 +1,5 @@
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm"
-import { db } from "@/db/connection"
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { db } from "@/db/connection";
 import {
   dailyNutritionSummaries,
   energyExpenditureEstimates,
@@ -8,112 +8,100 @@ import {
   nutritionPlans,
   userProfiles,
   weighIns,
-} from "@/db/schema"
+} from "@/db/schema";
+import { getBodyOverview } from "@/lib/body/service";
 import {
   type FoodLoggingSummary,
   getFoodLoggingSummary,
   getFullLogThreshold,
-} from "@/lib/food-logging/activity"
-import type { WeightSummary } from "@/lib/weights/contracts"
-import { getWeightSummary } from "@/lib/weights/queries"
+} from "@/lib/food-logging/activity";
+import type { WeightSummary } from "@/lib/weights/contracts";
+import { calculateExpenditurePrior } from "@/lib/weights/expenditure";
+import { getWeightSummary } from "@/lib/weights/queries";
 
 export type DailyMacros = {
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
-}
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+};
 
 export type NutritionTargets = {
-  calories: number | null
-  protein: number | null
-  carbs: number | null
-  fat: number | null
-}
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+};
 
 export type EnergyBalancePoint = {
-  date: string
-  consumed: number
-  tdee: number | null
-}
+  date: string;
+  consumed: number;
+  tdee: number | null;
+};
 
 export type GoalProgress = {
-  daysTracked: number
-  daysOnTarget: number
-  totalDays: number
-}
+  daysTracked: number;
+  daysOnTarget: number;
+  totalDays: number;
+};
 
 type ActivePlan = {
-  targets: NutritionTargets
-  startDate: string | null
-}
+  targets: NutritionTargets;
+  startDate: string | null;
+};
 
-export type CaloriePreference = "consumed" | "remaining"
-
-type ActivityLevel =
-  | "sedentary"
-  | "light"
-  | "moderate"
-  | "active"
-  | "very_active"
+export type CaloriePreference = "consumed" | "remaining";
 
 export type DashboardData = {
-  today: string
-  timezone: string
-  caloriePreference: CaloriePreference
-  consumed: DailyMacros
-  targets: NutritionTargets
-  energyBalance: EnergyBalancePoint[]
-  goalProgress: GoalProgress
-  foodLoggingSummary: FoodLoggingSummary
-  weightSummary: WeightSummary
-}
+  today: string;
+  timezone: string;
+  caloriePreference: CaloriePreference;
+  consumed: DailyMacros;
+  targets: NutritionTargets;
+  energyBalance: EnergyBalancePoint[];
+  goalProgress: GoalProgress;
+  foodLoggingSummary: FoodLoggingSummary;
+  weightSummary: WeightSummary;
+  habits: Array<{
+    id: string;
+    name: string;
+    targetPerWeek: number;
+    completedDates: string[];
+  }>;
+};
 
 function toIsoDate(date: Date, timezone: string): string {
   // en-CA gives YYYY-MM-DD format
-  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(date)
+  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(date);
 }
 
 function daysBetween(from: string, to: string): number {
-  const msPerDay = 1000 * 60 * 60 * 24
-  const fromMs = new Date(from + "T00:00:00Z").getTime()
-  const toMs = new Date(to + "T00:00:00Z").getTime()
-  return Math.max(1, Math.floor((toMs - fromMs) / msPerDay) + 1)
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const fromMs = new Date(`${from}T00:00:00Z`).getTime();
+  const toMs = new Date(`${to}T00:00:00Z`).getTime();
+  return Math.max(1, Math.floor((toMs - fromMs) / msPerDay) + 1);
 }
 
 function subtractDays(isoDate: string, days: number): string {
-  const d = new Date(isoDate + "T00:00:00Z")
-  d.setUTCDate(d.getUTCDate() - days)
-  return d.toISOString().split("T")[0]
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
 }
 
 function computeAgeYears(birthDate: string | null | undefined): number {
-  if (!birthDate) return 28
-  const birth = new Date(`${birthDate}T00:00:00Z`)
-  if (Number.isNaN(birth.getTime())) return 28
-  const now = new Date()
-  let age = now.getUTCFullYear() - birth.getUTCFullYear()
-  const monthDelta = now.getUTCMonth() - birth.getUTCMonth()
+  if (!birthDate) return 28;
+  const birth = new Date(`${birthDate}T00:00:00Z`);
+  if (Number.isNaN(birth.getTime())) return 28;
+  const now = new Date();
+  let age = now.getUTCFullYear() - birth.getUTCFullYear();
+  const monthDelta = now.getUTCMonth() - birth.getUTCMonth();
   if (
     monthDelta < 0 ||
     (monthDelta === 0 && now.getUTCDate() < birth.getUTCDate())
   ) {
-    age -= 1
+    age -= 1;
   }
-  return Math.max(13, Math.min(120, age))
-}
-
-function activityMultiplier(activityLevel: string | null | undefined): number {
-  const multipliers: Record<ActivityLevel, number> = {
-    active: 1.725,
-    light: 1.375,
-    moderate: 1.55,
-    sedentary: 1.2,
-    very_active: 1.9,
-  }
-  return activityLevel && activityLevel in multipliers
-    ? multipliers[activityLevel as ActivityLevel]
-    : 1.4
+  return Math.max(13, Math.min(120, age));
 }
 
 async function getCalculatedTdee(userId: string): Promise<number | null> {
@@ -132,37 +120,50 @@ async function getCalculatedTdee(userId: string): Promise<number | null> {
       columns: { weightKg: true },
       orderBy: [desc(weighIns.logDate)],
     }),
-  ])
+  ]);
 
-  if (!latestWeighIn) return null
+  if (!latestWeighIn) return null;
 
-  const weightKg = Number(latestWeighIn.weightKg)
-  if (!Number.isFinite(weightKg) || weightKg <= 0) return null
+  const weightKg = Number(latestWeighIn.weightKg);
+  if (!Number.isFinite(weightKg) || weightKg <= 0) return null;
 
   const heightCm =
     profile?.heightCm != null && Number.isFinite(Number(profile.heightCm))
       ? Number(profile.heightCm)
-      : 170
-  const ageYears = computeAgeYears(profile?.birthDate)
-  const base = 10 * weightKg + 6.25 * heightCm - 5 * ageYears
-  const bmr =
-    profile?.sex === "male"
-      ? base + 5
-      : profile?.sex === "female"
-        ? base - 161
-        : base - 78
-
-  return Math.round(bmr * activityMultiplier(profile?.activityLevel))
+      : 170;
+  const ageYears = computeAgeYears(profile?.birthDate);
+  return Math.round(
+    calculateExpenditurePrior({
+      weightKg,
+      heightCm,
+      ageYears,
+      sex:
+        profile?.sex === "male" ||
+        profile?.sex === "female" ||
+        profile?.sex === "other" ||
+        profile?.sex === "prefer_not_to_say"
+          ? profile.sex
+          : null,
+      activityLevel:
+        profile?.activityLevel === "sedentary" ||
+        profile?.activityLevel === "light" ||
+        profile?.activityLevel === "moderate" ||
+        profile?.activityLevel === "active" ||
+        profile?.activityLevel === "very_active"
+          ? profile.activityLevel
+          : null,
+    }).tdeeKcal,
+  );
 }
 
 async function getDailyNutrition(
   userId: string,
-  date: string
+  date: string,
 ): Promise<DailyMacros> {
   const summary = await db.query.dailyNutritionSummaries.findFirst({
     where: and(
       eq(dailyNutritionSummaries.userId, userId),
-      eq(dailyNutritionSummaries.logDate, date)
+      eq(dailyNutritionSummaries.logDate, date),
     ),
     columns: {
       calories: true,
@@ -170,7 +171,7 @@ async function getDailyNutrition(
       carbs: true,
       fat: true,
     },
-  })
+  });
 
   if (summary) {
     return {
@@ -178,7 +179,7 @@ async function getDailyNutrition(
       protein: Number(summary.protein),
       carbs: Number(summary.carbs),
       fat: Number(summary.fat),
-    }
+    };
   }
 
   const [row] = await db
@@ -191,25 +192,25 @@ async function getDailyNutrition(
     .from(foodLogEntries)
     .innerJoin(
       foodLogEntryNutrients,
-      eq(foodLogEntryNutrients.entryId, foodLogEntries.id)
+      eq(foodLogEntryNutrients.entryId, foodLogEntries.id),
     )
     .where(
-      and(eq(foodLogEntries.userId, userId), eq(foodLogEntries.logDate, date))
-    )
+      and(eq(foodLogEntries.userId, userId), eq(foodLogEntries.logDate, date)),
+    );
 
   return {
     calories: row ? Number(row.calories) : 0,
     protein: row ? Number(row.protein) : 0,
     carbs: row ? Number(row.carbs) : 0,
     fat: row ? Number(row.fat) : 0,
-  }
+  };
 }
 
 async function getActiveNutritionPlan(userId: string): Promise<ActivePlan> {
   const plan = await db.query.nutritionPlans.findFirst({
     where: and(
       eq(nutritionPlans.userId, userId),
-      eq(nutritionPlans.status, "active")
+      eq(nutritionPlans.status, "active"),
     ),
     columns: {
       startDate: true,
@@ -218,12 +219,12 @@ async function getActiveNutritionPlan(userId: string): Promise<ActivePlan> {
       carbsTarget: true,
       fatTarget: true,
     },
-  })
+  });
   if (!plan) {
     return {
       targets: { calories: null, protein: null, carbs: null, fat: null },
       startDate: null,
-    }
+    };
   }
   return {
     targets: {
@@ -233,7 +234,7 @@ async function getActiveNutritionPlan(userId: string): Promise<ActivePlan> {
       fat: plan.fatTarget != null ? Number(plan.fatTarget) : null,
     },
     startDate: plan.startDate,
-  }
+  };
 }
 
 async function getEnergyBalance(
@@ -241,17 +242,17 @@ async function getEnergyBalance(
   today: string,
   days: number,
   targetCalories: number | null,
-  todayConsumed: number
+  todayConsumed: number,
 ): Promise<EnergyBalancePoint[]> {
-  const startDate = subtractDays(today, days - 1)
-  const recentStartDate = subtractDays(today, 59)
+  const startDate = subtractDays(today, days - 1);
+  const recentStartDate = subtractDays(today, 59);
 
   const [summaries, recentSummaries, estimates] = await Promise.all([
     db.query.dailyNutritionSummaries.findMany({
       where: and(
         eq(dailyNutritionSummaries.userId, userId),
         gte(dailyNutritionSummaries.logDate, startDate),
-        lte(dailyNutritionSummaries.logDate, today)
+        lte(dailyNutritionSummaries.logDate, today),
       ),
       columns: { logDate: true, calories: true },
     }),
@@ -259,7 +260,7 @@ async function getEnergyBalance(
       where: and(
         eq(dailyNutritionSummaries.userId, userId),
         gte(dailyNutritionSummaries.logDate, recentStartDate),
-        lte(dailyNutritionSummaries.logDate, today)
+        lte(dailyNutritionSummaries.logDate, today),
       ),
       columns: { calories: true },
     }),
@@ -267,156 +268,158 @@ async function getEnergyBalance(
       where: and(
         eq(energyExpenditureEstimates.userId, userId),
         gte(energyExpenditureEstimates.logDate, startDate),
-        lte(energyExpenditureEstimates.logDate, today)
+        lte(energyExpenditureEstimates.logDate, today),
       ),
       columns: { logDate: true, estimatedTdee: true },
     }),
-  ])
+  ]);
   const [latestEstimateBeforeToday, calculatedTdee] = await Promise.all([
     db.query.energyExpenditureEstimates.findFirst({
       where: and(
         eq(energyExpenditureEstimates.userId, userId),
-        lte(energyExpenditureEstimates.logDate, today)
+        lte(energyExpenditureEstimates.logDate, today),
       ),
       columns: { estimatedTdee: true },
       orderBy: [desc(energyExpenditureEstimates.logDate)],
     }),
     getCalculatedTdee(userId),
-  ])
+  ]);
   const latestEstimate =
     latestEstimateBeforeToday ??
     (await db.query.energyExpenditureEstimates.findFirst({
       where: eq(energyExpenditureEstimates.userId, userId),
       columns: { estimatedTdee: true },
       orderBy: [desc(energyExpenditureEstimates.logDate)],
-    }))
+    }));
   const latestTdee = latestEstimate
     ? Number(latestEstimate.estimatedTdee)
-    : calculatedTdee
-  const dailyBaseline = targetCalories ?? latestTdee
+    : calculatedTdee;
+  const dailyBaseline = targetCalories ?? latestTdee;
   const fullDayThreshold = getFullLogThreshold(
     recentSummaries.map((summary) => Number(summary.calories)),
-    dailyBaseline
-  )
+    dailyBaseline,
+  );
 
-  const calMap = new Map(summaries.map((s) => [s.logDate, Number(s.calories)]))
-  calMap.set(today, todayConsumed)
+  const calMap = new Map(summaries.map((s) => [s.logDate, Number(s.calories)]));
+  calMap.set(today, todayConsumed);
   const tdeeMap = new Map(
-    estimates.map((e) => [e.logDate, Number(e.estimatedTdee)])
-  )
+    estimates.map((e) => [e.logDate, Number(e.estimatedTdee)]),
+  );
 
-  const result: EnergyBalancePoint[] = []
+  const result: EnergyBalancePoint[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const date = subtractDays(today, i)
-    const consumed = calMap.get(date) ?? 0
+    const date = subtractDays(today, i);
+    const consumed = calMap.get(date) ?? 0;
     const isFullyLogged =
       consumed >= fullDayThreshold ||
-      (dailyBaseline != null && consumed >= dailyBaseline * 0.85)
+      (dailyBaseline != null && consumed >= dailyBaseline * 0.85);
     result.push({
       date,
       consumed: isFullyLogged ? consumed : (targetCalories ?? consumed),
       tdee: tdeeMap.has(date) ? (tdeeMap.get(date) ?? null) : latestTdee,
-    })
+    });
   }
-  return result
+  return result;
 }
 
 async function getRecentSummaries(
   userId: string,
   today: string,
-  days: number
+  days: number,
 ): Promise<Array<{ logDate: string; calories: string }>> {
-  const startDate = subtractDays(today, days - 1)
+  const startDate = subtractDays(today, days - 1);
   return db.query.dailyNutritionSummaries.findMany({
     where: and(
       eq(dailyNutritionSummaries.userId, userId),
       gte(dailyNutritionSummaries.logDate, startDate),
-      lte(dailyNutritionSummaries.logDate, today)
+      lte(dailyNutritionSummaries.logDate, today),
     ),
     columns: { logDate: true, calories: true },
-  })
+  });
 }
 
 function computeGoalProgress(
   summaries: Array<{ calories: string }>,
   targetCalories: number | null,
-  totalDays: number
+  totalDays: number,
 ): GoalProgress {
-  const tracked = summaries.filter((s) => Number(s.calories) > 0)
+  const tracked = summaries.filter((s) => Number(s.calories) > 0);
   const onTarget =
     targetCalories != null
       ? tracked.filter(
           (s) =>
             Math.abs(Number(s.calories) - targetCalories) / targetCalories <=
-            0.1
+            0.1,
         )
-      : []
+      : [];
   return {
     daysTracked: tracked.length,
     daysOnTarget: onTarget.length,
     totalDays,
-  }
+  };
 }
 
 export async function getDashboardData(userId: string): Promise<DashboardData> {
   const profile = await db.query.userProfiles.findFirst({
     where: eq(userProfiles.userId, userId),
     columns: { timezone: true, caloriePreference: true },
-  })
-  const timezone = profile?.timezone ?? "UTC"
+  });
+  const timezone = profile?.timezone ?? "UTC";
   const caloriePreference: CaloriePreference =
-    profile?.caloriePreference ?? "consumed"
-  const today = toIsoDate(new Date(), timezone)
+    profile?.caloriePreference ?? "consumed";
+  const today = toIsoDate(new Date(), timezone);
 
-  const [consumed, { targets, startDate }, weightSummary] = await Promise.all([
-    getDailyNutrition(userId, today),
-    getActiveNutritionPlan(userId),
-    getWeightSummary(userId, today),
-  ])
+  const [consumed, { targets, startDate }, weightSummary, bodyOverview] =
+    await Promise.all([
+      getDailyNutrition(userId, today),
+      getActiveNutritionPlan(userId),
+      getWeightSummary(userId, today),
+      getBodyOverview(userId, today),
+    ]);
   const foodLoggingSummary = await getFoodLoggingSummary(
     userId,
     today,
-    targets.calories
-  )
+    targets.calories,
+  );
   const energyBalanceFromSummaries = await getEnergyBalance(
     userId,
     today,
     7,
     targets.calories,
-    consumed.calories
-  )
-  const energyBalanceWithToday = energyBalanceFromSummaries
+    consumed.calories,
+  );
+  const energyBalanceWithToday = energyBalanceFromSummaries;
   const hasEnergyBaseline = energyBalanceWithToday.some(
-    (point) => point.tdee != null
-  )
+    (point) => point.tdee != null,
+  );
   const energyBalance =
     hasEnergyBaseline || targets.calories == null
       ? energyBalanceWithToday
       : energyBalanceWithToday.map((point) => ({
           ...point,
           tdee: targets.calories,
-        }))
+        }));
 
-  const planDays = startDate ? daysBetween(startDate, today) : 0
+  const planDays = startDate ? daysBetween(startDate, today) : 0;
 
   const recentSummaryRows =
-    planDays > 0 ? await getRecentSummaries(userId, today, planDays) : []
+    planDays > 0 ? await getRecentSummaries(userId, today, planDays) : [];
   const recentSummaries = recentSummaryRows.some((row) => row.logDate === today)
     ? recentSummaryRows.map((row) =>
         row.logDate === today
           ? { ...row, calories: consumed.calories.toString() }
-          : row
+          : row,
       )
     : [
         ...recentSummaryRows,
         { logDate: today, calories: consumed.calories.toString() },
-      ]
+      ];
 
   const goalProgress = computeGoalProgress(
     recentSummaries,
     targets.calories,
-    planDays
-  )
+    planDays,
+  );
 
   return {
     today,
@@ -428,5 +431,6 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
     goalProgress,
     foodLoggingSummary,
     weightSummary,
-  }
+    habits: bodyOverview.habits,
+  };
 }

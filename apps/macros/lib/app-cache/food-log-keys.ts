@@ -7,4 +7,4 @@ export const foodLogQueryKeys = {
   calendarTotals: (start: string, end: string) =>
     ["food-log", "calendar-totals", start, end] as const,
   activity: ["food-log", "activity", "v1"] as const,
-}
+};

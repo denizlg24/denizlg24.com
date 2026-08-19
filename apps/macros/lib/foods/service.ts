@@ -8,9 +8,9 @@ import {
   isNull,
   or,
   sql,
-} from "drizzle-orm"
+} from "drizzle-orm";
 
-import { db } from "@/db/connection"
+import { db } from "@/db/connection";
 import {
   dailyNutritionSummaries,
   foodLogEntries,
@@ -21,7 +21,7 @@ import {
   nutrientDefinitions,
   userCustomFoods,
   userProfiles,
-} from "@/db/schema"
+} from "@/db/schema";
 import type {
   CreateFoodInput,
   ExternalFoodNutrition,
@@ -31,27 +31,27 @@ import type {
   LogFoodInput,
   LogFoodResult,
   UpdateFoodInput,
-} from "@/lib/foods/contracts"
-import { externalFoodNutritionSchema } from "@/lib/foods/contracts"
+} from "@/lib/foods/contracts";
+import { externalFoodNutritionSchema } from "@/lib/foods/contracts";
 import {
   type NutrientKey,
   nutrientDefinitionsInput,
-} from "@/lib/foods/nutrients"
+} from "@/lib/foods/nutrients";
 import {
   createNutritionFood,
   getNutritionFoodNutrition,
   getNutritionFoodSummary,
-} from "@/lib/foods/source"
+} from "@/lib/foods/source";
 
-const snapshotDriftTolerance = 0.0001
-type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+const snapshotDriftTolerance = 0.0001;
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function toNumericString(value: number) {
-  return Number.isFinite(value) ? value.toFixed(4) : "0"
+  return Number.isFinite(value) ? value.toFixed(4) : "0";
 }
 
 function numberOrNull(value: number | null | undefined) {
-  return value ?? null
+  return value ?? null;
 }
 
 export function toFoodSearchItem(summary: ExternalFoodSummary): FoodSearchItem {
@@ -69,11 +69,11 @@ export function toFoodSearchItem(summary: ExternalFoodSummary): FoodSearchItem {
     rank: numberOrNull(summary.rank),
     score: numberOrNull(summary.score),
     isUserFood: false,
-  }
+  };
 }
 
 function toIsoDate(date: Date, timezone: string) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(date)
+  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(date);
 }
 
 function getHourInTimezone(date: Date, timezone: string) {
@@ -82,38 +82,38 @@ function getHourInTimezone(date: Date, timezone: string) {
       hour: "numeric",
       hour12: false,
       timeZone: timezone,
-    }).format(date)
-  )
+    }).format(date),
+  );
 }
 
 function inferMealType(hour: number) {
   if (hour >= 5 && hour < 11) {
-    return "breakfast"
+    return "breakfast";
   }
   if (hour >= 11 && hour < 16) {
-    return "lunch"
+    return "lunch";
   }
   if (hour >= 17 && hour < 22) {
-    return "dinner"
+    return "dinner";
   }
-  return "snack"
+  return "snack";
 }
 
 function hourDistance(left: number, right: number) {
-  const distance = Math.abs(left - right)
-  return Math.min(distance, 24 - distance)
+  const distance = Math.abs(left - right);
+  return Math.min(distance, 24 - distance);
 }
 
 async function getUserTimezone(userId: string) {
   const profile = await db.query.userProfiles.findFirst({
     where: eq(userProfiles.userId, userId),
     columns: { timezone: true },
-  })
-  return profile?.timezone ?? "UTC"
+  });
+  return profile?.timezone ?? "UTC";
 }
 
 async function ensureNutrientDefinitionRows(
-  executor: typeof db | DbTransaction = db
+  executor: typeof db | DbTransaction = db,
 ) {
   await executor
     .insert(nutrientDefinitions)
@@ -126,11 +126,11 @@ async function ensureNutrientDefinitionRows(
         unit: sql`excluded.unit`,
         sortOrder: sql`excluded."sortOrder"`,
       },
-    })
+    });
 }
 
 async function upsertExternalFood(summary: ExternalFoodSummary) {
-  const now = new Date()
+  const now = new Date();
   const [upserted] = await db
     .insert(foods)
     .values({
@@ -150,18 +150,18 @@ async function upsertExternalFood(summary: ExternalFoodSummary) {
         updatedAt: now,
       },
     })
-    .returning({ id: foods.id })
+    .returning({ id: foods.id });
 
   if (!upserted) {
-    throw new Error("Failed to upsert external food")
+    throw new Error("Failed to upsert external food");
   }
 
-  return upserted.id
+  return upserted.id;
 }
 
 function toCustomFoodSearchItem(
   food: Pick<typeof foods.$inferSelect, "id" | "barcode" | "name" | "brand">,
-  nutrition: ExternalFoodNutrition
+  nutrition: ExternalFoodNutrition,
 ): FoodSearchItem {
   return {
     id: food.id,
@@ -169,15 +169,15 @@ function toCustomFoodSearchItem(
     name: food.name,
     brand: food.brand,
     servingLabel: nutrition.servingLabel,
-    caloriesPerServing: nutrition.nutrients["calories"] ?? null,
-    proteinPerServing: nutrition.nutrients["protein"] ?? null,
-    carbsPerServing: nutrition.nutrients["carbs"] ?? null,
-    fatPerServing: nutrition.nutrients["fat"] ?? null,
+    caloriesPerServing: nutrition.nutrients.calories ?? null,
+    proteinPerServing: nutrition.nutrients.protein ?? null,
+    carbsPerServing: nutrition.nutrients.carbs ?? null,
+    fatPerServing: nutrition.nutrients.fat ?? null,
     sourceUpdatedAt: null,
     rank: null,
     score: null,
     isUserFood: true,
-  }
+  };
 }
 
 async function getLatestSnapshot(foodId: string) {
@@ -189,11 +189,11 @@ async function getLatestSnapshot(foodId: string) {
         columns: { nutrientKey: true, amount: true },
       },
     },
-  })
+  });
 }
 
 async function getLatestSnapshotsByFoodId(foodIds: string[]) {
-  if (foodIds.length === 0) return new Map<string, ExternalFoodNutrition>()
+  if (foodIds.length === 0) return new Map<string, ExternalFoodNutrition>();
 
   const rows = await db
     .select({
@@ -202,26 +202,26 @@ async function getLatestSnapshotsByFoodId(foodIds: string[]) {
     })
     .from(foodNutritionSnapshots)
     .where(inArray(foodNutritionSnapshots.foodId, foodIds))
-    .orderBy(desc(foodNutritionSnapshots.fetchedAt))
+    .orderBy(desc(foodNutritionSnapshots.fetchedAt));
 
-  const snapshots = new Map<string, ExternalFoodNutrition>()
+  const snapshots = new Map<string, ExternalFoodNutrition>();
   for (const row of rows) {
-    if (snapshots.has(row.foodId)) continue
-    const parsed = externalFoodNutritionSchema.safeParse(row.rawNutrition)
+    if (snapshots.has(row.foodId)) continue;
+    const parsed = externalFoodNutritionSchema.safeParse(row.rawNutrition);
     if (parsed.success) {
-      snapshots.set(row.foodId, parsed.data)
+      snapshots.set(row.foodId, parsed.data);
     }
   }
 
-  return snapshots
+  return snapshots;
 }
 
 function nutrientsHaveDrifted(
   latest: Awaited<ReturnType<typeof getLatestSnapshot>>,
-  nutrition: ExternalFoodNutrition
+  nutrition: ExternalFoodNutrition,
 ) {
   if (!latest) {
-    return true
+    return true;
   }
 
   if (
@@ -230,40 +230,40 @@ function nutrientsHaveDrifted(
     Math.abs(Number(latest.servingQuantity) - nutrition.servingQuantity) >
       snapshotDriftTolerance
   ) {
-    return true
+    return true;
   }
 
   const latestNutrients = new Map(
-    latest.nutrients.map((row) => [row.nutrientKey, Number(row.amount)])
-  )
+    latest.nutrients.map((row) => [row.nutrientKey, Number(row.amount)]),
+  );
 
-  const currentNutrients = Object.entries(nutrition.nutrients)
+  const currentNutrients = Object.entries(nutrition.nutrients);
 
   if (latestNutrients.size !== currentNutrients.length) {
-    return true
+    return true;
   }
 
   for (const [key, amount] of currentNutrients) {
-    const latestAmount = latestNutrients.get(key)
+    const latestAmount = latestNutrients.get(key);
 
     if (
       latestAmount == null ||
       Math.abs(latestAmount - amount) > snapshotDriftTolerance
     ) {
-      return true
+      return true;
     }
   }
 
-  return false
+  return false;
 }
 
 async function createFoodSnapshot(
   foodId: string,
   summary: ExternalFoodSummary,
   nutrition: ExternalFoodNutrition,
-  executor: typeof db | DbTransaction = db
+  executor: typeof db | DbTransaction = db,
 ) {
-  await ensureNutrientDefinitionRows(executor)
+  await ensureNutrientDefinitionRows(executor);
 
   const [snapshot] = await executor
     .insert(foodNutritionSnapshots)
@@ -276,62 +276,69 @@ async function createFoodSnapshot(
       rawSummary: summary,
       rawNutrition: nutrition,
     })
-    .returning({ id: foodNutritionSnapshots.id })
+    .returning({ id: foodNutritionSnapshots.id });
+
+  if (!snapshot) {
+    throw new Error("Failed to create food nutrition snapshot");
+  }
 
   const nutrientRows = Object.entries(nutrition.nutrients).map(
     ([nutrientKey, amount]) => ({
       snapshotId: snapshot.id,
       nutrientKey: nutrientKey as NutrientKey,
       amount: toNumericString(amount),
-    })
-  )
+    }),
+  );
 
   if (nutrientRows.length > 0) {
-    await executor.insert(foodNutrientValues).values(nutrientRows)
+    await executor.insert(foodNutrientValues).values(nutrientRows);
   }
 
-  return snapshot.id
+  return snapshot.id;
 }
 
 function isReference100gServing(
-  serving: CreateFoodInput["servingSizes"][number]
+  serving: CreateFoodInput["servingSizes"][number],
 ) {
   return (
     serving.label.trim().toLowerCase() === "100g" &&
     serving.unit.trim().toLowerCase() === "g" &&
     Math.abs(serving.quantity - 100) < snapshotDriftTolerance
-  )
+  );
 }
 
 function getPrimaryServing(input: CreateFoodInput) {
-  return (
+  const serving =
     input.servingSizes.find((serving) => !isReference100gServing(serving)) ??
-    input.servingSizes[0]
-  )
+    input.servingSizes[0];
+  if (!serving) {
+    throw new Error("At least one serving size is required");
+  }
+  return serving;
 }
 
 function scaleNutrientsForServing(
   nutrients: CreateFoodInput["nutrients"],
-  serving: CreateFoodInput["servingSizes"][number]
+  serving: CreateFoodInput["servingSizes"][number],
 ) {
   const scale =
-    serving.unit.trim().toLowerCase() === "g" ? serving.quantity / 100 : 1
+    serving.unit.trim().toLowerCase() === "g" ? serving.quantity / 100 : 1;
 
   return Object.fromEntries(
-    Object.entries(nutrients).map(([key, amount]) => [key, amount * scale])
-  )
+    Object.entries(nutrients).map(([key, amount]) => [key, amount * scale]),
+  );
 }
 
 export async function ensureExternalFoodSnapshot(
   sourceItemId: string,
-  preSummary?: ExternalFoodSummary
+  preSummary?: ExternalFoodSummary,
 ) {
   const [summary, nutrition] = await Promise.all([
     preSummary || getNutritionFoodSummary(sourceItemId),
     getNutritionFoodNutrition(sourceItemId),
-  ])
-  const foodId = await upsertExternalFood(summary)
-  const latestSnapshot = await getLatestSnapshot(foodId)
+  ]);
+  const foodId = await upsertExternalFood(summary);
+  const latestSnapshot = await getLatestSnapshot(foodId);
 
   if (latestSnapshot && !nutrientsHaveDrifted(latestSnapshot, nutrition)) {
     return {
@@ -340,7 +347,7 @@ export async function ensureExternalFoodSnapshot(
       summary,
       nutrition,
       createdSnapshot: false,
-    }
+    };
   }
 
   return {
@@ -349,16 +356,16 @@ export async function ensureExternalFoodSnapshot(
     summary,
     nutrition,
     createdSnapshot: true,
-  }
+  };
 }
 
 export async function createCustomFood(userId: string, input: CreateFoodInput) {
-  const nowIso = new Date().toISOString()
-  const primaryServing = getPrimaryServing(input)
+  const nowIso = new Date().toISOString();
+  const primaryServing = getPrimaryServing(input);
   const nutrientsPerPrimaryServing = scaleNutrientsForServing(
     input.nutrients,
-    primaryServing
-  )
+    primaryServing,
+  );
 
   if (input.barcode) {
     const { summary, nutrition } = await createNutritionFood({
@@ -367,9 +374,9 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
       brand: input.brand,
       serving: primaryServing,
       nutrients: nutrientsPerPrimaryServing,
-    })
-    const foodId = await upsertExternalFood(summary)
-    const snapshotId = await createFoodSnapshot(foodId, summary, nutrition)
+    });
+    const foodId = await upsertExternalFood(summary);
+    const snapshotId = await createFoodSnapshot(foodId, summary, nutrition);
 
     await db
       .insert(userCustomFoods)
@@ -379,7 +386,7 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
       })
       .onConflictDoNothing({
         target: [userCustomFoods.userId, userCustomFoods.foodId],
-      })
+      });
 
     return {
       foodId,
@@ -393,9 +400,9 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
           name: summary.name,
           brand: summary.brand ?? null,
         },
-        nutrition
+        nutrition,
       ),
-    }
+    };
   }
 
   return db.transaction(async (tx) => {
@@ -414,10 +421,10 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
         barcode: foods.barcode,
         name: foods.name,
         brand: foods.brand,
-      })
+      });
 
     if (!food) {
-      throw new Error("Failed to create food")
+      throw new Error("Failed to create food");
     }
 
     const nutrition = externalFoodNutritionSchema.parse({
@@ -430,7 +437,7 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
       servingSizes: input.servingSizes,
       createdAt: nowIso,
       updatedAt: nowIso,
-    })
+    });
 
     const summary: ExternalFoodSummary = {
       id: food.id,
@@ -438,20 +445,25 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
       name: food.name,
       brand: food.brand,
       servingLabel: nutrition.servingLabel,
-      caloriesPerServing: nutrition.nutrients["calories"] ?? null,
-      proteinPerServing: nutrition.nutrients["protein"] ?? null,
-      carbsPerServing: nutrition.nutrients["carbs"] ?? null,
-      fatPerServing: nutrition.nutrients["fat"] ?? null,
+      caloriesPerServing: nutrition.nutrients.calories ?? null,
+      proteinPerServing: nutrition.nutrients.protein ?? null,
+      carbsPerServing: nutrition.nutrients.carbs ?? null,
+      fatPerServing: nutrition.nutrients.fat ?? null,
       createdAt: nowIso,
       updatedAt: nowIso,
-    }
+    };
 
-    const snapshotId = await createFoodSnapshot(food.id, summary, nutrition, tx)
+    const snapshotId = await createFoodSnapshot(
+      food.id,
+      summary,
+      nutrition,
+      tx,
+    );
 
     await tx.insert(userCustomFoods).values({
       userId,
       foodId: food.id,
-    })
+    });
 
     return {
       foodId: food.id,
@@ -459,8 +471,8 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
       summary,
       nutrition,
       item: toCustomFoodSearchItem(food, nutrition),
-    }
-  })
+    };
+  });
 }
 
 export async function getCustomFoodSnapshot(userId: string, foodId: string) {
@@ -468,7 +480,7 @@ export async function getCustomFoodSnapshot(userId: string, foodId: string) {
     where: and(
       eq(userCustomFoods.userId, userId),
       eq(userCustomFoods.foodId, foodId),
-      isNull(userCustomFoods.deletedAt)
+      isNull(userCustomFoods.deletedAt),
     ),
     with: {
       food: {
@@ -481,15 +493,15 @@ export async function getCustomFoodSnapshot(userId: string, foodId: string) {
         },
       },
     },
-  })
+  });
 
-  if (!customFood) return null
+  if (!customFood) return null;
 
-  const snapshot = await getLatestSnapshot(customFood.food.id)
-  const parsed = externalFoodNutritionSchema.safeParse(snapshot?.rawNutrition)
+  const snapshot = await getLatestSnapshot(customFood.food.id);
+  const parsed = externalFoodNutritionSchema.safeParse(snapshot?.rawNutrition);
 
   if (!snapshot || !parsed.success) {
-    return null
+    return null;
   }
 
   return {
@@ -497,12 +509,12 @@ export async function getCustomFoodSnapshot(userId: string, foodId: string) {
     snapshotId: snapshot.id,
     item: toCustomFoodSearchItem(customFood.food, parsed.data),
     nutrition: parsed.data,
-  }
+  };
 }
 
 export async function getCustomFoodSnapshotByBarcode(
   userId: string,
-  barcode: string
+  barcode: string,
 ) {
   const customFoods = await db
     .select({
@@ -517,22 +529,24 @@ export async function getCustomFoodSnapshotByBarcode(
       and(
         eq(userCustomFoods.userId, userId),
         isNull(userCustomFoods.deletedAt),
-        eq(foods.barcode, barcode)
-      )
+        eq(foods.barcode, barcode),
+      ),
     )
     .orderBy(desc(userCustomFoods.createdAt))
-    .limit(20)
+    .limit(20);
 
   for (const food of customFoods) {
-    const snapshot = await getLatestSnapshot(food.id)
-    const parsed = externalFoodNutritionSchema.safeParse(snapshot?.rawNutrition)
+    const snapshot = await getLatestSnapshot(food.id);
+    const parsed = externalFoodNutritionSchema.safeParse(
+      snapshot?.rawNutrition,
+    );
 
     if (
       !snapshot ||
       !parsed.success ||
       Object.keys(parsed.data.nutrients).length === 0
     ) {
-      continue
+      continue;
     }
 
     return {
@@ -540,19 +554,19 @@ export async function getCustomFoodSnapshotByBarcode(
       snapshotId: snapshot.id,
       item: toCustomFoodSearchItem(food, parsed.data),
       nutrition: parsed.data,
-    }
+    };
   }
 
-  return null
+  return null;
 }
 
 export async function getUserCustomFoods(
-  userId: string
+  userId: string,
 ): Promise<FoodSearchItem[]> {
   const rows = await db.query.userCustomFoods.findMany({
     where: and(
       eq(userCustomFoods.userId, userId),
-      isNull(userCustomFoods.deletedAt)
+      isNull(userCustomFoods.deletedAt),
     ),
     orderBy: desc(userCustomFoods.createdAt),
     with: {
@@ -566,32 +580,32 @@ export async function getUserCustomFoods(
         },
       },
     },
-  })
+  });
 
-  const items: FoodSearchItem[] = []
+  const items: FoodSearchItem[] = [];
   const snapshots = await getLatestSnapshotsByFoodId(
-    rows.map((row) => row.food.id)
-  )
+    rows.map((row) => row.food.id),
+  );
   for (const row of rows) {
-    const nutrition = snapshots.get(row.food.id)
+    const nutrition = snapshots.get(row.food.id);
     if (nutrition) {
-      items.push(toCustomFoodSearchItem(row.food, nutrition))
+      items.push(toCustomFoodSearchItem(row.food, nutrition));
     }
   }
 
-  return items
+  return items;
 }
 
 export async function updateCustomFood(
   userId: string,
   foodId: string,
-  input: UpdateFoodInput
+  input: UpdateFoodInput,
 ) {
   const customFood = await db.query.userCustomFoods.findFirst({
     where: and(
       eq(userCustomFoods.userId, userId),
       eq(userCustomFoods.foodId, foodId),
-      isNull(userCustomFoods.deletedAt)
+      isNull(userCustomFoods.deletedAt),
     ),
     with: {
       food: {
@@ -604,19 +618,19 @@ export async function updateCustomFood(
         },
       },
     },
-  })
+  });
 
   if (!customFood) {
-    return null
+    return null;
   }
 
-  const now = new Date()
-  const nowIso = now.toISOString()
-  const primaryServing = getPrimaryServing(input)
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const primaryServing = getPrimaryServing(input);
   const nutrientsPerPrimaryServing = scaleNutrientsForServing(
     input.nutrients,
-    primaryServing
-  )
+    primaryServing,
+  );
 
   return db.transaction(async (tx) => {
     const [food] =
@@ -650,17 +664,17 @@ export async function updateCustomFood(
               barcode: foods.barcode,
               name: foods.name,
               brand: foods.brand,
-            })
+            });
 
     if (!food) {
-      throw new Error("Failed to update food")
+      throw new Error("Failed to update food");
     }
 
     if (food.id !== foodId) {
       await tx
         .update(userCustomFoods)
         .set({ foodId: food.id, updatedAt: now })
-        .where(eq(userCustomFoods.id, customFood.id))
+        .where(eq(userCustomFoods.id, customFood.id));
     }
 
     const nutrition = externalFoodNutritionSchema.parse({
@@ -673,7 +687,7 @@ export async function updateCustomFood(
       servingSizes: input.servingSizes,
       createdAt: nowIso,
       updatedAt: nowIso,
-    })
+    });
 
     const summary: ExternalFoodSummary = {
       id: food.id,
@@ -681,15 +695,20 @@ export async function updateCustomFood(
       name: food.name,
       brand: food.brand,
       servingLabel: nutrition.servingLabel,
-      caloriesPerServing: nutrition.nutrients["calories"] ?? null,
-      proteinPerServing: nutrition.nutrients["protein"] ?? null,
-      carbsPerServing: nutrition.nutrients["carbs"] ?? null,
-      fatPerServing: nutrition.nutrients["fat"] ?? null,
+      caloriesPerServing: nutrition.nutrients.calories ?? null,
+      proteinPerServing: nutrition.nutrients.protein ?? null,
+      carbsPerServing: nutrition.nutrients.carbs ?? null,
+      fatPerServing: nutrition.nutrients.fat ?? null,
       createdAt: nowIso,
       updatedAt: nowIso,
-    }
+    };
 
-    const snapshotId = await createFoodSnapshot(food.id, summary, nutrition, tx)
+    const snapshotId = await createFoodSnapshot(
+      food.id,
+      summary,
+      nutrition,
+      tx,
+    );
 
     return {
       foodId: food.id,
@@ -697,12 +716,12 @@ export async function updateCustomFood(
       summary,
       nutrition,
       item: toCustomFoodSearchItem(food, nutrition),
-    }
-  })
+    };
+  });
 }
 
 export async function softDeleteCustomFood(userId: string, foodId: string) {
-  const now = new Date()
+  const now = new Date();
   const [deleted] = await db
     .update(userCustomFoods)
     .set({ deletedAt: now, updatedAt: now })
@@ -710,41 +729,41 @@ export async function softDeleteCustomFood(userId: string, foodId: string) {
       and(
         eq(userCustomFoods.userId, userId),
         eq(userCustomFoods.foodId, foodId),
-        isNull(userCustomFoods.deletedAt)
-      )
+        isNull(userCustomFoods.deletedAt),
+      ),
     )
-    .returning({ foodId: userCustomFoods.foodId })
+    .returning({ foodId: userCustomFoods.foodId });
 
   if (!deleted) {
-    return false
+    return false;
   }
 
   await db
     .update(foods)
     .set({ deletedAt: now, updatedAt: now })
-    .where(and(eq(foods.id, foodId), eq(foods.ownerUserId, userId)))
+    .where(and(eq(foods.id, foodId), eq(foods.ownerUserId, userId)));
 
-  return true
+  return true;
 }
 
 export async function searchUserCustomFoods(
   userId: string,
   query: string | undefined,
   brand: string | undefined,
-  limit: number
+  limit: number,
 ): Promise<FoodSearchItem[]> {
   const clauses = [
     eq(userCustomFoods.userId, userId),
     isNull(userCustomFoods.deletedAt),
-  ]
+  ];
 
   if (query) {
-    const pattern = `%${query}%`
-    clauses.push(or(ilike(foods.name, pattern), ilike(foods.brand, pattern))!)
+    const pattern = `%${query}%`;
+    clauses.push(or(ilike(foods.name, pattern), ilike(foods.brand, pattern))!);
   }
 
   if (brand) {
-    clauses.push(ilike(foods.brand, `%${brand}%`))
+    clauses.push(ilike(foods.brand, `%${brand}%`));
   }
 
   const rows = await db
@@ -758,27 +777,27 @@ export async function searchUserCustomFoods(
     .innerJoin(foods, eq(foods.id, userCustomFoods.foodId))
     .where(and(...clauses))
     .orderBy(desc(userCustomFoods.createdAt))
-    .limit(limit)
+    .limit(limit);
 
-  const items: FoodSearchItem[] = []
-  const snapshots = await getLatestSnapshotsByFoodId(rows.map((row) => row.id))
+  const items: FoodSearchItem[] = [];
+  const snapshots = await getLatestSnapshotsByFoodId(rows.map((row) => row.id));
   for (const row of rows) {
-    const nutrition = snapshots.get(row.id)
+    const nutrition = snapshots.get(row.id);
     if (nutrition) {
-      items.push(toCustomFoodSearchItem(row, nutrition))
+      items.push(toCustomFoodSearchItem(row, nutrition));
     }
   }
 
-  return items
+  return items;
 }
 
 export async function getFoodHistory(
   userId: string,
   atHour: number | undefined,
-  limit: number
+  limit: number,
 ): Promise<FoodHistoryItem[]> {
-  const timezone = await getUserTimezone(userId)
-  const referenceHour = atHour ?? getHourInTimezone(new Date(), timezone)
+  const timezone = await getUserTimezone(userId);
+  const referenceHour = atHour ?? getHourInTimezone(new Date(), timezone);
   const rows = await db
     .select({
       localFoodId: foods.id,
@@ -802,16 +821,23 @@ export async function getFoodHistory(
         eq(foodLogEntries.userId, userId),
         eq(foodLogEntries.entryType, "food"),
         eq(foods.source, "deniz_nutrition"),
-        isNotNull(foods.externalItemId)
-      )
+        isNotNull(foods.externalItemId),
+      ),
     )
     .orderBy(desc(foodLogEntries.eatenAt))
-    .limit(Math.min(limit * 8, 200))
+    .limit(Math.min(limit * 8, 200));
 
-  const latestByFood = new Map<string, (typeof rows)[number]>()
+  const latestByFood = new Map<string, (typeof rows)[number]>();
+  const frequencyByFood = new Map<string, number>();
   for (const row of rows) {
+    if (row.sourceItemId) {
+      frequencyByFood.set(
+        row.sourceItemId,
+        (frequencyByFood.get(row.sourceItemId) ?? 0) + 1,
+      );
+    }
     if (row.sourceItemId && !latestByFood.has(row.sourceItemId)) {
-      latestByFood.set(row.sourceItemId, row)
+      latestByFood.set(row.sourceItemId, row);
     }
   }
 
@@ -819,20 +845,25 @@ export async function getFoodHistory(
     .sort((left, right) => {
       const leftHour = left.eatenAt
         ? getHourInTimezone(left.eatenAt, timezone)
-        : referenceHour
+        : referenceHour;
       const rightHour = right.eatenAt
         ? getHourInTimezone(right.eatenAt, timezone)
-        : referenceHour
-      const leftDistance = hourDistance(leftHour, referenceHour)
-      const rightDistance = hourDistance(rightHour, referenceHour)
-
-      if (leftDistance !== rightDistance) {
-        return leftDistance - rightDistance
-      }
-
-      return (right.eatenAt?.getTime() ?? 0) - (left.eatenAt?.getTime() ?? 0)
+        : referenceHour;
+      const score = (row: typeof left, hour: number) => {
+        const frequency = frequencyByFood.get(row.sourceItemId ?? "") ?? 1;
+        const ageDays = Math.max(
+          0,
+          (Date.now() - (row.eatenAt?.getTime() ?? 0)) / 86_400_000,
+        );
+        return (
+          Math.log2(frequency + 1) * 3 +
+          4 / (1 + hourDistance(hour, referenceHour)) +
+          5 / (1 + ageDays / 7)
+        );
+      };
+      return score(right, rightHour) - score(left, leftHour);
     })
-    .slice(0, limit)
+    .slice(0, limit);
 
   const nutrientRows =
     orderedRows.length > 0
@@ -846,22 +877,22 @@ export async function getFoodHistory(
           .where(
             inArray(
               foodLogEntryNutrients.entryId,
-              orderedRows.map((row) => row.entryId)
-            )
+              orderedRows.map((row) => row.entryId),
+            ),
           )
-      : []
+      : [];
 
-  const nutrientsByEntry = new Map<string, Record<string, number>>()
+  const nutrientsByEntry = new Map<string, Record<string, number>>();
   for (const row of nutrientRows) {
-    const nutrients = nutrientsByEntry.get(row.entryId) ?? {}
-    nutrients[row.nutrientKey] = Number(row.amount)
-    nutrientsByEntry.set(row.entryId, nutrients)
+    const nutrients = nutrientsByEntry.get(row.entryId) ?? {};
+    nutrients[row.nutrientKey] = Number(row.amount);
+    nutrientsByEntry.set(row.entryId, nutrients);
   }
 
   return orderedRows.map((row) => {
-    const servingsConsumed = Number(row.servingsConsumed)
-    const perServingScale = servingsConsumed > 0 ? servingsConsumed : 1
-    const nutrients = nutrientsByEntry.get(row.entryId) ?? {}
+    const servingsConsumed = Number(row.servingsConsumed);
+    const perServingScale = servingsConsumed > 0 ? servingsConsumed : 1;
+    const nutrients = nutrientsByEntry.get(row.entryId) ?? {};
 
     return {
       id: row.sourceItemId ?? row.localFoodId,
@@ -872,19 +903,15 @@ export async function getFoodHistory(
       brand: row.brand,
       servingLabel: row.servingLabel,
       caloriesPerServing:
-        nutrients["calories"] == null
+        nutrients.calories == null
           ? null
-          : nutrients["calories"] / perServingScale,
+          : nutrients.calories / perServingScale,
       proteinPerServing:
-        nutrients["protein"] == null
-          ? null
-          : nutrients["protein"] / perServingScale,
+        nutrients.protein == null ? null : nutrients.protein / perServingScale,
       carbsPerServing:
-        nutrients["carbs"] == null
-          ? null
-          : nutrients["carbs"] / perServingScale,
+        nutrients.carbs == null ? null : nutrients.carbs / perServingScale,
       fatPerServing:
-        nutrients["fat"] == null ? null : nutrients["fat"] / perServingScale,
+        nutrients.fat == null ? null : nutrients.fat / perServingScale,
       sourceUpdatedAt: null,
       rank: null,
       score: null,
@@ -896,14 +923,14 @@ export async function getFoodHistory(
       lastServingQuantity: Number(row.servingQuantity),
       lastServingUnit: row.servingUnit,
       lastServingLabel: row.servingLabel,
-    }
-  })
+    };
+  });
 }
 
 export async function refreshDailyNutritionSummary(
   tx: DbTransaction,
   userId: string,
-  logDate: string
+  logDate: string,
 ) {
   await tx.execute(sql`
     insert into ${dailyNutritionSummaries} (
@@ -943,12 +970,12 @@ export async function refreshDailyNutritionSummary(
       "carbs" = excluded."carbs",
       "fat" = excluded."fat",
       "updatedAt" = now()
-  `)
+  `);
 
   const summary = await tx.query.dailyNutritionSummaries.findFirst({
     where: and(
       eq(dailyNutritionSummaries.userId, userId),
-      eq(dailyNutritionSummaries.logDate, logDate)
+      eq(dailyNutritionSummaries.logDate, logDate),
     ),
     columns: {
       calories: true,
@@ -956,26 +983,102 @@ export async function refreshDailyNutritionSummary(
       carbs: true,
       fat: true,
     },
-  })
+  });
+
+  const [quality] = await tx
+    .select({
+      entryCount: sql<number>`count(distinct ${foodLogEntries.id})::int`,
+      mealCount: sql<number>`count(distinct ${foodLogEntries.mealType})::int`,
+      nutrientCount: sql<number>`count(distinct ${foodLogEntryNutrients.nutrientKey})::int`,
+    })
+    .from(foodLogEntries)
+    .leftJoin(
+      foodLogEntryNutrients,
+      eq(foodLogEntryNutrients.entryId, foodLogEntries.id),
+    )
+    .where(
+      and(
+        eq(foodLogEntries.userId, userId),
+        eq(foodLogEntries.logDate, logDate),
+      ),
+    );
+  const [nutrientDefinitionCount] = await tx
+    .select({ totalNutrients: sql<number>`count(*)::int` })
+    .from(nutrientDefinitions);
+  const totalNutrients = nutrientDefinitionCount?.totalNutrients ?? 0;
+  const entryCount = quality?.entryCount ?? 0;
+  const mealCount = quality?.mealCount ?? 0;
+  const loggingCompleteness =
+    entryCount === 0 ? 0 : mealCount >= 3 ? 1 : mealCount === 2 ? 0.75 : 0.5;
+  const micronutrientCoverage =
+    totalNutrients > 0
+      ? Math.min(1, (quality?.nutrientCount ?? 0) / totalNutrients)
+      : 0;
+  await tx
+    .update(dailyNutritionSummaries)
+    .set({
+      entryCount,
+      mealCount,
+      loggingCompleteness: loggingCompleteness.toFixed(4),
+      micronutrientCoverage: micronutrientCoverage.toFixed(4),
+    })
+    .where(
+      and(
+        eq(dailyNutritionSummaries.userId, userId),
+        eq(dailyNutritionSummaries.logDate, logDate),
+      ),
+    );
 
   return {
     calories: summary ? Number(summary.calories) : 0,
     protein: summary ? Number(summary.protein) : 0,
     carbs: summary ? Number(summary.carbs) : 0,
     fat: summary ? Number(summary.fat) : 0,
-  }
+  };
 }
 
 export async function logExternalFood(
   userId: string,
-  input: LogFoodInput
+  input: LogFoodInput,
 ): Promise<LogFoodResult> {
-  const timezone = await getUserTimezone(userId)
-  const eatenAt = input.eatenAt ? new Date(input.eatenAt) : new Date()
-  const logDate = input.logDate ?? toIsoDate(eatenAt, timezone)
+  if (input.clientMutationId) {
+    const existing = await db.query.foodLogEntries.findFirst({
+      where: and(
+        eq(foodLogEntries.userId, userId),
+        eq(foodLogEntries.clientMutationId, input.clientMutationId),
+      ),
+    });
+    if (existing?.foodId && existing.snapshotId) {
+      const summary = await db.query.dailyNutritionSummaries.findFirst({
+        where: and(
+          eq(dailyNutritionSummaries.userId, userId),
+          eq(dailyNutritionSummaries.logDate, existing.logDate),
+        ),
+      });
+      return {
+        entryId: existing.id,
+        clientMutationId: input.clientMutationId,
+        foodId: existing.foodId,
+        snapshotId: existing.snapshotId,
+        logDate: existing.logDate,
+        eatenAt:
+          existing.eatenAt?.toISOString() ?? existing.createdAt.toISOString(),
+        mealType: existing.mealType,
+        totals: {
+          calories: Number(summary?.calories ?? 0),
+          protein: Number(summary?.protein ?? 0),
+          carbs: Number(summary?.carbs ?? 0),
+          fat: Number(summary?.fat ?? 0),
+        },
+      };
+    }
+  }
+  const timezone = await getUserTimezone(userId);
+  const eatenAt = input.eatenAt ? new Date(input.eatenAt) : new Date();
+  const logDate = input.logDate ?? toIsoDate(eatenAt, timezone);
   const mealType =
-    input.mealType ?? inferMealType(getHourInTimezone(eatenAt, timezone))
-  const customFood = await getCustomFoodSnapshot(userId, input.sourceItemId)
+    input.mealType ?? inferMealType(getHourInTimezone(eatenAt, timezone));
+  const customFood = await getCustomFoodSnapshot(userId, input.sourceItemId);
   const resolvedFood = customFood
     ? {
         foodId: customFood.foodId,
@@ -983,13 +1086,14 @@ export async function logExternalFood(
         summary: customFood.item,
         nutrition: customFood.nutrition,
       }
-    : await ensureExternalFoodSnapshot(input.sourceItemId)
+    : await ensureExternalFoodSnapshot(input.sourceItemId);
 
   const logged = await db.transaction(async (tx) => {
     const [entry] = await tx
       .insert(foodLogEntries)
       .values({
         userId,
+        clientMutationId: input.clientMutationId,
         logDate,
         timezoneAtLog: timezone,
         eatenAt,
@@ -1001,30 +1105,48 @@ export async function logExternalFood(
         brand: resolvedFood.summary.brand ?? null,
         servingLabel: resolvedFood.nutrition.servingLabel,
         servingQuantity: toNumericString(
-          resolvedFood.nutrition.servingQuantity
+          resolvedFood.nutrition.servingQuantity,
         ),
         servingUnit: resolvedFood.nutrition.servingUnit,
         servingsConsumed: toNumericString(input.servingsConsumed),
         notes: input.notes,
       })
-      .returning({ id: foodLogEntries.id })
+      .onConflictDoNothing()
+      .returning({ id: foodLogEntries.id });
+
+    if (!entry) {
+      const existing = input.clientMutationId
+        ? await tx.query.foodLogEntries.findFirst({
+            where: and(
+              eq(foodLogEntries.userId, userId),
+              eq(foodLogEntries.clientMutationId, input.clientMutationId),
+            ),
+            columns: { id: true },
+          })
+        : null;
+      if (!existing) throw new Error("Failed to create food log entry");
+      return {
+        entryId: existing.id,
+        totals: await refreshDailyNutritionSummary(tx, userId, logDate),
+      };
+    }
 
     const nutrientRows = Object.entries(resolvedFood.nutrition.nutrients).map(
       ([nutrientKey, amount]) => ({
         entryId: entry.id,
         nutrientKey: nutrientKey as NutrientKey,
         amount: toNumericString(amount * input.servingsConsumed),
-      })
-    )
+      }),
+    );
 
     if (nutrientRows.length > 0) {
-      await tx.insert(foodLogEntryNutrients).values(nutrientRows)
+      await tx.insert(foodLogEntryNutrients).values(nutrientRows);
     }
 
-    const totals = await refreshDailyNutritionSummary(tx, userId, logDate)
+    const totals = await refreshDailyNutritionSummary(tx, userId, logDate);
 
-    return { entryId: entry.id, totals }
-  })
+    return { entryId: entry.id, totals };
+  });
 
   return {
     entryId: logged.entryId,
@@ -1035,5 +1157,5 @@ export async function logExternalFood(
     eatenAt: eatenAt.toISOString(),
     mealType,
     totals: logged.totals,
-  }
+  };
 }

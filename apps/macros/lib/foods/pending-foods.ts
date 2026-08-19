@@ -1,36 +1,36 @@
-import { z } from "zod"
+import { z } from "zod";
 
-import { type LogFoodInput, logFoodBodySchema } from "@/lib/foods/contracts"
-import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition"
+import { type LogFoodInput, logFoodBodySchema } from "@/lib/foods/contracts";
+import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition";
 import {
   type LogRecipeInput,
   logRecipeBodySchema,
-} from "@/lib/recipes/contracts"
+} from "@/lib/recipes/contracts";
 
 export interface PendingFoodSummary {
-  id: string
-  name: string
-  brand: string | null | undefined
-  servingLabel: string | null | undefined
-  caloriesPerServing: number | null | undefined
-  proteinPerServing: number | null | undefined
-  fatPerServing: number | null | undefined
-  carbsPerServing: number | null | undefined
-  totalWeightGrams?: number | null | undefined
-  servings?: number | null | undefined
+  id: string;
+  name: string;
+  brand: string | null | undefined;
+  servingLabel: string | null | undefined;
+  caloriesPerServing: number | null | undefined;
+  proteinPerServing: number | null | undefined;
+  fatPerServing: number | null | undefined;
+  carbsPerServing: number | null | undefined;
+  totalWeightGrams?: number | null | undefined;
+  servings?: number | null | undefined;
 }
 
 export interface PendingFood {
-  uid: string
-  entryType?: "food" | "recipe"
-  food: PendingFoodSummary
-  input: LogFoodInput | LogRecipeInput
-  macros: OptimisticDailyMacros
+  uid: string;
+  entryType?: "food" | "recipe";
+  food: PendingFoodSummary;
+  input: LogFoodInput | LogRecipeInput;
+  macros: OptimisticDailyMacros;
 }
 
-export const PENDING_FOODS_STORAGE_EVENT = "macros:pending-foods"
+export const PENDING_FOODS_STORAGE_EVENT = "macros:pending-foods";
 
-const PENDING_FOODS_KEY = "macros.pending-foods.v1"
+const PENDING_FOODS_KEY = "macros.pending-foods.v1";
 
 export const pendingFoodSchema = z.object({
   uid: z.uuid(),
@@ -54,60 +54,60 @@ export const pendingFoodSchema = z.object({
     carbs: z.number(),
     fat: z.number(),
   }),
-})
+});
 
 export function readPendingFoods(): PendingFood[] {
   try {
-    const raw = window.sessionStorage.getItem(PENDING_FOODS_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
+    const raw = window.sessionStorage.getItem(PENDING_FOODS_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
     return parsed.filter(
-      (food): food is PendingFood => pendingFoodSchema.safeParse(food).success
-    )
+      (food): food is PendingFood => pendingFoodSchema.safeParse(food).success,
+    );
   } catch {
-    return []
+    return [];
   }
 }
 
 export function writePendingFoods(foods: PendingFood[]) {
   try {
     if (foods.length === 0) {
-      window.sessionStorage.removeItem(PENDING_FOODS_KEY)
+      window.sessionStorage.removeItem(PENDING_FOODS_KEY);
     } else {
-      window.sessionStorage.setItem(PENDING_FOODS_KEY, JSON.stringify(foods))
+      window.sessionStorage.setItem(PENDING_FOODS_KEY, JSON.stringify(foods));
     }
 
     window.dispatchEvent(
-      new CustomEvent(PENDING_FOODS_STORAGE_EVENT, { detail: foods })
-    )
+      new CustomEvent(PENDING_FOODS_STORAGE_EVENT, { detail: foods }),
+    );
   } catch (error) {
-    console.warn("Failed to store staged foods", error)
+    console.warn("Failed to store staged foods", error);
   }
 }
 
 export function subscribeToPendingFoods(
-  onChange: (foods: PendingFood[]) => void
+  onChange: (foods: PendingFood[]) => void,
 ) {
   const handleCustomEvent = (event: Event) => {
-    const detail = (event as CustomEvent<unknown>).detail
-    if (!Array.isArray(detail)) return
+    const detail = (event as CustomEvent<unknown>).detail;
+    if (!Array.isArray(detail)) return;
     const foods = detail.filter(
-      (food): food is PendingFood => pendingFoodSchema.safeParse(food).success
-    )
-    onChange(foods)
-  }
+      (food): food is PendingFood => pendingFoodSchema.safeParse(food).success,
+    );
+    onChange(foods);
+  };
 
   const handleStorageEvent = (event: StorageEvent) => {
-    if (event.key !== PENDING_FOODS_KEY) return
-    onChange(readPendingFoods())
-  }
+    if (event.key !== PENDING_FOODS_KEY) return;
+    onChange(readPendingFoods());
+  };
 
-  window.addEventListener(PENDING_FOODS_STORAGE_EVENT, handleCustomEvent)
-  window.addEventListener("storage", handleStorageEvent)
+  window.addEventListener(PENDING_FOODS_STORAGE_EVENT, handleCustomEvent);
+  window.addEventListener("storage", handleStorageEvent);
 
   return () => {
-    window.removeEventListener(PENDING_FOODS_STORAGE_EVENT, handleCustomEvent)
-    window.removeEventListener("storage", handleStorageEvent)
-  }
+    window.removeEventListener(PENDING_FOODS_STORAGE_EVENT, handleCustomEvent);
+    window.removeEventListener("storage", handleStorageEvent);
+  };
 }
