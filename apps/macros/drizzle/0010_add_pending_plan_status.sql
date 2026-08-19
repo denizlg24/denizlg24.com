@@ -1,0 +1,1 @@
+ALTER TYPE "public"."nutrition_plan_status" ADD VALUE 'pending_acceptance' BEFORE 'archived';

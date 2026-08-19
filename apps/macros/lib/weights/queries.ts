@@ -1,13 +1,14 @@
-import { and, asc, desc, eq, gte, lte } from "drizzle-orm"
-import { db } from "@/db/connection"
-import { userProfiles, weighIns } from "@/db/schema"
+import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
+import { db } from "@/db/connection";
+import { userProfiles, weighIns, weightTrendPoints } from "@/db/schema";
 import type {
   WeighInItem,
   WeightOverview,
   WeightPoint,
   WeightSummary,
-} from "./contracts"
-import { lastNDates, shiftIso, startOfIsoWeek, toIsoDate } from "./date-utils"
+  WeightTrendPointItem,
+} from "./contracts";
+import { lastNDates, shiftIso, startOfIsoWeek, toIsoDate } from "./date-utils";
 
 function toItem(row: typeof weighIns.$inferSelect): WeighInItem {
   return {
@@ -17,43 +18,58 @@ function toItem(row: typeof weighIns.$inferSelect): WeighInItem {
     weightKg: Number(row.weightKg),
     bodyFatPct: row.bodyFatPct == null ? null : Number(row.bodyFatPct),
     notes: row.notes,
-  }
+  };
 }
 
 function toPoint(
-  row: Pick<typeof weighIns.$inferSelect, "logDate" | "weightKg">
+  row: Pick<typeof weighIns.$inferSelect, "logDate" | "weightKg">,
 ): WeightPoint {
   return {
     date: row.logDate,
     weightKg: Number(row.weightKg),
-  }
+  };
+}
+
+function toTrendPoint(
+  row: typeof weightTrendPoints.$inferSelect,
+): WeightTrendPointItem {
+  return {
+    date: row.logDate,
+    trendWeightKg: Number(row.trendWeightKg),
+    scaleWeightKg: row.scaleWeightKg == null ? null : Number(row.scaleWeightKg),
+    varianceKg2: Number(row.trendVarianceKg2),
+    slopeKgPerWeek:
+      row.slopeKgPerWeek == null ? null : Number(row.slopeKgPerWeek),
+    hasObservation: row.hasObservation,
+    algorithmVersion: row.algorithmVersion,
+  };
 }
 
 function average(points: WeightPoint[]): number | null {
-  if (points.length === 0) return null
-  return points.reduce((sum, point) => sum + point.weightKg, 0) / points.length
+  if (points.length === 0) return null;
+  return points.reduce((sum, point) => sum + point.weightKg, 0) / points.length;
 }
 
 function roundWeight(value: number | null): number | null {
-  return value == null ? null : Math.round(value * 10) / 10
+  return value == null ? null : Math.round(value * 10) / 10;
 }
 
 function countStreak(trackedDates: Set<string>, today: string): number {
-  let streak = 0
+  let streak = 0;
   for (let date = today; trackedDates.has(date); date = shiftIso(date, -1)) {
-    streak += 1
+    streak += 1;
   }
-  return streak
+  return streak;
 }
 
 export async function getWeightSummary(
   userId: string,
-  today: string
+  today: string,
 ): Promise<WeightSummary> {
-  const start30 = shiftIso(today, -29)
-  const weekStart = startOfIsoWeek(today)
-  const previousWeekStart = shiftIso(weekStart, -7)
-  const previousWeekEnd = shiftIso(weekStart, -1)
+  const start30 = shiftIso(today, -29);
+  const weekStart = startOfIsoWeek(today);
+  const previousWeekStart = shiftIso(weekStart, -7);
+  const previousWeekEnd = shiftIso(weekStart, -1);
 
   const [latest, recentRows, weekRows, previousWeekRows] = await Promise.all([
     db.query.weighIns.findFirst({
@@ -64,7 +80,7 @@ export async function getWeightSummary(
       where: and(
         eq(weighIns.userId, userId),
         gte(weighIns.logDate, start30),
-        lte(weighIns.logDate, today)
+        lte(weighIns.logDate, today),
       ),
       orderBy: [asc(weighIns.logDate)],
     }),
@@ -72,7 +88,7 @@ export async function getWeightSummary(
       where: and(
         eq(weighIns.userId, userId),
         gte(weighIns.logDate, weekStart),
-        lte(weighIns.logDate, today)
+        lte(weighIns.logDate, today),
       ),
       orderBy: [asc(weighIns.logDate)],
     }),
@@ -80,19 +96,21 @@ export async function getWeightSummary(
       where: and(
         eq(weighIns.userId, userId),
         gte(weighIns.logDate, previousWeekStart),
-        lte(weighIns.logDate, previousWeekEnd)
+        lte(weighIns.logDate, previousWeekEnd),
       ),
       orderBy: [asc(weighIns.logDate)],
     }),
-  ])
+  ]);
 
-  const recentPoints = recentRows.map(toPoint)
-  const weekPoints = weekRows.map(toPoint)
-  const previousWeekPoints = previousWeekRows.map(toPoint)
-  const trackedDates = new Set(recentRows.map((row) => row.logDate))
-  const last30Days = lastNDates(today, 30)
-  const weekAverage = average(weekPoints)
-  const previousWeekAverage = average(previousWeekPoints)
+  const recentPoints = recentRows.map(toPoint);
+  const weekPoints = weekRows.map(toPoint);
+  const previousWeekPoints = previousWeekRows.map(toPoint);
+  const trackedDates = new Set(recentRows.map((row) => row.logDate));
+  const last30Days = lastNDates(today, 30);
+  const weekAverage = average(weekPoints);
+  const previousWeekAverage = average(previousWeekPoints);
+  const firstWeekPoint = weekPoints.at(0);
+  const lastWeekPoint = weekPoints.at(-1);
 
   return {
     latestWeightKg: latest ? roundWeight(Number(latest.weightKg)) : null,
@@ -101,11 +119,8 @@ export async function getWeightSummary(
     weekDifferenceKg:
       weekAverage != null && previousWeekAverage != null
         ? roundWeight(weekAverage - previousWeekAverage)
-        : weekPoints.length >= 2
-          ? roundWeight(
-              weekPoints[weekPoints.length - 1].weightKg -
-                weekPoints[0].weightKg
-            )
+        : firstWeekPoint && lastWeekPoint && weekPoints.length >= 2
+          ? roundWeight(lastWeekPoint.weightKg - firstWeekPoint.weightKg)
           : null,
     weekPoints,
     lastSevenEntries: recentPoints.slice(-7),
@@ -113,36 +128,45 @@ export async function getWeightSummary(
     last30Days,
     trackedLast30Days: last30Days.filter((date) => trackedDates.has(date)),
     streakDays: countStreak(trackedDates, today),
-  }
+  };
 }
 
 export async function getWeightOverview(
-  userId: string
+  userId: string,
 ): Promise<WeightOverview> {
   const profile = await db.query.userProfiles.findFirst({
     where: eq(userProfiles.userId, userId),
     columns: { timezone: true },
-  })
-  const timezone = profile?.timezone ?? "UTC"
-  const today = toIsoDate(new Date(), timezone)
-  const start = shiftIso(today, -365)
+  });
+  const timezone = profile?.timezone ?? "UTC";
+  const today = toIsoDate(new Date(), timezone);
+  const start = shiftIso(today, -365);
 
-  const [entries, summary] = await Promise.all([
+  const [entries, trend, summary] = await Promise.all([
     db.query.weighIns.findMany({
       where: and(
         eq(weighIns.userId, userId),
         gte(weighIns.logDate, start),
-        lte(weighIns.logDate, today)
+        lte(weighIns.logDate, today),
       ),
       orderBy: [desc(weighIns.logDate)],
     }),
+    db.query.weightTrendPoints.findMany({
+      where: and(
+        eq(weightTrendPoints.userId, userId),
+        gte(weightTrendPoints.logDate, start),
+        lte(weightTrendPoints.logDate, today),
+      ),
+      orderBy: [asc(weightTrendPoints.logDate)],
+    }),
     getWeightSummary(userId, today),
-  ])
+  ]);
 
   return {
     today,
     timezone,
     entries: entries.map(toItem),
+    trend: trend.map(toTrendPoint),
     summary,
-  }
+  };
 }

@@ -18,6 +18,7 @@ export * from "./latex-history";
 export * from "./latex-project";
 export * from "./latex-research";
 export * from "./llm";
+export * from "./macros";
 export * from "./notes";
 export * from "./paper";
 export * from "./people";

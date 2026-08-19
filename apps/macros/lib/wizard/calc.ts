@@ -1,26 +1,26 @@
-export type Sex = "female" | "male" | "other" | "prefer_not_to_say"
+export type Sex = "female" | "male" | "other" | "prefer_not_to_say";
 export type ActivityLevel =
   | "sedentary"
   | "light"
   | "moderate"
   | "active"
-  | "very_active"
-export type GoalType = "lose" | "maintain" | "gain"
+  | "very_active";
+export type GoalType = "lose" | "maintain" | "gain";
 export type ProteinProfile =
   | "balanced"
   | "high_protein"
   | "low_fat"
   | "low_carb"
-  | "keto"
-export type WeightUnit = "kg" | "lb"
-export type EnergyUnit = "kcal" | "kj"
+  | "keto";
+export type WeightUnit = "kg" | "lb";
+export type EnergyUnit = "kcal" | "kj";
 
 export interface ProteinProfileDef {
-  value: ProteinProfile
-  label: string
-  description: string
-  proteinPerKg: number
-  fatPct: number
+  value: ProteinProfile;
+  label: string;
+  description: string;
+  proteinPerKg: number;
+  fatPct: number;
 }
 
 export const PROTEIN_PROFILES: ProteinProfileDef[] = [
@@ -59,12 +59,12 @@ export const PROTEIN_PROFILES: ProteinProfileDef[] = [
     proteinPerKg: 1.6,
     fatPct: 0.7,
   },
-]
+];
 
 export const ACTIVITY_LEVELS: {
-  value: ActivityLevel
-  label: string
-  description: string
+  value: ActivityLevel;
+  label: string;
+  description: string;
 }[] = [
   {
     value: "sedentary",
@@ -87,7 +87,7 @@ export const ACTIVITY_LEVELS: {
     label: "Very active",
     description: "Twice-daily training, lifting + cardio",
   },
-]
+];
 
 export const ACTIVITY_MULTIPLIERS: Record<ActivityLevel, number> = {
   sedentary: 1.2,
@@ -95,7 +95,7 @@ export const ACTIVITY_MULTIPLIERS: Record<ActivityLevel, number> = {
   moderate: 1.55,
   active: 1.725,
   very_active: 1.9,
-}
+};
 
 export const WEEKDAY_FULL = [
   "Monday",
@@ -105,66 +105,74 @@ export const WEEKDAY_FULL = [
   "Friday",
   "Saturday",
   "Sunday",
-] as const
+] as const;
 
-export type MacroSplit = { protein: number; carbs: number; fat: number }
+export type MacroSplit = { protein: number; carbs: number; fat: number };
 
 export function adjustSplit(
   which: keyof MacroSplit,
   newPct: number,
-  cur: MacroSplit
+  cur: MacroSplit,
 ): MacroSplit {
-  const clamped = Math.max(10, Math.min(75, newPct))
-  const remaining = 100 - clamped
+  const clamped = Math.max(10, Math.min(75, newPct));
+  const remaining = 100 - clamped;
   const otherKeys = (
     ["protein", "carbs", "fat"] as (keyof MacroSplit)[]
-  ).filter((k) => k !== which)
-  const otherSum = otherKeys.reduce((s, k) => s + cur[k], 0)
-  const result = { ...cur, [which]: clamped }
+  ).filter((k) => k !== which);
+  const otherSum = otherKeys.reduce((s, k) => s + cur[k], 0);
+  const result = { ...cur, [which]: clamped };
+  const [firstOtherKey, secondOtherKey] = otherKeys;
+  if (!firstOtherKey || !secondOtherKey) {
+    throw new Error("Macro split requires exactly three macro keys");
+  }
   if (otherSum === 0) {
-    const half = Math.round(remaining / 2)
-    result[otherKeys[0]] = half
-    result[otherKeys[1]] = remaining - half
+    const half = Math.round(remaining / 2);
+    result[firstOtherKey] = half;
+    result[secondOtherKey] = remaining - half;
   } else {
-    result[otherKeys[0]] = Math.max(
+    result[firstOtherKey] = Math.max(
       5,
-      Math.round((cur[otherKeys[0]] / otherSum) * remaining)
-    )
-    result[otherKeys[1]] = Math.max(5, remaining - result[otherKeys[0]])
+      Math.round((cur[firstOtherKey] / otherSum) * remaining),
+    );
+    result[secondOtherKey] = Math.max(5, remaining - result[firstOtherKey]);
   }
-  const sum = result.protein + result.carbs + result.fat
+  const sum = result.protein + result.carbs + result.fat;
   if (sum !== 100) {
-    const biggest = otherKeys.reduce((a, b) => (result[a] >= result[b] ? a : b))
-    result[biggest] += 100 - sum
+    const biggest = otherKeys.reduce((a, b) =>
+      result[a] >= result[b] ? a : b,
+    );
+    result[biggest] += 100 - sum;
   }
-  return result
+  return result;
 }
 
 export function computeAgeFromBirthDate(birthDate: string): number | undefined {
-  if (!birthDate) return undefined
-  const parts = birthDate.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!parts) return undefined
-  const year = parseInt(parts[1], 10)
-  const month = parseInt(parts[2], 10)
-  const day = parseInt(parts[3], 10)
-  const birth = new Date(year, month - 1, day)
-  if (isNaN(birth.getTime())) return undefined
-  const today = new Date()
-  let age = today.getFullYear() - birth.getFullYear()
-  const m = today.getMonth() - birth.getMonth()
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
-  return age
+  if (!birthDate) return undefined;
+  const parts = birthDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!parts) return undefined;
+  const [, yearText, monthText, dayText] = parts;
+  if (!yearText || !monthText || !dayText) return undefined;
+  const year = parseInt(yearText, 10);
+  const month = parseInt(monthText, 10);
+  const day = parseInt(dayText, 10);
+  const birth = new Date(year, month - 1, day);
+  if (Number.isNaN(birth.getTime())) return undefined;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
 }
 
 export function calculateMacros(params: {
-  weightKg: number
-  heightCm?: number
-  ageYears?: number
-  sex?: Sex
-  activityLevel?: ActivityLevel
-  goalType: GoalType
-  weeklyRateKg?: number
-  proteinProfile?: ProteinProfile
+  weightKg: number;
+  heightCm?: number;
+  ageYears?: number;
+  sex?: Sex;
+  activityLevel?: ActivityLevel;
+  goalType: GoalType;
+  weeklyRateKg?: number;
+  proteinProfile?: ProteinProfile;
 }): { calories: number; protein: number; carbs: number; fat: number } {
   const {
     weightKg,
@@ -175,75 +183,86 @@ export function calculateMacros(params: {
     goalType,
     weeklyRateKg,
     proteinProfile,
-  } = params
-
-  const base = 10 * weightKg + 6.25 * heightCm - 5 * ageYears
-  const bmr =
-    sex === "male" ? base + 5 : sex === "female" ? base - 161 : base - 78
-  const tdee = bmr * (activityLevel ? ACTIVITY_MULTIPLIERS[activityLevel] : 1.4)
-
-  let calories: number
-  if (goalType === "lose") {
-    const dailyDeficit = weeklyRateKg ? (weeklyRateKg * 7700) / 7 : 500
-    calories = Math.round(tdee - dailyDeficit)
-  } else if (goalType === "gain") {
-    calories = Math.round(tdee + 300)
-  } else {
-    calories = Math.round(tdee)
-  }
-  calories = Math.max(calories, 1200)
+  } = params;
 
   const profile = proteinProfile
     ? (PROTEIN_PROFILES.find((p) => p.value === proteinProfile) ??
       PROTEIN_PROFILES[0])
-    : PROTEIN_PROFILES[0]
+    : PROTEIN_PROFILES[0];
+  if (!profile) {
+    throw new Error("At least one protein profile is required");
+  }
 
-  const protein = Math.round(weightKg * profile.proteinPerKg)
-  const desiredFat = Math.round((calories * profile.fatPct) / 9)
-  const maxFatBasedOnProtein = Math.floor((calories - protein * 4) / 9)
-  const fat = Math.max(Math.min(desiredFat, maxFatBasedOnProtein), 30)
-  const carbs = Math.max(Math.round((calories - protein * 4 - fat * 9) / 4), 0)
+  const prior = calculateExpenditurePrior({
+    weightKg,
+    heightCm,
+    ageYears,
+    sex,
+    activityLevel,
+  });
+  const target = calculateDynamicTargets({
+    tdeeKcal: prior.tdeeKcal,
+    tdeeVarianceKcal2: prior.varianceKcal2,
+    bmrKcal:
+      prior.tdeeKcal /
+      (activityLevel ? ACTIVITY_MULTIPLIERS[activityLevel] : 1.4),
+    weightKg,
+    goalType,
+    goalRateKgPerWeek:
+      weeklyRateKg ??
+      (goalType === "lose" ? 0.45 : goalType === "gain" ? 0.27 : 0),
+    proteinGramsPerKg: profile.proteinPerKg,
+    fatPercent: profile.fatPct * 100,
+  });
 
-  return { calories, protein, carbs, fat }
+  return {
+    calories: target.calories,
+    protein: target.proteinGrams,
+    carbs: target.carbsGrams,
+    fat: target.fatGrams,
+  };
 }
 
 export function lbToKg(lb: number): number {
-  return Math.round((lb / 2.20462) * 100) / 100
+  return Math.round((lb / 2.20462) * 100) / 100;
 }
 
 export function kgToLb(kg: number): number {
-  return Math.round(kg * 2.20462 * 10) / 10
+  return Math.round(kg * 2.20462 * 10) / 10;
 }
 
 export interface WeekdayDelta {
-  weekday: number
-  delta: number
+  weekday: number;
+  delta: number;
 }
 
 export interface DayMacros {
-  weekday: number
-  calorieTarget: number
-  proteinTarget: number
-  carbsTarget: number
-  fatTarget: number
+  weekday: number;
+  calorieTarget: number;
+  proteinTarget: number;
+  carbsTarget: number;
+  fatTarget: number;
 }
 
 export function buildWeekdayMacros(
   baseDaily: { calories: number; protein: number; carbs: number; fat: number },
-  deltas: WeekdayDelta[]
+  deltas: WeekdayDelta[],
 ): DayMacros[] {
-  const out: DayMacros[] = []
+  const out: DayMacros[] = [];
   for (let w = 0; w < 7; w++) {
-    const delta = deltas.find((d) => d.weekday === w)?.delta ?? 0
-    const cals = Math.max(1000, baseDaily.calories + delta)
-    const scale = cals / baseDaily.calories
+    const delta = deltas.find((d) => d.weekday === w)?.delta ?? 0;
+    const cals = Math.max(1000, baseDaily.calories + delta);
+    const scale = cals / baseDaily.calories;
     out.push({
       weekday: w,
       calorieTarget: Math.round(cals),
       proteinTarget: Math.round(baseDaily.protein * scale),
       carbsTarget: Math.round(baseDaily.carbs * scale),
       fatTarget: Math.round(baseDaily.fat * scale),
-    })
+    });
   }
-  return out
+  return out;
 }
+
+import { calculateDynamicTargets } from "@/lib/plans/target-engine";
+import { calculateExpenditurePrior } from "@/lib/weights/expenditure";
