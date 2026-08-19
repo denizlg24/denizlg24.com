@@ -2,7 +2,7 @@ FROM python:3.12-slim-bookworm AS dependencies
 COPY --from=ghcr.io/astral-sh/uv:0.10.4 /uv /uvx /bin/
 WORKDIR /app
 
-COPY pyproject.toml uv.lock ./
+COPY apps/macros-vision/pyproject.toml apps/macros-vision/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
@@ -22,7 +22,7 @@ ENV OMP_NUM_THREADS=2 \
     PATH="/app/.venv/bin:$PATH"
 
 COPY --from=dependencies /app/.venv /app/.venv
-COPY src /app/src
+COPY apps/macros-vision/src /app/src
 
 RUN python -c "from rapidocr import RapidOCR; RapidOCR(); print('RapidOCR models verified and baked')"
 
