@@ -16,6 +16,7 @@
     "markets:relay:down": "bun scripts/markets-relay-dev.mjs --down",
     "dev:cloud": "bun run forge:caddy; bun --env-file=.env turbo run dev --filter=api --filter=cloud --filter=deploy-agent",
     "dev:forge": "bun run forge:caddy; bun --env-file=.env turbo run dev --filter=api --filter=forge --filter=deploy-agent",
+    "dev:macros": "bun --env-file=.env turbo run dev --filter=macros",
     "forge:caddy": "bun scripts/forge-caddy-dev.mjs",
     "forge:caddy:down": "bun scripts/forge-caddy-dev.mjs --down",
     "dev:storage": "bun --env-file=.env turbo run dev --filter=api --filter=storage",

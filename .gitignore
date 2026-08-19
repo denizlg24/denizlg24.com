@@ -14,6 +14,10 @@ node_modules
 
 # Testing
 coverage
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
 
 # Turbo
 .turbo
@@ -57,7 +61,7 @@ infra/systemd/forge-agent.env
 # not part of this monorepo
 bookmark-extension/
 deniz-nutrition-api/
-macros/
+/macros/
 _archive/
 # local agent tooling state
 .conclave/
