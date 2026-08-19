@@ -47,6 +47,19 @@ create extension if not exists pgcrypto;
 bun run dev:macros
 ```
 
+## Scheduled Jobs
+
+Production scheduling is managed by an external cron service, not GitHub
+Actions. Configure it with `MACROS_CRON_SECRET` and send the same value as a
+Bearer token when calling these routes on `https://macros.denizlg24.com`:
+
+- `GET /api/cron/reset-days`
+- `POST /api/cron/recompute-weight-trends`
+- `POST /api/cron/issue-weekly-targets`
+
+The jobs are safe to invoke daily; each route determines which user-local days
+or weekly check-ins are due.
+
 ## Scripts
 
 - `bun run dev:macros`: start Next.js with Turbopack from the monorepo root.
