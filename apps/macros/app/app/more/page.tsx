@@ -1,11 +1,17 @@
-import { ChevronRight, ListChecks, SlidersHorizontal } from "lucide-react"
-import Link from "next/link"
-import { pageMetadata } from "@/app/metadata"
+import {
+  Activity,
+  BarChart3,
+  ChevronRight,
+  ListChecks,
+  SlidersHorizontal,
+} from "lucide-react";
+import Link from "next/link";
+import { pageMetadata } from "@/app/metadata";
 
 export const metadata = pageMetadata(
   "More",
-  "Open additional nutrition views and food log settings."
-)
+  "Open additional nutrition views and food log settings.",
+);
 
 export default function Page() {
   return (
@@ -26,6 +32,21 @@ export default function Page() {
             </span>
             <ChevronRight className="size-4 text-muted-foreground" />
           </Link>
+          <Link href="/app/body" className="flex items-center gap-3 px-4 py-4">
+            <Activity className="size-5" />
+            <span className="flex-1 text-sm font-medium">Body & habits</span>
+            <ChevronRight className="size-4 text-muted-foreground" />
+          </Link>
+          <Link
+            href="/app/statistics"
+            className="flex items-center gap-3 px-4 py-4"
+          >
+            <BarChart3 className="size-5" />
+            <span className="flex-1 text-sm font-medium">
+              Statistics & export
+            </span>
+            <ChevronRight className="size-4 text-muted-foreground" />
+          </Link>
           <button
             type="button"
             disabled
@@ -40,5 +61,5 @@ export default function Page() {
         </div>
       </div>
     </div>
-  )
+  );
 }

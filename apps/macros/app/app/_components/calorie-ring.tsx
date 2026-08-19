@@ -1,12 +1,12 @@
-import { MACRO_COLORS } from "@/lib/macro-colors"
+import { MACRO_COLORS } from "@/lib/macro-colors";
 
 type Props = {
-  consumed: number
-  target: number | null
-  view: "consumed" | "remaining"
-  primaryValue: number
-  primaryLabel: string
-}
+  consumed: number;
+  target: number | null;
+  view: "consumed" | "remaining";
+  primaryValue: number;
+  primaryLabel: string;
+};
 
 export function CalorieRing({
   consumed,
@@ -15,20 +15,20 @@ export function CalorieRing({
   primaryValue,
   primaryLabel,
 }: Props) {
-  const r = 70
-  const cx = 90
-  const cy = 90
-  const strokeWidth = 16
-  const circ = 2 * Math.PI * r
-  const arcLength = (270 / 360) * circ
-  const rotation = 135
+  const r = 70;
+  const cx = 90;
+  const cy = 90;
+  const strokeWidth = 16;
+  const circ = 2 * Math.PI * r;
+  const arcLength = (270 / 360) * circ;
+  const rotation = 135;
 
-  const remaining = target != null ? Math.max(0, target - consumed) : 0
-  const fillValue = view === "consumed" ? consumed : remaining
+  const remaining = target != null ? Math.max(0, target - consumed) : 0;
+  const fillValue = view === "consumed" ? consumed : remaining;
 
   const fillRatio =
-    target != null && target > 0 ? Math.min(fillValue / target, 1) : 0
-  const fillLength = fillRatio * arcLength
+    target != null && target > 0 ? Math.min(fillValue / target, 1) : 0;
+  const fillLength = fillRatio * arcLength;
 
   return (
     <svg viewBox="0 0 180 180" className="w-full" aria-hidden="true">
@@ -78,5 +78,5 @@ export function CalorieRing({
         {primaryLabel}
       </text>
     </svg>
-  )
+  );
 }

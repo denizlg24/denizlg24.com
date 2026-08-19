@@ -1,38 +1,38 @@
-"use client"
+"use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { format } from "date-fns"
-import { Trash2, X } from "lucide-react"
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { queryKeys } from "@/lib/app-cache/query-keys"
-import type { UpsertWeighInBody, WeighInItem } from "@/lib/weights/contracts"
-import { isoToLocalDate } from "@/lib/weights/date-utils"
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { format } from "date-fns";
+import { Trash2, X } from "lucide-react";
+import { useState } from "react";
+import { queryKeys } from "@/lib/app-cache/query-keys";
+import type { UpsertWeighInBody, WeighInItem } from "@/lib/weights/contracts";
+import { isoToLocalDate } from "@/lib/weights/date-utils";
 
 async function saveWeighIn(body: UpsertWeighInBody): Promise<WeighInItem> {
   const response = await fetch("/api/weight/weigh-ins", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  })
-  if (!response.ok) throw new Error(`Save failed (${response.status})`)
-  const data = (await response.json()) as { entry: WeighInItem }
-  return data.entry
+  });
+  if (!response.ok) throw new Error(`Save failed (${response.status})`);
+  const data = (await response.json()) as { entry: WeighInItem };
+  return data.entry;
 }
 
 async function deleteWeighIn(id: string): Promise<void> {
   const response = await fetch(`/api/weight/weigh-ins/${id}`, {
     method: "DELETE",
-  })
-  if (!response.ok) throw new Error(`Delete failed (${response.status})`)
+  });
+  if (!response.ok) throw new Error(`Delete failed (${response.status})`);
 }
 
 interface WeighInDrawerFormProps {
-  selectedDate: string
-  activeEntry?: WeighInItem | null
-  onClose: () => void
-  showHandle?: boolean
+  selectedDate: string;
+  activeEntry?: WeighInItem | null;
+  onClose: () => void;
+  showHandle?: boolean;
 }
 
 export function WeighInDrawerForm({
@@ -41,49 +41,49 @@ export function WeighInDrawerForm({
   onClose,
   showHandle = true,
 }: WeighInDrawerFormProps) {
-  const queryClient = useQueryClient()
-  const [draftWeight, setDraftWeight] = useState<string | null>(null)
+  const queryClient = useQueryClient();
+  const [draftWeight, setDraftWeight] = useState<string | null>(null);
   const weightValue =
     draftWeight !== null
       ? draftWeight
-      : (activeEntry?.weightKg.toString() ?? "")
+      : (activeEntry?.weightKg.toString() ?? "");
 
   async function refreshWeightData() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.weightOverview }),
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
-    ])
+    ]);
   }
 
   const saveMutation = useMutation({
     mutationFn: saveWeighIn,
     onSuccess: async () => {
-      setDraftWeight(null)
-      await refreshWeightData()
-      onClose()
+      setDraftWeight(null);
+      await refreshWeightData();
+      onClose();
     },
-  })
+  });
 
   const deleteMutation = useMutation({
     mutationFn: deleteWeighIn,
     onSuccess: async () => {
-      setDraftWeight(null)
-      await refreshWeightData()
-      onClose()
+      setDraftWeight(null);
+      await refreshWeightData();
+      onClose();
     },
-  })
+  });
 
   function close() {
-    setDraftWeight(null)
-    onClose()
+    setDraftWeight(null);
+    onClose();
   }
 
   function submit() {
-    if (saveMutation.isPending || deleteMutation.isPending) return
-    const normalized = weightValue.replace(",", ".")
-    const weightKg = Number(normalized)
-    if (!Number.isFinite(weightKg) || weightKg <= 0) return
-    saveMutation.mutate({ logDate: selectedDate, weightKg })
+    if (saveMutation.isPending || deleteMutation.isPending) return;
+    const normalized = weightValue.replace(",", ".");
+    const weightKg = Number(normalized);
+    if (!Number.isFinite(weightKg) || weightKg <= 0) return;
+    saveMutation.mutate({ logDate: selectedDate, weightKg });
   }
 
   return (
@@ -122,8 +122,8 @@ export function WeighInDrawerForm({
               deleteMutation.isPending ||
               saveMutation.isPending
             )
-              return
-            deleteMutation.mutate(activeEntry.id)
+              return;
+            deleteMutation.mutate(activeEntry.id);
           }}
           aria-label="Delete weigh-in"
         >
@@ -132,10 +132,11 @@ export function WeighInDrawerForm({
       </div>
 
       <div className="grid grid-cols-[1fr_0.5fr] gap-3">
-        <label className="space-y-1.5">
+        <label htmlFor="weigh-in-weight" className="space-y-1.5">
           <span className="text-xs font-bold">Weight</span>
           <div className="relative">
             <Input
+              id="weigh-in-weight"
               readOnly
               tabIndex={-1}
               inputMode="none"
@@ -148,10 +149,14 @@ export function WeighInDrawerForm({
             </span>
           </div>
         </label>
-        <label className="space-y-1.5">
+        <label htmlFor="weigh-in-body-fat" className="space-y-1.5">
           <span className="text-xs font-bold">Body Fat</span>
           <div className="relative">
-            <Input disabled className="h-12 rounded-xl pr-8" />
+            <Input
+              id="weigh-in-body-fat"
+              disabled
+              className="h-12 rounded-xl pr-8"
+            />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-base">
               %
             </span>
@@ -170,17 +175,17 @@ export function WeighInDrawerForm({
       </Button>
       <NumberPad value={weightValue} onChange={setDraftWeight} />
     </div>
-  )
+  );
 }
 
 function NumberPad({
   value,
   onChange,
 }: {
-  value: string
-  onChange: (value: string) => void
+  value: string;
+  onChange: (value: string) => void;
 }) {
-  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ",", "0", "⌫"]
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ",", "0", "⌫"];
   return (
     <div className="mt-4 grid grid-cols-3 gap-2">
       {keys.map((key) => (
@@ -189,19 +194,19 @@ function NumberPad({
           type="button"
           className="h-11 rounded-xl bg-muted text-xl"
           onClick={() => {
-            if (key === "⌫") onChange(value.slice(0, -1))
+            if (key === "⌫") onChange(value.slice(0, -1));
             else if (
               key === "," &&
               !value.includes(",") &&
               !value.includes(".")
             )
-              onChange(`${value},`)
-            else if (key !== ",") onChange(`${value}${key}`)
+              onChange(`${value},`);
+            else if (key !== ",") onChange(`${value}${key}`);
           }}
         >
           {key}
         </button>
       ))}
     </div>
-  )
+  );
 }

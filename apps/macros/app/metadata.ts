@@ -1,13 +1,15 @@
-import type { Metadata } from "next"
+import type { Metadata } from "next";
 
-const appName = "Macros"
+const appName = "Macros";
 const defaultDescription =
-  "A mobile-first nutrition tracker for food logs, recipes, micronutrients, weight trends, and energy expenditure."
-const appleTouchIconSizes = [57, 60, 72, 76, 114, 120, 144, 152, 167, 180, 1024]
+  "A mobile-first nutrition tracker for food logs, recipes, micronutrients, weight trends, and energy expenditure.";
+const appleTouchIconSizes = [
+  57, 60, 72, 76, 114, 120, 144, 152, 167, 180, 1024,
+];
 
 export function pageMetadata(
   title: string,
-  description = defaultDescription
+  description = defaultDescription,
 ): Metadata {
   return {
     title,
@@ -32,7 +34,7 @@ export function pageMetadata(
       title,
       description,
     },
-  }
+  };
 }
 
 export const rootMetadata: Metadata = {
@@ -58,4 +60,4 @@ export const rootMetadata: Metadata = {
     ],
   },
   manifest: "/manifest.webmanifest",
-}
+};

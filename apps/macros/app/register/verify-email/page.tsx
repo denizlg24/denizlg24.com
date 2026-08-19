@@ -1,28 +1,28 @@
-import Link from "next/link"
-import { redirect } from "next/navigation"
-import { pageMetadata } from "@/app/metadata"
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { pageMetadata } from "@/app/metadata";
 
 export const metadata = pageMetadata(
   "Verify Email",
-  "Verify your email address to continue setting up Macros."
-)
+  "Verify your email address to continue setting up Macros.",
+);
 
 interface VerifyEmailPageProps {
   searchParams: Promise<{
-    token?: string | string[]
-    callbackURL?: string | string[]
-    error?: string | string[]
-  }>
+    token?: string | string[];
+    callbackURL?: string | string[];
+    error?: string | string[];
+  }>;
 }
 
 function getSingleParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function getSafeCallbackPath(value: string | undefined) {
-  if (!value?.startsWith("/")) return "/register/complete"
-  if (value.startsWith("//")) return "/register/complete"
-  return value
+  if (!value?.startsWith("/")) return "/register/complete";
+  if (value.startsWith("//")) return "/register/complete";
+  return value;
 }
 
 const ERROR_MESSAGES: Record<string, { title: string; body: string }> = {
@@ -38,14 +38,14 @@ const ERROR_MESSAGES: Record<string, { title: string; body: string }> = {
     title: "Already verified",
     body: "This email is already verified. Sign in to continue.",
   },
-}
+};
 
 function VerificationError({ error }: { error: string }) {
-  const known = ERROR_MESSAGES[error]
-  const title = known?.title ?? "Verification failed"
+  const known = ERROR_MESSAGES[error];
+  const title = known?.title ?? "Verification failed";
   const body =
     known?.body ??
-    "Something went wrong verifying your email. Try signing up again."
+    "Something went wrong verifying your email. Try signing up again.";
 
   return (
     <div className="space-y-5 pt-2">
@@ -64,28 +64,28 @@ function VerificationError({ error }: { error: string }) {
         Back to sign in
       </Link>
     </div>
-  )
+  );
 }
 
 export default async function VerifyEmailPage({
   searchParams,
 }: VerifyEmailPageProps) {
-  const params = await searchParams
-  const token = getSingleParam(params.token)
-  const callbackURL = getSafeCallbackPath(getSingleParam(params.callbackURL))
-  const error = getSingleParam(params.error)
+  const params = await searchParams;
+  const token = getSingleParam(params.token);
+  const callbackURL = getSafeCallbackPath(getSingleParam(params.callbackURL));
+  const error = getSingleParam(params.error);
 
   if (error) {
-    return <VerificationError error={error} />
+    return <VerificationError error={error} />;
   }
 
   if (!token) {
-    return <VerificationError error="invalid_token" />
+    return <VerificationError error="invalid_token" />;
   }
 
-  const verifyUrl = new URL("/api/auth/verify-email", "http://localhost")
-  verifyUrl.searchParams.set("token", token)
-  verifyUrl.searchParams.set("callbackURL", callbackURL)
+  const verifyUrl = new URL("/api/auth/verify-email", "http://localhost");
+  verifyUrl.searchParams.set("token", token);
+  verifyUrl.searchParams.set("callbackURL", callbackURL);
 
-  redirect(`${verifyUrl.pathname}${verifyUrl.search}`)
+  redirect(`${verifyUrl.pathname}${verifyUrl.search}`);
 }

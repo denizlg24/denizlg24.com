@@ -1,6 +1,14 @@
-"use client"
+"use client";
 
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@repo/ui/keyboard-sheet";
+import { cn } from "@repo/ui/utils";
 import {
   Barcode,
   BookOpen,
@@ -9,27 +17,19 @@ import {
   Trash2,
   Utensils,
   X,
-} from "lucide-react"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { z } from "zod"
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerTitle,
-  DrawerTrigger,
-} from "@/components/ui/drawer"
-import { type LogFoodInput, logFoodBodySchema } from "@/lib/foods/contracts"
-import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition"
-import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary"
+} from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { z } from "zod";
+import { type LogFoodInput, logFoodBodySchema } from "@/lib/foods/contracts";
+import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition";
+import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 import {
   type LogRecipeInput,
   logRecipeBodySchema,
-} from "@/lib/recipes/contracts"
-import { cn } from "@/lib/utils"
-import type { FoodSummary } from "./food-detail-drawer"
+} from "@/lib/recipes/contracts";
+import type { FoodSummary } from "./food-detail-drawer";
 
 export function getHourInTimezone(date: Date, timezone: string) {
   const hour = Number(
@@ -37,54 +37,54 @@ export function getHourInTimezone(date: Date, timezone: string) {
       hour: "numeric",
       hourCycle: "h23",
       timeZone: timezone,
-    }).format(date)
-  )
+    }).format(date),
+  );
 
-  return Number.isFinite(hour) ? hour : date.getHours()
+  return Number.isFinite(hour) ? hour : date.getHours();
 }
 
 export function dateFromIsoDate(value: string) {
-  const parts = value.split("-")
-  const year = Number(parts[0])
-  const month = Number(parts[1])
-  const day = Number(parts[2])
+  const parts = value.split("-");
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
 
   if (!year || !month || !day) {
-    const fallback = new Date()
-    fallback.setHours(0, 0, 0, 0)
-    return fallback
+    const fallback = new Date();
+    fallback.setHours(0, 0, 0, 0);
+    return fallback;
   }
 
-  return new Date(year, month - 1, day)
+  return new Date(year, month - 1, day);
 }
 
 export function formatHourLabel(hour: number) {
-  const h12 = hour % 12 === 0 ? 12 : hour % 12
-  const suffix = hour < 12 ? "AM" : "PM"
-  return `${h12} ${suffix}`
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  const suffix = hour < 12 ? "AM" : "PM";
+  return `${h12} ${suffix}`;
 }
 
 export function inferMealType(
-  hour: number
+  hour: number,
 ): "breakfast" | "lunch" | "dinner" | "snack" {
-  if (hour >= 5 && hour < 11) return "breakfast"
-  if (hour >= 11 && hour < 16) return "lunch"
-  if (hour >= 17 && hour < 22) return "dinner"
-  return "snack"
+  if (hour >= 5 && hour < 11) return "breakfast";
+  if (hour >= 11 && hour < 16) return "lunch";
+  if (hour >= 17 && hour < 22) return "dinner";
+  return "snack";
 }
 
 export type PendingFood = {
-  uid: string
-  entryType?: "food" | "recipe"
+  uid: string;
+  entryType?: "food" | "recipe";
   food: FoodSummary & {
-    totalWeightGrams?: number | null | undefined
-    servings?: number | null | undefined
-  }
-  input: LogFoodInput | LogRecipeInput
-  macros: OptimisticDailyMacros
-}
+    totalWeightGrams?: number | null | undefined;
+    servings?: number | null | undefined;
+  };
+  input: LogFoodInput | LogRecipeInput;
+  macros: OptimisticDailyMacros;
+};
 
-const FAILED_PENDING_FOODS_KEY = "macros.failed-pending-foods.v1"
+const FAILED_PENDING_FOODS_KEY = "macros.failed-pending-foods.v1";
 const failedPendingFoodSchema = z.object({
   uid: z.uuid(),
   entryType: z.enum(["food", "recipe"]).optional().default("food"),
@@ -107,38 +107,38 @@ const failedPendingFoodSchema = z.object({
     carbs: z.number(),
     fat: z.number(),
   }),
-})
+});
 
 export function getPendingCalories(food: PendingFood) {
-  return food.macros.calories
+  return food.macros.calories;
 }
 
 function readFailedPendingFoods(): PendingFood[] {
   try {
-    const raw = window.sessionStorage.getItem(FAILED_PENDING_FOODS_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
+    const raw = window.sessionStorage.getItem(FAILED_PENDING_FOODS_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
     return parsed.filter(
       (food): food is PendingFood =>
-        failedPendingFoodSchema.safeParse(food).success
-    )
+        failedPendingFoodSchema.safeParse(food).success,
+    );
   } catch {
-    return []
+    return [];
   }
 }
 
 export function saveFailedPendingFoods(foods: PendingFood[]) {
-  if (foods.length === 0) return
+  if (foods.length === 0) return;
 
   try {
-    const existing = readFailedPendingFoods()
+    const existing = readFailedPendingFoods();
     window.sessionStorage.setItem(
       FAILED_PENDING_FOODS_KEY,
-      JSON.stringify([...foods, ...existing])
-    )
+      JSON.stringify([...foods, ...existing]),
+    );
   } catch (error) {
-    console.warn("Failed to store failed food logs for retry", error)
+    console.warn("Failed to store failed food logs for retry", error);
   }
 }
 
@@ -147,35 +147,35 @@ const NAV_TABS = [
   { href: "/app/add", label: "Search", Icon: Search },
   { href: "/app/recipes", label: "Recipes", Icon: ChefHat },
   { href: "/app/foods", label: "Library", Icon: BookOpen },
-] as const
+] as const;
 
 function CaloriePill({
   consumed,
   pending,
   target,
 }: {
-  consumed: number
-  pending: number
-  target: number | null
+  consumed: number;
+  pending: number;
+  target: number | null;
 }) {
-  const W = 98
-  const H = 38
-  const SW = 3
-  const p = SW / 2 + 0.5
-  const rw = W - SW
-  const rh = H - SW
-  const rx = rh / 2
+  const W = 98;
+  const H = 38;
+  const SW = 3;
+  const p = SW / 2 + 0.5;
+  const rw = W - SW;
+  const rh = H - SW;
+  const rx = rh / 2;
 
-  const perimeter = 2 * (rw - rh) + Math.PI * rh
-  const startOffset = rw / 2 - rx
+  const perimeter = 2 * (rw - rh) + Math.PI * rh;
+  const startOffset = rw / 2 - rx;
 
-  const total = consumed + pending
-  const fillRatio = target != null && target > 0 ? consumed / target : 0
-  const pendingRatio = target != null && target > 0 ? pending / target : 0
-  const fillLength = Math.min(fillRatio, 1) * perimeter
+  const total = consumed + pending;
+  const fillRatio = target != null && target > 0 ? consumed / target : 0;
+  const pendingRatio = target != null && target > 0 ? pending / target : 0;
+  const fillLength = Math.min(fillRatio, 1) * perimeter;
   const pendingFillLength =
-    Math.min(pendingRatio, Math.max(0, 1 - fillRatio)) * perimeter
-  const targetLabel = target != null ? Math.round(target) : "-"
+    Math.min(pendingRatio, Math.max(0, 1 - fillRatio)) * perimeter;
+  const targetLabel = target != null ? Math.round(target) : "-";
 
   return (
     <div className="relative" style={{ width: W, height: H }}>
@@ -241,12 +241,12 @@ function CaloriePill({
         </span>
       </div>
     </div>
-  )
+  );
 }
 
-const DRUM_ITEM_H = 44
-const DRUM_VISIBLE = 5
-const DRUM_PADDING = Math.floor(DRUM_VISIBLE / 2)
+const DRUM_ITEM_H = 44;
+const DRUM_VISIBLE = 5;
+const DRUM_PADDING = Math.floor(DRUM_VISIBLE / 2);
 
 function DrumColumn({
   count,
@@ -254,50 +254,50 @@ function DrumColumn({
   onSelect,
   getLabel,
 }: {
-  count: number
-  selectedIndex: number
-  onSelect: (index: number) => void
-  getLabel: (index: number) => string
+  count: number;
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+  getLabel: (index: number) => string;
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const onSelectRef = useRef(onSelect)
-  onSelectRef.current = onSelect
+  const ref = useRef<HTMLDivElement>(null);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
 
   useLayoutEffect(() => {
     if (ref.current) {
-      ref.current.scrollTop = selectedIndex * DRUM_ITEM_H
+      ref.current.scrollTop = selectedIndex * DRUM_ITEM_H;
     }
-  }, [selectedIndex])
+  }, [selectedIndex]);
 
   useEffect(() => {
-    if (!ref.current) return
-    const target = selectedIndex * DRUM_ITEM_H
+    if (!ref.current) return;
+    const target = selectedIndex * DRUM_ITEM_H;
     if (Math.abs(ref.current.scrollTop - target) > 2) {
-      ref.current.scrollTo({ top: target, behavior: "smooth" })
+      ref.current.scrollTo({ top: target, behavior: "smooth" });
     }
-  }, [selectedIndex])
+  }, [selectedIndex]);
 
   useEffect(() => {
-    const el = ref.current
-    if (!el) return
+    const el = ref.current;
+    if (!el) return;
 
-    let timer: number | null = null
+    let timer: number | null = null;
     const handleScroll = () => {
-      if (timer != null) window.clearTimeout(timer)
+      if (timer != null) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        const index = Math.round(el.scrollTop / DRUM_ITEM_H)
-        const clamped = Math.max(0, Math.min(count - 1, index))
-        onSelectRef.current(clamped)
-        el.scrollTo({ top: clamped * DRUM_ITEM_H, behavior: "smooth" })
-      }, 80)
-    }
+        const index = Math.round(el.scrollTop / DRUM_ITEM_H);
+        const clamped = Math.max(0, Math.min(count - 1, index));
+        onSelectRef.current(clamped);
+        el.scrollTo({ top: clamped * DRUM_ITEM_H, behavior: "smooth" });
+      }, 80);
+    };
 
-    el.addEventListener("scroll", handleScroll, { passive: true })
+    el.addEventListener("scroll", handleScroll, { passive: true });
     return () => {
-      el.removeEventListener("scroll", handleScroll)
-      if (timer != null) window.clearTimeout(timer)
-    }
-  }, [count])
+      el.removeEventListener("scroll", handleScroll);
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [count]);
 
   return (
     <div className="relative h-[220px] flex-1 overflow-hidden">
@@ -319,7 +319,7 @@ function DrumColumn({
               "flex items-center justify-center text-sm font-medium transition-colors",
               i === selectedIndex
                 ? "text-foreground"
-                : "text-muted-foreground/50"
+                : "text-muted-foreground/50",
             )}
           >
             {getLabel(i)}
@@ -327,7 +327,7 @@ function DrumColumn({
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 export function HeaderChips({
@@ -341,38 +341,38 @@ export function HeaderChips({
   pendingCalories,
   onViewPending,
 }: {
-  selectedDate: Date
-  selectedHour: number
-  todayDate: Date
-  onDateChange: (date: Date) => void
-  onHourChange: (hour: number) => void
-  calorieSummary: DailyCalorieSummary
-  pendingCount: number
-  pendingCalories: number
-  onViewPending: () => void
+  selectedDate: Date;
+  selectedHour: number;
+  todayDate: Date;
+  onDateChange: (date: Date) => void;
+  onHourChange: (hour: number) => void;
+  calorieSummary: DailyCalorieSummary;
+  pendingCount: number;
+  pendingCalories: number;
+  onViewPending: () => void;
 }) {
-  const [timeDrawerOpen, setTimeDrawerOpen] = useState(false)
-  const { consumed, target } = calorieSummary
+  const [timeDrawerOpen, setTimeDrawerOpen] = useState(false);
+  const { consumed, target } = calorieSummary;
 
   const dates = useMemo(
     () =>
       Array.from({ length: 14 }, (_, i) => {
-        const d = new Date(todayDate)
-        d.setDate(todayDate.getDate() - (13 - i))
-        return d
+        const d = new Date(todayDate);
+        d.setDate(todayDate.getDate() - (13 - i));
+        return d;
       }),
-    [todayDate]
-  )
+    [todayDate],
+  );
 
   const selectedDateIndex = dates.findIndex(
-    (d) => d.getTime() === selectedDate.getTime()
-  )
+    (d) => d.getTime() === selectedDate.getTime(),
+  );
 
   function getDateLabel(i: number) {
-    const d = dates[i]
-    if (!d) return ""
-    if (d.getTime() === todayDate.getTime()) return "Today"
-    return d.toLocaleDateString("en-US", { weekday: "short", day: "numeric" })
+    const d = dates[i];
+    if (!d) return "";
+    if (d.getTime() === todayDate.getTime()) return "Today";
+    return d.toLocaleDateString("en-US", { weekday: "short", day: "numeric" });
   }
 
   return (
@@ -454,23 +454,23 @@ export function HeaderChips({
         )}
       </div>
     </div>
-  )
+  );
 }
 
 export function NavTabs() {
-  const pathname = usePathname()
+  const pathname = usePathname();
 
   return (
     <nav className="flex items-stretch border-b border-border">
       {NAV_TABS.map(({ href, label, Icon }) => {
-        const isActive = pathname === href
+        const isActive = pathname === href;
         return (
           <Link
             key={href}
             href={href}
             className={cn(
               "relative flex flex-1 items-center justify-center gap-1.5 py-3 text-sm",
-              isActive ? "text-foreground" : "text-muted-foreground"
+              isActive ? "text-foreground" : "text-muted-foreground",
             )}
           >
             <Icon className="size-4" />
@@ -479,25 +479,25 @@ export function NavTabs() {
               <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-foreground" />
             ) : null}
           </Link>
-        )
+        );
       })}
     </nav>
-  )
+  );
 }
 
 function foodColor(name: string): string {
-  let h = 0
+  let h = 0;
   for (let i = 0; i < name.length; i++) {
-    h = ((h << 5) - h + name.charCodeAt(i)) & 0x7fffffff
+    h = ((h << 5) - h + name.charCodeAt(i)) & 0x7fffffff;
   }
-  return `hsl(${h % 360}, 55%, 40%)`
+  return `hsl(${h % 360}, 55%, 40%)`;
 }
 
 function foodInitials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean)
-  if (!words.length) return "?"
-  if (words.length === 1) return name.slice(0, 2).toUpperCase()
-  return (words[0]![0]! + words[1]![0]!).toUpperCase()
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "?";
+  if (words.length === 1) return name.slice(0, 2).toUpperCase();
+  return (words[0]![0]! + words[1]![0]!).toUpperCase();
 }
 
 export function PendingFoodsSheet({
@@ -508,17 +508,17 @@ export function PendingFoodsSheet({
   onCommit,
   isLogging,
 }: {
-  open: boolean
-  onClose: () => void
-  pendingFoods: PendingFood[]
-  onRemove: (uid: string) => void
-  onCommit: () => void
-  isLogging: boolean
+  open: boolean;
+  onClose: () => void;
+  pendingFoods: PendingFood[];
+  onRemove: (uid: string) => void;
+  onCommit: () => void;
+  isLogging: boolean;
 }) {
   const totalCalories = pendingFoods.reduce(
     (s, f) => s + getPendingCalories(f),
-    0
-  )
+    0,
+  );
 
   return (
     <Drawer open={open} onOpenChange={(o) => !o && onClose()}>
@@ -540,11 +540,11 @@ export function PendingFoodsSheet({
         </div>
         <div className="max-h-[55dvh] overflow-y-auto">
           {pendingFoods.map((pf) => {
-            const initials = foodInitials(pf.food.name)
-            const color = foodColor(pf.food.name)
+            const initials = foodInitials(pf.food.name);
+            const color = foodColor(pf.food.name);
             const displayName = pf.food.brand
               ? `${pf.food.name} By ${pf.food.brand}`
-              : pf.food.name
+              : pf.food.name;
             return (
               <div
                 key={pf.uid}
@@ -564,7 +564,7 @@ export function PendingFoodsSheet({
                     {Math.round(getPendingCalories(pf))} kcal
                     {" · "}
                     {pf.input.servingsConsumed.toFixed(
-                      pf.input.servingsConsumed % 1 === 0 ? 0 : 1
+                      pf.input.servingsConsumed % 1 === 0 ? 0 : 1,
                     )}{" "}
                     serving
                   </p>
@@ -578,7 +578,7 @@ export function PendingFoodsSheet({
                   <Trash2 className="size-4" />
                 </button>
               </div>
-            )
+            );
           })}
         </div>
         <div className="px-3 pt-3 pb-safe-end">
@@ -593,5 +593,5 @@ export function PendingFoodsSheet({
         </div>
       </DrawerContent>
     </Drawer>
-  )
+  );
 }

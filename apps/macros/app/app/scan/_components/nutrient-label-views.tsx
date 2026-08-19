@@ -1,17 +1,17 @@
-"use client"
+"use client";
 
-import { Repeat } from "lucide-react"
-import { type ReactNode, useEffect, useRef, useState } from "react"
-import { Input } from "@/components/ui/input"
+import { Input } from "@repo/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import type { NutrientKey } from "@/lib/foods/nutrients"
-import { nutrientDefinitionsInput } from "@/lib/foods/nutrients"
+} from "@repo/ui/select";
+import { Repeat } from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import type { NutrientKey } from "@/lib/foods/nutrients";
+import { nutrientDefinitionsInput } from "@/lib/foods/nutrients";
 import {
   fromCanonical,
   getDisplayUnit,
@@ -20,8 +20,11 @@ import {
   toCanonical,
   UNIT_OPTIONS,
   type UnitPref,
-} from "@/lib/foods/unit-conversions"
-import { NUTRIENT_SECTIONS, WHO_DAILY_VALUES } from "@/lib/foods/who-guidelines"
+} from "@/lib/foods/unit-conversions";
+import {
+  NUTRIENT_SECTIONS,
+  WHO_DAILY_VALUES,
+} from "@/lib/foods/who-guidelines";
 
 const NUTRIENT_ALIASES: Partial<Record<NutrientKey, string>> = {
   a: "Retinol",
@@ -36,16 +39,16 @@ const NUTRIENT_ALIASES: Partial<Record<NutrientKey, string>> = {
   e: "Tocopherol",
   k: "Phylloquinone",
   folate: "Folic acid",
-}
+};
 
 function NutrientLabelText({
   label,
   nutrientKey,
 }: {
-  label: string
-  nutrientKey: NutrientKey
+  label: string;
+  nutrientKey: NutrientKey;
 }) {
-  const alias = NUTRIENT_ALIASES[nutrientKey]
+  const alias = NUTRIENT_ALIASES[nutrientKey];
   return (
     <>
       {label}
@@ -53,10 +56,10 @@ function NutrientLabelText({
         <span className="ml-1 text-muted-foreground">({alias})</span>
       ) : null}
     </>
-  )
+  );
 }
 
-const PARTIAL_NUMERIC_RE = /^\d*\.?\d*$/
+const PARTIAL_NUMERIC_RE = /^\d*\.?\d*$/;
 
 function DraftNumberInput({
   value,
@@ -65,42 +68,42 @@ function DraftNumberInput({
   ariaLabel,
   renderInput,
 }: {
-  value: string
-  onCommit: (raw: string) => void
-  className?: string
-  ariaLabel?: string
+  value: string;
+  onCommit: (raw: string) => void;
+  className?: string;
+  ariaLabel?: string;
   renderInput?: (props: {
-    value: string
-    onChange: (event: React.ChangeEvent<HTMLInputElement>) => void
-    onFocus: () => void
-    onBlur: () => void
-    inputMode: "decimal"
-    type: "text"
-    "aria-label"?: string
-  }) => ReactNode
+    value: string;
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+    onFocus: () => void;
+    onBlur: () => void;
+    inputMode: "decimal";
+    type: "text";
+    "aria-label"?: string;
+  }) => ReactNode;
 }) {
-  const [local, setLocal] = useState(value)
-  const focusedRef = useRef(false)
+  const [local, setLocal] = useState(value);
+  const focusedRef = useRef(false);
 
   useEffect(() => {
-    if (!focusedRef.current) setLocal(value)
-  }, [value])
+    if (!focusedRef.current) setLocal(value);
+  }, [value]);
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const normalized = event.target.value.replace(/,/g, ".")
-    if (normalized !== "" && !PARTIAL_NUMERIC_RE.test(normalized)) return
-    setLocal(normalized)
-    onCommit(normalized)
-  }
+    const normalized = event.target.value.replace(/,/g, ".");
+    if (normalized !== "" && !PARTIAL_NUMERIC_RE.test(normalized)) return;
+    setLocal(normalized);
+    onCommit(normalized);
+  };
 
   const handleFocus = () => {
-    focusedRef.current = true
-  }
+    focusedRef.current = true;
+  };
 
   const handleBlur = () => {
-    focusedRef.current = false
-    setLocal(value)
-  }
+    focusedRef.current = false;
+    setLocal(value);
+  };
 
   if (renderInput) {
     return renderInput({
@@ -111,7 +114,7 @@ function DraftNumberInput({
       inputMode: "decimal",
       type: "text",
       "aria-label": ariaLabel,
-    })
+    });
   }
 
   return (
@@ -128,61 +131,61 @@ function DraftNumberInput({
         "h-8 w-16 rounded border border-input bg-background px-2 text-right text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       }
     />
-  )
+  );
 }
 
 export interface NutrientLabelProps {
-  drafts: Record<string, string>
-  setDraft: (key: NutrientKey, raw: string) => void
-  scaleFactor: number
-  basisLabel: string
-  unitPref: UnitPref
-  cycleUnit: (key: ToggleableNutrientKey) => void
-  setUnit: (key: ToggleableNutrientKey, value: string) => void
+  drafts: Record<string, string>;
+  setDraft: (key: NutrientKey, raw: string) => void;
+  scaleFactor: number;
+  basisLabel: string;
+  unitPref: UnitPref;
+  cycleUnit: (key: ToggleableNutrientKey) => void;
+  setUnit: (key: ToggleableNutrientKey, value: string) => void;
 }
 
 function formatNumber(value: number): string {
-  if (!Number.isFinite(value)) return ""
+  if (!Number.isFinite(value)) return "";
   if (Math.abs(value) < 0.01 && value !== 0) {
-    return value.toPrecision(2)
+    return value.toPrecision(2);
   }
-  const rounded = Math.round(value * 100) / 100
-  return Number.isInteger(rounded) ? rounded.toString() : rounded.toString()
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? rounded.toString() : rounded.toString();
 }
 
 function getDvPercent(
   key: NutrientKey,
-  perServingValue: number
+  perServingValue: number,
 ): number | null {
-  const dv = WHO_DAILY_VALUES[key]
-  if (dv == null || dv === 0) return null
-  return Math.round((perServingValue / dv) * 100)
+  const dv = WHO_DAILY_VALUES[key];
+  if (dv == null || dv === 0) return null;
+  return Math.round((perServingValue / dv) * 100);
 }
 
 function getInputUnit(key: NutrientKey, unitPref: UnitPref): string {
-  const def = nutrientDefinitionsInput.find((item) => item.key === key)
-  if (!def) return ""
+  const def = nutrientDefinitionsInput.find((item) => item.key === key);
+  if (!def) return "";
   if (isToggleableNutrient(key)) {
-    return getDisplayUnit(key, unitPref[key])
+    return getDisplayUnit(key, unitPref[key]);
   }
-  return def.unit
+  return def.unit;
 }
 
 function getDisplayValue(
   key: NutrientKey,
   drafts: Record<string, string>,
   unitPref: UnitPref,
-  scaleFactor: number
+  scaleFactor: number,
 ): string {
-  const draft = drafts[key]
-  if (draft == null || draft === "") return ""
-  const parsed = Number.parseFloat(draft)
-  if (!Number.isFinite(parsed)) return ""
-  const scaled = parsed * scaleFactor
+  const draft = drafts[key];
+  if (draft == null || draft === "") return "";
+  const parsed = Number.parseFloat(draft);
+  if (!Number.isFinite(parsed)) return "";
+  const scaled = parsed * scaleFactor;
   if (isToggleableNutrient(key)) {
-    return formatNumber(fromCanonical(key, unitPref[key], scaled))
+    return formatNumber(fromCanonical(key, unitPref[key], scaled));
   }
-  return formatNumber(scaled)
+  return formatNumber(scaled);
 }
 
 function commitInput(
@@ -190,40 +193,40 @@ function commitInput(
   raw: string,
   unitPref: UnitPref,
   scaleFactor: number,
-  setDraft: (key: NutrientKey, raw: string) => void
+  setDraft: (key: NutrientKey, raw: string) => void,
 ) {
   if (raw.trim() === "") {
-    setDraft(key, "")
-    return
+    setDraft(key, "");
+    return;
   }
-  const parsed = Number.parseFloat(raw)
+  const parsed = Number.parseFloat(raw);
   if (!Number.isFinite(parsed)) {
-    setDraft(key, "")
-    return
+    setDraft(key, "");
+    return;
   }
-  let canonical = parsed
+  let canonical = parsed;
   if (isToggleableNutrient(key)) {
-    canonical = toCanonical(key, unitPref[key], parsed)
+    canonical = toCanonical(key, unitPref[key], parsed);
   }
-  const per100g = scaleFactor === 0 ? 0 : canonical / scaleFactor
-  setDraft(key, per100g.toString())
+  const per100g = scaleFactor === 0 ? 0 : canonical / scaleFactor;
+  setDraft(key, per100g.toString());
 }
 
 interface RowInputProps {
-  nutrientKey: NutrientKey
-  drafts: Record<string, string>
-  setDraft: (key: NutrientKey, raw: string) => void
-  unitPref: UnitPref
-  scaleFactor: number
+  nutrientKey: NutrientKey;
+  drafts: Record<string, string>;
+  setDraft: (key: NutrientKey, raw: string) => void;
+  unitPref: UnitPref;
+  scaleFactor: number;
 }
 
 interface AdditionalMicronutrientsProps {
-  drafts: Record<string, string>
-  setDraft: (key: NutrientKey, raw: string) => void
-  unitPref: UnitPref
-  scaleFactor: number
-  cycleUnit: (key: ToggleableNutrientKey) => void
-  excludedKeys: ReadonlySet<NutrientKey>
+  drafts: Record<string, string>;
+  setDraft: (key: NutrientKey, raw: string) => void;
+  unitPref: UnitPref;
+  scaleFactor: number;
+  cycleUnit: (key: ToggleableNutrientKey) => void;
+  excludedKeys: ReadonlySet<NutrientKey>;
 }
 
 function NumericInput({
@@ -239,8 +242,8 @@ function NumericInput({
     nutrientKey,
     drafts,
     unitPref,
-    scaleFactor
-  )
+    scaleFactor,
+  );
   return (
     <DraftNumberInput
       value={displayValue}
@@ -250,7 +253,7 @@ function NumericInput({
       className={className}
       ariaLabel={ariaLabel}
     />
-  )
+  );
 }
 
 function AdditionalMicronutrients({
@@ -262,15 +265,15 @@ function AdditionalMicronutrients({
   excludedKeys,
 }: AdditionalMicronutrientsProps) {
   const sections = NUTRIENT_SECTIONS.filter(
-    (section) => section.title === "Vitamins" || section.title === "Minerals"
+    (section) => section.title === "Vitamins" || section.title === "Minerals",
   )
     .map((section) => ({
       ...section,
       keys: section.keys.filter((key) => !excludedKeys.has(key)),
     }))
-    .filter((section) => section.keys.length > 0)
+    .filter((section) => section.keys.length > 0);
 
-  if (sections.length === 0) return null
+  if (sections.length === 0) return null;
 
   return (
     <section className="mt-3 border-t border-border pt-3">
@@ -286,10 +289,10 @@ function AdditionalMicronutrients({
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {section.keys.map((key) => {
                 const def = nutrientDefinitionsInput.find(
-                  (item) => item.key === key
-                )
-                if (!def) return null
-                const isToggleable = isToggleableNutrient(key)
+                  (item) => item.key === key,
+                );
+                if (!def) return null;
+                const isToggleable = isToggleableNutrient(key);
                 return (
                   <div key={key} className="grid grid-cols-[1fr_auto] gap-2">
                     <span className="min-w-0 text-xs text-foreground">
@@ -322,14 +325,14 @@ function AdditionalMicronutrients({
                       ariaLabel={`${def.label} value`}
                     />
                   </div>
-                )
+                );
               })}
             </div>
           </div>
         ))}
       </div>
     </section>
-  )
+  );
 }
 
 export function USLabel({
@@ -342,12 +345,12 @@ export function USLabel({
 }: NutrientLabelProps) {
   const calories = drafts.calories
     ? Number.parseFloat(drafts.calories) * scaleFactor
-    : 0
+    : 0;
 
-  const sodiumLabel = unitPref.sodium === "salt-g" ? "Salt" : "Sodium"
-  const vitDLabel = "Vitamin D"
-  const vitALabel = "Vitamin A"
-  const vitELabel = "Vitamin E"
+  const sodiumLabel = unitPref.sodium === "salt-g" ? "Salt" : "Sodium";
+  const vitDLabel = "Vitamin D";
+  const vitALabel = "Vitamin A";
+  const vitELabel = "Vitamin E";
   const displayedMicronutrients = new Set<NutrientKey>([
     "d",
     "calcium",
@@ -356,17 +359,17 @@ export function USLabel({
     "a",
     "c",
     "e",
-  ])
+  ]);
 
   const macroRow = (
     key: NutrientKey,
     label: string,
     indent = 0,
-    prefix = ""
+    prefix = "",
   ) => {
-    const draft = drafts[key]
-    const perServing = draft ? Number.parseFloat(draft) * scaleFactor : 0
-    const dv = getDvPercent(key, perServing)
+    const draft = drafts[key];
+    const perServing = draft ? Number.parseFloat(draft) * scaleFactor : 0;
+    const dv = getDvPercent(key, perServing);
     return (
       <div
         key={key}
@@ -390,14 +393,14 @@ export function USLabel({
           {dv != null ? `${dv}%` : ""}
         </div>
       </div>
-    )
-  }
+    );
+  };
 
   const microRow = (key: NutrientKey, label: string) => {
-    const draft = drafts[key]
-    const perServing = draft ? Number.parseFloat(draft) * scaleFactor : 0
-    const dv = getDvPercent(key, perServing)
-    const isToggleable = isToggleableNutrient(key)
+    const draft = drafts[key];
+    const perServing = draft ? Number.parseFloat(draft) * scaleFactor : 0;
+    const dv = getDvPercent(key, perServing);
+    const isToggleable = isToggleableNutrient(key);
     return (
       <div
         key={key}
@@ -429,8 +432,8 @@ export function USLabel({
         </div>
         <div className="text-sm tabular-nums">{dv != null ? `${dv}%` : ""}</div>
       </div>
-    )
-  }
+    );
+  };
 
   return (
     <div className="border-2 border-foreground bg-background p-3 text-foreground">
@@ -497,7 +500,7 @@ export function USLabel({
         * Percent Daily Values are based on a 2,000 calorie diet.
       </p>
     </div>
-  )
+  );
 }
 
 export function EULabel({
@@ -506,35 +509,35 @@ export function EULabel({
   unitPref,
   cycleUnit,
 }: NutrientLabelProps) {
-  const fixedScale = 1
-  const fixedBasis = "Per 100g"
-  const [energyUnit, setEnergyUnit] = useState<"kcal" | "kj">("kcal")
+  const fixedScale = 1;
+  const fixedBasis = "Per 100g";
+  const [energyUnit, setEnergyUnit] = useState<"kcal" | "kj">("kcal");
 
   const energyKcal = drafts.calories
     ? Number.parseFloat(drafts.calories) * fixedScale
-    : 0
-  const energyKj = energyKcal * 4.184
+    : 0;
+  const energyKj = energyKcal * 4.184;
   const energyDisplayValue =
-    energyUnit === "kcal" ? formatNumber(energyKcal) : formatNumber(energyKj)
+    energyUnit === "kcal" ? formatNumber(energyKcal) : formatNumber(energyKj);
 
   const commitEnergyInput = (raw: string) => {
     if (raw.trim() === "") {
-      setDraft("calories", "")
-      return
+      setDraft("calories", "");
+      return;
     }
 
-    const parsed = Number.parseFloat(raw)
+    const parsed = Number.parseFloat(raw);
     if (!Number.isFinite(parsed)) {
-      setDraft("calories", "")
-      return
+      setDraft("calories", "");
+      return;
     }
 
-    const kcal = energyUnit === "kcal" ? parsed : parsed / 4.184
-    setDraft("calories", kcal.toString())
-  }
+    const kcal = energyUnit === "kcal" ? parsed : parsed / 4.184;
+    setDraft("calories", kcal.toString());
+  };
 
   const row = (key: NutrientKey, label: string, indent = 0) => {
-    const isToggleable = isToggleableNutrient(key)
+    const isToggleable = isToggleableNutrient(key);
     return (
       <div
         key={key}
@@ -572,11 +575,11 @@ export function EULabel({
           </span>
         </div>
       </div>
-    )
-  }
+    );
+  };
 
-  const sodiumLabel = unitPref.sodium === "salt-g" ? "Salt" : "Sodium"
-  const displayedMicronutrients = new Set<NutrientKey>(["sodium"])
+  const sodiumLabel = unitPref.sodium === "salt-g" ? "Salt" : "Sodium";
+  const displayedMicronutrients = new Set<NutrientKey>(["sodium"]);
 
   return (
     <div className="rounded-md border border-border bg-background">
@@ -629,7 +632,7 @@ export function EULabel({
         />
       </div>
     </div>
-  )
+  );
 }
 
 export function DetailLabel({
@@ -681,10 +684,10 @@ export function DetailLabel({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {section.keys.map((key) => {
               const def = nutrientDefinitionsInput.find(
-                (item) => item.key === key
-              )
-              if (!def) return null
-              const isToggleable = isToggleableNutrient(key)
+                (item) => item.key === key,
+              );
+              if (!def) return null;
+              const isToggleable = isToggleableNutrient(key);
               return (
                 <div key={key} className="space-y-1">
                   <div className="flex items-center justify-between gap-2">
@@ -738,11 +741,11 @@ export function DetailLabel({
                     )}
                   />
                 </div>
-              )
+              );
             })}
           </div>
         </section>
       ))}
     </div>
-  )
+  );
 }

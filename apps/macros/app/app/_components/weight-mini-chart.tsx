@@ -1,11 +1,11 @@
-import type { WeightPoint } from "@/lib/weights/contracts"
+import type { WeightPoint } from "@/lib/weights/contracts";
 
 export function WeightMiniChart({
   points,
   className = "",
 }: {
-  points: WeightPoint[]
-  className?: string
+  points: WeightPoint[];
+  className?: string;
 }) {
   if (points.length < 2) {
     return (
@@ -14,21 +14,21 @@ export function WeightMiniChart({
       >
         No trend yet
       </div>
-    )
+    );
   }
 
-  const values = points.map((point) => point.weightKg)
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  const range = Math.max(max - min, 0.5)
+  const values = points.map((point) => point.weightKg);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = Math.max(max - min, 0.5);
   const coords = points.map((point, index) => {
-    const x = points.length === 1 ? 50 : (index / (points.length - 1)) * 100
-    const y = 52 - ((point.weightKg - min) / range) * 42
-    return { x, y }
-  })
+    const x = points.length === 1 ? 50 : (index / (points.length - 1)) * 100;
+    const y = 52 - ((point.weightKg - min) / range) * 42;
+    return { point, x, y };
+  });
   const path = coords
     .map((coord, index) => `${index === 0 ? "M" : "L"} ${coord.x} ${coord.y}`)
-    .join(" ")
+    .join(" ");
 
   return (
     <svg
@@ -52,9 +52,9 @@ export function WeightMiniChart({
         strokeLinejoin="round"
         strokeWidth="4"
       />
-      {coords.map((coord, index) => (
+      {coords.map((coord) => (
         <circle
-          key={`${points[index].date}-${points[index].weightKg}`}
+          key={`${coord.point.date}-${coord.point.weightKg}`}
           cx={coord.x}
           cy={coord.y}
           r="4"
@@ -63,5 +63,5 @@ export function WeightMiniChart({
         />
       ))}
     </svg>
-  )
+  );
 }

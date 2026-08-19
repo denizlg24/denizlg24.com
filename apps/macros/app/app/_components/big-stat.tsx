@@ -1,9 +1,9 @@
 type Props = {
-  label: string
-  value: string
-  suffix?: string
-  caption?: string
-}
+  label: string;
+  value: string;
+  suffix?: string;
+  caption?: string;
+};
 
 export function BigStat({ caption, label, suffix, value }: Props) {
   return (
@@ -21,5 +21,5 @@ export function BigStat({ caption, label, suffix, value }: Props) {
         <p className="mt-1 text-sm text-muted-foreground">{caption}</p>
       ) : null}
     </div>
-  )
+  );
 }

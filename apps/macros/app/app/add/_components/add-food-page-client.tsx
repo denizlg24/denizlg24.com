@@ -1,11 +1,11 @@
-"use client"
+"use client";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useHydrated } from "@/hooks/use-hydrated"
-import { useDailyCalorieSummary } from "@/lib/app-cache/api"
-import { AddFoodLogic } from "./add-food-logic"
+import { Alert, AlertDescription, AlertTitle } from "@repo/ui/alert";
+import { Button } from "@repo/ui/button";
+import { Skeleton } from "@repo/ui/skeleton";
+import { useHydrated } from "@/hooks/use-hydrated";
+import { useDailyCalorieSummary } from "@/lib/app-cache/api";
+import { AddFoodLogic } from "./add-food-logic";
 
 function AddFoodFallback() {
   return (
@@ -37,15 +37,15 @@ function AddFoodFallback() {
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 export function AddFoodPageClient() {
-  const hydrated = useHydrated()
-  const { data, error, isError, refetch } = useDailyCalorieSummary()
+  const hydrated = useHydrated();
+  const { data, error, isError, refetch } = useDailyCalorieSummary();
 
   if (!hydrated) {
-    return <AddFoodFallback />
+    return <AddFoodFallback />;
   }
 
   if (isError && !data) {
@@ -65,12 +65,12 @@ export function AddFoodPageClient() {
           </div>
         </Alert>
       </div>
-    )
+    );
   }
 
   if (!data) {
-    return <AddFoodFallback />
+    return <AddFoodFallback />;
   }
 
-  return <AddFoodLogic calorieSummary={data} />
+  return <AddFoodLogic calorieSummary={data} />;
 }

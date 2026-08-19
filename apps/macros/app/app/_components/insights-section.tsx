@@ -1,49 +1,49 @@
-import { ChevronRight } from "lucide-react"
-import Link from "next/link"
-import { MACRO_COLORS } from "@/lib/macro-colors"
-import type { EnergyBalancePoint, GoalProgress } from "@/lib/queries/dashboard"
+import { ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { MACRO_COLORS } from "@/lib/macro-colors";
+import type { EnergyBalancePoint, GoalProgress } from "@/lib/queries/dashboard";
 
 type Props = {
-  energyBalance: EnergyBalancePoint[]
-  goalProgress: GoalProgress
-}
+  energyBalance: EnergyBalancePoint[];
+  goalProgress: GoalProgress;
+};
 
 export function InsightsSection({ energyBalance, goalProgress }: Props) {
-  const { daysTracked, daysOnTarget, totalDays } = goalProgress
+  const { daysTracked, daysOnTarget, totalDays } = goalProgress;
   const adherencePct =
-    daysTracked > 0 ? Math.round((daysOnTarget / daysTracked) * 100) : 0
+    daysTracked > 0 ? Math.round((daysOnTarget / daysTracked) * 100) : 0;
 
   const latestTdee = energyBalance.reduceRight<number | null>(
     (acc, p) => acc ?? p.tdee,
-    null
-  )
-  const goalLine = latestTdee
+    null,
+  );
+  const goalLine = latestTdee;
 
-  const maxConsumed = Math.max(...energyBalance.map((p) => p.consumed), 1)
+  const maxConsumed = Math.max(...energyBalance.map((p) => p.consumed), 1);
   const maxTdee = Math.max(
     ...energyBalance.map((point) => point.tdee ?? latestTdee ?? 0),
-    1
-  )
-  const graphScale = Math.max(maxConsumed, maxTdee, 1)
+    1,
+  );
+  const graphScale = Math.max(maxConsumed, maxTdee, 1);
   const goalLinePct =
-    goalLine != null ? Math.min((goalLine / graphScale) * 100, 100) : null
+    goalLine != null ? Math.min((goalLine / graphScale) * 100, 100) : null;
 
   const weeklyBalance =
     latestTdee != null
       ? Math.round(
           energyBalance.reduce(
             (sum, point) => sum + (point.tdee ?? latestTdee) - point.consumed,
-            0
-          )
+            0,
+          ),
         )
-      : null
+      : null;
 
   return (
     <div className="px-5 mt-4">
       <div className="flex items-center justify-between mb-4">
         <p className="text-lg font-bold">Insights & Analytics</p>
         <Link
-          href="/app/analytics"
+          href="/app/statistics"
           className="text-sm text-muted-foreground underline underline-offset-2"
         >
           See All
@@ -52,7 +52,7 @@ export function InsightsSection({ energyBalance, goalProgress }: Props) {
 
       <div className="grid grid-cols-2 gap-3">
         <Link
-          href="/app/analytics/goal"
+          href="/app/statistics"
           className="bg-muted/40 rounded-2xl p-3 flex flex-col justify-between gap-2"
         >
           <div>
@@ -81,7 +81,7 @@ export function InsightsSection({ energyBalance, goalProgress }: Props) {
         </Link>
 
         <Link
-          href="/app/analytics/energy"
+          href="/app/statistics"
           className="bg-muted/40 rounded-2xl p-3 flex flex-col justify-between gap-2"
         >
           <div>
@@ -93,11 +93,11 @@ export function InsightsSection({ energyBalance, goalProgress }: Props) {
               {energyBalance.map((point) => {
                 const heightPct = Math.min(
                   (point.consumed / graphScale) * 100,
-                  100
-                )
-                const comparisonLine = point.tdee ?? latestTdee
+                  100,
+                );
+                const comparisonLine = point.tdee ?? latestTdee;
                 const isOver =
-                  comparisonLine != null && point.consumed > comparisonLine
+                  comparisonLine != null && point.consumed > comparisonLine;
                 return (
                   <div
                     key={point.date}
@@ -109,7 +109,7 @@ export function InsightsSection({ energyBalance, goalProgress }: Props) {
                         : "rgb(59 130 246 / 0.8)",
                     }}
                   />
-                )
+                );
               })}
             </div>
             {goalLinePct != null && (
@@ -142,5 +142,5 @@ export function InsightsSection({ energyBalance, goalProgress }: Props) {
         </Link>
       </div>
     </div>
-  )
+  );
 }

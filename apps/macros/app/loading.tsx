@@ -1,12 +1,11 @@
-"use client"
+"use client";
 
-import Image from "next/image"
-import { useEffect, useState } from "react"
-
-import { cn } from "@/lib/utils"
+import { cn } from "@repo/ui/utils";
+import Image from "next/image";
+import { useEffect, useState } from "react";
 
 const pieGradient =
-  "conic-gradient(from 12deg, var(--color-chart-1) 0deg 108deg, var(--color-chart-2) 108deg 210deg, var(--color-chart-3) 210deg 302deg, var(--color-chart-4) 302deg 360deg)"
+  "conic-gradient(from 12deg, var(--color-chart-1) 0deg 108deg, var(--color-chart-2) 108deg 210deg, var(--color-chart-3) 210deg 302deg, var(--color-chart-4) 302deg 360deg)";
 
 const LOADING_MESSAGES = [
   "Loading Macros...",
@@ -14,20 +13,20 @@ const LOADING_MESSAGES = [
   "Bedazzling the numbers...",
   "Tidying your nutrition...",
   "Polishing the details...",
-]
+];
 
 export default function Loading() {
-  const [messageIndex, setMessageIndex] = useState(0)
+  const [messageIndex, setMessageIndex] = useState(0);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
       setMessageIndex(
-        (currentIndex) => (currentIndex + 1) % LOADING_MESSAGES.length
-      )
-    }, 1400)
+        (currentIndex) => (currentIndex + 1) % LOADING_MESSAGES.length,
+      );
+    }, 1400);
 
-    return () => clearTimeout(timeout)
-  }, [])
+    return () => clearTimeout(timeout);
+  }, []);
 
   return (
     <main className="min-h-svh bg-background text-foreground">
@@ -70,7 +69,7 @@ export default function Loading() {
                       ? "translate-y-0 opacity-100"
                       : index < messageIndex
                         ? "-translate-y-5 opacity-0"
-                        : "translate-y-5 opacity-0"
+                        : "translate-y-5 opacity-0",
                   )}
                 >
                   {message}
@@ -84,5 +83,5 @@ export default function Loading() {
         </section>
       </div>
     </main>
-  )
+  );
 }

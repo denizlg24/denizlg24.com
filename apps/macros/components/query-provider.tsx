@@ -1,16 +1,17 @@
-"use client"
+"use client";
 
-import { QueryClient } from "@tanstack/react-query"
-import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
-import { useState } from "react"
-import { createIndexedDbPersister } from "@/lib/app-cache/indexeddb-persister"
+import { QueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { useState } from "react";
+import { createIndexedDbPersister } from "@/lib/app-cache/indexeddb-persister";
+import { OfflineQueueProvider } from "@/lib/app-cache/offline-mutation-queue";
 
-const staleTime = 1000 * 60 * 5
-const gcTime = 1000 * 60 * 60 * 24 * 14
+const staleTime = 1000 * 60 * 5;
+const gcTime = 1000 * 60 * 60 * 24 * 14;
 
 interface QueryProviderProps {
-  children: React.ReactNode
-  userId: string
+  children: React.ReactNode;
+  userId: string;
 }
 
 export function QueryProvider({ children, userId }: QueryProviderProps) {
@@ -27,9 +28,9 @@ export function QueryProvider({ children, userId }: QueryProviderProps) {
             retry: 1,
           },
         },
-      })
-  )
-  const [persister] = useState(() => createIndexedDbPersister(userId))
+      }),
+  );
+  const [persister] = useState(() => createIndexedDbPersister(userId));
 
   return (
     <PersistQueryClientProvider
@@ -40,7 +41,7 @@ export function QueryProvider({ children, userId }: QueryProviderProps) {
         persister,
       }}
     >
-      {children}
+      <OfflineQueueProvider>{children}</OfflineQueueProvider>
     </PersistQueryClientProvider>
-  )
+  );
 }

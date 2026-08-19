@@ -1,132 +1,145 @@
-"use client"
+"use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { format, parseISO } from "date-fns"
-import { Check, Hourglass, Pencil, Plus, RotateCcw, Undo2 } from "lucide-react"
-import { useMemo, useState } from "react"
-import {
-  OnboardingWizard,
-  type WizardInitial,
-  type WizardMode,
-  type WizardPayload,
-} from "@/components/onboarding/wizard"
+import type { MacrosProgram, MacrosTargetIssue } from "@repo/schemas/macros";
+import { Button } from "@repo/ui/button";
 import {
   Drawer,
   DrawerContent,
   DrawerDescription,
   DrawerTitle,
-} from "@/components/ui/drawer"
-import { Skeleton } from "@/components/ui/skeleton"
-import { queryKeys } from "@/lib/app-cache/query-keys"
-import type { ActiveGoal, GoalHistoryEntry } from "@/lib/goals/contracts"
-import type { PlanDetail } from "@/lib/plans/contracts"
-import { cn } from "@/lib/utils"
+} from "@repo/ui/keyboard-sheet";
+import { Skeleton } from "@repo/ui/skeleton";
+import { cn } from "@repo/ui/utils";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { format, parseISO } from "date-fns";
+import { Check, Hourglass, Pencil, Plus, RotateCcw, Undo2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  OnboardingWizard,
+  type WizardInitial,
+  type WizardMode,
+  type WizardPayload,
+} from "@/components/onboarding/wizard";
+import { queryKeys } from "@/lib/app-cache/query-keys";
+import type { ActiveGoal, GoalHistoryEntry } from "@/lib/goals/contracts";
+import type { PlanDetail } from "@/lib/plans/contracts";
 
 interface StrategyResponse {
-  plan: PlanDetail | null
-  goal: ActiveGoal | null
-  history: GoalHistoryEntry[]
+  plan: PlanDetail | null;
+  goal: ActiveGoal | null;
+  history: GoalHistoryEntry[];
 }
 
 async function fetchStrategy(): Promise<StrategyResponse> {
-  const res = await fetch("/api/strategy", { cache: "no-store" })
-  if (!res.ok) throw new Error("Failed to load strategy")
-  return res.json()
+  const res = await fetch("/api/strategy", { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to load strategy");
+  return res.json();
 }
 
-const STRATEGY_KEY = ["app", "strategy"] as const
+const STRATEGY_KEY = ["app", "strategy"] as const;
 
 function goalTitle(goalType: "lose" | "maintain" | "gain"): string {
-  if (goalType === "lose") return "Weight Loss Goal"
-  if (goalType === "gain") return "Weight Gain Goal"
-  return "Maintenance Goal"
+  if (goalType === "lose") return "Weight Loss Goal";
+  if (goalType === "gain") return "Weight Gain Goal";
+  return "Maintenance Goal";
 }
 
 function fmtDate(iso: string): string {
   try {
-    return format(parseISO(iso), "d MMM")
+    return format(parseISO(iso), "d MMM");
   } catch {
-    return iso
+    return iso;
   }
 }
 
 function fmtDateFull(iso: string): string {
   try {
-    return format(parseISO(iso), "d MMM yyyy")
+    return format(parseISO(iso), "d MMM yyyy");
   } catch {
-    return iso
+    return iso;
   }
 }
 
-type WizardDrawerState = { mode: WizardMode; reason: "new" | "edit" } | null
+type WizardDrawerState = { mode: WizardMode; reason: "new" | "edit" } | null;
 
 export function StrategyPageClient() {
-  const queryClient = useQueryClient()
-  const [drawer, setDrawer] = useState<WizardDrawerState>(null)
+  const queryClient = useQueryClient();
+  const [drawer, setDrawer] = useState<WizardDrawerState>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: STRATEGY_KEY,
     queryFn: fetchStrategy,
     refetchOnWindowFocus: false,
-  })
+  });
+  const adaptive = useQuery({
+    queryKey: ["nutrition-program"],
+    queryFn: async () => {
+      const response = await fetch("/api/nutrition-programs");
+      if (!response.ok) throw new Error("Failed to load check-ins");
+      return response.json() as Promise<{
+        program: MacrosProgram | null;
+        issues: MacrosTargetIssue[];
+      }>;
+    },
+  });
 
   const reopenMutation = useMutation({
     mutationFn: async (goalId: string) => {
       const res = await fetch(`/api/weight-goals/${goalId}/reopen`, {
         method: "POST",
-      })
-      if (!res.ok) throw new Error("Failed to reopen goal")
+      });
+      if (!res.ok) throw new Error("Failed to reopen goal");
     },
     onSuccess: async () => {
-      await refreshAll(queryClient)
+      await refreshAll(queryClient);
     },
-  })
+  });
 
   const submitMutation = useMutation({
     mutationFn: async (payload: WizardPayload) => {
-      const drawerState = drawer
-      if (!drawerState) return
+      const drawerState = drawer;
+      if (!drawerState) return;
 
       if (drawerState.mode === "program") {
         const url =
           drawerState.reason === "edit"
             ? "/api/nutrition-plans/active"
-            : "/api/nutrition-plans"
-        const method = drawerState.reason === "edit" ? "PATCH" : "POST"
+            : "/api/nutrition-plans";
+        const method = drawerState.reason === "edit" ? "PATCH" : "POST";
         const res = await fetch(url, {
           method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload.nutritionPlan),
-        })
-        if (!res.ok) throw new Error("Failed to save program")
+        });
+        if (!res.ok) throw new Error("Failed to save program");
       } else if (drawerState.mode === "goal") {
         const url =
           drawerState.reason === "edit"
             ? "/api/weight-goals/active"
-            : "/api/weight-goals"
-        const method = drawerState.reason === "edit" ? "PATCH" : "POST"
+            : "/api/weight-goals";
+        const method = drawerState.reason === "edit" ? "PATCH" : "POST";
         const res = await fetch(url, {
           method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload.weightGoal),
-        })
-        if (!res.ok) throw new Error("Failed to save goal")
+        });
+        if (!res.ok) throw new Error("Failed to save goal");
       }
     },
     onSuccess: async () => {
-      await refreshAll(queryClient)
-      setDrawer(null)
+      await refreshAll(queryClient);
+      setDrawer(null);
     },
-  })
+  });
 
-  const plan = data?.plan ?? null
-  const goal = data?.goal ?? null
-  const history = data?.history ?? []
+  const plan = data?.plan ?? null;
+  const goal = data?.goal ?? null;
+  const history = data?.history ?? [];
   const closedHistory = useMemo(
     () => history.filter((h) => !h.isActive),
-    [history]
-  )
-  const hasPreviousClosed = closedHistory.length > 0
+    [history],
+  );
+  const hasPreviousClosed = closedHistory.length > 0;
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 px-4 pt-3 pb-32">
@@ -150,11 +163,29 @@ export function StrategyPageClient() {
               onNew={() => setDrawer({ mode: "goal", reason: "new" })}
               onEdit={() => setDrawer({ mode: "goal", reason: "edit" })}
               onReopen={() => {
-                const latest = closedHistory[0]
-                if (latest) reopenMutation.mutate(latest.id)
+                const latest = closedHistory[0];
+                if (latest) reopenMutation.mutate(latest.id);
               }}
               hasPrevious={hasPreviousClosed}
               reopening={reopenMutation.isPending}
+            />
+            <AdaptiveCheckIn
+              data={adaptive.data}
+              onAccept={async (id) => {
+                const response = await fetch(
+                  `/api/nutrition-programs/issues/${id}/accept`,
+                  { method: "POST" },
+                );
+                if (!response.ok) throw new Error("Could not accept target");
+                await Promise.all([
+                  queryClient.invalidateQueries({
+                    queryKey: ["nutrition-program"],
+                  }),
+                  queryClient.invalidateQueries({
+                    queryKey: queryKeys.dashboard,
+                  }),
+                ]);
+              }}
             />
           </section>
 
@@ -174,9 +205,8 @@ export function StrategyPageClient() {
       <Drawer
         open={drawer !== null}
         onOpenChange={(open) => {
-          if (!open) setDrawer(null)
+          if (!open) setDrawer(null);
         }}
-        repositionInputs={false}
       >
         <DrawerContent className="max-h-[92dvh]! rounded-t-3xl">
           <DrawerTitle className="sr-only">
@@ -199,7 +229,7 @@ export function StrategyPageClient() {
                     : `Create ${drawer.mode === "program" ? "program" : "goal"}`
                 }
                 onSubmit={async (payload) => {
-                  await submitMutation.mutateAsync(payload)
+                  await submitMutation.mutateAsync(payload);
                 }}
               />
             </div>
@@ -207,7 +237,60 @@ export function StrategyPageClient() {
         </DrawerContent>
       </Drawer>
     </div>
-  )
+  );
+}
+
+function AdaptiveCheckIn({
+  data,
+  onAccept,
+}: {
+  data:
+    | { program: MacrosProgram | null; issues: MacrosTargetIssue[] }
+    | undefined;
+  onAccept: (id: string) => Promise<void>;
+}) {
+  if (!data?.program) return null;
+  const latest = data.issues[0];
+  const previous = data.issues.find(
+    (issue) => issue.status !== "pending_acceptance" && issue.id !== latest?.id,
+  );
+  if (!latest) return null;
+  const confidence =
+    latest.tdeeAtIssue != null && latest.tdeeVarianceAtIssue != null
+      ? Math.round(1.96 * Math.sqrt(latest.tdeeVarianceAtIssue))
+      : null;
+  return (
+    <div className="rounded-2xl border bg-muted/30 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-bold">Latest check-in</p>
+          <p className="text-xs capitalize text-muted-foreground">
+            {latest.reason.replaceAll("_", " ")} · {latest.effectiveFrom}
+          </p>
+        </div>
+        <span className="text-xl font-black tabular-nums">
+          {latest.calorieTarget.toFixed(0)}{" "}
+          <span className="text-xs font-medium">kcal</span>
+        </span>
+      </div>
+      <p className="mt-3 text-sm text-muted-foreground">
+        {previous
+          ? `Your target changed from ${previous.calorieTarget.toFixed(0)} to ${latest.calorieTarget.toFixed(0)} kcal (${latest.deltaFromPreviousCalories && latest.deltaFromPreviousCalories > 0 ? "+" : ""}${latest.deltaFromPreviousCalories?.toFixed(0) ?? "0"}). `
+          : ""}
+        {latest.tdeeAtIssue != null
+          ? `Measured expenditure was ${latest.tdeeAtIssue.toFixed(0)}${confidence ? ` ± ${confidence}` : ""} kcal.`
+          : "The adaptive estimate is still gated while more complete logs and weigh-ins are collected."}
+      </p>
+      {latest.status === "pending_acceptance" ? (
+        <Button
+          className="mt-3 w-full"
+          onClick={() => void onAccept(latest.id)}
+        >
+          Accept new targets
+        </Button>
+      ) : null}
+    </div>
+  );
 }
 
 async function refreshAll(queryClient: ReturnType<typeof useQueryClient>) {
@@ -215,52 +298,53 @@ async function refreshAll(queryClient: ReturnType<typeof useQueryClient>) {
     queryClient.invalidateQueries({ queryKey: STRATEGY_KEY }),
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
     queryClient.invalidateQueries({ queryKey: queryKeys.calorieSummary }),
-  ])
+  ]);
 }
 
 function buildInitial(
   state: NonNullable<WizardDrawerState>,
   plan: PlanDetail | null,
-  goal: ActiveGoal | null
+  goal: ActiveGoal | null,
 ): WizardInitial {
-  const initial: WizardInitial = {}
+  const initial: WizardInitial = {};
   if (state.mode === "program") {
-    initial.goalType = plan?.goalType ?? goal?.goalType ?? "maintain"
-    initial.planName = plan?.name
+    initial.goalType = plan?.goalType ?? goal?.goalType ?? "maintain";
+    initial.planName = plan?.name;
     if (state.reason === "edit" && plan) {
       const baseCal =
-        plan.baseCalorieTarget ?? plan.days[0]?.calorieTarget ?? 2000
-      initial.calories = baseCal
-      const protein = plan.baseProteinTarget ?? plan.days[0]?.proteinTarget ?? 0
-      const carbs = plan.baseCarbsTarget ?? plan.days[0]?.carbsTarget ?? 0
-      const fat = plan.baseFatTarget ?? plan.days[0]?.fatTarget ?? 0
-      const total = protein * 4 + carbs * 4 + fat * 9 || baseCal
+        plan.baseCalorieTarget ?? plan.days[0]?.calorieTarget ?? 2000;
+      initial.calories = baseCal;
+      const protein =
+        plan.baseProteinTarget ?? plan.days[0]?.proteinTarget ?? 0;
+      const carbs = plan.baseCarbsTarget ?? plan.days[0]?.carbsTarget ?? 0;
+      const fat = plan.baseFatTarget ?? plan.days[0]?.fatTarget ?? 0;
+      const total = protein * 4 + carbs * 4 + fat * 9 || baseCal;
       initial.split = {
         protein: Math.round(((protein * 4) / total) * 100),
         carbs: Math.round(((carbs * 4) / total) * 100),
         fat: Math.round(((fat * 9) / total) * 100),
-      }
+      };
       initial.dayDeltas = plan.days.map((d) => ({
         weekday: d.weekday,
         delta: (d.calorieTarget ?? baseCal) - baseCal,
-      }))
+      }));
     }
   }
   if (state.mode === "goal") {
     if (state.reason === "edit" && goal) {
-      initial.goalType = goal.goalType
+      initial.goalType = goal.goalType;
       if (goal.targetWeightKg != null)
-        initial.targetWeightKg = goal.targetWeightKg
-      if (goal.targetDate) initial.goalDate = goal.targetDate
+        initial.targetWeightKg = goal.targetWeightKg;
+      if (goal.targetDate) initial.goalDate = goal.targetDate;
       if (goal.startWeightKg != null)
-        initial.currentWeightKg = goal.startWeightKg
+        initial.currentWeightKg = goal.startWeightKg;
     } else {
-      initial.goalType = goal?.goalType ?? "lose"
+      initial.goalType = goal?.goalType ?? "lose";
       if (goal?.startWeightKg != null)
-        initial.currentWeightKg = goal.startWeightKg
+        initial.currentWeightKg = goal.startWeightKg;
     }
   }
-  return initial
+  return initial;
 }
 
 // ===== Subcomponents =====
@@ -270,16 +354,16 @@ const COLORS = {
   protein: "#e0826c",
   fat: "#f1c453",
   carbs: "#7fbe7f",
-} as const
+} as const;
 
 function ProgramCard({
   plan,
   onNew,
   onEdit,
 }: {
-  plan: PlanDetail | null
-  onNew: () => void
-  onEdit: () => void
+  plan: PlanDetail | null;
+  onNew: () => void;
+  onEdit: () => void;
 }) {
   if (!plan) {
     return (
@@ -296,10 +380,10 @@ function ProgramCard({
           <Plus className="size-4" /> Create program
         </button>
       </div>
-    )
+    );
   }
 
-  const dateRange = `${fmtDate(plan.startDate)} – Now`
+  const dateRange = `${fmtDate(plan.startDate)} – Now`;
 
   return (
     <div className="rounded-2xl bg-card p-4 space-y-4">
@@ -317,36 +401,36 @@ function ProgramCard({
         <CardActionButton icon={Pencil} label="Edit Program" onClick={onEdit} />
       </div>
     </div>
-  )
+  );
 }
 
 function WeekdayBars({ days }: { days: PlanDetail["days"] }) {
   const sorted = useMemo(
     () => [...days].sort((a, b) => a.weekday - b.weekday),
-    [days]
-  )
+    [days],
+  );
   const maxKcal = useMemo(
     () => Math.max(...sorted.map((d) => d.calorieTarget ?? 0), 1),
-    [sorted]
-  )
+    [sorted],
+  );
 
   return (
     <div className="grid grid-cols-7 gap-1.5">
       {sorted.map((d, i) => {
-        const calories = d.calorieTarget ?? 0
-        const protein = d.proteinTarget ?? 0
-        const carbs = d.carbsTarget ?? 0
-        const fat = d.fatTarget ?? 0
-        const proteinKcal = protein * 4
-        const carbsKcal = carbs * 4
-        const fatKcal = fat * 9
-        const sum = proteinKcal + carbsKcal + fatKcal || calories || 1
-        const proteinPct = (proteinKcal / sum) * 100
-        const fatPct = (fatKcal / sum) * 100
-        const carbsPct = (carbsKcal / sum) * 100
-        const totalHeight = 180
-        const minHeight = totalHeight * (calories / maxKcal)
-        const label = ["M", "T", "W", "T", "F", "S", "S"][d.weekday]
+        const calories = d.calorieTarget ?? 0;
+        const protein = d.proteinTarget ?? 0;
+        const carbs = d.carbsTarget ?? 0;
+        const fat = d.fatTarget ?? 0;
+        const proteinKcal = protein * 4;
+        const carbsKcal = carbs * 4;
+        const fatKcal = fat * 9;
+        const sum = proteinKcal + carbsKcal + fatKcal || calories || 1;
+        const proteinPct = (proteinKcal / sum) * 100;
+        const fatPct = (fatKcal / sum) * 100;
+        const carbsPct = (carbsKcal / sum) * 100;
+        const totalHeight = 180;
+        const minHeight = totalHeight * (calories / maxKcal);
+        const label = ["M", "T", "W", "T", "F", "S", "S"][d.weekday];
         return (
           <div key={d.weekday} className="flex flex-col items-center gap-1.5">
             <span
@@ -382,10 +466,10 @@ function WeekdayBars({ days }: { days: PlanDetail["days"] }) {
               {label}
             </span>
           </div>
-        )
+        );
       })}
     </div>
-  )
+  );
 }
 
 function BarSlice({
@@ -394,12 +478,12 @@ function BarSlice({
   color,
   letter,
 }: {
-  value: number
-  pct: number
-  color: string
-  letter: string
+  value: number;
+  pct: number;
+  color: string;
+  letter: string;
 }) {
-  if (pct < 1) return null
+  if (pct < 1) return null;
   return (
     <div
       className="flex items-center justify-center overflow-hidden rounded-sm text-[10px] font-semibold text-black/80"
@@ -411,7 +495,7 @@ function BarSlice({
     >
       {Math.round(value)} {letter}
     </div>
-  )
+  );
 }
 
 function CardActionButton({
@@ -420,10 +504,10 @@ function CardActionButton({
   onClick,
   disabled,
 }: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  onClick: () => void
-  disabled?: boolean
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -434,7 +518,7 @@ function CardActionButton({
     >
       <Icon className="size-3.5" /> {label}
     </button>
-  )
+  );
 }
 
 function GoalCard({
@@ -445,12 +529,12 @@ function GoalCard({
   hasPrevious,
   reopening,
 }: {
-  goal: ActiveGoal | null
-  onNew: () => void
-  onEdit: () => void
-  onReopen: () => void
-  hasPrevious: boolean
-  reopening: boolean
+  goal: ActiveGoal | null;
+  onNew: () => void;
+  onEdit: () => void;
+  onReopen: () => void;
+  hasPrevious: boolean;
+  reopening: boolean;
 }) {
   if (!goal) {
     return (
@@ -477,12 +561,12 @@ function GoalCard({
           ) : null}
         </div>
       </div>
-    )
+    );
   }
 
-  const title = goalTitle(goal.goalType)
-  const dateRange = `${fmtDate(goal.startDate)} – Now`
-  const rateKg = goal.weeklyRateKg ?? null
+  const title = goalTitle(goal.goalType);
+  const dateRange = `${fmtDate(goal.startDate)} – Now`;
+  const rateKg = goal.weeklyRateKg ?? null;
   const signedRate =
     rateKg != null
       ? goal.goalType === "lose"
@@ -490,11 +574,11 @@ function GoalCard({
         : goal.goalType === "gain"
           ? Math.abs(rateKg)
           : rateKg
-      : null
+      : null;
   const ratePct =
     rateKg != null && goal.startWeightKg
       ? (signedRate! / goal.startWeightKg) * 100
-      : null
+      : null;
 
   return (
     <div className="rounded-2xl bg-card p-4 space-y-4">
@@ -534,7 +618,7 @@ function GoalCard({
         ) : null}
       </div>
     </div>
-  )
+  );
 }
 
 function Stat({
@@ -542,9 +626,9 @@ function Stat({
   unit,
   label,
 }: {
-  value: string
-  unit: string
-  label: string
+  value: string;
+  unit: string;
+  label: string;
 }) {
   return (
     <div>
@@ -556,25 +640,25 @@ function Stat({
       </p>
       <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
     </div>
-  )
+  );
 }
 
 function GoalHistoryRow({ entry }: { entry: GoalHistoryEntry }) {
   const start =
-    entry.startWeightKg != null ? `${entry.startWeightKg.toFixed(1)} kg` : "—"
+    entry.startWeightKg != null ? `${entry.startWeightKg.toFixed(1)} kg` : "—";
   const end =
-    entry.endWeightKg != null ? `${entry.endWeightKg.toFixed(1)} kg` : null
+    entry.endWeightKg != null ? `${entry.endWeightKg.toFixed(1)} kg` : null;
   const endDate = entry.closedAt
     ? fmtDateFull(entry.closedAt.slice(0, 10))
-    : "Now"
-  const dateRange = `${fmtDateFull(entry.startDate)} – ${endDate}`
+    : "Now";
+  const dateRange = `${fmtDateFull(entry.startDate)} – ${endDate}`;
   const outcomeLabel = entry.outcome
     ? entry.outcome === "loss"
       ? "Loss"
       : entry.outcome === "gain"
         ? "Gain"
         : "Maintain"
-    : "—"
+    : "—";
 
   return (
     <div className="rounded-2xl bg-card p-4 flex items-center justify-between gap-3">
@@ -599,7 +683,7 @@ function GoalHistoryRow({ entry }: { entry: GoalHistoryEntry }) {
             "flex size-7 items-center justify-center rounded-full",
             entry.achieved
               ? "bg-foreground text-background"
-              : "bg-muted text-muted-foreground"
+              : "bg-muted text-muted-foreground",
           )}
           role="img"
           aria-label={entry.achieved ? "Goal achieved" : "Goal not reached"}
@@ -612,7 +696,7 @@ function GoalHistoryRow({ entry }: { entry: GoalHistoryEntry }) {
         </span>
       </div>
     </div>
-  )
+  );
 }
 
 function LoadingSkeleton() {
@@ -622,5 +706,5 @@ function LoadingSkeleton() {
       <Skeleton className="h-72 w-full rounded-2xl" />
       <Skeleton className="h-44 w-full rounded-2xl" />
     </div>
-  )
+  );
 }

@@ -1,12 +1,12 @@
-"use client"
+"use client";
 
-import { ChevronDown } from "lucide-react"
-import { useState } from "react"
+import { ChevronDown } from "lucide-react";
+import { useState } from "react";
 import {
   type NutrientKey,
   nutrientDefinitionsInput,
-} from "@/lib/foods/nutrients"
-import type { RecipeIngredientDetail } from "@/lib/recipes/contracts"
+} from "@/lib/foods/nutrients";
+import type { RecipeIngredientDetail } from "@/lib/recipes/contracts";
 
 const SKIP_KEYS = new Set<NutrientKey>([
   "calories",
@@ -15,23 +15,23 @@ const SKIP_KEYS = new Set<NutrientKey>([
   "fat",
   "water",
   "alcohol",
-])
+]);
 
 const GROUP_ORDER: ReadonlyArray<{
-  group: "macro" | "vitamin" | "mineral" | "amino_acid"
-  title: string
+  group: "macro" | "vitamin" | "mineral" | "amino_acid";
+  title: string;
 }> = [
   { group: "macro", title: "Macros" },
   { group: "vitamin", title: "Vitamins" },
   { group: "mineral", title: "Minerals" },
   { group: "amino_acid", title: "Amino acids" },
-]
+];
 
 function formatNutrient(value: number, unit: string) {
-  if (!Number.isFinite(value) || value === 0) return `0 ${unit}`
-  if (value < 0.1) return `${value.toPrecision(2)} ${unit}`
-  if (value < 10) return `${value.toFixed(1)} ${unit}`
-  return `${Math.round(value)} ${unit}`
+  if (!Number.isFinite(value) || value === 0) return `0 ${unit}`;
+  if (value < 0.1) return `${value.toPrecision(2)} ${unit}`;
+  if (value < 10) return `${value.toFixed(1)} ${unit}`;
+  return `${Math.round(value)} ${unit}`;
 }
 
 export function MacroQuad({
@@ -40,10 +40,10 @@ export function MacroQuad({
   carbs,
   fat,
 }: {
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
 }) {
   return (
     <div className="grid grid-cols-4 gap-2 rounded-xl bg-muted/40 p-3 text-center">
@@ -52,7 +52,7 @@ export function MacroQuad({
       <MacroTile label="F" value={fat} />
       <MacroTile label="C" value={carbs} />
     </div>
-  )
+  );
 }
 
 function MacroTile({ label, value }: { label: string; value: number }) {
@@ -61,7 +61,7 @@ function MacroTile({ label, value }: { label: string; value: number }) {
       <p className="text-lg font-semibold tabular-nums">{Math.round(value)}</p>
       <p className="text-[10px] font-medium text-muted-foreground">{label}</p>
     </div>
-  )
+  );
 }
 
 export function ViewModeToggle<T extends string>({
@@ -69,9 +69,9 @@ export function ViewModeToggle<T extends string>({
   onChange,
   options,
 }: {
-  value: T
-  onChange: (next: T) => void
-  options: ReadonlyArray<{ value: T; label: string }>
+  value: T;
+  onChange: (next: T) => void;
+  options: ReadonlyArray<{ value: T; label: string }>;
 }) {
   return (
     <div className="inline-flex w-full rounded-full bg-muted p-1">
@@ -90,13 +90,13 @@ export function ViewModeToggle<T extends string>({
         </button>
       ))}
     </div>
-  )
+  );
 }
 
 export function IngredientListPanel({
   ingredients,
 }: {
-  ingredients: RecipeIngredientDetail[]
+  ingredients: RecipeIngredientDetail[];
 }) {
   return (
     <CollapsibleSection
@@ -109,7 +109,7 @@ export function IngredientListPanel({
           const servingsLabel =
             ingredient.servings % 1 === 0
               ? ingredient.servings.toString()
-              : ingredient.servings.toFixed(2)
+              : ingredient.servings.toFixed(2);
           return (
             <li
               key={ingredient.id}
@@ -136,19 +136,19 @@ export function IngredientListPanel({
                 </p>
               </div>
             </li>
-          )
+          );
         })}
       </ul>
     </CollapsibleSection>
-  )
+  );
 }
 
 export function MicronutrientPanel({
   nutrientsPerServing,
   scale,
 }: {
-  nutrientsPerServing: Record<string, number>
-  scale: number
+  nutrientsPerServing: Record<string, number>;
+  scale: number;
 }) {
   const grouped = GROUP_ORDER.map(({ group, title }) => {
     const rows = nutrientDefinitionsInput
@@ -158,12 +158,12 @@ export function MicronutrientPanel({
         ...definition,
         value: (nutrientsPerServing[definition.key] ?? 0) * scale,
       }))
-      .filter((row) => row.value > 0)
-    return { group, title, rows }
-  }).filter((section) => section.rows.length > 0)
+      .filter((row) => row.value > 0);
+    return { group, title, rows };
+  }).filter((section) => section.rows.length > 0);
 
   if (grouped.length === 0) {
-    return null
+    return null;
   }
 
   return (
@@ -193,7 +193,7 @@ export function MicronutrientPanel({
         ))}
       </div>
     </CollapsibleSection>
-  )
+  );
 }
 
 export function CollapsibleSection({
@@ -202,12 +202,12 @@ export function CollapsibleSection({
   defaultOpen = false,
   children,
 }: {
-  title: string
-  meta?: string
-  defaultOpen?: boolean
-  children: React.ReactNode
+  title: string;
+  meta?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen)
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <section className="rounded-xl border border-border/60 bg-background">
       <button
@@ -227,7 +227,7 @@ export function CollapsibleSection({
       </button>
       {open ? <div className="px-3 pb-3">{children}</div> : null}
     </section>
-  )
+  );
 }
 
 export function StatRow({ label, value }: { label: string; value: string }) {
@@ -236,5 +236,5 @@ export function StatRow({ label, value }: { label: string; value: string }) {
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium tabular-nums text-foreground">{value}</span>
     </div>
-  )
+  );
 }

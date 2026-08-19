@@ -1,15 +1,15 @@
-import { ChevronRight } from "lucide-react"
-import Link from "next/link"
-import type { ReactNode } from "react"
+import { ChevronRight } from "lucide-react";
+import Link from "next/link";
+import type { ReactNode } from "react";
 
 type Props = {
-  href: string
-  title: string
-  subtitle: string
-  footer: ReactNode
-  children: ReactNode
-  minHeight?: "sm" | "md"
-}
+  href: string;
+  title: string;
+  subtitle: string;
+  footer: ReactNode;
+  children: ReactNode;
+  minHeight?: "sm" | "md";
+};
 
 export function MetricTile({
   children,
@@ -19,7 +19,7 @@ export function MetricTile({
   subtitle,
   title,
 }: Props) {
-  const min = minHeight === "md" ? "min-h-44" : "min-h-36"
+  const min = minHeight === "md" ? "min-h-44" : "min-h-36";
   return (
     <Link
       href={href}
@@ -35,5 +35,5 @@ export function MetricTile({
         <ChevronRight className="size-4 text-muted-foreground" />
       </div>
     </Link>
-  )
+  );
 }

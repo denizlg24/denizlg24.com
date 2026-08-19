@@ -1,9 +1,9 @@
-import type { MetadataRoute } from "next"
+import type { MetadataRoute } from "next";
 
 const iconSizes = [
   48, 72, 96, 128, 144, 152, 167, 180, 192, 256, 384, 512, 1024,
-]
-const themeIconSizes = [192, 512, 1024]
+];
+const themeIconSizes = [192, 512, 1024];
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -14,8 +14,8 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/app",
     scope: "/",
     display: "standalone",
-    background_color: "#faf9f5",
-    theme_color: "#4b5547",
+    background_color: "#f9f8f6",
+    theme_color: "#303630",
     orientation: "portrait",
     icons: [
       ...iconSizes.map((size) => ({
@@ -43,5 +43,5 @@ export default function manifest(): MetadataRoute.Manifest {
         purpose: "monochrome" as const,
       })),
     ],
-  }
+  };
 }

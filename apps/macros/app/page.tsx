@@ -1,23 +1,23 @@
-import { headers } from "next/headers"
-import Image from "next/image"
-import { redirect } from "next/navigation"
+import { headers } from "next/headers";
+import Image from "next/image";
+import { redirect } from "next/navigation";
 
-import { AuthForm } from "@/app/_components/auth-form"
-import { pageMetadata } from "@/app/metadata"
-import { auth } from "@/lib/auth"
+import { AuthForm } from "@/app/_components/auth-form";
+import { pageMetadata } from "@/app/metadata";
+import { auth } from "@/lib/auth";
 
 export const metadata = pageMetadata(
   "Sign in",
-  "Sign in to Macros to track food logs, recipes, micronutrients, and weight trends."
-)
+  "Sign in to Macros to track food logs, recipes, micronutrients, and weight trends.",
+);
 
 export default async function Page() {
   const session = await auth.api.getSession({
     headers: await headers(),
-  })
+  });
 
   if (session) {
-    redirect("/app")
+    redirect("/app");
   }
 
   return (
@@ -46,5 +46,5 @@ export default async function Page() {
         </footer>
       </div>
     </main>
-  )
+  );
 }

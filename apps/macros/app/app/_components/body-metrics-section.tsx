@@ -1,10 +1,10 @@
-import type { WeightSummary } from "@/lib/weights/contracts"
-import { MetricTile } from "./metric-tile"
-import { WeightMiniChart } from "./weight-mini-chart"
+import type { WeightSummary } from "@/lib/weights/contracts";
+import { MetricTile } from "./metric-tile";
+import { WeightMiniChart } from "./weight-mini-chart";
 
 type Props = {
-  weightSummary: WeightSummary
-}
+  weightSummary: WeightSummary;
+};
 
 export function BodyMetricsSection({ weightSummary }: Props) {
   return (
@@ -29,5 +29,5 @@ export function BodyMetricsSection({ weightSummary }: Props) {
         </MetricTile>
       </div>
     </section>
-  )
+  );
 }

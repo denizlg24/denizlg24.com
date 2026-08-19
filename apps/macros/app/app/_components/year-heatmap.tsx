@@ -1,21 +1,21 @@
-import { format } from "date-fns"
+import { format } from "date-fns";
 
 type Props = {
-  year: number
-  getCellClass: (iso: string) => string
-}
+  year: number;
+  getCellClass: (iso: string) => string;
+};
 
 export function YearHeatmap({ getCellClass, year }: Props) {
   const months = Array.from({ length: 12 }, (_, monthIndex) => {
-    const month = new Date(year, monthIndex, 1)
-    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate()
+    const month = new Date(year, monthIndex, 1);
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
     return {
       label: format(month, "MMM"),
       days: Array.from({ length: daysInMonth }, (_, dayIndex) =>
-        toIso(new Date(year, monthIndex, dayIndex + 1))
+        toIso(new Date(year, monthIndex, dayIndex + 1)),
       ),
-    }
-  })
+    };
+  });
 
   return (
     <article className="min-w-full snap-center">
@@ -46,16 +46,16 @@ export function YearHeatmap({ getCellClass, year }: Props) {
         </div>
       </div>
     </article>
-  )
+  );
 }
 
 type CarouselProps = {
-  years: number[]
-  getCellClass: (iso: string) => string
-}
+  years: number[];
+  getCellClass: (iso: string) => string;
+};
 
 export function YearHeatmapCarousel({ getCellClass, years }: CarouselProps) {
-  if (years.length === 0) return null
+  if (years.length === 0) return null;
   return (
     <section className="pb-8">
       <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-5 pb-2">
@@ -64,9 +64,9 @@ export function YearHeatmapCarousel({ getCellClass, years }: CarouselProps) {
         ))}
       </div>
     </section>
-  )
+  );
 }
 
 function toIso(date: Date) {
-  return format(date, "yyyy-MM-dd")
+  return format(date, "yyyy-MM-dd");
 }

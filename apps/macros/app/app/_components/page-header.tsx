@@ -1,14 +1,14 @@
-import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
-import type { ReactNode } from "react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@repo/ui/button";
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
+import type { ReactNode } from "react";
 
 type Props = {
-  title: string
-  backHref?: string
-  backLabel?: string
-  action?: ReactNode
-}
+  title: string;
+  backHref?: string;
+  backLabel?: string;
+  action?: ReactNode;
+};
 
 export function PageHeader({
   action,
@@ -30,5 +30,5 @@ export function PageHeader({
         {action ?? <span className="size-9" aria-hidden="true" />}
       </div>
     </header>
-  )
+  );
 }

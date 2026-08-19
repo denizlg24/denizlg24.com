@@ -1,29 +1,29 @@
-"use client"
+"use client";
 
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
-import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Flame, LoaderCircle, Save, Trash2 } from "lucide-react"
-import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
-import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
 import {
   Drawer,
   DrawerContent,
   DrawerDescription,
   DrawerTitle,
-} from "@/components/ui/drawer"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useDailyCalorieSummary } from "@/lib/app-cache/api"
-import { queryKeys } from "@/lib/app-cache/query-keys"
+} from "@repo/ui/keyboard-sheet";
+import { Label } from "@repo/ui/label";
+import { Skeleton } from "@repo/ui/skeleton";
+import { useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Flame, LoaderCircle, Save, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { useDailyCalorieSummary } from "@/lib/app-cache/api";
+import { queryKeys } from "@/lib/app-cache/query-keys";
 import {
   readPendingFoods,
   subscribeToPendingFoods,
   writePendingFoods,
-} from "@/lib/foods/pending-foods"
-import { createRecipeResponseSchema } from "@/lib/recipes/contracts"
+} from "@/lib/foods/pending-foods";
+import { createRecipeResponseSchema } from "@/lib/recipes/contracts";
 import {
   dateFromIsoDate,
   formatHourLabel,
@@ -33,64 +33,64 @@ import {
   inferMealType,
   NavTabs,
   type PendingFood,
-} from "../../add/_components/add-food-shared"
-import { useLogPendingFoods } from "../../add/_components/use-log-pending-foods"
+} from "../../add/_components/add-food-shared";
+import { useLogPendingFoods } from "../../add/_components/use-log-pending-foods";
 import {
   IngredientListPanel,
   MacroQuad,
   StatRow,
-} from "../../recipes/_components/recipe-drawer-pieces"
+} from "../../recipes/_components/recipe-drawer-pieces";
 
 function toIsoDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
     2,
-    "0"
-  )}-${String(date.getDate()).padStart(2, "0")}`
+    "0",
+  )}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 async function readJsonResponse(response: Response) {
   if (!response.ok) {
-    throw new Error(`Request failed with ${response.status}`)
+    throw new Error(`Request failed with ${response.status}`);
   }
-  return response.json() as Promise<unknown>
+  return response.json() as Promise<unknown>;
 }
 
 export function PlatePageClient() {
-  const queryClient = useQueryClient()
-  const { data } = useDailyCalorieSummary()
-  const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([])
-  const [extraConsumed, setExtraConsumed] = useState(0)
-  const [, setPendingSheetOpen] = useState(false)
-  const [recipeDialogOpen, setRecipeDialogOpen] = useState(false)
-  const [recipeName, setRecipeName] = useState("")
-  const [recipeWeight, setRecipeWeight] = useState("")
-  const [recipeServings, setRecipeServings] = useState("")
-  const [isSavingRecipe, setIsSavingRecipe] = useState(false)
-  const [selectedDate, setSelectedDate] = useState(() => new Date())
-  const [selectedHour, setSelectedHour] = useState(() => new Date().getHours())
+  const queryClient = useQueryClient();
+  const { data } = useDailyCalorieSummary();
+  const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([]);
+  const [extraConsumed, setExtraConsumed] = useState(0);
+  const [, setPendingSheetOpen] = useState(false);
+  const [recipeDialogOpen, setRecipeDialogOpen] = useState(false);
+  const [recipeName, setRecipeName] = useState("");
+  const [recipeWeight, setRecipeWeight] = useState("");
+  const [recipeServings, setRecipeServings] = useState("");
+  const [isSavingRecipe, setIsSavingRecipe] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [selectedHour, setSelectedHour] = useState(() => new Date().getHours());
 
   useEffect(() => {
-    setPendingFoods(readPendingFoods())
-    return subscribeToPendingFoods(setPendingFoods)
-  }, [])
+    setPendingFoods(readPendingFoods());
+    return subscribeToPendingFoods(setPendingFoods);
+  }, []);
 
   useEffect(() => {
-    if (!data) return
-    setSelectedDate(dateFromIsoDate(data.today))
-    setSelectedHour(getHourInTimezone(new Date(), data.timezone))
-  }, [data])
+    if (!data) return;
+    setSelectedDate(dateFromIsoDate(data.today));
+    setSelectedHour(getHourInTimezone(new Date(), data.timezone));
+  }, [data]);
 
-  const logDate = useMemo(() => toIsoDate(selectedDate), [selectedDate])
+  const logDate = useMemo(() => toIsoDate(selectedDate), [selectedDate]);
   const eatenAt = useMemo(() => {
-    const d = new Date(selectedDate)
-    const now = new Date()
+    const d = new Date(selectedDate);
+    const now = new Date();
     const minute =
       d.toDateString() === now.toDateString() && selectedHour === now.getHours()
         ? Math.floor(now.getMinutes() / 15) * 15
-        : 0
-    d.setHours(selectedHour, minute, 0, 0)
-    return d.toISOString()
-  }, [selectedDate, selectedHour])
+        : 0;
+    d.setHours(selectedHour, minute, 0, 0);
+    return d.toISOString();
+  }, [selectedDate, selectedHour]);
 
   const foodsForLog = useMemo(
     () =>
@@ -103,8 +103,8 @@ export function PlatePageClient() {
           mealType: inferMealType(selectedHour),
         },
       })),
-    [eatenAt, logDate, pendingFoods, selectedHour]
-  )
+    [eatenAt, logDate, pendingFoods, selectedHour],
+  );
 
   const totals = pendingFoods.reduce(
     (acc, food) => ({
@@ -113,8 +113,8 @@ export function PlatePageClient() {
       fat: acc.fat + food.macros.fat,
       carbs: acc.carbs + food.macros.carbs,
     }),
-    { calories: 0, protein: 0, fat: 0, carbs: 0 }
-  )
+    { calories: 0, protein: 0, fat: 0, carbs: 0 },
+  );
 
   const { isCommitting, logAllPending } = useLogPendingFoods({
     pendingFoods: foodsForLog,
@@ -122,48 +122,48 @@ export function PlatePageClient() {
     setPendingSheetOpen,
     setExtraConsumed,
     today: data?.today ?? logDate,
-  })
+  });
 
   function removePending(uid: string) {
     setPendingFoods((current) => {
-      const next = current.filter((food) => food.uid !== uid)
-      window.queueMicrotask(() => writePendingFoods(next))
-      return next
-    })
+      const next = current.filter((food) => food.uid !== uid);
+      window.queueMicrotask(() => writePendingFoods(next));
+      return next;
+    });
   }
 
   async function saveRecipe() {
-    const name = recipeName.trim()
+    const name = recipeName.trim();
     if (!name) {
-      toast.error("Recipe name is required")
-      return
+      toast.error("Recipe name is required");
+      return;
     }
-    const totalWeightGrams = Number.parseFloat(recipeWeight)
+    const totalWeightGrams = Number.parseFloat(recipeWeight);
     if (!Number.isFinite(totalWeightGrams) || totalWeightGrams <= 0) {
-      toast.error("Total recipe weight is required")
-      return
+      toast.error("Total recipe weight is required");
+      return;
     }
     const servings = recipeServings.trim()
       ? Number.parseFloat(recipeServings)
-      : undefined
+      : undefined;
     if (servings != null && (!Number.isFinite(servings) || servings <= 0)) {
-      toast.error("Servings must be a positive number")
-      return
+      toast.error("Servings must be a positive number");
+      return;
     }
-    if (pendingFoods.length === 0) return
+    if (pendingFoods.length === 0) return;
     if (pendingFoods.some((food) => !("sourceItemId" in food.input))) {
-      toast.error("Recipes can only be made from food items")
-      return
+      toast.error("Recipes can only be made from food items");
+      return;
     }
     const foodIngredients = pendingFoods.filter(
       (
-        food
+        food,
       ): food is PendingFood & {
-        input: PendingFood["input"] & { sourceItemId: string }
-      } => "sourceItemId" in food.input
-    )
+        input: PendingFood["input"] & { sourceItemId: string };
+      } => "sourceItemId" in food.input,
+    );
 
-    setIsSavingRecipe(true)
+    setIsSavingRecipe(true);
     try {
       const response = await fetch("/api/recipes", {
         method: "POST",
@@ -177,30 +177,30 @@ export function PlatePageClient() {
             servingsConsumed: food.input.servingsConsumed,
           })),
         }),
-      })
-      createRecipeResponseSchema.parse(await readJsonResponse(response))
-      writePendingFoods([])
-      setPendingFoods([])
-      setRecipeDialogOpen(false)
-      setRecipeName("")
-      setRecipeWeight("")
-      setRecipeServings("")
+      });
+      createRecipeResponseSchema.parse(await readJsonResponse(response));
+      writePendingFoods([]);
+      setPendingFoods([]);
+      setRecipeDialogOpen(false);
+      setRecipeName("");
+      setRecipeWeight("");
+      setRecipeServings("");
       await queryClient.invalidateQueries({
         queryKey: queryKeys.calorieSummary,
-      })
-      await queryClient.invalidateQueries({ queryKey: ["recipes"] })
-      toast.success("Recipe saved")
+      });
+      await queryClient.invalidateQueries({ queryKey: ["recipes"] });
+      toast.success("Recipe saved");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not save recipe"
-      )
+        error instanceof Error ? error.message : "Could not save recipe",
+      );
     } finally {
-      setIsSavingRecipe(false)
+      setIsSavingRecipe(false);
     }
   }
 
   if (!data) {
-    return <PlateLoading />
+    return <PlateLoading />;
   }
 
   return (
@@ -270,7 +270,7 @@ export function PlatePageClient() {
                 <p className="text-xs tabular-nums text-muted-foreground">
                   {Math.round(getPendingCalories(food))} kcal -{" "}
                   {food.input.servingsConsumed.toFixed(
-                    food.input.servingsConsumed % 1 === 0 ? 0 : 1
+                    food.input.servingsConsumed % 1 === 0 ? 0 : 1,
                   )}{" "}
                   serving
                 </p>
@@ -324,7 +324,7 @@ export function PlatePageClient() {
         onSave={saveRecipe}
       />
     </div>
-  )
+  );
 }
 
 function CreateRecipeDrawer({
@@ -341,18 +341,18 @@ function CreateRecipeDrawer({
   isSaving,
   onSave,
 }: {
-  open: boolean
-  onOpenChange: (next: boolean) => void
-  pendingFoods: PendingFood[]
-  totals: { calories: number; protein: number; carbs: number; fat: number }
-  recipeName: string
-  recipeWeight: string
-  recipeServings: string
-  onNameChange: (next: string) => void
-  onWeightChange: (next: string) => void
-  onServingsChange: (next: string) => void
-  isSaving: boolean
-  onSave: () => void
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  pendingFoods: PendingFood[];
+  totals: { calories: number; protein: number; carbs: number; fat: number };
+  recipeName: string;
+  recipeWeight: string;
+  recipeServings: string;
+  onNameChange: (next: string) => void;
+  onWeightChange: (next: string) => void;
+  onServingsChange: (next: string) => void;
+  isSaving: boolean;
+  onSave: () => void;
 }) {
   const ingredients = useMemo(
     () =>
@@ -366,31 +366,26 @@ function CreateRecipeDrawer({
         carbsContribution: food.macros.carbs,
         fatContribution: food.macros.fat,
       })),
-    [pendingFoods]
-  )
+    [pendingFoods],
+  );
 
-  const parsedWeight = Number.parseFloat(recipeWeight)
-  const parsedServings = Number.parseFloat(recipeServings)
+  const parsedWeight = Number.parseFloat(recipeWeight);
+  const parsedServings = Number.parseFloat(recipeServings);
   const weightForCalc =
-    Number.isFinite(parsedWeight) && parsedWeight > 0 ? parsedWeight : 0
+    Number.isFinite(parsedWeight) && parsedWeight > 0 ? parsedWeight : 0;
   const servingsForCalc =
-    Number.isFinite(parsedServings) && parsedServings > 0 ? parsedServings : 1
+    Number.isFinite(parsedServings) && parsedServings > 0 ? parsedServings : 1;
   const previewMacros = {
     calories: totals.calories / servingsForCalc,
     protein: totals.protein / servingsForCalc,
     carbs: totals.carbs / servingsForCalc,
     fat: totals.fat / servingsForCalc,
-  }
+  };
   const gramsPerServing =
-    weightForCalc > 0 ? weightForCalc / servingsForCalc : 0
+    weightForCalc > 0 ? weightForCalc / servingsForCalc : 0;
 
   return (
-    <Drawer
-      hideBackdrop
-      open={open}
-      onOpenChange={onOpenChange}
-      repositionInputs={false}
-    >
+    <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent className="z-70! flex h-[calc(100dvh-4rem)]! max-h-none! flex-col rounded-none">
         <VisuallyHidden>
           <DrawerTitle>Save as recipe</DrawerTitle>
@@ -505,7 +500,7 @@ function CreateRecipeDrawer({
         </div>
       </DrawerContent>
     </Drawer>
-  )
+  );
 }
 
 function Macro({ label, value }: { label: string; value: number }) {
@@ -514,7 +509,7 @@ function Macro({ label, value }: { label: string; value: number }) {
       <p className="text-lg font-semibold tabular-nums">{Math.round(value)}</p>
       <p className="text-[10px] font-medium text-muted-foreground">{label}</p>
     </div>
-  )
+  );
 }
 
 function PlateLoading() {
@@ -530,5 +525,5 @@ function PlateLoading() {
         ))}
       </div>
     </div>
-  )
+  );
 }

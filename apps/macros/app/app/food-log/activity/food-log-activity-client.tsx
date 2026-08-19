@@ -1,6 +1,8 @@
-"use client"
+"use client";
 
-import { useQuery } from "@tanstack/react-query"
+import { Button } from "@repo/ui/button";
+import { Skeleton } from "@repo/ui/skeleton";
+import { useQuery } from "@tanstack/react-query";
 import {
   addDays,
   addMonths,
@@ -12,52 +14,50 @@ import {
   startOfMonth,
   startOfWeek,
   subMonths,
-} from "date-fns"
-import { ChevronLeft, ChevronRight } from "lucide-react"
-import { useMemo, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
-import { foodLogQueryKeys } from "@/lib/app-cache/food-log-keys"
+} from "date-fns";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useMemo, useState } from "react";
+import { foodLogQueryKeys } from "@/lib/app-cache/food-log-keys";
 import type {
   FoodLogActivityDay,
   FoodLogActivityOverview,
   FoodLogDayStatus,
-} from "@/lib/food-logging/activity"
-import { dateToIso, isoToLocalDate } from "@/lib/weights/date-utils"
-import { BigStat } from "../../_components/big-stat"
-import { PageHeader } from "../../_components/page-header"
-import { YearHeatmapCarousel } from "../../_components/year-heatmap"
-import { CalorieDayPill } from "../_components/calorie-day-pill"
+} from "@/lib/food-logging/activity";
+import { dateToIso, isoToLocalDate } from "@/lib/weights/date-utils";
+import { BigStat } from "../../_components/big-stat";
+import { PageHeader } from "../../_components/page-header";
+import { YearHeatmapCarousel } from "../../_components/year-heatmap";
+import { CalorieDayPill } from "../_components/calorie-day-pill";
 
 function isFoodLogActivityDay(value: unknown): value is FoodLogActivityDay {
-  if (typeof value !== "object" || value === null) return false
-  const obj = value as Record<string, unknown>
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
   return (
     typeof obj.date === "string" &&
     typeof obj.calories === "number" &&
     (obj.status === "empty" ||
       obj.status === "partial" ||
       obj.status === "full")
-  )
+  );
 }
 
 function isFoodLoggingSummary(value: unknown): boolean {
-  if (typeof value !== "object" || value === null) return false
-  const obj = value as Record<string, unknown>
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
   return (
     Array.isArray(obj.last30Days) &&
     obj.last30Days.every(isFoodLogActivityDay) &&
     typeof obj.fullThisWeek === "number" &&
     typeof obj.partialThisWeek === "number" &&
     typeof obj.emptyThisWeek === "number"
-  )
+  );
 }
 
 export function isFoodLogActivityOverview(
-  value: unknown
+  value: unknown,
 ): value is FoodLogActivityOverview {
-  if (typeof value !== "object" || value === null) return false
-  const obj = value as Record<string, unknown>
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
   return (
     typeof obj.today === "string" &&
     typeof obj.timezone === "string" &&
@@ -67,19 +67,19 @@ export function isFoodLogActivityOverview(
     Array.isArray(obj.days) &&
     obj.days.every(isFoodLogActivityDay) &&
     isFoodLoggingSummary(obj.summary)
-  )
+  );
 }
 
 async function fetchActivity(
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<FoodLogActivityOverview> {
   const response = await fetch("/api/food-log/activity", {
     cache: "no-store",
     signal,
-  })
+  });
   if (!response.ok)
-    throw new Error(`Failed to load activity (${response.status})`)
-  const body: unknown = await response.json()
+    throw new Error(`Failed to load activity (${response.status})`);
+  const body: unknown = await response.json();
   if (
     typeof body !== "object" ||
     body === null ||
@@ -87,16 +87,16 @@ async function fetchActivity(
     body.activity === null
   ) {
     throw new Error(
-      "Invalid response: expected object with non-null activity property"
-    )
+      "Invalid response: expected object with non-null activity property",
+    );
   }
-  const payload = body as { activity: unknown }
+  const payload = body as { activity: unknown };
   if (!isFoodLogActivityOverview(payload.activity)) {
     throw new Error(
-      "Invalid response: activity does not match FoodLogActivityOverview shape"
-    )
+      "Invalid response: activity does not match FoodLogActivityOverview shape",
+    );
   }
-  return payload.activity
+  return payload.activity;
 }
 
 export function FoodLogActivityClient() {
@@ -104,9 +104,9 @@ export function FoodLogActivityClient() {
     queryKey: foodLogQueryKeys.activity,
     queryFn: ({ signal }) => fetchActivity(signal),
     staleTime: 60_000,
-  })
+  });
 
-  const [visibleMonth, setVisibleMonth] = useState<Date | null>(null)
+  const [visibleMonth, setVisibleMonth] = useState<Date | null>(null);
 
   if (isError) {
     return (
@@ -115,18 +115,18 @@ export function FoodLogActivityClient() {
           {error instanceof Error ? error.message : "Try again"}
         </Button>
       </div>
-    )
+    );
   }
 
   if (isLoading || !data) {
-    return <ActivityLoading />
+    return <ActivityLoading />;
   }
 
-  const dayByDate = new Map(data.days.map((day) => [day.date, day]))
+  const dayByDate = new Map(data.days.map((day) => [day.date, day]));
   const resolvedVisibleMonth =
-    visibleMonth ?? startOfMonth(isoToLocalDate(data.today))
-  const todayDay = dayByDate.get(data.today)
-  const currentStreak = getCurrentStreak(data.days, data.today)
+    visibleMonth ?? startOfMonth(isoToLocalDate(data.today));
+  const todayDay = dayByDate.get(data.today);
+  const currentStreak = getCurrentStreak(data.days, data.today);
 
   return (
     <div className="min-h-dvh bg-background pb-36">
@@ -159,7 +159,7 @@ export function FoodLogActivityClient() {
         <FoodLogHistoryCarousel days={data.days} />
       </main>
     </div>
-  )
+  );
 }
 
 function ActivityLoading() {
@@ -172,7 +172,7 @@ function ActivityLoading() {
       </div>
       <Skeleton className="h-[440px] w-full rounded-2xl" />
     </div>
-  )
+  );
 }
 
 function MonthOverview({
@@ -182,22 +182,22 @@ function MonthOverview({
   today,
   visibleMonth,
 }: {
-  calorieTarget: number | null
-  dayByDate: Map<string, FoodLogActivityDay>
-  onMonthChange: (date: Date) => void
-  today: string
-  visibleMonth: Date
+  calorieTarget: number | null;
+  dayByDate: Map<string, FoodLogActivityDay>;
+  onMonthChange: (date: Date) => void;
+  today: string;
+  visibleMonth: Date;
 }) {
-  const days = useMemo(() => buildCalendarMonth(visibleMonth), [visibleMonth])
-  const todayDate = isoToLocalDate(today)
+  const days = useMemo(() => buildCalendarMonth(visibleMonth), [visibleMonth]);
+  const todayDate = isoToLocalDate(today);
 
   return (
     <section className="px-4">
       <div className="grid grid-cols-7 gap-3">
         {days.map((date) => {
-          const iso = dateToIso(date)
-          const activityDay = dayByDate.get(iso)
-          const isFuture = iso > today || isAfter(date, todayDate)
+          const iso = dateToIso(date);
+          const activityDay = dayByDate.get(iso);
+          const isFuture = iso > today || isAfter(date, todayDate);
           return (
             <CalorieDayPill
               key={iso}
@@ -215,7 +215,7 @@ function MonthOverview({
               strokeColor="var(--primary)"
               target={calorieTarget}
             />
-          )
+          );
         })}
       </div>
 
@@ -262,7 +262,7 @@ function MonthOverview({
         </div>
       </div>
     </section>
-  )
+  );
 }
 
 function Legend() {
@@ -274,22 +274,22 @@ function Legend() {
         <LegendDot status="empty" label="Untracked" />
       </div>
     </section>
-  )
+  );
 }
 
 function LegendDot({
   label,
   status,
 }: {
-  label: string
-  status: FoodLogDayStatus
+  label: string;
+  status: FoodLogDayStatus;
 }) {
   return (
     <span className="flex items-center justify-center gap-2">
       <span className={legendDotClass(status)} />
       <span className="truncate">{label}</span>
     </span>
-  )
+  );
 }
 
 function FoodLogHistoryCarousel({ days }: { days: FoodLogActivityDay[] }) {
@@ -297,51 +297,51 @@ function FoodLogHistoryCarousel({ days }: { days: FoodLogActivityDay[] }) {
     new Set(
       days
         .filter((day) => day.status !== "empty")
-        .map((day) => Number(day.date.slice(0, 4)))
-    )
-  ).sort((a, b) => b - a)
-  const dayByDate = new Map(days.map((day) => [day.date, day]))
+        .map((day) => Number(day.date.slice(0, 4))),
+    ),
+  ).sort((a, b) => b - a);
+  const dayByDate = new Map(days.map((day) => [day.date, day]));
 
   return (
     <YearHeatmapCarousel
       years={trackedYears}
       getCellClass={(iso) => heatmapCellClass(dayByDate.get(iso)?.status)}
     />
-  )
+  );
 }
 
 function buildCalendarMonth(month: Date) {
-  const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 })
-  const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 })
-  const days: Date[] = []
+  const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
+  const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 });
+  const days: Date[] = [];
   for (let date = start; date <= end; date = addDays(date, 1)) {
-    days.push(date)
+    days.push(date);
   }
-  return days
+  return days;
 }
 
 function getCurrentStreak(days: FoodLogActivityDay[], today: string) {
-  const dayByDate = new Map(days.map((day) => [day.date, day]))
-  let streak = 0
+  const dayByDate = new Map(days.map((day) => [day.date, day]));
+  let streak = 0;
   for (let iso = today; ; iso = dateToIso(addDays(isoToLocalDate(iso), -1))) {
-    const day = dayByDate.get(iso)
-    if (!day || day.status === "empty") break
-    streak += 1
+    const day = dayByDate.get(iso);
+    if (!day || day.status === "empty") break;
+    streak += 1;
   }
-  return streak
+  return streak;
 }
 
 function legendDotClass(status: FoodLogDayStatus) {
-  const base = "block size-5 rounded-full"
-  if (status === "full") return `${base} border-[3px] border-primary`
+  const base = "block size-5 rounded-full";
+  if (status === "full") return `${base} border-[3px] border-primary`;
   if (status === "partial")
-    return `${base} border-[3px] border-dashed border-primary`
-  return `${base} border-[3px] border-muted-foreground/35`
+    return `${base} border-[3px] border-dashed border-primary`;
+  return `${base} border-[3px] border-muted-foreground/35`;
 }
 
 function heatmapCellClass(status: FoodLogDayStatus | undefined) {
-  if (status === "full") return "bg-primary"
+  if (status === "full") return "bg-primary";
   if (status === "partial")
-    return "border border-dashed border-primary bg-primary/15"
-  return "bg-muted-foreground/15"
+    return "border border-dashed border-primary bg-primary/15";
+  return "bg-muted-foreground/15";
 }

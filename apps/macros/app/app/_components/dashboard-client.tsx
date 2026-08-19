@@ -1,16 +1,16 @@
-"use client"
+"use client";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useHydrated } from "@/hooks/use-hydrated"
-import { useDashboardData } from "@/lib/app-cache/api"
-import type { FoodLoggingSummary } from "@/lib/food-logging/activity"
-import type { WeightSummary } from "@/lib/weights/contracts"
-import { BodyMetricsSection } from "./body-metrics-section"
-import { HabitsSection } from "./habits-section"
-import { InsightsSection } from "./insights-section"
-import { NutritionSection } from "./nutrition-section"
+import { Alert, AlertDescription, AlertTitle } from "@repo/ui/alert";
+import { Button } from "@repo/ui/button";
+import { Skeleton } from "@repo/ui/skeleton";
+import { useHydrated } from "@/hooks/use-hydrated";
+import { useDashboardData } from "@/lib/app-cache/api";
+import type { FoodLoggingSummary } from "@/lib/food-logging/activity";
+import type { WeightSummary } from "@/lib/weights/contracts";
+import { BodyMetricsSection } from "./body-metrics-section";
+import { HabitsSection } from "./habits-section";
+import { InsightsSection } from "./insights-section";
+import { NutritionSection } from "./nutrition-section";
 
 const emptyWeightSummary: WeightSummary = {
   last30Days: [],
@@ -23,14 +23,14 @@ const emptyWeightSummary: WeightSummary = {
   weekDifferenceKg: null,
   weekPoints: [],
   weighInsThisWeek: 0,
-}
+};
 
 const emptyFoodLoggingSummary: FoodLoggingSummary = {
   emptyThisWeek: 0,
   fullThisWeek: 0,
   last30Days: [],
   partialThisWeek: 0,
-}
+};
 
 function DashboardFallback() {
   return (
@@ -56,15 +56,15 @@ function DashboardFallback() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 export function DashboardClient() {
-  const hydrated = useHydrated()
-  const { data, error, isError, refetch } = useDashboardData()
+  const hydrated = useHydrated();
+  const { data, error, isError, refetch } = useDashboardData();
 
   if (!hydrated) {
-    return <DashboardFallback />
+    return <DashboardFallback />;
   }
 
   if (isError && !data) {
@@ -85,11 +85,11 @@ export function DashboardClient() {
           </div>
         </Alert>
       </div>
-    )
+    );
   }
 
   if (!data) {
-    return <DashboardFallback />
+    return <DashboardFallback />;
   }
 
   const dateLabel = new Intl.DateTimeFormat("en-GB", {
@@ -99,9 +99,9 @@ export function DashboardClient() {
     month: "long",
   })
     .format(new Date())
-    .toUpperCase()
-  const weightSummary = data.weightSummary ?? emptyWeightSummary
-  const foodLoggingSummary = data.foodLoggingSummary ?? emptyFoodLoggingSummary
+    .toUpperCase();
+  const weightSummary = data.weightSummary ?? emptyWeightSummary;
+  const foodLoggingSummary = data.foodLoggingSummary ?? emptyFoodLoggingSummary;
 
   return (
     <div className="min-h-dvh pb-36">
@@ -132,8 +132,10 @@ export function DashboardClient() {
       <HabitsSection
         foodLoggingSummary={foodLoggingSummary}
         weightSummary={weightSummary}
+        habits={data.habits ?? []}
+        today={data.today}
       />
       <BodyMetricsSection weightSummary={weightSummary} />
     </div>
-  )
+  );
 }

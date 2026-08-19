@@ -1,20 +1,6 @@
-"use client"
+"use client";
 
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import {
-  ArrowLeft,
-  ChefHat,
-  Edit3,
-  Flame,
-  LoaderCircle,
-  Plus,
-  Search,
-  Trash2,
-} from "lucide-react"
-import { useRouter } from "next/navigation"
-import { useEffect, useMemo, useRef, useState } from "react"
-import { toast } from "sonner"
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,29 +10,43 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
+} from "@repo/ui/alert-dialog";
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
 import {
   Drawer,
   DrawerContent,
   DrawerDescription,
   DrawerTitle,
-} from "@/components/ui/drawer"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useDailyCalorieSummary } from "@/lib/app-cache/api"
+} from "@repo/ui/keyboard-sheet";
+import { Label } from "@repo/ui/label";
+import { Skeleton } from "@repo/ui/skeleton";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  ChefHat,
+  Edit3,
+  Flame,
+  LoaderCircle,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { useDailyCalorieSummary } from "@/lib/app-cache/api";
 import {
   readPendingFoods,
   subscribeToPendingFoods,
   writePendingFoods,
-} from "@/lib/foods/pending-foods"
+} from "@/lib/foods/pending-foods";
 import {
   type RecipeSummary,
   recipeDetailResponseSchema,
   recipesResponseSchema,
   updateRecipeResponseSchema,
-} from "@/lib/recipes/contracts"
+} from "@/lib/recipes/contracts";
 import {
   dateFromIsoDate,
   getHourInTimezone,
@@ -55,134 +55,136 @@ import {
   inferMealType,
   NavTabs,
   type PendingFood,
-} from "../../add/_components/add-food-shared"
-import { NutritionDetailDrawer } from "../../add/_components/nutrition-detail-drawer"
+} from "../../add/_components/add-food-shared";
+import { NutritionDetailDrawer } from "../../add/_components/nutrition-detail-drawer";
 import {
   IngredientListPanel,
   MacroQuad,
   MicronutrientPanel,
   StatRow,
-} from "./recipe-drawer-pieces"
+} from "./recipe-drawer-pieces";
 
 async function readJsonResponse(response: Response) {
   if (!response.ok) {
-    throw new Error(`Request failed with ${response.status}`)
+    throw new Error(`Request failed with ${response.status}`);
   }
-  return response.json() as Promise<unknown>
+  return response.json() as Promise<unknown>;
 }
 
 async function fetchRecipes(signal?: AbortSignal) {
-  const response = await fetch("/api/recipes", { signal, cache: "no-store" })
-  return recipesResponseSchema.parse(await readJsonResponse(response))
+  const response = await fetch("/api/recipes", { signal, cache: "no-store" });
+  return recipesResponseSchema.parse(await readJsonResponse(response));
 }
 
 async function fetchRecipeDetail(recipeId: string, signal?: AbortSignal) {
   const response = await fetch(`/api/recipes/${recipeId}`, {
     signal,
     cache: "no-store",
-  })
+  });
   const body = recipeDetailResponseSchema.parse(
-    await readJsonResponse(response)
-  )
-  return body.recipe
+    await readJsonResponse(response),
+  );
+  return body.recipe;
 }
 
 function formatGrams(value: number) {
-  if (!Number.isFinite(value)) return "0g"
-  if (value < 10) return `${value.toFixed(1)}g`
-  return `${Math.round(value)}g`
+  if (!Number.isFinite(value)) return "0g";
+  if (value < 10) return `${value.toFixed(1)}g`;
+  return `${Math.round(value)}g`;
 }
 
 function toIsoDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
     2,
-    "0"
-  )}-${String(date.getDate()).padStart(2, "0")}`
+    "0",
+  )}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 export function RecipesPageClient() {
-  const router = useRouter()
-  const queryClient = useQueryClient()
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const { data: calorieSummary } = useDailyCalorieSummary()
-  const [query, setQuery] = useState("")
-  const [selectedDate, setSelectedDate] = useState(() => new Date())
-  const [selectedHour, setSelectedHour] = useState(() => new Date().getHours())
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const { data: calorieSummary } = useDailyCalorieSummary();
+  const [query, setQuery] = useState("");
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [selectedHour, setSelectedHour] = useState(() => new Date().getHours());
   const [selectedRecipe, setSelectedRecipe] = useState<RecipeSummary | null>(
-    null
-  )
-  const [editingRecipe, setEditingRecipe] = useState<RecipeSummary | null>(null)
+    null,
+  );
+  const [editingRecipe, setEditingRecipe] = useState<RecipeSummary | null>(
+    null,
+  );
   const [pendingDeleteRecipe, setPendingDeleteRecipe] =
-    useState<RecipeSummary | null>(null)
-  const [deletingRecipeId, setDeletingRecipeId] = useState<string | null>(null)
-  const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([])
+    useState<RecipeSummary | null>(null);
+  const [deletingRecipeId, setDeletingRecipeId] = useState<string | null>(null);
+  const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([]);
 
   const recipesQuery = useQuery({
     queryKey: ["recipes"],
     queryFn: ({ signal }) => fetchRecipes(signal),
     staleTime: 60_000,
-  })
+  });
 
   useEffect(() => {
-    if (!calorieSummary) return
-    setSelectedDate(dateFromIsoDate(calorieSummary.today))
-    setSelectedHour(getHourInTimezone(new Date(), calorieSummary.timezone))
-  }, [calorieSummary])
+    if (!calorieSummary) return;
+    setSelectedDate(dateFromIsoDate(calorieSummary.today));
+    setSelectedHour(getHourInTimezone(new Date(), calorieSummary.timezone));
+  }, [calorieSummary]);
 
   useEffect(() => {
-    document.documentElement.classList.add("macros-add-food-scroll-lock")
-    setPendingFoods(readPendingFoods())
-    const unsubscribe = subscribeToPendingFoods(setPendingFoods)
+    document.documentElement.classList.add("macros-add-food-scroll-lock");
+    setPendingFoods(readPendingFoods());
+    const unsubscribe = subscribeToPendingFoods(setPendingFoods);
     return () => {
-      unsubscribe()
-      document.documentElement.classList.remove("macros-add-food-scroll-lock")
-    }
-  }, [])
+      unsubscribe();
+      document.documentElement.classList.remove("macros-add-food-scroll-lock");
+    };
+  }, []);
 
   useEffect(() => {
-    const vv = window.visualViewport
-    const el = containerRef.current
-    if (!vv || !el) return
+    const vv = window.visualViewport;
+    const el = containerRef.current;
+    if (!vv || !el) return;
 
     function sync() {
-      if (!el) return
-      el.style.height = `${vv!.height}px`
-      el.style.transform = `translateY(${vv!.offsetTop}px)`
+      if (!el) return;
+      el.style.height = `${vv!.height}px`;
+      el.style.transform = `translateY(${vv!.offsetTop}px)`;
     }
 
-    sync()
-    vv.addEventListener("resize", sync)
-    vv.addEventListener("scroll", sync)
+    sync();
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
 
     return () => {
-      vv.removeEventListener("resize", sync)
-      vv.removeEventListener("scroll", sync)
-    }
-  }, [])
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+    };
+  }, []);
 
-  const logDate = useMemo(() => toIsoDate(selectedDate), [selectedDate])
+  const logDate = useMemo(() => toIsoDate(selectedDate), [selectedDate]);
   const eatenAt = useMemo(() => {
-    const d = new Date(selectedDate)
-    const now = new Date()
+    const d = new Date(selectedDate);
+    const now = new Date();
     const minute =
       d.toDateString() === now.toDateString() && selectedHour === now.getHours()
         ? Math.floor(now.getMinutes() / 15) * 15
-        : 0
-    d.setHours(selectedHour, minute, 0, 0)
-    return d.toISOString()
-  }, [selectedDate, selectedHour])
+        : 0;
+    d.setHours(selectedHour, minute, 0, 0);
+    return d.toISOString();
+  }, [selectedDate, selectedHour]);
 
-  const recipes = recipesQuery.data?.items ?? []
+  const recipes = recipesQuery.data?.items ?? [];
   const filteredRecipes = recipes.filter((recipe) =>
-    recipe.name.toLowerCase().includes(query.trim().toLowerCase())
-  )
+    recipe.name.toLowerCase().includes(query.trim().toLowerCase()),
+  );
 
   const pendingCalories = pendingFoods
     .filter((food) => food.input.logDate === calorieSummary?.today)
-    .reduce((sum, food) => sum + getPendingCalories(food), 0)
+    .reduce((sum, food) => sum + getPendingCalories(food), 0);
 
   function addRecipeToPlate(recipe: RecipeSummary, servingsConsumed: number) {
-    const clientMutationId = crypto.randomUUID()
+    const clientMutationId = crypto.randomUUID();
     const nextFood: PendingFood = {
       uid: clientMutationId,
       entryType: "recipe",
@@ -201,39 +203,39 @@ export function RecipesPageClient() {
         carbs: recipe.carbsPerServing * servingsConsumed,
         fat: recipe.fatPerServing * servingsConsumed,
       },
-    }
+    };
     setPendingFoods((current) => {
-      const next = [...current, nextFood]
-      window.queueMicrotask(() => writePendingFoods(next))
-      return next
-    })
-    setSelectedRecipe(null)
+      const next = [...current, nextFood];
+      window.queueMicrotask(() => writePendingFoods(next));
+      return next;
+    });
+    setSelectedRecipe(null);
   }
 
   async function deleteSelectedRecipe() {
-    if (!pendingDeleteRecipe) return
-    setDeletingRecipeId(pendingDeleteRecipe.id)
+    if (!pendingDeleteRecipe) return;
+    setDeletingRecipeId(pendingDeleteRecipe.id);
     try {
       const response = await fetch(`/api/recipes/${pendingDeleteRecipe.id}`, {
         method: "DELETE",
-      })
+      });
       if (!response.ok) {
-        throw new Error(`Request failed with ${response.status}`)
+        throw new Error(`Request failed with ${response.status}`);
       }
-      await queryClient.invalidateQueries({ queryKey: ["recipes"] })
-      setPendingDeleteRecipe(null)
-      toast.success("Recipe deleted")
+      await queryClient.invalidateQueries({ queryKey: ["recipes"] });
+      setPendingDeleteRecipe(null);
+      toast.success("Recipe deleted");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not delete recipe"
-      )
+        error instanceof Error ? error.message : "Could not delete recipe",
+      );
     } finally {
-      setDeletingRecipeId(null)
+      setDeletingRecipeId(null);
     }
   }
 
   if (!calorieSummary) {
-    return <RecipesLoading />
+    return <RecipesLoading />;
   }
 
   return (
@@ -314,7 +316,7 @@ export function RecipesPageClient() {
         recipe={editingRecipe}
         onClose={() => setEditingRecipe(null)}
         onSaved={(recipe) => {
-          setEditingRecipe(null)
+          setEditingRecipe(null);
           queryClient.setQueryData<Awaited<ReturnType<typeof fetchRecipes>>>(
             ["recipes"],
             (current) =>
@@ -322,19 +324,19 @@ export function RecipesPageClient() {
                 ? {
                     ...current,
                     items: current.items.map((item) =>
-                      item.id === recipe.id ? recipe : item
+                      item.id === recipe.id ? recipe : item,
                     ),
                   }
-                : current
-          )
-          void queryClient.invalidateQueries({ queryKey: ["recipes"] })
+                : current,
+          );
+          void queryClient.invalidateQueries({ queryKey: ["recipes"] });
         }}
       />
       <AlertDialog
         open={pendingDeleteRecipe !== null}
         onOpenChange={(open) => {
           if (!open && deletingRecipeId === null) {
-            setPendingDeleteRecipe(null)
+            setPendingDeleteRecipe(null);
           }
         }}
       >
@@ -355,8 +357,8 @@ export function RecipesPageClient() {
               variant="destructive"
               disabled={deletingRecipeId !== null}
               onClick={(event) => {
-                event.preventDefault()
-                void deleteSelectedRecipe()
+                event.preventDefault();
+                void deleteSelectedRecipe();
               }}
             >
               {deletingRecipeId !== null ? "Deleting..." : "Delete"}
@@ -365,7 +367,7 @@ export function RecipesPageClient() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  )
+  );
 }
 
 function RecipeRow({
@@ -374,10 +376,10 @@ function RecipeRow({
   onEdit,
   onDelete,
 }: {
-  recipe: RecipeSummary
-  onAdd: () => void
-  onEdit: () => void
-  onDelete: () => void
+  recipe: RecipeSummary;
+  onAdd: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div className="flex w-full items-center gap-2 border-b border-border/50 px-4 py-3">
@@ -431,7 +433,7 @@ function RecipeRow({
         <Trash2 className="size-4" />
       </button>
     </div>
-  )
+  );
 }
 
 function EditRecipeDrawer({
@@ -439,80 +441,80 @@ function EditRecipeDrawer({
   onClose,
   onSaved,
 }: {
-  recipe: RecipeSummary | null
-  onClose: () => void
-  onSaved: (recipe: RecipeSummary) => void
+  recipe: RecipeSummary | null;
+  onClose: () => void;
+  onSaved: (recipe: RecipeSummary) => void;
 }) {
-  const [name, setName] = useState("")
-  const [weight, setWeight] = useState("")
-  const [servings, setServings] = useState("")
-  const [isSaving, setIsSaving] = useState(false)
+  const [name, setName] = useState("");
+  const [weight, setWeight] = useState("");
+  const [servings, setServings] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   const detailQuery = useQuery({
     queryKey: ["recipe", recipe?.id],
     queryFn: ({ signal }) => fetchRecipeDetail(recipe!.id, signal),
     enabled: recipe !== null,
     staleTime: 30_000,
-  })
+  });
 
   useEffect(() => {
-    if (!recipe) return
-    setName(recipe.name)
-    setWeight(Number(recipe.totalWeightGrams.toFixed(2)).toString())
-    setServings(Number(recipe.servings.toFixed(2)).toString())
-  }, [recipe])
+    if (!recipe) return;
+    setName(recipe.name);
+    setWeight(Number(recipe.totalWeightGrams.toFixed(2)).toString());
+    setServings(Number(recipe.servings.toFixed(2)).toString());
+  }, [recipe]);
 
-  const detail = detailQuery.data ?? null
-  const parsedServings = Number.parseFloat(servings)
-  const parsedWeight = Number.parseFloat(weight)
+  const detail = detailQuery.data ?? null;
+  const parsedServings = Number.parseFloat(servings);
+  const parsedWeight = Number.parseFloat(weight);
   const newServings =
     Number.isFinite(parsedServings) && parsedServings > 0
       ? parsedServings
-      : (recipe?.servings ?? 1)
+      : (recipe?.servings ?? 1);
   const newWeight =
     Number.isFinite(parsedWeight) && parsedWeight > 0
       ? parsedWeight
-      : (recipe?.totalWeightGrams ?? 0)
+      : (recipe?.totalWeightGrams ?? 0);
 
   const previewMacros = useMemo(() => {
     if (!recipe) {
-      return { calories: 0, protein: 0, carbs: 0, fat: 0 }
+      return { calories: 0, protein: 0, carbs: 0, fat: 0 };
     }
-    const factor = recipe.servings / newServings
+    const factor = recipe.servings / newServings;
     return {
       calories: recipe.caloriesPerServing * factor,
       protein: recipe.proteinPerServing * factor,
       carbs: recipe.carbsPerServing * factor,
       fat: recipe.fatPerServing * factor,
-    }
-  }, [recipe, newServings])
+    };
+  }, [recipe, newServings]);
 
   const previewNutrients = useMemo(() => {
-    if (!detail) return null
-    const factor = detail.servings / newServings
-    const next: Record<string, number> = {}
+    if (!detail) return null;
+    const factor = detail.servings / newServings;
+    const next: Record<string, number> = {};
     for (const [key, value] of Object.entries(detail.nutrientsPerServing)) {
-      next[key] = value * factor
+      next[key] = value * factor;
     }
-    return next
-  }, [detail, newServings])
+    return next;
+  }, [detail, newServings]);
 
   async function save() {
-    if (!recipe) return
+    if (!recipe) return;
     if (!name.trim()) {
-      toast.error("Recipe name is required")
-      return
+      toast.error("Recipe name is required");
+      return;
     }
     if (!Number.isFinite(parsedWeight) || parsedWeight <= 0) {
-      toast.error("Total recipe weight is required")
-      return
+      toast.error("Total recipe weight is required");
+      return;
     }
     if (!Number.isFinite(parsedServings) || parsedServings <= 0) {
-      toast.error("Servings are required")
-      return
+      toast.error("Servings are required");
+      return;
     }
 
-    setIsSaving(true)
+    setIsSaving(true);
     try {
       const response = await fetch(`/api/recipes/${recipe.id}`, {
         method: "PATCH",
@@ -522,31 +524,26 @@ function EditRecipeDrawer({
           totalWeightGrams: parsedWeight,
           servings: parsedServings,
         }),
-      })
+      });
       const body = updateRecipeResponseSchema.parse(
-        await readJsonResponse(response)
-      )
-      toast.success("Recipe updated")
-      onSaved(body.recipe)
+        await readJsonResponse(response),
+      );
+      toast.success("Recipe updated");
+      onSaved(body.recipe);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not update recipe"
-      )
+        error instanceof Error ? error.message : "Could not update recipe",
+      );
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
   }
 
   const gramsPerServing =
-    newWeight > 0 && newServings > 0 ? newWeight / newServings : 0
+    newWeight > 0 && newServings > 0 ? newWeight / newServings : 0;
 
   return (
-    <Drawer
-      hideBackdrop
-      open={recipe !== null}
-      onOpenChange={(open) => !open && onClose()}
-      repositionInputs={false}
-    >
+    <Drawer open={recipe !== null} onOpenChange={(open) => !open && onClose()}>
       <DrawerContent className="z-70! flex h-[calc(100dvh-4rem)]! max-h-none! flex-col rounded-none">
         <VisuallyHidden>
           <DrawerTitle>Edit recipe</DrawerTitle>
@@ -605,7 +602,7 @@ function EditRecipeDrawer({
                 value={
                   gramsPerServing > 0
                     ? `${formatGrams(gramsPerServing)} - ${Math.round(
-                        previewMacros.calories
+                        previewMacros.calories,
                       )} kcal`
                     : `${Math.round(previewMacros.calories)} kcal`
                 }
@@ -657,7 +654,7 @@ function EditRecipeDrawer({
         </div>
       </DrawerContent>
     </Drawer>
-  )
+  );
 }
 
 function RecipeDetailDrawer({
@@ -666,36 +663,36 @@ function RecipeDetailDrawer({
   onClose,
   onAdd,
 }: {
-  recipe: RecipeSummary | null
-  calorieSummary: ReturnType<typeof useDailyCalorieSummary>["data"]
-  onClose: () => void
-  onAdd: (recipe: RecipeSummary, servingsConsumed: number) => void
+  recipe: RecipeSummary | null;
+  calorieSummary: ReturnType<typeof useDailyCalorieSummary>["data"];
+  onClose: () => void;
+  onAdd: (recipe: RecipeSummary, servingsConsumed: number) => void;
 }) {
-  const lastRecipe = useRef<RecipeSummary | null>(null)
-  if (recipe !== null) lastRecipe.current = recipe
-  const displayRecipe = lastRecipe.current
+  const lastRecipe = useRef<RecipeSummary | null>(null);
+  if (recipe !== null) lastRecipe.current = recipe;
+  const displayRecipe = lastRecipe.current;
 
   const detailQuery = useQuery({
     queryKey: ["recipe", recipe?.id],
     queryFn: ({ signal }) => fetchRecipeDetail(recipe!.id, signal),
     enabled: recipe !== null,
     staleTime: 30_000,
-  })
+  });
 
-  if (!displayRecipe || !calorieSummary) return null
+  if (!displayRecipe || !calorieSummary) return null;
 
-  const detail = detailQuery.data ?? null
+  const detail = detailQuery.data ?? null;
   const gramsPerServing =
     displayRecipe.totalWeightGrams > 0 && displayRecipe.servings > 0
       ? displayRecipe.totalWeightGrams / displayRecipe.servings
-      : null
+      : null;
 
   const fallbackPerServing = {
     calories: displayRecipe.caloriesPerServing,
     protein: displayRecipe.proteinPerServing,
     fat: displayRecipe.fatPerServing,
     carbs: displayRecipe.carbsPerServing,
-  }
+  };
 
   return (
     <NutritionDetailDrawer
@@ -712,10 +709,10 @@ function RecipeDetailDrawer({
       initialUnit="serving"
       onClose={onClose}
       onAdd={(scale) => {
-        onAdd(displayRecipe, scale)
+        onAdd(displayRecipe, scale);
       }}
     />
-  )
+  );
 }
 
 function RecipesLoading() {
@@ -724,7 +721,7 @@ function RecipesLoading() {
       <Skeleton className="mb-3 h-9 rounded-full" />
       <RecipeRowsLoading />
     </div>
-  )
+  );
 }
 
 function RecipeRowsLoading() {
@@ -744,5 +741,5 @@ function RecipeRowsLoading() {
         </div>
       ))}
     </div>
-  )
+  );
 }

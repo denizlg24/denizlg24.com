@@ -1,5 +1,17 @@
-"use client"
+"use client";
 
+import { BottomTabBar } from "@repo/ui/bottom-tab-bar";
+import { Button } from "@repo/ui/button";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@repo/ui/keyboard-sheet";
+import { cn } from "@repo/ui/utils";
 import {
   Apple,
   Barcode,
@@ -13,31 +25,20 @@ import {
   Search,
   Shapes,
   X,
-} from "lucide-react"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { useMemo, useState } from "react"
-import { Button } from "@/components/ui/button"
-import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerDescription,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerTrigger,
-} from "@/components/ui/drawer"
-import { useWeightOverview } from "@/lib/app-cache/api"
-import { cn } from "@/lib/utils"
-import { dateToIso } from "@/lib/weights/date-utils"
-import { WeighInDrawerForm } from "./weigh-in-drawer-form"
+} from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useWeightOverview } from "@/lib/app-cache/api";
+import { dateToIso } from "@/lib/weights/date-utils";
+import { WeighInDrawerForm } from "./weigh-in-drawer-form";
 
 type NavLinkProps = {
-  href: string
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  active: boolean
-}
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  active: boolean;
+};
 
 function NavLink({ href, icon: Icon, label, active }: NavLinkProps) {
   return (
@@ -50,14 +51,14 @@ function NavLink({ href, icon: Icon, label, active }: NavLinkProps) {
         href={href}
         className={cn(
           "flex flex-col items-center gap-1",
-          active ? "text-foreground" : "text-muted-foreground"
+          active ? "text-foreground" : "text-muted-foreground",
         )}
       >
         <Icon className="size-5" />
         <span className="text-[10px]">{label}</span>
       </Link>
     </Button>
-  )
+  );
 }
 
 function ShortcutButton({
@@ -65,9 +66,9 @@ function ShortcutButton({
   icon: Icon,
   label,
 }: {
-  href: string
-  icon: React.ComponentType<{ className?: string }>
-  label: string
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
 }) {
   return (
     <DrawerClose asChild>
@@ -78,7 +79,7 @@ function ShortcutButton({
         <span className="text-xs font-medium">{label}</span>
       </Link>
     </DrawerClose>
-  )
+  );
 }
 
 function ShortcutAction({
@@ -86,9 +87,9 @@ function ShortcutAction({
   label,
   onClick,
 }: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  onClick: () => void
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick: () => void;
 }) {
   return (
     <button
@@ -101,7 +102,7 @@ function ShortcutAction({
       </span>
       <span className="text-xs font-medium">{label}</span>
     </button>
-  )
+  );
 }
 
 function ShortcutRow({
@@ -109,9 +110,9 @@ function ShortcutRow({
   icon: Icon,
   label,
 }: {
-  href: string
-  icon: React.ComponentType<{ className?: string }>
-  label: string
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
 }) {
   return (
     <DrawerClose asChild>
@@ -124,29 +125,29 @@ function ShortcutRow({
         <span className="text-2xl leading-none text-muted-foreground">›</span>
       </Link>
     </DrawerClose>
-  )
+  );
 }
 
 export function DashboardHeader() {
-  const pathname = usePathname()
-  const { data } = useWeightOverview()
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const pathname = usePathname();
+  const { data } = useWeightOverview();
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"shortcuts" | "weight">(
-    "shortcuts"
-  )
-  const today = data?.today ?? dateToIso(new Date())
+    "shortcuts",
+  );
+  const today = data?.today ?? dateToIso(new Date());
   const todayEntry = useMemo(
     () => data?.entries.find((entry) => entry.logDate === today) ?? null,
-    [data?.entries, today]
-  )
+    [data?.entries, today],
+  );
 
   function closeDrawer() {
-    setDrawerOpen(false)
-    setDrawerMode("shortcuts")
+    setDrawerOpen(false);
+    setDrawerMode("shortcuts");
   }
 
   return (
-    <header className="macros-fixed-inset-x fixed bottom-0 z-10 border-t bg-background">
+    <BottomTabBar className="macros-fixed-inset-x z-10">
       <div className="mx-auto grid w-full max-w-sm grid-cols-5 items-end px-2 pt-2 pb-safe-end">
         <NavLink
           href="/app"
@@ -164,11 +165,10 @@ export function DashboardHeader() {
         <Drawer
           open={drawerOpen}
           onOpenChange={(open) => {
-            setDrawerOpen(open)
-            if (!open) setDrawerMode("shortcuts")
+            setDrawerOpen(open);
+            if (!open) setDrawerMode("shortcuts");
           }}
           shouldScaleBackground={false}
-          repositionInputs={false}
         >
           <DrawerTrigger asChild>
             <button
@@ -263,6 +263,6 @@ export function DashboardHeader() {
           active={pathname === "/app/more"}
         />
       </div>
-    </header>
-  )
+    </BottomTabBar>
+  );
 }

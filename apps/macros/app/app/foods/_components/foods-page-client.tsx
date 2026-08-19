@@ -1,27 +1,7 @@
-"use client"
+"use client";
 
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
-import {
-  ArrowLeft,
-  Edit3,
-  Flame,
-  LoaderCircle,
-  Plus,
-  Search,
-  Trash2,
-} from "lucide-react"
-import { useRouter } from "next/navigation"
-import {
-  type ChangeEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
-import { toast } from "sonner"
-import { z } from "zod"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import { Alert, AlertDescription, AlertTitle } from "@repo/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,36 +11,56 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
+} from "@repo/ui/alert-dialog";
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
 import {
   Drawer,
   DrawerContent,
   DrawerDescription,
   DrawerTitle,
-} from "@/components/ui/drawer"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useHydrated } from "@/hooks/use-hydrated"
-import { useDailyCalorieSummary } from "@/lib/app-cache/api"
+} from "@repo/ui/keyboard-sheet";
+import { Label } from "@repo/ui/label";
+import { Skeleton } from "@repo/ui/skeleton";
+import { cn } from "@repo/ui/utils";
+import {
+  ArrowLeft,
+  Edit3,
+  Flame,
+  LoaderCircle,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { toast } from "sonner";
+import { z } from "zod";
+import { useHydrated } from "@/hooks/use-hydrated";
+import { useDailyCalorieSummary } from "@/lib/app-cache/api";
 import {
   externalFoodNutritionSchema,
   type FoodSearchItem,
   foodMutationResponseSchema,
   type LogFoodInput,
   userCustomFoodsResponseSchema,
-} from "@/lib/foods/contracts"
-import type { NutrientKey } from "@/lib/foods/nutrients"
-import { nutrientDefinitionsInput } from "@/lib/foods/nutrients"
+} from "@/lib/foods/contracts";
+import type { NutrientKey } from "@/lib/foods/nutrients";
+import { nutrientDefinitionsInput } from "@/lib/foods/nutrients";
 import {
   readPendingFoods,
   subscribeToPendingFoods,
   writePendingFoods,
-} from "@/lib/foods/pending-foods"
-import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition"
-import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary"
-import { cn } from "@/lib/utils"
+} from "@/lib/foods/pending-foods";
+import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition";
+import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 import {
   dateFromIsoDate,
   getHourInTimezone,
@@ -70,14 +70,14 @@ import {
   NavTabs,
   type PendingFood,
   PendingFoodsSheet,
-} from "../../add/_components/add-food-shared"
+} from "../../add/_components/add-food-shared";
 import {
   FoodDetailDrawer,
   type FoodSummary,
-} from "../../add/_components/food-detail-drawer"
-import { useLogPendingFoods } from "../../add/_components/use-log-pending-foods"
-import { putUserCreatedFood } from "../../add/_lib/food-search-cache"
-import { CreateFoodDrawer } from "../../scan/_components/create-food-drawer"
+} from "../../add/_components/food-detail-drawer";
+import { useLogPendingFoods } from "../../add/_components/use-log-pending-foods";
+import { putUserCreatedFood } from "../../add/_lib/food-search-cache";
+import { CreateFoodDrawer } from "../../scan/_components/create-food-drawer";
 
 const foodDetailResponseSchema = z.object({
   item: z.object({
@@ -91,44 +91,44 @@ const foodDetailResponseSchema = z.object({
     fatPerServing: z.number().nullable(),
   }),
   nutrition: externalFoodNutritionSchema,
-})
+});
 
 async function readJsonResponse(response: Response) {
   if (!response.ok) {
-    throw new Error(`Request failed with ${response.status}`)
+    throw new Error(`Request failed with ${response.status}`);
   }
 
-  return response.json() as Promise<unknown>
+  return response.json() as Promise<unknown>;
 }
 
 function fmtMacro(value: number | null | undefined) {
-  return Math.round(value ?? 0).toString()
+  return Math.round(value ?? 0).toString();
 }
 
 function fmtServingInput(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "1"
-  return Number(value.toFixed(2)).toString()
+  if (!Number.isFinite(value) || value <= 0) return "1";
+  return Number(value.toFixed(2)).toString();
 }
 
 function parseServingInput(value: string) {
-  const parsed = Number.parseFloat(value)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
 function matchesFood(item: FoodSearchItem, query: string) {
-  const trimmed = query.trim().toLowerCase()
-  if (!trimmed) return true
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return true;
   return (
     item.name.toLowerCase().includes(trimmed) ||
     (item.brand?.toLowerCase().includes(trimmed) ?? false)
-  )
+  );
 }
 
 function toIsoDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
     2,
-    "0"
-  )}-${String(date.getDate()).padStart(2, "0")}`
+    "0",
+  )}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function FoodsFallback() {
@@ -160,7 +160,7 @@ function FoodsFallback() {
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 function FoodRow({
@@ -171,16 +171,16 @@ function FoodRow({
   onDelete,
   deleting,
 }: {
-  item: FoodSearchItem
-  onSelect: (item: FoodSearchItem) => void
-  onQuickAdd: (item: FoodSearchItem, servings: number) => void
-  onEdit: (item: FoodSearchItem) => void
-  onDelete: (item: FoodSearchItem) => void
-  deleting: boolean
+  item: FoodSearchItem;
+  onSelect: (item: FoodSearchItem) => void;
+  onQuickAdd: (item: FoodSearchItem, servings: number) => void;
+  onEdit: (item: FoodSearchItem) => void;
+  onDelete: (item: FoodSearchItem) => void;
+  deleting: boolean;
 }) {
-  const [servings, setServings] = useState("1")
-  const servingsConsumed = parseServingInput(servings)
-  const displayName = item.brand ? `${item.name} By ${item.brand}` : item.name
+  const [servings, setServings] = useState("1");
+  const servingsConsumed = parseServingInput(servings);
+  const displayName = item.brand ? `${item.name} By ${item.brand}` : item.name;
 
   return (
     <div className="flex w-full items-center gap-2 border-b border-border/50 px-4 py-3">
@@ -258,20 +258,20 @@ function FoodRow({
         )}
       </button>
     </div>
-  )
+  );
 }
 
 function getPer100gDrafts(nutrients: Record<string, number>, grams: number) {
-  const divisor = Number.isFinite(grams) && grams > 0 ? grams : 100
-  const drafts: Record<string, string> = {}
+  const divisor = Number.isFinite(grams) && grams > 0 ? grams : 100;
+  const drafts: Record<string, string> = {};
   for (const def of nutrientDefinitionsInput) {
-    const value = nutrients[def.key]
+    const value = nutrients[def.key];
     drafts[def.key] =
       value == null
         ? ""
-        : Number(((value / divisor) * 100).toFixed(4)).toString()
+        : Number(((value / divisor) * 100).toFixed(4)).toString();
   }
-  return drafts
+  return drafts;
 }
 
 function EditFoodDrawer({
@@ -279,86 +279,90 @@ function EditFoodDrawer({
   onClose,
   onSaved,
 }: {
-  food: FoodSearchItem | null
-  onClose: () => void
-  onSaved: (previousId: string, item: FoodSearchItem, fetchedAt: string) => void
+  food: FoodSearchItem | null;
+  onClose: () => void;
+  onSaved: (
+    previousId: string,
+    item: FoodSearchItem,
+    fetchedAt: string,
+  ) => void;
 }) {
-  const [name, setName] = useState("")
-  const [brand, setBrand] = useState("")
-  const [servingLabel, setServingLabel] = useState("1 serving")
-  const [servingGrams, setServingGrams] = useState("100")
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const [isLoading, setIsLoading] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
+  const [name, setName] = useState("");
+  const [brand, setBrand] = useState("");
+  const [servingLabel, setServingLabel] = useState("1 serving");
+  const [servingGrams, setServingGrams] = useState("100");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (!food) return
-    let cancelled = false
-    setName(food.name)
-    setBrand(food.brand ?? "")
-    setServingLabel(food.servingLabel ?? "1 serving")
-    setServingGrams("100")
-    setDrafts({})
-    setIsLoading(true)
+    if (!food) return;
+    let cancelled = false;
+    setName(food.name);
+    setBrand(food.brand ?? "");
+    setServingLabel(food.servingLabel ?? "1 serving");
+    setServingGrams("100");
+    setDrafts({});
+    setIsLoading(true);
 
     fetch(`/api/foods/${food.id}`, { cache: "no-store" })
       .then(readJsonResponse)
       .then((body) => {
-        if (cancelled) return
-        const parsed = foodDetailResponseSchema.parse(body)
-        const grams = parsed.nutrition.servingQuantity
-        setName(parsed.item.name)
-        setBrand(parsed.item.brand ?? "")
-        setServingLabel(parsed.nutrition.servingLabel)
-        setServingGrams(fmtServingInput(grams))
-        setDrafts(getPer100gDrafts(parsed.nutrition.nutrients, grams))
+        if (cancelled) return;
+        const parsed = foodDetailResponseSchema.parse(body);
+        const grams = parsed.nutrition.servingQuantity;
+        setName(parsed.item.name);
+        setBrand(parsed.item.brand ?? "");
+        setServingLabel(parsed.nutrition.servingLabel);
+        setServingGrams(fmtServingInput(grams));
+        setDrafts(getPer100gDrafts(parsed.nutrition.nutrients, grams));
       })
       .catch((error) => {
         toast.error(
-          error instanceof Error ? error.message : "Could not load food"
-        )
+          error instanceof Error ? error.message : "Could not load food",
+        );
       })
       .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
+        if (!cancelled) setIsLoading(false);
+      });
 
     return () => {
-      cancelled = true
-    }
-  }, [food])
+      cancelled = true;
+    };
+  }, [food]);
 
   const setDraft = (key: NutrientKey, value: string) => {
-    const normalized = value.replace(/,/g, ".")
-    if (normalized !== "" && !/^\d*\.?\d*$/.test(normalized)) return
-    setDrafts((current) => ({ ...current, [key]: normalized }))
-  }
+    const normalized = value.replace(/,/g, ".");
+    if (normalized !== "" && !/^\d*\.?\d*$/.test(normalized)) return;
+    setDrafts((current) => ({ ...current, [key]: normalized }));
+  };
 
   const save = async () => {
-    if (!food) return
-    const trimmedName = name.trim()
-    const trimmedServing = servingLabel.trim()
-    const grams = Number.parseFloat(servingGrams)
+    if (!food) return;
+    const trimmedName = name.trim();
+    const trimmedServing = servingLabel.trim();
+    const grams = Number.parseFloat(servingGrams);
     if (
       !trimmedName ||
       !trimmedServing ||
       !Number.isFinite(grams) ||
       grams <= 0
     ) {
-      toast.error("Name, serving label, and serving grams are required")
-      return
+      toast.error("Name, serving label, and serving grams are required");
+      return;
     }
 
-    const nutrients: Partial<Record<NutrientKey, number>> = {}
+    const nutrients: Partial<Record<NutrientKey, number>> = {};
     for (const def of nutrientDefinitionsInput) {
-      const raw = drafts[def.key]
-      if (!raw) continue
-      const parsed = Number.parseFloat(raw)
+      const raw = drafts[def.key];
+      if (!raw) continue;
+      const parsed = Number.parseFloat(raw);
       if (Number.isFinite(parsed) && parsed >= 0) {
-        nutrients[def.key] = parsed
+        nutrients[def.key] = parsed;
       }
     }
 
-    setIsSaving(true)
+    setIsSaving(true);
     try {
       const response = await fetch(`/api/foods/${food.id}`, {
         method: "PATCH",
@@ -372,29 +376,24 @@ function EditFoodDrawer({
           ],
           nutrients,
         }),
-      })
+      });
       const body = foodMutationResponseSchema.parse(
-        await readJsonResponse(response)
-      )
-      await putUserCreatedFood(body.item, body.fetchedAt)
-      onSaved(food.id, body.item, body.fetchedAt)
-      onClose()
+        await readJsonResponse(response),
+      );
+      await putUserCreatedFood(body.item, body.fetchedAt);
+      onSaved(food.id, body.item, body.fetchedAt);
+      onClose();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not save food"
-      )
+        error instanceof Error ? error.message : "Could not save food",
+      );
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }
+  };
 
   return (
-    <Drawer
-      hideBackdrop
-      open={food !== null}
-      onOpenChange={(open) => !open && onClose()}
-      repositionInputs={false}
-    >
+    <Drawer open={food !== null} onOpenChange={(open) => !open && onClose()}>
       <DrawerContent className="z-70! flex h-[calc(100dvh-4rem)]! max-h-none! flex-col rounded-none">
         <VisuallyHidden>
           <DrawerTitle>Edit food</DrawerTitle>
@@ -453,11 +452,11 @@ function EditFoodDrawer({
                   id="edit-serving-grams"
                   value={servingGrams}
                   onChange={(event) => {
-                    const normalized = event.target.value.replace(/,/g, ".")
+                    const normalized = event.target.value.replace(/,/g, ".");
                     if (normalized !== "" && !/^\d*\.?\d*$/.test(normalized)) {
-                      return
+                      return;
                     }
-                    setServingGrams(normalized)
+                    setServingGrams(normalized);
                   }}
                   inputMode="decimal"
                 />
@@ -510,139 +509,139 @@ function EditFoodDrawer({
         </div>
       </DrawerContent>
     </Drawer>
-  )
+  );
 }
 
 function FoodsLogic({
   calorieSummary,
 }: {
-  calorieSummary: DailyCalorieSummary
+  calorieSummary: DailyCalorieSummary;
 }) {
-  const router = useRouter()
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const [foods, setFoods] = useState<FoodSearchItem[]>([])
-  const [query, setQuery] = useState("")
-  const [selectedFood, setSelectedFood] = useState<FoodSummary | null>(null)
-  const [editingFood, setEditingFood] = useState<FoodSearchItem | null>(null)
-  const [createFoodOpen, setCreateFoodOpen] = useState(false)
-  const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([])
-  const [pendingSheetOpen, setPendingSheetOpen] = useState(false)
-  const [isLoadingFoods, setIsLoadingFoods] = useState(true)
-  const [foodError, setFoodError] = useState<string | null>(null)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const router = useRouter();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [foods, setFoods] = useState<FoodSearchItem[]>([]);
+  const [query, setQuery] = useState("");
+  const [selectedFood, setSelectedFood] = useState<FoodSummary | null>(null);
+  const [editingFood, setEditingFood] = useState<FoodSearchItem | null>(null);
+  const [createFoodOpen, setCreateFoodOpen] = useState(false);
+  const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([]);
+  const [pendingSheetOpen, setPendingSheetOpen] = useState(false);
+  const [isLoadingFoods, setIsLoadingFoods] = useState(true);
+  const [foodError, setFoodError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [foodPendingDelete, setFoodPendingDelete] =
-    useState<FoodSearchItem | null>(null)
-  const [extraConsumed, setExtraConsumed] = useState(0)
+    useState<FoodSearchItem | null>(null);
+  const [extraConsumed, setExtraConsumed] = useState(0);
   const [selectedDate, setSelectedDate] = useState(() =>
-    dateFromIsoDate(calorieSummary.today)
-  )
+    dateFromIsoDate(calorieSummary.today),
+  );
   const [selectedHour, setSelectedHour] = useState(() =>
-    getHourInTimezone(new Date(), calorieSummary.timezone)
-  )
+    getHourInTimezone(new Date(), calorieSummary.timezone),
+  );
 
   const todayDate = useMemo(
     () => dateFromIsoDate(calorieSummary.today),
-    [calorieSummary.today]
-  )
+    [calorieSummary.today],
+  );
   const eatenAt = useMemo(() => {
-    const d = new Date(selectedDate)
-    const nowInTz = new Date()
-    const nowHourInTz = getHourInTimezone(nowInTz, calorieSummary.timezone)
+    const d = new Date(selectedDate);
+    const nowInTz = new Date();
+    const nowHourInTz = getHourInTimezone(nowInTz, calorieSummary.timezone);
     const nowDateInTz = dateFromIsoDate(
       new Intl.DateTimeFormat("en-CA", {
         timeZone: calorieSummary.timezone,
-      }).format(nowInTz)
-    )
+      }).format(nowInTz),
+    );
     const minute =
       d.toDateString() === nowDateInTz.toDateString() &&
       selectedHour === nowHourInTz
         ? Math.floor(nowInTz.getMinutes() / 15) * 15
-        : 0
-    d.setHours(selectedHour, minute, 0, 0)
-    return d.toISOString()
-  }, [selectedDate, selectedHour, calorieSummary.timezone])
-  const logDate = useMemo(() => toIsoDate(selectedDate), [selectedDate])
+        : 0;
+    d.setHours(selectedHour, minute, 0, 0);
+    return d.toISOString();
+  }, [selectedDate, selectedHour, calorieSummary.timezone]);
+  const logDate = useMemo(() => toIsoDate(selectedDate), [selectedDate]);
 
   const loadFoods = useCallback(async () => {
-    setIsLoadingFoods(true)
-    setFoodError(null)
+    setIsLoadingFoods(true);
+    setFoodError(null);
     try {
-      const response = await fetch("/api/foods", { cache: "no-store" })
+      const response = await fetch("/api/foods", { cache: "no-store" });
       const body = userCustomFoodsResponseSchema.parse(
-        await readJsonResponse(response)
-      )
-      setFoods(body.items)
+        await readJsonResponse(response),
+      );
+      setFoods(body.items);
     } catch (error) {
       setFoodError(
-        error instanceof Error ? error.message : "Could not load your foods"
-      )
+        error instanceof Error ? error.message : "Could not load your foods",
+      );
     } finally {
-      setIsLoadingFoods(false)
+      setIsLoadingFoods(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    document.documentElement.classList.add("macros-add-food-scroll-lock")
-    const storedFoods = readPendingFoods()
+    document.documentElement.classList.add("macros-add-food-scroll-lock");
+    const storedFoods = readPendingFoods();
     if (storedFoods.length > 0) {
-      setPendingFoods(storedFoods)
+      setPendingFoods(storedFoods);
     }
-    const unsubscribe = subscribeToPendingFoods(setPendingFoods)
+    const unsubscribe = subscribeToPendingFoods(setPendingFoods);
 
     return () => {
-      unsubscribe()
-      document.documentElement.classList.remove("macros-add-food-scroll-lock")
-    }
-  }, [])
+      unsubscribe();
+      document.documentElement.classList.remove("macros-add-food-scroll-lock");
+    };
+  }, []);
 
   useEffect(() => {
-    const vv = window.visualViewport
-    const el = containerRef.current
-    if (!vv || !el) return
+    const vv = window.visualViewport;
+    const el = containerRef.current;
+    if (!vv || !el) return;
 
     function sync() {
-      if (!el) return
-      el.style.height = `${vv!.height}px`
-      el.style.transform = `translateY(${vv!.offsetTop}px)`
+      if (!el) return;
+      el.style.height = `${vv!.height}px`;
+      el.style.transform = `translateY(${vv!.offsetTop}px)`;
     }
 
-    sync()
-    vv.addEventListener("resize", sync)
-    vv.addEventListener("scroll", sync)
+    sync();
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
 
     return () => {
-      vv.removeEventListener("resize", sync)
-      vv.removeEventListener("scroll", sync)
-    }
-  }, [])
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+    };
+  }, []);
 
   useEffect(() => {
-    void loadFoods()
-  }, [loadFoods])
+    void loadFoods();
+  }, [loadFoods]);
 
   const pendingCalories = useMemo(
     () =>
       pendingFoods
         .filter((food) => food.input.logDate === calorieSummary.today)
         .reduce((sum, food) => sum + getPendingCalories(food), 0),
-    [pendingFoods, calorieSummary.today]
-  )
+    [pendingFoods, calorieSummary.today],
+  );
 
   const filteredFoods = useMemo(
     () => foods.filter((food) => matchesFood(food, query)),
-    [foods, query]
-  )
+    [foods, query],
+  );
 
   const openCreateFood = useCallback(() => {
     if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur()
+      document.activeElement.blur();
     }
-    setCreateFoodOpen(true)
-  }, [])
+    setCreateFoodOpen(true);
+  }, []);
 
   const quickAddToPending = useCallback(
     (item: FoodSearchItem, servingsConsumed: number) => {
-      const clientMutationId = crypto.randomUUID()
+      const clientMutationId = crypto.randomUUID();
       setPendingFoods((prev) => {
         const next = [
           ...prev,
@@ -664,18 +663,18 @@ function FoodsLogic({
               fat: (item.fatPerServing ?? 0) * servingsConsumed,
             },
           },
-        ]
-        window.queueMicrotask(() => writePendingFoods(next))
-        return next
-      })
+        ];
+        window.queueMicrotask(() => writePendingFoods(next));
+        return next;
+      });
     },
-    [eatenAt, logDate, selectedHour]
-  )
+    [eatenAt, logDate, selectedHour],
+  );
 
   const addToPending = useCallback(
     (input: LogFoodInput, macros: OptimisticDailyMacros) => {
-      if (!selectedFood) return Promise.resolve()
-      const clientMutationId = crypto.randomUUID()
+      if (!selectedFood) return Promise.resolve();
+      const clientMutationId = crypto.randomUUID();
       setPendingFoods((prev) => {
         const next = [
           ...prev,
@@ -685,41 +684,41 @@ function FoodsLogic({
             input: { ...input, clientMutationId },
             macros,
           },
-        ]
-        window.queueMicrotask(() => writePendingFoods(next))
-        return next
-      })
-      return Promise.resolve()
+        ];
+        window.queueMicrotask(() => writePendingFoods(next));
+        return next;
+      });
+      return Promise.resolve();
     },
-    [selectedFood]
-  )
+    [selectedFood],
+  );
 
   const removePending = useCallback((uid: string) => {
     setPendingFoods((prev) => {
-      const next = prev.filter((food) => food.uid !== uid)
-      window.queueMicrotask(() => writePendingFoods(next))
-      return next
-    })
-  }, [])
+      const next = prev.filter((food) => food.uid !== uid);
+      window.queueMicrotask(() => writePendingFoods(next));
+      return next;
+    });
+  }, []);
 
   const deleteFood = useCallback(async (item: FoodSearchItem) => {
-    setDeletingId(item.id)
+    setDeletingId(item.id);
     try {
       const response = await fetch(`/api/foods/${item.id}`, {
         method: "DELETE",
-      })
-      await readJsonResponse(response)
-      setFoods((current) => current.filter((food) => food.id !== item.id))
-      setFoodPendingDelete(null)
-      toast.success("Food deleted")
+      });
+      await readJsonResponse(response);
+      setFoods((current) => current.filter((food) => food.id !== item.id));
+      setFoodPendingDelete(null);
+      toast.success("Food deleted");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not delete food"
-      )
+        error instanceof Error ? error.message : "Could not delete food",
+      );
     } finally {
-      setDeletingId(null)
+      setDeletingId(null);
     }
-  }, [])
+  }, []);
 
   const { isCommitting, logAllPending } = useLogPendingFoods({
     pendingFoods,
@@ -727,7 +726,7 @@ function FoodsLogic({
     setPendingSheetOpen,
     setExtraConsumed,
     today: calorieSummary.today,
-  })
+  });
 
   return (
     <div
@@ -845,7 +844,7 @@ function FoodsLogic({
       <div
         className={cn(
           "absolute inset-x-0 bottom-0 z-10 border-t border-border bg-background px-3 pt-3 pb-safe-end",
-          pendingFoods.length === 0 && "hidden"
+          pendingFoods.length === 0 && "hidden",
         )}
       >
         <Button
@@ -873,10 +872,10 @@ function FoodsLogic({
         food={editingFood}
         onClose={() => setEditingFood(null)}
         onSaved={(previousId, item, fetchedAt) => {
-          void putUserCreatedFood(item, fetchedAt)
+          void putUserCreatedFood(item, fetchedAt);
           setFoods((current) =>
-            current.map((food) => (food.id === previousId ? item : food))
-          )
+            current.map((food) => (food.id === previousId ? item : food)),
+          );
         }}
       />
 
@@ -886,9 +885,9 @@ function FoodsLogic({
         autoFocusName={false}
         onClose={() => setCreateFoodOpen(false)}
         onCreated={(food) => {
-          setCreateFoodOpen(false)
-          void loadFoods()
-          setSelectedFood(food)
+          setCreateFoodOpen(false);
+          void loadFoods();
+          setSelectedFood(food);
         }}
       />
 
@@ -905,7 +904,7 @@ function FoodsLogic({
         open={foodPendingDelete !== null}
         onOpenChange={(open) => {
           if (!open && deletingId === null) {
-            setFoodPendingDelete(null)
+            setFoodPendingDelete(null);
           }
         }}
       >
@@ -930,9 +929,9 @@ function FoodsLogic({
               variant="destructive"
               disabled={deletingId !== null || foodPendingDelete === null}
               onClick={(event) => {
-                event.preventDefault()
+                event.preventDefault();
                 if (foodPendingDelete) {
-                  void deleteFood(foodPendingDelete)
+                  void deleteFood(foodPendingDelete);
                 }
               }}
             >
@@ -942,15 +941,15 @@ function FoodsLogic({
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  )
+  );
 }
 
 export function FoodsPageClient() {
-  const hydrated = useHydrated()
-  const { data, error, isError, refetch } = useDailyCalorieSummary()
+  const hydrated = useHydrated();
+  const { data, error, isError, refetch } = useDailyCalorieSummary();
 
   if (!hydrated) {
-    return <FoodsFallback />
+    return <FoodsFallback />;
   }
 
   if (isError && !data) {
@@ -970,12 +969,12 @@ export function FoodsPageClient() {
           </div>
         </Alert>
       </div>
-    )
+    );
   }
 
   if (!data) {
-    return <FoodsFallback />
+    return <FoodsFallback />;
   }
 
-  return <FoodsLogic calorieSummary={data} />
+  return <FoodsLogic calorieSummary={data} />;
 }

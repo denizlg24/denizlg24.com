@@ -1,9 +1,9 @@
-import Image from "next/image"
+import Image from "next/image";
 
 export default function RegisterLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: React.ReactNode;
 }) {
   return (
     <main className="min-h-svh bg-background text-foreground">
@@ -22,5 +22,5 @@ export default function RegisterLayout({
         <section className="flex-1 pb-8">{children}</section>
       </div>
     </main>
-  )
+  );
 }

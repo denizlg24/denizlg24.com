@@ -1,20 +1,20 @@
-"use client"
+"use client";
 
-import { useRouter } from "next/navigation"
+import { useRouter } from "next/navigation";
 import {
   OnboardingWizard,
   type WizardPayload,
-} from "@/components/onboarding/wizard"
+} from "@/components/onboarding/wizard";
 
 export function CompleteRegistrationForm() {
-  const router = useRouter()
+  const router = useRouter();
 
   async function handleSubmit(payload: WizardPayload) {
     if (!payload.profile || !payload.weightGoal || !payload.nutritionPlan) {
-      throw new Error("Incomplete registration payload")
+      throw new Error("Incomplete registration payload");
     }
     if (payload.currentWeightKg === undefined) {
-      throw new Error("Current weight is required")
+      throw new Error("Current weight is required");
     }
 
     const body = {
@@ -33,25 +33,25 @@ export function CompleteRegistrationForm() {
         name: payload.nutritionPlan.name ?? "Coached Program",
         days: payload.nutritionPlan.days,
       },
-    }
+    };
 
     const res = await fetch("/api/register/complete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    })
+    });
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json().catch(() => ({}));
       const message =
         typeof data === "object" &&
         data !== null &&
         "error" in data &&
         typeof (data as Record<string, unknown>).error === "string"
           ? (data as Record<string, string>).error
-          : "Something went wrong."
-      throw new Error(message)
+          : "Something went wrong.";
+      throw new Error(message);
     }
-    router.push("/")
+    router.push("/");
   }
 
   return (
@@ -60,5 +60,5 @@ export function CompleteRegistrationForm() {
       onSubmit={handleSubmit}
       submitLabel="Start tracking"
     />
-  )
+  );
 }

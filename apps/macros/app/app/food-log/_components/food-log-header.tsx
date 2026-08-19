@@ -1,26 +1,26 @@
-"use client"
+"use client";
 
-import { ChevronLeft, ChevronRight, Menu } from "lucide-react"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { MACRO_COLORS } from "@/lib/macro-colors"
-import type { FoodLogDayPayload } from "@/lib/queries/food-log-day"
-import type { WeekTotalsPayload } from "@/lib/queries/food-log-week-totals"
-import { cn } from "@/lib/utils"
+import { Button } from "@repo/ui/button";
+import { cn } from "@repo/ui/utils";
+import { ChevronLeft, ChevronRight, Menu } from "lucide-react";
+import Link from "next/link";
+import { MACRO_COLORS } from "@/lib/macro-colors";
+import type { FoodLogDayPayload } from "@/lib/queries/food-log-day";
+import type { WeekTotalsPayload } from "@/lib/queries/food-log-week-totals";
 import {
   relativeDayLabel,
   shiftIso,
   todayIso,
   weekDaysFor,
-} from "../_lib/date-utils"
-import { MacroSummaryBar } from "./macro-summary-bar"
+} from "../_lib/date-utils";
+import { MacroSummaryBar } from "./macro-summary-bar";
 
 type Props = {
-  selectedDate: string
-  onDateChange: (iso: string) => void
-  data: FoodLogDayPayload | null
-  weekTotals: WeekTotalsPayload | null
-}
+  selectedDate: string;
+  onDateChange: (iso: string) => void;
+  data: FoodLogDayPayload | null;
+  weekTotals: WeekTotalsPayload | null;
+};
 
 export function FoodLogHeader({
   selectedDate,
@@ -28,14 +28,14 @@ export function FoodLogHeader({
   data,
   weekTotals,
 }: Props) {
-  const week = weekDaysFor(selectedDate)
-  const today = todayIso()
-  const isFutureNext = shiftIso(selectedDate, 1) > today
+  const week = weekDaysFor(selectedDate);
+  const today = todayIso();
+  const isFutureNext = shiftIso(selectedDate, 1) > today;
 
   const totalsByDate = new Map<string, number>(
-    weekTotals?.days.map((d) => [d.date, d.calories]) ?? []
-  )
-  const calorieTarget = weekTotals?.calorieTarget ?? null
+    weekTotals?.days.map((d) => [d.date, d.calories]) ?? [],
+  );
+  const calorieTarget = weekTotals?.calorieTarget ?? null;
 
   return (
     <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border/40">
@@ -84,7 +84,7 @@ export function FoodLogHeader({
       <div className="px-2 pb-2">
         <div className="grid grid-cols-7 gap-1">
           {week.map((d) => {
-            const consumed = totalsByDate.get(d.iso) ?? 0
+            const consumed = totalsByDate.get(d.iso) ?? 0;
             return (
               <DayPill
                 key={d.iso}
@@ -96,14 +96,14 @@ export function FoodLogHeader({
                 target={calorieTarget}
                 onClick={() => onDateChange(d.iso)}
               />
-            )
+            );
           })}
         </div>
       </div>
 
       <MacroSummaryBar data={data} />
     </div>
-  )
+  );
 }
 
 function DayPill({
@@ -115,27 +115,27 @@ function DayPill({
   target,
   onClick,
 }: {
-  letter: string
-  num: number
-  isSelected: boolean
-  isFuture: boolean
-  consumed: number
-  target: number | null
-  onClick: () => void
+  letter: string;
+  num: number;
+  isSelected: boolean;
+  isFuture: boolean;
+  consumed: number;
+  target: number | null;
+  onClick: () => void;
 }) {
-  const W = 44
-  const H = 50
-  const SW = 2.5
-  const p = SW / 2 + 0.5
-  const rw = W - SW
-  const rh = H - SW
-  const rx = Math.min(rw, rh) / 2
+  const W = 44;
+  const H = 50;
+  const SW = 2.5;
+  const p = SW / 2 + 0.5;
+  const rw = W - SW;
+  const rh = H - SW;
+  const rx = Math.min(rw, rh) / 2;
 
-  const perimeter = 2 * (rw - rh) + Math.PI * rh
-  const startOffset = rw / 2 - rx
+  const perimeter = 2 * (rw - rh) + Math.PI * rh;
+  const startOffset = rw / 2 - rx;
 
-  const fillRatio = target != null && target > 0 ? consumed / target : 0
-  const fillLength = Math.min(fillRatio, 1) * perimeter
+  const fillRatio = target != null && target > 0 ? consumed / target : 0;
+  const fillLength = Math.min(fillRatio, 1) * perimeter;
 
   return (
     <button
@@ -145,7 +145,7 @@ function DayPill({
       className={cn(
         "relative flex flex-col items-center justify-center py-1 text-[10px] leading-tight transition-colors",
         isSelected ? "text-foreground" : "text-muted-foreground",
-        isFuture && "opacity-30"
+        isFuture && "opacity-30",
       )}
       style={{ width: W, height: H, marginInline: "auto" }}
     >
@@ -185,5 +185,5 @@ function DayPill({
       <span className="relative font-medium">{letter}</span>
       <span className="relative text-sm font-semibold tabular-nums">{num}</span>
     </button>
-  )
+  );
 }

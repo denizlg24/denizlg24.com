@@ -1,6 +1,11 @@
-"use client"
+"use client";
 
-import { format } from "date-fns"
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
+import { Label } from "@repo/ui/label";
+import { Slider } from "@repo/ui/slider";
+import { cn } from "@repo/ui/utils";
+import { format } from "date-fns";
 import {
   ArrowLeft,
   ArrowRight,
@@ -8,13 +13,8 @@ import {
   LoaderCircle,
   Minus,
   Plus,
-} from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Slider } from "@/components/ui/slider"
-import { cn } from "@/lib/utils"
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ACTIVITY_LEVELS,
   type ActivityLevel,
@@ -34,63 +34,63 @@ import {
   WEEKDAY_FULL,
   type WeekdayDelta,
   type WeightUnit,
-} from "@/lib/wizard/calc"
+} from "@/lib/wizard/calc";
 
-export type WizardMode = "full" | "program" | "goal"
+export type WizardMode = "full" | "program" | "goal";
 
 export interface WizardInitial {
-  sex?: Sex | ""
-  birthDate?: string
-  heightCm?: number
-  activityLevel?: ActivityLevel | ""
-  weightUnit?: WeightUnit
-  energyUnit?: EnergyUnit
-  currentWeightKg?: number
-  goalType?: GoalType | ""
-  targetWeightKg?: number
-  goalDate?: string
-  weeklyRateKg?: number
-  proteinProfile?: ProteinProfile
-  calories?: number
-  split?: MacroSplit
-  dayDeltas?: WeekdayDelta[]
-  planName?: string
+  sex?: Sex | "";
+  birthDate?: string;
+  heightCm?: number;
+  activityLevel?: ActivityLevel | "";
+  weightUnit?: WeightUnit;
+  energyUnit?: EnergyUnit;
+  currentWeightKg?: number;
+  goalType?: GoalType | "";
+  targetWeightKg?: number;
+  goalDate?: string;
+  weeklyRateKg?: number;
+  proteinProfile?: ProteinProfile;
+  calories?: number;
+  split?: MacroSplit;
+  dayDeltas?: WeekdayDelta[];
+  planName?: string;
 }
 
 export interface WizardPayload {
-  mode: WizardMode
+  mode: WizardMode;
   profile?: {
-    timezone: string
-    sex?: Sex
-    birthDate?: string
-    heightCm?: number
-    activityLevel?: ActivityLevel
-    weightUnit?: WeightUnit
-    energyUnit?: EnergyUnit
-  }
-  currentWeightKg?: number
+    timezone: string;
+    sex?: Sex;
+    birthDate?: string;
+    heightCm?: number;
+    activityLevel?: ActivityLevel;
+    weightUnit?: WeightUnit;
+    energyUnit?: EnergyUnit;
+  };
+  currentWeightKg?: number;
   weightGoal?: {
-    goalType: GoalType
-    targetWeightKg?: number
-    targetDate?: string
-    weeklyRateKg?: number
-  }
+    goalType: GoalType;
+    targetWeightKg?: number;
+    targetDate?: string;
+    weeklyRateKg?: number;
+  };
   nutritionPlan?: {
-    name?: string
-    goalType: GoalType
-    activityLevel?: ActivityLevel
-    days: DayMacros[]
-  }
+    name?: string;
+    goalType: GoalType;
+    activityLevel?: ActivityLevel;
+    days: DayMacros[];
+  };
 }
 
 interface OnboardingWizardProps {
-  mode: WizardMode
-  initial?: WizardInitial
-  onSubmit: (payload: WizardPayload) => Promise<void>
-  onCancel?: () => void
-  cancelLabel?: string
-  submitLabel?: string
-  className?: string
+  mode: WizardMode;
+  initial?: WizardInitial;
+  onSubmit: (payload: WizardPayload) => Promise<void>;
+  onCancel?: () => void;
+  cancelLabel?: string;
+  submitLabel?: string;
+  className?: string;
 }
 
 type StepKey =
@@ -102,7 +102,7 @@ type StepKey =
   | "macro-profile"
   | "calc"
   | "review"
-  | "days"
+  | "days";
 
 const STEP_LISTS: Record<WizardMode, StepKey[]> = {
   full: [
@@ -118,15 +118,15 @@ const STEP_LISTS: Record<WizardMode, StepKey[]> = {
   ],
   program: ["activity", "macro-profile", "calc", "review", "days"],
   goal: ["weight", "goal"],
-}
+};
 
 function FieldError({ message }: { message?: string }) {
-  if (!message) return null
+  if (!message) return null;
   return (
     <p role="alert" className="text-xs text-destructive">
       {message}
     </p>
-  )
+  );
 }
 
 function ChipButton({
@@ -135,10 +135,10 @@ function ChipButton({
   children,
   className,
 }: {
-  selected: boolean
-  onClick: () => void
-  children: React.ReactNode
-  className?: string
+  selected: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  className?: string;
 }) {
   return (
     <button
@@ -149,12 +149,12 @@ function ChipButton({
         selected
           ? "border-foreground bg-foreground text-background"
           : "border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground",
-        className
+        className,
       )}
     >
       {children}
     </button>
-  )
+  );
 }
 
 function StackedOption({
@@ -164,11 +164,11 @@ function StackedOption({
   description,
   trailing,
 }: {
-  selected: boolean
-  onClick: () => void
-  label: string
-  description?: string
-  trailing?: React.ReactNode
+  selected: boolean;
+  onClick: () => void;
+  label: string;
+  description?: string;
+  trailing?: React.ReactNode;
 }) {
   return (
     <button
@@ -178,7 +178,7 @@ function StackedOption({
         "group flex w-full items-center justify-between gap-3 rounded-xl border-2 px-4 py-3.5 text-left transition-all",
         selected
           ? "border-foreground bg-foreground/[0.04]"
-          : "border-border hover:border-foreground/30"
+          : "border-border hover:border-foreground/30",
       )}
     >
       <div className="min-w-0 flex-1">
@@ -194,14 +194,14 @@ function StackedOption({
             "flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
             selected
               ? "border-foreground bg-foreground text-background"
-              : "border-border"
+              : "border-border",
           )}
         >
           {selected ? <Check className="size-3" strokeWidth={3} /> : null}
         </span>
       )}
     </button>
-  )
+  );
 }
 
 const CALC_MESSAGES = [
@@ -210,18 +210,18 @@ const CALC_MESSAGES = [
   "Calibrating macro ratios…",
   "Optimizing for your goal…",
   "Your plan is ready.",
-]
+];
 
 function CalcAnimation({ onDone }: { onDone: () => void }) {
-  const [msgIdx, setMsgIdx] = useState(0)
+  const [msgIdx, setMsgIdx] = useState(0);
   useEffect(() => {
     if (msgIdx >= CALC_MESSAGES.length - 1) {
-      const finish = setTimeout(onDone, 500)
-      return () => clearTimeout(finish)
+      const finish = setTimeout(onDone, 500);
+      return () => clearTimeout(finish);
     }
-    const t = setTimeout(() => setMsgIdx((i) => i + 1), 520)
-    return () => clearTimeout(t)
-  }, [msgIdx, onDone])
+    const t = setTimeout(() => setMsgIdx((i) => i + 1), 520);
+    return () => clearTimeout(t);
+  }, [msgIdx, onDone]);
 
   return (
     <div className="flex flex-col items-center justify-center py-20 space-y-10">
@@ -244,7 +244,7 @@ function CalcAnimation({ onDone }: { onDone: () => void }) {
                 ? "translate-y-0 opacity-100"
                 : i < msgIdx
                   ? "-translate-y-5 opacity-0"
-                  : "translate-y-5 opacity-0"
+                  : "translate-y-5 opacity-0",
             )}
           >
             {msg}
@@ -252,7 +252,7 @@ function CalcAnimation({ onDone }: { onDone: () => void }) {
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 function StepHeader({ title, subtitle }: { title: string; subtitle: string }) {
@@ -265,19 +265,19 @@ function StepHeader({ title, subtitle }: { title: string; subtitle: string }) {
         {subtitle}
       </p>
     </div>
-  )
+  );
 }
 
 const SLIDER_MACROS: {
-  key: keyof MacroSplit
-  label: string
-  kcalPerG: number
-  color: string
+  key: keyof MacroSplit;
+  label: string;
+  kcalPerG: number;
+  color: string;
 }[] = [
   { key: "protein", label: "Protein", kcalPerG: 4, color: "#b85c50" },
   { key: "carbs", label: "Carbs", kcalPerG: 4, color: "#6a9e6a" },
   { key: "fat", label: "Fat", kcalPerG: 9, color: "#b89a3c" },
-]
+];
 
 export function OnboardingWizard({
   mode,
@@ -288,225 +288,228 @@ export function OnboardingWizard({
   submitLabel,
   className,
 }: OnboardingWizardProps) {
-  const steps = useMemo(() => STEP_LISTS[mode], [mode])
-  const [stepIdx, setStepIdx] = useState(0)
-  const stepKey = steps[stepIdx]
-  const [submitting, setSubmitting] = useState(false)
-  const [serverError, setServerError] = useState("")
-  const [errors, setErrors] = useState<Record<string, string>>({})
+  const steps = useMemo(() => STEP_LISTS[mode], [mode]);
+  const [stepIdx, setStepIdx] = useState(0);
+  const stepKey = steps[stepIdx];
+  const [submitting, setSubmitting] = useState(false);
+  const [serverError, setServerError] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [weightUnit, setWeightUnit] = useState<WeightUnit>(
-    initial?.weightUnit ?? "kg"
-  )
+    initial?.weightUnit ?? "kg",
+  );
   const [energyUnit, setEnergyUnit] = useState<EnergyUnit>(
-    initial?.energyUnit ?? "kcal"
-  )
-  const [sex, setSex] = useState<Sex | "">(initial?.sex ?? "")
-  const [birthDate, setBirthDate] = useState(initial?.birthDate ?? "")
+    initial?.energyUnit ?? "kcal",
+  );
+  const [sex, setSex] = useState<Sex | "">(initial?.sex ?? "");
+  const [birthDate, setBirthDate] = useState(initial?.birthDate ?? "");
   const [heightCm, setHeightCm] = useState(
-    initial?.heightCm ? String(initial.heightCm) : ""
-  )
-  const [heightFt, setHeightFt] = useState("")
-  const [heightIn, setHeightIn] = useState("")
+    initial?.heightCm ? String(initial.heightCm) : "",
+  );
+  const [heightFt, setHeightFt] = useState("");
+  const [heightIn, setHeightIn] = useState("");
   const [activityLevel, setActivityLevel] = useState<ActivityLevel | "">(
-    initial?.activityLevel ?? ""
-  )
+    initial?.activityLevel ?? "",
+  );
 
   const [currentWeight, setCurrentWeight] = useState(
     initial?.currentWeightKg
       ? weightUnit === "lb"
         ? String(kgToLb(initial.currentWeightKg))
         : String(initial.currentWeightKg)
-      : ""
-  )
+      : "",
+  );
   const [goalType, setGoalType] = useState<GoalType | "">(
-    initial?.goalType ?? ""
-  )
+    initial?.goalType ?? "",
+  );
   const [targetWeight, setTargetWeight] = useState(
     initial?.targetWeightKg
       ? weightUnit === "lb"
         ? String(kgToLb(initial.targetWeightKg))
         : String(initial.targetWeightKg)
-      : ""
-  )
-  const [goalDate, setGoalDate] = useState(initial?.goalDate ?? "")
+      : "",
+  );
+  const [goalDate, setGoalDate] = useState(initial?.goalDate ?? "");
 
   const [proteinProfile, setProteinProfile] = useState<ProteinProfile>(
-    initial?.proteinProfile ?? "balanced"
-  )
+    initial?.proteinProfile ?? "balanced",
+  );
 
   const [calories, setCalories] = useState(
-    initial?.calories ? String(initial.calories) : ""
-  )
+    initial?.calories ? String(initial.calories) : "",
+  );
   const [split, setSplit] = useState<MacroSplit>(
-    initial?.split ?? { protein: 25, carbs: 45, fat: 30 }
-  )
+    initial?.split ?? { protein: 25, carbs: 45, fat: 30 },
+  );
 
   const [dayDeltas, setDayDeltas] = useState<WeekdayDelta[]>(
     initial?.dayDeltas ??
       Array.from({ length: 7 }, (_, i) => ({
         weekday: i,
         delta: 0,
-      }))
-  )
+      })),
+  );
 
   const computeHeightCm: () => number | undefined = useCallback(() => {
     if (weightUnit === "kg") {
-      const cm = parseFloat(heightCm)
-      return Number.isFinite(cm) ? cm : undefined
+      const cm = parseFloat(heightCm);
+      return Number.isFinite(cm) ? cm : undefined;
     }
-    const ft = parseInt(heightFt) || 0
-    const inches = parseInt(heightIn) || 0
-    if (ft === 0 && inches === 0) return undefined
-    return Math.round((ft * 12 + inches) * 2.54 * 10) / 10
-  }, [heightCm, heightFt, heightIn, weightUnit])
+    const ft = parseInt(heightFt, 10) || 0;
+    const inches = parseInt(heightIn, 10) || 0;
+    if (ft === 0 && inches === 0) return undefined;
+    return Math.round((ft * 12 + inches) * 2.54 * 10) / 10;
+  }, [heightCm, heightFt, heightIn, weightUnit]);
 
-  useEffect(() => {
-    if (currentWeight !== "") {
-      const kg = parseFloat(currentWeight)
-      if (Number.isFinite(kg)) {
-        const converted = weightUnit === "lb" ? kgToLb(kg) : lbToKg(kg)
-        setCurrentWeight(String(converted))
-      }
-    }
-    if (targetWeight !== "") {
-      const kg = parseFloat(targetWeight)
-      if (Number.isFinite(kg)) {
-        const converted = weightUnit === "lb" ? kgToLb(kg) : lbToKg(kg)
-        setTargetWeight(String(converted))
-      }
-    }
-    const hCm = computeHeightCm()
-    if (hCm !== undefined) {
-      if (weightUnit === "lb") {
-        const totalIn = Math.round(hCm / 2.54)
-        setHeightFt(String(Math.floor(totalIn / 12)))
-        setHeightIn(String(totalIn % 12))
-        setHeightCm("")
-      } else {
-        setHeightCm(String(Math.round(hCm)))
-        setHeightFt("")
-        setHeightIn("")
-      }
-    }
-  }, [weightUnit, computeHeightCm, targetWeight, currentWeight])
+  function changeWeightUnit(nextUnit: WeightUnit) {
+    if (nextUnit === weightUnit) return;
 
-  useEffect(() => {
-    if (calories !== "") {
-      const kcal = parseFloat(calories)
-      if (Number.isFinite(kcal)) {
-        const converted =
-          energyUnit === "kj"
-            ? Math.round(kcal * 4.184)
-            : Math.round(kcal / 4.184)
-        setCalories(String(converted))
+    const convertWeight = (value: string) => {
+      const parsed = parseFloat(value);
+      if (!Number.isFinite(parsed)) return value;
+      return String(nextUnit === "lb" ? kgToLb(parsed) : lbToKg(parsed));
+    };
+
+    setCurrentWeight(convertWeight(currentWeight));
+    setTargetWeight(convertWeight(targetWeight));
+
+    if (nextUnit === "lb") {
+      const cm = parseFloat(heightCm);
+      if (Number.isFinite(cm)) {
+        const totalInches = Math.round(cm / 2.54);
+        setHeightFt(String(Math.floor(totalInches / 12)));
+        setHeightIn(String(totalInches % 12));
+        setHeightCm("");
+      }
+    } else {
+      const feet = parseInt(heightFt, 10) || 0;
+      const inches = parseInt(heightIn, 10) || 0;
+      if (feet !== 0 || inches !== 0) {
+        setHeightCm(String(Math.round((feet * 12 + inches) * 2.54)));
+        setHeightFt("");
+        setHeightIn("");
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [energyUnit, calories])
+
+    setWeightUnit(nextUnit);
+  }
+
+  function changeEnergyUnit(nextUnit: EnergyUnit) {
+    if (nextUnit === energyUnit) return;
+
+    const parsed = parseFloat(calories);
+    if (Number.isFinite(parsed)) {
+      const converted =
+        nextUnit === "kj"
+          ? Math.round(parsed * 4.184)
+          : Math.round(parsed / 4.184);
+      setCalories(String(converted));
+    }
+
+    setEnergyUnit(nextUnit);
+  }
 
   function toWeightKg(value: string): number | undefined {
-    const n = parseFloat(value)
-    if (!Number.isFinite(n)) return undefined
-    return weightUnit === "kg" ? n : lbToKg(n)
+    const n = parseFloat(value);
+    if (!Number.isFinite(n)) return undefined;
+    return weightUnit === "kg" ? n : lbToKg(n);
   }
 
   function computeWeeklyRateKg(): number | undefined {
-    if (!targetWeight || !goalDate || goalType === "maintain") return undefined
-    const cwKg = toWeightKg(currentWeight)
-    const twKg = toWeightKg(targetWeight)
-    if (!cwKg || !twKg) return undefined
-    const gd = new Date(goalDate)
-    if (isNaN(gd.getTime())) return undefined
-    const totalWeeks =
-      (gd.getTime() - new Date().getTime()) / (7 * 24 * 60 * 60 * 1000)
-    if (totalWeeks <= 0) return undefined
-    return Math.abs(cwKg - twKg) / totalWeeks
+    if (!targetWeight || !goalDate || goalType === "maintain") return undefined;
+    const cwKg = toWeightKg(currentWeight);
+    const twKg = toWeightKg(targetWeight);
+    if (!cwKg || !twKg) return undefined;
+    const gd = new Date(goalDate);
+    if (Number.isNaN(gd.getTime())) return undefined;
+    const totalWeeks = (gd.getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000);
+    if (totalWeeks <= 0) return undefined;
+    return Math.abs(cwKg - twKg) / totalWeeks;
   }
 
   function validate(): Record<string, string> {
-    const errs: Record<string, string> = {}
+    const errs: Record<string, string> = {};
     if (stepKey === "profile") {
       if (birthDate) {
-        const age = computeAgeFromBirthDate(birthDate)
+        const age = computeAgeFromBirthDate(birthDate);
         if (age === undefined || age < 13 || age > 120) {
-          errs.birthDate = "Must be between 13 and 120 years old"
+          errs.birthDate = "Must be between 13 and 120 years old";
         }
       }
-      const hCm = computeHeightCm()
+      const hCm = computeHeightCm();
       const hasHeight =
         weightUnit === "kg"
           ? heightCm !== ""
-          : heightFt !== "" || heightIn !== ""
+          : heightFt !== "" || heightIn !== "";
       if (hasHeight && (hCm === undefined || hCm < 50 || hCm > 260)) {
         errs.height =
           weightUnit === "kg"
             ? "Height must be 50–260 cm"
-            : "Enter a valid height"
+            : "Enter a valid height";
       }
     }
     if (stepKey === "weight") {
-      if (!currentWeight) errs.currentWeight = "Current weight is required"
+      if (!currentWeight) errs.currentWeight = "Current weight is required";
       else {
-        const kg = toWeightKg(currentWeight)
+        const kg = toWeightKg(currentWeight);
         if (kg === undefined || kg < 20 || kg > 500) {
           errs.currentWeight =
             weightUnit === "kg"
               ? "Weight must be 20–500 kg"
-              : "Weight must be 44–1100 lb"
+              : "Weight must be 44–1100 lb";
         }
       }
     }
     if (stepKey === "goal") {
-      if (!goalType) errs.goalType = "Select a goal"
+      if (!goalType) errs.goalType = "Select a goal";
       if ((goalType === "lose" || goalType === "gain") && targetWeight !== "") {
-        const kg = toWeightKg(targetWeight)
+        const kg = toWeightKg(targetWeight);
         if (kg === undefined || kg < 20 || kg > 500) {
-          errs.targetWeight = "Enter a valid target weight"
+          errs.targetWeight = "Enter a valid target weight";
         }
       }
       if (goalDate !== "") {
-        const gd = new Date(goalDate)
-        const minGoal = new Date()
-        minGoal.setDate(minGoal.getDate() + 6)
-        if (isNaN(gd.getTime()) || gd <= minGoal) {
-          errs.goalDate = "Goal date must be at least a week from today"
+        const gd = new Date(goalDate);
+        const minGoal = new Date();
+        minGoal.setDate(minGoal.getDate() + 6);
+        if (Number.isNaN(gd.getTime()) || gd <= minGoal) {
+          errs.goalDate = "Goal date must be at least a week from today";
         }
       }
     }
     if (stepKey === "review") {
       if (
         calories !== "" &&
-        (isNaN(parseFloat(calories)) || parseFloat(calories) <= 0)
+        (Number.isNaN(parseFloat(calories)) || parseFloat(calories) <= 0)
       ) {
-        errs.calories = "Must be a positive number"
+        errs.calories = "Must be a positive number";
       }
     }
-    return errs
+    return errs;
   }
 
   function isFirstStep() {
-    return stepIdx === 0
+    return stepIdx === 0;
   }
 
   function isLastStep() {
-    return stepIdx === steps.length - 1
+    return stepIdx === steps.length - 1;
   }
 
   function gotoNext() {
-    const errs = validate()
+    const errs = validate();
     if (Object.keys(errs).length > 0) {
-      setErrors(errs)
-      return
+      setErrors(errs);
+      return;
     }
-    setErrors({})
+    setErrors({});
 
     // When entering 'calc', precompute calories+split for review step.
-    const nextKey = steps[stepIdx + 1]
+    const nextKey = steps[stepIdx + 1];
     if (nextKey === "calc") {
       const weightKg =
-        toWeightKg(currentWeight) ?? initial?.currentWeightKg ?? 70
-      const weeklyRateKg = computeWeeklyRateKg()
+        toWeightKg(currentWeight) ?? initial?.currentWeightKg ?? 70;
+      const weeklyRateKg = computeWeeklyRateKg();
       const calc = calculateMacros({
         weightKg,
         heightCm: computeHeightCm() ?? initial?.heightCm,
@@ -516,43 +519,43 @@ export function OnboardingWizard({
         goalType: (goalType || "maintain") as GoalType,
         weeklyRateKg,
         proteinProfile,
-      })
-      const energyFactor = energyUnit === "kj" ? 4.184 : 1
-      setCalories(Math.round(calc.calories * energyFactor).toString())
-      const totalCals = calc.calories
-      const proteinPct = Math.round(((calc.protein * 4) / totalCals) * 100)
-      const fatPct = Math.round(((calc.fat * 9) / totalCals) * 100)
+      });
+      const energyFactor = energyUnit === "kj" ? 4.184 : 1;
+      setCalories(Math.round(calc.calories * energyFactor).toString());
+      const totalCals = calc.calories;
+      const proteinPct = Math.round(((calc.protein * 4) / totalCals) * 100);
+      const fatPct = Math.round(((calc.fat * 9) / totalCals) * 100);
       setSplit({
         protein: proteinPct,
         fat: fatPct,
         carbs: 100 - proteinPct - fatPct,
-      })
+      });
     }
 
-    setStepIdx((i) => i + 1)
+    setStepIdx((i) => i + 1);
   }
 
   function gotoBack() {
-    setErrors({})
-    setStepIdx((i) => Math.max(0, i - 1))
+    setErrors({});
+    setStepIdx((i) => Math.max(0, i - 1));
   }
 
   async function submit() {
-    const errs = validate()
+    const errs = validate();
     if (Object.keys(errs).length > 0) {
-      setErrors(errs)
-      return
+      setErrors(errs);
+      return;
     }
-    setSubmitting(true)
-    setServerError("")
+    setSubmitting(true);
+    setServerError("");
     try {
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-      const payload: WizardPayload = { mode }
+      const payload: WizardPayload = { mode };
 
       if (mode === "full") {
-        const weightKg = toWeightKg(currentWeight)
-        if (weightKg === undefined) throw new Error("Invalid weight")
+        const weightKg = toWeightKg(currentWeight);
+        if (weightKg === undefined) throw new Error("Invalid weight");
         payload.profile = {
           timezone,
           sex: sex || undefined,
@@ -561,8 +564,8 @@ export function OnboardingWizard({
           activityLevel: activityLevel || undefined,
           weightUnit,
           energyUnit,
-        }
-        payload.currentWeightKg = weightKg
+        };
+        payload.currentWeightKg = weightKg;
         payload.weightGoal = {
           goalType: (goalType || "maintain") as GoalType,
           targetWeightKg:
@@ -572,7 +575,7 @@ export function OnboardingWizard({
               ? goalDate
               : undefined,
           weeklyRateKg: computeWeeklyRateKg(),
-        }
+        };
       }
 
       if (mode === "full" || mode === "program") {
@@ -581,27 +584,27 @@ export function OnboardingWizard({
             ? energyUnit === "kcal"
               ? parseFloat(calories)
               : Math.round(parseFloat(calories) / 4.184)
-            : 2000
+            : 2000;
         const baseDaily = {
           calories: calorieKcal,
           protein: Math.round((calorieKcal * (split.protein / 100)) / 4),
           carbs: Math.round((calorieKcal * (split.carbs / 100)) / 4),
           fat: Math.round((calorieKcal * (split.fat / 100)) / 9),
-        }
+        };
         const convertedDayDeltas =
           energyUnit === "kj"
             ? dayDeltas.map((d) => ({
                 ...d,
                 delta: Math.round(d.delta / 4.184),
               }))
-            : dayDeltas
-        const days = buildWeekdayMacros(baseDaily, convertedDayDeltas)
+            : dayDeltas;
+        const days = buildWeekdayMacros(baseDaily, convertedDayDeltas);
         payload.nutritionPlan = {
           name: initial?.planName,
           goalType: (goalType || initial?.goalType || "maintain") as GoalType,
           activityLevel: activityLevel || undefined,
           days,
-        }
+        };
       }
 
       if (mode === "goal") {
@@ -614,22 +617,22 @@ export function OnboardingWizard({
               ? goalDate
               : undefined,
           weeklyRateKg: computeWeeklyRateKg(),
-        }
+        };
       }
 
-      await onSubmit(payload)
+      await onSubmit(payload);
     } catch (err) {
       setServerError(
-        err instanceof Error ? err.message : "Something went wrong."
-      )
+        err instanceof Error ? err.message : "Something went wrong.",
+      );
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
   }
 
   function primaryAction() {
-    if (isLastStep()) submit()
-    else gotoNext()
+    if (isLastStep()) submit();
+    else gotoNext();
   }
 
   return (
@@ -671,7 +674,7 @@ export function OnboardingWizard({
               key={s}
               className={cn(
                 "h-1 flex-1 rounded-full transition-colors",
-                i <= stepIdx ? "bg-foreground" : "bg-border"
+                i <= stepIdx ? "bg-foreground" : "bg-border",
               )}
             />
           ))}
@@ -683,8 +686,8 @@ export function OnboardingWizard({
           <UnitsStep
             weightUnit={weightUnit}
             energyUnit={energyUnit}
-            setWeightUnit={setWeightUnit}
-            setEnergyUnit={setEnergyUnit}
+            setWeightUnit={changeWeightUnit}
+            setEnergyUnit={changeEnergyUnit}
           />
         )}
         {stepKey === "profile" && (
@@ -785,7 +788,7 @@ export function OnboardingWizard({
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // ===== Step components =====
@@ -796,10 +799,10 @@ function UnitsStep({
   setWeightUnit,
   setEnergyUnit,
 }: {
-  weightUnit: WeightUnit
-  energyUnit: EnergyUnit
-  setWeightUnit: (u: WeightUnit) => void
-  setEnergyUnit: (u: EnergyUnit) => void
+  weightUnit: WeightUnit;
+  energyUnit: EnergyUnit;
+  setWeightUnit: (u: WeightUnit) => void;
+  setEnergyUnit: (u: EnergyUnit) => void;
 }) {
   return (
     <div className="space-y-6">
@@ -840,7 +843,7 @@ function UnitsStep({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function ProfileStep({
@@ -857,29 +860,29 @@ function ProfileStep({
   setHeightIn,
   errors,
 }: {
-  weightUnit: WeightUnit
-  sex: Sex | ""
-  setSex: (v: Sex | "") => void
-  birthDate: string
-  setBirthDate: (v: string) => void
-  heightCm: string
-  setHeightCm: (v: string) => void
-  heightFt: string
-  setHeightFt: (v: string) => void
-  heightIn: string
-  setHeightIn: (v: string) => void
-  errors: Record<string, string>
+  weightUnit: WeightUnit;
+  sex: Sex | "";
+  setSex: (v: Sex | "") => void;
+  birthDate: string;
+  setBirthDate: (v: string) => void;
+  heightCm: string;
+  setHeightCm: (v: string) => void;
+  heightFt: string;
+  setHeightFt: (v: string) => void;
+  heightIn: string;
+  setHeightIn: (v: string) => void;
+  errors: Record<string, string>;
 }) {
   const maxBirthDate = useMemo(() => {
-    const d = new Date()
-    d.setFullYear(d.getFullYear() - 13)
-    return d.toISOString().slice(0, 10)
-  }, [])
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 13);
+    return d.toISOString().slice(0, 10);
+  }, []);
   const minBirthDate = useMemo(() => {
-    const d = new Date()
-    d.setFullYear(d.getFullYear() - 120)
-    return d.toISOString().slice(0, 10)
-  }, [])
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 120);
+    return d.toISOString().slice(0, 10);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -989,15 +992,15 @@ function ProfileStep({
         <FieldError message={errors.height} />
       </div>
     </div>
-  )
+  );
 }
 
 function ActivityStep({
   activityLevel,
   setActivityLevel,
 }: {
-  activityLevel: ActivityLevel | ""
-  setActivityLevel: (v: ActivityLevel | "") => void
+  activityLevel: ActivityLevel | "";
+  setActivityLevel: (v: ActivityLevel | "") => void;
 }) {
   return (
     <div className="space-y-6">
@@ -1019,7 +1022,7 @@ function ActivityStep({
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 function WeightStep({
@@ -1028,10 +1031,10 @@ function WeightStep({
   setCurrentWeight,
   errors,
 }: {
-  weightUnit: WeightUnit
-  currentWeight: string
-  setCurrentWeight: (v: string) => void
-  errors: Record<string, string>
+  weightUnit: WeightUnit;
+  currentWeight: string;
+  setCurrentWeight: (v: string) => void;
+  errors: Record<string, string>;
 }) {
   return (
     <div className="space-y-6">
@@ -1056,7 +1059,7 @@ function WeightStep({
       </div>
       <FieldError message={errors.currentWeight} />
     </div>
-  )
+  );
 }
 
 function GoalStep({
@@ -1070,54 +1073,54 @@ function GoalStep({
   setGoalDate,
   errors,
 }: {
-  weightUnit: WeightUnit
-  currentWeight: string
-  goalType: GoalType | ""
-  setGoalType: (v: GoalType | "") => void
-  targetWeight: string
-  setTargetWeight: (v: string) => void
-  goalDate: string
-  setGoalDate: (v: string) => void
-  errors: Record<string, string>
+  weightUnit: WeightUnit;
+  currentWeight: string;
+  goalType: GoalType | "";
+  setGoalType: (v: GoalType | "") => void;
+  targetWeight: string;
+  setTargetWeight: (v: string) => void;
+  goalDate: string;
+  setGoalDate: (v: string) => void;
+  errors: Record<string, string>;
 }) {
-  const showDetails = goalType === "lose" || goalType === "gain"
+  const showDetails = goalType === "lose" || goalType === "gain";
   const minDateStr = useMemo(() => {
-    const d = new Date()
-    d.setDate(d.getDate() + 7)
-    return d.toISOString().slice(0, 10)
-  }, [])
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 10);
+  }, []);
   const maxDateStr = useMemo(() => {
-    const d = new Date()
-    d.setFullYear(d.getFullYear() + 5)
-    return d.toISOString().slice(0, 10)
-  }, [])
+    const d = new Date();
+    d.setFullYear(d.getFullYear() + 5);
+    return d.toISOString().slice(0, 10);
+  }, []);
 
   const projection = useMemo(() => {
     if (!showDetails || !currentWeight || !targetWeight || !goalDate)
-      return null
+      return null;
     const cwKg =
       weightUnit === "lb"
         ? parseFloat(currentWeight) / 2.20462
-        : parseFloat(currentWeight)
+        : parseFloat(currentWeight);
     const twKg =
       weightUnit === "lb"
         ? parseFloat(targetWeight) / 2.20462
-        : parseFloat(targetWeight)
-    const gd = new Date(goalDate)
-    if (isNaN(cwKg) || isNaN(twKg) || isNaN(gd.getTime())) return null
-    if (gd <= new Date()) return null
-    const totalWeeks =
-      (gd.getTime() - new Date().getTime()) / (7 * 24 * 60 * 60 * 1000)
-    const rateKg = Math.abs(cwKg - twKg) / totalWeeks
+        : parseFloat(targetWeight);
+    const gd = new Date(goalDate);
+    if (Number.isNaN(cwKg) || Number.isNaN(twKg) || Number.isNaN(gd.getTime()))
+      return null;
+    if (gd <= new Date()) return null;
+    const totalWeeks = (gd.getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000);
+    const rateKg = Math.abs(cwKg - twKg) / totalWeeks;
     const rateDisplay =
       weightUnit === "lb"
         ? Math.round(rateKg * 2.20462 * 100) / 100
-        : Math.round(rateKg * 100) / 100
+        : Math.round(rateKg * 100) / 100;
     return {
       rateDisplay,
       goalDateLabel: format(gd, "d MMM yyyy"),
-    }
-  }, [currentWeight, targetWeight, goalDate, weightUnit, showDetails])
+    };
+  }, [currentWeight, targetWeight, goalDate, weightUnit, showDetails]);
 
   return (
     <div className="space-y-6">
@@ -1213,15 +1216,15 @@ function GoalStep({
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function MacroProfileStep({
   proteinProfile,
   setProteinProfile,
 }: {
-  proteinProfile: ProteinProfile
-  setProteinProfile: (v: ProteinProfile) => void
+  proteinProfile: ProteinProfile;
+  setProteinProfile: (v: ProteinProfile) => void;
 }) {
   return (
     <div className="space-y-6">
@@ -1241,7 +1244,7 @@ function MacroProfileStep({
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 function ReviewStep({
@@ -1252,15 +1255,15 @@ function ReviewStep({
   setSplit,
   errors,
 }: {
-  energyUnit: EnergyUnit
-  calories: string
-  setCalories: (v: string) => void
-  split: MacroSplit
-  setSplit: (s: MacroSplit) => void
-  errors: Record<string, string>
+  energyUnit: EnergyUnit;
+  calories: string;
+  setCalories: (v: string) => void;
+  split: MacroSplit;
+  setSplit: (s: MacroSplit) => void;
+  errors: Record<string, string>;
 }) {
-  const energyLabel = energyUnit === "kcal" ? "kcal" : "kJ"
-  const kcal = parseFloat(calories) || 0
+  const energyLabel = energyUnit === "kcal" ? "kcal" : "kJ";
+  const kcal = parseFloat(calories) || 0;
   return (
     <div className="space-y-6">
       <StepHeader
@@ -1293,9 +1296,9 @@ function ReviewStep({
       </div>
       <div className="space-y-5">
         {SLIDER_MACROS.map(({ key, label, kcalPerG, color }) => {
-          const pct = split[key]
+          const pct = split[key];
           const grams =
-            kcal > 0 ? Math.round((kcal * (pct / 100)) / kcalPerG) : 0
+            kcal > 0 ? Math.round((kcal * (pct / 100)) / kcalPerG) : 0;
           return (
             <div key={key} className="space-y-2">
               <div className="flex items-baseline justify-between">
@@ -1321,17 +1324,19 @@ function ReviewStep({
               </div>
               <Slider
                 value={[pct]}
-                onValueChange={([v]) => setSplit(adjustSplit(key, v, split))}
+                onValueChange={([v = pct]) =>
+                  setSplit(adjustSplit(key, v, split))
+                }
                 min={10}
                 max={70}
                 step={1}
               />
             </div>
-          )
+          );
         })}
       </div>
     </div>
-  )
+  );
 }
 
 function DaysStep({
@@ -1340,14 +1345,14 @@ function DaysStep({
   dayDeltas,
   setDayDeltas,
 }: {
-  energyUnit: EnergyUnit
-  calories: string
-  dayDeltas: WeekdayDelta[]
-  setDayDeltas: (v: WeekdayDelta[]) => void
+  energyUnit: EnergyUnit;
+  calories: string;
+  dayDeltas: WeekdayDelta[];
+  setDayDeltas: (v: WeekdayDelta[]) => void;
 }) {
-  const energyLabel = energyUnit === "kcal" ? "kcal" : "kJ"
-  const base = parseFloat(calories) || 0
-  const stepSize = 50
+  const energyLabel = energyUnit === "kcal" ? "kcal" : "kJ";
+  const base = parseFloat(calories) || 0;
+  const stepSize = 50;
 
   function adjust(weekday: number, dir: 1 | -1) {
     setDayDeltas(
@@ -1357,21 +1362,21 @@ function DaysStep({
               ...d,
               delta: Math.max(
                 -Math.min(600, base * 0.4),
-                Math.min(600, base * 0.4, d.delta + dir * stepSize)
+                Math.min(600, base * 0.4, d.delta + dir * stepSize),
               ),
             }
-          : d
-      )
-    )
+          : d,
+      ),
+    );
   }
 
   function reset() {
-    setDayDeltas(dayDeltas.map((d) => ({ ...d, delta: 0 })))
+    setDayDeltas(dayDeltas.map((d) => ({ ...d, delta: 0 })));
   }
 
   const weeklyTotal = useMemo(() => {
-    return dayDeltas.reduce((s, d) => s + base + d.delta, 0)
-  }, [dayDeltas, base])
+    return dayDeltas.reduce((s, d) => s + base + d.delta, 0);
+  }, [dayDeltas, base]);
 
   return (
     <div className="space-y-6">
@@ -1401,8 +1406,9 @@ function DaysStep({
       </div>
       <div className="space-y-2">
         {dayDeltas.map((d) => {
-          const value = Math.round(base + d.delta)
-          const diff = d.delta
+          const value = Math.round(base + d.delta);
+          const diff = d.delta;
+          const weekdayLabel = WEEKDAY_FULL[d.weekday] ?? "Day";
           return (
             <div
               key={d.weekday}
@@ -1410,7 +1416,7 @@ function DaysStep({
             >
               <div className="flex w-16 shrink-0 flex-col">
                 <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                  {WEEKDAY_FULL[d.weekday].slice(0, 3)}
+                  {weekdayLabel.slice(0, 3)}
                 </span>
                 <span className="text-sm font-semibold tabular-nums">
                   {value.toLocaleString()}
@@ -1421,7 +1427,7 @@ function DaysStep({
                   type="button"
                   onClick={() => adjust(d.weekday, -1)}
                   className="flex size-9 items-center justify-center rounded-full bg-muted text-foreground hover:bg-muted/80"
-                  aria-label={`Decrease ${WEEKDAY_FULL[d.weekday]}`}
+                  aria-label={`Decrease ${weekdayLabel}`}
                 >
                   <Minus className="size-4" />
                 </button>
@@ -1432,7 +1438,7 @@ function DaysStep({
                       ? "text-muted-foreground"
                       : diff > 0
                         ? "text-emerald-500"
-                        : "text-rose-500"
+                        : "text-rose-500",
                   )}
                 >
                   {diff === 0 ? "—" : `${diff > 0 ? "+" : ""}${diff}`}
@@ -1441,15 +1447,15 @@ function DaysStep({
                   type="button"
                   onClick={() => adjust(d.weekday, 1)}
                   className="flex size-9 items-center justify-center rounded-full bg-muted text-foreground hover:bg-muted/80"
-                  aria-label={`Increase ${WEEKDAY_FULL[d.weekday]}`}
+                  aria-label={`Increase ${weekdayLabel}`}
                 >
                   <Plus className="size-4" />
                 </button>
               </div>
             </div>
-          )
+          );
         })}
       </div>
     </div>
-  )
+  );
 }

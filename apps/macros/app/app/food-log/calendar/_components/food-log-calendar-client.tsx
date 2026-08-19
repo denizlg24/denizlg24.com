@@ -1,6 +1,8 @@
-"use client"
+"use client";
 
-import { useQuery } from "@tanstack/react-query"
+import { Button } from "@repo/ui/button";
+import { Skeleton } from "@repo/ui/skeleton";
+import { useQuery } from "@tanstack/react-query";
 import {
   addDays,
   endOfMonth,
@@ -9,49 +11,47 @@ import {
   isSameMonth,
   startOfMonth,
   subMonths,
-} from "date-fns"
-import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
-import { foodLogQueryKeys } from "@/lib/app-cache/food-log-keys"
-import type { CalendarTotalsPayload } from "@/lib/queries/food-log-calendar-totals"
-import { CalorieDayPill } from "../../_components/calorie-day-pill"
-import { dateToIso, todayIso } from "../../_lib/date-utils"
+} from "date-fns";
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
+import { foodLogQueryKeys } from "@/lib/app-cache/food-log-keys";
+import type { CalendarTotalsPayload } from "@/lib/queries/food-log-calendar-totals";
+import { CalorieDayPill } from "../../_components/calorie-day-pill";
+import { dateToIso, todayIso } from "../../_lib/date-utils";
 
 async function fetchCalendarTotals(
   start: string,
   end: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<CalendarTotalsPayload> {
   const response = await fetch(
     `/api/food-log/calendar-totals?start=${start}&end=${end}`,
-    { signal, cache: "no-store" }
-  )
+    { signal, cache: "no-store" },
+  );
   if (!response.ok) {
-    throw new Error(`Failed to load calendar (${response.status})`)
+    throw new Error(`Failed to load calendar (${response.status})`);
   }
-  return response.json() as Promise<CalendarTotalsPayload>
+  return response.json() as Promise<CalendarTotalsPayload>;
 }
 
 export function FoodLogCalendarClient() {
-  const today = todayIso()
-  const end = endOfMonth(new Date())
-  const start = startOfMonth(subMonths(end, 11))
-  const startIso = dateToIso(start)
-  const endIso = dateToIso(end)
+  const today = todayIso();
+  const end = endOfMonth(new Date());
+  const start = startOfMonth(subMonths(end, 11));
+  const startIso = dateToIso(start);
+  const endIso = dateToIso(end);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: foodLogQueryKeys.calendarTotals(startIso, endIso),
     queryFn: ({ signal }) => fetchCalendarTotals(startIso, endIso, signal),
     staleTime: 60_000,
-  })
+  });
 
   const totalsByDate = new Map<string, number>(
-    data?.days.map((day) => [day.date, day.calories]) ?? []
-  )
+    data?.days.map((day) => [day.date, day.calories]) ?? [],
+  );
 
-  const months = buildMonths(start, end)
+  const months = buildMonths(start, end);
 
   return (
     <div className="min-h-dvh bg-background pb-10">
@@ -91,8 +91,8 @@ export function FoodLogCalendarClient() {
               </h2>
               <div className="grid grid-cols-7 gap-x-2 gap-y-6">
                 {month.days.map((day) => {
-                  const iso = dateToIso(day)
-                  const isFuture = iso > today
+                  const iso = dateToIso(day);
+                  const isFuture = iso > today;
                   return (
                     <DayPill
                       key={iso}
@@ -103,7 +103,7 @@ export function FoodLogCalendarClient() {
                       consumed={totalsByDate.get(iso) ?? 0}
                       target={data?.calorieTarget ?? null}
                     />
-                  )
+                  );
                 })}
               </div>
             </section>
@@ -111,30 +111,30 @@ export function FoodLogCalendarClient() {
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function buildMonths(start: Date, end: Date) {
-  const months: { key: string; label: string; date: Date; days: Date[] }[] = []
+  const months: { key: string; label: string; date: Date; days: Date[] }[] = [];
   for (
     let month = startOfMonth(start);
     month.getTime() <= end.getTime();
     month = startOfMonth(addDays(endOfMonth(month), 1))
   ) {
-    const first = startOfMonth(month)
-    const last = endOfMonth(month)
-    const days: Date[] = []
+    const first = startOfMonth(month);
+    const last = endOfMonth(month);
+    const days: Date[] = [];
     for (let d = new Date(first); d <= last; d = addDays(d, 1)) {
-      days.push(d)
+      days.push(d);
     }
     months.push({
       key: format(month, "yyyy-MM"),
       label: format(month, "MMM"),
       date: month,
       days,
-    })
+    });
   }
-  return months
+  return months;
 }
 
 function DayPill({
@@ -145,12 +145,12 @@ function DayPill({
   consumed,
   target,
 }: {
-  date: Date
-  iso: string
-  isDimmed: boolean
-  isFuture: boolean
-  consumed: number
-  target: number | null
+  date: Date;
+  iso: string;
+  isDimmed: boolean;
+  isFuture: boolean;
+  consumed: number;
+  target: number | null;
 }) {
   if (isFuture || isAfter(date, new Date())) {
     return (
@@ -162,7 +162,7 @@ function DayPill({
         isDisabled
         target={target}
       />
-    )
+    );
   }
 
   return (
@@ -175,7 +175,7 @@ function DayPill({
       isDimmed={isDimmed}
       target={target}
     />
-  )
+  );
 }
 
 function CalendarLoading() {
@@ -192,5 +192,5 @@ function CalendarLoading() {
         </section>
       ))}
     </div>
-  )
+  );
 }

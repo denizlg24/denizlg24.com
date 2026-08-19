@@ -1,34 +1,34 @@
-"use client"
+"use client";
 
-import { useQueryClient } from "@tanstack/react-query"
-import { useEffect, useRef, useState } from "react"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { setDashboardCaloriePreference } from "@/lib/app-cache/api"
+import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { setDashboardCaloriePreference } from "@/lib/app-cache/api";
 import {
   getOptimisticNutritionForDate,
   subscribeToOptimisticNutrition,
-} from "@/lib/optimistic-nutrition"
+} from "@/lib/optimistic-nutrition";
 import type {
   CaloriePreference,
   DailyMacros,
   NutritionTargets,
-} from "@/lib/queries/dashboard"
-import { CalorieRing } from "./calorie-ring"
+} from "@/lib/queries/dashboard";
+import { CalorieRing } from "./calorie-ring";
 
 type Props = {
-  today: string
-  consumed: DailyMacros
-  targets: NutritionTargets
-  initialPreference: CaloriePreference
-}
+  today: string;
+  consumed: DailyMacros;
+  targets: NutritionTargets;
+  initialPreference: CaloriePreference;
+};
 
-type View = CaloriePreference
+type View = CaloriePreference;
 
 const MACROS = [
   { key: "protein", label: "Protein", color: "#ef4444" },
   { key: "fat", label: "Fat", color: "#eab308" },
   { key: "carbs", label: "Carbs", color: "#22c55e" },
-] as const
+] as const;
 
 export function NutritionSection({
   today,
@@ -36,42 +36,42 @@ export function NutritionSection({
   targets,
   initialPreference,
 }: Props) {
-  const queryClient = useQueryClient()
-  const [view, setView] = useState<View>(initialPreference)
-  const saveRequestSeq = useRef(0)
-  const saveController = useRef<AbortController | null>(null)
+  const queryClient = useQueryClient();
+  const [view, setView] = useState<View>(initialPreference);
+  const saveRequestSeq = useRef(0);
+  const saveController = useRef<AbortController | null>(null);
   const [optimisticConsumed, setOptimisticConsumed] = useState(() =>
-    getOptimisticNutritionForDate(today, consumed)
-  )
+    getOptimisticNutritionForDate(today, consumed),
+  );
 
   useEffect(() => {
-    return () => saveController.current?.abort()
-  }, [])
+    return () => saveController.current?.abort();
+  }, []);
 
   useEffect(() => {
-    setView(initialPreference)
-  }, [initialPreference])
+    setView(initialPreference);
+  }, [initialPreference]);
 
   useEffect(() => {
     function syncOptimisticConsumed() {
-      setOptimisticConsumed(getOptimisticNutritionForDate(today, consumed))
+      setOptimisticConsumed(getOptimisticNutritionForDate(today, consumed));
     }
 
-    syncOptimisticConsumed()
-    return subscribeToOptimisticNutrition(syncOptimisticConsumed)
-  }, [consumed, today])
+    syncOptimisticConsumed();
+    return subscribeToOptimisticNutrition(syncOptimisticConsumed);
+  }, [consumed, today]);
 
   function handleViewChange(next: View) {
-    if (next === view) return
-    const previous = view
-    setView(next)
+    if (next === view) return;
+    const previous = view;
+    setView(next);
 
-    const requestId = saveRequestSeq.current + 1
-    saveRequestSeq.current = requestId
-    saveController.current?.abort()
+    const requestId = saveRequestSeq.current + 1;
+    saveRequestSeq.current = requestId;
+    saveController.current?.abort();
 
-    const controller = new AbortController()
-    saveController.current = controller
+    const controller = new AbortController();
+    saveController.current = controller;
 
     fetch("/api/profile/preferences", {
       method: "PUT",
@@ -81,40 +81,40 @@ export function NutritionSection({
     })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`Request failed with ${response.status}`)
+          throw new Error(`Request failed with ${response.status}`);
         }
 
         if (saveRequestSeq.current !== requestId) {
-          return
+          return;
         }
 
-        setDashboardCaloriePreference(queryClient, next)
+        setDashboardCaloriePreference(queryClient, next);
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") {
-          return
+          return;
         }
         if (saveRequestSeq.current === requestId) {
-          setView(previous)
+          setView(previous);
         }
-        console.error("Failed to persist calorie preference", error)
-      })
+        console.error("Failed to persist calorie preference", error);
+      });
   }
 
   const remaining: DailyMacros = {
     calories: Math.max(
       0,
-      (targets.calories ?? 0) - optimisticConsumed.calories
+      (targets.calories ?? 0) - optimisticConsumed.calories,
     ),
     protein: Math.max(0, (targets.protein ?? 0) - optimisticConsumed.protein),
     carbs: Math.max(0, (targets.carbs ?? 0) - optimisticConsumed.carbs),
     fat: Math.max(0, (targets.fat ?? 0) - optimisticConsumed.fat),
-  }
+  };
 
-  const primaryData = view === "consumed" ? optimisticConsumed : remaining
-  const secondaryData = view === "consumed" ? remaining : optimisticConsumed
-  const primaryLabel = view === "consumed" ? "Consumed" : "Remaining"
-  const secondaryLabel = view === "consumed" ? "Remaining" : "Consumed"
+  const primaryData = view === "consumed" ? optimisticConsumed : remaining;
+  const secondaryData = view === "consumed" ? remaining : optimisticConsumed;
+  const primaryLabel = view === "consumed" ? "Consumed" : "Remaining";
+  const secondaryLabel = view === "consumed" ? "Remaining" : "Consumed";
 
   return (
     <div>
@@ -146,12 +146,12 @@ export function NutritionSection({
 
       <div className="grid grid-cols-3 gap-4 px-5 mt-4">
         {MACROS.map(({ key, label, color }) => {
-          const value = primaryData[key]
-          const target = targets[key]
+          const value = primaryData[key];
+          const target = targets[key];
           const pct =
             target != null && target > 0
               ? Math.min((value / target) * 100, 100)
-              : 0
+              : 0;
           return (
             <div key={key} className="flex flex-col gap-1.5">
               <p className="text-xs text-muted-foreground text-center">
@@ -168,7 +168,7 @@ export function NutritionSection({
                 {target != null ? Math.round(target) : "—"}g
               </p>
             </div>
-          )
+          );
         })}
       </div>
 
@@ -185,5 +185,5 @@ export function NutritionSection({
         </Tabs>
       </div>
     </div>
-  )
+  );
 }

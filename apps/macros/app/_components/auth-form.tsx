@@ -1,24 +1,23 @@
-"use client"
+"use client";
 
-import { zodResolver } from "@hookform/resolvers/zod"
-import { ArrowRight, LoaderCircle, MailOpen } from "lucide-react"
-import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { z } from "zod"
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Button } from "@repo/ui/button";
+import { Checkbox } from "@repo/ui/checkbox";
+import { Input } from "@repo/ui/input";
+import { Label } from "@repo/ui/label";
+import { cn } from "@repo/ui/utils";
+import { ArrowRight, LoaderCircle, MailOpen } from "lucide-react";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { authClient } from "@/lib/auth-client";
 
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { authClient } from "@/lib/auth-client"
-import { cn } from "@/lib/utils"
-
-type AuthMode = "login" | "signup"
+type AuthMode = "login" | "signup";
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email address"),
   password: z.string().min(8, "Password must be at least 8 characters"),
-})
+});
 
 const signupSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -27,13 +26,13 @@ const signupSchema = z.object({
   terms: z.boolean().refine((v) => v === true, {
     message: "You must accept the terms and conditions",
   }),
-})
+});
 
-type LoginValues = z.infer<typeof loginSchema>
-type SignupValues = z.infer<typeof signupSchema>
+type LoginValues = z.infer<typeof loginSchema>;
+type SignupValues = z.infer<typeof signupSchema>;
 
 export function AuthForm() {
-  const [mode, setMode] = useState<AuthMode>("login")
+  const [mode, setMode] = useState<AuthMode>("login");
 
   return (
     <div>
@@ -56,7 +55,7 @@ export function AuthForm() {
             onClick={() => setMode(item)}
             className={cn(
               "relative pb-3 text-sm font-medium text-muted-foreground transition-colors",
-              mode === item && "text-foreground"
+              mode === item && "text-foreground",
             )}
           >
             {item === "login" ? "Log in" : "Sign up"}
@@ -69,34 +68,34 @@ export function AuthForm() {
 
       {mode === "login" ? <LoginForm /> : <SignupForm />}
     </div>
-  )
+  );
 }
 
 function FieldError({ message }: { message?: string }) {
-  if (!message) return null
-  return <p className="text-xs text-destructive">{message}</p>
+  if (!message) return null;
+  return <p className="text-xs text-destructive">{message}</p>;
 }
 
 function LoginForm() {
-  const [serverMessage, setServerMessage] = useState("")
+  const [serverMessage, setServerMessage] = useState("");
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) })
+  } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) });
 
   async function onSubmit(values: LoginValues) {
-    setServerMessage("")
+    setServerMessage("");
     const response = await authClient.signIn.email({
       email: values.email,
       password: values.password,
       callbackURL: "/",
-    })
+    });
     if (response.error) {
-      setServerMessage(response.error.message ?? "Something went wrong.")
-      return
+      setServerMessage(response.error.message ?? "Something went wrong.");
+      return;
     }
-    setServerMessage("Signed in.")
+    setServerMessage("Signed in.");
   }
 
   return (
@@ -153,12 +152,12 @@ function LoginForm() {
         </p>
       )}
     </form>
-  )
+  );
 }
 
 function SignupForm() {
-  const [error, setError] = useState("")
-  const [sentTo, setSentTo] = useState<string | null>(null)
+  const [error, setError] = useState("");
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
@@ -168,23 +167,23 @@ function SignupForm() {
   } = useForm<SignupValues>({
     resolver: zodResolver(signupSchema),
     defaultValues: { terms: false },
-  })
+  });
 
-  const termsChecked = watch("terms")
+  const termsChecked = watch("terms");
 
   async function onSubmit(values: SignupValues) {
-    setError("")
+    setError("");
     const response = await authClient.signUp.email({
       email: values.email,
       password: values.password,
       name: values.name,
       callbackURL: "/register/complete",
-    })
+    });
     if (response.error) {
-      setError(response.error.message ?? "Something went wrong.")
-      return
+      setError(response.error.message ?? "Something went wrong.");
+      return;
     }
-    setSentTo(values.email)
+    setSentTo(values.email);
   }
 
   if (sentTo) {
@@ -205,7 +204,7 @@ function SignupForm() {
           Didn&apos;t get it? Check your spam folder.
         </p>
       </div>
-    )
+    );
   }
 
   return (
@@ -305,5 +304,5 @@ function SignupForm() {
         </p>
       )}
     </form>
-  )
+  );
 }

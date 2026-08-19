@@ -1,7 +1,17 @@
-"use client"
+"use client";
 
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
-import { useQueryClient } from "@tanstack/react-query"
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import { Button } from "@repo/ui/button";
+import { Input } from "@repo/ui/input";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@repo/ui/keyboard-sheet";
+import { cn } from "@repo/ui/utils";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Barcode,
   BookOpen,
@@ -12,9 +22,9 @@ import {
   Trash2,
   Utensils,
   X,
-} from "lucide-react"
-import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+} from "lucide-react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   type ChangeEvent,
   Fragment,
@@ -24,21 +34,12 @@ import {
   useMemo,
   useRef,
   useState,
-} from "react"
-import { toast } from "sonner"
-import { z } from "zod"
-import { Button } from "@/components/ui/button"
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerTitle,
-  DrawerTrigger,
-} from "@/components/ui/drawer"
-import { Input } from "@/components/ui/input"
-import { setTodayNutritionTotals, useFoodHistory } from "@/lib/app-cache/api"
-import { foodLogQueryKeys } from "@/lib/app-cache/food-log-keys"
-import { queryKeys } from "@/lib/app-cache/query-keys"
+} from "react";
+import { toast } from "sonner";
+import { z } from "zod";
+import { setTodayNutritionTotals, useFoodHistory } from "@/lib/app-cache/api";
+import { foodLogQueryKeys } from "@/lib/app-cache/food-log-keys";
+import { queryKeys } from "@/lib/app-cache/query-keys";
 import {
   type FoodHistoryItem,
   type FoodSearchItem,
@@ -49,54 +50,53 @@ import {
   type LogFoodInput,
   logFoodBodySchema,
   logFoodResponseSchema,
-} from "@/lib/foods/contracts"
+} from "@/lib/foods/contracts";
 import {
   readPendingFoods,
   subscribeToPendingFoods,
   writePendingFoods,
-} from "@/lib/foods/pending-foods"
-import { MACRO_COLORS } from "@/lib/macro-colors"
+} from "@/lib/foods/pending-foods";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 import {
   addOptimisticNutritionEntry,
   type OptimisticDailyMacros,
   putConfirmedNutritionTotals,
   removeOptimisticNutritionEntries,
-} from "@/lib/optimistic-nutrition"
-import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary"
-import type { FoodLogDayPayload } from "@/lib/queries/food-log-day"
+} from "@/lib/optimistic-nutrition";
+import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
+import type { FoodLogDayPayload } from "@/lib/queries/food-log-day";
 import {
   type LogRecipeInput,
   logRecipeBodySchema,
   logRecipeResponseSchema,
-} from "@/lib/recipes/contracts"
-import { cn } from "@/lib/utils"
+} from "@/lib/recipes/contracts";
 import {
   getCachedFoodSearch,
   putCachedFoodSearch,
   updateCachedFoodItems,
-} from "../_lib/food-search-cache"
-import { FoodDetailDrawer, type FoodSummary } from "./food-detail-drawer"
+} from "../_lib/food-search-cache";
+import { FoodDetailDrawer, type FoodSummary } from "./food-detail-drawer";
 
 interface FoodSearchState {
-  query: string
-  timePicks: FoodHistoryItem[]
-  history: FoodHistoryItem[]
-  results: FoodSearchItem[]
-  isLoadingHistory: boolean
-  isSearching: boolean
-  isLogging: boolean
-  showingCachedResults: boolean
-  error: string | null
-  fetchedAt: string | null
+  query: string;
+  timePicks: FoodHistoryItem[];
+  history: FoodHistoryItem[];
+  results: FoodSearchItem[];
+  isLoadingHistory: boolean;
+  isSearching: boolean;
+  isLogging: boolean;
+  showingCachedResults: boolean;
+  error: string | null;
+  fetchedAt: string | null;
 }
 
 async function readJsonResponse(response: Response) {
   if (!response.ok) {
-    throw new Error(`Request failed with ${response.status}`)
+    throw new Error(`Request failed with ${response.status}`);
   }
 
-  const body: unknown = await response.json()
-  return body
+  const body: unknown = await response.json();
+  return body;
 }
 
 async function postFoodLog(input: LogFoodInput) {
@@ -104,9 +104,9 @@ async function postFoodLog(input: LogFoodInput) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
-  })
+  });
 
-  return logFoodResponseSchema.parse(await readJsonResponse(response))
+  return logFoodResponseSchema.parse(await readJsonResponse(response));
 }
 
 async function postRecipeLog(input: LogRecipeInput) {
@@ -114,13 +114,13 @@ async function postRecipeLog(input: LogRecipeInput) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
-  })
+  });
 
-  return logRecipeResponseSchema.parse(await readJsonResponse(response))
+  return logRecipeResponseSchema.parse(await readJsonResponse(response));
 }
 
 function isRecipeInput(input: PendingFood["input"]): input is LogRecipeInput {
-  return "recipeId" in input
+  return "recipeId" in input;
 }
 
 export function getHourInTimezone(date: Date, timezone: string) {
@@ -129,50 +129,50 @@ export function getHourInTimezone(date: Date, timezone: string) {
       hour: "numeric",
       hourCycle: "h23",
       timeZone: timezone,
-    }).format(date)
-  )
+    }).format(date),
+  );
 
-  return Number.isFinite(hour) ? hour : date.getHours()
+  return Number.isFinite(hour) ? hour : date.getHours();
 }
 
 export function dateFromIsoDate(value: string) {
-  const parts = value.split("-")
-  const year = Number(parts[0])
-  const month = Number(parts[1])
-  const day = Number(parts[2])
+  const parts = value.split("-");
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
 
   if (!year || !month || !day) {
-    const fallback = new Date()
-    fallback.setHours(0, 0, 0, 0)
-    return fallback
+    const fallback = new Date();
+    fallback.setHours(0, 0, 0, 0);
+    return fallback;
   }
 
-  return new Date(year, month - 1, day)
+  return new Date(year, month - 1, day);
 }
 
 export function formatHourLabel(hour: number) {
-  const h12 = hour % 12 === 0 ? 12 : hour % 12
-  const suffix = hour < 12 ? "AM" : "PM"
-  return `${h12} ${suffix}`
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  const suffix = hour < 12 ? "AM" : "PM";
+  return `${h12} ${suffix}`;
 }
 
 function getSearchParams(query: string): FoodSearchParams | null {
-  const trimmed = query.trim()
+  const trimmed = query.trim();
   if (!trimmed) {
-    return null
+    return null;
   }
 
   const parsed = foodSearchParamsSchema.safeParse({
     q: trimmed,
     limit: 50,
-  })
+  });
 
-  return parsed.success ? parsed.data : null
+  return parsed.success ? parsed.data : null;
 }
 
 export function useAddFoodLogic() {
-  const requestSeq = useRef(0)
-  const foodHistoryQuery = useFoodHistory(20)
+  const requestSeq = useRef(0);
+  const foodHistoryQuery = useFoodHistory(20);
   const [state, setState] = useState<FoodSearchState>({
     query: "",
     timePicks: [],
@@ -184,44 +184,44 @@ export function useAddFoodLogic() {
     showingCachedResults: false,
     error: null,
     fetchedAt: null,
-  })
+  });
 
   const revalidateCachedItems = useCallback(
     async (itemIds: string[], activeRequest: number) => {
       if (itemIds.length === 0) {
-        return
+        return;
       }
 
       const response = await fetch("/api/foods/revalidate", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ itemIds }),
-      })
+      });
       const body = foodRevalidateResponseSchema.parse(
-        await readJsonResponse(response)
-      )
-      const items = body.items.map((result) => result.item)
+        await readJsonResponse(response),
+      );
+      const items = body.items.map((result) => result.item);
 
-      await updateCachedFoodItems(items, body.fetchedAt)
+      await updateCachedFoodItems(items, body.fetchedAt);
 
       if (requestSeq.current === activeRequest) {
         setState((current) => ({
           ...current,
           results: current.results.map(
-            (item) => items.find((updated) => updated.id === item.id) ?? item
+            (item) => items.find((updated) => updated.id === item.id) ?? item,
           ),
           fetchedAt: body.fetchedAt,
-        }))
+        }));
       }
     },
-    []
-  )
+    [],
+  );
 
   const searchFoods = useCallback(
     async (query: string) => {
-      const params = getSearchParams(query)
-      const activeRequest = requestSeq.current + 1
-      requestSeq.current = activeRequest
+      const params = getSearchParams(query);
+      const activeRequest = requestSeq.current + 1;
+      requestSeq.current = activeRequest;
 
       setState((current) => ({
         ...current,
@@ -230,35 +230,35 @@ export function useAddFoodLogic() {
         showingCachedResults: false,
         results: params ? current.results : [],
         error: null,
-      }))
+      }));
 
       if (!params) {
-        return
+        return;
       }
 
-      const cached = await getCachedFoodSearch(params)
+      const cached = await getCachedFoodSearch(params);
       if (cached && requestSeq.current === activeRequest) {
         setState((current) => ({
           ...current,
           results: cached.items,
           showingCachedResults: true,
           fetchedAt: cached.fetchedAt,
-        }))
+        }));
 
-        revalidateCachedItems(cached.itemIds, activeRequest).catch(() => {})
+        revalidateCachedItems(cached.itemIds, activeRequest).catch(() => {});
       }
 
       try {
-        const url = new URL("/api/foods/search", window.location.origin)
-        url.searchParams.set("q", params.q ?? "")
-        url.searchParams.set("limit", params.limit.toString())
+        const url = new URL("/api/foods/search", window.location.origin);
+        url.searchParams.set("q", params.q ?? "");
+        url.searchParams.set("limit", params.limit.toString());
 
-        const response = await fetch(url, { cache: "no-store" })
+        const response = await fetch(url, { cache: "no-store" });
         const body = foodSearchResponseSchema.parse(
-          await readJsonResponse(response)
-        )
+          await readJsonResponse(response),
+        );
 
-        await putCachedFoodSearch(params, body.items, body.fetchedAt)
+        await putCachedFoodSearch(params, body.items, body.fetchedAt);
 
         if (requestSeq.current === activeRequest) {
           setState((current) => ({
@@ -267,7 +267,7 @@ export function useAddFoodLogic() {
             isSearching: false,
             showingCachedResults: false,
             fetchedAt: body.fetchedAt,
-          }))
+          }));
         }
       } catch (error) {
         if (requestSeq.current === activeRequest) {
@@ -276,40 +276,40 @@ export function useAddFoodLogic() {
             isSearching: false,
             error:
               error instanceof Error ? error.message : "Failed to search foods",
-          }))
+          }));
         }
       }
     },
-    [revalidateCachedItems]
-  )
+    [revalidateCachedItems],
+  );
 
   const logFood = useCallback(async (input: LogFoodInput) => {
-    setState((current) => ({ ...current, isLogging: true, error: null }))
+    setState((current) => ({ ...current, isLogging: true, error: null }));
 
     try {
-      const body = await postFoodLog(input)
+      const body = await postFoodLog(input);
 
-      setState((current) => ({ ...current, isLogging: false }))
-      return body
+      setState((current) => ({ ...current, isLogging: false }));
+      return body;
     } catch (error) {
       setState((current) => ({
         ...current,
         isLogging: false,
         error: error instanceof Error ? error.message : "Failed to log food",
-      }))
-      return null
+      }));
+      return null;
     }
-  }, [])
+  }, []);
 
-  const historyItems = foodHistoryQuery.data?.items ?? []
-  const isLoadingHistory = foodHistoryQuery.isPending
-  const refetchHistory = foodHistoryQuery.refetch
+  const historyItems = foodHistoryQuery.data?.items ?? [];
+  const isLoadingHistory = foodHistoryQuery.isPending;
+  const refetchHistory = foodHistoryQuery.refetch;
   const historyError =
     foodHistoryQuery.isError && foodHistoryQuery.error instanceof Error
       ? foodHistoryQuery.error.message
       : foodHistoryQuery.isError
         ? "Failed to load history"
-        : null
+        : null;
   return useMemo(
     () => ({
       ...state,
@@ -320,7 +320,7 @@ export function useAddFoodLogic() {
       searchFoods,
       logFood,
       refreshHistory: () => {
-        void refetchHistory()
+        void refetchHistory();
       },
     }),
     [
@@ -331,8 +331,8 @@ export function useAddFoodLogic() {
       refetchHistory,
       searchFoods,
       logFood,
-    ]
-  )
+    ],
+  );
 }
 
 type SearchableItem = Pick<
@@ -346,48 +346,51 @@ type SearchableItem = Pick<
   | "carbsPerServing"
   | "fatPerServing"
   | "isUserFood"
->
+> & { favoriteServings?: number };
 
 function fmtMacro(value: number | null) {
-  if (value == null) return "0"
-  return Math.round(value).toString()
+  if (value == null) return "0";
+  return Math.round(value).toString();
 }
 
 function fmtServingInput(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "1"
-  return Number(value.toFixed(2)).toString()
+  if (!Number.isFinite(value) || value <= 0) return "1";
+  return Number(value.toFixed(2)).toString();
 }
 
 function parseServingInput(value: string) {
-  const parsed = Number.parseFloat(value)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
 function isHistoryItem(item: SearchableItem): item is FoodHistoryItem {
-  return "lastServingsConsumed" in item
+  return "lastServingsConsumed" in item;
 }
 
 function getDefaultServings(item: SearchableItem) {
-  return isHistoryItem(item) ? item.lastServingsConsumed : 1
+  return (
+    item.favoriteServings ??
+    (isHistoryItem(item) ? item.lastServingsConsumed : 1)
+  );
 }
 
 function HighlightedText({ text, query }: { text: string; query: string }) {
-  const trimmed = query.trim()
-  if (!trimmed) return <span className="font-semibold">{text}</span>
+  const trimmed = query.trim();
+  if (!trimmed) return <span className="font-semibold">{text}</span>;
 
   const regex = new RegExp(
     `(${trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
-    "gi"
-  )
+    "gi",
+  );
   const matchRegex = new RegExp(
     `^${trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
-    "i"
-  )
+    "i",
+  );
   const parts = text.split(regex).map((part, index) => ({
     key: `${index}-${part}`,
     part,
     matched: matchRegex.test(part),
-  }))
+  }));
   return (
     <span>
       {parts.map(({ key, part, matched }) => (
@@ -396,7 +399,7 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
         </span>
       ))}
     </span>
-  )
+  );
 }
 
 function FoodRow({
@@ -406,25 +409,25 @@ function FoodRow({
   onSelect,
   onQuickAdd,
 }: {
-  item: SearchableItem
-  query: string
-  highlightOnly?: boolean
-  onSelect: (item: SearchableItem) => void
-  onQuickAdd: (item: SearchableItem, servingsConsumed: number) => void
+  item: SearchableItem;
+  query: string;
+  highlightOnly?: boolean;
+  onSelect: (item: SearchableItem) => void;
+  onQuickAdd: (item: SearchableItem, servingsConsumed: number) => void;
 }) {
   const [servings, setServings] = useState(() =>
-    fmtServingInput(getDefaultServings(item))
-  )
+    fmtServingInput(getDefaultServings(item)),
+  );
   useEffect(() => {
-    setServings(fmtServingInput(getDefaultServings(item)))
-  }, [item])
+    setServings(fmtServingInput(getDefaultServings(item)));
+  }, [item]);
 
-  const servingsConsumed = parseServingInput(servings)
-  const displayName = item.brand ? `${item.name} By ${item.brand}` : item.name
+  const servingsConsumed = parseServingInput(servings);
+  const displayName = item.brand ? `${item.name} By ${item.brand}` : item.name;
   const servingLabel =
     isHistoryItem(item) && item.lastServingLabel
       ? item.lastServingLabel
-      : item.servingLabel
+      : item.servingLabel;
 
   return (
     <div className="flex w-full items-center gap-2 border-b border-border/50 px-4 py-3">
@@ -445,7 +448,7 @@ function FoodRow({
             {fmtMacro(
               item.caloriesPerServing == null
                 ? null
-                : item.caloriesPerServing * servingsConsumed
+                : item.caloriesPerServing * servingsConsumed,
             )}
             <Flame className="size-3" />
           </span>
@@ -453,7 +456,7 @@ function FoodRow({
             {fmtMacro(
               item.proteinPerServing == null
                 ? null
-                : item.proteinPerServing * servingsConsumed
+                : item.proteinPerServing * servingsConsumed,
             )}
             P
           </span>
@@ -461,7 +464,7 @@ function FoodRow({
             {fmtMacro(
               item.fatPerServing == null
                 ? null
-                : item.fatPerServing * servingsConsumed
+                : item.fatPerServing * servingsConsumed,
             )}
             F
           </span>
@@ -469,7 +472,7 @@ function FoodRow({
             {fmtMacro(
               item.carbsPerServing == null
                 ? null
-                : item.carbsPerServing * servingsConsumed
+                : item.carbsPerServing * servingsConsumed,
             )}
             C
           </span>
@@ -504,7 +507,7 @@ function FoodRow({
         <Plus className="size-4" />
       </button>
     </div>
-  )
+  );
 }
 
 function Section({
@@ -516,19 +519,19 @@ function Section({
   onSelect,
   onQuickAdd,
 }: {
-  title: string
-  items: SearchableItem[]
-  query: string
-  highlightOnly?: boolean
-  cap?: number
-  onSelect: (item: SearchableItem) => void
-  onQuickAdd: (item: SearchableItem, servingsConsumed: number) => void
+  title: string;
+  items: SearchableItem[];
+  query: string;
+  highlightOnly?: boolean;
+  cap?: number;
+  onSelect: (item: SearchableItem) => void;
+  onQuickAdd: (item: SearchableItem, servingsConsumed: number) => void;
 }) {
-  const [expanded, setExpanded] = useState(false)
-  if (items.length === 0) return null
+  const [expanded, setExpanded] = useState(false);
+  if (items.length === 0) return null;
 
-  const visible = expanded ? items : items.slice(0, cap)
-  const remaining = items.length - cap
+  const visible = expanded ? items : items.slice(0, cap);
+  const remaining = items.length - cap;
 
   return (
     <section className="pt-2">
@@ -557,7 +560,7 @@ function Section({
         ))}
       </div>
     </section>
-  )
+  );
 }
 
 function SearchLoadingSkeleton() {
@@ -580,7 +583,7 @@ function SearchLoadingSkeleton() {
                   ? "w-11/12"
                   : index % 3 === 1
                     ? "w-8/12"
-                    : "w-10/12"
+                    : "w-10/12",
               )}
             />
             <div className="flex items-center gap-2">
@@ -595,7 +598,7 @@ function SearchLoadingSkeleton() {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 const NAV_TABS = [
@@ -603,35 +606,35 @@ const NAV_TABS = [
   { href: "/app/add", label: "Search", Icon: SearchIcon },
   { href: "/app/recipes", label: "Recipes", Icon: ChefHat },
   { href: "/app/foods", label: "Library", Icon: BookOpen },
-] as const
+] as const;
 
 function CaloriePill({
   consumed,
   pending,
   target,
 }: {
-  consumed: number
-  pending: number
-  target: number | null
+  consumed: number;
+  pending: number;
+  target: number | null;
 }) {
-  const W = 98
-  const H = 38
-  const SW = 3
-  const p = SW / 2 + 0.5
-  const rw = W - SW
-  const rh = H - SW
-  const rx = rh / 2
+  const W = 98;
+  const H = 38;
+  const SW = 3;
+  const p = SW / 2 + 0.5;
+  const rw = W - SW;
+  const rh = H - SW;
+  const rx = rh / 2;
 
-  const perimeter = 2 * (rw - rh) + Math.PI * rh
-  const startOffset = rw / 2 - rx
+  const perimeter = 2 * (rw - rh) + Math.PI * rh;
+  const startOffset = rw / 2 - rx;
 
-  const total = consumed + pending
-  const fillRatio = target != null && target > 0 ? consumed / target : 0
-  const pendingRatio = target != null && target > 0 ? pending / target : 0
-  const fillLength = Math.min(fillRatio, 1) * perimeter
+  const total = consumed + pending;
+  const fillRatio = target != null && target > 0 ? consumed / target : 0;
+  const pendingRatio = target != null && target > 0 ? pending / target : 0;
+  const fillLength = Math.min(fillRatio, 1) * perimeter;
   const pendingFillLength =
-    Math.min(pendingRatio, Math.max(0, 1 - fillRatio)) * perimeter
-  const targetLabel = target != null ? Math.round(target) : "—"
+    Math.min(pendingRatio, Math.max(0, 1 - fillRatio)) * perimeter;
+  const targetLabel = target != null ? Math.round(target) : "—";
 
   return (
     <div className="relative" style={{ width: W, height: H }}>
@@ -698,12 +701,12 @@ function CaloriePill({
         </span>
       </div>
     </div>
-  )
+  );
 }
 
-const DRUM_ITEM_H = 44
-const DRUM_VISIBLE = 5
-const DRUM_PADDING = Math.floor(DRUM_VISIBLE / 2)
+const DRUM_ITEM_H = 44;
+const DRUM_VISIBLE = 5;
+const DRUM_PADDING = Math.floor(DRUM_VISIBLE / 2);
 
 function DrumColumn({
   count,
@@ -711,39 +714,39 @@ function DrumColumn({
   onSelect,
   getLabel,
 }: {
-  count: number
-  selectedIndex: number
-  onSelect: (index: number) => void
-  getLabel: (index: number) => string
+  count: number;
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+  getLabel: (index: number) => string;
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const onSelectRef = useRef(onSelect)
-  onSelectRef.current = onSelect
+  const ref = useRef<HTMLDivElement>(null);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
 
   useLayoutEffect(() => {
     if (ref.current) {
-      ref.current.scrollTop = selectedIndex * DRUM_ITEM_H
+      ref.current.scrollTop = selectedIndex * DRUM_ITEM_H;
     }
-  }, [selectedIndex])
+  }, [selectedIndex]);
 
   useEffect(() => {
-    if (!ref.current) return
-    const target = selectedIndex * DRUM_ITEM_H
+    if (!ref.current) return;
+    const target = selectedIndex * DRUM_ITEM_H;
     if (Math.abs(ref.current.scrollTop - target) > 2) {
-      ref.current.scrollTo({ top: target, behavior: "smooth" })
+      ref.current.scrollTo({ top: target, behavior: "smooth" });
     }
-  }, [selectedIndex])
+  }, [selectedIndex]);
 
   useEffect(() => {
-    const el = ref.current
-    if (!el) return
+    const el = ref.current;
+    if (!el) return;
     function handleScrollEnd() {
-      const idx = Math.round(el!.scrollTop / DRUM_ITEM_H)
-      onSelectRef.current(Math.max(0, Math.min(idx, count - 1)))
+      const idx = Math.round(el!.scrollTop / DRUM_ITEM_H);
+      onSelectRef.current(Math.max(0, Math.min(idx, count - 1)));
     }
-    el.addEventListener("scrollend", handleScrollEnd)
-    return () => el.removeEventListener("scrollend", handleScrollEnd)
-  }, [count])
+    el.addEventListener("scrollend", handleScrollEnd);
+    return () => el.removeEventListener("scrollend", handleScrollEnd);
+  }, [count]);
 
   return (
     <div
@@ -779,7 +782,7 @@ function DrumColumn({
               "flex items-center justify-center text-sm font-medium transition-colors",
               i === selectedIndex
                 ? "text-foreground"
-                : "text-muted-foreground/50"
+                : "text-muted-foreground/50",
             )}
           >
             {getLabel(i)}
@@ -787,7 +790,7 @@ function DrumColumn({
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 export function HeaderChips({
@@ -801,38 +804,38 @@ export function HeaderChips({
   pendingCalories,
   onViewPending,
 }: {
-  selectedDate: Date
-  selectedHour: number
-  todayDate: Date
-  onDateChange: (date: Date) => void
-  onHourChange: (hour: number) => void
-  calorieSummary: DailyCalorieSummary
-  pendingCount: number
-  pendingCalories: number
-  onViewPending: () => void
+  selectedDate: Date;
+  selectedHour: number;
+  todayDate: Date;
+  onDateChange: (date: Date) => void;
+  onHourChange: (hour: number) => void;
+  calorieSummary: DailyCalorieSummary;
+  pendingCount: number;
+  pendingCalories: number;
+  onViewPending: () => void;
 }) {
-  const [timeDrawerOpen, setTimeDrawerOpen] = useState(false)
-  const { consumed, target } = calorieSummary
+  const [timeDrawerOpen, setTimeDrawerOpen] = useState(false);
+  const { consumed, target } = calorieSummary;
 
   const dates = useMemo(
     () =>
       Array.from({ length: 14 }, (_, i) => {
-        const d = new Date(todayDate)
-        d.setDate(todayDate.getDate() - (13 - i))
-        return d
+        const d = new Date(todayDate);
+        d.setDate(todayDate.getDate() - (13 - i));
+        return d;
       }),
-    [todayDate]
-  )
+    [todayDate],
+  );
 
   const selectedDateIndex = dates.findIndex(
-    (d) => d.getTime() === selectedDate.getTime()
-  )
+    (d) => d.getTime() === selectedDate.getTime(),
+  );
 
   function getDateLabel(i: number) {
-    const d = dates[i]
-    if (!d) return ""
-    if (d.getTime() === todayDate.getTime()) return "Today"
-    return d.toLocaleDateString("en-US", { weekday: "short", day: "numeric" })
+    const d = dates[i];
+    if (!d) return "";
+    if (d.getTime() === todayDate.getTime()) return "Today";
+    return d.toLocaleDateString("en-US", { weekday: "short", day: "numeric" });
   }
 
   return (
@@ -925,23 +928,23 @@ export function HeaderChips({
         )}
       </div>
     </div>
-  )
+  );
 }
 
 export function NavTabs() {
-  const pathname = usePathname()
+  const pathname = usePathname();
 
   return (
     <nav className="flex items-stretch border-b border-border">
       {NAV_TABS.map(({ href, label, Icon }) => {
-        const isActive = pathname === href
+        const isActive = pathname === href;
         return (
           <Link
             key={href}
             href={href}
             className={cn(
               "relative flex flex-1 items-center justify-center gap-1.5 py-3 text-sm",
-              isActive ? "text-foreground" : "text-muted-foreground"
+              isActive ? "text-foreground" : "text-muted-foreground",
             )}
           >
             <Icon className="size-4" />
@@ -950,40 +953,40 @@ export function NavTabs() {
               <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-foreground" />
             ) : null}
           </Link>
-        )
+        );
       })}
     </nav>
-  )
+  );
 }
 
 function matchesQuery(item: SearchableItem, q: string) {
-  const needle = q.trim().toLowerCase()
-  if (!needle) return false
+  const needle = q.trim().toLowerCase();
+  if (!needle) return false;
   return (
     item.name.toLowerCase().includes(needle) ||
     (item.brand?.toLowerCase().includes(needle) ?? false)
-  )
+  );
 }
 
 function dedupeById<T extends { id: string }>(items: T[]) {
-  const seen = new Set<string>()
-  const out: T[] = []
+  const seen = new Set<string>();
+  const out: T[] = [];
   for (const item of items) {
-    if (seen.has(item.id)) continue
-    seen.add(item.id)
-    out.push(item)
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    out.push(item);
   }
-  return out
+  return out;
 }
 
 export type PendingFood = {
-  uid: string
-  food: FoodSummary
-  input: LogFoodInput | LogRecipeInput
-  macros: OptimisticDailyMacros
-}
+  uid: string;
+  food: FoodSummary;
+  input: LogFoodInput | LogRecipeInput;
+  macros: OptimisticDailyMacros;
+};
 
-const FAILED_PENDING_FOODS_KEY = "macros.failed-pending-foods.v1"
+const FAILED_PENDING_FOODS_KEY = "macros.failed-pending-foods.v1";
 const failedPendingFoodSchema = z.object({
   uid: z.uuid(),
   food: z.object({
@@ -1003,78 +1006,78 @@ const failedPendingFoodSchema = z.object({
     carbs: z.number(),
     fat: z.number(),
   }),
-})
+});
 
 export function getPendingCalories(food: PendingFood) {
-  return food.macros.calories
+  return food.macros.calories;
 }
 
 function readFailedPendingFoods(): PendingFood[] {
   try {
-    const raw = window.sessionStorage.getItem(FAILED_PENDING_FOODS_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
+    const raw = window.sessionStorage.getItem(FAILED_PENDING_FOODS_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
     return parsed.filter(
       (food): food is PendingFood =>
-        failedPendingFoodSchema.safeParse(food).success
-    )
+        failedPendingFoodSchema.safeParse(food).success,
+    );
   } catch {
-    return []
+    return [];
   }
 }
 
 function takeFailedPendingFoods(): PendingFood[] {
-  const foods = readFailedPendingFoods()
-  if (foods.length === 0) return foods
+  const foods = readFailedPendingFoods();
+  if (foods.length === 0) return foods;
 
   try {
-    window.sessionStorage.removeItem(FAILED_PENDING_FOODS_KEY)
+    window.sessionStorage.removeItem(FAILED_PENDING_FOODS_KEY);
   } catch {}
 
-  return foods
+  return foods;
 }
 
 function dedupePendingFoods(foods: PendingFood[]) {
-  const seen = new Set<string>()
-  const deduped: PendingFood[] = []
+  const seen = new Set<string>();
+  const deduped: PendingFood[] = [];
 
   for (const food of foods) {
-    if (seen.has(food.uid)) continue
-    seen.add(food.uid)
-    deduped.push(food)
+    if (seen.has(food.uid)) continue;
+    seen.add(food.uid);
+    deduped.push(food);
   }
 
-  return deduped
+  return deduped;
 }
 
 export function saveFailedPendingFoods(foods: PendingFood[]) {
-  if (foods.length === 0) return
+  if (foods.length === 0) return;
 
   try {
-    const existing = readFailedPendingFoods()
+    const existing = readFailedPendingFoods();
     window.sessionStorage.setItem(
       FAILED_PENDING_FOODS_KEY,
-      JSON.stringify([...foods, ...existing])
-    )
+      JSON.stringify([...foods, ...existing]),
+    );
   } catch (error) {
-    console.warn("Failed to store failed food logs for retry", error)
+    console.warn("Failed to store failed food logs for retry", error);
   }
 }
 
 function foodColor(name: string): string {
-  let h = 0
+  let h = 0;
   for (let i = 0; i < name.length; i++) {
-    h = ((h << 5) - h + name.charCodeAt(i)) & 0x7fffffff
+    h = ((h << 5) - h + name.charCodeAt(i)) & 0x7fffffff;
   }
-  return `hsl(${h % 360}, 55%, 40%)`
+  return `hsl(${h % 360}, 55%, 40%)`;
 }
 
 function foodInitials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean)
-  if (!words.length) return "?"
-  if (words.length === 1) return name.slice(0, 2).toUpperCase()
-  return (words[0]![0]! + words[1]![0]!).toUpperCase()
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "?";
+  if (words.length === 1) return name.slice(0, 2).toUpperCase();
+  return (words[0]![0]! + words[1]![0]!).toUpperCase();
 }
 
 export function PendingFoodsSheet({
@@ -1085,17 +1088,17 @@ export function PendingFoodsSheet({
   onCommit,
   isLogging,
 }: {
-  open: boolean
-  onClose: () => void
-  pendingFoods: PendingFood[]
-  onRemove: (uid: string) => void
-  onCommit: () => void
-  isLogging: boolean
+  open: boolean;
+  onClose: () => void;
+  pendingFoods: PendingFood[];
+  onRemove: (uid: string) => void;
+  onCommit: () => void;
+  isLogging: boolean;
 }) {
   const totalCalories = pendingFoods.reduce(
     (s, f) => s + getPendingCalories(f),
-    0
-  )
+    0,
+  );
 
   return (
     <Drawer open={open} onOpenChange={(o) => !o && onClose()}>
@@ -1117,11 +1120,11 @@ export function PendingFoodsSheet({
         </div>
         <div className="max-h-[55dvh] overflow-y-auto">
           {pendingFoods.map((pf) => {
-            const initials = foodInitials(pf.food.name)
-            const color = foodColor(pf.food.name)
+            const initials = foodInitials(pf.food.name);
+            const color = foodColor(pf.food.name);
             const displayName = pf.food.brand
               ? `${pf.food.name} By ${pf.food.brand}`
-              : pf.food.name
+              : pf.food.name;
             return (
               <div
                 key={pf.uid}
@@ -1141,7 +1144,7 @@ export function PendingFoodsSheet({
                     {Math.round(getPendingCalories(pf))} kcal
                     {" · "}
                     {pf.input.servingsConsumed.toFixed(
-                      pf.input.servingsConsumed % 1 === 0 ? 0 : 1
+                      pf.input.servingsConsumed % 1 === 0 ? 0 : 1,
                     )}{" "}
                     serving
                   </p>
@@ -1155,7 +1158,7 @@ export function PendingFoodsSheet({
                   <Trash2 className="size-4" />
                 </button>
               </div>
-            )
+            );
           })}
         </div>
         <div className="px-3 pt-3 pb-safe-end">
@@ -1170,194 +1173,229 @@ export function PendingFoodsSheet({
         </div>
       </DrawerContent>
     </Drawer>
-  )
+  );
 }
 
 export function inferMealType(
-  hour: number
+  hour: number,
 ): "breakfast" | "lunch" | "dinner" | "snack" {
-  if (hour >= 5 && hour < 11) return "breakfast"
-  if (hour >= 11 && hour < 16) return "lunch"
-  if (hour >= 17 && hour < 22) return "dinner"
-  return "snack"
+  if (hour >= 5 && hour < 11) return "breakfast";
+  if (hour >= 11 && hour < 16) return "lunch";
+  if (hour >= 17 && hour < 22) return "dinner";
+  return "snack";
 }
 
 export function AddFoodLogic({
   calorieSummary,
 }: {
-  calorieSummary: DailyCalorieSummary
+  calorieSummary: DailyCalorieSummary;
 }) {
-  const router = useRouter()
-  const queryClient = useQueryClient()
-  const logic = useAddFoodLogic()
-  const searchParams = useSearchParams()
-  const [draft, setDraft] = useState("")
-  const inputRef = useRef<HTMLInputElement | null>(null)
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const routeFocusHandledRef = useRef(false)
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const logic = useAddFoodLogic();
+  const favoritesQuery = useQuery({
+    queryKey: ["food-favorites"],
+    queryFn: async () => {
+      const response = await fetch("/api/foods/favorites");
+      if (!response.ok) return [];
+      const body = (await response.json()) as {
+        items: Array<{
+          sourceItemId: string;
+          name: string;
+          brand: string | null;
+          servingLabel: string;
+          defaultServings: number;
+          caloriesPerServing: number | null;
+          proteinPerServing: number | null;
+          carbsPerServing: number | null;
+          fatPerServing: number | null;
+        }>;
+      };
+      return body.items.map(
+        (item) =>
+          ({
+            id: item.sourceItemId,
+            name: item.name,
+            brand: item.brand,
+            servingLabel: item.servingLabel,
+            caloriesPerServing: item.caloriesPerServing,
+            proteinPerServing: item.proteinPerServing,
+            carbsPerServing: item.carbsPerServing,
+            fatPerServing: item.fatPerServing,
+            isUserFood: false,
+            favoriteServings: item.defaultServings,
+          }) satisfies SearchableItem,
+      );
+    },
+  });
+  const searchParams = useSearchParams();
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const routeFocusHandledRef = useRef(false);
 
   const focusSearchInput = useCallback(() => {
-    let frame: number | null = null
-    const timeouts: number[] = []
+    let frame: number | null = null;
+    const timeouts: number[] = [];
 
     const focus = () => {
-      const input = inputRef.current
-      if (!input) return
-      input.focus({ preventScroll: true })
-    }
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus({ preventScroll: true });
+    };
 
-    frame = window.requestAnimationFrame(focus)
-    timeouts.push(window.setTimeout(focus, 75))
-    timeouts.push(window.setTimeout(focus, 250))
-    timeouts.push(window.setTimeout(focus, 500))
+    frame = window.requestAnimationFrame(focus);
+    timeouts.push(window.setTimeout(focus, 75));
+    timeouts.push(window.setTimeout(focus, 250));
+    timeouts.push(window.setTimeout(focus, 500));
 
     return () => {
       if (frame != null) {
-        window.cancelAnimationFrame(frame)
+        window.cancelAnimationFrame(frame);
       }
       for (const timeout of timeouts) {
-        window.clearTimeout(timeout)
+        window.clearTimeout(timeout);
       }
-    }
-  }, [])
+    };
+  }, []);
 
   useEffect(() => {
-    document.documentElement.classList.add("macros-add-food-scroll-lock")
+    document.documentElement.classList.add("macros-add-food-scroll-lock");
 
     return () => {
-      document.documentElement.classList.remove("macros-add-food-scroll-lock")
-    }
-  }, [])
+      document.documentElement.classList.remove("macros-add-food-scroll-lock");
+    };
+  }, []);
 
   useEffect(() => {
-    const vv = window.visualViewport
-    if (!vv) return
-    const el = containerRef.current
-    if (!el) return
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const el = containerRef.current;
+    if (!el) return;
 
     function sync() {
-      if (!el) return
-      el.style.height = `${vv!.height}px`
-      el.style.transform = `translateY(${vv!.offsetTop}px)`
+      if (!el) return;
+      el.style.height = `${vv!.height}px`;
+      el.style.transform = `translateY(${vv!.offsetTop}px)`;
     }
 
-    sync()
-    vv.addEventListener("resize", sync)
-    vv.addEventListener("scroll", sync)
+    sync();
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
 
     return () => {
-      vv.removeEventListener("resize", sync)
-      vv.removeEventListener("scroll", sync)
-    }
-  }, [])
-  const [selectedFood, setSelectedFood] = useState<FoodSummary | null>(null)
-  const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([])
-  const [pendingSheetOpen, setPendingSheetOpen] = useState(false)
-  const [extraConsumed, setExtraConsumed] = useState(0)
-  const [isCommitting, setIsCommitting] = useState(false)
-  const commitInFlightRef = useRef(false)
-  const mountedRef = useRef(false)
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+    };
+  }, []);
+  const [selectedFood, setSelectedFood] = useState<FoodSummary | null>(null);
+  const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([]);
+  const [pendingSheetOpen, setPendingSheetOpen] = useState(false);
+  const [extraConsumed, setExtraConsumed] = useState(0);
+  const [isCommitting, setIsCommitting] = useState(false);
+  const commitInFlightRef = useRef(false);
+  const mountedRef = useRef(false);
   const todayDate = useMemo(
     () => dateFromIsoDate(calorieSummary.today),
-    [calorieSummary.today]
-  )
+    [calorieSummary.today],
+  );
 
   useEffect(() => {
-    mountedRef.current = true
-    const storedFoods = readPendingFoods()
-    const failedFoods = takeFailedPendingFoods()
-    const initialFoods = dedupePendingFoods([...failedFoods, ...storedFoods])
+    mountedRef.current = true;
+    const storedFoods = readPendingFoods();
+    const failedFoods = takeFailedPendingFoods();
+    const initialFoods = dedupePendingFoods([...failedFoods, ...storedFoods]);
 
     if (initialFoods.length > 0) {
-      setPendingFoods(initialFoods)
-      writePendingFoods(initialFoods)
+      setPendingFoods(initialFoods);
+      writePendingFoods(initialFoods);
       if (failedFoods.length > 0) {
-        setPendingSheetOpen(true)
+        setPendingSheetOpen(true);
       }
     }
 
-    const unsubscribe = subscribeToPendingFoods(setPendingFoods)
+    const unsubscribe = subscribeToPendingFoods(setPendingFoods);
 
     return () => {
-      mountedRef.current = false
-      unsubscribe()
-    }
-  }, [])
+      mountedRef.current = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     const handle = setTimeout(() => {
-      logic.searchFoods(draft)
-    }, 200)
-    return () => clearTimeout(handle)
-  }, [draft, logic.searchFoods])
+      logic.searchFoods(draft);
+    }, 200);
+    return () => clearTimeout(handle);
+  }, [draft, logic.searchFoods]);
 
   useEffect(() => {
     if (
       routeFocusHandledRef.current ||
       searchParams.get("focus") !== "search"
     ) {
-      return
+      return;
     }
 
-    routeFocusHandledRef.current = true
-    return focusSearchInput()
-  }, [focusSearchInput, searchParams])
+    routeFocusHandledRef.current = true;
+    return focusSearchInput();
+  }, [focusSearchInput, searchParams]);
 
   const onChange = (e: ChangeEvent<HTMLInputElement>) =>
-    setDraft(e.target.value)
+    setDraft(e.target.value);
 
-  const trimmed = draft.trim()
-  const hasQuery = trimmed.length > 0
+  const trimmed = draft.trim();
+  const hasQuery = trimmed.length > 0;
 
   const [selectedDate, setSelectedDate] = useState(() => {
-    const fromUrl = searchParams.get("date")
+    const fromUrl = searchParams.get("date");
     if (fromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fromUrl)) {
-      const parsed = new Date(fromUrl)
-      const formatted = parsed.toISOString().slice(0, 10)
+      const parsed = new Date(fromUrl);
+      const formatted = parsed.toISOString().slice(0, 10);
       if (formatted === fromUrl) {
-        return dateFromIsoDate(fromUrl)
+        return dateFromIsoDate(fromUrl);
       }
     }
-    return dateFromIsoDate(calorieSummary.today)
-  })
+    return dateFromIsoDate(calorieSummary.today);
+  });
   const [selectedHour, setSelectedHour] = useState(() => {
-    const fromUrl = searchParams.get("hour")
+    const fromUrl = searchParams.get("hour");
     if (fromUrl != null) {
-      const parsed = Number.parseInt(fromUrl, 10)
-      if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 23) return parsed
+      const parsed = Number.parseInt(fromUrl, 10);
+      if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 23) return parsed;
     }
-    return getHourInTimezone(new Date(), calorieSummary.timezone)
-  })
-  const hourLabel = formatHourLabel(selectedHour)
+    return getHourInTimezone(new Date(), calorieSummary.timezone);
+  });
+  const hourLabel = formatHourLabel(selectedHour);
 
   const eatenAt = useMemo(() => {
-    const d = new Date(selectedDate)
-    const now = new Date()
+    const d = new Date(selectedDate);
+    const now = new Date();
     const minute =
       d.toDateString() === now.toDateString() && selectedHour === now.getHours()
         ? Math.floor(now.getMinutes() / 15) * 15
-        : 0
-    d.setHours(selectedHour, minute, 0, 0)
-    return d.toISOString()
-  }, [selectedDate, selectedHour])
+        : 0;
+    d.setHours(selectedHour, minute, 0, 0);
+    return d.toISOString();
+  }, [selectedDate, selectedHour]);
 
   const logDate = useMemo(() => {
-    const d = selectedDate
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-  }, [selectedDate])
+    const d = selectedDate;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, [selectedDate]);
 
   const pendingCalories = useMemo(
     () =>
       pendingFoods
         .filter((food) => food.input.logDate === calorieSummary.today)
         .reduce((sum, food) => sum + getPendingCalories(food), 0),
-    [pendingFoods, calorieSummary.today]
-  )
+    [pendingFoods, calorieSummary.today],
+  );
 
   const addToPending = useCallback(
     (input: LogFoodInput, macros: OptimisticDailyMacros) => {
-      if (!selectedFood) return Promise.resolve()
-      const clientMutationId = crypto.randomUUID()
+      if (!selectedFood) return Promise.resolve();
+      const clientMutationId = crypto.randomUUID();
       setPendingFoods((prev) => {
         const next = [
           ...prev,
@@ -1367,18 +1405,18 @@ export function AddFoodLogic({
             input: { ...input, clientMutationId },
             macros,
           },
-        ]
-        window.queueMicrotask(() => writePendingFoods(next))
-        return next
-      })
-      return Promise.resolve()
+        ];
+        window.queueMicrotask(() => writePendingFoods(next));
+        return next;
+      });
+      return Promise.resolve();
     },
-    [selectedFood]
-  )
+    [selectedFood],
+  );
 
   const quickAddToPending = useCallback(
     (item: SearchableItem, servingsConsumed: number) => {
-      const clientMutationId = crypto.randomUUID()
+      const clientMutationId = crypto.randomUUID();
       setPendingFoods((prev) => {
         const next = [
           ...prev,
@@ -1400,55 +1438,56 @@ export function AddFoodLogic({
               fat: (item.fatPerServing ?? 0) * servingsConsumed,
             },
           },
-        ]
-        window.queueMicrotask(() => writePendingFoods(next))
-        return next
-      })
+        ];
+        window.queueMicrotask(() => writePendingFoods(next));
+        return next;
+      });
     },
-    [eatenAt, logDate, selectedHour]
-  )
+    [eatenAt, logDate, selectedHour],
+  );
 
   const removePending = useCallback((uid: string) => {
     setPendingFoods((prev) => {
-      const next = prev.filter((f) => f.uid !== uid)
-      window.queueMicrotask(() => writePendingFoods(next))
-      return next
-    })
-  }, [])
+      const next = prev.filter((f) => f.uid !== uid);
+      window.queueMicrotask(() => writePendingFoods(next));
+      return next;
+    });
+  }, []);
 
   const logAllPending = useCallback(async () => {
-    if (pendingFoods.length === 0 || commitInFlightRef.current) return
+    if (pendingFoods.length === 0 || commitInFlightRef.current) return;
 
-    commitInFlightRef.current = true
-    setIsCommitting(true)
+    commitInFlightRef.current = true;
+    setIsCommitting(true);
 
     try {
-      const foodsToLog = pendingFoods
+      const foodsToLog = pendingFoods;
       const optimisticToday = foodsToLog
         .filter((food) => food.input.logDate === calorieSummary.today)
-        .reduce((sum, food) => sum + getPendingCalories(food), 0)
+        .reduce((sum, food) => sum + getPendingCalories(food), 0);
 
-      setPendingFoods([])
-      writePendingFoods([])
-      setPendingSheetOpen(false)
-      setExtraConsumed((prev) => prev + optimisticToday)
+      setPendingFoods([]);
+      navigator.vibrate?.(20);
+      writePendingFoods([]);
+      setPendingSheetOpen(false);
+      setExtraConsumed((prev) => prev + optimisticToday);
 
       for (const food of foodsToLog) {
-        const foodLogDate = food.input.logDate ?? calorieSummary.today
+        const foodLogDate = food.input.logDate ?? calorieSummary.today;
         if (foodLogDate === calorieSummary.today) {
           addOptimisticNutritionEntry({
             id: food.uid,
             logDate: calorieSummary.today,
             macros: food.macros,
-          })
+          });
         }
 
         queryClient.setQueryData<FoodLogDayPayload | undefined>(
           foodLogQueryKeys.day(foodLogDate),
           (prev) => {
-            if (!prev) return prev
-            const input = food.input
-            const recipe = isRecipeInput(input)
+            if (!prev) return prev;
+            const input = food.input;
+            const recipe = isRecipeInput(input);
             const fakeEntry: FoodLogDayPayload["entries"][number] = {
               id: food.uid,
               logDate: foodLogDate,
@@ -1468,7 +1507,7 @@ export function AddFoodLogic({
               protein: food.macros.protein,
               carbs: food.macros.carbs,
               fat: food.macros.fat,
-            }
+            };
             return {
               ...prev,
               entries: [...prev.entries, fakeEntry],
@@ -1478,111 +1517,111 @@ export function AddFoodLogic({
                 carbs: prev.totals.carbs + food.macros.carbs,
                 fat: prev.totals.fat + food.macros.fat,
               },
-            }
-          }
-        )
+            };
+          },
+        );
       }
 
-      router.push("/app")
+      router.push("/app");
 
-      const failedFoods: PendingFood[] = []
-      let succeededCount = 0
+      const failedFoods: PendingFood[] = [];
+      let succeededCount = 0;
 
       for (const pf of foodsToLog) {
         const result = await (isRecipeInput(pf.input)
           ? postRecipeLog(pf.input)
           : postFoodLog(pf.input)
-        ).catch(() => null)
+        ).catch(() => null);
 
         if (!result) {
-          failedFoods.push(pf)
-          continue
+          failedFoods.push(pf);
+          continue;
         }
 
-        succeededCount += 1
+        succeededCount += 1;
         removeOptimisticNutritionEntries([
           result.entry.clientMutationId ?? pf.uid,
-        ])
+        ]);
 
         if (result.entry.logDate === calorieSummary.today) {
-          putConfirmedNutritionTotals(result.entry.logDate, result.totals)
+          putConfirmedNutritionTotals(result.entry.logDate, result.totals);
           setTodayNutritionTotals(
             queryClient,
             result.entry.logDate,
-            result.totals
-          )
+            result.totals,
+          );
         }
       }
 
-      removeOptimisticNutritionEntries(failedFoods.map((food) => food.uid))
+      removeOptimisticNutritionEntries(failedFoods.map((food) => food.uid));
 
       if (failedFoods.length > 0) {
-        saveFailedPendingFoods(failedFoods)
+        saveFailedPendingFoods(failedFoods);
         toast.error("Some foods were not logged", {
           action: {
             label: "Retry",
             onClick: () => router.push("/app/add?retry=failed"),
           },
-        })
+        });
       }
 
       if (succeededCount > 0) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
         void queryClient.invalidateQueries({
           queryKey: queryKeys.calorieSummary,
-        })
+        });
         void queryClient.invalidateQueries({
           queryKey: queryKeys.foodHistory(20),
-        })
+        });
         const touchedDates = new Set(
-          foodsToLog.map((f) => f.input.logDate ?? calorieSummary.today)
-        )
+          foodsToLog.map((f) => f.input.logDate ?? calorieSummary.today),
+        );
         for (const d of touchedDates) {
           void queryClient.invalidateQueries({
             queryKey: foodLogQueryKeys.day(d),
-          })
+          });
         }
         void queryClient.invalidateQueries({
           queryKey: ["food-log", "week-totals"],
-        })
+        });
         void queryClient.invalidateQueries({
           queryKey: ["food-log", "overview"],
-        })
+        });
         void queryClient.invalidateQueries({
           queryKey: foodLogQueryKeys.activity,
-        })
+        });
       }
     } finally {
-      commitInFlightRef.current = false
+      commitInFlightRef.current = false;
       if (mountedRef.current) {
-        setIsCommitting(false)
+        setIsCommitting(false);
       }
     }
-  }, [pendingFoods, calorieSummary.today, queryClient, router])
+  }, [pendingFoods, calorieSummary.today, queryClient, router]);
 
   const fromHistory = useMemo(() => {
-    if (!hasQuery) return []
-    const combined = dedupeById([...logic.timePicks, ...logic.history])
-    return combined.filter((item) => matchesQuery(item, trimmed))
-  }, [hasQuery, trimmed, logic.timePicks, logic.history])
+    if (!hasQuery) return [];
+    const combined = dedupeById([...logic.timePicks, ...logic.history]);
+    return combined.filter((item) => matchesQuery(item, trimmed));
+  }, [hasQuery, trimmed, logic.timePicks, logic.history]);
 
   const historyIds = useMemo(
     () => new Set(fromHistory.map((item) => item.id)),
-    [fromHistory]
-  )
+    [fromHistory],
+  );
 
   const yourFoods = useMemo(
     () =>
       logic.results.filter(
-        (item) => item.isUserFood && !historyIds.has(item.id)
+        (item) => item.isUserFood && !historyIds.has(item.id),
       ),
-    [logic.results, historyIds]
-  )
+    [logic.results, historyIds],
+  );
 
   const yourFoodIds = useMemo(
     () => new Set(yourFoods.map((item) => item.id)),
-    [yourFoods]
-  )
+    [yourFoods],
+  );
 
   const common = useMemo(
     () =>
@@ -1591,10 +1630,10 @@ export function AddFoodLogic({
           item.brand === null &&
           !item.isUserFood &&
           !historyIds.has(item.id) &&
-          !yourFoodIds.has(item.id)
+          !yourFoodIds.has(item.id),
       ),
-    [logic.results, historyIds, yourFoodIds]
-  )
+    [logic.results, historyIds, yourFoodIds],
+  );
 
   const branded = useMemo(
     () =>
@@ -1603,13 +1642,13 @@ export function AddFoodLogic({
           item.brand !== null &&
           !item.isUserFood &&
           !historyIds.has(item.id) &&
-          !yourFoodIds.has(item.id)
+          !yourFoodIds.has(item.id),
       ),
-    [logic.results, historyIds, yourFoodIds]
-  )
+    [logic.results, historyIds, yourFoodIds],
+  );
 
-  const picks = logic.timePicks.slice(0, 5)
-  const latest = logic.history
+  const picks = logic.timePicks.slice(0, 5);
+  const latest = logic.history;
 
   return (
     <div
@@ -1690,6 +1729,13 @@ export function AddFoodLogic({
         ) : (
           <Fragment>
             <Section
+              title="Favorites"
+              items={favoritesQuery.data ?? []}
+              query=""
+              onSelect={setSelectedFood}
+              onQuickAdd={quickAddToPending}
+            />
+            <Section
               title={`${hourLabel} Picks`}
               items={picks}
               query=""
@@ -1765,5 +1811,5 @@ export function AddFoodLogic({
         isLogging={isCommitting}
       />
     </div>
-  )
+  );
 }

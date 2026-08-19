@@ -1,28 +1,31 @@
-"use client"
+"use client";
 
-import { format, subDays, subMonths, subYears } from "date-fns"
-import { Pencil, Plus, Scale } from "lucide-react"
-import Link from "next/link"
-import { useMemo, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useWeightOverview } from "@/lib/app-cache/api"
-import type { WeighInItem, WeightPoint } from "@/lib/weights/contracts"
-import { dateToIso, isoToLocalDate } from "@/lib/weights/date-utils"
-import { BigStat } from "../_components/big-stat"
-import { PageHeader } from "../_components/page-header"
+import { Button } from "@repo/ui/button";
+import { Skeleton } from "@repo/ui/skeleton";
+import { format, subDays, subMonths, subYears } from "date-fns";
+import { Pencil, Plus, Scale } from "lucide-react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { useWeightOverview } from "@/lib/app-cache/api";
+import type {
+  WeighInItem,
+  WeightTrendPointItem,
+} from "@/lib/weights/contracts";
+import { dateToIso, isoToLocalDate } from "@/lib/weights/date-utils";
+import { BigStat } from "../_components/big-stat";
+import { PageHeader } from "../_components/page-header";
 
-const RANGES = ["1W", "1M", "3M", "6M", "1Y", "All"] as const
-type Range = (typeof RANGES)[number]
+const RANGES = ["1W", "1M", "3M", "6M", "1Y", "All"] as const;
+type Range = (typeof RANGES)[number];
 
 export function WeightPageClient() {
-  const { data, isLoading, isError, refetch } = useWeightOverview()
-  const [range, setRange] = useState<Range>("1W")
+  const { data, isLoading, isError, refetch } = useWeightOverview();
+  const [range, setRange] = useState<Range>("1W");
 
   const filtered = useMemo(() => {
-    if (!data) return null
-    return filterEntries(data.entries, range, data.today)
-  }, [data, range])
+    if (!data) return null;
+    return filterEntries(data.entries, data.trend, range, data.today);
+  }, [data, range]);
 
   if (isLoading) {
     return (
@@ -30,7 +33,7 @@ export function WeightPageClient() {
         <Skeleton className="mb-5 h-8 w-40 mx-auto" />
         <Skeleton className="h-72 w-full" />
       </div>
-    )
+    );
   }
 
   if (isError) {
@@ -40,7 +43,7 @@ export function WeightPageClient() {
           Try again
         </Button>
       </div>
-    )
+    );
   }
 
   if (!data) {
@@ -49,24 +52,27 @@ export function WeightPageClient() {
         <Skeleton className="mb-5 h-8 w-40 mx-auto" />
         <Skeleton className="h-72 w-full" />
       </div>
-    )
+    );
   }
 
-  const points = filtered?.points ?? []
+  const points = filtered?.points ?? [];
   const averageKg = points.length
-    ? points.reduce((sum, point) => sum + point.weightKg, 0) / points.length
-    : null
+    ? points.reduce((sum, point) => sum + point.trendWeightKg, 0) /
+      points.length
+    : null;
+  const firstPoint = points.at(0);
+  const lastPoint = points.at(-1);
   const differenceKg =
-    points.length >= 2
-      ? points[points.length - 1].weightKg - points[0].weightKg
-      : null
-  const rangeLabel = filtered ? buildRangeLabel(filtered, range) : ""
-  const entriesByMonth = groupEntriesByMonth(data.entries)
+    firstPoint && lastPoint && points.length >= 2
+      ? lastPoint.trendWeightKg - firstPoint.trendWeightKg
+      : null;
+  const rangeLabel = filtered ? buildRangeLabel(filtered, range) : "";
+  const entriesByMonth = groupEntriesByMonth(data.entries);
 
   return (
     <div className="min-h-dvh bg-background pb-36">
       <PageHeader
-        title="Scale Weight"
+        title="Weight Trend"
         backLabel="Back to dashboard"
         action={
           <Button asChild type="button" variant="ghost" size="icon">
@@ -96,6 +102,23 @@ export function WeightPageClient() {
         </div>
 
         <WeightChart points={points} />
+
+        {points.length >= 2 ? (
+          <div className="mt-1 flex items-center justify-center gap-4 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-0.5 w-4 bg-primary" />
+              Trend
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-2 rounded-full border border-muted-foreground bg-background" />
+              Scale
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-4 bg-primary/10" />
+              95%
+            </span>
+          </div>
+        ) : null}
 
         <div className="mt-5 grid grid-cols-6 rounded-full bg-muted p-1 text-sm">
           {RANGES.map((option) => (
@@ -162,30 +185,53 @@ export function WeightPageClient() {
         )}
       </section>
     </div>
-  )
+  );
 }
 
-function WeightChart({ points }: { points: WeightPoint[] }) {
+function WeightChart({ points }: { points: WeightTrendPointItem[] }) {
   if (points.length < 2) {
     return (
       <div className="mt-10 flex h-64 items-center justify-center text-sm text-muted-foreground">
         Add at least two weigh-ins to draw the graph.
       </div>
-    )
+    );
   }
 
-  const values = points.map((point) => point.weightKg)
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  const range = Math.max(max - min, 0.5)
-  const coords = points.map((point, index) => {
-    const x = 8 + (index / (points.length - 1)) * 84
-    const y = 75 - ((point.weightKg - min) / range) * 45
-    return { x, y }
-  })
-  const path = coords
+  const values = points.flatMap((point) => {
+    const confidenceDelta = 1.96 * Math.sqrt(point.varianceKg2);
+    return [
+      point.trendWeightKg - confidenceDelta,
+      point.trendWeightKg + confidenceDelta,
+      ...(point.scaleWeightKg == null ? [] : [point.scaleWeightKg]),
+    ];
+  });
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = Math.max(max - min, 0.5);
+  const trendCoords = points.map((point, index) => {
+    const x = 8 + (index / (points.length - 1)) * 84;
+    const confidenceDelta = 1.96 * Math.sqrt(point.varianceKg2);
+    const toY = (weightKg: number) => 75 - ((weightKg - min) / range) * 45;
+    return {
+      point,
+      x,
+      y: toY(point.trendWeightKg),
+      upperY: toY(point.trendWeightKg + confidenceDelta),
+      lowerY: toY(point.trendWeightKg - confidenceDelta),
+    };
+  });
+  const path = trendCoords
     .map((coord, index) => `${index === 0 ? "M" : "L"} ${coord.x} ${coord.y}`)
-    .join(" ")
+    .join(" ");
+  const confidencePath = [
+    ...trendCoords.map(
+      (coord, index) => `${index === 0 ? "M" : "L"} ${coord.x} ${coord.upperY}`,
+    ),
+    ...[...trendCoords]
+      .reverse()
+      .map((coord) => `L ${coord.x} ${coord.lowerY}`),
+    "Z",
+  ].join(" ");
 
   return (
     <div className="mt-8 h-72">
@@ -202,6 +248,7 @@ function WeightChart({ points }: { points: WeightPoint[] }) {
             strokeWidth="0.5"
           />
         ))}
+        <path d={confidencePath} className="fill-primary/10" />
         <path
           d={path}
           fill="none"
@@ -210,16 +257,18 @@ function WeightChart({ points }: { points: WeightPoint[] }) {
           strokeLinejoin="round"
           strokeWidth="1.8"
         />
-        {coords.map((coord, index) => (
-          <circle
-            key={points[index].date}
-            cx={coord.x}
-            cy={coord.y}
-            r="1.8"
-            className="fill-background stroke-primary"
-            strokeWidth="1.2"
-          />
-        ))}
+        {trendCoords.map((coord) =>
+          coord.point.scaleWeightKg == null ? null : (
+            <circle
+              key={coord.point.date}
+              cx={coord.x}
+              cy={75 - ((coord.point.scaleWeightKg - min) / range) * 45}
+              r="1.5"
+              className="fill-background stroke-muted-foreground"
+              strokeWidth="1"
+            />
+          ),
+        )}
         <text x="94" y="31" className="fill-muted-foreground text-[4px]">
           {max.toFixed(1)}
         </text>
@@ -228,78 +277,92 @@ function WeightChart({ points }: { points: WeightPoint[] }) {
         </text>
       </svg>
       <div className="flex justify-between text-xs text-muted-foreground">
-        <span>{format(isoToLocalDate(points[0].date), "d MMM")}</span>
+        <span>{format(isoToLocalDate(points[0]?.date ?? ""), "d MMM")}</span>
         <span>
-          {format(isoToLocalDate(points[points.length - 1].date), "d MMM")}
+          {format(isoToLocalDate(points.at(-1)?.date ?? ""), "d MMM")}
         </span>
       </div>
     </div>
-  )
+  );
 }
 
 function filterEntries(
   entries: WeighInItem[],
+  trend: WeightTrendPointItem[],
   range: Range,
-  today: string
-): { points: WeightPoint[]; start: string; end: string } {
-  const end = isoToLocalDate(today)
-  const start = rangeStart(end, range, entries)
-  const startIso = dateToIso(start)
-  const endIso = dateToIso(end)
-  const sorted = [...entries].sort((a, b) => a.logDate.localeCompare(b.logDate))
+  today: string,
+): { points: WeightTrendPointItem[]; start: string; end: string } {
+  const end = isoToLocalDate(today);
+  const start = rangeStart(end, range, entries);
+  const startIso = dateToIso(start);
+  const endIso = dateToIso(end);
+  const sorted = [...entries].sort((a, b) =>
+    a.logDate.localeCompare(b.logDate),
+  );
   const filtered = sorted.filter(
-    (entry) => entry.logDate >= startIso && entry.logDate <= endIso
-  )
+    (entry) => entry.logDate >= startIso && entry.logDate <= endIso,
+  );
+  const filteredTrend = trend.filter(
+    (point) => point.date >= startIso && point.date <= endIso,
+  );
   return {
-    points: filtered.map((entry) => ({
-      date: entry.logDate,
-      weightKg: entry.weightKg,
-    })),
+    points:
+      filteredTrend.length > 0
+        ? filteredTrend
+        : filtered.map((entry) => ({
+            date: entry.logDate,
+            trendWeightKg: entry.weightKg,
+            scaleWeightKg: entry.weightKg,
+            varianceKg2: 0,
+            slopeKgPerWeek: null,
+            hasObservation: true,
+            algorithmVersion: "uncomputed",
+          })),
     start: startIso,
     end: endIso,
-  }
+  };
 }
 
 function rangeStart(end: Date, range: Range, entries: WeighInItem[]): Date {
-  if (range === "1W") return subDays(end, 6)
-  if (range === "1M") return subMonths(end, 1)
-  if (range === "3M") return subMonths(end, 3)
-  if (range === "6M") return subMonths(end, 6)
-  if (range === "1Y") return subYears(end, 1)
+  if (range === "1W") return subDays(end, 6);
+  if (range === "1M") return subMonths(end, 1);
+  if (range === "3M") return subMonths(end, 3);
+  if (range === "6M") return subMonths(end, 6);
+  if (range === "1Y") return subYears(end, 1);
   const earliest = entries.reduce<string | null>(
     (min, entry) => (min === null || entry.logDate < min ? entry.logDate : min),
-    null
-  )
-  return earliest ? isoToLocalDate(earliest) : end
+    null,
+  );
+  return earliest ? isoToLocalDate(earliest) : end;
 }
 
 function buildRangeLabel(
-  filtered: { start: string; end: string; points: WeightPoint[] },
-  range: Range
+  filtered: { start: string; end: string; points: WeightTrendPointItem[] },
+  range: Range,
 ): string {
-  if (filtered.points.length === 0) return ""
-  const start = isoToLocalDate(filtered.start)
-  const end = isoToLocalDate(filtered.end)
+  if (filtered.points.length === 0) return "";
+  const start = isoToLocalDate(filtered.start);
+  const end = isoToLocalDate(filtered.end);
   if (range === "1W")
-    return `${format(start, "d MMM")} - ${format(end, "d MMM yyyy")}`
-  return `${format(start, "d MMM yyyy")} - ${format(end, "d MMM yyyy")}`
+    return `${format(start, "d MMM")} - ${format(end, "d MMM yyyy")}`;
+  return `${format(start, "d MMM yyyy")} - ${format(end, "d MMM yyyy")}`;
 }
 
 function formatDifference(value: number | null): string {
-  if (value === null) return "--"
-  const fixed = value.toFixed(1)
-  if (value > 0) return `+${fixed}`
-  return fixed
+  if (value === null) return "--";
+  const fixed = value.toFixed(1);
+  if (value > 0) return `+${fixed}`;
+  return fixed;
 }
 
 function groupEntriesByMonth(entries: WeighInItem[]) {
-  const groups = new Map<string, WeighInItem[]>()
+  const groups = new Map<string, WeighInItem[]>();
   for (const entry of entries) {
-    const label = format(isoToLocalDate(entry.logDate), "MMMM yyyy")
-    groups.set(label, [...(groups.get(label) ?? []), entry])
+    const label = format(isoToLocalDate(entry.logDate), "MMMM yyyy");
+    groups.set(label, [...(groups.get(label) ?? []), entry]);
   }
   return Array.from(groups, ([label, groupEntries]) => ({
     label,
     entries: groupEntries,
-  }))
+  }));
 }
