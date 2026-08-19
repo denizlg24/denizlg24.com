@@ -9,7 +9,6 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const BUCKET = "macros";
 let client: S3Client | undefined;
 let ensurePromise: Promise<void> | undefined;
 
@@ -17,6 +16,10 @@ function required(name: string) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is not configured`);
   return value;
+}
+
+function getBucket() {
+  return required("MACROS_S3_BUCKET");
 }
 
 function getClient() {
@@ -45,12 +48,13 @@ function isNotFound(error: unknown) {
 }
 
 async function ensureBucket() {
+  const bucket = getBucket();
   ensurePromise ??= (async () => {
     try {
-      await getClient().send(new HeadBucketCommand({ Bucket: BUCKET }));
+      await getClient().send(new HeadBucketCommand({ Bucket: bucket }));
     } catch (error) {
       if (!isNotFound(error)) throw error;
-      await getClient().send(new CreateBucketCommand({ Bucket: BUCKET }));
+      await getClient().send(new CreateBucketCommand({ Bucket: bucket }));
     }
   })();
   try {
@@ -59,17 +63,18 @@ async function ensureBucket() {
     ensurePromise = undefined;
     throw error;
   }
+  return bucket;
 }
 
 export async function createBodyPhotoUploadUrl(
   key: string,
   contentType: string,
 ) {
-  await ensureBucket();
+  const bucket = await ensureBucket();
   return getSignedUrl(
     getClient(),
     new PutObjectCommand({
-      Bucket: BUCKET,
+      Bucket: bucket,
       Key: key,
       ContentType: contentType,
     }),
@@ -78,20 +83,20 @@ export async function createBodyPhotoUploadUrl(
 }
 
 export async function createBodyPhotoDownloadUrl(key: string) {
-  await ensureBucket();
+  const bucket = await ensureBucket();
   return getSignedUrl(
     getClient(),
-    new GetObjectCommand({ Bucket: BUCKET, Key: key }),
+    new GetObjectCommand({ Bucket: bucket, Key: key }),
     { expiresIn: 900 },
   );
 }
 
 export async function inspectBodyPhoto(key: string) {
-  await ensureBucket();
-  return getClient().send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+  const bucket = await ensureBucket();
+  return getClient().send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
 }
 
 export async function deleteBodyPhotoObject(key: string) {
-  await ensureBucket();
-  await getClient().send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+  const bucket = await ensureBucket();
+  await getClient().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }
