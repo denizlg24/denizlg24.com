@@ -10,44 +10,53 @@ Macro nutrition, micronutrient, recipe, weight trend, and weight tracking built 
 bun install
 ```
 
-2. Copy `.env.example` to `.env` and fill in the values.
+2. Add the app values from `.env.example` to the monorepo root `.env`.
 
 ```env
-DATABASE_URL=
-BETTER_AUTH_SECRET=
-BETTER_AUTH_URL=http://localhost:3000
+MACROS_DATABASE_URL=
+MACROS_BETTER_AUTH_SECRET=
+MACROS_BETTER_AUTH_URL=http://localhost:3000
+MACROS_BETTER_AUTH_SECURE_COOKIES=false
+MACROS_CRON_SECRET=
 RESEND_API_KEY=
 EMAIL_FROM="Macros <noreply@your-domain.com>"
 NUTRITION_API_BASE_URL=https://nutrition.denizlg24.com
 NUTRITION_API_KEY=
 ```
 
-3. Generate and apply database migrations:
+3. Check the committed migration history:
 
 ```bash
-bunx drizzle-kit generate
-bunx drizzle-kit migrate
+cd apps/macros
+bunx drizzle-kit check
 ```
 
-If the database does not have UUID generation enabled, run:
+For a new local or disposable database, apply the committed migrations with
+`bunx drizzle-kit migrate`. Production migrations are manual and must be
+reviewed and applied before the Forge release that needs them; the app never
+migrates its database at startup. If a new database does not have UUID
+generation enabled, run:
 
 ```sql
 create extension if not exists pgcrypto;
 ```
 
-4. Start development:
+4. Start development from the monorepo root:
 
 ```bash
-bun run dev
+bun run dev:macros
 ```
 
 ## Scripts
 
-- `bun run dev`: start Next.js with Turbopack.
-- `bun run typecheck`: run TypeScript checks.
-- `bun run lint`: run Biome check.
-- `bun run build`: create a production build.
-- `bun run format`: format TypeScript and TSX files.
+- `bun run dev:macros`: start Next.js with Turbopack from the monorepo root.
+- `bunx turbo typecheck --filter=macros`: run TypeScript checks.
+- `bunx turbo test --filter=macros`: run tests.
+- `bunx turbo lint --filter=macros`: run the root Biome checks.
+- `bunx turbo build --filter=macros`: create a production build.
+
+Production deployment and rollback steps are documented in
+`../../docs/internal/deploy/macros.md`.
 
 ## Architecture Notes
 
