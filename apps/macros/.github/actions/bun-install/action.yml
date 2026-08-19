@@ -1,0 +1,13 @@
+name: Bun install
+description: Install dependencies with frozen lockfile except for Dependabot Bun lockfile updates.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        if [ "${{ github.actor }}" = "dependabot[bot]" ]; then
+          bun install --ignore-scripts
+        else
+          bun install --frozen-lockfile
+        fi

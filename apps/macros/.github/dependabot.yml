@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      next:
+        patterns: ["next", "@next/*", "react", "react-dom", "@types/react*"]
+      drizzle:
+        patterns: ["drizzle-orm", "drizzle-kit"]
+      better-auth:
+        patterns: ["better-auth", "@better-auth/*"]
+      radix:
+        patterns: ["radix-ui", "@radix-ui/*"]
+      tailwind:
+        patterns: ["tailwindcss", "@tailwindcss/*", "tw-animate-css"]
+      types:
+        patterns: ["@types/*"]
+      dev-tooling:
+        patterns: ["@biomejs/biome", "typescript", "tsx", "postcss"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday

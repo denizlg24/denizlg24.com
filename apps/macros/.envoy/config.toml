@@ -1,0 +1,11 @@
+
+version = 1
+project_id = "9a19e1cb-eb4f-4f10-8e48-2fac65054853"
+name = "Macros"
+
+default_remote = "origin"
+
+[remotes]
+origin = "https://envoy-cli.vercel.app/api"
+
+

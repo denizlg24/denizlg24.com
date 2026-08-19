@@ -1,0 +1,2 @@
+CREATE TYPE "public"."calorie_preference" AS ENUM('consumed', 'remaining');--> statement-breakpoint
+ALTER TABLE "user_profiles" ADD COLUMN "caloriePreference" "calorie_preference" DEFAULT 'consumed' NOT NULL;

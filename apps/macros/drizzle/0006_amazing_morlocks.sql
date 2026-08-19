@@ -1,0 +1,1 @@
+ALTER TABLE "weigh_ins" ADD COLUMN "bodyFatPct" numeric(5, 2);

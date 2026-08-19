@@ -1,0 +1,2 @@
+CREATE INDEX "food_log_entries_user_type_eaten_at_idx" ON "food_log_entries" USING btree ("userId","entryType","eatenAt" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX "food_log_entries_user_food_eaten_at_idx" ON "food_log_entries" USING btree ("userId","foodId","eatenAt" DESC NULLS LAST);
