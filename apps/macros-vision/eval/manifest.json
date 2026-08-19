@@ -1,0 +1,967 @@
+[
+  {
+    "file": "images/01-0009800895007.jpg",
+    "barcode": "0009800895007",
+    "productName": "Hazelnut Spread with Cocoa",
+    "language": "en",
+    "countries": ["en:germany", "en:united-states"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/000/980/089/5007/nutrition_en.82.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/0009800895007",
+    "sha256": "1ba320b2e670f1e9763eac882a05f14b08b94be2681234aef415bf82f2e7502a",
+    "expected": {
+      "basis": "per_serving",
+      "fields": {
+        "calories": 200.0,
+        "fat": 11.0,
+        "saturated": 4.0,
+        "carbs": 22.0,
+        "sugar": 21.0,
+        "fiber": 0.999,
+        "protein": 2.0,
+        "salt": 0.037,
+        "sodium": 0.0148
+      }
+    }
+  },
+  {
+    "file": "images/02-0013000006057.jpg",
+    "barcode": "0013000006057",
+    "productName": "Tomato Ketchup",
+    "language": "en",
+    "countries": ["en:germany", "en:united-states"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/001/300/000/6057/nutrition_en.87.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/0013000006057",
+    "sha256": "93a5c97438bf79d5fe60c402416ca254ced1a87afdb66831ad1bcfd47f85bd17",
+    "expected": {
+      "basis": "per_serving",
+      "fields": {
+        "calories": 20.0,
+        "fat": 0.0,
+        "saturated": 0.0,
+        "carbs": 5.0,
+        "sugar": 4.0,
+        "fiber": 0.1,
+        "protein": 0.0,
+        "salt": 0.45,
+        "sodium": 0.18
+      }
+    }
+  },
+  {
+    "file": "images/03-0013764027039.jpg",
+    "barcode": "0013764027039",
+    "productName": "Organic Bread",
+    "language": "en",
+    "countries": ["en:united-states"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/001/376/402/7039/nutrition_en.133.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/0013764027039",
+    "sha256": "42c597181bcbccc3d5d21f8e2e3498c089a607fb51cc7108c9254b963c111c89",
+    "expected": {
+      "basis": "per_serving",
+      "fields": {
+        "calories": 120.0,
+        "fat": 2.5,
+        "saturated": 0.0,
+        "carbs": 23.0,
+        "sugar": 5.0,
+        "fiber": 3.0,
+        "protein": 5.0,
+        "salt": 0.4,
+        "sodium": 0.16
+      }
+    }
+  },
+  {
+    "file": "images/04-0013764027053.jpg",
+    "barcode": "0013764027053",
+    "productName": "Dave's Killer Bread",
+    "language": "en",
+    "countries": ["en:united-states"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/001/376/402/7053/nutrition_en.456.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/0013764027053",
+    "sha256": "cd5f3c35bbb689ea8c78184b499614f9695a44a771b3d98e8f19ce1cec73f9ad",
+    "expected": {
+      "basis": "per_serving",
+      "fields": {
+        "calories": 110.0,
+        "fat": 0.675,
+        "saturated": 0.0,
+        "carbs": 9.9,
+        "sugar": 1.8,
+        "fiber": 1.8,
+        "protein": 2.7,
+        "salt": 0.191,
+        "sodium": 0.0765
+      }
+    }
+  },
+  {
+    "file": "images/05-0013764027121.jpg",
+    "barcode": "0013764027121",
+    "productName": "Organic Bread Thin-Sliced Good Seed",
+    "language": "en",
+    "countries": ["en:spain", "en:united-states", "en:world"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/001/376/402/7121/nutrition_en.139.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/0013764027121",
+    "sha256": "fcbab608faa3b06ca51ba374c2c923d082626fec48b5fa4415728144d4fd03ec",
+    "expected": {
+      "basis": "per_serving",
+      "fields": {
+        "calories": 70.0,
+        "fat": 1.5,
+        "saturated": 0.0,
+        "carbs": 13.0,
+        "sugar": 2.0,
+        "fiber": 3.0,
+        "protein": 4.0,
+        "salt": 0.3,
+        "sodium": 0.12
+      }
+    }
+  },
+  {
+    "file": "images/06-0013764027138.jpg",
+    "barcode": "0013764027138",
+    "productName": "Thin-Sliced Organic Bread",
+    "language": "en",
+    "countries": ["en:france", "en:united-states", "en:world"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/001/376/402/7138/nutrition_en.351.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/0013764027138",
+    "sha256": "7ff0d730737f4852246002e819d4f249ca291ca72c2056b430490f709b823d7a",
+    "expected": {
+      "basis": "per_serving",
+      "fields": {
+        "calories": 54.2,
+        "fat": 1.0,
+        "saturated": 0.0,
+        "carbs": 14.0,
+        "sugar": 3.0,
+        "fiber": 3.0,
+        "protein": 3.0,
+        "salt": 0.263,
+        "sodium": 0.105
+      }
+    }
+  },
+  {
+    "file": "images/07-0013764027220.jpg",
+    "barcode": "0013764027220",
+    "productName": "Organic Bread White Bread Done Right",
+    "language": "en",
+    "countries": ["en:united-states"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/001/376/402/7220/nutrition_en.71.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/0013764027220",
+    "sha256": "32391cbfe3078a1b412f5b09af018cd5f13159e4c86777f8d31c2355d8f3fd6c",
+    "expected": {
+      "basis": "per_serving",
+      "fields": {
+        "calories": 110.0,
+        "fat": 2.0,
+        "saturated": 0.0,
+        "carbs": 20.0,
+        "sugar": 2.0,
+        "fiber": 2.0,
+        "protein": 4.0,
+        "salt": 0.425,
+        "sodium": 0.17
+      }
+    }
+  },
+  {
+    "file": "images/08-0013764028074.jpg",
+    "barcode": "0013764028074",
+    "productName": "Organic Bread Sprouted Whole Grains",
+    "language": "en",
+    "countries": ["en:united-states", "en:world"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/001/376/402/8074/nutrition_en.107.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/0013764028074",
+    "sha256": "b1942fc9a5d71fcba1e2b21c0030102977a9e0205db22de23c8a17332b6d52c3",
+    "expected": {
+      "basis": "per_serving",
+      "fields": {
+        "calories": 70.0,
+        "fat": 0.0,
+        "saturated": 0.0,
+        "carbs": 15.0,
+        "sugar": 3.0,
+        "fiber": 2.0,
+        "protein": 3.0,
+        "salt": 0.287,
+        "sodium": 0.115
+      }
+    }
+  },
+  {
+    "file": "images/09-0016000124790.jpg",
+    "barcode": "0016000124790",
+    "productName": "Honey Nut Cheerios",
+    "language": "en",
+    "countries": ["en:united-states"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/001/600/012/4790/nutrition_en.125.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/0016000124790",
+    "sha256": "d0802d54000e6da6dd3cf72df5661827c2b31e859927097c387410b7a6cf2568",
+    "expected": {
+      "basis": "per_serving",
+      "fields": {
+        "calories": 140.0,
+        "fat": 2.0,
+        "saturated": 0.0,
+        "sugar": 12.0,
+        "fiber": 3.0,
+        "protein": 3.0,
+        "salt": 0.525,
+        "sodium": 0.21
+      }
+    }
+  },
+  {
+    "file": "images/10-0016000170032.jpg",
+    "barcode": "0016000170032",
+    "productName": "Cheerios",
+    "language": "en",
+    "countries": ["en:united-states"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/001/600/017/0032/nutrition_en.56.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/0016000170032",
+    "sha256": "286b973fee743db3f76cdbf1218a6eba0c490b6de4cbdb1ccbcb445ac19d1e93",
+    "expected": {
+      "basis": "per_serving",
+      "fields": {
+        "calories": 140.0,
+        "fat": 2.5,
+        "saturated": 0.5,
+        "sugar": 2.0,
+        "fiber": 4.0,
+        "protein": 5.0,
+        "salt": 0.475,
+        "sodium": 0.19
+      }
+    }
+  },
+  {
+    "file": "images/11-20005733.jpg",
+    "barcode": "20005733",
+    "productName": "Walnusskerne",
+    "language": "en",
+    "countries": [
+      "en:austria",
+      "en:belgium",
+      "en:bulgaria",
+      "en:croatia",
+      "en:denmark",
+      "en:france",
+      "en:germany",
+      "en:italy",
+      "en:netherlands",
+      "en:poland",
+      "en:portugal",
+      "en:romania",
+      "en:serbia",
+      "en:spain"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/000/002/000/5733/nutrition_en.606.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/20005733",
+    "sha256": "656540a42c8d0e281b3345a94fc58407303d64e1b5d890861397168c35869c97",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 712.0,
+        "fat": 69.1,
+        "saturated": 6.8,
+        "carbs": 3.7,
+        "sugar": 3.0,
+        "fiber": 6.8,
+        "protein": 15.5,
+        "salt": 0.02,
+        "sodium": 0.0
+      }
+    }
+  },
+  {
+    "file": "images/12-20022464.jpg",
+    "barcode": "20022464",
+    "productName": "\u010cokol\u00e1da 74%",
+    "language": "en",
+    "countries": [
+      "en:belgium",
+      "en:bulgaria",
+      "en:czech-republic",
+      "en:finland",
+      "en:germany",
+      "en:netherlands",
+      "en:poland",
+      "en:spain"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/000/002/002/2464/nutrition_en.305.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/20022464",
+    "sha256": "294d2b06a343508bff9f6677228cef4d2d9cbc950e299920af229a91ecb108f4",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 571.0,
+        "fat": 42.0,
+        "saturated": 26.0,
+        "carbs": 32.0,
+        "sugar": 26.0,
+        "fiber": 12.5,
+        "protein": 9.9,
+        "salt": 0.02,
+        "sodium": 0.008
+      }
+    }
+  },
+  {
+    "file": "images/13-20047238.jpg",
+    "barcode": "20047238",
+    "productName": "Nussmix",
+    "language": "en",
+    "countries": [
+      "en:belgium",
+      "en:bulgaria",
+      "en:croatia",
+      "en:czech-republic",
+      "en:france",
+      "en:germany",
+      "en:hungary",
+      "en:italy",
+      "en:poland",
+      "en:romania",
+      "en:serbia",
+      "en:spain",
+      "en:sweden",
+      "en:switzerland",
+      "en:united-kingdom"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/000/002/004/7238/nutrition_en.648.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/20047238",
+    "sha256": "5eddb5d944b3589d98693669b609c4d07d17bb9afc3dae2decd8f49c49f6b324",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 646.666666666667,
+        "fat": 58.0,
+        "saturated": 6.33,
+        "carbs": 15.0,
+        "sugar": 4.33,
+        "fiber": 8.67,
+        "protein": 20.3,
+        "salt": 0.03,
+        "sodium": 0.004
+      }
+    }
+  },
+  {
+    "file": "images/14-20267605.jpg",
+    "barcode": "20267605",
+    "productName": "Cashew Nuts",
+    "language": "en",
+    "countries": [
+      "en:austria",
+      "en:belgium",
+      "en:croatia",
+      "en:france",
+      "en:germany",
+      "en:hungary",
+      "en:italy",
+      "en:poland",
+      "en:spain",
+      "en:sweden",
+      "en:switzerland",
+      "en:united-kingdom"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/000/002/026/7605/nutrition_en.504.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/20267605",
+    "sha256": "595731bd2df464400fb91a0424451ec067dbf844d44bfd00269767db30349857",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 600.0,
+        "fat": 47.6,
+        "saturated": 9.0,
+        "carbs": 19.8,
+        "sugar": 6.5,
+        "fiber": 5.2,
+        "protein": 20.5,
+        "salt": 0.02,
+        "sodium": 0.008
+      }
+    }
+  },
+  {
+    "file": "images/15-20724696.jpg",
+    "barcode": "20724696",
+    "productName": "Almonds natural",
+    "language": "en",
+    "countries": [
+      "en:belgium",
+      "en:bulgaria",
+      "en:czech-republic",
+      "en:france",
+      "en:germany",
+      "en:greece",
+      "en:hungary",
+      "en:poland",
+      "en:portugal",
+      "en:romania",
+      "en:slovenia",
+      "en:spain",
+      "en:switzerland",
+      "en:united-kingdom"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/000/002/072/4696/nutrition_en.379.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/20724696",
+    "sha256": "940649987ab636f1531415258f915f0dbb99c44dd1b12c2dede6668fb51fc050",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 621.0,
+        "fat": 53.3,
+        "saturated": 4.3,
+        "carbs": 4.8,
+        "sugar": 4.8,
+        "fiber": 12.1,
+        "protein": 24.5,
+        "salt": 0.01,
+        "sodium": 0.004
+      }
+    }
+  },
+  {
+    "file": "images/16-20995553.jpg",
+    "barcode": "20995553",
+    "productName": "\u0428\u043e\u043a\u043e\u043b\u0430\u0434 85% \u043a\u0430\u043a\u0430\u043e\u0432\u0430 \u043c\u0430\u0441\u0430",
+    "language": "en",
+    "countries": [
+      "en:austria",
+      "en:belgium",
+      "en:bulgaria",
+      "en:estonia",
+      "en:finland",
+      "en:france",
+      "en:germany",
+      "en:italy",
+      "en:lithuania",
+      "en:slovakia",
+      "en:slovenia",
+      "en:spain",
+      "en:switzerland",
+      "en:united-kingdom"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/000/002/099/5553/nutrition_en.316.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/20995553",
+    "sha256": "9f2d8b64866c7e5906ae683f98ec001f725cc05263d0bd234236ec612dbe184e",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 552.0,
+        "fat": 46.8,
+        "saturated": 28.2,
+        "carbs": 21.4,
+        "sugar": 12.9,
+        "fiber": 14.5,
+        "protein": 10.8,
+        "salt": 0.2,
+        "sodium": 0.08
+      }
+    }
+  },
+  {
+    "file": "images/17-3017620422003.jpg",
+    "barcode": "3017620422003",
+    "productName": "Nutella",
+    "language": "en",
+    "countries": [
+      "en:france",
+      "en:italy",
+      "en:luxembourg",
+      "en:philippines",
+      "en:Allemagne",
+      "en:Belgique",
+      "en:Espagne",
+      "en:Inde",
+      "en:Maroc",
+      "en:Pays-Bas",
+      "en:Pologne",
+      "en:Roumanie",
+      "en:Royaume-Uni",
+      "en:Suisse",
+      "en:Turquie",
+      "en:\u00c9tats-Unis"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/301/762/042/2003/nutrition_en.822.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3017620422003",
+    "sha256": "d11697b644b631a42611b8195dd966b25515ed7d7b3edef4622e830313e46b6d",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 539.0,
+        "fat": 30.9,
+        "saturated": 10.6,
+        "carbs": 57.5,
+        "sugar": 56.3,
+        "protein": 6.3,
+        "salt": 0.107,
+        "sodium": 0.0428
+      }
+    }
+  },
+  {
+    "file": "images/18-3017620425035.jpg",
+    "barcode": "3017620425035",
+    "productName": "Nutella",
+    "language": "en",
+    "countries": [
+      "en:algeria",
+      "en:belgium",
+      "en:bulgaria",
+      "en:france",
+      "en:germany",
+      "en:guadeloupe",
+      "en:india",
+      "en:italy",
+      "en:luxembourg",
+      "en:martinique",
+      "en:morocco",
+      "en:reunion",
+      "en:spain",
+      "en:switzerland",
+      "en:tunisia",
+      "en:united-kingdom",
+      "en:united-states"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/301/762/042/5035/nutrition_en.588.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3017620425035",
+    "sha256": "9f78c7094666b2b9eab5d5d2832854e65dc5878766e3a8a027c5a1814a0598e4",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 539.0,
+        "fat": 30.9,
+        "saturated": 10.6,
+        "carbs": 57.5,
+        "sugar": 56.3,
+        "protein": 6.3,
+        "salt": 0.107,
+        "sodium": 0.0428
+      }
+    }
+  },
+  {
+    "file": "images/19-3046920022606.jpg",
+    "barcode": "3046920022606",
+    "productName": "Excellence 85% cacao",
+    "language": "fr",
+    "countries": [
+      "en:austria",
+      "en:belgium",
+      "en:france",
+      "en:germany",
+      "en:italy",
+      "en:morocco",
+      "en:netherlands",
+      "en:reunion",
+      "en:spain",
+      "en:switzerland"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/304/692/002/2606/nutrition_fr.263.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3046920022606",
+    "sha256": "35a1ab4e07cc0fa4b15668035b464ed4c984662e62d0e142a2ce35a00c9df39b",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 584.0,
+        "fat": 46.0,
+        "saturated": 27.0,
+        "carbs": 22.0,
+        "sugar": 15.0,
+        "fiber": 0.0,
+        "protein": 12.5,
+        "salt": 0.02,
+        "sodium": 0.008
+      }
+    }
+  },
+  {
+    "file": "images/20-3046920022651.jpg",
+    "barcode": "3046920022651",
+    "productName": "Excellence 70% cacao noir intense",
+    "language": "fr",
+    "countries": [
+      "en:algeria",
+      "en:belgium",
+      "en:czech-republic",
+      "en:france",
+      "en:germany",
+      "en:guadeloupe",
+      "en:italy",
+      "en:morocco",
+      "en:reunion",
+      "en:spain",
+      "en:switzerland"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/304/692/002/2651/nutrition_fr.241.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3046920022651",
+    "sha256": "d07bfcb1e507921d446b76ff4f59fee3acf8c23ad0e1f8a09e3c599b2acd200a",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 566.0,
+        "fat": 41.0,
+        "saturated": 24.0,
+        "carbs": 35.0,
+        "sugar": 30.0,
+        "protein": 9.5,
+        "salt": 0.02,
+        "sodium": 0.008
+      }
+    }
+  },
+  {
+    "file": "images/21-3046920028004.jpg",
+    "barcode": "3046920028004",
+    "productName": "Lindt Excellence 70% Cocoa",
+    "language": "en",
+    "countries": [
+      "en:australia",
+      "en:belgium",
+      "en:bulgaria",
+      "en:canada",
+      "en:czech-republic",
+      "en:denmark",
+      "en:estonia",
+      "en:france",
+      "en:germany",
+      "en:hungary",
+      "en:india",
+      "en:ireland",
+      "en:italy",
+      "en:lebanon",
+      "en:morocco",
+      "en:netherlands",
+      "en:portugal",
+      "en:serbia",
+      "en:spain",
+      "en:sweden",
+      "en:switzerland",
+      "en:united-kingdom"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/304/692/002/8004/nutrition_en.437.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3046920028004",
+    "sha256": "51f6f4687ffb5720dea05a35e99e67ab552f9e4e75d1141f678694725e3be7ee",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 570.0,
+        "fat": 17.0,
+        "saturated": 12.0,
+        "carbs": 57.0,
+        "sugar": 33.0,
+        "fiber": 11.0,
+        "protein": 6.0,
+        "salt": 0.21,
+        "sodium": 0.0
+      }
+    }
+  },
+  {
+    "file": "images/22-3046920028363.jpg",
+    "barcode": "3046920028363",
+    "productName": "Excellence 85% Cacao Rich Dark",
+    "language": "en",
+    "countries": [
+      "en:andorra",
+      "en:australia",
+      "en:austria",
+      "en:belgium",
+      "en:bulgaria",
+      "en:denmark",
+      "en:france",
+      "en:germany",
+      "en:hungary",
+      "en:ireland",
+      "en:italy",
+      "en:lithuania",
+      "en:morocco",
+      "en:netherlands",
+      "en:new-zealand",
+      "en:poland",
+      "en:portugal",
+      "en:romania",
+      "en:russia",
+      "en:spain",
+      "en:switzerland",
+      "en:united-kingdom"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/304/692/002/8363/nutrition_en.434.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3046920028363",
+    "sha256": "918abbcbc2bdd2cd2160de40f38d292930136609addee83f3b987bc1a98ca15b",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 584.0,
+        "fat": 46.0,
+        "saturated": 27.0,
+        "carbs": 22.0,
+        "sugar": 15.0,
+        "fiber": 0.0,
+        "protein": 12.5,
+        "salt": 0.01,
+        "sodium": 0.004
+      }
+    }
+  },
+  {
+    "file": "images/23-3046920029759.jpg",
+    "barcode": "3046920029759",
+    "productName": "Edelbitter-Schokolade",
+    "language": "en",
+    "countries": [
+      "en:algeria",
+      "en:austria",
+      "en:belgium",
+      "en:bulgaria",
+      "en:canada",
+      "en:czech-republic",
+      "en:finland",
+      "en:france",
+      "en:french-polynesia",
+      "en:germany",
+      "en:ireland",
+      "en:italy",
+      "en:mauritius",
+      "en:monaco",
+      "en:morocco",
+      "en:netherlands",
+      "en:norway",
+      "en:poland",
+      "en:portugal",
+      "en:reunion",
+      "en:romania",
+      "en:singapore",
+      "en:spain",
+      "en:sweden",
+      "en:switzerland",
+      "en:tunisia",
+      "en:united-kingdom"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/304/692/002/9759/nutrition_en.546.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3046920029759",
+    "sha256": "108b13cc5de72e8cd041b8108d2a890edbfa6b032fc3f9ca142c759032f83ce1",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 592.0,
+        "fat": 55.0,
+        "saturated": 30.0,
+        "carbs": 14.0,
+        "sugar": 4.0,
+        "fiber": 0.0,
+        "protein": 10.0,
+        "salt": 0.03,
+        "sodium": 0.012
+      }
+    }
+  },
+  {
+    "file": "images/24-3057640257773.jpg",
+    "barcode": "3057640257773",
+    "productName": "Eau Min\u00e9rale Naturelle",
+    "language": "en",
+    "countries": [
+      "en:belgium",
+      "en:france",
+      "en:germany",
+      "en:luxembourg",
+      "en:switzerland"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/305/764/025/7773/nutrition_en.313.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3057640257773",
+    "sha256": "8a4270c23cc413e9ec94f09b89290a39861a3c8ad95483ed7e975176a64cf7a2",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 0.0,
+        "fat": 0.0,
+        "saturated": 0.0,
+        "carbs": 0.0,
+        "sugar": 0.0,
+        "fiber": 0.0,
+        "protein": 0.0,
+        "salt": 0.003,
+        "sodium": 0.0012
+      }
+    }
+  },
+  {
+    "file": "images/25-3155251205296.jpg",
+    "barcode": "3155251205296",
+    "productName": "Tartine Doux",
+    "language": "en",
+    "countries": [
+      "en:algeria",
+      "en:belgium",
+      "en:cote-d-ivoire",
+      "en:france",
+      "en:guadeloupe",
+      "en:martinique",
+      "en:reunion",
+      "en:switzerland"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/315/525/120/5296/nutrition_en.152.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3155251205296",
+    "sha256": "7da927f2c66abf03929cc9de8e5d29ab5aaeb97740bcac414910c5e860a32508",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 495.0,
+        "fat": 55.0,
+        "saturated": 15.0,
+        "carbs": 0.0,
+        "sugar": 0.0,
+        "protein": 0.0,
+        "salt": 0.4,
+        "sodium": 0.16
+      }
+    }
+  },
+  {
+    "file": "images/26-3175680011480.jpg",
+    "barcode": "3175680011480",
+    "productName": "S\u00e9same",
+    "language": "fr",
+    "countries": [
+      "en:belgium",
+      "en:bulgaria",
+      "en:france",
+      "en:germany",
+      "en:morocco",
+      "en:reunion",
+      "en:switzerland",
+      "en:united-states"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/317/568/001/1480/nutrition_fr.248.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3175680011480",
+    "sha256": "28bac2cfac9464dff6a87bc94c11fadb357e20e616bc865df6e54b9d399839c5",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 467.0,
+        "fat": 18.0,
+        "saturated": 2.0,
+        "carbs": 64.0,
+        "sugar": 17.0,
+        "fiber": 4.6,
+        "protein": 10.0,
+        "salt": 0.38,
+        "sodium": 0.152
+      }
+    }
+  },
+  {
+    "file": "images/27-3229820100234.jpg",
+    "barcode": "3229820100234",
+    "productName": "Fourr\u00e9s Chocolat Noir",
+    "language": "fr",
+    "countries": ["en:france", "en:luxembourg", "en:reunion", "en:switzerland"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/322/982/010/0234/nutrition_fr.267.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3229820100234",
+    "sha256": "ddcd5c234c0d44c02c08fa623cbd7cde4dd7dd94a5c3d4742d03e8fb7bd5afe1",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 476.0,
+        "fat": 19.0,
+        "saturated": 6.3,
+        "carbs": 66.0,
+        "sugar": 27.0,
+        "fiber": 5.2,
+        "protein": 7.6,
+        "salt": 0.49,
+        "sodium": 0.196
+      }
+    }
+  },
+  {
+    "file": "images/28-3268840001008.jpg",
+    "barcode": "3268840001008",
+    "productName": "CRISTALINE Eau De Source 0.5L",
+    "language": "en",
+    "countries": [
+      "en:belgium",
+      "en:cote-d-ivoire",
+      "en:france",
+      "en:germany",
+      "en:luxembourg",
+      "en:mali",
+      "en:martinique",
+      "en:morocco",
+      "en:russia",
+      "en:switzerland",
+      "en:united-kingdom"
+    ],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/326/884/000/1008/nutrition_en.355.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3268840001008",
+    "sha256": "48a09dc4c0f00aeccc38337bb81a6695e4f107fa64038049f1be7d66855a7f3c",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 0.0,
+        "fat": 0.0,
+        "saturated": 0.0,
+        "carbs": 0.0,
+        "sugar": 0.0,
+        "fiber": 0.0,
+        "protein": 0.0,
+        "salt": 0.00476,
+        "sodium": 0.001904
+      }
+    }
+  },
+  {
+    "file": "images/29-3362600011044.jpg",
+    "barcode": "3362600011044",
+    "productName": "Henry\u2019s",
+    "language": "ar",
+    "countries": ["en:france", "en:morocco"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/336/260/001/1044/nutrition_ar.46.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3362600011044",
+    "sha256": "e044e2cfd46298db5f4ef2d8c0918e5bff46f0deb873acfc72b6e36a0aff9fe3",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 440.0,
+        "fat": 10.8235,
+        "saturated": 5.2941,
+        "carbs": 76.4706,
+        "sugar": 24.2353,
+        "fiber": 2.3529,
+        "protein": 7.6471,
+        "salt": 0.882353,
+        "sodium": 0.3529412
+      }
+    }
+  },
+  {
+    "file": "images/30-3362600011228.jpg",
+    "barcode": "3362600011228",
+    "productName": "Sable coco Henry s 42g",
+    "language": "fr",
+    "countries": ["en:france", "en:morocco"],
+    "sourceUrl": "https://images.openfoodfacts.net/images/products/336/260/001/1228/nutrition_fr.34.full.jpg",
+    "productUrl": "https://world.openfoodfacts.org/product/3362600011228",
+    "sha256": "3d5211acceabe66316f5eaf9cdec5ac1f30631387f460f77e2ca68d486b212ff",
+    "expected": {
+      "basis": "per_100g",
+      "fields": {
+        "calories": 442.857142857143,
+        "fat": 12.3809523809524,
+        "saturated": 7.14285714285714,
+        "carbs": 73.8095238095238,
+        "sugar": 23.8095238095238,
+        "fiber": 2.38095238095238,
+        "protein": 7.61904761904762,
+        "salt": 0.898809523809524,
+        "sodium": 0.35952380952381
+      }
+    }
+  }
+]

@@ -1,0 +1,1142 @@
+{
+  "fixtures": 30,
+  "basisAccuracy": 0.8,
+  "fieldAccuracy": 0.2878787878787879,
+  "fieldsScored": 264,
+  "byFormat": {
+    "per_serving": {
+      "fixtures": 10,
+      "basisAccuracy": 0.8,
+      "fieldAccuracy": 0.45454545454545453,
+      "fieldsScored": 88
+    },
+    "per_100g": {
+      "fixtures": 20,
+      "basisAccuracy": 0.8,
+      "fieldAccuracy": 0.20454545454545456,
+      "fieldsScored": 176
+    }
+  },
+  "failures": [
+    {
+      "file": "images/01-0009800895007.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 200.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 11.0,
+          "actual": 0.0
+        },
+        {
+          "field": "saturated",
+          "expected": 4.0,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.037,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.0148,
+          "actual": 15.0
+        }
+      ],
+      "rawText": "Nutrition\nAmount/serving\n% Daily Value*\nAmount/serving\n% Daily Value\nTotal Fat\n11g\n14%\nTotal Carbohydrate 22g\n8%\nTl\nFacts\n4%\n20%\nDietary Fiber 1g\nSaturated Fat 4g\nabout 10 servings\nTrans Fat 0g\nTotal Sugars 21g\nServ.size\nCholesterol <5mg\n0%\nIncludes 19g Added Sugars 38%\n2tbsp (37g)\nSodium 15mg\n1%\nProtein 2g\nCalories\n200\nper serving\nPotassium 170mg 4%\nNutrition Amount/serving % Daily Value* Amount/serving % Daily Value\nTotal Fat 11g 14% Total Carbohydrate 22g 8% Tl\nSaturated Fat 4g 20% Dietary Fiber 1g 4%\nabout 10 servings Trans Fat 0g Total Sugars 21g\nCholesterol <5mg 0% Includes 19g Added Sugars 38%\nSodium 15mg 1% Protein 2g\nper serving 200\nNutrition Amount/serving\nFacts Total Fat Amount/serving\n11g 14% % Daily Value\nSaturated Fat 4g Total Carbohydrate 22g 8% Tl\nabout 10 servings 20%\nServ.size Trans Fat 0g Dietary Fiber 1g 4%\n2tbsp (37g) Cholesterol <5mg Total Sugars 21g\nCalories Sodium 15mg Includes 19g Added Sugars 38%\nper serving 200 1% Protein 2g\nabout 10 servings Saturated Fat 4g 20% Total Carbohydrate 22g 8% Tl\nServ.size Trans Fat 0g Dietary Fiber 1g\n% Daily Value* Amount/serving Tl\nAmount/serving Total Carbohydrate 22g 8%\nNutrition 11g 14% 4%\nTotal Fat Dietary Fiber 1g\nFacts Saturated Fat 4g Total Sugars 21g\nTrans Fat 0g Includes 19g Added Sugars 38%\nabout 10 servings 0%\nServ.size Cholesterol <5mg Protein 2g\n2tbsp (37g) Sodium 15mg\n200 Potassium 170mg 4%\nAmount/serving % Daily Value* 8% Tl\nFacts Total Fat 11g Amount/serving % Daily Value\nabout 10 servings 20% Dietary Fiber 1g\nServ.size Trans Fat 0g 4%\n2tbsp (37g) Cholesterol <5mg\nCalories Sodium 15mg\n1% Protein 2g\nAmount/serving % Daily Value* Amount/serving % Daily Value\nNutrition Total Carbohydrate 22g 8% Tl\nTotal Fat 11g 14%\nFacts Saturated Fat 4g 20% Dietary Fiber 1g 4%\nTrans Fat 0g Total Sugars 21g\nServ.size Cholesterol <5mg 0% Includes 19g Added Sugars 38%\n2tbsp (37g) Sodium 15mg 1% Protein 2g\nAmount/serving Tl\n% Daily Value* 8%\nAmount/serving Total Carbohydrate 22g\n14% 4%\nNutrition Total Fat 11g Dietary Fiber 1g\nSaturated Fat 4g Total Sugars 21g\nCholesterol <5mg Protein 2g\nServ.size 1%\n% Daily Value* Amount/serving % Daily Value\nNutrition 14% Total Carbohydrate 22g 8%\nTotal Fat 11g\n20% Dietary Fiber 1g\nFacts Saturated Fat 4g\nabout 10 servings Trans Fat 0g Includes 19g Added Sugars 38%\nServ.size Cholesterol <5mg 0%\n2tbsp (37g) 1% Protein 2g\nper serving Potassium 170mg 4%\nNutrition Tl\nTotal Fat 11g 14% Total Carbohydrate 22g 8%"
+    },
+    {
+      "file": "images/02-0013000006057.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 20.0,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 5.0,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.45,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.18,
+          "actual": 180.0
+        }
+      ],
+      "rawText": "HEINZ\nFor over 150 years, only HEINZ has made the thick\nrich ketchup America loves from only the best\nred-ripe tomatoes. Nothing else tastes like HEINZ.\nNutrition\nAmount/serving\n% DV\nAmount/serving\n% DV\nFacts\nTotal Fat 0g\n0%\nTotal Carb. 5g\n2%\nAbout 53 servings\nSat. Fat 0g\n0%\nFiber 0g\n0%\nper container\nTrans Fat 0g\nTotal Sugars 4g\nServing size\nCholest.Omg\n0%\nIncl. 4g Added Sugars 7%\n1 Tbsp (17g)\nSodium 180mg\n8%\nProtein 0g\nCalories\n20\nVit. D 0%  Calcium 0%  Iron 0%  Potas. 0%\nper serving\n7\nINGREDIENTS: TOMATO CONCENTRATE FROM RED\nRIPE TOMATOES, DISTILLED VINEGAR, HIGH FRUCTOSE\n13000005\nCORN SYRUP, CORN SYRUP, SALT, SPICE, ONION\nPOWDER, NATURAL FLAVORING.\n04050032710200\nMANUFACTURED BY\nKRAFT HEINZ FOODS COMPANY\nPITTSBURGH, PA 15222\nGLUTEN-FREE\nHEINZ.COM\nQuestions or comments?\nCALL1-800-255-5750\nFor best result refrigerat ateer\nopening. Shake well befre\n0\nBest if used by date on cap\nfirst use.\nNutrition Amount/serving % DV Amount/serving % DV\nFacts Total Fat 0g 0% Total Carb. 5g 2%\nAbout 53 servings Sat. Fat 0g 0% Fiber 0g 0%\nper container Trans Fat 0g Total Sugars 4g\nServing size Cholest.Omg 0% Incl. 4g Added Sugars 7%\n1 Tbsp (17g) Sodium 180mg 8% Protein 0g\nCalories 20\nper serving Vit. D 0%  Calcium 0%  Iron 0%  Potas. 0%\n7 INGREDIENTS: TOMATO CONCENTRATE FROM RED\n04050032710200 13000005 PITTSBURGH, PA 15222\nGLUTEN-FREE HEINZ.COM\n0 opening. Shake well befre\nBest if used by date on cap first use.\nSat. Fat 0g 0% Fiber 0g 0%\n% DV Amount/serving\nNutrition 0% Total Carb. 5g\nTotal Fat 0g 0%\nFacts 0% Fiber 0g\nAbout 53 servings Trans Fat 0g\nper container 0%\nServing size 8% Protein 0g\n1 Tbsp (17g) Sodium 180mg\nper serving INGREDIENTS: TOMATO CONCENTRATE FROM RED\n7 RIPE TOMATOES, DISTILLED VINEGAR, HIGH FRUCTOSE\n13000005 PITTSBURGH, PA 15222 HEINZ.COM\n04050032710200 GLUTEN-FREE\n0 first use.\nNutrition Amount/serving % DV Amount/serving\nFacts Total Fat 0g 0% Total Carb. 5g\nAbout 53 servings Sat. Fat 0g 0% Fiber 0g\nSodium 180mg 8% Protein 0g\n04050032710200 KRAFT HEINZ FOODS COMPANY\n13000005 PITTSBURGH, PA 15222\nNutrition Amount/serving\nFacts Total Fat 0g % DV\n0% Total Carb. 5g\nAbout 53 servings Sat. Fat 0g 0% 2%\nTrans Fat 0g 0%\nServing size Total Sugars 4g\nCholest.Omg 0%\n1 Tbsp (17g) Incl. 4g Added Sugars 7%\nSodium 180mg 8%\nCalories Protein 0g\n13000005 KRAFT HEINZ FOODS COMPANY\nFacts Amount/serving\nTotal Fat 0g 0% % DV\nAbout 53 servings Sat. Fat 0g Total Carb. 5g\nper container 0% Fiber 0g 2%\nServing size 0%\nCholest.Omg Total Sugars 4g\n1 Tbsp (17g) 0%\nCalories Sodium 180mg Incl. 4g Added Sugars 7%\nper serving 20 Protein 0g\n04050032710200 MANUFACTURED BY\nBest if used by date on cap opening. Shake well befre\nAmount/serving 2%\n0% Fiber 0g\nFacts Sat. Fat 0g\nAbout 53 servings Trans Fat 0g Incl. 4g Added Sugars 7%\nper serving RIPE TOMATOES, DISTILLED VINEGAR, HIGH FRUCTOSE\nPITTSBURGH, PA 15222 HEINZ.COM\n04050032710200 GLUTEN-FREE Questions or comments?\nAmount/serving % DV\nNutrition Total Carb. 5g 2%\nAbout 53 servings Total Sugars 4g\nper container 0% Incl. 4g Added Sugars 7%\n13000005 HEINZ.COM\nNutrition 0% 0%\nTotal Fat 0g Fiber 0g\nFacts Sat. Fat 0g Total Sugars 4g\n% DV Amount/serving % DV\nFacts 0% Fiber 0g 0%\nper container Incl. 4g Added Sugars 7%\n8% Protein 0g\nCalories 20 Vit. D 0%  Calcium 0%  Iron 0%  Potas. 0%\n04050032710200 HEINZ.COM\nAmount/serving % DV Amount/serving % DV"
+    },
+    {
+      "file": "images/03-0013764027039.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 120.0,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.4,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.16,
+          "actual": 160.0
+        }
+      ],
+      "rawText": "78401-121823\nNutrition Facts\n17 servings per container\nServing size 1 Slice (45g/1.6cz)\nAmount per serving\n120\nCalories\n% Daily Value*\n3%\nTotal Fat 2.5g\n0%\nSaturated Fat 0g\nTrans Fat 0g\nPolyunsaturated Fat 1.5g\nMonounsaturated Fat 0.5g\n0%\nCholesterol 0mg\n7%\nSodium 160mg\n8%\nTotal Carbohydrate 23g\n11%\nDietary Fiber 3g\nTotal Sugars 5g\nIncludes 5g Added Sugars\n10%\nProtein 5g\n3%\nVitamin D 0mcg\n0%\nCalcium 30mg\n2%\nIron 0.9mg\n6%\nPotassium 100mg\n2%\nAmount per serving 120\nTotal Fat 2.5g 0%\nMonounsaturated Fat 0.5g 0%\nCholesterol 0mg 7%\nSodium 160mg 8%\nTotal Carbohydrate 23g 11%\nTotal Sugars 5g 10%\nVitamin D 0mcg 2%\nCalcium 30mg 6%\nIron 0.9mg 2%\nTotal Fat 2.5g 3%\nSaturated Fat 0g 0%\nCholesterol 0mg 0%\nSodium 160mg 7%\nTotal Carbohydrate 23g 8%\nDietary Fiber 3g 11%\nIncludes 5g Added Sugars 10%\nProtein 5g 3%\nVitamin D 0mcg 0%\nCalcium 30mg 2%\nIron 0.9mg 6%\nPotassium 100mg 2%\nCalories 120\nSodium 160mg 0%\nDietary Fiber 3g 8%\nProtein 5g 10%\nCalcium 30mg 0%\nPotassium 100mg 6%"
+    },
+    {
+      "file": "images/04-0013764027053.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 110.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 0.675,
+          "actual": 1.5
+        },
+        {
+          "field": "carbs",
+          "expected": 9.9,
+          "actual": 22.0
+        },
+        {
+          "field": "sugar",
+          "expected": 1.8,
+          "actual": 4.0
+        },
+        {
+          "field": "fiber",
+          "expected": 1.8,
+          "actual": 4.0
+        },
+        {
+          "field": "protein",
+          "expected": 2.7,
+          "actual": 6.0
+        },
+        {
+          "field": "salt",
+          "expected": 0.191,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.0765,
+          "actual": 170.0
+        }
+      ],
+      "rawText": "Nutrition racts\nPOPCORN BEVER\n17 servings per container\nServing size 1 Slice (45g/1.6oz)\nAUO\nOLE\nOOOK\nAmount per serving\nCOOK\nCOOK\n110\nTME\nPOWER\nAINS\nCalories\n1\n2\n% Daily Value*\nSEEDS\nTotal Fat 1.5g\n2%\n4\n5\nALM\nSaturated Fat 0g\n0%\nLWIN\n7\n8\n9\nTrans Fat 0g\nre, subtle\nPolyunsaturated Faf 1g\n0\ned-coated\nCLOCK\nMonounsaturated Fat 0g\nat for toast,\nCholesterol Omg\n0%\nEJET\nSTART\nen by itself.\nSodium 170mg\n8%\nSTART\nTotal Carbohydrate 22g\n8%\n16%\nDietary Fiber 4g\nTotal Sugars 4g\nIncludes 4g Added Sugars\n%6\nProtein 6g\n3%\n%0\nVitamin D Omcg\n2%\nCalcium 30mg\n6%\nIron 1mg\n2%\nPotassium 100mg\nThe % Daily Value (DV) tells you how much a nutrient\nin a serving of food contributes to a daily diet, 2,000\ncalories a day is used for general nutrition advice.\nOF\nPLEASE RECYCLE\nAILY\nOR REUSE THES BAG\nONS OR COMMENTS?\nERDREAD.COM/CONTACT\nServing size 1 Slice (45g/1.6oz) OOOK\nAmount per serving COOK COOK\nTME POWER\nCalories 110\nAINS 1 2\nSEEDS Total Fat 1.5g 2% 4 5\nSaturated Fat 0g 0%\n7 8 9\ned-coated CLOCK 0\nat for toast, EJET\nCholesterol Omg 0% START\nSodium 170mg 8% START\nTotal Carbohydrate 22g 8%\nDietary Fiber 4g 16%\nIncludes 4g Added Sugars %6\nProtein 6g 3%\nVitamin D Omcg %0\nCalcium 30mg 2%\nPotassium 100mg 2%\nOF PLEASE RECYCLE\nAILY OR REUSE THES BAG\nNutrition racts POPCORN BEVER\nServing size 1 Slice (45g/1.6oz) AUO\nAmount per serving COOK\n1 2\nSEEDS Total Fat 1.5g\n2% 4\nALM 5\nTrans Fat 0g LWIN\nre, subtle 7 8 9\ned-coated Polyunsaturated Faf 1g\nMonounsaturated Fat 0g CLOCK 0\nen by itself. Cholesterol Omg 0% EJET\nSodium 170mg 8%\nIron 1mg 6%\n17 servings per container AUO\nCOOK COOK\nOLE TME POWER\nCalories 1 2\nAINS % Daily Value*\n4 5\n2% ALM\nSEEDS 0% LWIN 9\nSaturated Fat 0g 7 8\nCLOCK 0\nre, subtle Polyunsaturated Faf 1g\ned-coated Monounsaturated Fat 0g EJET\n0% START\nat for toast, Cholesterol Omg\n8% START\nen by itself. Sodium 170mg\nVitamin D Omcg 2%\nCalcium 30mg 6%\nIron 1mg 2%\nOF OR REUSE THES BAG\nTrans Fat 0g 7 8 9\nCholesterol Omg 0% EJET\nen by itself. START\nOLE Serving size 1 Slice (45g/1.6oz)\nAmount per serving OOOK\nAINS Calories\n110 COOK\nTME COOK\nTotal Fat 1.5g % Daily Value* 1\nSaturated Fat 0g 2%\nre, subtle 4\nTrans Fat 0g 0% ALM 5\nat for toast, Polyunsaturated Faf 1g 7\nMonounsaturated Fat 0g 9\nCholesterol Omg CLOCK\nSodium 170mg 0%\nTotal Carbohydrate 22g 8% START\nDietary Fiber 4g 8% START\nTotal Sugars 4g 16%\nProtein 6g %6\nCalcium 30mg %0\nPotassium 100mg 6%\nOF PLEASE RECYCLE calories a day is used for general nutrition advice.\n17 servings per container OOOK\nServing size 1 Slice (45g/1.6oz) COOK\nOLE Amount per serving 110 1 2\n% Daily Value* 4 5\nAINS 2% ALM\nTotal Fat 1.5g 0% LWIN 7 8\nSEEDS Saturated Fat 0g\nTrans Fat 0g CLOCK\nre, subtle EJET\nMonounsaturated Fat 0g START\nCholesterol Omg 8% START\nen by itself. Total Carbohydrate 22g\nTotal Sugars 4g %6\nIncludes 4g Added Sugars 3%\nProtein 6g %0\nre, subtle Monounsaturated Fat 0g START\ned-coated START\nCholesterol Omg 8%\nen by itself. Total Carbohydrate 22g 16%\n17 servings per container POPCORN BEVER\n110 TME COOK\nre, subtle ALM 4\nTrans Fat 0g 0% 5\ned-coated LWIN\nPolyunsaturated Faf 1g 7\nat for toast, 8\nCholesterol Omg CLOCK 0\nOLE AUO\nAINS Calories 110 TME POWER\nSEEDS % Daily Value* 2\nSaturated Fat 0g ALM 4 5\nre, subtle Trans Fat 0g LWIN\ned-coated 7 8 9\nat for toast, Monounsaturated Fat 0g CLOCK\nen by itself. Cholesterol Omg\n0% EJET\nSodium 170mg START\nTotal Carbohydrate 22g START\nOLE Amount per serving\n110 1 2\nAINS % Daily Value* 4 5\nTotal Fat 1.5g 0% LWIN 8 9\nSEEDS 7\nTrans Fat 0g CLOCK 0\nMonounsaturated Fat 0g EJET\ned-coated 0% START\nat for toast, Cholesterol Omg 8% START\nen by itself. Sodium 170mg 8%\nAINS Calories COOK\n% Daily Value* 1\nTotal Fat 1.5g 2\nre, subtle 0% ALM 4 5\nat for toast, 8 9\nen by itself. CLOCK\nCholesterol Omg 0"
+    },
+    {
+      "file": "images/05-0013764027121.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 70.0,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.3,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.12,
+          "actual": 120.0
+        }
+      ],
+      "rawText": "mIN-SLICED\nNutrition Facts\nBerving size 1ce(28g/1.0o)\nGOOD\nCalories\n70\nSEED\nTotal Fat 1.5g\n% Dally Valuet\ntexture and sweet flavor,\nLoaded with a seedy\nSaturated Fat Og\nTrans Fat Og\nPolyunsaturated Fat 1g\n2%\n0%\nGood Seed\u00ae Thin-Sliced\nMonounsaturated Fat 0g\nhas 70 calories per slice.\nCholesterol Omg\n0%\nThat's what we call big\nSodium 120mg\n5%\nnutrition in a little slice!\nTotal Carbohydrate 13g\n5%\nDietary Fiber 3g\n10%\nTotal Sugars 2g\nIncludes 2g Added Sugars\n5%\nProtein 4g\n2%\nWHOLE\nGRAIN\n4\nVitamin D Omcg\nCalcium 20mg\n0%\n0%\nPLEASE RECYCLE\nLOPE\nIron 0.7mg\n4%\nOR REUSE THIS BAG\nPotassium 70mg\n0%\nQUESTIONS OR COMMENTS?\nThe % Dail Value (DV) tels you how much anutrert\nDAVESKILLERBREAD.COM/CONTACT\ncaloe o   n s   e\nORGANC CRACNED HHOLE WHEAT HATER ORGANC GOO SEEDO GRAN A\nINGREDNENTS: ORGANIC H\nWHEAT\nORGANIC HTE QUWOAL ORGANC STEL CUT OATS OGAIC GROUNG HHOLE\nORGANC TRI-COLOR QUNGA JORGANC BLACN QUNOA ORGANC RED QUNA\nFIBER CONTANS Z% OR LESS OF EACH OF THE FOLLOWING ORGANIC\nMOUSES SEA SALT, YEAST ORGAIC WPEGA ORGAGC CULTURED HEAT\nFLOUN ENZTMES ORGAMIC ACEROLA CHENRY POHDER\nCONL NS: WHEAT.\n789-061923\nDISTRIBUTED BY:\nDKB-ALPINE ORGANIC\nBAKEHIES GROUP,LLC\n5209 SEINTERNATIONAL WAY\nMILWAUKIE, OR 97222\nCERTIFIED ORGANIC BY: QAI INC.\nCERTIFIED ORGAA\nGOOD Berving size 1ce(28g/1.0o)\nSEED 70\nTotal Fat 1.5g % Dally Valuet\nLoaded with a seedy Saturated Fat Og 2%\ntexture and sweet flavor, Trans Fat Og 0%\nGood Seed\u00ae Thin-Sliced Polyunsaturated Fat 1g\nhas 70 calories per slice. Monounsaturated Fat 0g\nThat's what we call big Cholesterol Omg\nnutrition in a little slice! Sodium 120mg 0%\nTotal Carbohydrate 13g 5%\nDietary Fiber 3g 5%\nTotal Sugars 2g 10%\nProtein 4g 5%\nGRAIN 2%\n4 Vitamin D Omcg\nLOPE Calcium 20mg 0%\nOR REUSE THIS BAG Iron 0.7mg 0%\nQUESTIONS OR COMMENTS? Potassium 70mg 4%\nDAVESKILLERBREAD.COM/CONTACT The % Dail Value (DV) tels you how much anutrert 0%\nCONL NS: WHEAT. FLOUN ENZTMES ORGAMIC ACEROLA CHENRY POHDER\nCalories 70\nSEED Total Fat 1.5g\nSaturated Fat Og 0%\nGood Seed\u00ae Thin-Sliced Monounsaturated Fat 0g\nhas 70 calories per slice. Cholesterol Omg 0%\nThat's what we call big Sodium 120mg 5%\nnutrition in a little slice! Total Carbohydrate 13g 5%\nDietary Fiber 3g 10%\nIncludes 2g Added Sugars 5%\nProtein 4g 2%\nWHOLE Vitamin D Omcg 0%\nGRAIN 4 Calcium 20mg 0%\nPLEASE RECYCLE LOPE Iron 0.7mg 4%\nPotassium 70mg 0%\nQUESTIONS OR COMMENTS? The % Dail Value (DV) tels you how much anutrert\nDAVESKILLERBREAD.COM/CONTACT caloe o   n s   e\nINGREDNENTS: ORGANIC H WHEAT\nFLOUN ENZTMES ORGAMIC ACEROLA CHENRY POHDER 789-061923\nCERTIFIED ORGANIC BY: QAI INC. CERTIFIED ORGAA\nGOOD Calories 70\nTotal Fat 1.5g 2%\nLoaded with a seedy Polyunsaturated Fat 1g\ntexture and sweet flavor, Monounsaturated Fat 0g\nGood Seed\u00ae Thin-Sliced Cholesterol Omg 0%\nhas 70 calories per slice. Sodium 120mg 5%\nThat's what we call big Total Carbohydrate 13g 5%\nnutrition in a little slice! 10%\nWHOLE 0%\nGRAIN 4 Calcium 20mg\nLOPE Iron 0.7mg\nPLEASE RECYCLE 0%\nOR REUSE THIS BAG Potassium 70mg\nDAVESKILLERBREAD.COM/CONTACT INGREDNENTS: ORGANIC H WHEAT\nMOUSES SEA SALT, YEAST ORGAIC WPEGA ORGAGC CULTURED HEAT 789-061923\nDAVESKILLERBREAD.COM/CONTACT The % Dail Value (DV) tels you how much anutrert\nWHOLE Protein 4g 5%\nINGREDNENTS: ORGANIC H caloe o   n s   e\nSEED Total Fat 1.5g 2%\nCholesterol Omg 0%\nSodium 120mg 5%\nVitamin D Omcg 0%\nLOPE Iron 0.7mg 4%\nOR REUSE THIS BAG Potassium 70mg 0%\nSaturated Fat Og 2%\nLoaded with a seedy Trans Fat Og 0%\ntexture and sweet flavor, Polyunsaturated Fat 1g\nhas 70 calories per slice. Cholesterol Omg\nThat's what we call big Sodium 120mg 0%\nnutrition in a little slice! 5%\nGRAIN Vitamin D Omcg\n4 0%\nLOPE 0%\nPLEASE RECYCLE Iron 0.7mg\nOR REUSE THIS BAG 4%\nQUESTIONS OR COMMENTS? 0%\nCONL NS: WHEAT. 789-061923\nGOOD Calories\nSEED Saturated Fat Og\ntexture and sweet flavor, 0%\nGood Seed\u00ae Thin-Sliced Cholesterol Omg 5%\nThat's what we call big 10%\nnutrition in a little slice! Dietary Fiber 3g\nTotal Sugars 2g 5%\nCalcium 20mg 4%\nWHOLE 4\nGRAIN Iron 0.7mg 0%\nPLEASE RECYCLE Potassium 70mg\nQUESTIONS OR COMMENTS? caloe o   n s   e\nDAVESKILLERBREAD.COM/CONTACT INGREDNENTS: ORGANIC H ORGANC CRACNED HHOLE WHEAT HATER ORGANC GOO SEEDO GRAN A\nMILWAUKIE, OR 97222 CERTIFIED ORGAA\nSEED 0%\nGood Seed\u00ae Thin-Sliced Cholesterol Omg\nhas 70 calories per slice. Sodium 120mg\nThat's what we call big Total Carbohydrate 13g\nWHOLE 4 Calcium 20mg 4%\nLOPE Iron 0.7mg 0%\nSEED Saturated Fat Og 0%\nThat's what we call big Total Carbohydrate 13g 10%\nSEED % Dally Valuet\nLoaded with a seedy Trans Fat Og\nGRAIN 4\nCalcium 20mg 0%"
+    },
+    {
+      "file": "images/06-0013764027138.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 54.2,
+          "actual": null
+        },
+        {
+          "field": "fiber",
+          "expected": 3.0,
+          "actual": 2.0
+        },
+        {
+          "field": "salt",
+          "expected": 0.263,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.105,
+          "actual": 105.0
+        }
+      ],
+      "rawText": "Nutrition Facts\n21 servings per container\nServing size 1 Slice (28g/1.0oz)\nAmount per serving\nCalories\n70\n% Daily Value*\nTotal Fat 1g\n1%\nSaturated Fat 0g\n0%\nTrans Fat 0g\nPolyunsaturated Fat 0.5g\nMonounsaturated Fat Og\nCholesterol Omg\n%0\nSodium 105mg\n4%\nTotal Carbohydrate 13g\n5%\nDietary Fiber 2g\n7%\nTotal Sugars 3g\nIncludes 3g Added Sugars\n5%\nProtein 3g\nVitamin D Omcg\n0%\nCalcium Omg\n%0\nIron 0.7mg\n4%\nPotassium 0mg\n0%\nThe % Daily Value (DV) tells you how much a nutrient\nin a serving of food contributes to a daily diet. 2,000\ncalories a day is used for general nutrition advice.\nCalories 70\nTotal Fat 1g 1%\nSaturated Fat 0g 0%\nCholesterol Omg %0\nSodium 105mg 4%\nTotal Carbohydrate 13g 5%\nDietary Fiber 2g 7%\nIncludes 3g Added Sugars 5%\nVitamin D Omcg 0%\nCalcium Omg %0\nIron 0.7mg 4%\nPotassium 0mg 0%\nAmount per serving 70\nTotal Fat 1g 0%\nCholesterol Omg 4%\nSodium 105mg 5%\nTotal Carbohydrate 13g 7%\nTotal Sugars 3g 5%\nVitamin D Omcg %0\nCalcium Omg 4%\nIron 0.7mg 0%\nTotal Fat 1g % Daily Value*\nSaturated Fat 0g 1%\nTrans Fat 0g 0%\nSodium 105mg %0\nTotal Carbohydrate 13g 4%\nDietary Fiber 2g 5%\nTotal Sugars 3g 7%\nProtein 3g 5%\nCalcium Omg 0%\nIron 0.7mg %0\nPotassium 0mg 4%\nMonounsaturated Fat Og %0"
+    },
+    {
+      "file": "images/07-0013764027220.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 110.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 2.0,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 20.0,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 2.0,
+          "actual": null
+        },
+        {
+          "field": "fiber",
+          "expected": 2.0,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 4.0,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.425,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.17,
+          "actual": null
+        }
+      ],
+      "rawText": "U\nBFECK"
+    },
+    {
+      "file": "images/08-0013764028074.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 70.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 0.0,
+          "actual": 1.0
+        },
+        {
+          "field": "salt",
+          "expected": 0.287,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.115,
+          "actual": 115.0
+        }
+      ],
+      "rawText": "ERERS\n21 servings per conta\nServing size\n1 Slice (28g/1.00z)\nSPROUNS\nAmount per serving\n70\nCalories\nWHOLEgrains\n% Dally Value*\nyears'inprison.\nOur spro\norganic oats,\nTotai Fat 1g\n1%\nand organic\nSaturated Fat 0g\n0%\nt's a tough way to find\nbreadin\nslightly sweet,\nrself. Dave Dah realized he\norgani\nTrans Fat 0g\nre. Sps he best tasting\nin the wrong game and knew\nPolyunsaturated Fat 0g\nnad more to offer. His brother,\nwrted bread around!\nMonounsaturated Fat 0g\nnn, saw a change in him and\nThats what we call big\nve Dave a second chance by\nCholesterol 0mg\nwutritin na ittle slce!\n0%\nelcoming him back to the\nSodium 115mg\namily bakery. Dave setout to\n5%\nmake a loaf like no other - the\nTotal Carbohydrate 15g\n5%\nmost nutritious, organic whole\ngrain bread-and the result is\nDietary Fiber 2g\n%6\nwhat he called \"killer\" bread.\nTotal Sugars 3g\nDave's Killer Bread is built on the\nbelief that everyone is capable\nIncludes 3g Added Sugars\n6%\nman's journey has\nProtein 3g\n1%\nmuch more. Today\nthe employees\nbakery have ap\nWHOLE\nGRAIN\nWholeGrai\nVitamin D 0mcg\n0%\nDave\nEve\nand we hae\n16g or more\nCalcium 10mg\n0%\nhow sthle\nper serving\nEAT 48g OR MORE OF\nPLEASE RECYCLE\nLDPE\nIron 0.6mg\n4%\nWHOE AIE GDRALY\nOR REUSE THIS BAG\n0%\nPotassium 70mg\nQUESTIONS OR COMMENTS?\n*The % Daily Value (DV) tells you how much a nutrient\nDAVESKILLERBREAD.COM/CONTACT\ninaa      o o 0o\ncalories a day is used for general nutrition advice.\nINGREDIENTS: ORGANIC WHLE WHEAT (ORGANIC SPROUTED WHOLE WHEAT\nFLOUR ORGANIC CRACKED WHOLE WHEAT, WATER ORGANIC CANE SUGAR\nORGANIC SPROUTED GRAIN MIX (ORGANIC SPROUTED HEAT ORGANIC\n13764\"02807\nSPROUTED RYE) RGANIC ROLED OATS ORGAN HEAT LITEN ORGANIC\nEXPELLER PRESSED CANOLA OIL CONTAINS 2% OR LESS OF EACH OF THE\nFOLLOWING: ORGANIC MOLASSES ORGANIC OAT FIBER, YEAST, SEA SALT,\nORGANIC CULTURED WHEATFLUR ORGANICVINEGAR ORGANI HOLE WHEAT\n782-052223\nFLOUR, ORGANIC ACEROLA CHERRY POWDER,ENZYMES.\nCONTAINS: WHEAT.\nDISTRIBUTED BY:\nDKB-ALPINE ORGANIC\nBAKERIES GROUP, LLC\n5209 SE INTERNATIONAL WAY\nCERTIFIED ORGANIC\n4\nMILWAUKIE, OR 97222\nCERTIFIED ORGANIC BY: QAI INC.\nERERS Serving size 1 Slice (28g/1.00z)\nSPROUNS 70\nyears'inprison. organic oats,\nOur spro Totai Fat 1g 1%\nt's a tough way to find breadin and organic\nrself. Dave Dah realized he slightly sweet, Saturated Fat 0g 0%\nin the wrong game and knew re. Sps he best tasting Trans Fat 0g\nnad more to offer. His brother, wrted bread around! Polyunsaturated Fat 0g\nnn, saw a change in him and Monounsaturated Fat 0g\nve Dave a second chance by Thats what we call big\nelcoming him back to the wutritin na ittle slce! Cholesterol 0mg 0%\namily bakery. Dave setout to Sodium 115mg\nmake a loaf like no other - the 5%\nmost nutritious, organic whole Total Carbohydrate 15g 5%\ngrain bread-and the result is Dietary Fiber 2g\nwhat he called \"killer\" bread. %6\nbelief that everyone is capable Includes 3g Added Sugars 6%\nman's journey has Protein 3g\nmuch more. Today 1%\nthe employees WHOLE\nbakery have ap GRAIN Vitamin D 0mcg 0% Eve\nand we hae 16g or more WholeGrai Dave\nhow sthle per serving Calcium 10mg 0%\nEAT 48g OR MORE OF LDPE\nWHOE AIE GDRALY PLEASE RECYCLE Iron 0.6mg 4%\nPotassium 70mg 0%\nDAVESKILLERBREAD.COM/CONTACT inaa      o o 0o\n13764\"02807 FLOUR, ORGANIC ACEROLA CHERRY POWDER,ENZYMES. ORGANIC CULTURED WHEATFLUR ORGANICVINEGAR ORGANI HOLE WHEAT 782-052223\n4 MILWAUKIE, OR 97222 5209 SE INTERNATIONAL WAY CERTIFIED ORGANIC\nAmount per serving 70\nWHOLEgrains % Dally Value*\nyears'inprison. organic oats, Totai Fat 1g 1%\nand organic Saturated Fat 0g 0%\nt's a tough way to find breadin\nrself. Dave Dah realized he organi Trans Fat 0g\nin the wrong game and knew re. Sps he best tasting Polyunsaturated Fat 0g\nnad more to offer. His brother, wrted bread around!\nve Dave a second chance by Cholesterol 0mg 0%\nelcoming him back to the wutritin na ittle slce!\nSodium 115mg 5%\nmake a loaf like no other - the Total Carbohydrate 15g 5%\nmost nutritious, organic whole Dietary Fiber 2g %6\nwhat he called \"killer\" bread. Total Sugars 3g\nDave's Killer Bread is built on the Includes 3g Added Sugars 6%\nProtein 3g 1%\nthe employees much more. Today WHOLE Vitamin D 0mcg 0% Eve\nbakery have ap GRAIN Dave\nand we hae 16g or more WholeGrai Calcium 10mg 0%\nhow sthle per serving LDPE 4%\nEAT 48g OR MORE OF PLEASE RECYCLE Iron 0.6mg\nWHOE AIE GDRALY OR REUSE THIS BAG 0%\nQUESTIONS OR COMMENTS? *The % Daily Value (DV) tells you how much a nutrient\nDAVESKILLERBREAD.COM/CONTACT calories a day is used for general nutrition advice.\nORGANIC CULTURED WHEATFLUR ORGANICVINEGAR ORGANI HOLE WHEAT 782-052223\n13764\"02807 FLOUR, ORGANIC ACEROLA CHERRY POWDER,ENZYMES.\n5209 SE INTERNATIONAL WAY CERTIFIED ORGANIC\n4 CERTIFIED ORGANIC BY: QAI INC.\nServing size 1 Slice (28g/1.00z)\nSPROUNS Amount per serving\nyears'inprison. WHOLEgrains Calories 70\nt's a tough way to find Our spro organic oats, % Dally Value*\nrself. Dave Dah realized he breadin and organic Totai Fat 1g\nin the wrong game and knew organi slightly sweet, Saturated Fat 0g 1%\nnad more to offer. His brother, re. Sps he best tasting Trans Fat 0g 0%\nnn, saw a change in him and wrted bread around!\nve Dave a second chance by Polyunsaturated Fat 0g\nelcoming him back to the Thats what we call big\namily bakery. Dave setout to wutritin na ittle slce!\nmake a loaf like no other - the Cholesterol 0mg\nmost nutritious, organic whole Sodium 115mg 0%\ngrain bread-and the result is 5%\nwhat he called \"killer\" bread. Total Carbohydrate 15g\nDave's Killer Bread is built on the Dietary Fiber 2g 5%\nbelief that everyone is capable Total Sugars 3g %6\nmuch more. Today Includes 3g Added Sugars\nthe employees WHOLE Protein 3g 6%\nbakery have ap GRAIN\nhow sthle and we hae 16g or more WholeGrai 1%\nper serving Vitamin D 0mcg\nWHOE AIE GDRALY EAT 48g OR MORE OF LDPE Calcium 10mg 0% Eve\nPLEASE RECYCLE 0% Dave\nOR REUSE THIS BAG Iron 0.6mg\nQUESTIONS OR COMMENTS? Potassium 70mg 4%\nDAVESKILLERBREAD.COM/CONTACT *The % Daily Value (DV) tells you how much a nutrient\n13764\"02807 EXPELLER PRESSED CANOLA OIL CONTAINS 2% OR LESS OF EACH OF THE\nCONTAINS: WHEAT. FLOUR, ORGANIC ACEROLA CHERRY POWDER,ENZYMES. 782-052223\n4 BAKERIES GROUP, LLC\nMILWAUKIE, OR 97222 CERTIFIED ORGANIC\nt's a tough way to find Our spro organic oats,\nnad more to offer. His brother, re. Sps he best tasting 0%\nnn, saw a change in him and Trans Fat 0g\namily bakery. Dave setout to wutritin na ittle slce! Monounsaturated Fat 0g\nwhat he called \"killer\" bread. Total Carbohydrate 15g 5%\nTotal Sugars 3g %6\nbakery have ap the employees WHOLE Protein 3g 6%\nand we hae GRAIN\nhow sthle 16g or more WholeGrai 1%\nOR REUSE THIS BAG PLEASE RECYCLE Iron 0.6mg 0% Dave\nCERTIFIED ORGANIC BY: QAI INC. CERTIFIED ORGANIC\nERERS 21 servings per conta\nCalories 70\nyears'inprison. % Dally Value*\nOur spro organic oats,\nt's a tough way to find and organic Totai Fat 1g 1%\nrself. Dave Dah realized he organi slightly sweet, Saturated Fat 0g 0%\nnn, saw a change in him and wrted bread around! Polyunsaturated Fat 0g\nve Dave a second chance by Thats what we call big Monounsaturated Fat 0g\nelcoming him back to the wutritin na ittle slce! Cholesterol 0mg\namily bakery. Dave setout to 0%\nmake a loaf like no other - the Sodium 115mg\nmost nutritious, organic whole 5%\nwhat he called \"killer\" bread. Dietary Fiber 2g\nDave's Killer Bread is built on the Total Sugars 3g\nman's journey has Includes 3g Added Sugars 6%\nmuch more. Today Protein 3g\nthe employees WHOLE 1%\nand we hae 16g or more WholeGrai Vitamin D 0mcg 0% Eve\nhow sthle per serving Calcium 10mg Dave\nEAT 48g OR MORE OF LDPE 0%\nWHOE AIE GDRALY PLEASE RECYCLE Iron 0.6mg\nOR REUSE THIS BAG 4%\nQUESTIONS OR COMMENTS? Potassium 70mg 0%\n13764\"02807 ORGANIC CULTURED WHEATFLUR ORGANICVINEGAR ORGANI HOLE WHEAT\nFLOUR, ORGANIC ACEROLA CHERRY POWDER,ENZYMES. 782-052223\n21 servings per conta 1 Slice (28g/1.00z)\nERERS Amount per serving 70\nSPROUNS Calories\nWHOLEgrains 1%\norganic oats, Totai Fat 1g\nyears'inprison. Our spro and organic Saturated Fat 0g\nt's a tough way to find breadin slightly sweet, Trans Fat 0g\nrself. Dave Dah realized he re. Sps he best tasting Polyunsaturated Fat 0g\nin the wrong game and knew wrted bread around! Monounsaturated Fat 0g\nnad more to offer. His brother, 0%\nnn, saw a change in him and Thats what we call big Cholesterol 0mg\nve Dave a second chance by wutritin na ittle slce! Sodium 115mg 5%\nelcoming him back to the Total Carbohydrate 15g 5%\nmake a loaf like no other - the Dietary Fiber 2g %6\ngrain bread-and the result is Total Sugars 3g\nwhat he called \"killer\" bread. Includes 3g Added Sugars 6%\nDave's Killer Bread is built on the 1%\nbelief that everyone is capable Protein 3g\nman's journey has 0% Dave\nmuch more. Today WHOLE Vitamin D 0mcg 0%\nthe employees GRAIN Calcium 10mg\nbakery have ap 16g or more WholeGrai 4%\nand we hae per serving LDPE Iron 0.6mg 0%\nhow sthle EAT 48g OR MORE OF PLEASE RECYCLE\nWHOE AIE GDRALY OR REUSE THIS BAG Potassium 70mg\nQUESTIONS OR COMMENTS? inaa      o o 0o\nDAVESKILLERBREAD.COM/CONTACT INGREDIENTS: ORGANIC WHLE WHEAT (ORGANIC SPROUTED WHOLE WHEAT\n13764\"02807 CONTAINS: WHEAT.\nBAKERIES GROUP, LLC 5209 SE INTERNATIONAL WAY CERTIFIED ORGANIC\norganic oats, Totai Fat 1g 1%\nyears'inprison. Our spro\nt's a tough way to find breadin slightly sweet,\nnad more to offer. His brother, wrted bread around! Monounsaturated Fat 0g\nnn, saw a change in him and Thats what we call big\nelcoming him back to the Sodium 115mg 5%\nmuch more. Today WHOLE Vitamin D 0mcg 0% Eve\nthe employees Dave\nbakery have ap 16g or more GRAIN WholeGrai Calcium 10mg 0%\nhow sthle and we hae per serving LDPE 4%\nWHOE AIE GDRALY OR REUSE THIS BAG Potassium 70mg 0%\norganic oats, Totai Fat 1g 0%\nOur spro and organic Saturated Fat 0g\nbreadin slightly sweet, Trans Fat 0g\nt's a tough way to find organi Polyunsaturated Fat 0g\nrself. Dave Dah realized he re. Sps he best tasting\nin the wrong game and knew wrted bread around! 0%\nnad more to offer. His brother, Thats what we call big Cholesterol 0mg\nnn, saw a change in him and wutritin na ittle slce! Sodium 115mg\nve Dave a second chance by 5%\nelcoming him back to the Total Carbohydrate 15g\namily bakery. Dave setout to Dietary Fiber 2g\nmost nutritious, organic whole Total Sugars 3g 6%\ngrain bread-and the result is Includes 3g Added Sugars\nwhat he called \"killer\" bread. 1%\nDave's Killer Bread is built on the Protein 3g Eve\nbelief that everyone is capable 0% Dave\nman's journey has Vitamin D 0mcg 0%\nmuch more. Today WHOLE Calcium 10mg 4%\nthe employees GRAIN WholeGrai\nbakery have ap 16g or more LDPE Iron 0.6mg 0%\nand we hae per serving PLEASE RECYCLE\nhow sthle EAT 48g OR MORE OF OR REUSE THIS BAG Potassium 70mg\nWHOE AIE GDRALY *The % Daily Value (DV) tells you how much a nutrient\nQUESTIONS OR COMMENTS? calories a day is used for general nutrition advice.\nDAVESKILLERBREAD.COM/CONTACT FLOUR ORGANIC CRACKED WHOLE WHEAT, WATER ORGANIC CANE SUGAR\nFOLLOWING: ORGANIC MOLASSES ORGANIC OAT FIBER, YEAST, SEA SALT, 782-052223\nDKB-ALPINE ORGANIC BAKERIES GROUP, LLC CERTIFIED ORGANIC\nrself. Dave Dah realized he breadin and organic Totai Fat 1g % Dally Value*\nin the wrong game and knew organi slightly sweet, 1%\nnad more to offer. His brother, Saturated Fat 0g\nnn, saw a change in him and re. Sps he best tasting Trans Fat 0g 0%\nelcoming him back to the Thats what we call big Polyunsaturated Fat 0g\nman's journey has Total Sugars 3g %6\nthe employees Includes 3g Added Sugars\nbakery have ap WHOLE Protein 3g 6%\nOR REUSE THIS BAG Iron 0.6mg 0% Dave\nDAVESKILLERBREAD.COM/CONTACT 0%\n4 DKB-ALPINE ORGANIC BAKERIES GROUP, LLC\nOur spro organic oats, % Dally Value*\nt's a tough way to find and organic Totai Fat 1g\nbreadin 1%\nin the wrong game and knew organi slightly sweet, Saturated Fat 0g 0%\nnad more to offer. His brother, re. Sps he best tasting Trans Fat 0g\namily bakery. Dave setout to wutritin na ittle slce! Cholesterol 0mg\nmake a loaf like no other - the Sodium 115mg 0%\ngrain bread-and the result is Total Carbohydrate 15g\nwhat he called \"killer\" bread. 5%\nDave's Killer Bread is built on the %6\nbelief that everyone is capable Total Sugars 3g\nman's journey has Includes 3g Added Sugars\nmuch more. Today Protein 3g 6%\nand we hae 16g or more WholeGrai Vitamin D 0mcg\nhow sthle per serving 0% Eve\nEAT 48g OR MORE OF LDPE Calcium 10mg 0% Dave\n13764\"02807 FOLLOWING: ORGANIC MOLASSES ORGANIC OAT FIBER, YEAST, SEA SALT,\n4 5209 SE INTERNATIONAL WAY\norganic oats, % Dally Value*\nt's a tough way to find Our spro and organic Totai Fat 1g 1%\nre. Sps he best tasting Trans Fat 0g\nwutritin na ittle slce! Cholesterol 0mg\nwhat he called \"killer\" bread. Dietary Fiber 2g 5%\nDave's Killer Bread is built on the Total Sugars 3g %6\nhow sthle per serving\nyears'inprison. Our spro organic oats, Totai Fat 1g 1%\nt's a tough way to find breadin Saturated Fat 0g 0%\nrself. Dave Dah realized he organi slightly sweet,\nin the wrong game and knew re. Sps he best tasting\namily bakery. Dave setout to Sodium 115mg 5%\ngrain bread-and the result is Dietary Fiber 2g %6\nman's journey has Protein 3g 1%\nthe employees WHOLE Vitamin D 0mcg 0% Eve\nbakery have ap GRAIN WholeGrai Dave\nand we hae per serving 16g or more Calcium 10mg 0%\nhow sthle LDPE\nWHOE AIE GDRALY EAT 48g OR MORE OF PLEASE RECYCLE Iron 0.6mg 4%\nOR REUSE THIS BAG Potassium 70mg 0%\n4 MILWAUKIE, OR 97222\nt's a tough way to find breadin and organic Saturated Fat 0g 0%"
+    },
+    {
+      "file": "images/09-0016000124790.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 140.0,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.525,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.21,
+          "actual": 210.0
+        }
+      ],
+      "rawText": "Nutrition Facts\nAbout 8 servings per container\nServing size\ne 1 cup (37g)\nwith 3%\nHoney Nut\ncup skim\nCheerios\nmilk\n140\n210\nCalories\n% DV**\n**Aa%\nTotal Fat 2g*\n2%\n3%\nSaturated Fat 0g\n0%\n3%\nTrans Fat 0g\nPolyunsaturated Fat 0.5g\nMonounsaturated Fat 0.5g\nCholesterol 0mg\n0%\n1%\nSodium 210mg\n9%\n12%\nTotal Carbohydrate 30g\n11%\n14%\nDietary Fiber 3g\n10%\n10%\nSoluble Fiber 1g\nTotal Sugars 12g\nIncl. Added Sugars 12g\n24%\n24%\nProtein 3g\nVitamin D 4mcg\n20%\n30%\nCalcium 130mg\n10%\n25%\nIron 3.6mg\n20%\n20%\nPotassium 150mg\n4%\n8%\nVitamin A\n10%\n20%\nVitamin C\n10%\n10%\nThiamin\n20%\n25%\nRiboflavin\n10%\n35%\nNiacin\n10%\n10%\nVitamin B6\n20%\n20%\nFolate\n20%\n20%\n(45mcg folic acid)\nVitamin B12\n20%\n50%\nZinc\n20%\n25%\nAmount in cereal. A serving of cereal plus\nskim milk provides 2g Total Fat (0.5g\nSaturated Fat, 1g Monounsaturated Fat), less\nthan 5mg Cholesterol, 290mg Sodium, 39g\nTotal Carbohydrate (22g Total Sugars), 9g\nProtein, 6.2mcg Vitamin D, 350mg Calcium,\n430mg Potassium.\n**\nThe % Daily Value (DV) tells you how much a\nnutrient in a serving of food contributes to a\ndaily diet. 2,000 calories a day is used for\ngeneral nutrition advice.\nServing size e 1 cup (37g)\nHoney Nut cup skim\nCheerios milk\nCalories 140 210\n% DV** **Aa%\nTotal Fat 2g* 2% 3%\nSaturated Fat 0g 0% 3%\nCholesterol 0mg 0% 1%\nSodium 210mg 9% 12%\nTotal Carbohydrate 30g 11% 14%\nDietary Fiber 3g 10% 10%\nIncl. Added Sugars 12g 24% 24%\nVitamin D 4mcg 20% 30%\nCalcium 130mg 10% 25%\nIron 3.6mg 20% 20%\nPotassium 150mg 4% 8%\nVitamin A 10% 20%\nVitamin C 10% 10%\nThiamin 20% 25%\nRiboflavin 10% 35%\nNiacin 10% 10%\nVitamin B6 20% 20%\nFolate 20% 20%\nVitamin B12 20% 50%\nZinc 20% 25%\n** The % Daily Value (DV) tells you how much a\nHoney Nut milk\nTotal Fat 2g* 3%\nMonounsaturated Fat 0.5g 1%\nCholesterol 0mg 12%\nSodium 210mg 14%\nTotal Carbohydrate 30g 10%\nTotal Sugars 12g 24%\nVitamin D 4mcg 25%\nCalcium 130mg 20%\nIron 3.6mg 8%\nPotassium 150mg 20%\nVitamin A 10%\nVitamin C 25%\nThiamin 35%\nRiboflavin 10%\nNiacin 20%\nVitamin B6 20%\n(45mcg folic acid) 50%\nVitamin B12 25%\n** nutrient in a serving of food contributes to a\nHoney Nut with 3%\nCheerios cup skim\nTotal Fat 2g* **Aa%\nSaturated Fat 0g 3%\nTrans Fat 0g 3%\nSodium 210mg 1%\nTotal Carbohydrate 30g 12%\nDietary Fiber 3g 14%\nSoluble Fiber 1g 10%\nProtein 3g 24%\nCalcium 130mg 30%\nIron 3.6mg 25%\nVitamin A 4% 8%\nVitamin C 10% 20%\nThiamin 10% 10%\nRiboflavin 20% 25%\nNiacin 10%\nVitamin B6 10%\nFolate 20%\n(45mcg folic acid) 20% 20%\nZinc 20%\n430mg Potassium. Protein, 6.2mcg Vitamin D, 350mg Calcium,\nVitamin A 8%\nVitamin C 20%\nThiamin 10%\nRiboflavin 25%\nNiacin 35%\n(45mcg folic acid) 20%\nZinc 50%\nZinc 20% 50%\nCalories milk\nIron 3.6mg 10%\nVitamin A 4%\nVitamin C 10%\nRiboflavin 20%\n140 210\nTotal Fat 2g* 2%\nSaturated Fat 0g 0%\n10% 20%\n20% 25%\n10% 35%\n10% 10%\n20% 20%\nTotal Fat 2g* 0%\nIron 3.6mg 4%\nVitamin B12 20%\n430mg Potassium. The % Daily Value (DV) tells you how much a"
+    },
+    {
+      "file": "images/10-0016000170032.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 140.0,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.475,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.19,
+          "actual": 190.0
+        }
+      ],
+      "rawText": "Nutrition Facts / Datos de Nutrici\u00f3n\n13 servings per container/13 raciones por envase\nServing size/Tama\u00f1o por raci\u00f3n\n1 \u00bd2 cup/1 1/ taza (39g)\nCalories/Calorias\n140\nCheerios\nmilk/cen % taza do\nleche descremada\nwith % cup skim\n210\nTotal Fat/Grasa Total 2.5g'\nSaturated Fat/Grasa Saturada 0.5g\n% DV/VD**\n3%\n3%\n% DV/VD**\n4%\n4%\nTrans Fat/Grasa Trans 0g\nMonounsaturated Fat/Grasa Monoinsaturada 1g\nCholesterol/Colesterol Omg\n0%\n1%\nSodium/Sodio 190mg\n8%\n12%\nTotal Carbohydrate/Carbohidrato Total 29g\n10%\n14%\nDietary Fiber/Fibra Diet\u00e9tica 4g\n15%\n15%\nSoluble Fiber/Fibra Soluble 2g\nTotal Sugars/Az\u00fccares Totales 2g\nIncl. Added Sugars/Incluye azucares a\u00f1adidos 1g\n2%\n2%\nProtein/Proteinas 5g\nVitamin D/Vitamina D 4mcg\n20%\n30%\nCalcium/Calcio 130mg\n10%\n25%\nIron/Hierro 12.6mg\n70%\n70%\nPotassium/Potasio 250mg\n6%\n10%\nVitamin A/Vitamina A\n10%\n20%\nVitamin C/Vitamina C\n10%\n10%\nThiamin/Tiamina\n20%\n25%\nNiacin/Niacina\n10%\n10%\nVitamin B/Vitamina B,\n20%\n20%\nFolate/Folato\n20%\n20%\n(45mcg folic acid/\u00e1cido f\u00f3lico)\nVitamin B/Vitamina Bu\n20%\n%0%\nPhosphorus/Fostoro\n15%\n25%\nMagnesium/Magnesio\n10%\n15%\nZinc/Zinc\n20%\n25%\nAmount in cereal A serving of cereal plus skim mik provides 3g Total Fat (lg\nSaturated Fa, lss than mg Chlestero, 270mg Sodum, 38g Total Cartoydra\nproporciona 3g de Grasas Totales (1g de Grasas Saturada), menon de 5mg de\nColesterl, 70mg de Sodio, 3g de Carbohidratos Totales 1 g de Aicars\n\"The % Daly Vaue (DV tels you how much a nudrent in a sering of lood\n/ E % Valor Diarno VD le indica culnto un nutriente en una porodn d sertos\ncontrbuye a una deta darta 2 o calras a dis se ua pea aeoramera de\nnutrici\u00f3n general\nServing size/Tama\u00f1o por raci\u00f3n 1 \u00bd2 cup/1 1/ taza (39g)\nCheerios leche descremada\nCalories/Calorias 140 210\n% DV/VD** % DV/VD**\nTotal Fat/Grasa Total 2.5g' 3% 4%\nSaturated Fat/Grasa Saturada 0.5g 3% 4%\nCholesterol/Colesterol Omg 0% 1%\nSodium/Sodio 190mg 8% 12%\nTotal Carbohydrate/Carbohidrato Total 29g 10% 14%\nDietary Fiber/Fibra Diet\u00e9tica 4g 15% 15%\nIncl. Added Sugars/Incluye azucares a\u00f1adidos 1g 2% 2%\nVitamin D/Vitamina D 4mcg 20% 30%\nCalcium/Calcio 130mg 10% 25%\nIron/Hierro 12.6mg 70% 70%\nPotassium/Potasio 250mg 6% 10%\nVitamin A/Vitamina A 10% 20%\nVitamin C/Vitamina C 10% 10%\nThiamin/Tiamina 20% 25%\nNiacin/Niacina 10% 10%\nVitamin B/Vitamina B, 20% 20%\nFolate/Folato 20% 20%\nVitamin B/Vitamina Bu 20% %0%\nPhosphorus/Fostoro 15% 25%\nMagnesium/Magnesio 10% 15%\nZinc/Zinc 20% 25%\nCheerios milk/cen % taza do\n140 210\nTotal Fat/Grasa Total 2.5g' % DV/VD** % DV/VD**\nTrans Fat/Grasa Trans 0g 3% 4%\nSodium/Sodio 190mg 0% 1%\nTotal Carbohydrate/Carbohidrato Total 29g 12%\nDietary Fiber/Fibra Diet\u00e9tica 4g 10% 14%\nSoluble Fiber/Fibra Soluble 2g 15% 15%\nProtein/Proteinas 5g 2% 2%\nCalcium/Calcio 130mg 20% 30%\nIron/Hierro 12.6mg 10% 25%\nPotassium/Potasio 250mg 70% 70%\nVitamin A/Vitamina A 6% 10%\nVitamin C/Vitamina C 10% 20%\nThiamin/Tiamina 10% 10%\nNiacin/Niacina 20% 25%\nVitamin B/Vitamina B, 10% 10%\n(45mcg folic acid/\u00e1cido f\u00f3lico) 20% 20%\nPhosphorus/Fostoro 20% %0%\nMagnesium/Magnesio 15% 25%\nZinc/Zinc 10% 15%\n20% 25%\nnutrici\u00f3n general contrbuye a una deta darta 2 o calras a dis se ua pea aeoramera de\nCalories/Calorias leche descremada\nTotal Fat/Grasa Total 2.5g' % DV/VD**\nSaturated Fat/Grasa Saturada 0.5g 3%\nTrans Fat/Grasa Trans 0g 3%\nSodium/Sodio 190mg 0%\nTotal Carbohydrate/Carbohidrato Total 29g 8% 12%\nProtein/Proteinas 5g 2%\nCalcium/Calcio 130mg 20%\nIron/Hierro 12.6mg 10%\nPotassium/Potasio 250mg 70%\nVitamin A/Vitamina A 6%\nVitamin C/Vitamina C 10%\nThiamin/Tiamina 10%\nNiacin/Niacina 20%\nVitamin B/Vitamina B, 10%\nFolate/Folato 20%\n(45mcg folic acid/\u00e1cido f\u00f3lico) 20%\nZinc/Zinc 10%\nTotal Fat/Grasa Total 2.5g' 4%\nMonounsaturated Fat/Grasa Monoinsaturada 1g 1%\nCholesterol/Colesterol Omg 8% 12%\nSodium/Sodio 190mg 10% 14%\nTotal Carbohydrate/Carbohidrato Total 29g 15%\nTotal Sugars/Az\u00fccares Totales 2g 2%\nVitamin D/Vitamina D 4mcg 10% 25%\nCalcium/Calcio 130mg 70% 70%\nIron/Hierro 12.6mg 6%\nPotassium/Potasio 250mg 10% 20%\nVitamin A/Vitamina A 10%\nVitamin C/Vitamina C 20%\nVitamin B/Vitamina B, 20%\nFolate/Folato %0%\nVitamin B/Vitamina Bu 15%\nPhosphorus/Fostoro 10%\nMagnesium/Magnesio 20%\nSaturated Fat/Grasa Saturada 0.5g % DV/VD**\nTrans Fat/Grasa Trans 0g 4%\nTotal Carbohydrate/Carbohidrato Total 29g 8%\nDietary Fiber/Fibra Diet\u00e9tica 4g 10% 12%\nSoluble Fiber/Fibra Soluble 2g 14%\nIron/Hierro 12.6mg 30%\nPotassium/Potasio 250mg 25%\nVitamin A/Vitamina A 70%\nThiamin/Tiamina 20%\nNiacin/Niacina 10%\nVitamin B/Vitamina B, 25%\nFolate/Folato 10%\nVitamin B/Vitamina Bu 20%\nMagnesium/Magnesio %0%\nZinc/Zinc 25%\nAmount in cereal A serving of cereal plus skim mik provides 3g Total Fat (lg 25%\nnutrici\u00f3n general / E % Valor Diarno VD le indica culnto un nutriente en una porodn d sertos\nCalories/Calorias % DV/VD**\nTotal Fat/Grasa Total 2.5g' 3%\nMonounsaturated Fat/Grasa Monoinsaturada 1g 0%\nCholesterol/Colesterol Omg 8%\nSodium/Sodio 190mg 10%\nProtein/Proteinas 5g 30%\nVitamin D/Vitamina D 4mcg 10%\nCalcium/Calcio 130mg 70% 10%\nIron/Hierro 12.6mg 20%\nPotassium/Potasio 250mg 10% 10%\nVitamin A/Vitamina A 25%\nVitamin C/Vitamina C 20% 10%\n(45mcg folic acid/\u00e1cido f\u00f3lico) 20% 25%\nVitamin B/Vitamina Bu 15% 15%\nPhosphorus/Fostoro 25%\nZinc/Zinc Amount in cereal A serving of cereal plus skim mik provides 3g Total Fat (lg\nTotal Sugars/Az\u00fccares Totales 2g 2% 2%\nCalcium/Calcio 130mg 70%\nPotassium/Potasio 250mg 10%\n% DV/VD** 4%\nSodium/Sodio 190mg 10% 15%\nSoluble Fiber/Fibra Soluble 2g 2%\nVitamin D/Vitamina D 4mcg 10% 70%\nCalcium/Calcio 130mg 10%\n(45mcg folic acid/\u00e1cido f\u00f3lico) 25%\n10% 25%\n3% 4%\nCholesterol/Colesterol Omg 12%\nSodium/Sodio 190mg 14%\n20% 30%\nIron/Hierro 12.6mg 6% 10%\nPotassium/Potasio 250mg 20%\nVitamin A/Vitamina A 10% 10%\nVitamin C/Vitamina C 20% 25%\nNiacin/Niacina 20% 20%\n(45mcg folic acid/\u00e1cido f\u00f3lico) 20% %0%\nVitamin B/Vitamina Bu 15% 25%\nPhosphorus/Fostoro 10% 15%\nMagnesium/Magnesio 20% 25%\n0% 1%\n8% 12%\n15% 15%\n2% 2%\nVitamin D/Vitamina D 4mcg 25%\nVitamin C/Vitamina C 25%\n(45mcg folic acid/\u00e1cido f\u00f3lico) %0%\nVitamin B/Vitamina Bu 25%\n10% 14%"
+    },
+    {
+      "file": "images/11-20005733.jpg",
+      "fields": [
+        {
+          "field": "carbs",
+          "expected": 3.7,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 15.5,
+          "actual": 2.0
+        },
+        {
+          "field": "salt",
+          "expected": 0.02,
+          "actual": 4.7
+        },
+        {
+          "field": "sodium",
+          "expected": 0.0,
+          "actual": null
+        }
+      ],
+      "rawText": "penhere\nesealable\nWalnut halves\nAllergy Advice\nContains Walnuts. May also contain other Nuts and Peanuts.\nNutrition Information\nLiDL\n%RI*\nper serving 30g\nper 100g\nTypical values\n881kJ/214kcal\n11%\n2938kJ/712kcal\nEnergy\n20.7g\n30%\n69.1g\nFat\n6.8g\n2.0g\n10%\nof which saturates\n3.7g\n1.1g\n<1%\nbohydrate\n3.0g\n09\n1%\nof which sugars\n6.8g\n2.0g\nFibre\nProtein\n15.5g\n4.7g\n9%\nSalt\n0.02g\n<0.01g\n<1%\n~170743777~\n*Reference intake of an average adult (8400kJ/2000kcal)\nThis pack contains approx. 6 servings\nOmega-3 Fatty Acids: 9.9g per 100g\nStorage Instructions\nStore in a cool, dry place. Once opened, reseal bag to retain freshness.\nAdditional Information\ntable for Vegetarians and Vegans. For more information visit\nwlidl.co.uk or www.lidl.ie. Packaged in a protective atmosphere.\nd by weight, no b olume. Content may settle during transit\ngh every care has been taken to remove\nLiDL Nutrition Information\nTypical values per 100g per serving 30g %RI*\nEnergy 2938kJ/712kcal 881kJ/214kcal 11%\nFat 69.1g 20.7g 30%\nof which saturates 6.8g 2.0g 10%\nbohydrate 3.7g 1.1g <1%\nof which sugars 3.0g 09 1%\nFibre 6.8g\nProtein 2.0g\nSalt 4.7g 9%\n<0.01g <1%\n~170743777~ *Reference intake of an average adult (8400kJ/2000kcal)\nper serving 30g %RI*\nTypical values 881kJ/214kcal 11%\nEnergy 69.1g 20.7g 30%\nFat 6.8g 2.0g 10%\nof which saturates 3.7g 1.1g <1%\nbohydrate 3.0g 09 1%\nFibre 6.8g 2.0g\nProtein 15.5g 4.7g 9%\nSalt 0.02g <0.01g <1%\nAllergy Advice Contains Walnuts. May also contain other Nuts and Peanuts.\nLiDL per serving 30g\nper 100g 881kJ/214kcal\n20.7g 30%\nTypical values 2938kJ/712kcal 10%\n69.1g 2.0g\nEnergy 6.8g 1.1g <1%\nFat of which saturates 3.7g 09 1%\nbohydrate 3.0g 2.0g\nof which sugars 6.8g 4.7g 9%\nFibre 15.5g <0.01g <1%\nProtein 0.02g\n~170743777~ This pack contains approx. 6 servings\nProtein 15.5g\nEnergy 2938kJ/712kcal per serving 30g %RI*\nFat 881kJ/214kcal\n69.1g 11%\nof which saturates 6.8g 20.7g 30%\nbohydrate 3.7g 2.0g 10%\nFibre 3.0g 1.1g <1%\nProtein 6.8g 09 1%\nSalt 15.5g 2.0g\n~170743777~ 0.02g 4.7g 9%\n*Reference intake of an average adult (8400kJ/2000kcal) <0.01g <1%\nStorage Instructions Omega-3 Fatty Acids: 9.9g per 100g\nAdditional Information Store in a cool, dry place. Once opened, reseal bag to retain freshness.\ngh every care has been taken to remove d by weight, no b olume. Content may settle during transit\nper 100g per serving 30g %RI*\n2938kJ/712kcal 881kJ/214kcal 11%\nSalt 0.02g\nbohydrate 3.7g\n1.1g <1%\nof which sugars 3.0g\nFibre 09 1%\n~170743777~ <0.01g <1%\nper 100g 11%\nTypical values 881kJ/214kcal\nEnergy 2938kJ/712kcal 20.7g 30%\n69.1g 2.0g 10%\nFat 6.8g\n6.8g 2.0g\nFibre 15.5g 4.7g 9%\nLiDL per serving 30g 11%\nFat 3.7g 09 1%\nTypical values per 100g\nEnergy per serving 30g %RI*\nFat 881kJ/214kcal 11%\nof which sugars 3.0g 1.1g <1%\nFibre 09\nProtein 6.8g 1%\n0.02g 4.7g 9%\n0.02g <0.01g <1%\n3.7g 1.1g <1%"
+    },
+    {
+      "file": "images/12-20022464.jpg",
+      "fields": [
+        {
+          "field": "protein",
+          "expected": 9.9,
+          "actual": 12.6
+        },
+        {
+          "field": "sodium",
+          "expected": 0.008,
+          "actual": null
+        }
+      ],
+      "rawText": "Nutrition Information\nTypical values\nper 100g\nper 2 pieces 20g\n%RI\nEnergy\n2367kJ/571kcal\n473kJ/114kcal\n6%\nvns\nFat\n42.0g\n8.4g\n12%\nof which saturates\n26.0g\n5.2g\n26%\nas\nCarbohydrate\n32.0g\n6.4g\nof which sugars\n26.0g\n5.2g\nFibre\n12.6g\n2.5g\nProtein\n9.9g\n2.0g\nSalt\n0.02g\n<0.01g\n<1%\n*Reference intake of an average adult (8400kJ/2000kal)\nTypical values per 100g per 2 pieces 20g %RI\nEnergy 2367kJ/571kcal 473kJ/114kcal 6%\nFat 42.0g 8.4g 12%\nof which saturates 26.0g 5.2g 26% as\nCarbohydrate 32.0g 6.4g\nof which sugars 26.0g 5.2g\nFibre 12.6g 2.5g\nProtein 9.9g 2.0g\nSalt 0.02g <0.01g <1%\nSalt 0.02g <0.01g\nper 100g 473kJ/114kcal 6% vns\nTypical values 2367kJ/571kcal 8.4g 12%\nEnergy 42.0g 5.2g 26% as\nFat 26.0g 6.4g\nof which saturates 32.0g 5.2g\nCarbohydrate 26.0g 2.5g\nof which sugars 12.6g\nFibre 9.9g <0.01g <1%\nProtein 0.02g\nEnergy per 100g\nFat 2367kJ/571kcal per 2 pieces 20g\nof which saturates 42.0g 473kJ/114kcal 6%\nCarbohydrate 26.0g 8.4g vns\nof which sugars 32.0g 5.2g 26%\nFibre as\n26.0g 6.4g\nProtein 12.6g 5.2g\nSalt 9.9g 2.5g\n0.02g 2.0g\n*Reference intake of an average adult (8400kJ/2000kal) <0.01g\nFat 2367kJ/571kcal per 2 pieces 20g %RI\nof which saturates 42.0g 6%\nCarbohydrate 26.0g 8.4g 12%\nof which sugars 32.0g 5.2g 26% as\nFibre 26.0g 6.4g\n*Reference intake of an average adult (8400kJ/2000kal) <1%\nCarbohydrate 26.0g 8.4g 12% vns\nEnergy per 2 pieces 20g %RI\nFat 473kJ/114kcal 6%\n42.0g vns\nof which saturates 8.4g 12%\nCarbohydrate 5.2g 26% as\nof which sugars 6.4g\nFibre 5.2g\nProtein 2.5g\nSalt 2.0g\nof which sugars 12.6g 2.0g\nSalt *Reference intake of an average adult (8400kJ/2000kal)\nper 2 pieces 20g %RI\nTypical values 473kJ/114kcal 6% vns\nEnergy 8.4g 12%\nFat 5.2g 26% as\nof which saturates 6.4g\nCarbohydrate 5.2g\nof which sugars 2.5g\nFibre 2.0g\nProtein <0.01g <1%\nof which saturates 42.0g 473kJ/114kcal\n9.9g 2.5g\nper 100g 6%\nTypical values 473kJ/114kcal vns\n2367kJ/571kcal 8.4g 12%\nEnergy 42.0g\n5.2g 26% as\nFat 26.0g\nCarbohydrate 26.0g\nFibre 9.9g\n<0.01g <1%"
+    },
+    {
+      "file": "images/13-20047238.jpg",
+      "fields": [
+        {
+          "field": "saturated",
+          "expected": 6.33,
+          "actual": 58.0
+        },
+        {
+          "field": "carbs",
+          "expected": 15.0,
+          "actual": 6.4
+        },
+        {
+          "field": "sodium",
+          "expected": 0.004,
+          "actual": null
+        }
+      ],
+      "rawText": "Nutrition Information\nTypical values\nEnergy\nper 100g\nper serving 30g\n%RI*\n2670kJ/646kcal\nFat\n801kJ/194kcal\n10%\nof which saturates\n58.0g\n17.4g\n25%\n6.4g\n1.9g\n10%\nCarbohydrate\n6.4g\n1.9g\n<1%\nof which sugars\n4.2g\n1.3g\n1%\nFibre\n8.5g\n2.6g\nProtein\n20.4g\n6.1g\n12%\nSalt\n0.01g\n<0.01g\n<1%\n*Reference intake of an average adult (8400kJ/2000kcal)\nThis pack contains approx. 6 servings\nOmega-3-Fatty Acids: 2.2g per 100g\n.lidl.co.uk or www.lidl.ie.\nBest before:\n0508\n1.5282\nEnergy per 100g per serving 30g %RI*\nFat 2670kJ/646kcal 801kJ/194kcal 10%\nof which saturates 58.0g 17.4g 25%\n6.4g 1.9g 10%\n6.4g 1.9g <1%\nof which sugars 4.2g 1.3g 1%\nFibre 8.5g 2.6g\nProtein 20.4g 6.1g 12%\nSalt 0.01g <0.01g <1%\n.lidl.co.uk or www.lidl.ie. Best before: 0508\nof which sugars 6.4g 1.9g <1%\n4.2g 1.3g 1%\n8.5g 2.6g\nCarbohydrate 6.4g 1.9g 10%\nFibre 4.2g 1.3g 1%\nProtein 8.5g 2.6g\nSalt 20.4g 6.1g 12%\n0.01g <0.01g <1%\n.lidl.co.uk or www.lidl.ie. Best before:\nTypical values per serving 30g\nper 100g 10%\nEnergy 2670kJ/646kcal 801kJ/194kcal\n17.4g 25%\nFat 58.0g 1.9g 10%\nof which saturates 6.4g <1%\nCarbohydrate 6.4g 1.3g 1%\nof which sugars 4.2g 2.6g\nFibre 8.5g 6.1g 12%\nProtein 20.4g <0.01g <1%\nBest before: 0508\nTypical values Nutrition Information\nFat per 100g\n2670kJ/646kcal per serving 30g\nof which saturates %RI*\n58.0g 801kJ/194kcal 10%\n6.4g 17.4g 25%\nFibre 6.4g 1.9g 10%\n4.2g 1.9g <1%\nProtein 8.5g 1.3g\nSalt 1%\n20.4g 2.6g\n0.01g 6.1g 12%\n*Reference intake of an average adult (8400kJ/2000kcal) <0.01g <1%\nFat per 100g per serving 30g\n2670kJ/646kcal %RI*\nof which saturates 801kJ/194kcal 10%\nCarbohydrate 6.4g 17.4g 25%\nof which sugars 6.4g 1.9g 10%\nFibre 4.2g 1.9g <1%\nProtein 8.5g 1.3g 1%\nSalt 20.4g 2.6g\n<0.01g <1%\nTypical values per 100g 10%\nEnergy 2670kJ/646kcal 17.4g 25%\nof which saturates 6.4g 1.9g <1%\n6.4g 1.3g 1%\n8.5g 6.1g 12%\nFibre 20.4g <0.01g <1%\nProtein 0.01g\n.lidl.co.uk or www.lidl.ie. 1.5282\nTypical values per serving 30g 10%\nper 100g 801kJ/194kcal\n20.4g <0.01g <1%\n58.0g 17.4g 25%\nof which saturates 6.4g 1.9g 10%\nCarbohydrate 6.4g 1.9g <1%\nTypical values %RI*\nper 100g per serving 30g\nEnergy 2670kJ/646kcal 801kJ/194kcal 10%\nFat 17.4g 25%\nFibre 20.4g <1%\nEnergy 2670kJ/646kcal 25%"
+    },
+    {
+      "file": "images/14-20267605.jpg",
+      "fields": [
+        {
+          "field": "fat",
+          "expected": 47.6,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 9.0,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 19.8,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 6.5,
+          "actual": null
+        },
+        {
+          "field": "fiber",
+          "expected": 5.2,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 20.5,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.02,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.008,
+          "actual": null
+        }
+      ],
+      "rawText": "Toitumisalaneteave/Uzturv\u00e9rtiba/Mastingumo\ndeklaracija/V\u00fd\u017eivov\u00e9 daje/V\u00fd\u017eivov\u00e9 \u00fadaje/\nLIDL\nAtlagos t\u00e1p\u00e9rt\u00e9ktartalom/Hranilna vrednost\n0/100g\n2488 k3/\nEnergiasisaldus/Ener\u0121\u0113tisk\u0101 v\u0113rtiba/Energin\u00e9 vert\u00e9/\nmi\n600 kcal\nEnergetick\u00e1 hodnota/Energia/Energia/Energijska vrednost\nitu\n47,6g\nRasvad/Tauki/Riebalai/Tuky/Tuky/Zsir/Ma\u0161\u010dobe\n\u00e9r\u0101.\nmillest kllastunud rasvhapped/tostarp pies\u0101tin\u0101t\u0101s\nvar\ntauksk\u0101bes/i\u0161 kuri\u0173 so\u010diuj\u0173 riebal\u0173 r\u016bg\u0161\u010di\u0173/z toho nasycen\u00e9\nit\u0101\nmastn\u00e9 kyseliny/z toho nas\u00fdten\u00e9 mastn\u00e9 kyseliny/amelyb\u0151l\nles,\n9,0g\ntel\u00edtett zs\u00edrsavak/od tega nasi\u010dene ma\u0161\u010dobe\nas,\nS\u00fcsivesikud/Og\u013chidr\u0101ti/Angliavandeniai/Sacharidy/\ndes\n19,8g\nSacharidy/Sz\u00e9nhidr\u00e1t/\u00d6gljikovi hidrati\nots.\nmillest suhkrud/tostarp cukuri/i\u0161 kuri\u0173 cukr\u0173/z toho cukry/\n\u00e8ti\n6,5g\nz toho cukry/amelyb\u00f3l cukrok/od tega sladkorji\ntas\nKiudained/Skiedrvielas/Skaidulines med\u017eiagos/Vl\u00e1knina/\nant\n5,2g\nVl\u00e1knina/Rost/Prehranske vlaknine\nios\nValgud/\u00d6lbaltumvielas/Baltymai/Bilkoviny/Bielkoviny/\nkyti\n20,5g\nFeh\u00e9rje/Beljakovine\nas:\n0,02g\nSool/S\u0101ls/Druska/S\u00fcl/Sol/S\u00f3/Sol\nh\u00fc,\nMineraaltoitained/Miner\u0101lvielas/Mineralin\u00e9s med\u017eiagos/\niku.\n0/100g\n%NRV\nMiner\u00e1lni l\u00e1tky/Miner\u00e1lne l\u00e1tky/Asv\u00e1nyi anyagok/Minerali\nd\u00fa.\nMagneesium/Magnis/Magnis/Hor\u010dik/Hor\u010dik/\n\u0159ed\n260 mg\n69%\nMagn\u00e9zium/Magnezij\nn\u00ed. I\nNRV (nutrient reference values)=Toitainete v\u00f6rdluskogused/Uzturvielu atsauces\nu\u010dit\nv\u0113rtibas/referencin\u00e9s maistin\u00e9s vert\u00e9s (RMV)/Referen\u010dn\u00edv\u00fd\u017eivov\u00e9 hodnoty/denn\u00e9\ndr\u00e1\nreferenn\u00e9 prjmyminer\u00e1lnyc \u00e1tok(ospeli)/napit\u00e1pl\u00e1lkoz\u017csibevitelireferencia\nn\u00e9 v\n\u00e9rt\u00e9k/priporo\u010deni dnevni vnosi (PDV)\nlom.\n200\nge\ng\nroz\u00ed\nNetokogus:/Neto daudzums:/\ndn\u00fd\nGrynasis kiekis:/Hmotnost:/Hmotnost:/\nvo\nNett\u00f3 t\u00f6meg:/Neto koli\u010dina:\nsu-\norgalmazza:/Proizvedeno za:\nLIDL Toitumisalaneteave/Uzturv\u00e9rtiba/Mastingumo\nmi Energiasisaldus/Ener\u0121\u0113tisk\u0101 v\u0113rtiba/Energin\u00e9 vert\u00e9/ 0/100g\nitu Energetick\u00e1 hodnota/Energia/Energia/Energijska vrednost 2488 k3/\n\u00e9r\u0101. Rasvad/Tauki/Riebalai/Tuky/Tuky/Zsir/Ma\u0161\u010dobe 600 kcal\nvar millest kllastunud rasvhapped/tostarp pies\u0101tin\u0101t\u0101s 47,6g\nit\u0101 tauksk\u0101bes/i\u0161 kuri\u0173 so\u010diuj\u0173 riebal\u0173 r\u016bg\u0161\u010di\u0173/z toho nasycen\u00e9\nles, mastn\u00e9 kyseliny/z toho nas\u00fdten\u00e9 mastn\u00e9 kyseliny/amelyb\u0151l\nas, tel\u00edtett zs\u00edrsavak/od tega nasi\u010dene ma\u0161\u010dobe\ndes S\u00fcsivesikud/Og\u013chidr\u0101ti/Angliavandeniai/Sacharidy/ 9,0g\nots. Sacharidy/Sz\u00e9nhidr\u00e1t/\u00d6gljikovi hidrati\n\u00e8ti millest suhkrud/tostarp cukuri/i\u0161 kuri\u0173 cukr\u0173/z toho cukry/ 19,8g\ntas z toho cukry/amelyb\u00f3l cukrok/od tega sladkorji\nant Kiudained/Skiedrvielas/Skaidulines med\u017eiagos/Vl\u00e1knina/ 6,5g\nios Vl\u00e1knina/Rost/Prehranske vlaknine\nkyti Valgud/\u00d6lbaltumvielas/Baltymai/Bilkoviny/Bielkoviny/ 5,2g\nh\u00fc, Sool/S\u0101ls/Druska/S\u00fcl/Sol/S\u00f3/Sol 20,5g\niku. Mineraaltoitained/Miner\u0101lvielas/Mineralin\u00e9s med\u017eiagos/ 0,02g\nd\u00fa. Miner\u00e1lni l\u00e1tky/Miner\u00e1lne l\u00e1tky/Asv\u00e1nyi anyagok/Minerali\n\u0159ed Magneesium/Magnis/Magnis/Hor\u010dik/Hor\u010dik/ 0/100g %NRV\nn\u00ed. I Magn\u00e9zium/Magnezij\nu\u010dit 260 mg 69%\nlom. \u00e9rt\u00e9k/priporo\u010deni dnevni vnosi (PDV)\ndn\u00fd Netokogus:/Neto daudzums:/\nvo Grynasis kiekis:/Hmotnost:/Hmotnost:/ 200\ng ge\nsu- Nett\u00f3 t\u00f6meg:/Neto koli\u010dina:\nLIDL deklaracija/V\u00fd\u017eivov\u00e9 daje/V\u00fd\u017eivov\u00e9 \u00fadaje/\nEnergiasisaldus/Ener\u0121\u0113tisk\u0101 v\u0113rtiba/Energin\u00e9 vert\u00e9/ 2488 k3/\nmi Energetick\u00e1 hodnota/Energia/Energia/Energijska vrednost 600 kcal\nRasvad/Tauki/Riebalai/Tuky/Tuky/Zsir/Ma\u0161\u010dobe 47,6g\n\u00e9r\u0101. millest kllastunud rasvhapped/tostarp pies\u0101tin\u0101t\u0101s\nvar tauksk\u0101bes/i\u0161 kuri\u0173 so\u010diuj\u0173 riebal\u0173 r\u016bg\u0161\u010di\u0173/z toho nasycen\u00e9\nles, tel\u00edtett zs\u00edrsavak/od tega nasi\u010dene ma\u0161\u010dobe 9,0g\nas, S\u00fcsivesikud/Og\u013chidr\u0101ti/Angliavandeniai/Sacharidy/\nSacharidy/Sz\u00e9nhidr\u00e1t/\u00d6gljikovi hidrati 19,8g\nz toho cukry/amelyb\u00f3l cukrok/od tega sladkorji 6,5g\nant Vl\u00e1knina/Rost/Prehranske vlaknine 5,2g\nios Valgud/\u00d6lbaltumvielas/Baltymai/Bilkoviny/Bielkoviny/\nkyti Feh\u00e9rje/Beljakovine 20,5g\nas: Sool/S\u0101ls/Druska/S\u00fcl/Sol/S\u00f3/Sol 0,02g\niku. Mineraaltoitained/Miner\u0101lvielas/Mineralin\u00e9s med\u017eiagos/\nMiner\u00e1lni l\u00e1tky/Miner\u00e1lne l\u00e1tky/Asv\u00e1nyi anyagok/Minerali 0/100g %NRV\n\u0159ed Magn\u00e9zium/Magnezij 260 mg 69%\nu\u010dit NRV (nutrient reference values)=Toitainete v\u00f6rdluskogused/Uzturvielu atsauces\ndn\u00fd Netokogus:/Neto daudzums:/ 200 ge\nGrynasis kiekis:/Hmotnost:/Hmotnost:/ g\nsu- orgalmazza:/Proizvedeno za:\nEnergiasisaldus/Ener\u0121\u0113tisk\u0101 v\u0113rtiba/Energin\u00e9 vert\u00e9/ 600 kcal\nmi Energetick\u00e1 hodnota/Energia/Energia/Energijska vrednost 47,6g\nitu Rasvad/Tauki/Riebalai/Tuky/Tuky/Zsir/Ma\u0161\u010dobe\nit\u0101 mastn\u00e9 kyseliny/z toho nas\u00fdten\u00e9 mastn\u00e9 kyseliny/amelyb\u0151l 9,0g\nles, tel\u00edtett zs\u00edrsavak/od tega nasi\u010dene ma\u0161\u010dobe\nas, S\u00fcsivesikud/Og\u013chidr\u0101ti/Angliavandeniai/Sacharidy/ 19,8g\ndes Sacharidy/Sz\u00e9nhidr\u00e1t/\u00d6gljikovi hidrati\nots. millest suhkrud/tostarp cukuri/i\u0161 kuri\u0173 cukr\u0173/z toho cukry/ 6,5g\n\u00e8ti z toho cukry/amelyb\u00f3l cukrok/od tega sladkorji\ntas Kiudained/Skiedrvielas/Skaidulines med\u017eiagos/Vl\u00e1knina/ 5,2g\nant Vl\u00e1knina/Rost/Prehranske vlaknine\nios Valgud/\u00d6lbaltumvielas/Baltymai/Bilkoviny/Bielkoviny/ 20,5g\nkyti Feh\u00e9rje/Beljakovine 0,02g\nas: Sool/S\u0101ls/Druska/S\u00fcl/Sol/S\u00f3/Sol\nh\u00fc, Mineraaltoitained/Miner\u0101lvielas/Mineralin\u00e9s med\u017eiagos/ 0/100g %NRV\niku. Miner\u00e1lni l\u00e1tky/Miner\u00e1lne l\u00e1tky/Asv\u00e1nyi anyagok/Minerali\nd\u00fa. Magneesium/Magnis/Magnis/Hor\u010dik/Hor\u010dik/ 260 mg\n\u0159ed Magn\u00e9zium/Magnezij\nn\u00ed. I NRV (nutrient reference values)=Toitainete v\u00f6rdluskogused/Uzturvielu atsauces\nu\u010dit v\u0113rtibas/referencin\u00e9s maistin\u00e9s vert\u00e9s (RMV)/Referen\u010dn\u00edv\u00fd\u017eivov\u00e9 hodnoty/denn\u00e9\ndr\u00e1 referenn\u00e9 prjmyminer\u00e1lnyc \u00e1tok(ospeli)/napit\u00e1pl\u00e1lkoz\u017csibevitelireferencia\nn\u00e9 v \u00e9rt\u00e9k/priporo\u010deni dnevni vnosi (PDV)\nroz\u00ed Netokogus:/Neto daudzums:/ 200 g ge\ndn\u00fd Grynasis kiekis:/Hmotnost:/Hmotnost:/\nvo Nett\u00f3 t\u00f6meg:/Neto koli\u010dina: orgalmazza:/Proizvedeno za:\nmi Energiasisaldus/Ener\u0121\u0113tisk\u0101 v\u0113rtiba/Energin\u00e9 vert\u00e9/ 2488 k3/\nitu Energetick\u00e1 hodnota/Energia/Energia/Energijska vrednost 600 kcal\n\u00e9r\u0101. 47,6g\nas, 9,0g\ndes S\u00fcsivesikud/Og\u013chidr\u0101ti/Angliavandeniai/Sacharidy/\nots. 19,8g\n\u00e8ti millest suhkrud/tostarp cukuri/i\u0161 kuri\u0173 cukr\u0173/z toho cukry/\ntas 6,5g\nios 5,2g\nkyti Feh\u00e9rje/Beljakovine\nas: 20,5g\nh\u00fc, 0,02g\nd\u00fa. Miner\u00e1lni l\u00e1tky/Miner\u00e1lne l\u00e1tky/Asv\u00e1nyi anyagok/Minerali 0/100g %NRV\n\u0159ed Magneesium/Magnis/Magnis/Hor\u010dik/Hor\u010dik/\nMagn\u00e9zium/Magnezij 260 mg 69%\ndr\u00e1 v\u0113rtibas/referencin\u00e9s maistin\u00e9s vert\u00e9s (RMV)/Referen\u010dn\u00edv\u00fd\u017eivov\u00e9 hodnoty/denn\u00e9\nn\u00e9 v referenn\u00e9 prjmyminer\u00e1lnyc \u00e1tok(ospeli)/napit\u00e1pl\u00e1lkoz\u017csibevitelireferencia\ndn\u00fd Netokogus:/Neto daudzums:/ 200\nGrynasis kiekis:/Hmotnost:/Hmotnost:/ g ge\nmi Energiasisaldus/Ener\u0121\u0113tisk\u0101 v\u0113rtiba/Energin\u00e9 vert\u00e9/\nitu 0/100g\n\u00e9r\u0101. Rasvad/Tauki/Riebalai/Tuky/Tuky/Zsir/Ma\u0161\u010dobe 2488 k3/\nvar 600 kcal\nit\u0101 47,6g\nots. Sacharidy/Sz\u00e9nhidr\u00e1t/\u00d6gljikovi hidrati 9,0g\ntas z toho cukry/amelyb\u00f3l cukrok/od tega sladkorji 19,8g\nios Vl\u00e1knina/Rost/Prehranske vlaknine 6,5g\nas: Feh\u00e9rje/Beljakovine Valgud/\u00d6lbaltumvielas/Baltymai/Bilkoviny/Bielkoviny/ 5,2g\nh\u00fc, Sool/S\u0101ls/Druska/S\u00fcl/Sol/S\u00f3/Sol\niku. 20,5g\nd\u00fa. Mineraaltoitained/Miner\u0101lvielas/Mineralin\u00e9s med\u017eiagos/ 0,02g\n\u0159ed Miner\u00e1lni l\u00e1tky/Miner\u00e1lne l\u00e1tky/Asv\u00e1nyi anyagok/Minerali\nMagneesium/Magnis/Magnis/Hor\u010dik/Hor\u010dik/ 0/100g\nn\u00ed. I Magn\u00e9zium/Magnezij %NRV\ndr\u00e1 NRV (nutrient reference values)=Toitainete v\u00f6rdluskogused/Uzturvielu atsauces 69%\nn\u00e9 v v\u0113rtibas/referencin\u00e9s maistin\u00e9s vert\u00e9s (RMV)/Referen\u010dn\u00edv\u00fd\u017eivov\u00e9 hodnoty/denn\u00e9\nlom. \u00e9rt\u00e9k/priporo\u010deni dnevni vnosi (PDV) referenn\u00e9 prjmyminer\u00e1lnyc \u00e1tok(ospeli)/napit\u00e1pl\u00e1lkoz\u017csibevitelireferencia\nvo Grynasis kiekis:/Hmotnost:/Hmotnost:/\nsu- Nett\u00f3 t\u00f6meg:/Neto koli\u010dina: g ge\nitu Rasvad/Tauki/Riebalai/Tuky/Tuky/Zsir/Ma\u0161\u010dobe 47,6g\nit\u0101 mastn\u00e9 kyseliny/z toho nas\u00fdten\u00e9 mastn\u00e9 kyseliny/amelyb\u0151l\ndes Sacharidy/Sz\u00e9nhidr\u00e1t/\u00d6gljikovi hidrati 19,8g\nots. millest suhkrud/tostarp cukuri/i\u0161 kuri\u0173 cukr\u0173/z toho cukry/\n\u00e8ti z toho cukry/amelyb\u00f3l cukrok/od tega sladkorji 6,5g\ntas Kiudained/Skiedrvielas/Skaidulines med\u017eiagos/Vl\u00e1knina/\niku. Miner\u00e1lni l\u00e1tky/Miner\u00e1lne l\u00e1tky/Asv\u00e1nyi anyagok/Minerali 0/100g %NRV\nd\u00fa. Magneesium/Magnis/Magnis/Hor\u010dik/Hor\u010dik/\n\u0159ed 260 mg 69%\nNetokogus:/Neto daudzums:/ 200 g ge\nd\u00fa. Magneesium/Magnis/Magnis/Hor\u010dik/Hor\u010dik/ 260 mg 69%\nvo Nett\u00f3 t\u00f6meg:/Neto koli\u010dina:\nLIDL 0/100g\nEnergiasisaldus/Ener\u0121\u0113tisk\u0101 v\u0113rtiba/Energin\u00e9 vert\u00e9/ 47,6g\nmi Rasvad/Tauki/Riebalai/Tuky/Tuky/Zsir/Ma\u0161\u010dobe\nitu millest kllastunud rasvhapped/tostarp pies\u0101tin\u0101t\u0101s\n\u00e9r\u0101. tauksk\u0101bes/i\u0161 kuri\u0173 so\u010diuj\u0173 riebal\u0173 r\u016bg\u0161\u010di\u0173/z toho nasycen\u00e9 9,0g\nvar mastn\u00e9 kyseliny/z toho nas\u00fdten\u00e9 mastn\u00e9 kyseliny/amelyb\u0151l\nit\u0101 tel\u00edtett zs\u00edrsavak/od tega nasi\u010dene ma\u0161\u010dobe 19,8g\nles, S\u00fcsivesikud/Og\u013chidr\u0101ti/Angliavandeniai/Sacharidy/\nas, 6,5g\ndes millest suhkrud/tostarp cukuri/i\u0161 kuri\u0173 cukr\u0173/z toho cukry/\nots. z toho cukry/amelyb\u00f3l cukrok/od tega sladkorji 5,2g\n\u00e8ti Kiudained/Skiedrvielas/Skaidulines med\u017eiagos/Vl\u00e1knina/\ntas 20,5g\nant Valgud/\u00d6lbaltumvielas/Baltymai/Bilkoviny/Bielkoviny/ 0,02g\nkyti Feh\u00e9rje/Beljakovine %NRV\nSool/S\u0101ls/Druska/S\u00fcl/Sol/S\u00f3/Sol 0/100g\nas: Mineraaltoitained/Miner\u0101lvielas/Mineralin\u00e9s med\u017eiagos/ 69%\nh\u00fc, Miner\u00e1lni l\u00e1tky/Miner\u00e1lne l\u00e1tky/Asv\u00e1nyi anyagok/Minerali 260 mg\niku. Magneesium/Magnis/Magnis/Hor\u010dik/Hor\u010dik/\n\u0159ed Magn\u00e9zium/Magnezij NRV (nutrient reference values)=Toitainete v\u00f6rdluskogused/Uzturvielu atsauces\nn\u00ed. I v\u0113rtibas/referencin\u00e9s maistin\u00e9s vert\u00e9s (RMV)/Referen\u010dn\u00edv\u00fd\u017eivov\u00e9 hodnoty/denn\u00e9\nu\u010dit referenn\u00e9 prjmyminer\u00e1lnyc \u00e1tok(ospeli)/napit\u00e1pl\u00e1lkoz\u017csibevitelireferencia\nn\u00e9 v \u00e9rt\u00e9k/priporo\u010deni dnevni vnosi (PDV) ge\n200 g\nroz\u00ed Netokogus:/Neto daudzums:/\ndn\u00fd orgalmazza:/Proizvedeno za:\n260 mg 69%\nLIDL Atlagos t\u00e1p\u00e9rt\u00e9ktartalom/Hranilna vrednost\nEnergetick\u00e1 hodnota/Energia/Energia/Energijska vrednost 47,6g\nvar mastn\u00e9 kyseliny/z toho nas\u00fdten\u00e9 mastn\u00e9 kyseliny/amelyb\u0151l 9,0g\nles, 19,8g\ndes Sacharidy/Sz\u00e9nhidr\u00e1t/\u00d6gljikovi hidrati 6,5g\n\u00e8ti 5,2g\nant Vl\u00e1knina/Rost/Prehranske vlaknine 20,5g\nios 0,02g\nas: Sool/S\u0101ls/Druska/S\u00fcl/Sol/S\u00f3/Sol %NRV\nMineraaltoitained/Miner\u0101lvielas/Mineralin\u00e9s med\u017eiagos/ 0/100g\nMiner\u00e1lni l\u00e1tky/Miner\u00e1lne l\u00e1tky/Asv\u00e1nyi anyagok/Minerali 69%\niku. 260 mg\nlom. 200 g ge\nLIDL Atlagos t\u00e1p\u00e9rt\u00e9ktartalom/Hranilna vrednost 0/100g\nas, Sacharidy/Sz\u00e9nhidr\u00e1t/\u00d6gljikovi hidrati 6,5g\nas: Mineraaltoitained/Miner\u0101lvielas/Mineralin\u00e9s med\u017eiagos/\nh\u00fc, Miner\u00e1lni l\u00e1tky/Miner\u00e1lne l\u00e1tky/Asv\u00e1nyi anyagok/Minerali 69%\nlom. 200 g\nValgud/\u00d6lbaltumvielas/Baltymai/Bilkoviny/Bielkoviny/ 20,5g\niku. Miner\u00e1lni l\u00e1tky/Miner\u00e1lne l\u00e1tky/Asv\u00e1nyi anyagok/Minerali 69%\nroz\u00ed 200 g ge\n\u0159ed Magneesium/Magnis/Magnis/Hor\u010dik/Hor\u010dik/ 260 mg 69%\ndn\u00fd Netokogus:/Neto daudzums:/ 200 g ge"
+    },
+    {
+      "file": "images/15-20724696.jpg",
+      "fields": [
+        {
+          "field": "sodium",
+          "expected": 0.004,
+          "actual": null
+        }
+      ],
+      "rawText": "Country of origin: USA.\nAllergy Advice\nContains Almonds.May also contain other Nuts and Peanuts.\nLiDL\nNutrition Information\nTypical values\nper 100g\nper serving 30g\nEnergy\n2567kJ/621kcal\n770kJ/186kcal\n%RI*\nFat\n9%\n53.3g\n16.0g\nof which saturates\n4.3g\n1.3g\n23%\nCarbohydrate\n4.8g\n1.4g\n<1%\n7%\nof which sugars\n1.4g\n4.8g\n2%\nFibre\n12.1g\n3.6g\nProtein\n24.5g\n7.4g\n15%\nSalt\n0.01g\n<0.01g\n<1%\n*Reference intake of n verage adult (8400k1/2000kcal)\n%NRV\nMinerals\nper serving 30g\nper 100g %NRV\n78mg\nMagnesium\n260mg\n69%\n21%\n200ge\nNRV = Nutrient reference values\nThis pack contans approx. 6 servings\nStorage Instructions\nLid Great Britain Ltd, Lidi House,\nAdditional Information\nKingston Road, Surbiton, KT5 9NU\nLidl Ireland GmbH, Main Road,\nPackd by weight, no by volume. Although every\nTallaght, Dublin 24.\nution: Small children can choke on nuts.\nBest before:\n26.09.2025\nL 4 335 C1203 04:54\nStore in a cool, dry place\n2072469\nDon't\nLiDL Nutrition Information\nTypical values per 100g per serving 30g %RI*\nEnergy 2567kJ/621kcal 770kJ/186kcal 9%\nFat 53.3g 16.0g 23%\nof which saturates 4.3g 1.3g 7%\n1.4g <1%\nCarbohydrate 4.8g 1.4g 2%\nof which sugars 4.8g 3.6g\nFibre 12.1g 7.4g 15%\nProtein 24.5g <0.01g <1%\nSalt 0.01g\nper serving 30g %NRV\nMinerals per 100g %NRV 78mg 21%\nMagnesium 260mg 69%\nThis pack contans approx. 6 servings 200ge\nAdditional Information Kingston Road, Surbiton, KT5 9NU\nEnergy per 100g per serving 30g %RI*\n2567kJ/621kcal 770kJ/186kcal\nFat 9%\nof which saturates 53.3g 16.0g 23%\n4.3g 1.3g 7%\nCarbohydrate 4.8g 1.4g <1%\nof which sugars 4.8g 1.4g 2%\nFibre 12.1g 3.6g\nProtein 24.5g 7.4g 15%\nSalt 0.01g <0.01g <1%\nMinerals per 100g %NRV per serving 30g %NRV\nMagnesium 260mg 69% 78mg 21%\nAdditional Information Lid Great Britain Ltd, Lidi House,\nPackd by weight, no by volume. Although every Tallaght, Dublin 24.\nEnergy per 100g\nFat 2567kJ/621kcal per serving 30g %RI*\nof which saturates 53.3g 9%\nCarbohydrate 4.3g 16.0g 23%\nof which sugars 4.8g 1.4g 7%\nFibre 4.8g 1.4g <1%\nProtein 12.1g 3.6g 2%\nSalt 24.5g 7.4g 15%\n0.01g <0.01g <1%\nMagnesium per 100g %NRV per serving 30g %NRV\n260mg 69% 78mg\nNRV = Nutrient reference values 21%\nPackd by weight, no by volume. Although every Lidl Ireland GmbH, Main Road,\nFat 2567kJ/621kcal per serving 30g\n770kJ/186kcal %RI*\n1.4g 2%\n1.3g 7%\nof which saturates 4.3g 1.4g <1%\nAllergy Advice Contains Almonds.May also contain other Nuts and Peanuts.\nper serving 30g %RI*\nper 100g 770kJ/186kcal 9%\nTypical values 2567kJ/621kcal 16.0g 23%\nEnergy 53.3g 1.3g 7%\nFat 4.3g 1.4g <1%\nof which saturates 4.8g 1.4g 2%\nCarbohydrate 4.8g 3.6g\n7.4g 15%\nof which sugars 12.1g <1%\nFibre 24.5g\nProtein 0.01g\nSalt *Reference intake of n verage adult (8400k1/2000kcal) per serving 30g %NRV\n78mg 21%\nMinerals 69%\nMagnesium 200ge\nNRV = Nutrient reference values This pack contans approx. 6 servings\nStorage Instructions Kingston Road, Surbiton, KT5 9NU\nAdditional Information Tallaght, Dublin 24.\n2567kJ/621kcal 770kJ/186kcal 9%\nEnergy 16.0g 23%\nFat 53.3g 1.3g 7%\n4.8g 3.6g\n12.1g 7.4g 15%\nFibre 24.5g <0.01g <1%\n*Reference intake of n verage adult (8400k1/2000kcal) %NRV\nper 100g %NRV 78mg 21%\nMagnesium 260mg\nNRV = Nutrient reference values 200ge\nAdditional Information Lidl Ireland GmbH, Main Road,\nTypical values per 100g 770kJ/186kcal 9%\n2567kJ/621kcal 16.0g 23%\nof which sugars 12.1g 7.4g 15%\nSalt *Reference intake of n verage adult (8400k1/2000kcal) %NRV\nStorage Instructions Lid Great Britain Ltd, Lidi House,\nEnergy per 100g per serving 30g\nFat 2567kJ/621kcal %RI*\n53.3g 9%\nof which saturates 16.0g 23%\nCarbohydrate 4.3g 1.3g 7%\nof which sugars 4.8g 1.4g <1%\nFibre 4.8g 1.4g 2%\n12.1g 3.6g\nStorage Instructions 200ge\nFibre 12.1g\nMinerals per 100g %NRV 78mg\nMagnesium 260mg 69% 21%\n53.3g 16.0g 23%"
+    },
+    {
+      "file": "images/16-20995553.jpg",
+      "fields": [
+        {
+          "field": "carbs",
+          "expected": 21.4,
+          "actual": 28.2
+        },
+        {
+          "field": "sodium",
+          "expected": 0.08,
+          "actual": null
+        }
+      ],
+      "rawText": "LiDL\nNutrition Information\nTypical values\nper 100g\nper square 12.5g\n%RI*\nEnergy\n2395kJ/579kcal\n299kJ/72kcal\n4%\nFat\n46.8g\n5.9g\n8%\nof which saturates\n28.2g\n3.5g\n18%\nCarbohydrate\n21.4g\n2.7g\n1%\nof which sugars\n12.9g\n1.6g\n2%\nFibre\n14.5g\n1.8g\nProtein\n10.8g\n1.4g\n3%\nSalt\n0.02g\n<0.01g\n<1%\n~170567417~\n*Reference intake of an average adult (8400kJ/2000kcal)\nThis pack contains 10 servings\nLiDL Nutrition Information\nTypical values per 100g per square 12.5g %RI*\nEnergy 2395kJ/579kcal 299kJ/72kcal 4%\nFat 46.8g 5.9g 8%\nof which saturates 28.2g 3.5g 18%\nCarbohydrate 21.4g 2.7g 1%\nof which sugars 12.9g 1.6g 2%\nFibre 14.5g 1.8g\nProtein 10.8g 1.4g 3%\nSalt 0.02g <0.01g <1%\n~170567417~ *Reference intake of an average adult (8400kJ/2000kcal)\nper 100g 4%\nTypical values 2395kJ/579kcal 5.9g 8%\nEnergy 46.8g 3.5g 18%\nFat 28.2g 2.7g 1%\nof which saturates 21.4g 1.6g 2%\nCarbohydrate 12.9g 1.8g\nof which sugars 14.5g 1.4g 3%\nFibre 10.8g <0.01g <1%\nProtein 0.02g\n~170567417~ This pack contains 10 servings\nEnergy per square 12.5g %RI*\nFat 299kJ/72kcal 4%\nof which saturates 5.9g 8%\nCarbohydrate 3.5g 18%\nof which sugars 2.7g 1%\nFibre 1.6g 2%\nProtein 1.8g\nSalt 1.4g 3%\n<0.01g <1%\nEnergy per 100g\nFat 2395kJ/579kcal per square 12.5g\nof which saturates 46.8g 299kJ/72kcal 4%\nCarbohydrate 28.2g 5.9g 8%\nof which sugars 21.4g 3.5g 18%\nFibre 12.9g 2.7g 1%\nProtein 14.5g 1.6g 2%\nSalt 10.8g 1.8g\n~170567417~ 0.02g 1.4g 3%\nFat 2395kJ/579kcal per square 12.5g %RI*\nof which saturates 46.8g 4%\n0.02g 1.4g 3%\nTypical values 299kJ/72kcal\n2395kJ/579kcal 5.9g 8%\nCarbohydrate 12.9g\nof which sugars 14.5g 3%\nFibre 10.8g <1%\nper square 12.5g %RI*\nTypical values 299kJ/72kcal 4%\nEnergy 5.9g 8%\n46.8g 18%\nFat 3.5g\nof which saturates 2.7g 1%\nCarbohydrate 21.4g 1.6g 2%\nof which sugars 1.8g\nFibre 1.4g 3%\nProtein <0.01g <1%\nof which saturates 46.8g 299kJ/72kcal\nCarbohydrate 28.2g 5.9g\nFibre 12.9g 2.7g\n*Reference intake of an average adult (8400kJ/2000kcal) <0.01g <1%\nEnergy 46.8g 3.5g\nSalt *Reference intake of an average adult (8400kJ/2000kcal)\n~170567417~ <0.01g\nTypical values per 100g 4%\nFat 3.5g 18%\nof which saturates 28.2g 1%"
+    },
+    {
+      "file": "images/17-3017620422003.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 539.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 30.9,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 10.6,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 57.5,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 56.3,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 6.3,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.107,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.0428,
+          "actual": null
+        }
+      ],
+      "rawText": "nutella\nFERRERO\n100g\nFERRERO 100g"
+    },
+    {
+      "file": "images/18-3017620425035.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 539.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 30.9,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 10.6,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 57.5,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 56.3,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 6.3,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.107,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.0428,
+          "actual": null
+        }
+      ],
+      "rawText": "INFORMATIONS\nValeurs nutritionnelles\nPour\nPar portion\nW'hr\nmoyennes\n100g\n15g\n15g\nEnergie\nkcal\nKJ\n2252\n539\n336\n80\n4%\nMati\u00e8res grasses\n9\n309\n4.6\n7%\ndont acides grs satur\u00e9es\n10.6\n1.6\n8%\nGlucides\n57.5\n8.6\n3%\ndont sucres\n56.3\n8.4\n9%\nProt\u00e9ines\n6.3\n0.9\n2%\nSel\n0.107\n0.016\n0%\n15g\u2248 1 cuill\u00e9re \u00e0 caf\u00e9\nValeurs nutritionnelles Pour Par portion W'hr\nmoyennes 100g 15g 15g\nEnergie KJ 2252 336\nkcal 539 80 4%\nMati\u00e8res grasses 9 309 4.6 7%\ndont acides grs satur\u00e9es 10.6 1.6 8%\nGlucides 57.5 8.6 3%\ndont sucres 56.3 8.4 9%\nProt\u00e9ines 6.3 0.9 2%\nSel 0.107 0.016 0%\nkcal 539 80\nmoyennes Par portion\n100g W'hr\nEnergie 15g 15g\nKJ 2252\nkcal 336\n539 80 4%\n9 309\ndont acides grs satur\u00e9es 4.6\n10.6 7%\nGlucides 1.6 8%\ndont sucres 57.5 8.6\nProt\u00e9ines 56.3 8.4 9%\nSel 6.3 0.9 2%\n0.107 0.016 0%\nPour Par portion W'hr\nValeurs nutritionnelles 100g 15g 15g\nmoyennes 2252 336 4%\nEnergie 539 80\n4.6 7%\n9 309 8%\nMati\u00e8res grasses 10.6 1.6\ndont acides grs satur\u00e9es 8.6 3%\n57.5 9%\nGlucides 56.3 8.4\ndont sucres 0.9\n6.3 0%\nProt\u00e9ines 0.016\nPar portion W'hr\n15g 15g\nValeurs nutritionnelles 100g\nKJ 80\nEnergie kcal 539 7%\n309 8%\n9 1.6\nMati\u00e8res grasses 10.6\ndont acides grs satur\u00e9es 8.6\nGlucides 56.3 2%\nEnergie KJ 15g\ndont acides grs satur\u00e9es 4.6 7%\n10.6 1.6\nGlucides 8%\ndont sucres 57.5 8.6 3%\nKJ 2252 336 4%\nMati\u00e8res grasses 9 309 8%\ndont acides grs satur\u00e9es 3%\n57.5 8.6\nGlucides 8.4 9%\ndont sucres 2%\nProt\u00e9ines 0%\nmoyennes Pour\nEnergie 15g\nKJ 15g\nMati\u00e8res grasses 80 4%\ndont acides grs satur\u00e9es 9 309\nGlucides 10.6 7%\ndont sucres 57.5\n56.3 3%\nProt\u00e9ines 8.4\nSel 6.3\n0.9 2%\n0.107 0.016\nINFORMATIONS W'hr\nPour 15g\n336 4%\nmoyennes 2252\nEnergie kcal 7%\nMati\u00e8res grasses 10.6 3%\ndont acides grs satur\u00e9es 8.6 9%\ndont sucres 6.3 0%\nProt\u00e9ines 0.107\nmoyennes 336\nKJ 2252 4%\ndont sucres 0.9 2%\nProt\u00e9ines 0.016 0%"
+    },
+    {
+      "file": "images/19-3046920022606.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 584.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 46.0,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 27.0,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 22.0,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 15.0,
+          "actual": null
+        },
+        {
+          "field": "fiber",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 12.5,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.02,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.008,
+          "actual": null
+        }
+      ],
+      "rawText": "CEUVRER EN PARTENARIAT AVEC LES PRODUCTEURS\nET LEURS COMMUNAUT\u00c9S\nRETROUVEZ PLUS DE D\u00c9TAILS \u00c0 PROPOS DE NOTRE\nCOCOA\nPROGRAMME DE D\u00c9VELOPPEMENT DURABLE POUR\nLES F\u00c8VES DE CACAO SUR WWW.FARMING-PROGRAM.COM\nChocolat noir, extra-fin traditionnel.\nINFORMATIONS NUTRITIONNELLES\nCacao:85% minimum.\nPOUR 100g:\nngr\u00e9dients : p\u00e2te de cacao, cacao\n\u00c9nergie\n2418 k|/ 584 kcal\nmaigre, beurre de cacao, cassonade,\nMati\u00e8res grasses\n46g\nvanille.\nPeut contenir du lait, des fruits \u00e0 coque,\n- dont satur\u00e9es\n27g\ndu soja et des graines de s\u00e9same.\nGlucides\n22g\n- dont sucres\n15g\nProt\u00e9ines\n12,5g\nSel\n0,02g\nFR-64400 OLORON-SAINTE-MARIE\nCHOCOLADEFABRIKEN LINDT & SPR\u00dcNGLI AG\nGARANTIE\nConseil : conserver au frais et au sec.\nconsommer de pr\u00e9f\u00e9rence avant le :\n3\"046920\"022606\nFABRIQU\u00c9 EN FRANCE PAR :\nL4695 544 20:15\n31 10 2026\nLINDT & SPR\u00dcNGLI SAS\nwww.1\nKILCHBERG / SUISSE\nDE QUALIT\u00c9\n259191\nPoids net:\nLindt & Spr\u00fcngli SAS\n100g\nService Consommateurs, BP 49,\nFR-64402 Oloron-Sainte-Marie Cedex.\nCOCOA RETROUVEZ PLUS DE D\u00c9TAILS \u00c0 PROPOS DE NOTRE\nChocolat noir, extra-fin traditionnel. INFORMATIONS NUTRITIONNELLES\nCacao:85% minimum. POUR 100g:\nngr\u00e9dients : p\u00e2te de cacao, cacao \u00c9nergie 2418 k|/ 584 kcal\nMati\u00e8res grasses 46g\nPeut contenir du lait, des fruits \u00e0 coque, - dont satur\u00e9es 27g\ndu soja et des graines de s\u00e9same. Glucides 22g\n- dont sucres 15g\nProt\u00e9ines 12,5g\nSel 0,02g\nwww.1 31 10 2026\nFR-64400 OLORON-SAINTE-MARIE LINDT & SPR\u00dcNGLI SAS FABRIQU\u00c9 EN FRANCE PAR : KILCHBERG / SUISSE CHOCOLADEFABRIKEN LINDT & SPR\u00dcNGLI AG Conseil : conserver au frais et au sec. consommer de pr\u00e9f\u00e9rence avant le : 3\"046920\"022606\nService Consommateurs, BP 49, 100g\nCOCOA LES F\u00c8VES DE CACAO SUR WWW.FARMING-PROGRAM.COM\nCacao:85% minimum. \u00c9nergie 46g\nngr\u00e9dients : p\u00e2te de cacao, cacao Mati\u00e8res grasses 27g\nmaigre, beurre de cacao, cassonade, - dont satur\u00e9es 22g\nvanille. Peut contenir du lait, des fruits \u00e0 coque, Glucides 15g\ndu soja et des graines de s\u00e9same. - dont sucres 12,5g\nProt\u00e9ines 0,02g\nL4695 544 20:15 3\"046920\"022606\nwww.1 consommer de pr\u00e9f\u00e9rence avant le :\nFR-64400 OLORON-SAINTE-MARIE LINDT & SPR\u00dcNGLI SAS FABRIQU\u00c9 EN FRANCE PAR : KILCHBERG / SUISSE CHOCOLADEFABRIKEN LINDT & SPR\u00dcNGLI AG\n259191 Poids net:\n\u00c9nergie 2418 k|/ 584 kcal\nvanille. Mati\u00e8res grasses 46g\nGlucides 22g\nFR-64400 OLORON-SAINTE-MARIE LINDT & SPR\u00dcNGLI SAS FABRIQU\u00c9 EN FRANCE PAR : KILCHBERG / SUISSE CHOCOLADEFABRIKEN LINDT & SPR\u00dcNGLI AG Conseil : conserver au frais et au sec. 3\"046920\"022606\nLindt & Spr\u00fcngli SAS Poids net:\nFR-64402 Oloron-Sainte-Marie Cedex. 100g\nCOCOA PROGRAMME DE D\u00c9VELOPPEMENT DURABLE POUR\nChocolat noir, extra-fin traditionnel. POUR 100g:\nCacao:85% minimum. 2418 k|/ 584 kcal\nngr\u00e9dients : p\u00e2te de cacao, cacao \u00c9nergie\nmaigre, beurre de cacao, cassonade, Mati\u00e8res grasses\nvanille. - dont satur\u00e9es\nPeut contenir du lait, des fruits \u00e0 coque, 22g\ndu soja et des graines de s\u00e9same. 15g\nwww.1 L4695 544 20:15\nConseil : conserver au frais et au sec. consommer de pr\u00e9f\u00e9rence avant le :\nLindt & Spr\u00fcngli SAS 100g\nCOCOA ET LEURS COMMUNAUT\u00c9S CEUVRER EN PARTENARIAT AVEC LES PRODUCTEURS\nngr\u00e9dients : p\u00e2te de cacao, cacao INFORMATIONS NUTRITIONNELLES\nvanille. maigre, beurre de cacao, cassonade, POUR 100g:\nPeut contenir du lait, des fruits \u00e0 coque, Mati\u00e8res grasses 2418 k|/ 584 kcal\n- dont satur\u00e9es 46g\nGlucides 27g\n- dont sucres 22g\nProt\u00e9ines 15g\nSel 12,5g\nFR-64400 OLORON-SAINTE-MARIE LINDT & SPR\u00dcNGLI SAS FABRIQU\u00c9 EN FRANCE PAR : KILCHBERG / SUISSE CHOCOLADEFABRIKEN LINDT & SPR\u00dcNGLI AG L4695 544 20:15\nconsommer de pr\u00e9f\u00e9rence avant le : 3\"046920\"022606\nFR-64402 Oloron-Sainte-Marie Cedex. Poids net:\nvanille. maigre, beurre de cacao, cassonade, \u00c9nergie POUR 100g:\ndu soja et des graines de s\u00e9same. - dont satur\u00e9es 46g\nET LEURS COMMUNAUT\u00c9S CEUVRER EN PARTENARIAT AVEC LES PRODUCTEURS\nngr\u00e9dients : p\u00e2te de cacao, cacao POUR 100g:\nmaigre, beurre de cacao, cassonade, \u00c9nergie\nvanille. 2418 k|/ 584 kcal\nPeut contenir du lait, des fruits \u00e0 coque, 46g\ndu soja et des graines de s\u00e9same. - dont satur\u00e9es\nFR-64400 OLORON-SAINTE-MARIE LINDT & SPR\u00dcNGLI SAS FABRIQU\u00c9 EN FRANCE PAR : KILCHBERG / SUISSE CHOCOLADEFABRIKEN LINDT & SPR\u00dcNGLI AG Conseil : conserver au frais et au sec.\nService Consommateurs, BP 49, Poids net:\nCacao:85% minimum. INFORMATIONS NUTRITIONNELLES\nmaigre, beurre de cacao, cassonade, \u00c9nergie 2418 k|/ 584 kcal\nvanille. Mati\u00e8res grasses\nPeut contenir du lait, des fruits \u00e0 coque, - dont satur\u00e9es\ndu soja et des graines de s\u00e9same. 27g\ndu soja et des graines de s\u00e9same. Glucides\nmaigre, beurre de cacao, cassonade, Mati\u00e8res grasses 46g\nChocolat noir, extra-fin traditionnel. 2418 k|/ 584 kcal\nngr\u00e9dients : p\u00e2te de cacao, cacao Mati\u00e8res grasses\n- dont satur\u00e9es 22g\nCacao:85% minimum. \u00c9nergie\nngr\u00e9dients : p\u00e2te de cacao, cacao 46g\nvanille. 22g\nwww.1 L4695 544 20:15 3\"046920\"022606"
+    },
+    {
+      "file": "images/20-3046920022651.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 566.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 41.0,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 24.0,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 35.0,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 30.0,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 9.5,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.02,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.008,
+          "actual": null
+        }
+      ],
+      "rawText": "INFORMATIONS NUTRITIONNELLES\nPOUR 100g :\n\u00c9nergie\n2350 kJ/566 kcal\nMati\u00e8res grasses\n41g\n- dont satur\u00e9es\n24g\nGlucides\n35g\n- dont sucres\n30g\nProt\u00e9ines\n9,5g\nSel\n0,02 g\n\u00c9nergie 2350 kJ/566 kcal\nMati\u00e8res grasses 41g\n- dont satur\u00e9es 24g\nGlucides 35g\n- dont sucres 30g\nProt\u00e9ines 9,5g\nSel 0,02 g\n\u00c9nergie 41g\nMati\u00e8res grasses 24g\n- dont satur\u00e9es 35g\nGlucides 30g\n- dont sucres 9,5g\nProt\u00e9ines 0,02 g\nMati\u00e8res grasses 2350 kJ/566 kcal\n- dont satur\u00e9es 41g\nGlucides 24g\n- dont sucres 35g\nProt\u00e9ines 30g\nSel 9,5g"
+    },
+    {
+      "file": "images/21-3046920028004.jpg",
+      "fields": [
+        {
+          "field": "fat",
+          "expected": 17.0,
+          "actual": 41.0
+        },
+        {
+          "field": "saturated",
+          "expected": 12.0,
+          "actual": 24.0
+        },
+        {
+          "field": "carbs",
+          "expected": 57.0,
+          "actual": 35.0
+        },
+        {
+          "field": "sugar",
+          "expected": 33.0,
+          "actual": 9.5
+        },
+        {
+          "field": "fiber",
+          "expected": 11.0,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 6.0,
+          "actual": 9.5
+        },
+        {
+          "field": "sodium",
+          "expected": 0.0,
+          "actual": null
+        }
+      ],
+      "rawText": "LINDT& SPR\u00dcNGLI\nMATTRE CHOCOLATIER SUISSE\nDEPUIS 1845\nExtra fine dark chocolate\nCocoa solids: 70% min.\nIngredieots; cocoa mass, sugar cocoa butter, vanilla\nMzy contain milk, almonds, hazelnuts, other nuts, soya and sesame\nseds\nChocolate extrafino con 70% de cacao\nCacao: 70% minimo.\ningredientes ; pasta de cacao, az\u00facat, manteca de cacao, vainilla.\nPuede contener leche. almendras, avellanas, otros frutos de c\u00e1scara\nseja y granos de s\u00e9samo.\nChocolate extrafino com 70% de cacau\nCacau:70% minimo.\nIrgredientes: pasta de cacau, a\u00e7\u00facar, manteiga de cacau, baunilha.\nPode conter leite. am\u00eandoas, avel\u00e3s, outros frutos de casca rija, soja e\nsementes de s\u00e9samo.\nNUTRITION INFORMATION PER 100 g\nEnergy/Valor energetico /Energia\n2350 kl/566 kcal\nFat/ Crasas / L\u00edpidos\n41g\n-of which saturates / de las cuales saturadas\n24g\ndos quzis saturados\nCarbolydrate/ Hidratos de carbono / Hidratos de carbono\n35g\nof which sugars/ de los cuales az\u00facares\n30g\ndos quais a\u00e7\u00facares\nProtein / Proteinas / Proteinas\n.\n9.5g\nSah/Sal/Sal\n0.02 g\nDistributed by: Lindt & Spr\u00fcngll (UK) Ltd., United Kingdom: 4 New Square,\nFeltham, Middlesex, TW14 8HA. / Republic of Ireland: PO BOX 13038,\nDublin 18 / Distribuido por: Lindt & Spr\u00fcngli (Espa\u00f1a) S.A, Manna 16-18.\nES-08005 Barcelona.\nStore in a cool and dry place. / Conservar en lugar fresco y seco. /\nConservar em local fresco e seco.\nCHOCOLADEFARRINEN LINGT & SPR\u00dcNGEF AC\nQUALITY GUARANTEE\nConsumir de prefer\u00eancia antes do fim de\nantes del fin de\nBest before end / Corsumir preterentermen\n3\nLINDT SUSTAINABILITY\nFR-644G0 OLORON-SAINTE-MARTE\nFABRICADO NA FRAN\u00c7A PELA\nELABORADO EN FRANCIA POR\nMANUFACTURED IN FRANCE BY\n046920\"\n383\nwww.lindt.com\nLINDT & SPRUNGLISAS\nKICHBERG / EWITZLRLAND\n028004\noi\nPAIA ESPANA\nAl Axul\nAl Aarartite\nCi\n100ge\nNet weight/\nPeso-nete/ Pesa l\u00edquida\nEnergy/Valor energetico /Energia 41g\n-of which saturates / de las cuales saturadas 24g\ndos quzis saturados 35g\ndos quais a\u00e7\u00facares . 9.5g\nProtein / Proteinas / Proteinas 0.02 g\n383 046920\"\nwww.lindt.com LINDT SUSTAINABILITY FR-644G0 OLORON-SAINTE-MARTE LINDT & SPRUNGLISAS FABRICADO NA FRAN\u00c7A PELA ELABORADO EN FRANCIA POR MANUFACTURED IN FRANCE BY KICHBERG / EWITZLRLAND CHOCOLADEFARRINEN LINGT & SPR\u00dcNGEF AC QUALITY GUARANTEE Consumir de prefer\u00eancia antes do fim de 028004\nAl Axul Al Aarartite\nEnergy/Valor energetico /Energia 2350 kl/566 kcal\nFat/ Crasas / L\u00edpidos 41g\ndos quzis saturados 24g\nCarbolydrate/ Hidratos de carbono / Hidratos de carbono 35g\nProtein / Proteinas / Proteinas . 9.5g\nSah/Sal/Sal 0.02 g\n383 antes del fin de\nwww.lindt.com LINDT SUSTAINABILITY FR-644G0 OLORON-SAINTE-MARTE LINDT & SPRUNGLISAS FABRICADO NA FRAN\u00c7A PELA ELABORADO EN FRANCIA POR MANUFACTURED IN FRANCE BY KICHBERG / EWITZLRLAND CHOCOLADEFARRINEN LINGT & SPR\u00dcNGEF AC QUALITY GUARANTEE Consumir de prefer\u00eancia antes do fim de Best before end / Corsumir preterentermen\nNet weight/ 100ge\nNUTRITION INFORMATION PER 100 g 2350 kl/566 kcal\nCacao: 70% minimo. Chocolate extrafino con 70% de cacao\nseja y granos de s\u00e9samo. Puede contener leche. almendras, avellanas, otros frutos de c\u00e1scara\nCacau:70% minimo. Chocolate extrafino com 70% de cacau\n-of which saturates / de las cuales saturadas 2350 kl/566 kcal\nCarbolydrate/ Hidratos de carbono / Hidratos de carbono 24g\ndos quais a\u00e7\u00facares of which sugars/ de los cuales az\u00facares\nSah/Sal/Sal 30g\n. 9.5g\nDistributed by: Lindt & Spr\u00fcngll (UK) Ltd., United Kingdom: 4 New Square, 0.02 g\nConservar em local fresco e seco. Store in a cool and dry place. / Conservar en lugar fresco y seco. /\nwww.lindt.com LINDT SUSTAINABILITY FR-644G0 OLORON-SAINTE-MARTE LINDT & SPRUNGLISAS FABRICADO NA FRAN\u00c7A PELA 046920\"\nELABORADO EN FRANCIA POR MANUFACTURED IN FRANCE BY KICHBERG / EWITZLRLAND CHOCOLADEFARRINEN LINGT & SPR\u00dcNGEF AC QUALITY GUARANTEE\noi 028004\n100ge Ci\nCacao: 70% minimo. ingredientes ; pasta de cacao, az\u00facat, manteca de cacao, vainilla.\nCacau:70% minimo. Irgredientes: pasta de cacau, a\u00e7\u00facar, manteiga de cacau, baunilha.\nFat/ Crasas / L\u00edpidos 24g\nseds Mzy contain milk, almonds, hazelnuts, other nuts, soya and sesame\nsementes de s\u00e9samo. Pode conter leite. am\u00eandoas, avel\u00e3s, outros frutos de casca rija, soja e\nFat/ Crasas / L\u00edpidos 2350 kl/566 kcal\n-of which saturates / de las cuales saturadas 41g\nof which sugars/ de los cuales az\u00facares 35g\nSah/Sal/Sal . 9.5g\nES-08005 Barcelona. Dublin 18 / Distribuido por: Lindt & Spr\u00fcngli (Espa\u00f1a) S.A, Manna 16-18.\nwww.lindt.com LINDT SUSTAINABILITY FR-644G0 OLORON-SAINTE-MARTE LINDT & SPRUNGLISAS FABRICADO NA FRAN\u00c7A PELA ELABORADO EN FRANCIA POR MANUFACTURED IN FRANCE BY KICHBERG / EWITZLRLAND CHOCOLADEFARRINEN LINGT & SPR\u00dcNGEF AC QUALITY GUARANTEE\nConsumir de prefer\u00eancia antes do fim de Best before end / Corsumir preterentermen\nProtein / Proteinas / Proteinas 30g\nCocoa solids: 70% min. Ingredieots; cocoa mass, sugar cocoa butter, vanilla\nseds Chocolate extrafino con 70% de cacao\nsementes de s\u00e9samo. 2350 kl/566 kcal\n-of which saturates / de las cuales saturadas 35g\ndos quzis saturados Carbolydrate/ Hidratos de carbono / Hidratos de carbono 30g\nof which sugars/ de los cuales az\u00facares . 9.5g\ndos quais a\u00e7\u00facares 0.02 g\nSah/Sal/Sal Distributed by: Lindt & Spr\u00fcngll (UK) Ltd., United Kingdom: 4 New Square,\nConservar em local fresco e seco. 3\nantes del fin de 046920\"\nFABRICADO NA FRAN\u00c7A PELA ELABORADO EN FRANCIA POR MANUFACTURED IN FRANCE BY KICHBERG / EWITZLRLAND CHOCOLADEFARRINEN LINGT & SPR\u00dcNGEF AC QUALITY GUARANTEE Consumir de prefer\u00eancia antes do fim de\nwww.lindt.com LINDT SUSTAINABILITY FR-644G0 OLORON-SAINTE-MARTE LINDT & SPRUNGLISAS\nPAIA ESPANA Al Aarartite\ndos quais a\u00e7\u00facares 30g\nwww.lindt.com LINDT SUSTAINABILITY FR-644G0 OLORON-SAINTE-MARTE LINDT & SPRUNGLISAS FABRICADO NA FRAN\u00c7A PELA ELABORADO EN FRANCIA POR MANUFACTURED IN FRANCE BY KICHBERG / EWITZLRLAND CHOCOLADEFARRINEN LINGT & SPR\u00dcNGEF AC QUALITY GUARANTEE Best before end / Corsumir preterentermen\nof which sugars/ de los cuales az\u00facares 30g"
+    },
+    {
+      "file": "images/22-3046920028363.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 584.0,
+          "actual": 115.679
+        },
+        {
+          "field": "fat",
+          "expected": 46.0,
+          "actual": 9.2
+        },
+        {
+          "field": "saturated",
+          "expected": 27.0,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 22.0,
+          "actual": 5.4
+        },
+        {
+          "field": "sugar",
+          "expected": 15.0,
+          "actual": 3.0
+        },
+        {
+          "field": "fiber",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 12.5,
+          "actual": 2.5
+        },
+        {
+          "field": "salt",
+          "expected": 0.01,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.004,
+          "actual": 1.0
+        }
+      ],
+      "rawText": "NUTRITION INFORMATION\nServings per pack: 5\nServing size: 20g (per row)\nAverage quantity:\nper serving\nper 100g\nEnergy\n484kJ\n2420kJ\nProtein\n2.5g\n12.5g\nFat, total\n9.2g\n46.0g\n- saturated\n5.4g\n27.0g\nCarbohydrate\n4.4g\n22.0g\n- sugars\n3.0g\n15.0g\nSodium\n1mg\n5mg\nAverage quantity: per serving per 100g\nEnergy 484kJ 2420kJ\nProtein 2.5g 12.5g\nFat, total 9.2g 46.0g\n- saturated 5.4g 27.0g\nCarbohydrate 4.4g 22.0g\n- sugars 3.0g 15.0g\nSodium 1mg 5mg\nper serving per 100g\n484kJ 2420kJ\nEnergy 2.5g 12.5g\nProtein 9.2g 46.0g\nFat, total 5.4g 27.0g\n- saturated 22.0g\nCarbohydrate 15.0g\n- sugars 5mg\nServing size: 20g (per row) per 100g\nAverage quantity: 2420kJ\nEnergy 2.5g\nProtein 9.2g\nFat, total 5.4g\n- saturated 4.4g 22.0g\nCarbohydrate 3.0g 15.0g\n- sugars 1mg\nEnergy per 100g\nProtein 484kJ\nFat, total 2.5g\n- saturated 9.2g 46.0g\nCarbohydrate 5.4g 27.0g\n- sugars 4.4g 22.0g\nSodium 3.0g\nProtein 484kJ 2420kJ\nFat, total 2.5g 12.5g\nSodium 3.0g 15.0g\n1mg 5mg\nEnergy per serving\nFat, total 2420kJ\n- saturated 9.2g\nCarbohydrate 5.4g\n- sugars 4.4g\nSodium 22.0g\n- sugars 1mg 5mg"
+    },
+    {
+      "file": "images/23-3046920029759.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 592.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 55.0,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 30.0,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 14.0,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 4.0,
+          "actual": null
+        },
+        {
+          "field": "fiber",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 10.0,
+          "actual": 7.0
+        },
+        {
+          "field": "salt",
+          "expected": 0.03,
+          "actual": 7.0
+        },
+        {
+          "field": "sodium",
+          "expected": 0.012,
+          "actual": null
+        }
+      ],
+      "rawText": "NUTRITION INFORMATION PER 100g:\nEnergi / Energiaa / Energi / Energi / Warto\u015b\u0107\n2483 k|/592 kcal\nenergetyczna\nFett / Rasvaa / Fedt / Fett / T\u0142uszcz\n55g\n- varav m\u00e4ttat fett / josta tyydyttynytt\u00e4 rasvaa / heraf\nm\u00e6ttede fedtsyrer / hvorav mettet fett / w tym\n30g\nkwasy ttuszczowe nasycone\nKolhydrater/ Hiilihydraattia / Kulhydrater /\nKarbohydrater/Weglowodany\n14g\n- varav sockerarter / josta sokereita / heraf\nsukkerarter/ hvorav sukkerarter / w tym cukry\n7,0g\nProtein / Proteiinia / Protein / Protein / Biatko\n10g\nSalt / Suolaa / Salt / Salt / S\u00f3l\n0,03 g\nQUALITY GUARANTEE\nCHOCOLADEFABRIKEN LINDT & SPRONGLI AG\nDistribueras av / Markkinoija\nenergetyczna Energi / Energiaa / Energi / Energi / Warto\u015b\u0107\nm\u00e6ttede fedtsyrer / hvorav mettet fett / w tym 55g\nKolhydrater/ Hiilihydraattia / Kulhydrater / 30g\n- varav sockerarter / josta sokereita / heraf 14g\nProtein / Proteiinia / Protein / Protein / Biatko 7,0g\nCHOCOLADEFABRIKEN LINDT & SPRONGLI AG 0,03 g\nkwasy ttuszczowe nasycone m\u00e6ttede fedtsyrer / hvorav mettet fett / w tym 55g\nKarbohydrater/Weglowodany Kolhydrater/ Hiilihydraattia / Kulhydrater / 30g\nsukkerarter/ hvorav sukkerarter / w tym cukry 14g\nSalt / Suolaa / Salt / Salt / S\u00f3l 7,0g\nQUALITY GUARANTEE 10g\nEnergi / Energiaa / Energi / Energi / Warto\u015b\u0107 2483 k|/592 kcal\nFett / Rasvaa / Fedt / Fett / T\u0142uszcz 55g\nKolhydrater/ Hiilihydraattia / Kulhydrater / 14g\n- varav sockerarter / josta sokereita / heraf 7,0g\nQUALITY GUARANTEE Distribueras av / Markkinoija\nenergetyczna 2483 k|/592 kcal\nkwasy ttuszczowe nasycone 30g\nKarbohydrater/Weglowodany 14g\nsukkerarter/ hvorav sukkerarter / w tym cukry 7,0g\nProtein / Proteiinia / Protein / Protein / Biatko 10g\nCHOCOLADEFABRIKEN LINDT & SPRONGLI AG Distribueras av / Markkinoija\nFett / Rasvaa / Fedt / Fett / T\u0142uszcz 2483 k|/592 kcal\n- varav m\u00e4ttat fett / josta tyydyttynytt\u00e4 rasvaa / heraf 55g\nSalt / Suolaa / Salt / Salt / S\u00f3l 10g\nQUALITY GUARANTEE 0,03 g\nNUTRITION INFORMATION PER 100g: 2483 k|/592 kcal\nkwasy ttuszczowe nasycone 14g\nKarbohydrater/Weglowodany 7,0g\nsukkerarter/ hvorav sukkerarter / w tym cukry 10g\nProtein / Proteiinia / Protein / Protein / Biatko 0,03 g\nSalt / Suolaa / Salt / Salt / S\u00f3l Distribueras av / Markkinoija\nenergetyczna 55g\n- varav m\u00e4ttat fett / josta tyydyttynytt\u00e4 rasvaa / heraf 30g\nm\u00e6ttede fedtsyrer / hvorav mettet fett / w tym 30g\nSalt / Suolaa / Salt / Salt / S\u00f3l 0,03 g\nFett / Rasvaa / Fedt / Fett / T\u0142uszcz 30g\n- varav sockerarter / josta sokereita / heraf 10g"
+    },
+    {
+      "file": "images/24-3057640257773.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "fiber",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.003,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.0012,
+          "actual": null
+        }
+      ],
+      "rawText": "VOLVIC, EAU MIN\u00c9RALE NATURELLE\nANALYSE CARACT\u00c9RISTIQUE (MG/L): CALCIUM\n12, SULFATES 9, MAGN\u00c9SIUM 8, SODIUM 12,\nBICARBONATES 74, POTASSIUM 6, SILICE 32,\nCHLORURES 15, NITRATES 7,3 TENEUR TOTALE\nEN SELS MIN\u00c9RAUX \u00c0 180C: 130MG/LITRE-PH 7\nPLUS D'INFORMATIONS: DANONE.FR\n\u00c0 CONSERVER \u00c0 L'ABRI DU SOLEIL; DANS UN\nENDROIT PROPRE, SEC ET TEMP\u00c9R\u00c9. \u00c0\nCONSOMMER DE PR\u00c9F\u00c9RENCE AVANT: VOIR\nBOUTEILLE.CE PRODUIT PEUT \u00caTRE CONSOMM\u00c9\nAPR\u00caS CETTE DATE. PACKAGE NOT DESIGNED\nFOR LONG DISTANCE TRANSPORTATION OUTSIDE\nEUROPE/\u6b64\u5305\u88c5\u4e0d\u4e3a\u6b27\u6d32\u4ee5\u5916\u7684\u957f\n\u9014\u8fd0\u8f93\u8bbe\u8ba1/CET EMBALLAGE N'EST PAS\nCON\u00c7U POUR DES TRANSPORTS LONGUES\nDISTANCES HORS EUROPE: INFO (SERVICE ET\nAPPEL GRATUITS): (FR) 0800 125 125. SOURCE\nCLAIRVIC, SOCI\u00c9T\u00c9 DESEAUX DE VOLVIC\n63530 VOLVIC, FRANCE."
+    },
+    {
+      "file": "images/25-3155251205296.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 495.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 55.0,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 15.0,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.4,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.16,
+          "actual": null
+        }
+      ],
+      "rawText": "Vafeurs mubritionne\nPour 100g\n10\n\u00c9nengle\n\u00e0c\n2033 kJ/495 kcal\nMati\u00e8res\ngrasses (g) dont\n552812\nacides\n gras satures (g)\nacides\ns gras mono-insatures\nacides\ngras poly-insatures\nNut\n9\nSel (g)\nde\n0.40\nVitamine B1 (mg)\nCep\n0.55 (50%)\nVitamine E (mg)\nde p\n12(100%)\nOm\u00e9ga 3 -acide alpha-linol\u00e9nique (g)\n2AR\nOmega 6- acide linoleique (g)\nCon\nOm\u00e9ga 9 -acide ol\u00e9ique (g)\nn\u00e9gl\n\u00c9nengle Pour 100g 10\nMati\u00e8res 2033 kJ/495 kcal \u00e0c\nacides  gras satures (g)\nacides s gras mono-insatures 552812\nSel (g) gras poly-insatures 9 Nut\nVitamine B1 (mg) 0.40 de\nVitamine E (mg) 0.55 (50%) Cep\n12(100%) de p\nOmega 6- acide linoleique (g) 2AR\nOm\u00e9ga 9 -acide ol\u00e9ique (g) Con\nVafeurs mubritionne Pour 100g 10\n\u00c9nengle 2033 kJ/495 kcal\nMati\u00e8res grasses (g) dont\nacides  gras satures (g) 552812\nacides s gras mono-insatures Nut\nacides gras poly-insatures 9 de\nSel (g) 0.40\nVitamine B1 (mg) 0.55 (50%)\nVitamine E (mg) 12(100%)\nOmega 6- acide linoleique (g) Con\nOm\u00e9ga 9 -acide ol\u00e9ique (g) n\u00e9gl\nMati\u00e8res Pour 100g 10\nacides grasses (g) dont 2033 kJ/495 kcal \u00e0c\nacides s gras mono-insatures\nSel (g) gras poly-insatures 552812\nVitamine B1 (mg) Nut\nVitamine E (mg) 0.40 de\n0.55 (50%) Cep\nOm\u00e9ga 3 -acide alpha-linol\u00e9nique (g) 12(100%) de p\nOm\u00e9ga 9 -acide ol\u00e9ique (g) 2AR\nacides s gras mono-insatures 552812 Nut\nVitamine B1 (mg) 0.55 (50%) Cep\nVitamine E (mg) 12(100%) de p\nPour 100g \u00e0c\nacides  gras satures (g) 552812 Nut\nacides s gras mono-insatures de\ngras poly-insatures 9\nacides 0.40 Cep\nSel (g) 0.55 (50%) de p\nVitamine B1 (mg) 12(100%)\nVitamine E (mg) 2AR\nOm\u00e9ga 3 -acide alpha-linol\u00e9nique (g) Con\nOmega 6- acide linoleique (g) n\u00e9gl\nacides gras poly-insatures 9 Nut\nOm\u00e9ga 3 -acide alpha-linol\u00e9nique (g) 2AR\nacides grasses (g) dont\n9 Nut\n0.40 de\n\u00c9nengle \u00e0c\nSel (g) de"
+    },
+    {
+      "file": "images/26-3175680011480.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 467.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 18.0,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 2.0,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 64.0,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 17.0,
+          "actual": null
+        },
+        {
+          "field": "fiber",
+          "expected": 4.6,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 10.0,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.38,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.152,
+          "actual": null
+        }
+      ],
+      "rawText": "MOYENNE\nANALYSE\npour100g\nTeneur\npour 100 g\n%AQR***\npour 1 biscuit\n(11,5g)\nTeneur\npour 1 biscuit\n%AQR***\n(11,5g)\nMOYENNE\nANALYSE\npour 100 g\nTeneur\npour 100g\n%AQR***\npour1biscuit\n(11,5g)\nTeneur\npour1biscuit\n%AQR***\n(11,5g)\n1961kJ\n228 kJ\nSel\n0,38 g\n6%\n0,05 g\n1%\nEnergie\n467 kcal\n23%\n54 kcal\n3%\nVitamine E\n8,5 mg\n71%\n0,98 mg\n8%\nMati\u00e8res grasses\n18g\n26%\n2,1g\n3%\nVitamine B1\n0,39 mg\n35%\n0,04 mg\n4%\ndont Acides\nVitamine PP\n3,7 mg\n23%\n0,43 mg\n3%\ngras satur\u00e9s\n2,0g\n10%\n0,2 g\n1%\nVitamine B6\n0,38 mg\n27%\n0,04 mg\n3%\nGlucides\n64g\n25%\n7,4g\n3%\ndont Sucres\n17g\n19%\n2,0g\n2%\nVitamine B9\n58,3\u03bcg\n29%\n6,7\u03bcg\n3%\nFibres alimentaires\n4,6g\n0,5g\nMagn\u00e9sium\n144 mg\n38%\n16,6 mg\n4%\nProt\u00e9ines\n10g\n20%\n1,2g\n2%\n***Apports Quotidiens de R\u00e9f\u00e9rence pour un adulte-type (8400 kJ/2000 kcal)\nANALYSE Teneur %AQR*** Teneur %AQR*** ANALYSE Teneur %AQR*** Teneur %AQR***\npour 1 biscuit pour 1 biscuit pour1biscuit pour1biscuit\nMOYENNE pour100g pour 100 g (11,5g) (11,5g) MOYENNE pour 100 g pour 100g (11,5g) (11,5g)\n1961kJ 228 kJ Sel 0,38 g 6% 0,05 g 1%\nEnergie 23% 3%\n467 kcal 54 kcal Vitamine E 8,5 mg 71% 0,98 mg 8%\nMati\u00e8res grasses 18g 26% 2,1g 3% Vitamine B1 0,39 mg 35% 0,04 mg 4%\nVitamine PP 3,7 mg 23% 0,43 mg 3%\ngras satur\u00e9s 2,0g 10% 0,2 g 1%\nGlucides 64g 25% 7,4g 3% Vitamine B6 0,38 mg 27% 0,04 mg 3%\ndont Sucres 17g 19% 2,0g 2% Vitamine B9 58,3\u03bcg 29% 6,7\u03bcg 3%\nFibres alimentaires 4,6g 0,5g Magn\u00e9sium 144 mg 38% 16,6 mg 4%\nProt\u00e9ines 10g 20% 1,2g 2% ***Apports Quotidiens de R\u00e9f\u00e9rence pour un adulte-type (8400 kJ/2000 kcal)\nMOYENNE pour100g pour 100 g pour 1 biscuit pour 1 biscuit pour1biscuit pour1biscuit\n(11,5g) (11,5g) MOYENNE pour 100 g pour 100g\n(11,5g) (11,5g)\nEnergie 1961kJ 23% 228 kJ Sel 0,38 g 6% 0,05 g 1%\nMati\u00e8res grasses 18g 26% 2,1g 3%\nVitamine B1 0,39 mg 35% 0,04 mg 4%\ngras satur\u00e9s 2,0g 10% 0,2 g 1% Vitamine PP 3,7 mg 23% 0,43 mg 3%\nProt\u00e9ines 10g 20% 1,2g 2%\nANALYSE Teneur %AQR*** Teneur %AQR***\npour 1 biscuit pour 1 biscuit ANALYSE Teneur %AQR*** Teneur %AQR***\nMOYENNE pour100g pour 100 g pour1biscuit pour1biscuit\nEnergie 1961kJ 23% 228 kJ 3% Sel 0,38 g 6% 0,05 g 1%\n467 kcal 54 kcal\nMati\u00e8res grasses Vitamine E 8,5 mg 71% 0,98 mg 8%\n18g 26% 2,1g 3%\ndont Acides Vitamine B1 0,39 mg 35% 0,04 mg 4%\nFibres alimentaires 4,6g 0,5g\nMagn\u00e9sium 144 mg 38% 16,6 mg 4%\nTeneur %AQR*** %AQR*** Teneur %AQR***\nANALYSE Teneur %AQR*** pour 1 biscuit ANALYSE Teneur pour1biscuit pour1biscuit\nMOYENNE pour100g pour 100 g pour 1 biscuit MOYENNE pour 100 g pour 100g (11,5g) (11,5g)\nEnergie 467 kcal 23% 54 kcal 3% Vitamine E 8,5 mg 71% 0,98 mg 8%\ndont Acides Vitamine PP 3,7 mg 23% 0,43 mg 3%\ngras satur\u00e9s 2,0g 10% 0,2 g 1% 3%\nVitamine B6 0,38 mg 27% 0,04 mg\nGlucides 64g 25% 7,4g 3%\n2% Vitamine B9 58,3\u03bcg 29% 6,7\u03bcg 3%\ndont Sucres 17g 19% 2,0g\nTeneur %AQR*** pour1biscuit pour1biscuit\nTeneur %AQR*** ANALYSE pour 100g (11,5g) (11,5g)\n%AQR*** pour 1 biscuit pour 1 biscuit MOYENNE pour 100 g\nANALYSE Teneur (11,5g) 0,05 g 1%\npour100g pour 100 g (11,5g) 0,38 g 6%\nMOYENNE Sel 0,98 mg 8%\n228 kJ 3% 8,5 mg 71%\n1961kJ 23% Vitamine E 0,04 mg 4%\n54 kcal 35%\nEnergie 467 kcal 3% Vitamine B1 0,39 mg 3%\n26% 2,1g 23% 0,43 mg\nMati\u00e8res grasses 18g Vitamine PP 3,7 mg 3%\n27% 0,04 mg\ndont Acides 0,2 g 1% Vitamine B6 0,38 mg 3%\n2,0g 10% 3% 29% 6,7\u03bcg\ngras satur\u00e9s 25% 7,4g Vitamine B9 58,3\u03bcg 4%\n64g 2% 38% 16,6 mg\nGlucides 19% 2,0g Magn\u00e9sium 144 mg\ndont Sucres 17g 0,5g ***Apports Quotidiens de R\u00e9f\u00e9rence pour un adulte-type (8400 kJ/2000 kcal)\nFibres alimentaires 4,6g 2%\n20% 1,2g\nTeneur %AQR***\n%AQR*** ANALYSE Teneur %AQR*** pour1biscuit pour1biscuit\n%AQR*** Teneur pour 1 biscuit pour 100 g pour 100g (11,5g) (11,5g)\nANALYSE Teneur pour 1 biscuit MOYENNE\npour100g pour 100 g (11,5g) (11,5g) 0,05 g 1%\nMOYENNE 0,38 g 6%\n228 kJ Sel 0,98 mg 8%\n1961kJ 3% 8,5 mg 71%\n23% 54 kcal Vitamine E 4%\nEnergie 467 kcal 0,39 mg 35% 0,04 mg\n26% 2,1g 3% Vitamine B1 3%\nMati\u00e8res grasses 18g 3,7 mg 23% 0,43 mg\nVitamine PP 3%\ndont Acides 1% 27% 0,04 mg\n2,0g 10% 0,2 g Vitamine B6 0,38 mg 3%\ngras satur\u00e9s 7,4g 3% 29% 6,7\u03bcg\n64g 25% Vitamine B9 58,3\u03bcg 4%\nGlucides 19% 2,0g 2% 38% 16,6 mg\ndont Sucres 17g Magn\u00e9sium 144 mg\n4,6g 0,5g ***Apports Quotidiens de R\u00e9f\u00e9rence pour un adulte-type (8400 kJ/2000 kcal)\nFibres alimentaires 2%\nProt\u00e9ines 10g\nTeneur %AQR*** ANALYSE Teneur %AQR*** pour1biscuit pour1biscuit\nANALYSE Teneur %AQR*** pour 1 biscuit pour 1 biscuit pour 100 g pour 100g (11,5g) (11,5g)\nMOYENNE pour100g pour 100 g (11,5g) (11,5g) 1%\n0,38 g 6% 0,05 g\n228 kJ Sel 8%\n1961kJ 23% 3% 8,5 mg 71% 0,98 mg\nEnergie 467 kcal 54 kcal Vitamine E 4%\n3% Vitamine B1 0,39 mg 35% 0,04 mg\nMati\u00e8res grasses 3,7 mg 23% 0,43 mg\ndont Acides 0,2 g 1% 27% 0,04 mg 3%\n2,0g 10% Vitamine B6 0,38 mg\ngras satur\u00e9s 25% 7,4g 3% 29% 6,7\u03bcg 3%\nGlucides 64g 2% Vitamine B9 58,3\u03bcg\n17g 19% 2,0g 38% 16,6 mg 4%\ndont Sucres Magn\u00e9sium 144 mg\nFibres alimentaires 4,6g 2% ***Apports Quotidiens de R\u00e9f\u00e9rence pour un adulte-type (8400 kJ/2000 kcal)\n10g 20% 1,2g\n%AQR*** pour1biscuit pour1biscuit\nTeneur (11,5g)\n%AQR*** ANALYSE pour 100g (11,5g)\nTeneur pour 100 g\n%AQR*** pour 1 biscuit pour 1 biscuit MOYENNE 1%\nTeneur (11,5g) 6% 0,05 g\nANALYSE pour 100 g (11,5g) 0,38 g 8%\npour100g Sel 71% 0,98 mg\nMOYENNE 228 kJ 3% 8,5 mg 4%\n1961kJ Vitamine E 35% 0,04 mg\n23% 54 kcal 0,39 mg 3%\nEnergie 467 kcal 3% Vitamine B1 23% 0,43 mg\n26% 2,1g 3,7 mg 3%\n18g Vitamine PP 27% 0,04 mg\nMati\u00e8res grasses 1% 0,38 mg 3%\ndont Acides 10% 0,2 g Vitamine B6 29% 6,7\u03bcg\n2,0g 3% 58,3\u03bcg 4%\ngras satur\u00e9s 25% 7,4g Vitamine B9 38% 16,6 mg\n64g 2% 144 mg\nGlucides 19% 2,0g Magn\u00e9sium\n17g ***Apports Quotidiens de R\u00e9f\u00e9rence pour un adulte-type (8400 kJ/2000 kcal)\ndont Sucres 0,5g\n4,6g 2%\nFibres alimentaires 20% 1,2g\nTeneur %AQR*** Teneur %AQR***\nMOYENNE pour100g pour 100 g pour 1 biscuit\npour 1 biscuit ANALYSE\n(11,5g) (11,5g) Teneur %AQR*** Teneur %AQR***\nEnergie 1961kJ MOYENNE pour 100 g pour 100g pour1biscuit\n23% 228 kJ (11,5g) pour1biscuit\n467 kcal 3% Sel (11,5g)\nMati\u00e8res grasses 54 kcal 0,38 g 6%\n18g 26% Vitamine E 0,05 g 1%\ndont Acides 2,1g 3% 8,5 mg 71%\ngras satur\u00e9s Vitamine B1 0,98 mg 8%\n2,0g 10% 0,39 mg 35%\nGlucides 0,2 g 1% Vitamine PP 0,04 mg 4%\n64g 25% 3,7 mg 23%\ndont Sucres 7,4g 3% Vitamine B6 0,43 mg 3%\n17g 19% 0,38 mg 27%\nFibres alimentaires 4,6g 2,0g 2% Vitamine B9 0,04 mg 3%\nProt\u00e9ines 0,5g 58,3\u03bcg 29%\n10g 20% Magn\u00e9sium 6,7\u03bcg 3%\n1,2g 2% 144 mg 38%\n16,6 mg 4%\nMOYENNE pour100g pour 100 g pour 1 biscuit pour 1 biscuit ANALYSE Teneur %AQR*** Teneur %AQR***\n(11,5g) (11,5g) MOYENNE pour 100 g pour 100g pour1biscuit pour1biscuit\nEnergie 1961kJ 228 kJ (11,5g) (11,5g)\n467 kcal 23% 3% Sel 0,38 g 6%\n54 kcal 0,05 g 1%\nMati\u00e8res grasses 18g 26% Vitamine E 8,5 mg 71%\n2,1g 3% 0,98 mg 8%\ndont Acides Vitamine B1\n0,39 mg 35% 0,04 mg 4%\ngras satur\u00e9s 2,0g 10% 0,2 g 1% Vitamine PP 3,7 mg 23%\nGlucides 64g 25% 0,43 mg 3%\ndont Sucres 7,4g 3% Vitamine B6 0,38 mg 27%\n17g 19% 0,04 mg 3%\n2,0g 2% Vitamine B9\nFibres alimentaires 4,6g 58,3\u03bcg 29% 6,7\u03bcg 3%\nProt\u00e9ines 10g 20% Magn\u00e9sium 144 mg 38% 16,6 mg 4%\n1,2g 2%\nTeneur pour1biscuit\n%AQR*** pour1biscuit (11,5g)\nTeneur pour 100g (11,5g)\n%AQR*** ANALYSE pour 100 g 1%\nTeneur pour 1 biscuit MOYENNE 6% 0,05 g 8%\n%AQR*** pour 1 biscuit (11,5g) 0,38 g 0,98 mg\nTeneur pour 100 g (11,5g) Sel 71% 4%\nANALYSE pour100g 8,5 mg 0,04 mg\n228 kJ 3% Vitamine E 35% 3%\nMOYENNE 0,39 mg 0,43 mg\n1961kJ 23% 54 kcal Vitamine B1 23% 3%\n3% 3,7 mg 0,04 mg\n467 kcal 2,1g Vitamine PP 27% 3%\nEnergie 26% 0,38 mg 6,7\u03bcg\n18g 1% Vitamine B6 29% 4%\nMati\u00e8res grasses 0,2 g 58,3\u03bcg 16,6 mg\n10% 3% Vitamine B9 38%\ndont Acides 2,0g 7,4g 2% 144 mg\n25% Magn\u00e9sium ***Apports Quotidiens de R\u00e9f\u00e9rence pour un adulte-type (8400 kJ/2000 kcal)\ngras satur\u00e9s 64g 2,0g\nGlucides 17g 0,5g 2%\ndont Sucres 4,6g 1,2g\nFibres alimentaires 20%\nMOYENNE Teneur %AQR*** Teneur\npour100g %AQR***\npour 100 g pour 1 biscuit\n(11,5g) Teneur\nEnergie 1961kJ (11,5g) MOYENNE %AQR*** Teneur %AQR***\n467 kcal 23% 228 kJ pour 100 g pour 100g pour1biscuit\nMati\u00e8res grasses 54 kcal 3% Sel (11,5g) (11,5g)\ndont Acides 18g 26% 0,38 g 6%\n2,1g 3% Vitamine E 8,5 mg 0,05 g 1%\ngras satur\u00e9s 71%\nGlucides 2,0g 10% Vitamine B1 0,39 mg 0,98 mg 8%\n0,2 g 35%\n64g 25% 1% Vitamine PP 0,04 mg 4%\ndont Sucres 7,4g 3,7 mg 23%\n17g 19% 3% Vitamine B6 0,43 mg\nFibres alimentaires 2,0g 0,38 mg 27% 3%\nProt\u00e9ines 4,6g 2% Vitamine B9 0,04 mg\n0,5g 58,3\u03bcg 3%\n10g 20% 29%\n1,2g Magn\u00e9sium 6,7\u03bcg 3%\n2% 144 mg 38%"
+    },
+    {
+      "file": "images/27-3229820100234.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 476.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 19.0,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 6.3,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 66.0,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 27.0,
+          "actual": null
+        },
+        {
+          "field": "fiber",
+          "expected": 5.2,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 7.6,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.49,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.196,
+          "actual": null
+        }
+      ],
+      "rawText": "VALEURS NUTRITIONNELLES MOYENNES\nPour 100 g\n\u00c9nergie\n1996 kJ/476 kcal\nMati\u00e8res grasses\n19g\n- dont acides gras satur\u00e9s\n6,3g\nGlucides\n66 g\n- dont sucres\n27g\nFibres alimentaires\n5,2g\nProt\u00e9ines\n7,6g\nSel\n0,49g\nVALEURS NUTRITIONNELLES MOYENNES Pour 100 g\n\u00c9nergie 1996 kJ/476 kcal\nMati\u00e8res grasses 19g\n- dont acides gras satur\u00e9s 6,3g\nGlucides 66 g\n- dont sucres 27g\nFibres alimentaires 5,2g\nProt\u00e9ines 7,6g\nSel 0,49g\n\u00c9nergie Pour 100 g\nMati\u00e8res grasses 1996 kJ/476 kcal\n- dont acides gras satur\u00e9s 19g\nGlucides 6,3g\nFibres alimentaires 27g\nProt\u00e9ines 5,2g\nSel 7,6g\n\u00c9nergie 19g\nMati\u00e8res grasses 6,3g\n- dont acides gras satur\u00e9s 66 g\n- dont sucres 5,2g\nFibres alimentaires 7,6g\nProt\u00e9ines 0,49g\nGlucides 27g\n- dont sucres 66 g\n- dont acides gras satur\u00e9s 1996 kJ/476 kcal\nGlucides 19g\n- dont sucres 6,3g\nFibres alimentaires 66 g\nProt\u00e9ines 27g\nSel 5,2g\nVALEURS NUTRITIONNELLES MOYENNES 1996 kJ/476 kcal\n\u00c9nergie 6,3g\nGlucides 5,2g\nMati\u00e8res grasses 66 g\n- dont acides gras satur\u00e9s 27g\n- dont sucres 7,6g"
+    },
+    {
+      "file": "images/28-3268840001008.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "fiber",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 0.0,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.00476,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.001904,
+          "actual": null
+        }
+      ],
+      "rawText": "URELE\nURCE/BRONWATER/SPK\nANALYSE (MG/L)\nCalcium\nCa?2:106\nBicarbonates HCO:272\nSO2:50\nMagn\u00e9sium\nMg2:4.2\nSulfates\nWWW.CONSIGNESDETRI.FR\nC:18\nSodium\nNa':3.5\nChlorures\nPotassium\nNitrates*: NOs:\nK:1.5\nSilice\nSiOz: 8.3\nFluor\n180\u2103\nExtrait sec \u00e0 180\u00b0C\nC/ Droogresten op\nER\nCapt\u00e9e das son etat naturel\nCalcium Ca?2:106 SO2:50\nMagn\u00e9sium Mg2:4.2 Sulfates C:18\nSodium Na':3.5 Chlorures\nPotassium K:1.5\nWWW.CONSIGNESDETRI.FR Silice SiOz: 8.3 Fluor 180\u2103\nExtrait sec \u00e0 180\u00b0C C/ Droogresten op\nCalcium Ca?2:106 Bicarbonates HCO:272\nMagn\u00e9sium Mg2:4.2 Sulfates SO2:50\nSodium Na':3.5 Chlorures C:18\nPotassium K:1.5 Nitrates*: NOs:\nWWW.CONSIGNESDETRI.FR Silice\nSiOz: 8.3 Fluor\nExtrait sec \u00e0 180\u00b0C C/ Droogresten op 180\u2103\nWWW.CONSIGNESDETRI.FR Silice SiOz: 8.3 Fluor\nBicarbonates HCO:272 SO2:50\nCalcium Ca?2:106 Sulfates C:18\nMagn\u00e9sium Mg2:4.2 Chlorures\nSodium Na':3.5 Nitrates*: NOs:\nPotassium K:1.5 Fluor 180\u2103\nSilice SiOz: 8.3 C/ Droogresten op\nANALYSE (MG/L) Bicarbonates HCO:272\nNa':3.5 Nitrates*: NOs:\nWWW.CONSIGNESDETRI.FR Extrait sec \u00e0 180\u00b0C\nER Capt\u00e9e das son etat naturel\nSodium Na':3.5 Chlorures Nitrates*: NOs:\nSilice SiOz: 8.3 Fluor 180\u2103\nWWW.CONSIGNESDETRI.FR C/ Droogresten op\nMagn\u00e9sium Ca?2:106 Bicarbonates HCO:272\nSodium Mg2:4.2 Sulfates SO2:50\nPotassium Na':3.5 Chlorures C:18\nWWW.CONSIGNESDETRI.FR Silice K:1.5 Nitrates*: NOs:\nER Extrait sec \u00e0 180\u00b0C C/ Droogresten op 180\u2103\nSulfates C:18"
+    },
+    {
+      "file": "images/29-3362600011044.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 440.0,
+          "actual": null
+        },
+        {
+          "field": "fat",
+          "expected": 10.8235,
+          "actual": null
+        },
+        {
+          "field": "saturated",
+          "expected": 5.2941,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 76.4706,
+          "actual": null
+        },
+        {
+          "field": "sugar",
+          "expected": 24.2353,
+          "actual": null
+        },
+        {
+          "field": "fiber",
+          "expected": 2.3529,
+          "actual": null
+        },
+        {
+          "field": "protein",
+          "expected": 7.6471,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.882353,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.3529412,
+          "actual": 32.0
+        }
+      ],
+      "rawText": "8 biscuits (42g/1.481 Oz)\nmount per serving/Teneur par portioni\n%Daily Valuel\n%Valeur Quotidiennel\nTotal FatLipides totaux4.5g\nBatureted/Satures/  2.2g\n7%\n11%\nTrang\nCholesterolJ0.4mg\n<0.19\nSodium/p\n8%\nTotal Carbohy\nGlucidestotau32g\n11%\nDietary Fibec\nmentares   1g\n4%\nrsv/Sucre\n10g\nWamnA<19\nVitamin C0.6%\nfroruFet5%\nTotal FatLipides totaux4.5g 7%\nBatureted/Satures/  2.2g 11%\nCholesterolJ0.4mg <0.19\nSodium/p 8%\nTotal Carbohy Glucidestotau32g 11%\nDietary Fibec mentares   1g 4%\nrsv/Sucre 10g\nWamnA<19 Vitamin C0.6%\nBatureted/Satures/  2.2g 7%\nTrang 11%\nSodium/p <0.19\nTotal Carbohy 8%\nDietary Fibec Glucidestotau32g 11%\nrsv/Sucre 10g 4%\nTrang <0.19\nCholesterolJ0.4mg 8%\nSodium/p 11%\nTotal Carbohy 4%\nWamnA<19 froruFet5%\nTotal FatLipides totaux4.5g %Valeur Quotidiennel\nTrang 7%\nTotal Carbohy <0.19\nDietary Fibec Glucidestotau32g 8%\nrsv/Sucre mentares   1g 11%\n10g 4%\nCholesterolJ0.4mg 11%\nTotal FatLipides totaux4.5g 11%\nmount per serving/Teneur par portioni 8 biscuits (42g/1.481 Oz)\nGlucidestotau32g 8%\nSodium/p Glucidestotau32g\nTotal Carbohy mentares   1g\nrsv/Sucre 4%\nSodium/p Glucidestotau32g 4%"
+    },
+    {
+      "file": "images/30-3362600011228.jpg",
+      "fields": [
+        {
+          "field": "calories",
+          "expected": 442.857142857143,
+          "actual": 186.0
+        },
+        {
+          "field": "fat",
+          "expected": 12.3809523809524,
+          "actual": 5.2
+        },
+        {
+          "field": "saturated",
+          "expected": 7.14285714285714,
+          "actual": null
+        },
+        {
+          "field": "carbs",
+          "expected": 73.8095238095238,
+          "actual": 31.0
+        },
+        {
+          "field": "sugar",
+          "expected": 23.8095238095238,
+          "actual": 10.0
+        },
+        {
+          "field": "fiber",
+          "expected": 2.38095238095238,
+          "actual": 1.0
+        },
+        {
+          "field": "protein",
+          "expected": 7.61904761904762,
+          "actual": null
+        },
+        {
+          "field": "salt",
+          "expected": 0.898809523809524,
+          "actual": null
+        },
+        {
+          "field": "sodium",
+          "expected": 0.35952380952381,
+          "actual": null
+        }
+      ],
+      "rawText": "Nutrition Facts / Valeur nutritive /i i\nServing size/ Tallle de la portion /iai  8 biscuits (42g/1,481 Oz)\nServing per container/ Portion par paquet/ i\u00e0 ial\nAmount per serving/Teneur par portion/ i\nCalories/ 186 kcal\nCalories from fat/Calories deslipidesi i  ul a 46.8kca\n%Daity Value/\n\"%Daily Valuel\nValeur Quotidiennel\n%Valeur Quotlo\nTotai Fat/Lipider totaun/ iailJLee! 5.2g\n8%\nDietary Fiber/Flores alimentaires Alll An 1g\nSaremsSatur\u00e9s ia 3g\n16%\nSugars/Sucres/S10g\nTranwiade y 0.2g\nProteinvau3.2g\nCholesterol JsJ. <0,4mg\n0.1%\nVitamin A <1%\ntamin C\nSodlumap 151mg\n6%\nCalcium/p/LS <1%\nTotal Carbohydrate/Glucides totaux/ lyaapyCJer! 31g\n10%\nValeur Quotidiennel \"%Daily Valuel\nTotai Fat/Lipider totaun/ iailJLee! 5.2g 8% Dietary Fiber/Flores alimentaires Alll An 1g\nSaremsSatur\u00e9s ia 3g 16% Sugars/Sucres/S10g\nTranwiade y 0.2g Proteinvau3.2g\nCholesterol JsJ. <0,4mg 0.1% Vitamin A <1% tamin C\nSodlumap 151mg 6% Calcium/p/LS <1%\nTotal Carbohydrate/Glucides totaux/ lyaapyCJer! 31g 10%\nServing per container/ Portion par paquet/ i\u00e0 ial Calories from fat/Calories deslipidesi i  ul a 46.8kca \"%Daily Valuel\nCalories/ 186 kcal Valeur Quotidiennel Dietary Fiber/Flores alimentaires Alll An 1g\n8% Sugars/Sucres/S10g\n16% Proteinvau3.2g\nSaremsSatur\u00e9s ia 3g 0.1% Calcium/p/LS <1%\nTranwiade y 0.2g 6%\nCholesterol JsJ. <0,4mg 10%\nSodlumap 151mg Total Carbohydrate/Glucides totaux/ lyaapyCJer! 31g\n%Daity Value/ Calories from fat/Calories deslipidesi i  ul a 46.8kca\nSaremsSatur\u00e9s ia 3g 8% %Valeur Quotlo\nTranwiade y 0.2g 16%\nSodlumap 151mg 0.1%\nTotal Carbohydrate/Glucides totaux/ lyaapyCJer! 31g Calcium/p/LS <1% tamin C\nTotai Fat/Lipider totaun/ iailJLee! 5.2g Valeur Quotidiennel Calories from fat/Calories deslipidesi i  ul a 46.8kca\nTranwiade y 0.2g 8%\nCholesterol JsJ. <0,4mg 16% Dietary Fiber/Flores alimentaires Alll An 1g %Valeur Quotlo\nTotal Carbohydrate/Glucides totaux/ lyaapyCJer! 31g 6% Vitamin A <1%\n10% Calcium/p/LS <1%\nAmount per serving/Teneur par portion/ i Calories from fat/Calories deslipidesi i  ul a 46.8kca\nCalories/ 186 kcal \"%Daily Valuel\n%Daity Value/ %Valeur Quotlo\nTotai Fat/Lipider totaun/ iailJLee! 5.2g Sugars/Sucres/S10g\nSaremsSatur\u00e9s ia 3g Proteinvau3.2g\nTranwiade y 0.2g 0.1% Vitamin A <1%\nCholesterol JsJ. <0,4mg 6% Calcium/p/LS <1%\nSodlumap 151mg 10%\nCalories/ 186 kcal %Valeur Quotlo\nValeur Quotidiennel Calories from fat/Calories deslipidesi i  ul a 46.8kca\n8% \"%Daily Valuel\nTranwiade y 0.2g %Valeur Quotlo\n16% Dietary Fiber/Flores alimentaires Alll An 1g\nCholesterol JsJ. <0,4mg Sugars/Sucres/S10g\nSodlumap 151mg Proteinvau3.2g\n10% Calcium/p/LS <1% tamin C\n16% tamin C\nCalories/ 186 kcal Calories from fat/Calories deslipidesi i  ul a 46.8kca\n%Daity Value/ \"%Daily Valuel\nValeur Quotidiennel %Valeur Quotlo\nCholesterol JsJ. <0,4mg 16% Dietary Fiber/Flores alimentaires Alll An 1g %Valeur Quotlo \"%Daily Valuel\nSodlumap 151mg Sugars/Sucres/S10g\n0.1% Proteinvau3.2g\nTotai Fat/Lipider totaun/ iailJLee! 5.2g %Valeur Quotlo\nSaremsSatur\u00e9s ia 3g Dietary Fiber/Flores alimentaires Alll An 1g\nTranwiade y 0.2g Sugars/Sucres/S10g\nCholesterol JsJ. <0,4mg Proteinvau3.2g\nSodlumap 151mg Vitamin A <1%\n6% tamin C\nTotal Carbohydrate/Glucides totaux/ lyaapyCJer! 31g Calcium/p/LS <1%\nTotai Fat/Lipider totaun/ iailJLee! 5.2g \"%Daily Valuel"
+    }
+  ]
+}
