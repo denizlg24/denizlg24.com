@@ -3,17 +3,23 @@ import { getRequiredSession } from "@/lib/api/session";
 import { parseNutritionLabel, VisionServiceError } from "@/lib/vision-client";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   const { session, response } = await getRequiredSession();
   if (!session) return response;
   const form = await request.formData();
   const image = form.get("image");
+  const requestedFormat = form.get("labelFormat");
+  const labelFormat =
+    requestedFormat === "eu" || requestedFormat === "us"
+      ? requestedFormat
+      : undefined;
   if (!(image instanceof Blob)) {
     return NextResponse.json({ error: "Image is required" }, { status: 400 });
   }
   try {
-    return NextResponse.json(await parseNutritionLabel(image));
+    return NextResponse.json(await parseNutritionLabel(image, labelFormat));
   } catch (error) {
     if (error instanceof VisionServiceError) {
       return NextResponse.json(

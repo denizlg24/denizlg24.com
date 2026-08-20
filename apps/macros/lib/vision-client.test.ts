@@ -3,7 +3,12 @@ import { parseNutritionLabel, VisionServiceError } from "./vision-client";
 
 const originalFetch = globalThis.fetch;
 
-function installFetchMock(implementation: () => Promise<Response>) {
+function installFetchMock(
+  implementation: (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => Promise<Response>,
+) {
   globalThis.fetch = Object.assign(mock(implementation), {
     preconnect: originalFetch.preconnect,
   });
@@ -33,6 +38,30 @@ describe("vision client", () => {
     );
     const result = await parseNutritionLabel(new Blob(["image"]));
     expect(result.fields.calories?.value).toBe(200);
+  });
+
+  test("forwards the selected nutrition label format", async () => {
+    process.env.MACROS_VISION_URL = "http://vision:8090";
+    process.env.MACROS_VISION_API_TOKEN = "secret";
+    let postedFormat: FormDataEntryValue | null = null;
+    installFetchMock(async (_input, init) => {
+      if (init?.body instanceof FormData) {
+        postedFormat = init.body.get("labelFormat");
+      }
+      return Response.json({
+        version: "v1",
+        basis: "per_100g",
+        servingQuantity: 100,
+        servingUnit: "g",
+        servingsPerContainer: null,
+        fields: {},
+        rawText: "",
+        warnings: [],
+      });
+    });
+
+    await parseNutritionLabel(new Blob(["image"]), "eu");
+    expect(String(postedFormat)).toBe("eu");
   });
 
   test("retries one transient service failure", async () => {

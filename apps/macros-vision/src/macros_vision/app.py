@@ -3,9 +3,9 @@ import hmac
 import io
 import os
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 
 from .models import Candidate, ClassifyResponse, LabelResponse
@@ -84,9 +84,10 @@ def health() -> dict[str, str]:
 async def parse_label(
     image: Annotated[UploadFile, File()],
     _authorized: Annotated[None, Depends(authorize)],
+    label_format: Annotated[Literal["eu", "us"] | None, Form(alias="labelFormat")] = None,
 ) -> LabelResponse:
     result = await run_ocr(await read_image(image))
-    return parse_label_text(result.text, result.confidence)
+    return parse_label_text(result.text, result.confidence, label_format)
 
 
 @app.post("/v1/classify", response_model=ClassifyResponse, response_model_by_alias=True)

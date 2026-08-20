@@ -9,7 +9,14 @@ import {
 } from "@repo/ui/keyboard-sheet";
 import { cn } from "@repo/ui/utils";
 import { ArrowLeft, CornerDownLeft, Delete, Flame, Star } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { formatFoodQuantity } from "@/lib/foods/display";
 import {
   type NutrientKey,
   nutrientDefinitionsInput,
@@ -24,10 +31,10 @@ import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 export type NutritionUnit = "g" | "oz" | "lb" | "serving";
 
 function fmtAmount(v: number) {
-  if (v === 0) return "0";
-  if (v < 0.1) return v.toFixed(2);
-  if (v < 10) return v.toFixed(1);
-  return Math.round(v).toString();
+  if (v !== 0 && Math.abs(v) < 0.01) {
+    return v.toPrecision(2);
+  }
+  return formatFoodQuantity(v, Math.abs(v) < 10 ? 2 : 1);
 }
 
 function nutrientLabel(key: NutrientKey) {
@@ -42,9 +49,10 @@ export function computeNutritionScale(
   qty: number,
   unit: NutritionUnit,
   servingQuantityGrams: number | null,
+  servingUnitQuantity = 1,
 ): number {
   if (!Number.isFinite(qty) || qty <= 0) return 0;
-  if (unit === "serving") return qty;
+  if (unit === "serving") return qty / servingUnitQuantity;
   const gramsPerServing = servingQuantityGrams ?? 100;
   if (unit === "oz") return (qty * 28.3495) / gramsPerServing;
   if (unit === "lb") return (qty * 453.592) / gramsPerServing;
@@ -454,6 +462,7 @@ export interface NutritionDetailDrawerProps {
   displayName: string;
   servingLabel: string | null;
   servingQuantityGrams: number | null;
+  servingUnitQuantity?: number;
   perServingNutrients: Record<string, number> | null;
   fallbackPerServing?: {
     calories: number;
@@ -465,6 +474,7 @@ export interface NutritionDetailDrawerProps {
   isLoadingNutrition: boolean;
   isLogging: boolean;
   initialUnit?: NutritionUnit;
+  initialQuantity?: string;
   availableUnits?: NutritionUnit[];
   onClose: () => void;
   isFavorite?: boolean;
@@ -480,12 +490,14 @@ export function NutritionDetailDrawer({
   displayName,
   servingLabel,
   servingQuantityGrams,
+  servingUnitQuantity = 1,
   perServingNutrients,
   fallbackPerServing,
   calorieSummary,
   isLoadingNutrition,
   isLogging,
   initialUnit,
+  initialQuantity = "1",
   availableUnits,
   onClose,
   isFavorite = false,
@@ -501,14 +513,24 @@ export function NutritionDetailDrawer({
   const computedInitialUnit: NutritionUnit =
     initialUnit ?? (servingLabel ? "serving" : "g");
 
-  const [qty, setQty] = useState("1");
+  const [qty, setQty] = useState(initialQuantity);
   const [unit, setUnit] = useState<NutritionUnit>(computedInitialUnit);
   const [servingEditorExpanded, setServingEditorExpanded] = useState(false);
 
+  useEffect(() => {
+    setQty(initialQuantity);
+    setUnit(computedInitialUnit);
+  }, [computedInitialUnit, initialQuantity]);
+
   const scale = useMemo(() => {
     const n = parseFloat(qty);
-    return computeNutritionScale(n, unit, servingQuantityGrams);
-  }, [qty, unit, servingQuantityGrams]);
+    return computeNutritionScale(
+      n,
+      unit,
+      servingQuantityGrams,
+      servingUnitQuantity,
+    );
+  }, [qty, unit, servingQuantityGrams, servingUnitQuantity]);
 
   const scaledNutrients = useMemo<Record<string, number>>(() => {
     if (!perServingNutrients) {

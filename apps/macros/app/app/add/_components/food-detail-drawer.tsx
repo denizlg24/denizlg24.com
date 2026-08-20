@@ -6,6 +6,7 @@ import {
   externalFoodNutritionSchema,
   type LogFoodInput,
 } from "@/lib/foods/contracts";
+import { getServingDisplay, getServingWeightGrams } from "@/lib/foods/display";
 import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition";
 import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 import {
@@ -56,7 +57,6 @@ export function FoodDetailDrawer({
     null,
   );
   const [isLoadingNutrition, setIsLoadingNutrition] = useState(false);
-  const [initialUnit, setInitialUnit] = useState<NutritionUnit>("serving");
   const [favorite, setFavorite] = useState<{ foodId: string } | null>(null);
 
   useEffect(() => {
@@ -92,7 +92,6 @@ export function FoodDetailDrawer({
         );
         if (parsed.success) {
           setNutrition(parsed.data);
-          setInitialUnit(parsed.data.servingLabel ? "serving" : "g");
         }
       })
       .catch(() => {})
@@ -109,7 +108,17 @@ export function FoodDetailDrawer({
 
   const servingLabel =
     nutrition?.servingLabel ?? displayFood.servingLabel ?? null;
-  const servingQuantityGrams = nutrition?.servingQuantity ?? null;
+  const servingQuantity = nutrition?.servingQuantity ?? null;
+  const servingUnit = nutrition?.servingUnit ?? null;
+  const servingDisplay = getServingDisplay(
+    servingLabel,
+    servingQuantity,
+    servingUnit,
+  );
+  const servingQuantityGrams = getServingWeightGrams(
+    servingQuantity,
+    servingUnit,
+  );
 
   const displayName = displayFood.brand
     ? `${displayFood.name} By ${displayFood.brand}`
@@ -127,14 +136,16 @@ export function FoodDetailDrawer({
       key={displayFood.id}
       open={food !== null}
       displayName={displayName}
-      servingLabel={servingLabel}
+      servingLabel={servingDisplay.servingLabel}
       servingQuantityGrams={servingQuantityGrams}
+      servingUnitQuantity={servingDisplay.servingUnitQuantity}
       perServingNutrients={nutrition?.nutrients ?? null}
       fallbackPerServing={fallbackPerServing}
       calorieSummary={calorieSummary}
       isLoadingNutrition={isLoadingNutrition}
       isLogging={isLogging}
-      initialUnit={initialUnit}
+      initialQuantity={servingDisplay.initialQuantity}
+      initialUnit={servingDisplay.initialUnit as NutritionUnit}
       isFavorite={favorite !== null}
       onFavoriteChange={async () => {
         if (favorite) {

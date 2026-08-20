@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  type MacrosVisionLabelResponse,
+  macrosVisionLabelResponseSchema,
+} from "@repo/schemas/macros";
 import { Alert, AlertDescription, AlertTitle } from "@repo/ui/alert";
 import { Button } from "@repo/ui/button";
 import { Skeleton } from "@repo/ui/skeleton";
@@ -11,7 +15,6 @@ import {
   Flashlight,
   FlashlightOff,
   LoaderCircle,
-  Plus,
   RotateCcw,
 } from "lucide-react";
 import {
@@ -33,6 +36,7 @@ import {
 } from "@/lib/foods/pending-foods";
 import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition";
 import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
+import { captureVideoFrame } from "@/lib/vision-capture";
 import {
   dateFromIsoDate,
   formatHourLabel,
@@ -99,7 +103,9 @@ type ScanState =
   | "scanning"
   | "looking-up"
   | "found"
-  | "not-found"
+  | "label-aligning"
+  | "reading-label"
+  | "label-error"
   | "camera-error"
   | "lookup-error";
 
@@ -238,6 +244,9 @@ function ScannerViewport({
   barcode,
   onRetry,
   onCreateFood,
+  labelFormat,
+  onLabelFormatChange,
+  onRetryLabel,
   torchAvailable,
   torchOn,
   onToggleTorch,
@@ -248,13 +257,20 @@ function ScannerViewport({
   barcode: string | null;
   onRetry: () => void;
   onCreateFood: () => void;
+  labelFormat: "eu" | "us";
+  onLabelFormatChange: (format: "eu" | "us") => void;
+  onRetryLabel: () => void;
   torchAvailable: boolean;
   torchOn: boolean;
   onToggleTorch: () => void;
 }) {
-  const busy = state === "starting" || state === "looking-up";
+  const busy =
+    state === "starting" || state === "looking-up" || state === "reading-label";
   const error = state === "camera-error" || state === "lookup-error";
-  const notFound = state === "not-found";
+  const labelMode =
+    state === "label-aligning" ||
+    state === "reading-label" ||
+    state === "label-error";
 
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
@@ -268,14 +284,46 @@ function ScannerViewport({
         playsInline
         autoPlay
       />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0,transparent_34%,rgba(0,0,0,0.48)_35%,rgba(0,0,0,0.72)_100%)]" />
-      <div className="pointer-events-none absolute inset-x-8 top-1/2 h-32 -translate-y-1/2 rounded-lg border border-white/80">
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-0",
+          labelMode
+            ? "bg-[radial-gradient(ellipse_at_center,transparent_0,transparent_47%,rgba(0,0,0,0.52)_48%,rgba(0,0,0,0.74)_100%)]"
+            : "bg-[radial-gradient(circle_at_center,transparent_0,transparent_34%,rgba(0,0,0,0.48)_35%,rgba(0,0,0,0.72)_100%)]",
+        )}
+      />
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-x-8 top-1/2 -translate-y-1/2 rounded-lg border border-white/80",
+          labelMode ? "h-[58%]" : "h-32",
+        )}
+      >
         <div className="-left-px -top-px absolute size-8 border-white border-t-4 border-l-4" />
         <div className="-right-px -top-px absolute size-8 border-white border-t-4 border-r-4" />
         <div className="-bottom-px -left-px absolute size-8 border-white border-b-4 border-l-4" />
         <div className="-right-px -bottom-px absolute size-8 border-white border-r-4 border-b-4" />
         <div className="absolute inset-x-5 top-1/2 h-px bg-white/70 shadow-[0_0_16px_rgba(255,255,255,0.75)]" />
       </div>
+      {labelMode ? (
+        <div className="absolute inset-x-0 top-4 flex justify-center px-16">
+          <div className="grid grid-cols-2 rounded-full bg-black/55 p-1 text-xs font-semibold text-white backdrop-blur">
+            {(["eu", "us"] as const).map((format) => (
+              <button
+                key={format}
+                type="button"
+                disabled={state === "reading-label"}
+                onClick={() => onLabelFormatChange(format)}
+                className={cn(
+                  "rounded-full px-4 py-2 uppercase disabled:opacity-60",
+                  labelFormat === format && "bg-white text-black",
+                )}
+              >
+                {format} label
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {torchAvailable ? (
         <Button
           type="button"
@@ -293,7 +341,7 @@ function ScannerViewport({
           <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted">
             {busy ? (
               <LoaderCircle className="size-5 animate-spin" />
-            ) : error || notFound ? (
+            ) : error || state === "label-error" ? (
               <CameraOff className="size-5" />
             ) : (
               <Barcode className="size-5" />
@@ -303,26 +351,31 @@ function ScannerViewport({
             <p className="text-sm font-semibold">
               {state === "looking-up"
                 ? "Finding food"
-                : notFound
-                  ? "Barcode not found"
-                  : error
-                    ? "Scanner paused"
-                    : "Align the barcode"}
+                : state === "reading-label"
+                  ? "Reading nutrition label"
+                  : state === "label-error"
+                    ? "Could not read the label"
+                    : state === "label-aligning"
+                      ? `Line up the ${labelFormat.toUpperCase()} label`
+                      : error
+                        ? "Scanner paused"
+                        : "Align the barcode"}
             </p>
             <p className="truncate text-xs text-muted-foreground">
-              {notFound
-                ? "Add nutrition details for this barcode."
+              {labelMode
+                ? (message ??
+                  "Keep the full nutrition panel sharp and inside the frame.")
                 : (barcode ?? message ?? "Place the barcode inside the frame.")}
             </p>
           </div>
-          {notFound ? (
+          {state === "label-error" ? (
             <button
               type="button"
-              onClick={onCreateFood}
+              onClick={onRetryLabel}
               className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-foreground px-3 text-xs font-semibold text-background"
             >
-              <Plus className="size-4" />
-              Add
+              <RotateCcw className="size-4" />
+              Retry
             </button>
           ) : null}
           {error ? (
@@ -337,6 +390,15 @@ function ScannerViewport({
           ) : null}
         </div>
       </div>
+      {labelMode ? (
+        <button
+          type="button"
+          onClick={onCreateFood}
+          className="absolute right-4 bottom-28 rounded-full bg-black/55 px-3 py-2 text-xs font-medium text-white backdrop-blur"
+        >
+          Enter manually
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -351,6 +413,9 @@ function ScanLogic({
   const zxingControlsRef = useRef<IScannerControls | null>(null);
   const scanFrameRef = useRef<number | null>(null);
   const lookupInFlightRef = useRef(false);
+  const labelReadInFlightRef = useRef(false);
+  const labelReadAbortRef = useRef<AbortController | null>(null);
+  const labelAttemptsRef = useRef(0);
   const lastLookupRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [scanKey, setScanKey] = useState(0);
@@ -359,6 +424,9 @@ function ScanLogic({
   const [detectedBarcode, setDetectedBarcode] = useState<string | null>(null);
   const [selectedFood, setSelectedFood] = useState<FoodSummary | null>(null);
   const [createFoodOpen, setCreateFoodOpen] = useState(false);
+  const [scannedLabel, setScannedLabel] =
+    useState<MacrosVisionLabelResponse | null>(null);
+  const [labelFormat, setLabelFormat] = useState<"eu" | "us">("eu");
   const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([]);
   const [pendingSheetOpen, setPendingSheetOpen] = useState(false);
   const [extraConsumed, setExtraConsumed] = useState(0);
@@ -393,6 +461,9 @@ function ScanLogic({
   }, [selectedDate]);
 
   const stopCamera = useCallback(() => {
+    labelReadAbortRef.current?.abort();
+    labelReadAbortRef.current = null;
+    labelReadInFlightRef.current = false;
     if (scanFrameRef.current != null) {
       window.cancelAnimationFrame(scanFrameRef.current);
       scanFrameRef.current = null;
@@ -445,9 +516,11 @@ function ScanLogic({
       setScanState("found");
     } catch (error) {
       if (error instanceof FoodLookupError && error.status === 404) {
-        setScanState("not-found");
-        setMessage(error.message);
-        setCreateFoodOpen(true);
+        labelAttemptsRef.current = 0;
+        setScanState("label-aligning");
+        setMessage(
+          "Turn the package to its nutrition panel and hold it inside the frame.",
+        );
         lastLookupRef.current = null;
         return;
       }
@@ -461,6 +534,77 @@ function ScanLogic({
       lookupInFlightRef.current = false;
     }
   }, []);
+
+  const readNutritionLabel = useCallback(async () => {
+    if (labelReadInFlightRef.current) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    labelReadInFlightRef.current = true;
+    const controller = new AbortController();
+    labelReadAbortRef.current = controller;
+    setScanState("reading-label");
+    setMessage("Hold still while the label is read.");
+    try {
+      const image = await captureVideoFrame(video);
+      const form = new FormData();
+      form.append("image", image, "nutrition-label.jpg");
+      form.append("labelFormat", labelFormat);
+      const response = await fetch("/api/vision/label", {
+        method: "POST",
+        body: form,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error ?? "Label scanning is unavailable");
+      }
+      const result = macrosVisionLabelResponseSchema.parse(
+        await response.json(),
+      );
+      if (
+        Object.values(result.fields).filter((field) => field.value != null)
+          .length < 2
+      ) {
+        throw new Error("No nutrition values were detected");
+      }
+
+      labelAttemptsRef.current = 0;
+      setScannedLabel(result);
+      setScanState("found");
+      setMessage(null);
+      setCreateFoodOpen(true);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      labelAttemptsRef.current += 1;
+      setMessage(
+        error instanceof Error
+          ? `${error.message}. Keep the label flat, well lit, and in focus.`
+          : "Keep the label flat, well lit, and in focus.",
+      );
+      setScanState(
+        labelAttemptsRef.current >= 3 ? "label-error" : "label-aligning",
+      );
+    } finally {
+      if (labelReadAbortRef.current === controller) {
+        labelReadAbortRef.current = null;
+      }
+      labelReadInFlightRef.current = false;
+    }
+  }, [labelFormat]);
+
+  useEffect(() => {
+    if (scanState !== "label-aligning" || createFoodOpen) return;
+    const timer = window.setTimeout(
+      () => {
+        void readNutritionLabel();
+      },
+      labelAttemptsRef.current === 0 ? 1_400 : 2_200,
+    );
+    return () => window.clearTimeout(timer);
+  }, [createFoodOpen, readNutritionLabel, scanState]);
 
   useEffect(() => {
     document.documentElement.classList.add("macros-add-food-scroll-lock");
@@ -507,6 +651,7 @@ function ScanLogic({
       setScanState("starting");
       setMessage(null);
       setDetectedBarcode(null);
+      setScannedLabel(null);
       lastLookupRef.current = null;
 
       try {
@@ -613,6 +758,27 @@ function ScanLogic({
     setScanKey((key) => key + 1);
   }, []);
 
+  const handleLabelFormatChange = useCallback((format: "eu" | "us") => {
+    labelAttemptsRef.current = 0;
+    setLabelFormat(format);
+    setMessage(
+      `Line up the full ${format.toUpperCase()} nutrition panel inside the frame.`,
+    );
+    setScanState("label-aligning");
+  }, []);
+
+  const handleLabelRetry = useCallback(() => {
+    labelAttemptsRef.current = 0;
+    setMessage("Line up the full nutrition panel inside the frame.");
+    setScanState("label-aligning");
+  }, []);
+
+  const handleManualCreate = useCallback(() => {
+    labelReadAbortRef.current?.abort();
+    setScannedLabel(null);
+    setCreateFoodOpen(true);
+  }, []);
+
   const pendingCalories = useMemo(
     () =>
       pendingFoods
@@ -696,7 +862,10 @@ function ScanLogic({
         message={message ?? `${formatHourLabel(selectedHour)} log time`}
         barcode={detectedBarcode}
         onRetry={handleRetry}
-        onCreateFood={() => setCreateFoodOpen(true)}
+        onCreateFood={handleManualCreate}
+        labelFormat={labelFormat}
+        onLabelFormatChange={handleLabelFormatChange}
+        onRetryLabel={handleLabelRetry}
         torchAvailable={torchAvailable}
         torchOn={torchOn}
         onToggleTorch={() => void toggleTorch()}
@@ -719,8 +888,11 @@ function ScanLogic({
       <CreateFoodDrawer
         open={createFoodOpen}
         barcode={detectedBarcode}
+        scannedLabel={scannedLabel}
+        scannedLabelFormat={labelFormat}
         onClose={() => {
           setCreateFoodOpen(false);
+          setScannedLabel(null);
           handleRetry();
         }}
         onCreated={(food) => {

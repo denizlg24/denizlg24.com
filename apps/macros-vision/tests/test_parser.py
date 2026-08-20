@@ -92,6 +92,102 @@ def test_extracts_serving_metadata() -> None:
     assert parsed.servings_per_container == 4
 
 
+def test_extracts_us_calories_without_a_unit_and_complex_serving_size() -> None:
+    parsed = parse_label_text(
+        "17 servings per container\nServing size 1 Slice (45g/1.6oz)\n"
+        "Amount per serving\n120\nCalories\nTotal Fat 2.5g\nProtein 5g"
+    )
+    assert parsed.fields["calories"].value == 120
+    assert parsed.serving_quantity == 45
+    assert parsed.serving_unit == "g"
+    assert parsed.servings_per_container == 17
+
+
+def test_prefers_repeated_calorie_readings_over_ocr_noise() -> None:
+    parsed = parse_label_text("Calories\n1\nCalories 110\nCalories 110")
+    assert parsed.fields["calories"].value == 110
+
+
+def test_keeps_each_value_with_its_label_on_compacted_ocr_lines() -> None:
+    parsed = parse_label_text("Per serving\nTotal Fat 11g 14% Total Carbohydrate 22g 8% Protein 2g")
+    assert parsed.fields["fat"].value == 11
+    assert parsed.fields["carbs"].value == 22
+    assert parsed.fields["protein"].value == 2
+
+
+def test_converts_eu_salt_to_canonical_sodium_milligrams() -> None:
+    parsed = parse_label_text("Per 100 g\nSalt 0.5 g")
+    assert parsed.fields["sodium"].value == 200
+    assert parsed.fields["sodium"].unit == "mg"
+
+
+def test_normalizes_mass_units_before_returning_fields() -> None:
+    parsed = parse_label_text("Per 100 g\nSodium 0.2 g")
+    assert parsed.fields["sodium"].value == 200
+    assert parsed.fields["sodium"].unit == "mg"
+
+    from_salt = parse_label_text("Per 100 g\nSalt 500 mg")
+    assert from_salt.fields["salt"].value == 0.5
+    assert from_salt.fields["sodium"].value == 200
+
+
+def test_uses_selected_format_when_ocr_cannot_find_a_basis_header() -> None:
+    assert parse_label_text("Fat 10 g", expected_format="eu").basis == "per_100g"
+    assert parse_label_text("Total Fat 10 g", expected_format="us").basis == "per_serving"
+
+
+@pytest.mark.parametrize(
+    ("text", "fat", "carbs", "sugar", "protein", "sodium"),
+    [
+        (
+            "Næringsindhold pr. 100 g\nEnergi 840 kJ / 200 kcal\n"
+            "Fedt 10 g\nheraf mættede fedtsyrer 3 g\nKulhydrat 20 g\n"
+            "heraf sukkerarter 4,5 g\nKostfibre 2 g\nProtein 5 g\nSalt 0,5 g",
+            10,
+            20,
+            4.5,
+            5,
+            200,
+        ),
+        (
+            "Nährwerte je 100 g\nBrennwert 840 kJ / 200 kcal\nFett 10 g\n"
+            "davon gesättigte Fettsäuren 3 g\nKohlenhydrate 20 g\n"
+            "davon Zucker 4,5 g\nBallaststoffe 2 g\nEiweiß 5 g\nSalz 0,5 g",
+            10,
+            20,
+            4.5,
+            5,
+            200,
+        ),
+        (
+            "Valeurs nutritionnelles pour 100 g\nÉnergie 840 kJ / 200 kcal\n"
+            "Matières grasses 10 g\ndont acides gras saturés 3 g\nGlucides 20 g\n"
+            "dont sucres 4,5 g\nFibres alimentaires 2 g\nProtéines 5 g\nSel 0,5 g",
+            10,
+            20,
+            4.5,
+            5,
+            200,
+        ),
+    ],
+)
+def test_parses_localized_eu_labels(
+    text: str,
+    fat: float,
+    carbs: float,
+    sugar: float,
+    protein: float,
+    sodium: float,
+) -> None:
+    parsed = parse_label_text(text, expected_format="eu")
+    assert parsed.basis == "per_100g"
+    assert parsed.fields["fat"].value == fat
+    assert parsed.fields["carbs"].value == carbs
+    assert parsed.fields["sugar"].value == sugar
+    assert parsed.fields["protein"].value == protein
+    assert parsed.fields["sodium"].value == sodium
+
+
 @pytest.mark.parametrize(
     ("text", "basis"),
     [

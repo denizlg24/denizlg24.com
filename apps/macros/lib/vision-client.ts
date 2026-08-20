@@ -5,6 +5,14 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+function getVisionTimeoutMs() {
+  const configured = Number(process.env.MACROS_VISION_TIMEOUT_MS);
+  if (!Number.isFinite(configured) || configured < 1_000) {
+    return DEFAULT_TIMEOUT_MS;
+  }
+  return Math.min(configured, 60_000);
+}
+
 export class VisionServiceError extends Error {
   constructor(
     message: string,
@@ -15,7 +23,11 @@ export class VisionServiceError extends Error {
   }
 }
 
-async function requestVision(path: "/v1/label" | "/v1/classify", image: Blob) {
+async function requestVision(
+  path: "/v1/label" | "/v1/classify",
+  image: Blob,
+  labelFormat?: "eu" | "us",
+) {
   const baseUrl = process.env.MACROS_VISION_URL?.replace(/\/$/, "");
   const token = process.env.MACROS_VISION_API_TOKEN;
   if (!baseUrl || !token) {
@@ -25,18 +37,20 @@ async function requestVision(path: "/v1/label" | "/v1/classify", image: Blob) {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      Number(process.env.MACROS_VISION_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS),
-    );
+    const timeout = setTimeout(() => controller.abort(), getVisionTimeoutMs());
     try {
       const form = new FormData();
       form.append("image", image, "label.jpg");
+      if (labelFormat) form.append("labelFormat", labelFormat);
       const response = await fetch(`${baseUrl}${path}`, {
         method: "POST",
-        headers: { authorization: `Bearer ${token}` },
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${token}`,
+        },
         body: form,
         signal: controller.signal,
+        cache: "no-store",
       });
       if (!response.ok) {
         const error = new VisionServiceError(
@@ -70,9 +84,12 @@ async function requestVision(path: "/v1/label" | "/v1/classify", image: Blob) {
   );
 }
 
-export async function parseNutritionLabel(image: Blob) {
+export async function parseNutritionLabel(
+  image: Blob,
+  labelFormat?: "eu" | "us",
+) {
   return macrosVisionLabelResponseSchema.parse(
-    await requestVision("/v1/label", image),
+    await requestVision("/v1/label", image, labelFormat),
   );
 }
 

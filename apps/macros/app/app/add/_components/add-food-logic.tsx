@@ -51,6 +51,8 @@ import {
   logFoodBodySchema,
   logFoodResponseSchema,
 } from "@/lib/foods/contracts";
+import { formatFoodQuantity, formatServingLabel } from "@/lib/foods/display";
+import { FoodIcon } from "@/lib/foods/food-icon";
 import {
   readPendingFoods,
   subscribeToPendingFoods,
@@ -355,7 +357,7 @@ function fmtMacro(value: number | null) {
 
 function fmtServingInput(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "1";
-  return Number(value.toFixed(2)).toString();
+  return formatFoodQuantity(value);
 }
 
 function parseServingInput(value: string) {
@@ -431,6 +433,9 @@ function FoodRow({
 
   return (
     <div className="flex w-full items-center gap-2 border-b border-border/50 px-4 py-3">
+      <span className="flex size-9 shrink-0 items-center justify-center text-muted-foreground">
+        <FoodIcon name={item.name} className="size-6" />
+      </span>
       <button
         type="button"
         onClick={() => onSelect(item)}
@@ -481,8 +486,8 @@ function FoodRow({
               <span>•</span>
               <span className="truncate">
                 {servingsConsumed === 1
-                  ? servingLabel
-                  : `${fmtServingInput(servingsConsumed)} ${servingLabel}`}
+                  ? formatServingLabel(servingLabel)
+                  : `${fmtServingInput(servingsConsumed)} ${formatServingLabel(servingLabel)}`}
               </span>
             </>
           ) : null}

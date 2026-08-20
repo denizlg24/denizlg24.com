@@ -5,9 +5,19 @@ import { NumericField } from "@repo/ui/numeric-field";
 import { SwipeRow } from "@repo/ui/swipe-row";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { Check, Copy, Flame, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Flame,
+  Pencil,
+  Plus,
+  Trash2,
+  Utensils,
+} from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { formatFoodQuantity } from "@/lib/foods/display";
+import { FoodIcon } from "@/lib/foods/food-icon";
 import type {
   FoodLogDayPayload,
   FoodLogEntry,
@@ -85,8 +95,8 @@ export function Timeline({
   if (visibleBuckets.length === 0) {
     return (
       <div className="px-5 py-14 text-center">
-        <span className="mx-auto flex size-14 items-center justify-center rounded-full bg-card text-2xl">
-          🍽️
+        <span className="mx-auto flex size-14 items-center justify-center rounded-full bg-card text-muted-foreground">
+          <Utensils aria-hidden="true" className="size-7" strokeWidth={1.8} />
         </span>
         <h2 className="mt-4 text-lg font-semibold">Nothing logged yet</h2>
         <p className="mx-auto mt-1 max-w-64 text-sm leading-relaxed text-muted-foreground">
@@ -256,7 +266,13 @@ function EntryCard({
                 onChange={() => onToggleSelection(entry.id)}
               />
             ) : null}
-            <FoodGlyph name={entry.foodName} entryType={entry.entryType} />
+            <span className="flex size-10 shrink-0 items-center justify-center text-muted-foreground">
+              <FoodIcon
+                name={entry.foodName}
+                entryType={entry.entryType}
+                className="size-7"
+              />
+            </span>
             <div className="min-w-0 flex-1">
               <p className="line-clamp-2 text-base font-medium leading-snug">
                 {entry.foodName}
@@ -343,51 +359,6 @@ function EntryCard({
   );
 }
 
-const FOOD_GLYPHS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/rice|grain|oat|cereal/i, "🍚"],
-  [/cabbage|lettuce|spinach|kale|greens/i, "🥬"],
-  [/carrot/i, "🥕"],
-  [/leek|onion|shallot/i, "🧅"],
-  [/bean|pea/i, "🫛"],
-  [/apple|pear/i, "🍎"],
-  [/banana/i, "🍌"],
-  [/orange|citrus/i, "🍊"],
-  [/avocado/i, "🥑"],
-  [/potato/i, "🥔"],
-  [/tomato/i, "🍅"],
-  [/egg/i, "🥚"],
-  [/chicken|poultry/i, "🍗"],
-  [/beef|steak|meat/i, "🥩"],
-  [/fish|salmon|tuna/i, "🐟"],
-  [/bread|toast/i, "🍞"],
-  [/milk|yogurt|cream/i, "🥛"],
-  [/cheese/i, "🧀"],
-];
-
-function FoodGlyph({
-  entryType,
-  name,
-}: {
-  entryType: FoodLogEntry["entryType"];
-  name: string;
-}) {
-  const glyph =
-    entryType === "recipe"
-      ? "🥣"
-      : entryType === "quick_add"
-        ? "⚡"
-        : (FOOD_GLYPHS.find(([pattern]) => pattern.test(name))?.[1] ?? "🍽️");
-
-  return (
-    <span
-      aria-hidden="true"
-      className="flex size-10 shrink-0 items-center justify-center text-[28px] leading-none"
-    >
-      {glyph}
-    </span>
-  );
-}
-
 function formatNumber(n: number): string {
-  return Number.isInteger(n) ? `${n}` : n.toFixed(1);
+  return formatFoodQuantity(n);
 }

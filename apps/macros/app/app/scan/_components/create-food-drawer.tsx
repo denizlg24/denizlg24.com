@@ -1,7 +1,7 @@
 "use client";
 
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { macrosVisionLabelResponseSchema } from "@repo/schemas/macros";
+import type { MacrosVisionLabelResponse } from "@repo/schemas/macros";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import {
@@ -22,15 +22,14 @@ import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import {
   ArrowLeft,
   ArrowRight,
-  Camera,
   LoaderCircle,
   Plus,
   Trash2,
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { prepareBodyPhoto } from "@/lib/body/photo-client";
 import { createFoodResponseSchema } from "@/lib/foods/contracts";
+import { formatFoodQuantity } from "@/lib/foods/display";
 import type { NutrientKey } from "@/lib/foods/nutrients";
 import { nutrientDefinitionsInput } from "@/lib/foods/nutrients";
 import {
@@ -52,6 +51,8 @@ interface ServingDraft {
 interface CreateFoodDrawerProps {
   open: boolean;
   barcode: string | null;
+  scannedLabel?: MacrosVisionLabelResponse | null;
+  scannedLabelFormat?: "eu" | "us";
   autoFocusName?: boolean;
   onClose: () => void;
   onCreated: (food: FoodSummary) => void;
@@ -82,6 +83,8 @@ function buildDefaultDrafts(): Record<string, string> {
 export function CreateFoodDrawer({
   open,
   barcode,
+  scannedLabel = null,
+  scannedLabelFormat = "eu",
   autoFocusName = true,
   onClose,
   onCreated,
@@ -99,8 +102,7 @@ export function CreateFoodDrawer({
     useState<Record<string, string>>(buildDefaultDrafts);
   const [unitPref, setUnitPref] = useState<UnitPref>(DEFAULT_UNIT_PREF);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isScanningLabel, setIsScanningLabel] = useState(false);
-  const labelInputRef = useRef<HTMLInputElement>(null);
+  const appliedScanRef = useRef<MacrosVisionLabelResponse | null>(null);
 
   const reset = useCallback(() => {
     setStep(1);
@@ -112,9 +114,11 @@ export function CreateFoodDrawer({
     setBasisUid(REFERENCE_BASIS);
     setDrafts(buildDefaultDrafts());
     setUnitPref(DEFAULT_UNIT_PREF);
+    appliedScanRef.current = null;
   }, []);
 
   const handleClose = () => {
+    reset();
     onClose();
   };
 
@@ -169,7 +173,11 @@ export function CreateFoodDrawer({
 
   const basisLabel = useMemo(() => {
     if (!activeBasisServing) return "Per 100g";
-    return `Per ${activeBasisServing.label.trim()} (${activeBasisServing.weightGrams}g)`;
+    const weight = Number.parseFloat(activeBasisServing.weightGrams);
+    const weightLabel = Number.isFinite(weight)
+      ? formatFoodQuantity(weight)
+      : activeBasisServing.weightGrams;
+    return `Per ${activeBasisServing.label.trim()} (${weightLabel} g)`;
   }, [activeBasisServing]);
 
   const updateServing = (
@@ -223,68 +231,56 @@ export function CreateFoodDrawer({
     setStep((current) => (current === 3 ? 2 : 1));
   };
 
-  const scanNutritionLabel = async (file: File) => {
-    setIsScanningLabel(true);
-    try {
-      const prepared = await prepareBodyPhoto(file, 1800);
-      const form = new FormData();
-      form.append("image", prepared.blob, "nutrition-label.jpg");
-      const response = await fetch("/api/vision/label", {
-        method: "POST",
-        body: form,
-      });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(body?.error ?? "Label scanning is unavailable");
-      }
-      const result = macrosVisionLabelResponseSchema.parse(
-        await response.json(),
-      );
-      const servingScale =
-        result.basis === "per_serving" && result.servingQuantity
-          ? result.servingQuantity / 100
-          : 1;
-      setDrafts((current) => {
-        const next = { ...current };
-        for (const [key, field] of Object.entries(result.fields)) {
-          if (
-            field.value == null ||
-            !nutrientDefinitionsInput.some((item) => item.key === key)
-          )
-            continue;
-          next[key] = String(field.value / servingScale);
-        }
-        return next;
-      });
-      if (result.servingQuantity && result.servingUnit === "g") {
-        setServings((current) =>
-          current.map((serving, index) =>
-            index === 0
-              ? { ...serving, weightGrams: String(result.servingQuantity) }
-              : serving,
-          ),
-        );
-      }
-      setBasisUid(REFERENCE_BASIS);
-      setViewMode(
-        result.basis === "per_100g" || result.basis === "per_100ml"
-          ? "eu"
-          : "detail",
-      );
-      toast.success(
-        `Proposed ${Object.keys(result.fields).length} values — review before saving`,
-      );
-      if (result.warnings.length) toast.warning(result.warnings.join(" · "));
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Enter the label manually",
-      );
-    } finally {
-      setIsScanningLabel(false);
+  useEffect(() => {
+    if (!open || !scannedLabel || appliedScanRef.current === scannedLabel) {
+      return;
     }
-  };
+    appliedScanRef.current = scannedLabel;
+
+    const isGramServing =
+      scannedLabel.basis === "per_serving" &&
+      scannedLabel.servingQuantity != null &&
+      ["g", "ml"].includes(scannedLabel.servingUnit?.toLowerCase() ?? "");
+    const servingScale = isGramServing
+      ? scannedLabel.servingQuantity! / 100
+      : 1;
+    const supportedFields = Object.entries(scannedLabel.fields).filter(
+      ([key, field]) =>
+        field.value != null &&
+        nutrientDefinitionsInput.some((item) => item.key === key),
+    );
+    setDrafts((current) => {
+      const next = { ...current };
+      for (const [key, field] of supportedFields) {
+        next[key] = String(field.value! / servingScale);
+      }
+      return next;
+    });
+
+    if (isGramServing) {
+      const firstServing = servings[0];
+      if (firstServing) setBasisUid(firstServing.uid);
+      setServings((current) => {
+        return current.map((serving, index) =>
+          index === 0
+            ? {
+                ...serving,
+                weightGrams: formatFoodQuantity(scannedLabel.servingQuantity!),
+              }
+            : serving,
+        );
+      });
+    } else {
+      setBasisUid(REFERENCE_BASIS);
+    }
+    setViewMode(scannedLabelFormat);
+    toast.success(
+      `Prefilled ${supportedFields.length} label values — review them before saving`,
+    );
+    if (scannedLabel.warnings.length) {
+      toast.warning(scannedLabel.warnings.join(" · "));
+    }
+  }, [open, scannedLabel, scannedLabelFormat, servings]);
 
   const submit = async () => {
     const trimmedName = name.trim();
@@ -535,38 +531,12 @@ export function CreateFoodDrawer({
 
           {step === 3 && (
             <div className="space-y-4">
-              <input
-                ref={labelInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="sr-only"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void scanNutritionLabel(file);
-                  event.currentTarget.value = "";
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-12 w-full"
-                disabled={isScanningLabel}
-                onClick={() => labelInputRef.current?.click()}
-              >
-                {isScanningLabel ? (
-                  <LoaderCircle className="animate-spin" />
-                ) : (
-                  <Camera />
-                )}
-                {isScanningLabel
-                  ? "Reading label…"
-                  : "Photograph nutrition label"}
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                Scanned values are suggestions only. Check every value against
-                the package before creating the food.
-              </p>
+              {scannedLabel ? (
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  Nutrition was prefilled from the scanned label. Check every
+                  value against the package before creating the food.
+                </p>
+              ) : null}
               <Tabs
                 value={viewMode}
                 onValueChange={(value) => {
@@ -597,7 +567,11 @@ export function CreateFoodDrawer({
                       <SelectItem value={REFERENCE_BASIS}>100g</SelectItem>
                       {validServings.map((serving) => (
                         <SelectItem key={serving.uid} value={serving.uid}>
-                          {serving.label.trim()} ({serving.weightGrams}g)
+                          {serving.label.trim()} (
+                          {formatFoodQuantity(
+                            Number.parseFloat(serving.weightGrams),
+                          )}{" "}
+                          g)
                         </SelectItem>
                       ))}
                     </SelectContent>
