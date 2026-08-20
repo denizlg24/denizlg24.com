@@ -1,9 +1,9 @@
 export const MACRO_COLORS = {
-  calories: "#5878b4",
-  protein: "#b85c50",
-  fat: "#b89a3c",
-  carbs: "#6a9e6a",
-  fiber: "#6a9e6a",
+  calories: "#5f9df7",
+  protein: "#ff8468",
+  fat: "#ffd15c",
+  carbs: "#62bd8b",
+  fiber: "#62bd8b",
 } as const;
 
 export type MacroKey = keyof typeof MACRO_COLORS;

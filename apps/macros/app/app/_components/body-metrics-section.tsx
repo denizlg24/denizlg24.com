@@ -9,7 +9,7 @@ type Props = {
 export function BodyMetricsSection({ weightSummary }: Props) {
   return (
     <section className="mt-7 px-5">
-      <h2 className="mb-4 text-lg font-bold">Body Metrics</h2>
+      <h2 className="mb-4 text-xl font-bold">Body Metrics</h2>
       <div className="grid grid-cols-2 gap-3">
         <MetricTile
           href="/app/weight"

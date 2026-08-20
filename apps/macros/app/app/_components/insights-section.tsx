@@ -41,7 +41,7 @@ export function InsightsSection({ energyBalance, goalProgress }: Props) {
   return (
     <div className="px-5 mt-4">
       <div className="flex items-center justify-between mb-4">
-        <p className="text-lg font-bold">Insights & Analytics</p>
+        <p className="text-xl font-bold">Insights & Analytics</p>
         <Link
           href="/app/statistics"
           className="text-sm text-muted-foreground underline underline-offset-2"
@@ -53,11 +53,11 @@ export function InsightsSection({ energyBalance, goalProgress }: Props) {
       <div className="grid grid-cols-2 gap-3">
         <Link
           href="/app/statistics"
-          className="bg-muted/40 rounded-2xl p-3 flex flex-col justify-between gap-2"
+          className="flex min-h-44 flex-col justify-between gap-3 rounded-2xl bg-card p-4"
         >
           <div>
-            <p className="font-bold text-sm">Goal Progress</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-lg font-medium leading-tight">Goal Progress</p>
+            <p className="mt-1 text-sm text-muted-foreground">
               {totalDays > 0 ? `Last ${totalDays} Days` : "No active plan"}
             </p>
           </div>
@@ -72,21 +72,19 @@ export function InsightsSection({ energyBalance, goalProgress }: Props) {
               />
             </div>
           </div>
-          <div className="border-t border-border/50 pt-2 flex items-center justify-between">
-            <p className="text-sm font-semibold tabular-nums">
-              {adherencePct} %
-            </p>
+          <div className="flex items-center justify-between border-t border-border/70 pt-3">
+            <p className="text-lg font-medium tabular-nums">{adherencePct} %</p>
             <ChevronRight className="size-4 text-muted-foreground" />
           </div>
         </Link>
 
         <Link
           href="/app/statistics"
-          className="bg-muted/40 rounded-2xl p-3 flex flex-col justify-between gap-2"
+          className="flex min-h-44 flex-col justify-between gap-3 rounded-2xl bg-card p-4"
         >
           <div>
-            <p className="font-bold text-sm">Energy Balance</p>
-            <p className="text-xs text-muted-foreground">Last 7 Days</p>
+            <p className="text-lg font-medium leading-tight">Energy Balance</p>
+            <p className="mt-1 text-sm text-muted-foreground">Last 7 Days</p>
           </div>
           <div className="relative h-7">
             <div className="absolute inset-0 flex items-end gap-0.5">
@@ -119,9 +117,9 @@ export function InsightsSection({ energyBalance, goalProgress }: Props) {
               />
             )}
           </div>
-          <div className="border-t border-border/50 pt-2 flex items-center justify-between">
+          <div className="flex items-center justify-between border-t border-border/70 pt-3">
             {weeklyBalance != null ? (
-              <p className="text-sm font-semibold tabular-nums">
+              <p className="text-base font-medium tabular-nums">
                 {Math.abs(weeklyBalance).toLocaleString()}{" "}
                 <span className="text-xs font-medium text-muted-foreground">
                   kcal{" "}

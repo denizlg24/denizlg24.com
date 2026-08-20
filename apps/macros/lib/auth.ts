@@ -4,14 +4,19 @@ import { nextCookies } from "better-auth/next-js";
 
 import { db } from "@/db/connection";
 import { schema } from "@/db/schema";
-import { sendEmail } from "@/lib/email";
+import {
+  createAuthEmail,
+  getPublicAppOrigin,
+  getPublicAppUrl,
+  sendEmail,
+} from "@/lib/email";
 
 const defaultPostVerificationPath = "/register/complete";
 const productionOrigin = "https://macros.denizlg24.com";
 const forgeDeploymentOriginPattern = "https://macros-*.denizlg24.com";
 
 function getAuthBaseUrl() {
-  return process.env.MACROS_BETTER_AUTH_URL ?? "http://localhost:3000";
+  return getPublicAppOrigin();
 }
 
 function getTrustedOrigins() {
@@ -24,16 +29,8 @@ function getTrustedOrigins() {
   );
 }
 
-function getAppOrigin(request?: Request) {
-  if (request) {
-    return new URL(request.url).origin;
-  }
-
-  return getAuthBaseUrl();
-}
-
-function getEmailVerificationUrl(token: string, request?: Request) {
-  const url = new URL("/register/verify-email", getAppOrigin(request));
+function getEmailVerificationUrl(token: string) {
+  const url = new URL("/register/verify-email", getAuthBaseUrl());
   url.searchParams.set("token", token);
   url.searchParams.set("callbackURL", defaultPostVerificationPath);
 
@@ -60,25 +57,38 @@ export const auth = betterAuth({
     enabled: true,
     requireEmailVerification: true,
     sendResetPassword: async ({ user, url }) => {
+      const resetUrl = getPublicAppUrl(url);
+      const email = createAuthEmail({
+        actionLabel: "Reset password",
+        actionUrl: resetUrl,
+        body: "Use the button below to choose a new password for your Macros account. If you did not request this, you can safely ignore this email.",
+        preheader: "Reset your Macros password.",
+        title: "Reset your password",
+      });
       await sendEmail({
         to: user.email,
         subject: "Reset your Macros password",
-        html: `<p>Use this link to reset your password:</p><p><a href="${url}">${url}</a></p>`,
-        text: `Use this link to reset your password: ${url}`,
+        ...email,
       });
     },
   },
   emailVerification: {
     sendOnSignUp: true,
     autoSignInAfterVerification: true,
-    sendVerificationEmail: async ({ user, token }, request) => {
-      const verificationUrl = getEmailVerificationUrl(token, request);
+    sendVerificationEmail: async ({ user, token }) => {
+      const verificationUrl = getEmailVerificationUrl(token);
+      const email = createAuthEmail({
+        actionLabel: "Verify email",
+        actionUrl: verificationUrl,
+        body: "Confirm your email address to finish setting up Macros and start tracking your nutrition.",
+        preheader: "Confirm your email address to finish setting up Macros.",
+        title: "Verify your email",
+      });
 
       await sendEmail({
         to: user.email,
         subject: "Verify your Macros email",
-        html: `<p>Verify your email address to finish setting up Macros:</p><p><a href="${verificationUrl}">${verificationUrl}</a></p>`,
-        text: `Verify your email address to finish setting up Macros: ${verificationUrl}`,
+        ...email,
       });
     },
   },

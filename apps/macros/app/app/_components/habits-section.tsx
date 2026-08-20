@@ -24,7 +24,7 @@ export function HabitsSection({
 
   return (
     <section className="mt-7 px-5">
-      <h2 className="mb-4 text-lg font-bold">Habits</h2>
+      <h2 className="mb-4 text-xl font-bold">Habits</h2>
       <div className="grid grid-cols-2 gap-3">
         {habits.slice(0, 2).map((habit) => (
           <MetricTile

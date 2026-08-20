@@ -6,13 +6,45 @@
 @source "../../../packages/ui/src";
 
 :root {
-  --app-safe-end: max(env(safe-area-inset-bottom), 1.5rem);
-  --app-mobile-width: 430px;
+  --app-safe-end: max(env(safe-area-inset-bottom), 1rem);
+  --app-mobile-width: 440px;
   --kb-inset: 0px;
   --font-sans: Poppins, ui-sans-serif, sans-serif, system-ui;
   --font-serif: Lora, ui-serif, serif;
   --font-mono: Fira Code, ui-monospace, monospace;
   --tracking-normal: -0.01em;
+}
+
+/* Macros intentionally has a denser, neutral app palette than the shared
+   denizlg24.com theme. It keeps nutrition colours legible and makes cards read
+   as distinct, touchable surfaces in dark mode. */
+.dark {
+  --background: #111111;
+  --foreground: #f7f7f7;
+  --surface: #202020;
+  --card: #202020;
+  --card-foreground: #f7f7f7;
+  --popover: #202020;
+  --popover-foreground: #f7f7f7;
+  --primary: #f7f7f7;
+  --primary-foreground: #111111;
+  --secondary: #2b2b2b;
+  --secondary-foreground: #f7f7f7;
+  --muted: #303030;
+  --muted-foreground: #b8b8b8;
+  --accent: #5f9df7;
+  --accent-foreground: #111111;
+  --border: #383838;
+  --input: #303030;
+  --ring: #f7f7f7;
+  --sidebar: #1d1d1d;
+  --sidebar-foreground: #f7f7f7;
+  --sidebar-primary: #f7f7f7;
+  --sidebar-primary-foreground: #111111;
+  --sidebar-accent: #303030;
+  --sidebar-accent-foreground: #f7f7f7;
+  --sidebar-border: #383838;
+  --sidebar-ring: #f7f7f7;
 }
 
 @layer base {
@@ -28,6 +60,7 @@
     @apply bg-background text-foreground;
     position: relative;
     letter-spacing: var(--tracking-normal);
+    -webkit-font-smoothing: antialiased;
   }
   .macros-app-shell {
     min-height: 100dvh;
@@ -46,7 +79,11 @@
   }
   :is(button, a, [role="button"], [role="tab"], [role="radio"]) {
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
     user-select: none;
+  }
+  :is(input, textarea, select) {
+    scroll-margin-block: 5rem;
   }
   html.macros-add-food-scroll-lock,
   html.macros-add-food-scroll-lock body {
@@ -54,7 +91,20 @@
   }
 }
 
+/* iOS zooms the viewport when a focused field renders below 16px. Keep every
+   interactive field at the native-app-safe size on touch devices. */
+@media (pointer: coarse), (max-width: 640px) {
+  :is(input, textarea, select),
+  [data-slot="input"] {
+    font-size: 16px;
+  }
+}
+
 @layer utilities {
+  .macros-page-top {
+    padding-top: max(1.5rem, env(safe-area-inset-top));
+  }
+
   .macros-fixed-inset-x {
     left: max(0px, calc((100vw - var(--app-mobile-width)) / 2));
     right: max(0px, calc((100vw - var(--app-mobile-width)) / 2));

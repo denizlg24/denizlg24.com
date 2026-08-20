@@ -17,7 +17,7 @@ export function PageHeader({
   title,
 }: Props) {
   return (
-    <header className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 pt-5 pb-3">
+    <header className="macros-page-top grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 pb-3">
       <Button asChild type="button" variant="ghost" size="icon">
         <Link href={backHref} aria-label={backLabel}>
           <ArrowLeft className="size-5" />

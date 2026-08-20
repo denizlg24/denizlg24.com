@@ -4,6 +4,7 @@ import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { setDashboardCaloriePreference } from "@/lib/app-cache/api";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 import {
   getOptimisticNutritionForDate,
   subscribeToOptimisticNutrition,
@@ -25,9 +26,9 @@ type Props = {
 type View = CaloriePreference;
 
 const MACROS = [
-  { key: "protein", label: "Protein", color: "#ef4444" },
-  { key: "fat", label: "Fat", color: "#eab308" },
-  { key: "carbs", label: "Carbs", color: "#22c55e" },
+  { key: "protein", label: "Protein", color: MACRO_COLORS.protein },
+  { key: "fat", label: "Fat", color: MACRO_COLORS.fat },
+  { key: "carbs", label: "Carbs", color: MACRO_COLORS.carbs },
 ] as const;
 
 export function NutritionSection({

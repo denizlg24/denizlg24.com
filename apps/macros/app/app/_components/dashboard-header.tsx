@@ -45,7 +45,7 @@ function NavLink({ href, icon: Icon, label, active }: NavLinkProps) {
     <Button
       asChild
       variant="ghost"
-      className="w-full flex-col gap-1 h-auto py-2 px-1"
+      className="h-auto w-full flex-col gap-1 rounded-xl px-1 py-2"
     >
       <Link
         href={href}
@@ -54,8 +54,8 @@ function NavLink({ href, icon: Icon, label, active }: NavLinkProps) {
           active ? "text-foreground" : "text-muted-foreground",
         )}
       >
-        <Icon className="size-5" />
-        <span className="text-[10px]">{label}</span>
+        <Icon className={cn("size-6", active && "stroke-[2.5]")} />
+        <span className="text-xs font-medium">{label}</span>
       </Link>
     </Button>
   );
@@ -147,7 +147,7 @@ export function DashboardHeader() {
   }
 
   return (
-    <BottomTabBar className="macros-fixed-inset-x z-10">
+    <BottomTabBar className="macros-fixed-inset-x z-40 border-border/70 bg-surface/96 pb-0! shadow-[0_-10px_30px_rgb(0_0_0/0.08)]">
       <div className="mx-auto grid w-full max-w-sm grid-cols-5 items-end px-2 pt-2 pb-safe-end">
         <NavLink
           href="/app"
@@ -174,9 +174,9 @@ export function DashboardHeader() {
             <button
               type="button"
               aria-label="Open shortcuts"
-              className="mx-auto mb-1 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg"
+              className="mx-auto mb-1 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
             >
-              <Plus className="size-6" />
+              <Plus className="size-7" />
             </button>
           </DrawerTrigger>
           <DrawerContent className="max-h-[72dvh]! rounded-t-3xl pb-safe-end">

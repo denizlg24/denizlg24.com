@@ -38,39 +38,39 @@ export function FoodLogHeader({
   const calorieTarget = weekTotals?.calorieTarget ?? null;
 
   return (
-    <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border/40">
-      <div className="px-3 pt-3 pb-2 flex items-center gap-2">
+    <header className="sticky top-0 z-20 border-b border-border/40 bg-surface/96 backdrop-blur-xl">
+      <div className="macros-page-top flex items-center gap-2 px-3 pb-3">
         <Button
           asChild
           type="button"
           variant="ghost"
           size="icon"
-          className="size-9"
+          className="size-11 rounded-full"
           aria-label="Open food log calendar"
         >
           <Link href="/app/food-log/calendar">
             <Menu className="size-5" />
           </Link>
         </Button>
-        <div className="flex-1 flex items-center justify-center gap-2">
+        <div className="flex flex-1 items-center justify-center gap-3">
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="size-8"
+            className="size-10 rounded-full"
             aria-label="Previous day"
             onClick={() => onDateChange(shiftIso(selectedDate, -1))}
           >
             <ChevronLeft className="size-5" />
           </Button>
-          <span className="text-base font-semibold tabular-nums">
+          <span className="min-w-30 text-center text-lg font-medium tabular-nums">
             {relativeDayLabel(selectedDate)}
           </span>
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="size-8"
+            className="size-10 rounded-full"
             aria-label="Next day"
             disabled={isFutureNext}
             onClick={() => onDateChange(shiftIso(selectedDate, 1))}
@@ -78,11 +78,11 @@ export function FoodLogHeader({
             <ChevronRight className="size-5" />
           </Button>
         </div>
-        <div className="size-9" />
+        <div className="size-11" />
       </div>
 
-      <div className="px-2 pb-2">
-        <div className="grid grid-cols-7 gap-1">
+      <div className="px-2 pb-3">
+        <div className="grid grid-cols-7 gap-0.5">
           {week.map((d) => {
             const consumed = totalsByDate.get(d.iso) ?? 0;
             return (
@@ -102,7 +102,7 @@ export function FoodLogHeader({
       </div>
 
       <MacroSummaryBar data={data} />
-    </div>
+    </header>
   );
 }
 
@@ -124,7 +124,7 @@ function DayPill({
   onClick: () => void;
 }) {
   const W = 44;
-  const H = 50;
+  const H = 66;
   const SW = 2.5;
   const p = SW / 2 + 0.5;
   const rw = W - SW;
@@ -143,7 +143,7 @@ function DayPill({
       disabled={isFuture}
       onClick={onClick}
       className={cn(
-        "relative flex flex-col items-center justify-center py-1 text-[10px] leading-tight transition-colors",
+        "relative flex flex-col items-center justify-center gap-1 py-1 text-xs leading-tight transition-transform active:scale-95",
         isSelected ? "text-foreground" : "text-muted-foreground",
         isFuture && "opacity-30",
       )}
@@ -162,8 +162,8 @@ function DayPill({
           width={rw}
           height={rh}
           rx={rx}
-          fill="none"
-          className={isSelected ? "stroke-foreground" : "stroke-border"}
+          fill={isSelected ? "var(--muted)" : "none"}
+          className="stroke-border"
           strokeWidth={SW}
         />
         {fillLength > 0 && (
@@ -183,7 +183,7 @@ function DayPill({
         )}
       </svg>
       <span className="relative font-medium">{letter}</span>
-      <span className="relative text-sm font-semibold tabular-nums">{num}</span>
+      <span className="relative text-base font-medium tabular-nums">{num}</span>
     </button>
   );
 }

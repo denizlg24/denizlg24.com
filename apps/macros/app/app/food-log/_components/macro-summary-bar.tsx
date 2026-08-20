@@ -23,8 +23,8 @@ function fmt(n: number): string {
 
 export function MacroSummaryBar({ data }: { data: FoodLogDayPayload | null }) {
   return (
-    <div className="px-3 pb-3">
-      <div className="flex items-stretch gap-2">
+    <div className="px-4 pb-4">
+      <div className="flex items-stretch gap-3">
         {MACROS.map((m) => {
           const consumed = data?.totals[m.key] ?? 0;
           const target = data?.targets[m.key] ?? null;
@@ -33,21 +33,19 @@ export function MacroSummaryBar({ data }: { data: FoodLogDayPayload | null }) {
               ? Math.min(100, Math.round((consumed / target) * 100))
               : 0;
           return (
-            <div key={m.key} className="flex-1 flex flex-col gap-1 min-w-0">
-              <div className="flex items-center gap-1 text-xs tabular-nums">
+            <div key={m.key} className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <div className="flex items-center gap-1.5 text-[13px] tabular-nums">
                 {m.key === "calories" ? (
-                  <Flame className="size-3.5 shrink-0 text-muted-foreground" />
+                  <Flame className="size-4 shrink-0 text-foreground" />
                 ) : (
-                  <span className="font-bold text-[11px] shrink-0">
-                    {m.letter}
-                  </span>
+                  <span className="shrink-0 text-xs font-bold">{m.letter}</span>
                 )}
                 <span className="truncate">
                   {fmt(consumed)}
                   {target != null ? ` / ${fmt(target)}` : ""}
                 </span>
               </div>
-              <div className="h-1 rounded-full bg-muted overflow-hidden">
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full rounded-full"
                   style={{ width: `${pct}%`, backgroundColor: m.color }}

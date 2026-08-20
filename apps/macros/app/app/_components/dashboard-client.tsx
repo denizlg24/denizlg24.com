@@ -35,7 +35,7 @@ const emptyFoodLoggingSummary: FoodLoggingSummary = {
 function DashboardFallback() {
   return (
     <div className="min-h-dvh pb-36">
-      <div className="px-5 pt-6 pb-4">
+      <div className="macros-page-top px-5 pb-4">
         <Skeleton className="h-3 w-44 mb-2" />
         <Skeleton className="h-8 w-40 mt-1" />
       </div>
@@ -69,7 +69,7 @@ export function DashboardClient() {
 
   if (isError && !data) {
     return (
-      <div className="min-h-screen px-5 pt-6 pb-36">
+      <div className="macros-page-top min-h-screen px-5 pb-36">
         <h1 className="mb-4 text-3xl font-black tracking-tight">DASHBOARD</h1>
         <Alert variant="destructive">
           <AlertTitle>Could not load dashboard</AlertTitle>
@@ -105,15 +105,15 @@ export function DashboardClient() {
 
   return (
     <div className="min-h-dvh pb-36">
-      <div className="px-5 pt-6 pb-4">
+      <div className="macros-page-top px-5 pb-4">
         <p className="text-xs text-muted-foreground tracking-widest mb-1">
           {dateLabel}
         </p>
-        <h1 className="text-3xl font-black tracking-tight">DASHBOARD</h1>
+        <h1 className="text-[2rem] font-black tracking-tight">DASHBOARD</h1>
       </div>
 
       <div className="px-5 mb-2">
-        <p className="text-lg font-bold">Daily Nutrition</p>
+        <p className="text-xl font-bold">Daily Nutrition</p>
       </div>
       <NutritionSection
         today={data.today}

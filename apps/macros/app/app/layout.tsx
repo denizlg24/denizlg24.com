@@ -32,7 +32,7 @@ export default async function AppLayout({
     <QueryProvider userId={session.user.id}>
       <ScrollRestoration />
       <TimezoneSync initialTimezone={userProfile.timezone} />
-      <main className="pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+      <main className="pb-[calc(6.5rem+env(safe-area-inset-bottom))]">
         {children}
       </main>
       <DashboardHeader />

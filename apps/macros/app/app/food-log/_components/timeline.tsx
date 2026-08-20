@@ -5,7 +5,7 @@ import { NumericField } from "@repo/ui/numeric-field";
 import { SwipeRow } from "@repo/ui/swipe-row";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { Copy, Flame, Plus, Trash2, Utensils } from "lucide-react";
+import { Check, Copy, Flame, Pencil, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type {
@@ -28,9 +28,6 @@ type HourBucket = {
   totals: { calories: number; protein: number; fat: number; carbs: number };
   entries: FoodLogEntry[];
 };
-
-const VISIBLE_START_HOUR = 7;
-const VISIBLE_END_HOUR = 23;
 
 function hourLabel(hour: number): string {
   if (hour === 0) return "12 AM";
@@ -83,19 +80,31 @@ export function Timeline({
     });
   }, [data.entries, data.timezone]);
 
-  let earliest = VISIBLE_START_HOUR;
-  let latest = VISIBLE_END_HOUR;
-  for (const b of buckets) {
-    if (b.entries.length > 0) {
-      if (b.hour < earliest) earliest = b.hour;
-      if (b.hour > latest) latest = b.hour;
-    }
+  const visibleBuckets = buckets.filter((bucket) => bucket.entries.length > 0);
+
+  if (visibleBuckets.length === 0) {
+    return (
+      <div className="px-5 py-14 text-center">
+        <span className="mx-auto flex size-14 items-center justify-center rounded-full bg-card text-2xl">
+          🍽️
+        </span>
+        <h2 className="mt-4 text-lg font-semibold">Nothing logged yet</h2>
+        <p className="mx-auto mt-1 max-w-64 text-sm leading-relaxed text-muted-foreground">
+          Add your first food to start tracking today&apos;s nutrition.
+        </p>
+        <Button asChild className="mt-5 rounded-full px-5">
+          <Link href={`/app/add?focus=search&date=${data.date}`}>
+            <Plus className="size-4" />
+            Add food
+          </Link>
+        </Button>
+      </div>
+    );
   }
-  const visibleBuckets = buckets.slice(earliest, latest + 1);
 
   return (
-    <div className="relative px-3 pt-2 pb-6">
-      <div className="absolute left-13 top-2 bottom-6 w-px bg-border" />
+    <div className="relative px-3 pt-3 pb-7">
+      <div className="absolute top-3 bottom-7 left-9 w-px bg-border/80" />
       {visibleBuckets.map((b) => (
         <HourRow
           key={b.hour}
@@ -132,48 +141,37 @@ function HourRow({
   selection?: Set<string>;
   onToggleSelection?: (entryId: string) => void;
 }) {
-  const hasEntries = bucket.entries.length > 0;
-
   return (
-    <div className="relative">
-      <div className="relative flex items-center gap-2 py-2 pl-17">
-        <span
-          className="absolute inline-flex items-center justify-center min-w-12 px-2 h-6 rounded-full bg-background border border-border text-xs text-muted-foreground tabular-nums whitespace-nowrap"
-          style={{
-            left: "2.5rem",
-            top: "50%",
-            transform: "translate(-50%, -50%)",
-          }}
-        >
+    <section className="relative pb-2">
+      <div className="relative flex min-h-12 items-center gap-3 pl-14 pr-1">
+        <span className="absolute top-1/2 left-6 inline-flex h-7 min-w-13 -translate-x-1/2 -translate-y-1/2 items-center justify-center whitespace-nowrap rounded-full bg-muted px-2 text-xs font-medium tabular-nums text-foreground">
           {bucket.label}
         </span>
         <Link
           href={`/app/add?focus=search&date=${date}&hour=${bucket.hour}`}
           aria-label={`Add food at ${bucket.label}`}
-          className="inline-flex items-center justify-center size-6 rounded-full bg-muted/60 text-muted-foreground hover:bg-muted"
+          className="inline-flex size-8 items-center justify-center rounded-full bg-card text-foreground active:scale-95"
         >
-          <Plus className="size-3.5" />
+          <Plus className="size-5" />
         </Link>
-        {hasEntries ? (
-          <div className="ml-auto flex items-center gap-3 text-xs tabular-nums text-muted-foreground">
-            <MacroPill
-              value={bucket.totals.calories}
-              suffix={<Flame className="size-3" />}
-            />
-            <MacroPill
-              value={bucket.totals.protein}
-              suffix={<span className="text-[10px] font-semibold">P</span>}
-            />
-            <MacroPill
-              value={bucket.totals.fat}
-              suffix={<span className="text-[10px] font-semibold">F</span>}
-            />
-            <MacroPill
-              value={bucket.totals.carbs}
-              suffix={<span className="text-[10px] font-semibold">C</span>}
-            />
-          </div>
-        ) : null}
+        <div className="ml-auto flex items-center gap-2.5 text-xs tabular-nums text-foreground">
+          <MacroPill
+            value={bucket.totals.calories}
+            suffix={<Flame className="size-3" />}
+          />
+          <MacroPill
+            value={bucket.totals.protein}
+            suffix={<span className="text-[10px] font-semibold">P</span>}
+          />
+          <MacroPill
+            value={bucket.totals.fat}
+            suffix={<span className="text-[10px] font-semibold">F</span>}
+          />
+          <MacroPill
+            value={bucket.totals.carbs}
+            suffix={<span className="text-[10px] font-semibold">C</span>}
+          />
+        </div>
       </div>
 
       {bucket.entries.map((e) => (
@@ -188,7 +186,7 @@ function HourRow({
           onToggleSelection={onToggleSelection}
         />
       ))}
-    </div>
+    </section>
   );
 }
 
@@ -200,9 +198,9 @@ function MacroPill({
   suffix: React.ReactNode;
 }) {
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
       <span>{Math.round(value)}</span>
-      <span className="inline-flex items-center justify-center size-4 rounded-full bg-muted/60">
+      <span className="inline-flex size-5 items-center justify-center rounded-full bg-muted text-muted-foreground">
         {suffix}
       </span>
     </span>
@@ -227,6 +225,7 @@ function EntryCard({
   onToggleSelection?: (id: string) => void;
 }) {
   const [servings, setServings] = useState(String(entry.servingsConsumed));
+  const [editing, setEditing] = useState(false);
   const time = entryTimeLabel(entry, timezone);
   const grams =
     entry.servingUnit.toLowerCase().includes("g") &&
@@ -235,90 +234,157 @@ function EntryCard({
       : `${formatNumber(entry.servingsConsumed)} ${entry.servingLabel ?? entry.servingUnit}`;
 
   return (
-    <div className="relative pl-20 pr-1 pb-2">
+    <div className="relative pb-2 pl-14 pr-1">
       {time ? (
-        <span
-          className="absolute top-3 -translate-x-1/2 text-[10px] tabular-nums text-muted-foreground bg-background px-1.5 py-0.5 rounded-full border border-border/40 leading-none"
-          style={{ left: "2.5rem" }}
-        >
+        <span className="absolute top-4 left-6 -translate-x-1/2 rounded-full bg-background px-1.5 py-0.5 text-[11px] leading-none tabular-nums text-muted-foreground">
           {time}
         </span>
       ) : null}
       <SwipeRow
-        className="rounded-xl"
+        className="rounded-2xl"
         onAction={() => onDelete(entry.id)}
         action={<Trash2 className="size-4" />}
       >
-        <div className="rounded-xl bg-muted/40 px-3 py-2.5 flex items-center gap-3">
-          {onToggleSelection ? (
-            <input
-              type="checkbox"
-              checked={selected}
-              aria-label={`Select ${entry.foodName}`}
-              className="size-5 accent-primary"
-              onChange={() => onToggleSelection(entry.id)}
-            />
+        <div className="rounded-2xl bg-card px-3 py-3">
+          <div className="flex min-h-15 items-center gap-3">
+            {onToggleSelection ? (
+              <input
+                type="checkbox"
+                checked={selected}
+                aria-label={`Select ${entry.foodName}`}
+                className="size-5 shrink-0 accent-primary"
+                onChange={() => onToggleSelection(entry.id)}
+              />
+            ) : null}
+            <FoodGlyph name={entry.foodName} entryType={entry.entryType} />
+            <div className="min-w-0 flex-1">
+              <p className="line-clamp-2 text-base font-medium leading-snug">
+                {entry.foodName}
+              </p>
+              <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[13px] leading-tight tabular-nums text-muted-foreground">
+                <span className="inline-flex items-center font-medium">
+                  {Math.round(entry.calories)}
+                  <Flame className="ml-0.5 size-3" />
+                </span>
+                <span>{Math.round(entry.protein)}P</span>
+                <span>{Math.round(entry.fat)}F</span>
+                <span>{Math.round(entry.carbs)}C</span>
+                <span aria-hidden="true">•</span>
+                <span>{grams}</span>
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`Edit ${entry.foodName}`}
+              aria-expanded={editing}
+              onClick={() => setEditing((value) => !value)}
+              className="size-10 shrink-0 rounded-full bg-muted text-foreground"
+            >
+              <Pencil className="size-4" />
+            </Button>
+          </div>
+
+          {editing ? (
+            <div className="mt-3 flex items-center gap-2 border-t border-border/70 pt-3">
+              <NumericField
+                aria-label={`Servings of ${entry.foodName}`}
+                className="h-11 min-w-0 flex-1 rounded-xl bg-muted px-3 text-center"
+                value={servings}
+                onValueChange={(value) => setServings(value)}
+              />
+              <Button
+                type="button"
+                size="icon"
+                aria-label="Save serving amount"
+                className="size-11 shrink-0 rounded-full"
+                onClick={() => {
+                  const next = Number(servings);
+                  if (
+                    Number.isFinite(next) &&
+                    next > 0 &&
+                    next !== entry.servingsConsumed
+                  ) {
+                    onUpdateServing(entry.id, next);
+                  } else {
+                    setServings(String(entry.servingsConsumed));
+                  }
+                  setEditing(false);
+                }}
+              >
+                <Check className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                aria-label="Duplicate entry"
+                onClick={() => onDuplicate(entry.id)}
+                className="size-11 shrink-0 rounded-full"
+              >
+                <Copy className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="icon"
+                aria-label="Delete entry"
+                onClick={() => onDelete(entry.id)}
+                className="size-11 shrink-0 rounded-full"
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
           ) : null}
-          <div className="shrink-0 inline-flex items-center justify-center size-9 rounded-md bg-muted text-muted-foreground">
-            <Utensils className="size-4" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium leading-tight line-clamp-2 truncate">
-              {entry.foodName}
-            </p>
-            <p className="text-[11px] text-muted-foreground tabular-nums mt-0.5">
-              <span className="font-semibold">
-                {Math.round(entry.calories)}
-              </span>
-              <Flame className="inline size-3 -mt-0.5 ml-0.5 mr-2 text-muted-foreground" />
-              <span className="font-semibold">{Math.round(entry.protein)}</span>
-              <span className="font-semibold">P </span>
-              <span className="font-semibold">{Math.round(entry.fat)}</span>
-              <span className="font-semibold">F </span>
-              <span className="font-semibold">{Math.round(entry.carbs)}</span>
-              <span className="font-semibold">C </span>
-              <span className="text-muted-foreground"> • {grams}</span>
-            </p>
-          </div>
-          <NumericField
-            aria-label={`Servings of ${entry.foodName}`}
-            className="h-8 w-16 px-2 text-center text-xs"
-            value={servings}
-            onValueChange={(value) => setServings(value)}
-            onBlur={() => {
-              const next = Number(servings);
-              if (
-                Number.isFinite(next) &&
-                next > 0 &&
-                next !== entry.servingsConsumed
-              )
-                onUpdateServing(entry.id, next);
-              else setServings(String(entry.servingsConsumed));
-            }}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Duplicate entry"
-            onClick={() => onDuplicate(entry.id)}
-            className="size-8 shrink-0 rounded-full"
-          >
-            <Copy className="size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Delete entry"
-            onClick={() => onDelete(entry.id)}
-            className="shrink-0 size-8 rounded-full bg-muted hover:bg-destructive/10"
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
         </div>
       </SwipeRow>
     </div>
+  );
+}
+
+const FOOD_GLYPHS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/rice|grain|oat|cereal/i, "🍚"],
+  [/cabbage|lettuce|spinach|kale|greens/i, "🥬"],
+  [/carrot/i, "🥕"],
+  [/leek|onion|shallot/i, "🧅"],
+  [/bean|pea/i, "🫛"],
+  [/apple|pear/i, "🍎"],
+  [/banana/i, "🍌"],
+  [/orange|citrus/i, "🍊"],
+  [/avocado/i, "🥑"],
+  [/potato/i, "🥔"],
+  [/tomato/i, "🍅"],
+  [/egg/i, "🥚"],
+  [/chicken|poultry/i, "🍗"],
+  [/beef|steak|meat/i, "🥩"],
+  [/fish|salmon|tuna/i, "🐟"],
+  [/bread|toast/i, "🍞"],
+  [/milk|yogurt|cream/i, "🥛"],
+  [/cheese/i, "🧀"],
+];
+
+function FoodGlyph({
+  entryType,
+  name,
+}: {
+  entryType: FoodLogEntry["entryType"];
+  name: string;
+}) {
+  const glyph =
+    entryType === "recipe"
+      ? "🥣"
+      : entryType === "quick_add"
+        ? "⚡"
+        : (FOOD_GLYPHS.find(([pattern]) => pattern.test(name))?.[1] ?? "🍽️");
+
+  return (
+    <span
+      aria-hidden="true"
+      className="flex size-10 shrink-0 items-center justify-center text-[28px] leading-none"
+    >
+      {glyph}
+    </span>
   );
 }
 

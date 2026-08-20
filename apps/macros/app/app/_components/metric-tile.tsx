@@ -19,20 +19,20 @@ export function MetricTile({
   subtitle,
   title,
 }: Props) {
-  const min = minHeight === "md" ? "min-h-44" : "min-h-36";
+  const min = minHeight === "md" ? "min-h-48" : "min-h-40";
   return (
     <Link
       href={href}
-      className={`flex flex-col justify-between rounded-2xl bg-muted/40 p-3 ${min}`}
+      className={`flex flex-col justify-between rounded-2xl bg-card p-4 ${min}`}
     >
       <div>
-        <p className="text-sm font-bold">{title}</p>
-        <p className="text-xs text-muted-foreground">{subtitle}</p>
+        <p className="text-lg font-medium leading-tight">{title}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
       </div>
       {children}
-      <div className="flex items-center justify-between border-t border-border/50 pt-2">
-        <div className="text-sm font-semibold tabular-nums">{footer}</div>
-        <ChevronRight className="size-4 text-muted-foreground" />
+      <div className="flex items-center justify-between border-t border-border/70 pt-3">
+        <div className="text-base font-medium tabular-nums">{footer}</div>
+        <ChevronRight className="size-5 text-muted-foreground" />
       </div>
     </Link>
   );
