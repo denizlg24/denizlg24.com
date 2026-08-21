@@ -15,6 +15,7 @@ import type {
   ICourseNoteSummary,
   ICourseOptions,
   ICoursePersonSummary,
+  ICourseReadingSummary,
   ICourseResourceSummary,
   ICourseStats,
   ICourseTimetableSummary,
@@ -37,6 +38,7 @@ import { KanbanBoard } from "@/models/KanbanBoard";
 import { KanbanCard } from "@/models/KanbanCard";
 import { KanbanColumn } from "@/models/KanbanColumn";
 import { Note } from "@/models/Note";
+import { type ILeanPaper, Paper } from "@/models/Paper";
 import { Person } from "@/models/Person";
 import { Resource } from "@/models/Resource";
 import { TimetableEntry } from "@/models/TimetableEntry";
@@ -552,11 +554,66 @@ function sortByIdOrder<T extends { _id: string }>(
   );
 }
 
+function toReadingSummary(paper: ILeanPaper): ICourseReadingSummary {
+  const authorLine = (paper.authors ?? [])
+    .map(
+      (author) =>
+        author.literal ||
+        [author.given, author.family].filter(Boolean).join(" "),
+    )
+    .filter(Boolean)
+    .join(", ");
+  return {
+    _id: String(paper._id),
+    title: paper.title,
+    authorLine: authorLine || undefined,
+    readingStatus: paper.readingStatus,
+    currentPage: paper.progress?.currentPage,
+    totalPages: paper.progress?.totalPages,
+    dueAt: paper.dueAt?.toISOString(),
+    priority: paper.priority,
+    hasPdf: Boolean(paper.pdf),
+    updatedAt: paper.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * Readings link to courses from the paper side, so this is a reverse lookup
+ * rather than a `findByIds` over an array the course owns.
+ */
+export async function getCourseReadings(
+  courseIds: string[],
+): Promise<Map<string, ICourseReadingSummary[]>> {
+  const byCourse = new Map<string, ICourseReadingSummary[]>();
+  const ids = courseIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
+  if (ids.length === 0) return byCourse;
+
+  const papers = await Paper.find({ courseIds: { $in: ids } })
+    .select(
+      "title authors readingStatus progress dueAt priority pdf courseIds updatedAt",
+    )
+    .sort({ dueAt: 1, updatedAt: -1 })
+    .lean<ILeanPaper[]>()
+    .exec();
+
+  for (const paper of papers) {
+    const summary = toReadingSummary(paper);
+    for (const courseId of paper.courseIds ?? []) {
+      const key = String(courseId);
+      const list = byCourse.get(key) ?? [];
+      list.push(summary);
+      byCourse.set(key, list);
+    }
+  }
+  return byCourse;
+}
+
 function buildDeadlines(
   course: CourseWire,
   kanbanCards: ICourseKanbanCardSummary[],
   boardsById: Map<string, ICourseKanbanBoardSummary>,
   assignments: CourseAssignmentWire[],
+  readings: ICourseReadingSummary[] = [],
 ): ICourseDeadline[] {
   const now = Date.now();
 
@@ -621,9 +678,35 @@ function buildDeadlines(
       };
     });
 
-  return [...manual, ...assignmentDeadlines, ...kanban].sort(
-    (a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime(),
-  );
+  const readingDeadlines = readings
+    .filter((reading) => Boolean(reading.dueAt))
+    .map((reading) => {
+      const dueAt = reading.dueAt ?? new Date().toISOString();
+      const completed = reading.readingStatus === "read";
+      const pageLabel =
+        reading.currentPage && reading.totalPages
+          ? `p. ${reading.currentPage} / ${reading.totalPages}`
+          : undefined;
+      return {
+        _id: `reading:${reading._id}`,
+        title: reading.title,
+        dueAt,
+        source: "reading" as const,
+        sourceId: reading._id,
+        sourceLabel: pageLabel,
+        priority: reading.priority,
+        notes: reading.authorLine,
+        completed,
+        overdue: !completed && new Date(dueAt).getTime() < now,
+      };
+    });
+
+  return [
+    ...manual,
+    ...assignmentDeadlines,
+    ...kanban,
+    ...readingDeadlines,
+  ].sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime());
 }
 
 function getAssignmentGradePercent(
@@ -673,6 +756,7 @@ function buildStats(
   kanbanCards: ICourseKanbanCardSummary[],
   deadlines: ICourseDeadline[],
   assignments: CourseAssignmentWire[],
+  readings: ICourseReadingSummary[] = [],
 ): ICourseStats {
   return {
     timetableEntries: course.timetableEntryIds.length,
@@ -699,6 +783,9 @@ function buildStats(
       (assignment) => assignment.grade?.score !== undefined,
     ).length,
     gradeAverage: calculateGradeAverage(assignments),
+    readings: readings.length,
+    openReadings: readings.filter((reading) => reading.readingStatus !== "read")
+      .length,
   };
 }
 
@@ -882,9 +969,10 @@ export async function getCourses(): Promise<ICourseListItem[]> {
   const linkedBoardIds = [
     ...new Set(courses.flatMap((course) => course.kanbanBoardIds)),
   ];
-  const [kanbanCards, assignments] = await Promise.all([
+  const [kanbanCards, assignments, readingsByCourse] = await Promise.all([
     getCourseKanbanCards(linkedBoardIds),
     getCourseAssignments(courses.map((course) => course._id)),
+    getCourseReadings(courses.map((course) => course._id)),
   ]);
   const cardsByBoard = new Map<string, ICourseKanbanCardSummary[]>();
   const assignmentsByCourse = new Map<string, CourseAssignmentWire[]>();
@@ -906,15 +994,23 @@ export async function getCourses(): Promise<ICourseListItem[]> {
       (boardId) => cardsByBoard.get(boardId) ?? [],
     );
     const courseAssignments = assignmentsByCourse.get(course._id) ?? [];
+    const courseReadings = readingsByCourse.get(course._id) ?? [];
     const deadlines = buildDeadlines(
       course,
       courseCards,
       new Map(),
       courseAssignments,
+      courseReadings,
     );
     return {
       course,
-      stats: buildStats(course, courseCards, deadlines, courseAssignments),
+      stats: buildStats(
+        course,
+        courseCards,
+        deadlines,
+        courseAssignments,
+        courseReadings,
+      ),
       nextDeadline: deadlines.find((deadline) => !deadline.completed),
     };
   });
@@ -946,6 +1042,7 @@ export async function getCourseDetail(
     rawResources,
     kanbanCards,
     rawAssignments,
+    readingsByCourse,
   ] = await Promise.all([
     findByIds(TimetableEntry, course.timetableEntryIds),
     findByIds(CalendarEvent, course.calendarEventIds),
@@ -957,6 +1054,7 @@ export async function getCourseDetail(
     CourseAssignment.find({ courseId: id })
       .sort({ dueAt: 1, updatedAt: -1 })
       .lean<RawRecord[]>(),
+    getCourseReadings([id]),
   ]);
 
   const timetableEntries = sortByIdOrder(
@@ -985,17 +1083,19 @@ export async function getCourseDetail(
     course.resourceIds,
   );
   const assignments = rawAssignments.map(serializeCourseAssignment);
+  const readings = readingsByCourse.get(id) ?? [];
   const deadlines = buildDeadlines(
     course,
     kanbanCards,
     boardsById,
     assignments,
+    readings,
   );
   const emails = await getCourseRelatedEmails(id);
 
   return {
     course,
-    stats: buildStats(course, kanbanCards, deadlines, assignments),
+    stats: buildStats(course, kanbanCards, deadlines, assignments, readings),
     deadlines,
     timetableEntries,
     calendarEvents,
@@ -1005,6 +1105,7 @@ export async function getCourseDetail(
     notes,
     people,
     resources,
+    readings,
     emails,
   };
 }
@@ -1571,11 +1672,13 @@ export async function getSemesterOverview(): Promise<ISemesterOverview> {
   const timetableEntryIds = [
     ...new Set(courses.flatMap((course) => course.timetableEntryIds)),
   ];
-  const [kanbanCards, assignments, rawTimetableEntries] = await Promise.all([
-    getCourseKanbanCards(boardIds),
-    getCourseAssignments(courses.map((course) => course._id)),
-    findByIds(TimetableEntry, timetableEntryIds),
-  ]);
+  const [kanbanCards, assignments, rawTimetableEntries, readingsByCourse] =
+    await Promise.all([
+      getCourseKanbanCards(boardIds),
+      getCourseAssignments(courses.map((course) => course._id)),
+      findByIds(TimetableEntry, timetableEntryIds),
+      getCourseReadings(courses.map((course) => course._id)),
+    ]);
 
   const cardsByBoard = new Map<string, ICourseKanbanCardSummary[]>();
   for (const card of kanbanCards) {
@@ -1615,6 +1718,7 @@ export async function getSemesterOverview(): Promise<ISemesterOverview> {
       courseCards,
       new Map(),
       courseAssignments,
+      readingsByCourse.get(course._id) ?? [],
     );
     const open = deadlines.filter((deadline) => !deadline.completed);
     const withCourse = (deadline: ICourseDeadline): ISemesterDeadline => ({

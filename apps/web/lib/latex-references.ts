@@ -71,16 +71,19 @@ async function searchPapers(
     .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .filter((part) => part.length > 2)
     .join("|");
+  // The papers collection doubles as the reading list, so uploaded course
+  // PDFs live here too. Only citable records may be offered as references.
+  const base = { isRetracted: { $ne: true }, citable: { $ne: false } };
   const filter = escaped
     ? {
-        isRetracted: { $ne: true },
+        ...base,
         $or: [
           { title: { $regex: escaped, $options: "i" } },
           { abstract: { $regex: escaped, $options: "i" } },
           { venue: { $regex: escaped, $options: "i" } },
         ],
       }
-    : { isRetracted: { $ne: true } };
+    : base;
   const papers = await Paper.find(filter)
     .sort({ citationCount: -1, updatedAt: -1 })
     .limit(limit)
@@ -204,6 +207,9 @@ async function findOrCreatePaper(
     license: suggestion.license ?? undefined,
     metadataSource: suggestion.source === "openalex" ? "openalex" : "manual",
     metadataFetchedAt: new Date().toISOString(),
+    // Reached by accepting it as a reference, so it is citable by definition
+    // regardless of which identifiers the suggestion happened to carry.
+    citable: true,
   });
   return paper;
 }

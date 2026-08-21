@@ -58,6 +58,7 @@ async function projectPaperSuggestions(
     _id: { $in: paperIds },
     abstract: { $exists: true, $ne: "" },
     isRetracted: { $ne: true },
+    citable: { $ne: false },
   })
     .sort({ updatedAt: -1 })
     .lean<ILeanPaper[]>()

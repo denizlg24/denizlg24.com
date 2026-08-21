@@ -1,10 +1,17 @@
 import type {
+  KanbanPriority,
   PaperAuthor,
   PaperHighlightColor,
   PaperReadingStatus,
   PaperType,
 } from "@repo/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
+
+export interface IPaperProgress {
+  currentPage: number;
+  totalPages?: number;
+  updatedAt: Date;
+}
 
 export interface IPaperHighlight {
   id: string;
@@ -51,6 +58,13 @@ export interface IPaper extends Document {
   citationCount?: number;
   url?: string;
   pdf?: IPaperFile;
+  citable: boolean;
+  courseIds: mongoose.Types.ObjectId[];
+  progress?: IPaperProgress;
+  dueAt?: Date;
+  priority?: KanbanPriority;
+  startedAt?: Date;
+  completedAt?: Date;
   noteId?: mongoose.Types.ObjectId;
   tags: string[];
   noteIds: mongoose.Types.ObjectId[];
@@ -114,6 +128,15 @@ const PaperFileSchema = new Schema<IPaperFile>(
   { _id: false },
 );
 
+const ProgressSchema = new Schema<IPaperProgress>(
+  {
+    currentPage: { type: Number, required: true, min: 1, max: 100_000 },
+    totalPages: { type: Number, min: 1, max: 100_000 },
+    updatedAt: { type: Date, required: true },
+  },
+  { _id: false },
+);
+
 const PaperSchema = new Schema<IPaper>(
   {
     title: { type: String, required: true, trim: true, maxlength: 1_000 },
@@ -168,6 +191,23 @@ const PaperSchema = new Schema<IPaper>(
     citationCount: { type: Number, min: 0 },
     url: { type: String, trim: true, maxlength: 2_000 },
     pdf: { type: PaperFileSchema },
+    // Defaults true so every pre-existing paper — all of which are real
+    // papers — stays available to the LaTeX reference panel without a
+    // migration. Only records created without bibliographic identity opt out.
+    citable: { type: Boolean, default: true, index: true },
+    courseIds: {
+      type: [{ type: Schema.Types.ObjectId, ref: "Course" }],
+      default: [],
+      index: true,
+    },
+    progress: { type: ProgressSchema },
+    dueAt: { type: Date, index: true },
+    priority: {
+      type: String,
+      enum: ["none", "low", "medium", "high", "urgent"],
+    },
+    startedAt: { type: Date },
+    completedAt: { type: Date },
     noteId: {
       type: Schema.Types.ObjectId,
       ref: "KnowledgeNote",
@@ -197,6 +237,7 @@ PaperSchema.index({ arxivId: 1 }, { unique: true, sparse: true });
 PaperSchema.index({ openAlexId: 1 }, { unique: true, sparse: true });
 PaperSchema.index({ citationKey: 1 }, { unique: true });
 PaperSchema.index({ updatedAt: -1 });
+PaperSchema.index({ readingStatus: 1, "progress.updatedAt": -1 });
 PaperSchema.index({
   title: "text",
   abstract: "text",

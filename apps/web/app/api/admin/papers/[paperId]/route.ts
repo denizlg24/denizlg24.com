@@ -61,13 +61,13 @@ export async function PATCH(request: NextRequest, context: PaperRouteContext) {
 
     await connectDB();
     const previous = await Paper.findById(paperId)
-      .select("pdf")
+      .select("pdf startedAt completedAt")
       .lean<ILeanPaper>()
       .exec();
     if (!previous)
       return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const mutation = await preparePaperUpdate(parsed.data);
+    const mutation = await preparePaperUpdate(parsed.data, previous);
     const paper = await Paper.findByIdAndUpdate(paperId, mutation, {
       returnDocument: "after",
       runValidators: true,

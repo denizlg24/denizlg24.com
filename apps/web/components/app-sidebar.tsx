@@ -83,7 +83,7 @@ const items = [
     icon: FileText,
   },
   {
-    title: "Papers",
+    title: "Reading",
     url: "/admin/dashboard/papers",
     icon: BookOpen,
   },
