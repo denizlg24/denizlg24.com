@@ -6,12 +6,20 @@ export const READING_STATUS_LABEL: Record<PaperReadingStatus, string> = {
   read: "Completed",
 };
 
-export function readingPercent(paper: IPaper): number | undefined {
-  const { currentPage, totalPages } = paper.progress ?? {};
+export function percentRead(
+  currentPage: number | undefined,
+  totalPages: number | undefined,
+  readingStatus: PaperReadingStatus,
+): number | undefined {
   if (!currentPage || !totalPages) {
-    return paper.readingStatus === "read" ? 100 : undefined;
+    return readingStatus === "read" ? 100 : undefined;
   }
   return Math.min(100, Math.round((currentPage / totalPages) * 100));
+}
+
+export function readingPercent(paper: IPaper): number | undefined {
+  const { currentPage, totalPages } = paper.progress ?? {};
+  return percentRead(currentPage, totalPages, paper.readingStatus);
 }
 
 export function pagesRemaining(paper: IPaper): number | undefined {
@@ -51,12 +59,38 @@ export function dueLabel(iso: string | undefined): string | undefined {
   return `${days}d left`;
 }
 
+/**
+ * Against the deadline itself, not the day count: `daysUntil` rounds up, so a
+ * deadline that passed an hour ago still reports zero days left.
+ */
 export function isOverdue(item: {
   dueAt?: string;
   readingStatus: PaperReadingStatus;
 }): boolean {
-  const days = daysUntil(item.dueAt);
-  return days !== undefined && days < 0 && item.readingStatus !== "read";
+  if (!item.dueAt || item.readingStatus === "read") return false;
+  const due = new Date(item.dueAt).getTime();
+  return !Number.isNaN(due) && due < Date.now();
+}
+
+/**
+ * A `<input type="date">` speaks calendar days and `dueAt` is an instant, so
+ * both directions go through local time. Slicing the ISO string instead reads
+ * back the UTC day, which is the day after the one that was picked for any
+ * negative offset.
+ */
+export function toDateInput(iso: string | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+export function fromDateInput(day: string): string | null {
+  if (!day) return null;
+  const date = new Date(`${day}T23:59:59`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 export function authorLine(paper: Pick<IPaper, "authors">): string {

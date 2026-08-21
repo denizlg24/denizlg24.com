@@ -1,4 +1,4 @@
-import { createPaperSchema } from "@repo/schemas";
+import { createPaperSchema, type PaperCourseRef } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
@@ -10,23 +10,19 @@ import { Course } from "@/models/Course";
 import { Note } from "@/models/Note";
 import { type ILeanPaper, Paper } from "@/models/Paper";
 
-interface LeanCourseRef {
-  _id: unknown;
-  name: string;
-  code?: string;
-  color?: string;
-  status: "active" | "archived";
-}
+type LeanCourseRef = Omit<PaperCourseRef, "_id"> & { _id: unknown };
 
 export async function GET(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
 
   const courseId = request.nextUrl.searchParams.get("courseId");
-  const filter =
-    courseId && mongoose.Types.ObjectId.isValid(courseId)
-      ? { courseIds: new mongoose.Types.ObjectId(courseId) }
-      : {};
+  if (courseId && !mongoose.Types.ObjectId.isValid(courseId)) {
+    return NextResponse.json({ error: "Invalid courseId" }, { status: 400 });
+  }
+  const filter = courseId
+    ? { courseIds: new mongoose.Types.ObjectId(courseId) }
+    : {};
 
   try {
     await connectDB();
@@ -46,10 +42,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       papers: papers.map(serializePaper),
       notes: notes.map((note) => ({ ...note, _id: String(note._id) })),
-      courses: courses.map((course) => ({
-        ...course,
-        _id: String(course._id),
-      })),
+      courses: courses.map(
+        (course): PaperCourseRef => ({ ...course, _id: String(course._id) }),
+      ),
     });
   } catch (error) {
     console.error("Failed to load papers:", error);

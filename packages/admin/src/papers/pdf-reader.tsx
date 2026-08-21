@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -98,24 +99,35 @@ export function InlinePdfReader({
     [numPages, onPageChange, page],
   );
 
-  // Arrow keys only mean "turn the page" when nothing else wants them, which
-  // is why a focused field or a live text selection opts out.
+  // The page renders to the width it is given, so the measurement has to track
+  // the container rather than the one value it happened to have when it
+  // mounted — the sidebar and the window both resize under it.
+  const containerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (
-        target?.isContentEditable ||
-        ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "")
-      ) {
-        return;
-      }
-      if (selectionText()) return;
-      if (event.key === "ArrowLeft") turn(-1);
-      if (event.key === "ArrowRight") turn(1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [turn]);
+    const node = containerRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  // Bound to the reader rather than the window: the inline reader is one panel
+  // among many, and arrow keys elsewhere in the admin shell are not page
+  // turns. A focused field or a live text selection still opts out.
+  const onKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (
+      target?.isContentEditable ||
+      ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "")
+    ) {
+      return;
+    }
+    if (selectionText()) return;
+    if (event.key === "ArrowLeft") turn(-1);
+    if (event.key === "ArrowRight") turn(1);
+  };
 
   const commitPageDraft = () => {
     const parsed = Number(pageDraft);
@@ -184,11 +196,12 @@ export function InlinePdfReader({
         </Button>
       </div>
       <div
-        ref={(node) => {
-          if (node) setWidth(node.clientWidth);
-        }}
+        ref={containerRef}
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: the reader takes focus so arrow keys turn its pages rather than the shell's
+        tabIndex={0}
+        onKeyDown={onKey}
         onMouseUp={() => setSelection(selectionText())}
-        className="flex max-h-[70vh] min-h-[32rem] justify-center overflow-auto p-3"
+        className="flex max-h-[70vh] min-h-[32rem] justify-center overflow-auto p-3 outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <Document
           file={url}
@@ -489,7 +502,7 @@ export function MobilePdfReader({
           step={1}
           disabled={!numPages}
           onValueChange={([next]) => {
-            if (next && next !== page) onPageChange(next);
+            if (next && next !== page) turn(next - page);
           }}
         />
         <div className="flex items-center justify-between font-mono text-[10px] tabular-nums text-muted-foreground">

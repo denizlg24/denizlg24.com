@@ -592,9 +592,19 @@ export async function getCourseReadings(
     .select(
       "title authors readingStatus progress dueAt priority pdf courseIds updatedAt",
     )
-    .sort({ dueAt: 1, updatedAt: -1 })
     .lean<ILeanPaper[]>()
     .exec();
+
+  // Mongo sorts a missing dueAt lowest, which would float undated readings
+  // above every reading that actually has a deadline.
+  papers.sort((a, b) => {
+    const aDue = a.dueAt?.getTime();
+    const bDue = b.dueAt?.getTime();
+    if (aDue !== undefined && bDue !== undefined) return aDue - bDue;
+    if (aDue !== undefined) return -1;
+    if (bDue !== undefined) return 1;
+    return b.updatedAt.getTime() - a.updatedAt.getTime();
+  });
 
   for (const paper of papers) {
     const summary = toReadingSummary(paper);

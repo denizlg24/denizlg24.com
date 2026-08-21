@@ -54,7 +54,7 @@ import {
   readingPercent,
 } from "./reading";
 
-interface PapersResponse {
+export interface PapersResponse {
   papers: IPaper[];
   notes: PaperNoteRef[];
   courses: PaperCourseRef[];
@@ -213,6 +213,16 @@ export function PapersPage() {
     );
   };
 
+  const saveTotalPages = async (paperId: string, totalPages: number) => {
+    const result = await client.patch<{ paper: IPaper }>(
+      `papers/${paperId}/progress`,
+      { totalPages },
+    );
+    setPapers((current) =>
+      current.map((paper) => (paper._id === paperId ? result.paper : paper)),
+    );
+  };
+
   // Only citable rows belong in a .bib — the rest are readings that would
   // become fabricated bibliography entries.
   const citablePapers = visiblePapers.filter((paper) => paper.citable);
@@ -237,11 +247,18 @@ export function PapersPage() {
         file.type === "application/pdf" ||
         file.name.toLowerCase().endsWith(".pdf"),
     );
-    if (pdfs.length === 0) return;
+    if (pdfs.length === 0) {
+      toast.error("No PDFs in that drop");
+      return;
+    }
 
     setImporting(true);
-    try {
-      for (const file of pdfs) {
+    let added = 0;
+    let failed = 0;
+    // Per file, so one bad PDF does not silently discard everything dropped
+    // after it.
+    for (const file of pdfs) {
+      try {
         const data = new FormData();
         data.append("file", file);
         const uploaded = await client.upload<{ pdf: PaperFile }>(
@@ -259,14 +276,17 @@ export function PapersPage() {
               : undefined,
         });
         setPapers((current) => [result.paper, ...current]);
+        added += 1;
+      } catch {
+        failed += 1;
       }
-      toast.success(
-        pdfs.length === 1 ? "Reading added" : `${pdfs.length} readings added`,
-      );
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Import failed");
-    } finally {
-      setImporting(false);
+    }
+    setImporting(false);
+    if (added > 0) {
+      toast.success(added === 1 ? "Reading added" : `${added} readings added`);
+    }
+    if (failed > 0) {
+      toast.error(failed === 1 ? "1 file failed" : `${failed} files failed`);
     }
   };
 
@@ -293,6 +313,9 @@ export function PapersPage() {
           }}
           onProgress={async (currentPage, totalPages) => {
             await saveProgress(selectedPaper._id, currentPage, totalPages);
+          }}
+          onTotalPages={async (totalPages) => {
+            await saveTotalPages(selectedPaper._id, totalPages);
           }}
         />
         <PaperFormDialog

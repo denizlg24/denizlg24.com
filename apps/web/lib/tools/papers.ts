@@ -309,9 +309,14 @@ export const papersTools: ToolDefinition[] = [
       const parsed = paperMutationSchema.safeParse(candidate);
       if (!parsed.success)
         return validationError("Invalid paper update", parsed.error);
+      const previous = await Paper.findById(id)
+        .select("startedAt completedAt progress")
+        .lean<ILeanPaper>()
+        .exec();
+      if (!previous) throw new Error("Paper not found");
       const paper = await Paper.findByIdAndUpdate(
         id,
-        await preparePaperUpdate(parsed.data),
+        await preparePaperUpdate(parsed.data, previous),
         { returnDocument: "after", runValidators: true },
       )
         .lean<ILeanPaper>()

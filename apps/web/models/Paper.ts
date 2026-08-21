@@ -237,7 +237,6 @@ PaperSchema.index({ arxivId: 1 }, { unique: true, sparse: true });
 PaperSchema.index({ openAlexId: 1 }, { unique: true, sparse: true });
 PaperSchema.index({ citationKey: 1 }, { unique: true });
 PaperSchema.index({ updatedAt: -1 });
-PaperSchema.index({ readingStatus: 1, "progress.updatedAt": -1 });
 PaperSchema.index({
   title: "text",
   abstract: "text",

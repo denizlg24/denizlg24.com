@@ -28,30 +28,33 @@ export function hasBibliographicIdentity(input: {
   );
 }
 
-export async function prunePaperCourseIds(courseIds: string[] | undefined) {
-  if (!courseIds) return undefined;
+/**
+ * Links are sent as ids from a client that may be holding a stale list, so a
+ * link to something deleted since is dropped rather than stored dangling.
+ */
+async function pruneExistingIds<T>(
+  model: mongoose.Model<T>,
+  values: string[] | undefined,
+) {
+  if (!values) return undefined;
   const ids = [
-    ...new Set(courseIds.filter((id) => mongoose.Types.ObjectId.isValid(id))),
+    ...new Set(values.filter((id) => mongoose.Types.ObjectId.isValid(id))),
   ];
   if (ids.length === 0) return [];
-  const existing = await Course.find({ _id: { $in: ids } })
+  const existing = await model
+    .find({ _id: { $in: ids } })
     .select("_id")
     .lean<Array<{ _id: mongoose.Types.ObjectId }>>()
     .exec();
-  return existing.map((course) => course._id);
+  return existing.map((doc) => doc._id);
+}
+
+export async function prunePaperCourseIds(courseIds: string[] | undefined) {
+  return pruneExistingIds(Course, courseIds);
 }
 
 export async function prunePaperNoteIds(noteIds: string[] | undefined) {
-  if (!noteIds) return undefined;
-  const ids = [
-    ...new Set(noteIds.filter((id) => mongoose.Types.ObjectId.isValid(id))),
-  ];
-  if (ids.length === 0) return [];
-  const existing = await Note.find({ _id: { $in: ids } })
-    .select("_id")
-    .lean<Array<{ _id: mongoose.Types.ObjectId }>>()
-    .exec();
-  return existing.map((note) => note._id);
+  return pruneExistingIds(Note, noteIds);
 }
 
 export async function availableCitationKey(base: string): Promise<string> {
@@ -154,6 +157,7 @@ const OPTIONAL_STRING_FIELDS = [
 export interface PaperLifecycleState {
   startedAt?: Date;
   completedAt?: Date;
+  progress?: { currentPage: number; totalPages?: number; updatedAt: Date };
 }
 
 /**
@@ -187,7 +191,7 @@ function lifecycleStamps(
 
 export async function preparePaperUpdate(
   input: PaperMutation,
-  previous?: PaperLifecycleState,
+  previous: PaperLifecycleState,
 ) {
   const set: Record<string, unknown> = {};
   const unset: Record<string, 1> = {};
@@ -197,10 +201,7 @@ export async function preparePaperUpdate(
   if (input.type !== undefined) set.type = input.type;
   if (input.readingStatus !== undefined) {
     set.readingStatus = input.readingStatus;
-    Object.assign(
-      set,
-      lifecycleStamps(input.readingStatus, input, previous ?? {}),
-    );
+    Object.assign(set, lifecycleStamps(input.readingStatus, input, previous));
   }
   if (input.metadataSource !== undefined)
     set.metadataSource = input.metadataSource;
@@ -252,8 +253,18 @@ export async function preparePaperUpdate(
 
   if (input.progress === null) unset.progress = 1;
   else if (input.progress !== undefined) {
+    // The subdocument is replaced wholesale, so a payload that only moves the
+    // page would otherwise drop the page count and every display built on it.
+    const totalPages =
+      input.progress.totalPages ?? previous.progress?.totalPages;
+    if (totalPages !== undefined && input.progress.currentPage > totalPages) {
+      throw new Error(
+        "Invalid progress: page is beyond the end of the document",
+      );
+    }
     set.progress = {
       ...input.progress,
+      totalPages,
       updatedAt: new Date(input.progress.updatedAt),
     };
   }

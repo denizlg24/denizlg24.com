@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { kanbanPrioritySchema } from "./kanban";
+import { paperReadingStatusSchema } from "./paper";
 import { timetableColorSchema } from "./timetable";
 import { triageCategorySchema } from "./triage";
 
@@ -283,7 +284,7 @@ export const courseReadingSummarySchema = z.object({
   _id: z.string(),
   title: z.string(),
   authorLine: z.string().optional(),
-  readingStatus: z.enum(["unread", "reading", "read"]),
+  readingStatus: paperReadingStatusSchema,
   currentPage: z.number().optional(),
   totalPages: z.number().optional(),
   dueAt: z.string().optional(),

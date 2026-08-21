@@ -13,22 +13,14 @@ import {
 import { FileUp, Loader2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { dueLabel, isOverdue, READING_STATUS_LABEL } from "../papers/reading";
+import type { PapersResponse } from "../papers/papers-page";
+import {
+  dueLabel,
+  isOverdue,
+  percentRead,
+  READING_STATUS_LABEL,
+} from "../papers/reading";
 import { useAdmin } from "../provider";
-
-interface PapersResponse {
-  papers: IPaper[];
-}
-
-function percentOf(reading: ICourseReadingSummary): number | undefined {
-  if (!reading.currentPage || !reading.totalPages) {
-    return reading.readingStatus === "read" ? 100 : undefined;
-  }
-  return Math.min(
-    100,
-    Math.round((reading.currentPage / reading.totalPages) * 100),
-  );
-}
 
 export function CourseReadingsPanel({
   courseId,
@@ -44,8 +36,9 @@ export function CourseReadingsPanel({
   const [attachable, setAttachable] = useState<IPaper[]>([]);
   const [busy, setBusy] = useState(false);
 
+  // Refetched on every open: unlinking a reading here, or adding one anywhere
+  // else, changes what is attachable, and a cached list never shows either.
   const loadAttachable = async () => {
-    if (attachable.length > 0) return;
     try {
       const result = await client.get<PapersResponse>("papers");
       setAttachable(
@@ -78,10 +71,7 @@ export function CourseReadingsPanel({
   const detach = async (readingId: string) => {
     setBusy(true);
     try {
-      const paper = await client.get<{ paper: IPaper }>(`papers/${readingId}`);
-      await client.patch(`papers/${readingId}`, {
-        courseIds: paper.paper.courseIds.filter((id) => id !== courseId),
-      });
+      await client.del(`papers/${readingId}/courses/${courseId}`);
       await onRefresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unlink failed");
@@ -166,7 +156,11 @@ export function CourseReadingsPanel({
       ) : (
         <div>
           {readings.map((reading) => {
-            const percent = percentOf(reading);
+            const percent = percentRead(
+              reading.currentPage,
+              reading.totalPages,
+              reading.readingStatus,
+            );
             const due = dueLabel(reading.dueAt);
             const overdue = isOverdue(reading);
             return (

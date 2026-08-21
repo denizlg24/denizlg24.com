@@ -61,7 +61,7 @@ export async function PATCH(request: NextRequest, context: PaperRouteContext) {
 
     await connectDB();
     const previous = await Paper.findById(paperId)
-      .select("pdf startedAt completedAt")
+      .select("pdf startedAt completedAt progress")
       .lean<ILeanPaper>()
       .exec();
     if (!previous)

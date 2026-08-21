@@ -87,6 +87,11 @@ describe("overdue", () => {
     expect(isOverdue({ dueAt: due, readingStatus: "read" })).toBe(false);
   });
 
+  it("flags a deadline that passed less than a day ago", () => {
+    const due = new Date(Date.now() - 60_000).toISOString();
+    expect(isOverdue({ dueAt: due, readingStatus: "reading" })).toBe(true);
+  });
+
   it("does not flag a reading with no deadline", () => {
     expect(isOverdue({ readingStatus: "reading" })).toBe(false);
   });

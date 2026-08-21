@@ -51,9 +51,11 @@ import { useAdmin } from "../provider";
 import {
   authorLine,
   dueLabel,
+  fromDateInput,
   isOverdue,
   readingPercent,
   requiredPace,
+  toDateInput,
 } from "./reading";
 
 const PROGRESS_DEBOUNCE_MS = 900;
@@ -95,6 +97,7 @@ interface PaperDetailProps {
   onDelete: () => void;
   onPatch: (input: PaperMutation) => Promise<void>;
   onProgress: (currentPage: number, totalPages?: number) => Promise<void>;
+  onTotalPages: (totalPages: number) => Promise<void>;
 }
 
 const HIGHLIGHT_STYLE: Record<PaperHighlightColor, string> = {
@@ -128,6 +131,7 @@ export function PaperDetail({
   onDelete,
   onPatch,
   onProgress,
+  onTotalPages,
 }: PaperDetailProps) {
   const { platform } = useAdmin();
   const isMobile = useIsMobile();
@@ -218,14 +222,18 @@ export function PaperDetail({
     [queueProgress],
   );
 
+  // Loading the PDF is not reading it, so the page count goes through the
+  // metadata path. Writing it as progress would stamp startedAt and move the
+  // status to "reading" just for opening the record.
   const handleTotalPages = useCallback(
     (total: number) => {
       setTotalPages(total);
-      if (total !== paper.progress?.totalPages) {
-        queueProgress(Math.min(currentPage, total), total);
-      }
+      if (total === paper.progress?.totalPages) return;
+      void onTotalPages(total).catch(() => {
+        // The next load re-reports it; nothing here depends on the write.
+      });
     },
-    [currentPage, paper.progress?.totalPages, queueProgress],
+    [onTotalPages, paper.progress?.totalPages],
   );
 
   const copyBibtex = async () => {
@@ -525,7 +533,7 @@ export function PaperDetail({
                   </div>
                   <div className="mt-1.5 flex items-center justify-between font-mono text-[10px] tabular-nums text-muted-foreground">
                     <span>
-                      {paper.progress?.currentPage ?? "—"} /{" "}
+                      {currentPage} /{" "}
                       {totalPages ?? paper.progress?.totalPages ?? "—"}
                     </span>
                     <span>{percent}%</span>
@@ -538,15 +546,9 @@ export function PaperDetail({
                   <Input
                     type="date"
                     className="h-7 text-xs"
-                    value={paper.dueAt ? paper.dueAt.slice(0, 10) : ""}
+                    value={toDateInput(paper.dueAt)}
                     onChange={(event) =>
-                      void onPatch({
-                        dueAt: event.target.value
-                          ? new Date(
-                              `${event.target.value}T23:59:59`,
-                            ).toISOString()
-                          : null,
-                      })
+                      void onPatch({ dueAt: fromDateInput(event.target.value) })
                     }
                   />
                   {paper.dueAt && (

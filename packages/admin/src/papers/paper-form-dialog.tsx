@@ -30,9 +30,10 @@ import {
 import { Switch } from "@repo/ui/switch";
 import { Textarea } from "@repo/ui/textarea";
 import { FileUp, Loader2, Search, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import { fromDateInput, toDateInput } from "./reading";
 
 interface PaperFormDialogProps {
   open: boolean;
@@ -146,6 +147,15 @@ export function PaperFormDialog({
   const [lookingUp, setLookingUp] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const linkableCourses = useMemo(
+    () =>
+      courses.filter(
+        (course) =>
+          course.status === "active" && !courseIds.includes(course._id),
+      ),
+    [courses, courseIds],
+  );
+
   useEffect(() => {
     if (!open) return;
     setIdentifier("");
@@ -172,7 +182,7 @@ export function PaperFormDialog({
     setResolvedMetadata(null);
     setPdfFile(null);
     setCourseIds(paper?.courseIds ?? []);
-    setDueAt(paper?.dueAt ? paper.dueAt.slice(0, 10) : "");
+    setDueAt(toDateInput(paper?.dueAt));
     setPriority(paper?.priority ?? "none");
     setCitable(paper?.citable ?? false);
     setCitableTouched(Boolean(paper));
@@ -275,7 +285,7 @@ export function PaperFormDialog({
         citable,
         courseIds,
         priority: priority === "none" ? null : priority,
-        dueAt: dueAt ? new Date(`${dueAt}T23:59:59`).toISOString() : null,
+        dueAt: fromDateInput(dueAt),
       });
       onOpenChange(false);
     } catch (error) {
@@ -475,10 +485,7 @@ export function PaperFormDialog({
           <Field label="Classes" className="sm:col-span-2">
             <Select
               value=""
-              disabled={courses.every(
-                (course) =>
-                  course.status !== "active" || courseIds.includes(course._id),
-              )}
+              disabled={linkableCourses.length === 0}
               onValueChange={(courseId) =>
                 setCourseIds((current) =>
                   current.includes(courseId) ? current : [...current, courseId],
@@ -489,18 +496,12 @@ export function PaperFormDialog({
                 <SelectValue placeholder="Link class" />
               </SelectTrigger>
               <SelectContent>
-                {courses
-                  .filter(
-                    (course) =>
-                      course.status === "active" &&
-                      !courseIds.includes(course._id),
-                  )
-                  .map((course) => (
-                    <SelectItem key={course._id} value={course._id}>
-                      {course.code ? `${course.code} · ` : ""}
-                      {course.name}
-                    </SelectItem>
-                  ))}
+                {linkableCourses.map((course) => (
+                  <SelectItem key={course._id} value={course._id}>
+                    {course.code ? `${course.code} · ` : ""}
+                    {course.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             {courseIds.length > 0 && (

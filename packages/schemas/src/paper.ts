@@ -51,11 +51,25 @@ export const paperHighlightSchema = z.object({
 });
 export type PaperHighlight = z.infer<typeof paperHighlightSchema>;
 
-export const paperProgressSchema = z.object({
-  currentPage: z.number().int().positive().max(100_000),
-  totalPages: z.number().int().positive().max(100_000).optional(),
-  updatedAt: z.iso.datetime(),
-});
+const withinDocument = (progress: {
+  currentPage: number;
+  totalPages?: number;
+}) =>
+  progress.totalPages === undefined ||
+  progress.currentPage <= progress.totalPages;
+
+const beyondEnd = {
+  message: "Page is beyond the end of the document",
+  path: ["currentPage"] as PropertyKey[],
+};
+
+export const paperProgressSchema = z
+  .object({
+    currentPage: z.number().int().positive().max(100_000),
+    totalPages: z.number().int().positive().max(100_000).optional(),
+    updatedAt: z.iso.datetime(),
+  })
+  .refine(withinDocument, beyondEnd);
 export type PaperProgress = z.infer<typeof paperProgressSchema>;
 
 export const paperFileSchema = z.object({
@@ -205,11 +219,22 @@ export type CreatePaperInput = z.infer<typeof createPaperSchema>;
  * per turn is wasteful, and the status transitions they imply are decided on
  * the server so two devices reading the same PDF cannot disagree.
  */
-export const paperProgressUpdateSchema = z.object({
-  currentPage: z.number().int().positive().max(100_000),
-  totalPages: z.number().int().positive().max(100_000).optional(),
-});
+export const paperProgressUpdateSchema = z
+  .object({
+    currentPage: z.number().int().positive().max(100_000),
+    totalPages: z.number().int().positive().max(100_000).optional(),
+  })
+  .refine(withinDocument, beyondEnd);
 export type PaperProgressUpdate = z.infer<typeof paperProgressUpdateSchema>;
+
+/**
+ * Page count learned from loading the PDF. It carries no position, so it never
+ * implies the document was opened to be read and never moves the status.
+ */
+export const paperProgressMetadataSchema = z.object({
+  totalPages: z.number().int().positive().max(100_000),
+});
+export type PaperProgressMetadata = z.infer<typeof paperProgressMetadataSchema>;
 
 export const paperCourseRefSchema = z.object({
   _id: z.string(),
