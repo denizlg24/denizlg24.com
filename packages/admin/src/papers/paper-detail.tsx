@@ -44,10 +44,10 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
-import { InlinePdfReader, MobilePdfReader } from "./pdf-reader";
 import {
   authorLine,
   dueLabel,
@@ -58,6 +58,33 @@ import {
 
 const PROGRESS_DEBOUNCE_MS = 900;
 const MOBILE_BREAKPOINT_PX = 768;
+
+// pdf.js touches DOMMatrix at module scope, so importing it into a
+// server-rendered chunk throws before anything renders. Both readers load
+// browser-side only, the same way the LaTeX PDF preview does.
+const InlinePdfReader = dynamic(
+  () => import("./pdf-reader").then((module) => module.InlinePdfReader),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[32rem] items-center justify-center border-b bg-muted/20 text-xs text-muted-foreground">
+        Loading PDF…
+      </div>
+    ),
+  },
+);
+
+const MobilePdfReader = dynamic(
+  () => import("./pdf-reader").then((module) => module.MobilePdfReader),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background text-xs text-muted-foreground">
+        Loading PDF…
+      </div>
+    ),
+  },
+);
 
 interface PaperDetailProps {
   paper: IPaper;
