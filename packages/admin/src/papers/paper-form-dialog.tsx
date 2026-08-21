@@ -2,7 +2,9 @@
 
 import type {
   IPaper,
+  KanbanPriority,
   PaperAuthor,
+  PaperCourseRef,
   PaperFile,
   PaperMutation,
   PaperType,
@@ -25,18 +27,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
+import { Switch } from "@repo/ui/switch";
 import { Textarea } from "@repo/ui/textarea";
-import { FileUp, Loader2, Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { FileUp, Loader2, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import { fromDateInput, toDateInput } from "./reading";
 
 interface PaperFormDialogProps {
   open: boolean;
   paper?: IPaper | null;
+  courses: PaperCourseRef[];
   onOpenChange: (open: boolean) => void;
   onSubmit: (input: PaperMutation & { title: string }) => Promise<void>;
 }
+
+const PRIORITIES: KanbanPriority[] = [
+  "none",
+  "low",
+  "medium",
+  "high",
+  "urgent",
+];
 
 const PAPER_TYPES: PaperType[] = [
   "article",
@@ -95,6 +108,7 @@ function parseList(value: string): string[] {
 export function PaperFormDialog({
   open,
   paper,
+  courses,
   onOpenChange,
   onSubmit,
 }: PaperFormDialogProps) {
@@ -125,8 +139,22 @@ export function PaperFormDialog({
   const [resolvedMetadata, setResolvedMetadata] =
     useState<ResolvedPaperMetadata | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [courseIds, setCourseIds] = useState<string[]>([]);
+  const [dueAt, setDueAt] = useState("");
+  const [priority, setPriority] = useState<KanbanPriority>("none");
+  const [citable, setCitable] = useState(true);
+  const [citableTouched, setCitableTouched] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const linkableCourses = useMemo(
+    () =>
+      courses.filter(
+        (course) =>
+          course.status === "active" && !courseIds.includes(course._id),
+      ),
+    [courses, courseIds],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -153,6 +181,11 @@ export function PaperFormDialog({
     setMetadataFetchedAt(paper?.metadataFetchedAt);
     setResolvedMetadata(null);
     setPdfFile(null);
+    setCourseIds(paper?.courseIds ?? []);
+    setDueAt(toDateInput(paper?.dueAt));
+    setPriority(paper?.priority ?? "none");
+    setCitable(paper?.citable ?? false);
+    setCitableTouched(Boolean(paper));
   }, [open, paper]);
 
   const applyMetadata = (metadata: ResolvedPaperMetadata) => {
@@ -175,6 +208,9 @@ export function PaperFormDialog({
     setIssn(listToText(metadata.issn ?? []));
     setMetadataSource(metadata.metadataSource ?? "manual");
     setMetadataFetchedAt(metadata.metadataFetchedAt);
+    // Resolving against Crossref, arXiv or OpenAlex is exactly the evidence
+    // that makes something citable, so flip it unless it was set by hand.
+    if (!citableTouched) setCitable(true);
   };
 
   const handleLookup = async () => {
@@ -246,6 +282,10 @@ export function PaperFormDialog({
           ? { citationCount: resolvedMetadata.citationCount }
           : {}),
         ...(pdf ? { pdf } : {}),
+        citable,
+        courseIds,
+        priority: priority === "none" ? null : priority,
+        dueAt: fromDateInput(dueAt),
       });
       onOpenChange(false);
     } catch (error) {
@@ -259,7 +299,7 @@ export function PaperFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{paper ? "Edit paper" : "Add paper"}</DialogTitle>
+          <DialogTitle>{paper ? "Edit reading" : "Add reading"}</DialogTitle>
         </DialogHeader>
 
         <div className="flex gap-2 rounded-md border bg-muted/20 p-2">
@@ -440,6 +480,99 @@ export function PaperFormDialog({
               <FileUp className="size-3.5" />
               {pdfFile?.name ?? paper?.pdf?.fileName ?? "Choose PDF"}
             </Button>
+          </Field>
+
+          <Field label="Classes" className="sm:col-span-2">
+            <Select
+              value=""
+              disabled={linkableCourses.length === 0}
+              onValueChange={(courseId) =>
+                setCourseIds((current) =>
+                  current.includes(courseId) ? current : [...current, courseId],
+                )
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Link class" />
+              </SelectTrigger>
+              <SelectContent>
+                {linkableCourses.map((course) => (
+                  <SelectItem key={course._id} value={course._id}>
+                    {course.code ? `${course.code} · ` : ""}
+                    {course.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {courseIds.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {courseIds.map((courseId) => {
+                  const course = courses.find(
+                    (candidate) => candidate._id === courseId,
+                  );
+                  return (
+                    <span
+                      key={courseId}
+                      className="inline-flex items-center gap-1 border px-1.5 py-0.5 font-mono text-[10px]"
+                    >
+                      {course?.code || course?.name || courseId}
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() =>
+                          setCourseIds((current) =>
+                            current.filter((id) => id !== courseId),
+                          )
+                        }
+                        aria-label={`Unlink ${course?.name ?? "class"}`}
+                      >
+                        <X className="size-2.5" />
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </Field>
+
+          <Field label="Due">
+            <Input
+              type="date"
+              value={dueAt}
+              onChange={(event) => setDueAt(event.target.value)}
+            />
+          </Field>
+          <Field label="Priority">
+            <Select
+              value={priority}
+              onValueChange={(value) => setPriority(value as KanbanPriority)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRIORITIES.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {value}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field label="Citable" className="sm:col-span-2">
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={citable}
+                onCheckedChange={(next) => {
+                  setCitable(next);
+                  setCitableTouched(true);
+                }}
+              />
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {citable ? "bibliography" : "reading only"}
+              </span>
+            </div>
           </Field>
         </div>
 

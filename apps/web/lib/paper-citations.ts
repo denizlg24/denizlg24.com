@@ -168,6 +168,17 @@ export function serializePaper(paper: ILeanPaper) {
   return {
     ...paper,
     _id: String(paper._id),
+    citable: paper.citable !== false,
+    courseIds: (paper.courseIds ?? []).map(String),
+    progress: paper.progress
+      ? {
+          ...paper.progress,
+          updatedAt: paper.progress.updatedAt.toISOString(),
+        }
+      : undefined,
+    dueAt: paper.dueAt?.toISOString(),
+    startedAt: paper.startedAt?.toISOString(),
+    completedAt: paper.completedAt?.toISOString(),
     noteId: paper.noteId ? String(paper.noteId) : undefined,
     noteIds: (paper.noteIds ?? []).map(String),
     publishedDate: paper.publishedDate?.toISOString(),

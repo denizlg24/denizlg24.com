@@ -2,6 +2,8 @@
 
 import type {
   IPaper,
+  PaperCourseRef,
+  PaperFile,
   PaperMutation,
   PaperNoteRef,
   PaperReadingStatus,
@@ -32,6 +34,7 @@ import {
   BookOpen,
   Download,
   FileText,
+  GraduationCap,
   Highlighter,
   Link2,
   Loader2,
@@ -43,35 +46,51 @@ import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { PaperDetail } from "./paper-detail";
 import { PaperFormDialog } from "./paper-form-dialog";
+import {
+  byReadingRecency,
+  dueLabel,
+  isOverdue,
+  READING_STATUS_LABEL,
+  readingPercent,
+} from "./reading";
 
-interface PapersResponse {
+export interface PapersResponse {
   papers: IPaper[];
   notes: PaperNoteRef[];
+  courses: PaperCourseRef[];
 }
 
 type StatusFilter = "all" | PaperReadingStatus;
 type TypeFilter = "all" | PaperType;
 type PdfFilter = "all" | "with-pdf" | "missing-pdf";
+type CourseFilter = "all" | "none" | string;
+type LibraryFilter = "all" | "citable" | "reading-only";
 
 export function PapersPage() {
   const { client, platform, slots } = useAdmin();
   const [papers, setPapers] = useState<IPaper[]>([]);
   const [notes, setNotes] = useState<PaperNoteRef[]>([]);
+  const [courses, setCourses] = useState<PaperCourseRef[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [type, setType] = useState<TypeFilter>("all");
   const [pdfFilter, setPdfFilter] = useState<PdfFilter>("all");
+  const [courseFilter, setCourseFilter] = useState<CourseFilter>("all");
+  const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<IPaper | null>(null);
   const [deleting, setDeleting] = useState<IPaper | null>(null);
+  const [dropping, setDropping] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const result = await client.get<PapersResponse>("papers");
       setPapers(result.papers);
       setNotes(result.notes);
+      setCourses(result.courses ?? []);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to load papers",
@@ -98,6 +117,16 @@ export function PapersPage() {
       if (type !== "all" && paper.type !== type) return false;
       if (pdfFilter === "with-pdf" && !paper.pdf) return false;
       if (pdfFilter === "missing-pdf" && paper.pdf) return false;
+      if (libraryFilter === "citable" && !paper.citable) return false;
+      if (libraryFilter === "reading-only" && paper.citable) return false;
+      if (courseFilter === "none" && paper.courseIds.length > 0) return false;
+      if (
+        courseFilter !== "all" &&
+        courseFilter !== "none" &&
+        !paper.courseIds.includes(courseFilter)
+      ) {
+        return false;
+      }
       if (!needle) return true;
       const searchable = [
         paper.title,
@@ -118,7 +147,16 @@ export function PapersPage() {
         .toLowerCase();
       return searchable.includes(needle);
     });
-  }, [papers, pdfFilter, query, status, type]);
+  }, [courseFilter, libraryFilter, papers, pdfFilter, query, status, type]);
+
+  const continueReading = useMemo(
+    () =>
+      papers
+        .filter((paper) => paper.readingStatus === "reading")
+        .sort(byReadingRecency)
+        .slice(0, 4),
+    [papers],
+  );
 
   const selectedPaper = papers.find((paper) => paper._id === selectedId);
 
@@ -161,13 +199,95 @@ export function PapersPage() {
     }
   };
 
+  const saveProgress = async (
+    paperId: string,
+    currentPage: number,
+    totalPages?: number,
+  ) => {
+    const result = await client.put<{ paper: IPaper }>(
+      `papers/${paperId}/progress`,
+      { currentPage, totalPages },
+    );
+    setPapers((current) =>
+      current.map((paper) => (paper._id === paperId ? result.paper : paper)),
+    );
+  };
+
+  const saveTotalPages = async (paperId: string, totalPages: number) => {
+    const result = await client.patch<{ paper: IPaper }>(
+      `papers/${paperId}/progress`,
+      { totalPages },
+    );
+    setPapers((current) =>
+      current.map((paper) => (paper._id === paperId ? result.paper : paper)),
+    );
+  };
+
+  // Only citable rows belong in a .bib — the rest are readings that would
+  // become fabricated bibliography entries.
+  const citablePapers = visiblePapers.filter((paper) => paper.citable);
+
   const exportLibrary = async () => {
-    const bibtex = visiblePapers.map((paper) => paper.bibtex).join("\n\n");
+    const bibtex = citablePapers.map((paper) => paper.bibtex).join("\n\n");
     await platform.downloadFile(
       "papers.bib",
       `${bibtex}\n`,
       "application/x-bibtex",
     );
+  };
+
+  /**
+   * A dropped PDF becomes a reading immediately, with the filename as a
+   * placeholder title. It stays non-citable unless metadata resolution or the
+   * owner says otherwise.
+   */
+  const importDroppedPdfs = async (files: File[]) => {
+    const pdfs = files.filter(
+      (file) =>
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf"),
+    );
+    if (pdfs.length === 0) {
+      toast.error("No PDFs in that drop");
+      return;
+    }
+
+    setImporting(true);
+    let added = 0;
+    let failed = 0;
+    // Per file, so one bad PDF does not silently discard everything dropped
+    // after it.
+    for (const file of pdfs) {
+      try {
+        const data = new FormData();
+        data.append("file", file);
+        const uploaded = await client.upload<{ pdf: PaperFile }>(
+          "papers/upload",
+          data,
+        );
+        const result = await client.post<{ paper: IPaper }>("papers", {
+          title: file.name.replace(/\.pdf$/i, ""),
+          type: "other",
+          pdf: uploaded.pdf,
+          citable: false,
+          courseIds:
+            courseFilter !== "all" && courseFilter !== "none"
+              ? [courseFilter]
+              : undefined,
+        });
+        setPapers((current) => [result.paper, ...current]);
+        added += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setImporting(false);
+    if (added > 0) {
+      toast.success(added === 1 ? "Reading added" : `${added} readings added`);
+    }
+    if (failed > 0) {
+      toast.error(failed === 1 ? "1 file failed" : `${failed} files failed`);
+    }
   };
 
   if (loading) return <PapersSkeleton />;
@@ -178,6 +298,7 @@ export function PapersPage() {
         <PaperDetail
           paper={selectedPaper}
           notes={notes}
+          courses={courses}
           onBack={() => setSelectedId(null)}
           onEdit={() => setEditing(selectedPaper)}
           onDelete={() => setDeleting(selectedPaper)}
@@ -190,10 +311,17 @@ export function PapersPage() {
               );
             }
           }}
+          onProgress={async (currentPage, totalPages) => {
+            await saveProgress(selectedPaper._id, currentPage, totalPages);
+          }}
+          onTotalPages={async (totalPages) => {
+            await saveTotalPages(selectedPaper._id, totalPages);
+          }}
         />
         <PaperFormDialog
           open={editing !== null}
           paper={editing}
+          courses={courses}
           onOpenChange={(open) => !open && setEditing(null)}
           onSubmit={editPaper}
         />
@@ -209,34 +337,53 @@ export function PapersPage() {
   const readingCount = papers.filter(
     (paper) => paper.readingStatus === "reading",
   ).length;
+  const dueCount = papers.filter((paper) => isOverdue(paper)).length;
   const highlightCount = papers.reduce(
     (total, paper) => total + paper.highlights.length,
     0,
   );
-  const missingPdfCount = papers.filter((paper) => !paper.pdf).length;
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className="relative flex h-full flex-col"
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDropping(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+        setDropping(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDropping(false);
+        void importDroppedPdfs([...event.dataTransfer.files]);
+      }}
+    >
       <div className="flex min-h-12 flex-wrap items-center gap-2 border-b px-4 py-2">
         {slots?.sidebarTrigger}
         <BookOpen className="size-4 text-muted-foreground" />
-        <h1 className="text-sm font-semibold">Papers</h1>
+        <h1 className="text-sm font-semibold">Reading</h1>
         <div className="hidden items-center gap-3 font-mono text-[10px] text-muted-foreground sm:flex">
           <span>{papers.length} total</span>
           <span>{readingCount} reading</span>
+          {dueCount > 0 && (
+            <span className="text-destructive">{dueCount} overdue</span>
+          )}
           <span>{highlightCount} highlights</span>
-          <span>{missingPdfCount} missing PDF</span>
         </div>
         <div className="min-w-44 flex-1" />
         <Button
           variant="outline"
           size="sm"
           className="h-7"
-          disabled={visiblePapers.length === 0}
+          disabled={citablePapers.length === 0}
           onClick={() => void exportLibrary()}
         >
           <Download className="size-3.5" />
-          <span className="hidden sm:inline">Export .bib</span>
+          <span className="hidden sm:inline">
+            Export .bib · {citablePapers.length}
+          </span>
         </Button>
         <Button size="sm" className="h-7" onClick={() => setCreateOpen(true)}>
           <Plus className="size-3.5" /> Add
@@ -298,13 +445,62 @@ export function PapersPage() {
               ))}
           </SelectContent>
         </Select>
+        <Select
+          value={courseFilter}
+          onValueChange={(value) => setCourseFilter(value as CourseFilter)}
+        >
+          <SelectTrigger size="sm" className="w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All classes</SelectItem>
+            <SelectItem value="none">No class</SelectItem>
+            {courses
+              .filter((course) => course.status === "active")
+              .map((course) => (
+                <SelectItem key={course._id} value={course._id}>
+                  {course.code ? `${course.code} · ` : ""}
+                  {course.name}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={libraryFilter}
+          onValueChange={(value) => setLibraryFilter(value as LibraryFilter)}
+        >
+          <SelectTrigger size="sm" className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Everything</SelectItem>
+            <SelectItem value="citable">Bibliography</SelectItem>
+            <SelectItem value="reading-only">Readings only</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
+
+      {continueReading.length > 0 && courseFilter === "all" && (
+        <div className="border-b">
+          <div className="px-4 pt-2.5 pb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+            Continue reading
+          </div>
+          {continueReading.map((paper) => (
+            <ContinueRow
+              key={paper._id}
+              paper={paper}
+              onSelect={() => setSelectedId(paper._id)}
+            />
+          ))}
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto">
         {visiblePapers.map((paper) => (
           <PaperRow
             key={paper._id}
             paper={paper}
+            courses={courses}
             onSelect={() => setSelectedId(paper._id)}
           />
         ))}
@@ -315,9 +511,26 @@ export function PapersPage() {
         )}
       </div>
 
+      {(dropping || importing) && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 border border-dashed px-4 py-2 font-mono text-[11px] text-muted-foreground">
+            {importing ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" /> Importing
+              </>
+            ) : (
+              <>
+                <FileText className="size-3.5" /> Drop PDFs
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <PaperFormDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
+        courses={courses}
         onSubmit={createPaper}
       />
       <DeletePaperDialog
@@ -329,11 +542,54 @@ export function PapersPage() {
   );
 }
 
-function PaperRow({
+function ContinueRow({
   paper,
   onSelect,
 }: {
   paper: IPaper;
+  onSelect: () => void;
+}) {
+  const percent = readingPercent(paper) ?? 0;
+  const due = dueLabel(paper.dueAt);
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="group block w-full px-4 py-2 text-left transition-colors hover:bg-muted/30"
+    >
+      <div className="flex items-baseline gap-2">
+        <span className="min-w-0 flex-1 truncate text-sm">{paper.title}</span>
+        {due && (
+          <span
+            className={`shrink-0 font-mono text-[10px] tabular-nums ${
+              isOverdue(paper) ? "text-destructive" : "text-muted-foreground"
+            }`}
+          >
+            {due}
+          </span>
+        )}
+        <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+          {percent}%
+        </span>
+      </div>
+      <div className="mt-1.5 h-px w-full bg-border">
+        <div className="h-px bg-foreground" style={{ width: `${percent}%` }} />
+      </div>
+      <div className="mt-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+        p. {paper.progress?.currentPage ?? "—"} /{" "}
+        {paper.progress?.totalPages ?? "—"}
+      </div>
+    </button>
+  );
+}
+
+function PaperRow({
+  paper,
+  courses,
+  onSelect,
+}: {
+  paper: IPaper;
+  courses: PaperCourseRef[];
   onSelect: () => void;
 }) {
   const authors = paper.authors
@@ -341,6 +597,11 @@ function PaperRow({
     .map((author) => author.family || author.literal || author.given)
     .filter(Boolean)
     .join(", ");
+  const percent = readingPercent(paper);
+  const due = dueLabel(paper.dueAt);
+  const linkedCourses = paper.courseIds.flatMap(
+    (id) => courses.find((course) => course._id === id) ?? [],
+  );
   return (
     <button
       type="button"
@@ -377,12 +638,37 @@ function PaperRow({
               PDF missing
             </Badge>
           )}
+          {due && (
+            <span
+              className={`ml-auto shrink-0 font-mono text-[10px] tabular-nums ${
+                isOverdue(paper) ? "text-destructive" : "text-muted-foreground"
+              }`}
+            >
+              {due}
+            </span>
+          )}
         </div>
         <p className="mt-1 truncate pl-5.5 text-xs text-muted-foreground">
           {[authors || "—", paper.year, paper.venue]
             .filter(Boolean)
             .join(" · ")}
         </p>
+        {linkedCourses.length > 0 && (
+          <p className="mt-1 flex items-center gap-1.5 pl-5.5 font-mono text-[10px] text-muted-foreground">
+            <GraduationCap className="size-2.5" />
+            {linkedCourses
+              .map((course) => course.code || course.name)
+              .join(" · ")}
+          </p>
+        )}
+        {percent !== undefined && (
+          <div className="mt-1.5 ml-5.5 h-px bg-border">
+            <div
+              className="h-px bg-foreground/60"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+        )}
       </div>
       <div className="flex items-center justify-end gap-3 font-mono text-[10px] text-muted-foreground sm:justify-start">
         {paper.highlights.length > 0 && (
@@ -403,10 +689,10 @@ function PaperRow({
           variant={paper.readingStatus === "reading" ? "default" : "secondary"}
           className="text-[9px]"
         >
-          {paper.readingStatus}
+          {READING_STATUS_LABEL[paper.readingStatus]}
         </Badge>
         <span className="font-mono text-[9px] text-muted-foreground">
-          {paper.type}
+          {percent !== undefined ? `${percent}%` : paper.type}
         </span>
       </div>
     </button>
@@ -426,7 +712,7 @@ function DeletePaperDialog({
     <AlertDialog open={paper !== null} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete paper?</AlertDialogTitle>
+          <AlertDialogTitle>Delete reading?</AlertDialogTitle>
           <AlertDialogDescription>
             “{paper?.title}” and its stored PDF will be permanently deleted.
           </AlertDialogDescription>
@@ -452,7 +738,7 @@ export function PapersSkeleton() {
       <div className="flex h-12 items-center gap-2 border-b px-4">
         {slots?.sidebarTrigger}
         <BookOpen className="size-4 text-muted-foreground" />
-        <span className="text-sm font-semibold">Papers</span>
+        <span className="text-sm font-semibold">Reading</span>
         <div className="flex-1" />
         <Skeleton className="h-7 w-24" />
         <Skeleton className="h-7 w-16" />

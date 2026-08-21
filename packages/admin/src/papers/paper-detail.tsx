@@ -2,6 +2,7 @@
 
 import type {
   IPaper,
+  PaperCourseRef,
   PaperHighlight,
   PaperHighlightColor,
   PaperMutation,
@@ -25,42 +26,78 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@repo/ui/sheet";
 import { Textarea } from "@repo/ui/textarea";
 import {
   ArrowLeft,
   BookOpen,
-  ChevronLeft,
-  ChevronRight,
   Clipboard,
   Download,
   ExternalLink,
   FileText,
+  GraduationCap,
   Highlighter,
   Link2,
   Pencil,
   Plus,
   Quote,
   Trash2,
+  X,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
-import { Document, Page, pdfjs } from "react-pdf";
-import "react-pdf/dist/Page/AnnotationLayer.css";
-import "react-pdf/dist/Page/TextLayer.css";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import {
+  authorLine,
+  dueLabel,
+  fromDateInput,
+  isOverdue,
+  readingPercent,
+  requiredPace,
+  toDateInput,
+} from "./reading";
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
+const PROGRESS_DEBOUNCE_MS = 900;
+const MOBILE_BREAKPOINT_PX = 768;
+
+// pdf.js touches DOMMatrix at module scope, so importing it into a
+// server-rendered chunk throws before anything renders. Both readers load
+// browser-side only, the same way the LaTeX PDF preview does.
+const InlinePdfReader = dynamic(
+  () => import("./pdf-reader").then((module) => module.InlinePdfReader),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[32rem] items-center justify-center border-b bg-muted/20 text-xs text-muted-foreground">
+        Loading PDF…
+      </div>
+    ),
+  },
+);
+
+const MobilePdfReader = dynamic(
+  () => import("./pdf-reader").then((module) => module.MobilePdfReader),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background text-xs text-muted-foreground">
+        Loading PDF…
+      </div>
+    ),
+  },
+);
 
 interface PaperDetailProps {
   paper: IPaper;
   notes: PaperNoteRef[];
+  courses: PaperCourseRef[];
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onPatch: (input: PaperMutation) => Promise<void>;
+  onProgress: (currentPage: number, totalPages?: number) => Promise<void>;
+  onTotalPages: (totalPages: number) => Promise<void>;
 }
 
 const HIGHLIGHT_STYLE: Record<PaperHighlightColor, string> = {
@@ -71,28 +108,45 @@ const HIGHLIGHT_STYLE: Record<PaperHighlightColor, string> = {
   purple: "border-violet-400/30 bg-violet-400/10",
 };
 
-function authorLine(paper: IPaper): string {
-  return paper.authors
-    .map(
-      (author) =>
-        author.literal ||
-        [author.given, author.family].filter(Boolean).join(" "),
-    )
-    .filter(Boolean)
-    .join(", ");
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia(
+      `(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`,
+    );
+    const sync = () => setIsMobile(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+  return isMobile;
 }
 
 export function PaperDetail({
   paper,
   notes,
+  courses,
   onBack,
   onEdit,
   onDelete,
   onPatch,
+  onProgress,
+  onTotalPages,
 }: PaperDetailProps) {
   const { platform } = useAdmin();
+  const isMobile = useIsMobile();
   const [highlightOpen, setHighlightOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [readerOpen, setReaderOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(
+    paper.progress?.currentPage ?? 1,
+  );
+  const [totalPages, setTotalPages] = useState(paper.progress?.totalPages);
+  const [pendingHighlight, setPendingHighlight] = useState<{
+    text: string;
+    page: number;
+  } | null>(null);
+
   const linkedNotes = useMemo(
     () =>
       paper.noteIds.flatMap(
@@ -103,6 +157,83 @@ export function PaperDetail({
   const availableNotes = useMemo(
     () => notes.filter((note) => !paper.noteIds.includes(note._id)),
     [notes, paper.noteIds],
+  );
+  const linkedCourses = useMemo(
+    () =>
+      paper.courseIds.flatMap(
+        (id) => courses.find((course) => course._id === id) ?? [],
+      ),
+    [courses, paper.courseIds],
+  );
+  const availableCourses = useMemo(
+    () =>
+      courses.filter(
+        (course) =>
+          course.status === "active" && !paper.courseIds.includes(course._id),
+      ),
+    [courses, paper.courseIds],
+  );
+
+  // A page turn is cheap to make and expensive to send, so the write trails
+  // the reader rather than blocking it.
+  const pendingPage = useRef<{ page: number; total?: number } | null>(null);
+  const flushTimer = useRef<number | null>(null);
+
+  const flushProgress = useCallback(() => {
+    const pending = pendingPage.current;
+    pendingPage.current = null;
+    if (!pending) return;
+    void onProgress(pending.page, pending.total).catch(() => {
+      // The reader stays where it is; the next turn retries the write.
+    });
+  }, [onProgress]);
+
+  const queueProgress = useCallback(
+    (page: number, total?: number) => {
+      pendingPage.current = { page, total: total ?? totalPages };
+      if (flushTimer.current) window.clearTimeout(flushTimer.current);
+      flushTimer.current = window.setTimeout(
+        flushProgress,
+        PROGRESS_DEBOUNCE_MS,
+      );
+    },
+    [flushProgress, totalPages],
+  );
+
+  // Leaving the reader mid-debounce must not lose the page it was left on.
+  // This has to be an unmount-only effect: onProgress is an inline callback, so
+  // depending on it would re-run the cleanup every render and flush on every
+  // page turn, defeating the debounce it exists to preserve.
+  const flushRef = useRef(flushProgress);
+  flushRef.current = flushProgress;
+  useEffect(
+    () => () => {
+      if (flushTimer.current) window.clearTimeout(flushTimer.current);
+      flushRef.current();
+    },
+    [],
+  );
+
+  const goToPage = useCallback(
+    (page: number) => {
+      setCurrentPage(page);
+      queueProgress(page);
+    },
+    [queueProgress],
+  );
+
+  // Loading the PDF is not reading it, so the page count goes through the
+  // metadata path. Writing it as progress would stamp startedAt and move the
+  // status to "reading" just for opening the record.
+  const handleTotalPages = useCallback(
+    (total: number) => {
+      setTotalPages(total);
+      if (total === paper.progress?.totalPages) return;
+      void onTotalPages(total).catch(() => {
+        // The next load re-reports it; nothing here depends on the write.
+      });
+    },
+    [onTotalPages, paper.progress?.totalPages],
   );
 
   const copyBibtex = async () => {
@@ -123,6 +254,60 @@ export function PaperDetail({
     setCurrentPage(highlight.page ?? currentPage);
   };
 
+  const captureSelection = useCallback((text: string, page: number) => {
+    setPendingHighlight({ text, page });
+    setHighlightOpen(true);
+  }, []);
+
+  // On a phone the point of opening a reading is to read it, so the reader is
+  // the landing surface. Closing it falls back to the metadata page and must
+  // not bounce straight back in.
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (!isMobile || autoOpened.current || !paper.pdf) return;
+    autoOpened.current = true;
+    setReaderOpen(true);
+  }, [isMobile, paper.pdf]);
+
+  const percent = readingPercent(paper);
+  const pace = requiredPace(paper);
+
+  if (isMobile && readerOpen && paper.pdf) {
+    return (
+      <>
+        <MobilePdfReader
+          url={paper.pdf.url}
+          fileName={paper.pdf.fileName}
+          title={paper.title}
+          page={currentPage}
+          onPageChange={goToPage}
+          onTotalPages={handleTotalPages}
+          onClose={() => setReaderOpen(false)}
+          onOpenDetails={() => setDetailsOpen(true)}
+          onHighlightSelection={captureSelection}
+          footnote={pace ? `${pace} p/day` : dueLabel(paper.dueAt)}
+        />
+        <ReadingSheet
+          open={detailsOpen}
+          onOpenChange={setDetailsOpen}
+          paper={paper}
+          courses={linkedCourses}
+          onJumpToPage={goToPage}
+        />
+        <HighlightDialog
+          open={highlightOpen}
+          page={pendingHighlight?.page ?? currentPage}
+          quote={pendingHighlight?.text}
+          onOpenChange={(open) => {
+            setHighlightOpen(open);
+            if (!open) setPendingHighlight(null);
+          }}
+          onAdd={addHighlight}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-12 items-center gap-2 border-b px-4 py-2">
@@ -131,7 +316,7 @@ export function PaperDetail({
           size="icon"
           className="size-7"
           onClick={onBack}
-          aria-label="Back to papers"
+          aria-label="Back to reading list"
         >
           <ArrowLeft className="size-4" />
         </Button>
@@ -142,30 +327,43 @@ export function PaperDetail({
             {paper.citationKey}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7"
-          onClick={() => void copyBibtex()}
-        >
-          <Clipboard className="size-3.5" />
-          <span className="hidden sm:inline">BibTeX</span>
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          className="size-7"
-          onClick={() => void downloadBibtex()}
-          title="Download BibTeX"
-        >
-          <Download className="size-3.5" />
-        </Button>
+        {paper.pdf && (
+          <Button
+            size="sm"
+            className="h-7 md:hidden"
+            onClick={() => setReaderOpen(true)}
+          >
+            <BookOpen className="size-3.5" /> Read
+          </Button>
+        )}
+        {paper.citable && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="hidden h-7 sm:inline-flex"
+            onClick={() => void copyBibtex()}
+          >
+            <Clipboard className="size-3.5" />
+            BibTeX
+          </Button>
+        )}
+        {paper.citable && (
+          <Button
+            variant="outline"
+            size="icon"
+            className="hidden size-7 sm:inline-flex"
+            onClick={() => void downloadBibtex()}
+            title="Download BibTeX"
+          >
+            <Download className="size-3.5" />
+          </Button>
+        )}
         <Button
           variant="outline"
           size="icon"
           className="size-7"
           onClick={onEdit}
-          title="Edit paper"
+          title="Edit reading"
         >
           <Pencil className="size-3.5" />
         </Button>
@@ -174,7 +372,7 @@ export function PaperDetail({
           size="icon"
           className="size-7 text-destructive"
           onClick={onDelete}
-          title="Delete paper"
+          title="Delete reading"
         >
           <Trash2 className="size-3.5" />
         </Button>
@@ -184,11 +382,13 @@ export function PaperDetail({
         <div className="grid min-h-full xl:grid-cols-[minmax(0,1.4fr)_minmax(22rem,0.8fr)]">
           <main className="min-w-0 border-b xl:border-r xl:border-b-0">
             {paper.pdf ? (
-              <PdfPreview
+              <InlinePdfReader
                 url={paper.pdf.url}
                 fileName={paper.pdf.fileName}
-                currentPage={currentPage}
-                onPageChange={setCurrentPage}
+                page={currentPage}
+                onPageChange={goToPage}
+                onTotalPages={handleTotalPages}
+                onHighlightSelection={captureSelection}
               />
             ) : (
               <div className="flex min-h-64 items-center justify-center border-b text-muted-foreground/50">
@@ -211,6 +411,14 @@ export function PaperDetail({
                     <span className="font-mono text-xs text-muted-foreground">
                       {paper.citationCount} cited
                     </span>
+                  )}
+                  {!paper.citable && (
+                    <Badge
+                      variant="secondary"
+                      className="font-mono text-[10px]"
+                    >
+                      not citable
+                    </Badge>
                   )}
                   {!paper.pdf && (
                     <Badge
@@ -311,9 +519,107 @@ export function PaperDetail({
                 <SelectContent>
                   <SelectItem value="unread">Unread</SelectItem>
                   <SelectItem value="reading">Reading</SelectItem>
-                  <SelectItem value="read">Read</SelectItem>
+                  <SelectItem value="read">Completed</SelectItem>
                 </SelectContent>
               </Select>
+
+              {percent !== undefined && (
+                <div className="mt-3">
+                  <div className="h-0.5 w-full bg-border">
+                    <div
+                      className="h-0.5 bg-foreground"
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between font-mono text-[10px] tabular-nums text-muted-foreground">
+                    <span>
+                      {currentPage} /{" "}
+                      {totalPages ?? paper.progress?.totalPages ?? "—"}
+                    </span>
+                    <span>{percent}%</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-3 grid gap-2">
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    className="h-7 text-xs"
+                    value={toDateInput(paper.dueAt)}
+                    onChange={(event) =>
+                      void onPatch({ dueAt: fromDateInput(event.target.value) })
+                    }
+                  />
+                  {paper.dueAt && (
+                    <span
+                      className={`shrink-0 font-mono text-[10px] tabular-nums ${
+                        isOverdue(paper)
+                          ? "text-destructive"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {dueLabel(paper.dueAt)}
+                    </span>
+                  )}
+                </div>
+                {pace !== undefined && (
+                  <p className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                    {pace} p/day
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section className="border-b py-4">
+              <SectionLabel>Classes · {linkedCourses.length}</SectionLabel>
+              <Select
+                value=""
+                disabled={availableCourses.length === 0}
+                onValueChange={(courseId) =>
+                  void onPatch({ courseIds: [...paper.courseIds, courseId] })
+                }
+              >
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue placeholder="Link class" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableCourses.map((course) => (
+                    <SelectItem key={course._id} value={course._id}>
+                      {course.code ? `${course.code} · ` : ""}
+                      {course.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {linkedCourses.map((course) => (
+                  <span
+                    key={course._id}
+                    className="inline-flex items-center gap-1 border px-1.5 py-0.5 font-mono text-[10px]"
+                  >
+                    <GraduationCap className="size-2.5 text-muted-foreground" />
+                    {course.code || course.name}
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() =>
+                        void onPatch({
+                          courseIds: paper.courseIds.filter(
+                            (id) => id !== course._id,
+                          ),
+                        })
+                      }
+                      aria-label={`Unlink ${course.name}`}
+                    >
+                      <X className="size-2.5" />
+                    </button>
+                  </span>
+                ))}
+                {linkedCourses.length === 0 && (
+                  <p className="py-1 text-xs text-muted-foreground">—</p>
+                )}
+              </div>
             </section>
 
             <section className="border-b py-4">
@@ -409,7 +715,7 @@ export function PaperDetail({
                         <button
                           type="button"
                           className="font-mono text-[10px] text-muted-foreground hover:text-foreground"
-                          onClick={() => setCurrentPage(highlight.page ?? 1)}
+                          onClick={() => goToPage(highlight.page ?? 1)}
                         >
                           p. {highlight.page}
                         </button>
@@ -454,11 +760,98 @@ export function PaperDetail({
 
       <HighlightDialog
         open={highlightOpen}
-        page={currentPage}
-        onOpenChange={setHighlightOpen}
+        page={pendingHighlight?.page ?? currentPage}
+        quote={pendingHighlight?.text}
+        onOpenChange={(open) => {
+          setHighlightOpen(open);
+          if (!open) setPendingHighlight(null);
+        }}
         onAdd={addHighlight}
       />
     </div>
+  );
+}
+
+function ReadingSheet({
+  open,
+  onOpenChange,
+  paper,
+  courses,
+  onJumpToPage,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  paper: IPaper;
+  courses: PaperCourseRef[];
+  onJumpToPage: (page: number) => void;
+}) {
+  const percent = readingPercent(paper);
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle className="text-sm leading-tight">
+            {paper.title}
+          </SheetTitle>
+        </SheetHeader>
+        <div className="space-y-4 px-4 pb-6">
+          <p className="text-xs text-muted-foreground">
+            {authorLine(paper) || "—"}
+          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+            {percent !== undefined && <span>{percent}% read</span>}
+            {paper.dueAt && (
+              <span className={isOverdue(paper) ? "text-destructive" : ""}>
+                {dueLabel(paper.dueAt)}
+              </span>
+            )}
+            {courses.map((course) => (
+              <span key={course._id}>{course.code || course.name}</span>
+            ))}
+          </div>
+
+          <div>
+            <SectionLabel>Highlights · {paper.highlights.length}</SectionLabel>
+            <div className="space-y-2">
+              {paper.highlights.map((highlight) => (
+                <button
+                  key={highlight.id}
+                  type="button"
+                  className={`block w-full rounded-md border p-2.5 text-left ${HIGHLIGHT_STYLE[highlight.color]}`}
+                  onClick={() => {
+                    if (highlight.page) onJumpToPage(highlight.page);
+                    onOpenChange(false);
+                  }}
+                >
+                  {highlight.page && (
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      p. {highlight.page}
+                    </span>
+                  )}
+                  <blockquote className="mt-1 whitespace-pre-wrap text-xs leading-5">
+                    {highlight.text}
+                  </blockquote>
+                </button>
+              ))}
+              {paper.highlights.length === 0 && (
+                <p className="py-4 text-center text-xs text-muted-foreground">
+                  —
+                </p>
+              )}
+            </div>
+          </div>
+
+          {paper.abstract && (
+            <div>
+              <SectionLabel>Abstract</SectionLabel>
+              <p className="whitespace-pre-wrap text-xs leading-6 text-muted-foreground">
+                {paper.abstract}
+              </p>
+            </div>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -478,96 +871,16 @@ function SectionLabel({
   );
 }
 
-function PdfPreview({
-  url,
-  fileName,
-  currentPage,
-  onPageChange,
-}: {
-  url: string;
-  fileName: string;
-  currentPage: number;
-  onPageChange: (page: number) => void;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [numPages, setNumPages] = useState(0);
-  const [width, setWidth] = useState(720);
-
-  return (
-    <div className="border-b bg-muted/20">
-      <div className="flex h-9 items-center gap-2 border-b bg-background/80 px-3">
-        <FileText className="size-3.5 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
-          {fileName}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6"
-          disabled={currentPage <= 1}
-          onClick={() => onPageChange(currentPage - 1)}
-          aria-label="Previous page"
-        >
-          <ChevronLeft className="size-3.5" />
-        </Button>
-        <span className="min-w-14 text-center font-mono text-[10px] tabular-nums text-muted-foreground">
-          {currentPage} / {numPages || "—"}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6"
-          disabled={!numPages || currentPage >= numPages}
-          onClick={() => onPageChange(currentPage + 1)}
-          aria-label="Next page"
-        >
-          <ChevronRight className="size-3.5" />
-        </Button>
-      </div>
-      <div
-        ref={(node) => {
-          containerRef.current = node;
-          if (node) setWidth(node.clientWidth);
-        }}
-        className="flex min-h-[32rem] max-h-[70vh] justify-center overflow-auto p-3"
-      >
-        <Document
-          file={url}
-          onLoadSuccess={({ numPages: count }) => {
-            setNumPages(count);
-            onPageChange(Math.min(Math.max(currentPage, 1), count));
-          }}
-          loading={
-            <div className="flex min-h-80 items-center text-xs text-muted-foreground">
-              Loading PDF…
-            </div>
-          }
-          error={
-            <div className="flex min-h-80 items-center text-xs text-destructive">
-              PDF unavailable
-            </div>
-          }
-        >
-          <Page
-            pageNumber={currentPage}
-            width={Math.min(Math.max(width - 24, 280), 900)}
-            renderAnnotationLayer
-            renderTextLayer
-          />
-        </Document>
-      </div>
-    </div>
-  );
-}
-
 function HighlightDialog({
   open,
   page,
+  quote,
   onOpenChange,
   onAdd,
 }: {
   open: boolean;
   page: number;
+  quote?: string;
   onOpenChange: (open: boolean) => void;
   onAdd: (highlight: PaperHighlight) => Promise<void>;
 }) {
@@ -595,7 +908,10 @@ function HighlightDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (next) setHighlightPage(String(page));
+        if (next) {
+          setHighlightPage(String(page));
+          setText(quote ?? "");
+        }
         onOpenChange(next);
       }}
     >

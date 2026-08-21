@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { kanbanPrioritySchema } from "./kanban";
+import { paperReadingStatusSchema } from "./paper";
 import { timetableColorSchema } from "./timetable";
 import { triageCategorySchema } from "./triage";
 
@@ -155,6 +156,8 @@ export const courseStatsSchema = z.object({
   openAssignments: z.number(),
   gradedAssignments: z.number(),
   gradeAverage: z.number().nullable(),
+  readings: z.number(),
+  openReadings: z.number(),
 });
 export type ICourseStats = z.infer<typeof courseStatsSchema>;
 
@@ -162,6 +165,7 @@ export const courseDeadlineSourceSchema = z.enum([
   "manual",
   "kanban",
   "assignment",
+  "reading",
 ]);
 export type CourseDeadlineSource = z.infer<typeof courseDeadlineSourceSchema>;
 
@@ -276,6 +280,20 @@ export type ICourseResourceSummary = z.infer<
   typeof courseResourceSummarySchema
 >;
 
+export const courseReadingSummarySchema = z.object({
+  _id: z.string(),
+  title: z.string(),
+  authorLine: z.string().optional(),
+  readingStatus: paperReadingStatusSchema,
+  currentPage: z.number().optional(),
+  totalPages: z.number().optional(),
+  dueAt: z.string().optional(),
+  priority: kanbanPrioritySchema.optional(),
+  hasPdf: z.boolean(),
+  updatedAt: z.string(),
+});
+export type ICourseReadingSummary = z.infer<typeof courseReadingSummarySchema>;
+
 export const courseEmailSummarySchema = z.object({
   _id: z.string(),
   triageId: z.string(),
@@ -300,6 +318,7 @@ export const courseDetailSchema = z.object({
   notes: z.array(courseNoteSummarySchema),
   people: z.array(coursePersonSummarySchema),
   resources: z.array(courseResourceSummarySchema),
+  readings: z.array(courseReadingSummarySchema),
   emails: z.array(courseEmailSummarySchema),
 });
 export type ICourseDetail = z.infer<typeof courseDetailSchema>;

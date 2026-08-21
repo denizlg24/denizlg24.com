@@ -60,6 +60,7 @@ import {
   CourseAssignmentsPanel,
   CourseGradebookPanel,
 } from "./course-assignments";
+import { CourseReadingsPanel } from "./course-readings";
 import { SemesterCockpit } from "./semester-cockpit";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -457,6 +458,17 @@ function CourseHome({
                 courseId={course._id}
                 assignments={detail.assignments}
                 onOpenExternal={onOpenExternal}
+                onRefresh={onRefresh}
+              />
+            </Section>
+
+            <Section
+              title="Readings"
+              icon={<BookOpen className="size-4 text-muted-foreground" />}
+            >
+              <CourseReadingsPanel
+                courseId={course._id}
+                readings={detail.readings}
                 onRefresh={onRefresh}
               />
             </Section>

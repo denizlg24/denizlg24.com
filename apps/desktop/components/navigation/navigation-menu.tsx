@@ -231,7 +231,7 @@ export const GROUPS: NavGroup[] = [
         icon: Mic,
       },
       {
-        label: "Papers",
+        label: "Reading",
         href: "/papers",
         icon: BookOpen,
       },

@@ -5,20 +5,56 @@ import {
   normalizeArxivId,
   normalizeDoi,
 } from "@/lib/paper-citations";
+import { Course } from "@/models/Course";
 import { Note } from "@/models/Note";
 import { Paper } from "@/models/Paper";
 
-export async function prunePaperNoteIds(noteIds: string[] | undefined) {
-  if (!noteIds) return undefined;
+/**
+ * A record only belongs in a bibliography once it has an identity something
+ * else could resolve. A dropped lecture PDF has none, and the LaTeX reference
+ * panel reads the same collection, so it must not be offered as a citation.
+ */
+export function hasBibliographicIdentity(input: {
+  doi?: string;
+  arxivId?: string;
+  openAlexId?: string;
+  metadataSource?: CreatePaperInput["metadataSource"];
+}): boolean {
+  return Boolean(
+    input.doi ||
+      input.arxivId ||
+      input.openAlexId ||
+      (input.metadataSource && input.metadataSource !== "manual"),
+  );
+}
+
+/**
+ * Links are sent as ids from a client that may be holding a stale list, so a
+ * link to something deleted since is dropped rather than stored dangling.
+ */
+async function pruneExistingIds<T>(
+  model: mongoose.Model<T>,
+  values: string[] | undefined,
+) {
+  if (!values) return undefined;
   const ids = [
-    ...new Set(noteIds.filter((id) => mongoose.Types.ObjectId.isValid(id))),
+    ...new Set(values.filter((id) => mongoose.Types.ObjectId.isValid(id))),
   ];
   if (ids.length === 0) return [];
-  const existing = await Note.find({ _id: { $in: ids } })
+  const existing = await model
+    .find({ _id: { $in: ids } })
     .select("_id")
     .lean<Array<{ _id: mongoose.Types.ObjectId }>>()
     .exec();
-  return existing.map((note) => note._id);
+  return existing.map((doc) => doc._id);
+}
+
+export async function prunePaperCourseIds(courseIds: string[] | undefined) {
+  return pruneExistingIds(Course, courseIds);
+}
+
+export async function prunePaperNoteIds(noteIds: string[] | undefined) {
+  return pruneExistingIds(Note, noteIds);
 }
 
 export async function availableCitationKey(base: string): Promise<string> {
@@ -55,6 +91,7 @@ export async function prepareNewPaper(input: CreatePaperInput) {
   const doi = normalizeIdentifier(input.doi, "doi");
   const arxivId = normalizeIdentifier(input.arxivId, "arxiv");
   const noteIds = await prunePaperNoteIds(input.noteIds);
+  const courseIds = await prunePaperCourseIds(input.courseIds);
   const baseCitationKey =
     input.citationKey?.trim() ||
     generateCitationKey({
@@ -75,6 +112,15 @@ export async function prepareNewPaper(input: CreatePaperInput) {
     issn: dedupeStrings(input.issn) ?? [],
     tags: dedupeStrings(input.tags) ?? [],
     noteIds: noteIds ?? [],
+    courseIds: courseIds ?? [],
+    citable:
+      input.citable ??
+      hasBibliographicIdentity({
+        doi,
+        arxivId,
+        openAlexId: input.openAlexId,
+        metadataSource: input.metadataSource,
+      }),
     highlights: input.highlights ?? [],
     metadataSource: input.metadataSource ?? "manual",
     publishedDate: input.publishedDate
@@ -83,6 +129,12 @@ export async function prepareNewPaper(input: CreatePaperInput) {
     metadataFetchedAt: input.metadataFetchedAt
       ? new Date(input.metadataFetchedAt)
       : undefined,
+    progress: input.progress
+      ? { ...input.progress, updatedAt: new Date(input.progress.updatedAt) }
+      : undefined,
+    dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
+    startedAt: input.startedAt ? new Date(input.startedAt) : undefined,
+    completedAt: input.completedAt ? new Date(input.completedAt) : undefined,
   };
 }
 
@@ -102,18 +154,59 @@ const OPTIONAL_STRING_FIELDS = [
   "url",
 ] as const satisfies ReadonlyArray<keyof PaperMutation>;
 
-export async function preparePaperUpdate(input: PaperMutation) {
+export interface PaperLifecycleState {
+  startedAt?: Date;
+  completedAt?: Date;
+  progress?: { currentPage: number; totalPages?: number; updatedAt: Date };
+}
+
+/**
+ * Reaching a status stamps the date it was first reached, never re-stamps it.
+ * Flipping back to "reading" to re-read something must not erase when it was
+ * originally started, and an explicit date in the mutation always wins.
+ */
+function lifecycleStamps(
+  status: NonNullable<PaperMutation["readingStatus"]>,
+  input: PaperMutation,
+  previous: PaperLifecycleState,
+): Record<string, Date> {
+  const stamps: Record<string, Date> = {};
+  const now = new Date();
+  if (
+    (status === "reading" || status === "read") &&
+    input.startedAt === undefined &&
+    !previous.startedAt
+  ) {
+    stamps.startedAt = now;
+  }
+  if (
+    status === "read" &&
+    input.completedAt === undefined &&
+    !previous.completedAt
+  ) {
+    stamps.completedAt = now;
+  }
+  return stamps;
+}
+
+export async function preparePaperUpdate(
+  input: PaperMutation,
+  previous: PaperLifecycleState,
+) {
   const set: Record<string, unknown> = {};
   const unset: Record<string, 1> = {};
 
   if (input.title !== undefined) set.title = input.title;
   if (input.authors !== undefined) set.authors = input.authors;
   if (input.type !== undefined) set.type = input.type;
-  if (input.readingStatus !== undefined)
+  if (input.readingStatus !== undefined) {
     set.readingStatus = input.readingStatus;
+    Object.assign(set, lifecycleStamps(input.readingStatus, input, previous));
+  }
   if (input.metadataSource !== undefined)
     set.metadataSource = input.metadataSource;
   if (input.isRetracted !== undefined) set.isRetracted = input.isRetracted;
+  if (input.citable !== undefined) set.citable = input.citable;
 
   for (const field of OPTIONAL_STRING_FIELDS) {
     const value = input[field];
@@ -143,10 +236,41 @@ export async function preparePaperUpdate(input: PaperMutation) {
     else if (value !== undefined) set[field] = value;
   }
 
-  for (const field of ["publishedDate", "metadataFetchedAt"] as const) {
+  for (const field of [
+    "publishedDate",
+    "metadataFetchedAt",
+    "dueAt",
+    "startedAt",
+    "completedAt",
+  ] as const) {
     const value = input[field];
     if (value === null) unset[field] = 1;
     else if (value !== undefined) set[field] = new Date(value);
+  }
+
+  if (input.priority === null) unset.priority = 1;
+  else if (input.priority !== undefined) set.priority = input.priority;
+
+  if (input.progress === null) unset.progress = 1;
+  else if (input.progress !== undefined) {
+    // The subdocument is replaced wholesale, so a payload that only moves the
+    // page would otherwise drop the page count and every display built on it.
+    const totalPages =
+      input.progress.totalPages ?? previous.progress?.totalPages;
+    if (totalPages !== undefined && input.progress.currentPage > totalPages) {
+      throw new Error(
+        "Invalid progress: page is beyond the end of the document",
+      );
+    }
+    set.progress = {
+      ...input.progress,
+      totalPages,
+      updatedAt: new Date(input.progress.updatedAt),
+    };
+  }
+
+  if (input.courseIds !== undefined) {
+    set.courseIds = await prunePaperCourseIds(input.courseIds);
   }
 
   if (input.pdf === null) unset.pdf = 1;

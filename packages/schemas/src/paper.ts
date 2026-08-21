@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { kanbanPrioritySchema } from "./kanban";
 
 export const paperTypeSchema = z.enum([
   "article",
@@ -50,6 +51,27 @@ export const paperHighlightSchema = z.object({
 });
 export type PaperHighlight = z.infer<typeof paperHighlightSchema>;
 
+const withinDocument = (progress: {
+  currentPage: number;
+  totalPages?: number;
+}) =>
+  progress.totalPages === undefined ||
+  progress.currentPage <= progress.totalPages;
+
+const beyondEnd = {
+  message: "Page is beyond the end of the document",
+  path: ["currentPage"] as PropertyKey[],
+};
+
+export const paperProgressSchema = z
+  .object({
+    currentPage: z.number().int().positive().max(100_000),
+    totalPages: z.number().int().positive().max(100_000).optional(),
+    updatedAt: z.iso.datetime(),
+  })
+  .refine(withinDocument, beyondEnd);
+export type PaperProgress = z.infer<typeof paperProgressSchema>;
+
 export const paperFileSchema = z.object({
   url: z.url(),
   storageKey: z.string().max(1_000).optional(),
@@ -92,6 +114,18 @@ export const paperSchema = z.object({
   citationCount: z.number().int().nonnegative().optional(),
   url: z.string().optional(),
   pdf: paperFileSchema.optional(),
+  /**
+   * Whether this belongs in a bibliography. The LaTeX reference panel reads
+   * the same collection, so an uploaded lecture PDF with no bibliographic
+   * identity must not be offered as something to \cite.
+   */
+  citable: z.boolean(),
+  courseIds: z.array(z.string()),
+  progress: paperProgressSchema.optional(),
+  dueAt: z.string().optional(),
+  priority: kanbanPrioritySchema.optional(),
+  startedAt: z.string().optional(),
+  completedAt: z.string().optional(),
   noteId: z.string().optional(),
   tags: z.array(z.string()),
   noteIds: z.array(z.string()),
@@ -148,6 +182,13 @@ export const paperMutationSchema = z.object({
   citationCount: z.number().int().nonnegative().nullable().optional(),
   url: z.string().trim().url().max(2_000).or(z.literal("")).optional(),
   pdf: paperFileSchema.nullable().optional(),
+  citable: z.boolean().optional(),
+  courseIds: z.array(z.string().trim().min(1).max(100)).max(100).optional(),
+  progress: paperProgressSchema.nullable().optional(),
+  dueAt: z.iso.datetime().nullable().optional(),
+  priority: kanbanPrioritySchema.nullable().optional(),
+  startedAt: z.iso.datetime().nullable().optional(),
+  completedAt: z.iso.datetime().nullable().optional(),
   tags: z.array(z.string().trim().min(1).max(100)).max(200).optional(),
   noteIds: z.array(z.string().trim().min(1).max(100)).max(1_000).optional(),
   highlights: z.array(paperHighlightSchema).max(10_000).optional(),
@@ -165,8 +206,48 @@ export const createPaperSchema = paperMutationSchema.extend({
   citationCount: z.number().int().nonnegative().optional(),
   pdf: paperFileSchema.optional(),
   metadataFetchedAt: z.iso.datetime().optional(),
+  progress: paperProgressSchema.optional(),
+  dueAt: z.iso.datetime().optional(),
+  priority: kanbanPrioritySchema.optional(),
+  startedAt: z.iso.datetime().optional(),
+  completedAt: z.iso.datetime().optional(),
 });
 export type CreatePaperInput = z.infer<typeof createPaperSchema>;
+
+/**
+ * Page turns are frequent enough that revalidating the whole mutation schema
+ * per turn is wasteful, and the status transitions they imply are decided on
+ * the server so two devices reading the same PDF cannot disagree.
+ */
+export const paperProgressUpdateSchema = z
+  .object({
+    currentPage: z.number().int().positive().max(100_000),
+    totalPages: z.number().int().positive().max(100_000).optional(),
+  })
+  .refine(withinDocument, beyondEnd);
+export type PaperProgressUpdate = z.infer<typeof paperProgressUpdateSchema>;
+
+/**
+ * Page count learned from loading the PDF. It carries no position, so it never
+ * implies the document was opened to be read and never moves the status.
+ */
+export const paperProgressMetadataSchema = z.object({
+  totalPages: z.number().int().positive().max(100_000),
+});
+export type PaperProgressMetadata = z.infer<typeof paperProgressMetadataSchema>;
+
+export const paperCourseRefSchema = z.object({
+  _id: z.string(),
+  name: z.string(),
+  code: z.string().optional(),
+  color: z.string().optional(),
+  /**
+   * Archived classes are still returned so a reading from a past semester
+   * keeps its chip; only active ones are offered in the link picker.
+   */
+  status: z.enum(["active", "archived"]),
+});
+export type PaperCourseRef = z.infer<typeof paperCourseRefSchema>;
 
 export const resolvePaperMetadataSchema = z.object({
   identifier: z.string().trim().min(1).max(500),
