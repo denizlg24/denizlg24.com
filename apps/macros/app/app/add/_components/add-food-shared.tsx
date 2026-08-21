@@ -20,7 +20,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { z } from "zod";
 import { type LogFoodInput, logFoodBodySchema } from "@/lib/foods/contracts";
 import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition";
@@ -56,6 +63,44 @@ export function dateFromIsoDate(value: string) {
   }
 
   return new Date(year, month - 1, day);
+}
+
+export function isoDateFromDate(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Keeps the entry date pinned to the server's notion of today across a day
+ * rollover, until the owner picks a date themselves.
+ */
+export function useEntryDate(
+  today: string,
+  timezone: string,
+  initial?: { date?: Date; hour?: number },
+) {
+  const [selectedDate, setSelectedDate] = useState(
+    () => initial?.date ?? dateFromIsoDate(today),
+  );
+  const [selectedHour, setSelectedHour] = useState(
+    () => initial?.hour ?? getHourInTimezone(new Date(), timezone),
+  );
+  const pinnedRef = useRef(initial?.date == null);
+
+  useEffect(() => {
+    if (!pinnedRef.current) return;
+
+    setSelectedDate((current) =>
+      isoDateFromDate(current) === today ? current : dateFromIsoDate(today),
+    );
+    setSelectedHour(getHourInTimezone(new Date(), timezone));
+  }, [today, timezone]);
+
+  const pickDate = useCallback((next: Date) => {
+    pinnedRef.current = false;
+    setSelectedDate(next);
+  }, []);
+
+  return { selectedDate, selectedHour, pickDate, setSelectedHour };
 }
 
 export function formatHourLabel(hour: number) {

@@ -5,6 +5,7 @@ import type { FoodHistoryItem } from "@/lib/foods/contracts";
 import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 import type { DashboardData } from "@/lib/queries/dashboard";
 import type { WeightOverview } from "@/lib/weights/contracts";
+import { useCurrentDay } from "./current-day";
 import { queryKeys } from "./query-keys";
 
 interface DashboardResponse {
@@ -38,8 +39,10 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 }
 
 export function useDashboardData() {
+  const day = useCurrentDay();
+
   return useQuery({
-    queryKey: queryKeys.dashboard,
+    queryKey: queryKeys.dashboardForDay(day),
     queryFn: async ({ signal }) => {
       const body = await fetchJson<DashboardResponse>(
         "/api/app/dashboard",
@@ -51,8 +54,10 @@ export function useDashboardData() {
 }
 
 export function useDailyCalorieSummary() {
+  const day = useCurrentDay();
+
   return useQuery({
-    queryKey: queryKeys.calorieSummary,
+    queryKey: queryKeys.calorieSummaryForDay(day),
     queryFn: async ({ signal }) => {
       const body = await fetchJson<CalorieSummaryResponse>(
         "/api/app/calorie-summary",
@@ -91,11 +96,12 @@ export function setDashboardCaloriePreference(
   queryClient: QueryClient,
   caloriePreference: DashboardData["caloriePreference"],
 ) {
-  queryClient.setQueryData<DashboardData>(queryKeys.dashboard, (current) =>
-    current ? { ...current, caloriePreference } : current,
+  queryClient.setQueriesData<DashboardData>(
+    { queryKey: queryKeys.dashboard },
+    (current) => (current ? { ...current, caloriePreference } : current),
   );
-  queryClient.setQueryData<DailyCalorieSummary>(
-    queryKeys.calorieSummary,
+  queryClient.setQueriesData<DailyCalorieSummary>(
+    { queryKey: queryKeys.calorieSummary },
     (current) =>
       current ? { ...current, preference: caloriePreference } : current,
   );
@@ -106,21 +112,24 @@ export function setTodayNutritionTotals(
   logDate: string,
   totals: DashboardData["consumed"],
 ) {
-  queryClient.setQueryData<DashboardData>(queryKeys.dashboard, (current) => {
-    if (!current || current.today !== logDate) return current;
+  queryClient.setQueriesData<DashboardData>(
+    { queryKey: queryKeys.dashboard },
+    (current) => {
+      if (!current || current.today !== logDate) return current;
 
-    return {
-      ...current,
-      consumed: totals,
-      energyBalance: current.energyBalance.map((point) =>
-        point.date === logDate
-          ? { ...point, consumed: totals.calories }
-          : point,
-      ),
-    };
-  });
-  queryClient.setQueryData<DailyCalorieSummary>(
-    queryKeys.calorieSummary,
+      return {
+        ...current,
+        consumed: totals,
+        energyBalance: current.energyBalance.map((point) =>
+          point.date === logDate
+            ? { ...point, consumed: totals.calories }
+            : point,
+        ),
+      };
+    },
+  );
+  queryClient.setQueriesData<DailyCalorieSummary>(
+    { queryKey: queryKeys.calorieSummary },
     (current) =>
       current && current.today === logDate
         ? { ...current, consumed: totals.calories }

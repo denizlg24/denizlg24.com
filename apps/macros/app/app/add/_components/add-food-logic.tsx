@@ -37,6 +37,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { useEntryDate } from "@/app/app/add/_components/add-food-shared";
 import { setTodayNutritionTotals, useFoodHistory } from "@/lib/app-cache/api";
 import { foodLogQueryKeys } from "@/lib/app-cache/food-log-keys";
 import { queryKeys } from "@/lib/app-cache/query-keys";
@@ -1352,25 +1353,37 @@ export function AddFoodLogic({
   const trimmed = draft.trim();
   const hasQuery = trimmed.length > 0;
 
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const fromUrl = searchParams.get("date");
-    if (fromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fromUrl)) {
-      const parsed = new Date(fromUrl);
-      const formatted = parsed.toISOString().slice(0, 10);
-      if (formatted === fromUrl) {
-        return dateFromIsoDate(fromUrl);
+  const [initialEntryDate] = useState(() => {
+    const dateFromUrl = searchParams.get("date");
+    const hourFromUrl = searchParams.get("hour");
+    const initial: { date?: Date; hour?: number } = {};
+
+    if (dateFromUrl && /^\d{4}-\d{2}-\d{2}$/.test(dateFromUrl)) {
+      const parsed = new Date(dateFromUrl);
+      if (parsed.toISOString().slice(0, 10) === dateFromUrl) {
+        initial.date = dateFromIsoDate(dateFromUrl);
       }
     }
-    return dateFromIsoDate(calorieSummary.today);
-  });
-  const [selectedHour, setSelectedHour] = useState(() => {
-    const fromUrl = searchParams.get("hour");
-    if (fromUrl != null) {
-      const parsed = Number.parseInt(fromUrl, 10);
-      if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 23) return parsed;
+
+    if (hourFromUrl != null) {
+      const parsed = Number.parseInt(hourFromUrl, 10);
+      if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 23) {
+        initial.hour = parsed;
+      }
     }
-    return getHourInTimezone(new Date(), calorieSummary.timezone);
+
+    return initial;
   });
+  const {
+    selectedDate,
+    selectedHour,
+    pickDate: setSelectedDate,
+    setSelectedHour,
+  } = useEntryDate(
+    calorieSummary.today,
+    calorieSummary.timezone,
+    initialEntryDate,
+  );
   const hourLabel = formatHourLabel(selectedHour);
 
   const eatenAt = useMemo(() => {

@@ -40,13 +40,13 @@ import { captureVideoFrame } from "@/lib/vision-capture";
 import {
   dateFromIsoDate,
   formatHourLabel,
-  getHourInTimezone,
   getPendingCalories,
   HeaderChips,
   inferMealType,
   NavTabs,
   type PendingFood,
   PendingFoodsSheet,
+  useEntryDate,
 } from "../../add/_components/add-food-shared";
 import {
   FoodDetailDrawer,
@@ -430,12 +430,12 @@ function ScanLogic({
   const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([]);
   const [pendingSheetOpen, setPendingSheetOpen] = useState(false);
   const [extraConsumed, setExtraConsumed] = useState(0);
-  const [selectedDate, setSelectedDate] = useState(() =>
-    dateFromIsoDate(calorieSummary.today),
-  );
-  const [selectedHour, setSelectedHour] = useState(() =>
-    getHourInTimezone(new Date(), calorieSummary.timezone),
-  );
+  const {
+    selectedDate,
+    selectedHour,
+    pickDate: setSelectedDate,
+    setSelectedHour,
+  } = useEntryDate(calorieSummary.today, calorieSummary.timezone);
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
 

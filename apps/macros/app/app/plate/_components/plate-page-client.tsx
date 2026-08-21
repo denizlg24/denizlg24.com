@@ -78,7 +78,7 @@ export function PlatePageClient() {
     if (!data) return;
     setSelectedDate(dateFromIsoDate(data.today));
     setSelectedHour(getHourInTimezone(new Date(), data.timezone));
-  }, [data]);
+  }, [data?.today, data?.timezone]);
 
   const logDate = useMemo(() => toIsoDate(selectedDate), [selectedDate]);
   const eatenAt = useMemo(() => {
