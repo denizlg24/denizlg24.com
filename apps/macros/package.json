@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
+    "db:migrate": "drizzle-kit migrate",
     "start": "next start",
     "lint": "biome check .",
     "test": "bun test",

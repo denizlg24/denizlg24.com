@@ -60,7 +60,22 @@ export function KeyboardSheet(props: KeyboardSheetProps) {
     const active = document.activeElement;
     if (active instanceof HTMLElement) {
       requestAnimationFrame(() => {
-        active.scrollIntoView({ block: "center", behavior: "smooth" });
+        const sheet = active.closest<HTMLElement>(
+          '[data-slot="keyboard-sheet-content"]',
+        );
+        const activeRect = active.getBoundingClientRect();
+        const sheetRect = sheet?.getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const viewportTop = viewport?.offsetTop ?? 0;
+        const viewportBottom =
+          viewportTop + (viewport?.height ?? window.innerHeight);
+        const visibleTop = Math.max(sheetRect?.top ?? 0, viewportTop) + 16;
+        const visibleBottom =
+          Math.min(sheetRect?.bottom ?? viewportBottom, viewportBottom) - 16;
+
+        if (activeRect.top < visibleTop || activeRect.bottom > visibleBottom) {
+          active.scrollIntoView({ block: "nearest", behavior: "instant" });
+        }
       });
     }
   }, [keyboardOpen, open]);

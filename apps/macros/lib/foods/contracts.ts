@@ -36,6 +36,7 @@ export const externalFoodSummarySchema = z.object({
   barcode: z.string().nullable().optional(),
   name: z.string().min(1),
   brand: z.string().nullable().optional(),
+  iconKey: z.string().min(1).max(128).default("other-001"),
   servingLabel: z.string().nullable().optional(),
   caloriesPerServing: numericValueSchema.nullable().optional(),
   proteinPerServing: numericValueSchema.nullable().optional(),
@@ -142,6 +143,7 @@ export const createFoodBodySchema = z.object({
     .max(160)
     .optional()
     .transform((value) => value || null),
+  iconKey: z.string().trim().min(1).max(128).default("other-001"),
   servingSizes: z.array(createFoodServingSizeSchema).min(1).max(12),
   nutrients: z
     .record(z.string(), nutrientAmountSchema)
@@ -153,6 +155,7 @@ export const createFoodBodySchema = z.object({
 export const updateFoodBodySchema = createFoodBodySchema.omit({
   clientMutationId: true,
   barcode: true,
+  iconKey: true,
 });
 
 export const mealTypeSchema = z.enum(["breakfast", "lunch", "dinner", "snack"]);
@@ -162,6 +165,7 @@ export const foodSearchItemSchema = z.object({
   barcode: z.string().nullable(),
   name: z.string(),
   brand: z.string().nullable(),
+  iconKey: z.string().min(1).max(128).default("other-001"),
   servingLabel: z.string().nullable(),
   caloriesPerServing: z.number().nullable(),
   proteinPerServing: z.number().nullable(),

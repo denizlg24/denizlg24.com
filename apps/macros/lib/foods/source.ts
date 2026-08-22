@@ -129,6 +129,7 @@ export async function createNutritionFood(input: {
   barcode: string;
   name: string;
   brand: string | null;
+  iconKey: string;
   serving: CreateFoodInput["servingSizes"][number];
   nutrients: Record<string, number>;
 }): Promise<{
@@ -139,6 +140,7 @@ export async function createNutritionFood(input: {
     barcode: input.barcode,
     name: input.name,
     brand: input.brand,
+    iconKey: input.iconKey,
     nutrition: {
       servingLabel: input.serving.label,
       servingQuantity: input.serving.quantity,

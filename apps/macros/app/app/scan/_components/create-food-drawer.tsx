@@ -26,6 +26,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { createFoodResponseSchema } from "@/lib/foods/contracts";
@@ -58,11 +59,24 @@ interface CreateFoodDrawerProps {
   onCreated: (food: FoodSummary) => void;
 }
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4;
 type Step2Tab = "serving" | "100g";
 type ViewMode = "us" | "eu" | "detail";
 
 const REFERENCE_BASIS = "100g";
+const DEFAULT_ICON_KEY = "other-001";
+
+const FoodIconPicker = dynamic(
+  () => import("./food-icon-picker").then((module) => module.FoodIconPicker),
+  {
+    loading: () => (
+      <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+        <LoaderCircle className="mr-2 size-5 animate-spin" />
+        Loading icons
+      </div>
+    ),
+  },
+);
 
 function newServingDraft(): ServingDraft {
   return {
@@ -92,6 +106,7 @@ export function CreateFoodDrawer({
   const [step, setStep] = useState<Step>(1);
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
+  const [iconKey, setIconKey] = useState(DEFAULT_ICON_KEY);
   const [servings, setServings] = useState<ServingDraft[]>(() => [
     newServingDraft(),
   ]);
@@ -108,6 +123,7 @@ export function CreateFoodDrawer({
     setStep(1);
     setName("");
     setBrand("");
+    setIconKey(DEFAULT_ICON_KEY);
     setServings([newServingDraft()]);
     setStep2Tab("serving");
     setViewMode("us");
@@ -221,6 +237,10 @@ export function CreateFoodDrawer({
       setStep(3);
       return;
     }
+    if (step === 3) {
+      setStep(4);
+      return;
+    }
   };
 
   const goBack = () => {
@@ -228,7 +248,7 @@ export function CreateFoodDrawer({
       handleClose();
       return;
     }
-    setStep((current) => (current === 3 ? 2 : 1));
+    setStep((current) => (current === 4 ? 3 : current === 3 ? 2 : 1));
   };
 
   useEffect(() => {
@@ -322,6 +342,7 @@ export function CreateFoodDrawer({
           barcode: barcode ?? undefined,
           name: trimmedName,
           brand,
+          iconKey,
           servingSizes: servingPayload,
           nutrients,
         }),
@@ -345,11 +366,17 @@ export function CreateFoodDrawer({
   };
 
   const headerTitle =
-    step === 1 ? "Add Food" : step === 2 ? "Serving sizes" : "Nutrients";
+    step === 1
+      ? "Add Food"
+      : step === 2
+        ? "Serving sizes"
+        : step === 3
+          ? "Nutrients"
+          : "Choose icon";
 
   return (
     <Drawer open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
-      <DrawerContent className="z-70! flex h-[calc(100dvh-4rem)]! max-h-none! flex-col rounded-none">
+      <DrawerContent className="z-70! flex h-[calc(100dvh-4rem)]! flex-col rounded-none">
         <VisuallyHidden>
           <DrawerTitle>Create food</DrawerTitle>
           <DrawerDescription>Add a food for this barcode.</DrawerDescription>
@@ -368,11 +395,14 @@ export function CreateFoodDrawer({
             {headerTitle}
           </h2>
           <span className="ml-auto text-xs text-muted-foreground">
-            Step {step} of 3
+            Step {step} of 4
           </span>
         </div>
 
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+        <div
+          data-sheet-scroll
+          className="flex-1 overflow-y-auto overscroll-contain px-4 py-4"
+        >
           {step === 1 && (
             <div className="space-y-3">
               <div className="space-y-1.5">
@@ -614,10 +644,14 @@ export function CreateFoodDrawer({
               )}
             </div>
           )}
+
+          {step === 4 && (
+            <FoodIconPicker value={iconKey} onValueChange={setIconKey} />
+          )}
         </div>
 
         <div className="flex flex-none items-center gap-2 border-t border-border bg-background px-3 pt-3 pb-safe-end">
-          {step < 3 ? (
+          {step < 4 ? (
             <Button
               type="button"
               onClick={goNext}

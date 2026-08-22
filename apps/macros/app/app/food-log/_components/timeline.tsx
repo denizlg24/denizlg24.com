@@ -269,6 +269,7 @@ function EntryCard({
             <span className="flex size-10 shrink-0 items-center justify-center text-muted-foreground">
               <FoodIcon
                 name={entry.foodName}
+                iconKey={entry.iconKey}
                 entryType={entry.entryType}
                 className="size-7"
               />

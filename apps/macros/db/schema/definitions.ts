@@ -344,6 +344,7 @@ export const foods = pgTable(
     barcode: text("barcode"),
     name: text("name").notNull(),
     brand: text("brand"),
+    iconKey: text("iconKey").notNull().default("other-001"),
     ...timestamps,
     deletedAt: timestamp("deletedAt", { withTimezone: true }),
   },

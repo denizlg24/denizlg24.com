@@ -11,6 +11,7 @@ export interface PendingFoodSummary {
   id: string;
   name: string;
   brand: string | null | undefined;
+  iconKey?: string | null | undefined;
   servingLabel: string | null | undefined;
   caloriesPerServing: number | null | undefined;
   proteinPerServing: number | null | undefined;
@@ -39,6 +40,7 @@ export const pendingFoodSchema = z.object({
     id: z.uuid(),
     name: z.string(),
     brand: z.string().nullable().optional(),
+    iconKey: z.string().nullable().optional(),
     servingLabel: z.string().nullable().optional(),
     caloriesPerServing: z.number().nullable().optional(),
     proteinPerServing: z.number().nullable().optional(),

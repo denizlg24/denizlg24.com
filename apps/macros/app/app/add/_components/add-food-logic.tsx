@@ -349,7 +349,7 @@ type SearchableItem = Pick<
   | "carbsPerServing"
   | "fatPerServing"
   | "isUserFood"
-> & { favoriteServings?: number };
+> & { iconKey?: string | null; favoriteServings?: number };
 
 function fmtMacro(value: number | null) {
   if (value == null) return "0";
@@ -435,7 +435,11 @@ function FoodRow({
   return (
     <div className="flex w-full items-center gap-2 border-b border-border/50 px-4 py-3">
       <span className="flex size-9 shrink-0 items-center justify-center text-muted-foreground">
-        <FoodIcon name={item.name} className="size-6" />
+        <FoodIcon
+          name={item.name}
+          iconKey={item.iconKey}
+          className="size-7 object-contain"
+        />
       </span>
       <button
         type="button"

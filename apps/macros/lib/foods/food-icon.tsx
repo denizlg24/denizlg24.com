@@ -66,13 +66,29 @@ const FOOD_ICONS: ReadonlyArray<readonly [RegExp, LucideIcon]> = [
 
 export function FoodIcon({
   name,
+  iconKey,
   entryType = "food",
   className,
 }: {
   name: string;
+  iconKey?: string | null;
   entryType?: "food" | "recipe" | "quick_add";
   className?: string;
 }) {
+  if (entryType === "food" && iconKey) {
+    return (
+      <img
+        src={`/food-icons/${encodeURIComponent(iconKey)}.png`}
+        alt=""
+        aria-hidden="true"
+        className={className}
+        width={128}
+        height={128}
+        decoding="async"
+      />
+    );
+  }
+
   const Icon =
     entryType === "recipe"
       ? CookingPot

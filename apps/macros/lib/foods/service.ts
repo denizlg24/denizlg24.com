@@ -60,6 +60,7 @@ export function toFoodSearchItem(summary: ExternalFoodSummary): FoodSearchItem {
     barcode: summary.barcode ?? null,
     name: summary.name,
     brand: summary.brand ?? null,
+    iconKey: summary.iconKey,
     servingLabel: summary.servingLabel ?? null,
     caloriesPerServing: numberOrNull(summary.caloriesPerServing),
     proteinPerServing: numberOrNull(summary.proteinPerServing),
@@ -139,6 +140,7 @@ async function upsertExternalFood(summary: ExternalFoodSummary) {
       barcode: summary.barcode ?? null,
       name: summary.name,
       brand: summary.brand ?? null,
+      iconKey: summary.iconKey,
     })
     .onConflictDoUpdate({
       target: [foods.source, foods.externalItemId],
@@ -147,6 +149,7 @@ async function upsertExternalFood(summary: ExternalFoodSummary) {
         barcode: summary.barcode ?? null,
         name: summary.name,
         brand: summary.brand ?? null,
+        iconKey: summary.iconKey,
         updatedAt: now,
       },
     })
@@ -160,7 +163,10 @@ async function upsertExternalFood(summary: ExternalFoodSummary) {
 }
 
 function toCustomFoodSearchItem(
-  food: Pick<typeof foods.$inferSelect, "id" | "barcode" | "name" | "brand">,
+  food: Pick<
+    typeof foods.$inferSelect,
+    "id" | "barcode" | "name" | "brand" | "iconKey"
+  >,
   nutrition: ExternalFoodNutrition,
 ): FoodSearchItem {
   return {
@@ -168,6 +174,7 @@ function toCustomFoodSearchItem(
     barcode: food.barcode,
     name: food.name,
     brand: food.brand,
+    iconKey: food.iconKey,
     servingLabel: nutrition.servingLabel,
     caloriesPerServing: nutrition.nutrients.calories ?? null,
     proteinPerServing: nutrition.nutrients.protein ?? null,
@@ -307,7 +314,7 @@ function isReference100gServing(
   );
 }
 
-function getPrimaryServing(input: CreateFoodInput) {
+function getPrimaryServing(input: Pick<CreateFoodInput, "servingSizes">) {
   const serving =
     input.servingSizes.find((serving) => !isReference100gServing(serving)) ??
     input.servingSizes[0];
@@ -372,6 +379,7 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
       barcode: input.barcode,
       name: input.name,
       brand: input.brand,
+      iconKey: input.iconKey,
       serving: primaryServing,
       nutrients: nutrientsPerPrimaryServing,
     });
@@ -399,6 +407,7 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
           barcode: summary.barcode ?? null,
           name: summary.name,
           brand: summary.brand ?? null,
+          iconKey: summary.iconKey,
         },
         nutrition,
       ),
@@ -415,12 +424,14 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
         barcode: input.barcode ?? null,
         name: input.name,
         brand: input.brand,
+        iconKey: input.iconKey,
       })
       .returning({
         id: foods.id,
         barcode: foods.barcode,
         name: foods.name,
         brand: foods.brand,
+        iconKey: foods.iconKey,
       });
 
     if (!food) {
@@ -444,6 +455,7 @@ export async function createCustomFood(userId: string, input: CreateFoodInput) {
       barcode: food.barcode,
       name: food.name,
       brand: food.brand,
+      iconKey: food.iconKey,
       servingLabel: nutrition.servingLabel,
       caloriesPerServing: nutrition.nutrients.calories ?? null,
       proteinPerServing: nutrition.nutrients.protein ?? null,
@@ -490,6 +502,7 @@ export async function getCustomFoodSnapshot(userId: string, foodId: string) {
           barcode: true,
           name: true,
           brand: true,
+          iconKey: true,
         },
       },
     },
@@ -522,6 +535,7 @@ export async function getCustomFoodSnapshotByBarcode(
       barcode: foods.barcode,
       name: foods.name,
       brand: foods.brand,
+      iconKey: foods.iconKey,
     })
     .from(userCustomFoods)
     .innerJoin(foods, eq(foods.id, userCustomFoods.foodId))
@@ -577,6 +591,7 @@ export async function getUserCustomFoods(
           barcode: true,
           name: true,
           brand: true,
+          iconKey: true,
         },
       },
     },
@@ -615,6 +630,7 @@ export async function updateCustomFood(
           barcode: true,
           name: true,
           brand: true,
+          iconKey: true,
         },
       },
     },
@@ -648,6 +664,7 @@ export async function updateCustomFood(
               barcode: foods.barcode,
               name: foods.name,
               brand: foods.brand,
+              iconKey: foods.iconKey,
             })
         : await tx
             .insert(foods)
@@ -658,12 +675,14 @@ export async function updateCustomFood(
               barcode: customFood.food.barcode,
               name: input.name,
               brand: input.brand,
+              iconKey: customFood.food.iconKey,
             })
             .returning({
               id: foods.id,
               barcode: foods.barcode,
               name: foods.name,
               brand: foods.brand,
+              iconKey: foods.iconKey,
             });
 
     if (!food) {
@@ -694,6 +713,7 @@ export async function updateCustomFood(
       barcode: food.barcode,
       name: food.name,
       brand: food.brand,
+      iconKey: food.iconKey,
       servingLabel: nutrition.servingLabel,
       caloriesPerServing: nutrition.nutrients.calories ?? null,
       proteinPerServing: nutrition.nutrients.protein ?? null,
@@ -772,6 +792,7 @@ export async function searchUserCustomFoods(
       barcode: foods.barcode,
       name: foods.name,
       brand: foods.brand,
+      iconKey: foods.iconKey,
     })
     .from(userCustomFoods)
     .innerJoin(foods, eq(foods.id, userCustomFoods.foodId))
@@ -803,6 +824,7 @@ export async function getFoodHistory(
       localFoodId: foods.id,
       sourceItemId: foods.externalItemId,
       barcode: foods.barcode,
+      iconKey: foods.iconKey,
       entryId: foodLogEntries.id,
       foodName: foodLogEntries.foodName,
       brand: foodLogEntries.brand,
@@ -899,6 +921,7 @@ export async function getFoodHistory(
       localFoodId: row.localFoodId,
       lastLogEntryId: row.entryId,
       barcode: row.barcode,
+      iconKey: row.iconKey,
       name: row.foodName,
       brand: row.brand,
       servingLabel: row.servingLabel,

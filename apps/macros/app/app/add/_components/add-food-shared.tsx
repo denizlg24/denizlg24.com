@@ -137,6 +137,7 @@ const failedPendingFoodSchema = z.object({
     id: z.uuid(),
     name: z.string(),
     brand: z.string().nullable().optional(),
+    iconKey: z.string().nullable().optional(),
     servingLabel: z.string().nullable().optional(),
     caloriesPerServing: z.number().nullable().optional(),
     proteinPerServing: z.number().nullable().optional(),

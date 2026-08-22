@@ -52,6 +52,7 @@ import {
   type LogFoodInput,
   userCustomFoodsResponseSchema,
 } from "@/lib/foods/contracts";
+import { FoodIcon } from "@/lib/foods/food-icon";
 import type { NutrientKey } from "@/lib/foods/nutrients";
 import { nutrientDefinitionsInput } from "@/lib/foods/nutrients";
 import {
@@ -84,6 +85,7 @@ const foodDetailResponseSchema = z.object({
     id: z.uuid(),
     name: z.string(),
     brand: z.string().nullable(),
+    iconKey: z.string().default("other-001"),
     servingLabel: z.string().nullable(),
     caloriesPerServing: z.number().nullable(),
     proteinPerServing: z.number().nullable(),
@@ -184,6 +186,13 @@ function FoodRow({
 
   return (
     <div className="flex w-full items-center gap-2 border-b border-border/50 px-4 py-3">
+      <span className="flex size-9 shrink-0 items-center justify-center">
+        <FoodIcon
+          name={item.name}
+          iconKey={item.iconKey}
+          className="size-7 object-contain"
+        />
+      </span>
       <button
         type="button"
         onClick={() => onSelect(item)}

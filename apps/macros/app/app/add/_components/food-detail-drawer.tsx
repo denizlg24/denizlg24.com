@@ -18,6 +18,7 @@ export type FoodSummary = {
   id: string;
   name: string;
   brand: string | null | undefined;
+  iconKey?: string | null | undefined;
   servingLabel: string | null | undefined;
   caloriesPerServing: number | null | undefined;
   proteinPerServing: number | null | undefined;
