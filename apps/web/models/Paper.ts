@@ -2,9 +2,11 @@ import type {
   KanbanPriority,
   PaperAuthor,
   PaperHighlightColor,
+  PaperMetadataSource,
   PaperReadingStatus,
   PaperType,
 } from "@repo/schemas";
+import { MAX_PAPER_PDF_BYTES } from "@repo/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
 
 export interface IPaperProgress {
@@ -69,12 +71,7 @@ export interface IPaper extends Document {
   tags: string[];
   noteIds: mongoose.Types.ObjectId[];
   highlights: IPaperHighlight[];
-  metadataSource:
-    | "manual"
-    | "crossref"
-    | "arxiv"
-    | "semantic_scholar"
-    | "openalex";
+  metadataSource: PaperMetadataSource;
   metadataFetchedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -123,7 +120,12 @@ const PaperFileSchema = new Schema<IPaperFile>(
       enum: ["application/pdf"],
       required: true,
     },
-    sizeBytes: { type: Number, required: true, min: 0, max: 50 * 1024 * 1024 },
+    sizeBytes: {
+      type: Number,
+      required: true,
+      min: 0,
+      max: MAX_PAPER_PDF_BYTES,
+    },
   },
   { _id: false },
 );
@@ -152,6 +154,8 @@ const PaperSchema = new Schema<IPaper>(
         "book",
         "chapter",
         "report",
+        "notes",
+        "slides",
         "dataset",
         "other",
       ],
@@ -224,7 +228,15 @@ const PaperSchema = new Schema<IPaper>(
     highlights: { type: [HighlightSchema], default: [] },
     metadataSource: {
       type: String,
-      enum: ["manual", "crossref", "arxiv", "semantic_scholar", "openalex"],
+      enum: [
+        "manual",
+        "crossref",
+        "arxiv",
+        "semantic_scholar",
+        "openalex",
+        "google_books",
+        "open_library",
+      ],
       default: "manual",
     },
     metadataFetchedAt: { type: Date },

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "bun:test";
+import { normalizeIsbn } from "./paper-citations";
 import {
   findMatchingCrossrefWork,
   isSemanticScholarPaperUrl,
   mapCrossrefWork,
+  mapGoogleBooksVolume,
+  mapOpenLibraryBook,
   mapSemanticScholarPaper,
   parseArxivFeed,
 } from "./paper-metadata";
@@ -79,6 +82,62 @@ describe("paper metadata", () => {
     expect(
       findMatchingCrossrefWork("Unrelated architecture research", works),
     ).toBeUndefined();
+  });
+
+  it("normalizes ISBNs and rejects bad check digits", () => {
+    expect(normalizeIsbn("ISBN 978-0-262-03384-8")).toBe("9780262033848");
+    expect(normalizeIsbn("0-13-110362-8")).toBe("0131103628");
+    expect(normalizeIsbn("080442957X")).toBe("080442957X");
+    expect(normalizeIsbn("978-0-262-03384-7")).toBeUndefined();
+    expect(normalizeIsbn("10.1000/example")).toBeUndefined();
+  });
+
+  it("maps Google Books volumes, joining the subtitle into the title", () => {
+    const result = mapGoogleBooksVolume({
+      volumeInfo: {
+        title: "Deep Learning",
+        subtitle: "Adaptive Computation and Machine Learning",
+        authors: ["Ian Goodfellow", "Bourbaki"],
+        publisher: "MIT Press",
+        publishedDate: "2016-11-18",
+        description: "A textbook.",
+        pageCount: 800,
+        language: "en",
+        industryIdentifiers: [
+          { type: "ISBN_13", identifier: "9780262035613" },
+          { type: "OTHER", identifier: "OCLC:955778308" },
+        ],
+      },
+    });
+
+    expect(result.title).toBe(
+      "Deep Learning: Adaptive Computation and Machine Learning",
+    );
+    expect(result.type).toBe("book");
+    expect(result.year).toBe(2016);
+    expect(result.pages).toBe("800");
+    expect(result.isbn).toEqual(["9780262035613"]);
+    expect(result.authors).toEqual([
+      { family: "Goodfellow", given: "Ian" },
+      { literal: "Bourbaki" },
+    ]);
+    expect(result.metadataSource).toBe("google_books");
+  });
+
+  it("takes a bare year from Open Library without inventing a date", () => {
+    const result = mapOpenLibraryBook({
+      title: "Structure and Interpretation of Computer Programs",
+      authors: [{ name: "Harold Abelson" }],
+      publishers: [{ name: "MIT Press" }],
+      publish_date: "1996",
+      number_of_pages: 657,
+      identifiers: { isbn_13: ["9780262510875"], isbn_10: ["0262510871"] },
+    });
+
+    expect(result.year).toBe(1996);
+    expect(result.publishedDate).toBeUndefined();
+    expect(result.isbn).toEqual(["9780262510875", "0262510871"]);
+    expect(result.metadataSource).toBe("open_library");
   });
 
   it("matches Semantic Scholar hosts on a domain boundary, rejecting spoofs", () => {

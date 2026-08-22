@@ -30,6 +30,38 @@ export function normalizeArxivId(input: string): string | undefined {
   return value.replace(/v\d+$/i, "").toLowerCase();
 }
 
+/**
+ * Both ISBN-10 and ISBN-13 with the check digit verified. A mistyped digit
+ * would otherwise reach the book APIs as a plausible-looking id and come back
+ * as "not found", which reads as a missing book rather than a typo.
+ */
+export function normalizeIsbn(input: string): string | undefined {
+  const value = input
+    .trim()
+    .replace(/^isbn(?:-1[03])?:?\s*/i, "")
+    .replace(/[\s-]/g, "")
+    .toUpperCase();
+
+  if (/^\d{9}[\dX]$/.test(value)) {
+    const sum = [...value].reduce((total, character, index) => {
+      const digit = character === "X" ? 10 : Number(character);
+      return total + digit * (10 - index);
+    }, 0);
+    return sum % 11 === 0 ? value : undefined;
+  }
+
+  if (/^\d{13}$/.test(value)) {
+    const sum = [...value].reduce(
+      (total, character, index) =>
+        total + Number(character) * (index % 2 === 0 ? 1 : 3),
+      0,
+    );
+    return sum % 10 === 0 ? value : undefined;
+  }
+
+  return undefined;
+}
+
 function authorDisplayName(author: PaperAuthor): string {
   if (author.literal) return author.literal;
   return [author.given, author.family].filter(Boolean).join(" ");
@@ -97,6 +129,9 @@ function bibtexType(type: PaperType): string {
       return "techreport";
     case "dataset":
       return "dataset";
+    // Lecture notes and slide decks have no BibTeX entry type of their own.
+    case "notes":
+    case "slides":
     case "other":
       return "misc";
   }

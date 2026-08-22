@@ -60,6 +60,17 @@ export interface AdminClient {
     formData: FormData,
     options?: AdminRequestOptions,
   ): Promise<T>;
+  /**
+   * Sends the file as the raw request body instead of a multipart part, so the
+   * browser streams it off disk and the server can pipe it straight through.
+   * `upload` materialises the whole file at both ends, which stops being
+   * acceptable somewhere around a few hundred megabytes.
+   */
+  uploadFile<T>(
+    endpoint: string,
+    file: File,
+    options?: AdminRequestOptions,
+  ): Promise<T>;
   /** Escape hatch for streaming / binary responses. Throws on non-2xx, else returns the raw Response. */
   raw(endpoint: string, init?: AdminRawInit): Promise<Response>;
 }
@@ -113,6 +124,7 @@ async function buildError(res: Response): Promise<AdminApiError> {
 interface InternalRequest {
   body?: unknown;
   formData?: FormData;
+  file?: File;
   signal?: AbortSignal;
 }
 
@@ -132,16 +144,28 @@ export function createAdminClient(config: AdminTransportConfig): AdminClient {
     endpoint: string,
     req: InternalRequest,
   ): Promise<Response> {
-    const isJsonBody = !req.formData && req.body !== undefined;
+    const isJsonBody = !req.formData && !req.file && req.body !== undefined;
     const headers = await resolveHeaders(
-      isJsonBody ? { "content-type": "application/json" } : undefined,
+      req.file
+        ? {
+            "content-type": req.file.type || "application/octet-stream",
+            // The name cannot ride in the body any more, and a header must be
+            // latin-1, so anything non-ASCII would throw on send.
+            "x-upload-filename": encodeURIComponent(req.file.name),
+          }
+        : isJsonBody
+          ? { "content-type": "application/json" }
+          : undefined,
     );
 
     const res = await fetchImpl(`${base}/${endpoint}`, {
       method,
       headers,
       credentials: config.credentials,
-      body: req.formData ?? (isJsonBody ? JSON.stringify(req.body) : undefined),
+      body:
+        req.file ??
+        req.formData ??
+        (isJsonBody ? JSON.stringify(req.body) : undefined),
       signal: req.signal,
       // Polled endpoints send a byte-identical URL every tick, so anything the
       // browser is willing to reuse it will, and a surface that refreshes
@@ -195,6 +219,11 @@ export function createAdminClient(config: AdminTransportConfig): AdminClient {
       formData: FormData,
       options?: AdminRequestOptions,
     ) => json<T>("POST", endpoint, { formData, signal: options?.signal }),
+    uploadFile: <T>(
+      endpoint: string,
+      file: File,
+      options?: AdminRequestOptions,
+    ) => json<T>("POST", endpoint, { file, signal: options?.signal }),
     raw: (endpoint: string, init?: AdminRawInit) =>
       doRequest(init?.method ?? "GET", endpoint, {
         body: init?.body,

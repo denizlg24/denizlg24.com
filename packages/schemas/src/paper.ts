@@ -9,10 +9,31 @@ export const paperTypeSchema = z.enum([
   "book",
   "chapter",
   "report",
+  "notes",
+  "slides",
   "dataset",
   "other",
 ]);
 export type PaperType = z.infer<typeof paperTypeSchema>;
+
+export const paperMetadataSourceSchema = z.enum([
+  "manual",
+  "crossref",
+  "arxiv",
+  "semantic_scholar",
+  "openalex",
+  "google_books",
+  "open_library",
+]);
+export type PaperMetadataSource = z.infer<typeof paperMetadataSourceSchema>;
+
+/**
+ * Which family of sources a lookup should reach for. A DOI and an ISBN are
+ * both plausible free text, so the tab the owner is on disambiguates rather
+ * than the resolver guessing.
+ */
+export const paperLookupKindSchema = z.enum(["academic", "book"]);
+export type PaperLookupKind = z.infer<typeof paperLookupKindSchema>;
 
 export const paperReadingStatusSchema = z.enum(["unread", "reading", "read"]);
 export type PaperReadingStatus = z.infer<typeof paperReadingStatusSchema>;
@@ -72,16 +93,19 @@ export const paperProgressSchema = z
   .refine(withinDocument, beyondEnd);
 export type PaperProgress = z.infer<typeof paperProgressSchema>;
 
+/**
+ * Ceiling for a stored reading PDF. Scanned books and lecture-slide decks run
+ * to hundreds of megabytes, so this is the storage limit, not the transport
+ * one — see the upload route for what a single request can actually carry.
+ */
+export const MAX_PAPER_PDF_BYTES = 500 * 1024 * 1024;
+
 export const paperFileSchema = z.object({
   url: z.url(),
   storageKey: z.string().max(1_000).optional(),
   fileName: z.string().max(500),
   mimeType: z.literal("application/pdf"),
-  sizeBytes: z
-    .number()
-    .int()
-    .nonnegative()
-    .max(50 * 1024 * 1024),
+  sizeBytes: z.number().int().nonnegative().max(MAX_PAPER_PDF_BYTES),
 });
 export type PaperFile = z.infer<typeof paperFileSchema>;
 
@@ -130,13 +154,7 @@ export const paperSchema = z.object({
   tags: z.array(z.string()),
   noteIds: z.array(z.string()),
   highlights: z.array(paperHighlightSchema),
-  metadataSource: z.enum([
-    "manual",
-    "crossref",
-    "arxiv",
-    "semantic_scholar",
-    "openalex",
-  ]),
+  metadataSource: paperMetadataSourceSchema,
   metadataFetchedAt: z.string().optional(),
   bibtex: z.string(),
   createdAt: z.string(),
@@ -192,25 +210,35 @@ export const paperMutationSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(100)).max(200).optional(),
   noteIds: z.array(z.string().trim().min(1).max(100)).max(1_000).optional(),
   highlights: z.array(paperHighlightSchema).max(10_000).optional(),
-  metadataSource: z
-    .enum(["manual", "crossref", "arxiv", "semantic_scholar", "openalex"])
-    .optional(),
+  metadataSource: paperMetadataSourceSchema.optional(),
   metadataFetchedAt: z.iso.datetime().nullable().optional(),
 });
 export type PaperMutation = z.infer<typeof paperMutationSchema>;
 
+/**
+ * On an update `null` means "clear this field", which is why the mutation
+ * schema keeps it. On a create there is nothing to clear, so `null` and an
+ * absent key both mean "not set" — a form that renders an empty date input as
+ * `null` must not be a 400.
+ */
+const unsetOnCreate = <T extends z.ZodType>(schema: T) =>
+  schema
+    .nullish()
+    .transform((value) => value ?? undefined)
+    .optional();
+
 export const createPaperSchema = paperMutationSchema.extend({
   title: z.string().trim().min(1).max(1_000),
-  year: z.number().int().min(1000).max(3000).optional(),
-  publishedDate: z.iso.datetime().optional(),
-  citationCount: z.number().int().nonnegative().optional(),
-  pdf: paperFileSchema.optional(),
-  metadataFetchedAt: z.iso.datetime().optional(),
-  progress: paperProgressSchema.optional(),
-  dueAt: z.iso.datetime().optional(),
-  priority: kanbanPrioritySchema.optional(),
-  startedAt: z.iso.datetime().optional(),
-  completedAt: z.iso.datetime().optional(),
+  year: unsetOnCreate(z.number().int().min(1000).max(3000)),
+  publishedDate: unsetOnCreate(z.iso.datetime()),
+  citationCount: unsetOnCreate(z.number().int().nonnegative()),
+  pdf: unsetOnCreate(paperFileSchema),
+  metadataFetchedAt: unsetOnCreate(z.iso.datetime()),
+  progress: unsetOnCreate(paperProgressSchema),
+  dueAt: unsetOnCreate(z.iso.datetime()),
+  priority: unsetOnCreate(kanbanPrioritySchema),
+  startedAt: unsetOnCreate(z.iso.datetime()),
+  completedAt: unsetOnCreate(z.iso.datetime()),
 });
 export type CreatePaperInput = z.infer<typeof createPaperSchema>;
 
@@ -251,6 +279,7 @@ export type PaperCourseRef = z.infer<typeof paperCourseRefSchema>;
 
 export const resolvePaperMetadataSchema = z.object({
   identifier: z.string().trim().min(1).max(500),
+  kind: paperLookupKindSchema.default("academic"),
 });
 
 export const resolvedPaperMetadataSchema = createPaperSchema.pick({
@@ -265,6 +294,7 @@ export const resolvedPaperMetadataSchema = createPaperSchema.pick({
   volume: true,
   issue: true,
   pages: true,
+  edition: true,
   language: true,
   isbn: true,
   issn: true,

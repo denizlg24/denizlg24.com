@@ -18,12 +18,14 @@ export function hasBibliographicIdentity(input: {
   doi?: string;
   arxivId?: string;
   openAlexId?: string;
+  isbn?: string[];
   metadataSource?: CreatePaperInput["metadataSource"];
 }): boolean {
   return Boolean(
     input.doi ||
       input.arxivId ||
       input.openAlexId ||
+      input.isbn?.some((value) => value.trim()) ||
       (input.metadataSource && input.metadataSource !== "manual"),
   );
 }
@@ -92,6 +94,7 @@ export async function prepareNewPaper(input: CreatePaperInput) {
   const arxivId = normalizeIdentifier(input.arxivId, "arxiv");
   const noteIds = await prunePaperNoteIds(input.noteIds);
   const courseIds = await prunePaperCourseIds(input.courseIds);
+  const isbn = dedupeStrings(input.isbn) ?? [];
   const baseCitationKey =
     input.citationKey?.trim() ||
     generateCitationKey({
@@ -108,7 +111,7 @@ export async function prepareNewPaper(input: CreatePaperInput) {
     authors: input.authors ?? [],
     type: input.type ?? "article",
     readingStatus: input.readingStatus ?? "unread",
-    isbn: dedupeStrings(input.isbn) ?? [],
+    isbn,
     issn: dedupeStrings(input.issn) ?? [],
     tags: dedupeStrings(input.tags) ?? [],
     noteIds: noteIds ?? [],
@@ -119,6 +122,7 @@ export async function prepareNewPaper(input: CreatePaperInput) {
         doi,
         arxivId,
         openAlexId: input.openAlexId,
+        isbn,
         metadataSource: input.metadataSource,
       }),
     highlights: input.highlights ?? [],

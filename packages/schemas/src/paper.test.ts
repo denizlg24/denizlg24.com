@@ -27,12 +27,29 @@ describe("paper schemas", () => {
     expect(result.success).toBe(true);
   });
 
-  it("keeps nullable clear operations update-only", () => {
+  it("reads null as a clear on update and as not-set on create", () => {
+    // On an update null is a real instruction: unset the stored value.
+    const update = paperMutationSchema.safeParse({ year: null, pdf: null });
+    expect(update.success).toBe(true);
+    expect(update.data?.year).toBeNull();
+
+    // On a create there is nothing to clear. Rejecting it here only moved the
+    // failure into the client: the form renders an empty date input and a
+    // "none" priority as null, so every reading added without a deadline was
+    // refused as "Invalid paper".
+    const create = createPaperSchema.safeParse({
+      title: "A paper",
+      year: null,
+      dueAt: null,
+      priority: null,
+    });
+    expect(create.success).toBe(true);
+    expect(create.data?.year).toBeUndefined();
+    expect(create.data?.dueAt).toBeUndefined();
+
+    // Still strict about a value that is present but wrong.
     expect(
-      paperMutationSchema.safeParse({ year: null, pdf: null }).success,
-    ).toBe(true);
-    expect(
-      createPaperSchema.safeParse({ title: "A paper", year: null }).success,
+      createPaperSchema.safeParse({ title: "A paper", year: 12 }).success,
     ).toBe(false);
   });
 

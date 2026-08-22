@@ -1,9 +1,14 @@
 import type {
   PaperAuthor,
+  PaperLookupKind,
   PaperType,
   ResolvedPaperMetadata,
 } from "@repo/schemas";
-import { normalizeArxivId, normalizeDoi } from "@/lib/paper-citations";
+import {
+  normalizeArxivId,
+  normalizeDoi,
+  normalizeIsbn,
+} from "@/lib/paper-citations";
 
 interface CrossrefPerson {
   family?: string;
@@ -357,6 +362,144 @@ export function mapSemanticScholarPaper(
   };
 }
 
+export interface GoogleBooksVolume {
+  id?: string;
+  volumeInfo?: {
+    title?: string;
+    subtitle?: string;
+    authors?: string[];
+    publisher?: string;
+    publishedDate?: string;
+    description?: string;
+    pageCount?: number;
+    language?: string;
+    infoLink?: string;
+    canonicalVolumeLink?: string;
+    industryIdentifiers?: Array<{ type?: string; identifier?: string }>;
+  };
+}
+
+export interface OpenLibraryBook {
+  title?: string;
+  subtitle?: string;
+  authors?: Array<{ name?: string }>;
+  publishers?: Array<{ name?: string }>;
+  publish_date?: string;
+  number_of_pages?: number;
+  url?: string;
+  identifiers?: { isbn_10?: string[]; isbn_13?: string[] };
+  notes?: string | { value?: string };
+  excerpts?: Array<{ text?: string }>;
+}
+
+/**
+ * Book APIs return one display name per author, so the split is heuristic:
+ * everything after the last space is the family name. A single-word name
+ * ("Bourbaki", "MIT OpenCourseWare") stays literal rather than becoming a
+ * family name with no given name.
+ */
+function splitDisplayName(value: string): PaperAuthor | undefined {
+  const name = value.trim().replace(/\s+/g, " ");
+  if (!name) return undefined;
+  const lastSpace = name.lastIndexOf(" ");
+  if (lastSpace < 0) return { literal: name };
+  return {
+    family: name.slice(lastSpace + 1),
+    given: name.slice(0, lastSpace),
+  };
+}
+
+function displayNameAuthors(values: string[] | undefined): PaperAuthor[] {
+  return (values ?? []).flatMap((value) => {
+    const author = splitDisplayName(value);
+    return author ? [author] : [];
+  });
+}
+
+/**
+ * Both APIs date a book to anything from a bare year to a full date. Parsing
+ * the year separately keeps "1998" usable when there is no month or day to
+ * build an instant from.
+ */
+function bookPublishedYear(value: string | undefined): number | undefined {
+  const year = value?.match(/\b(1\d{3}|2\d{3})\b/)?.[1];
+  return year ? Number(year) : undefined;
+}
+
+function bookPublishedDate(value: string | undefined): string | undefined {
+  if (!value || !/^\d{4}-\d{2}(-\d{2})?$/.test(value.trim())) return undefined;
+  const date = new Date(
+    value.trim().length === 7 ? `${value.trim()}-01` : value.trim(),
+  );
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function joinTitle(title: string, subtitle?: string): string {
+  const main = stripMarkup(title);
+  const sub = subtitle ? stripMarkup(subtitle) : "";
+  return sub ? `${main}: ${sub}` : main;
+}
+
+export function mapGoogleBooksVolume(
+  volume: GoogleBooksVolume,
+): ResolvedPaperMetadata {
+  const info = volume.volumeInfo;
+  if (!info?.title) throw new Error("Google Books record has no title");
+  const isbn = (info.industryIdentifiers ?? []).flatMap((identifier) => {
+    if (!identifier.identifier) return [];
+    if (identifier.type !== "ISBN_10" && identifier.type !== "ISBN_13")
+      return [];
+    return [identifier.identifier];
+  });
+
+  return {
+    title: joinTitle(info.title, info.subtitle),
+    authors: displayNameAuthors(info.authors),
+    abstract: info.description ? stripMarkup(info.description) : undefined,
+    type: "book",
+    year: bookPublishedYear(info.publishedDate),
+    publishedDate: bookPublishedDate(info.publishedDate),
+    publisher: info.publisher?.trim() || undefined,
+    pages: info.pageCount ? String(info.pageCount) : undefined,
+    language: info.language?.trim() || undefined,
+    isbn,
+    issn: [],
+    url: info.canonicalVolumeLink || info.infoLink || undefined,
+    metadataSource: "google_books",
+    metadataFetchedAt: new Date().toISOString(),
+  };
+}
+
+export function mapOpenLibraryBook(
+  book: OpenLibraryBook,
+): ResolvedPaperMetadata {
+  if (!book.title) throw new Error("Open Library record has no title");
+  const notes = typeof book.notes === "string" ? book.notes : book.notes?.value;
+  const abstract = notes || book.excerpts?.[0]?.text;
+
+  return {
+    title: joinTitle(book.title, book.subtitle),
+    authors: displayNameAuthors(
+      (book.authors ?? []).flatMap((author) =>
+        author.name ? [author.name] : [],
+      ),
+    ),
+    abstract: abstract ? stripMarkup(abstract) : undefined,
+    type: "book",
+    year: bookPublishedYear(book.publish_date),
+    publisher: book.publishers?.[0]?.name?.trim() || undefined,
+    pages: book.number_of_pages ? String(book.number_of_pages) : undefined,
+    isbn: [
+      ...(book.identifiers?.isbn_13 ?? []),
+      ...(book.identifiers?.isbn_10 ?? []),
+    ],
+    issn: [],
+    url: book.url || undefined,
+    metadataSource: "open_library",
+    metadataFetchedAt: new Date().toISOString(),
+  };
+}
+
 async function fetchWithTimeout(
   url: string,
   accept: string,
@@ -397,9 +540,78 @@ export async function resolvePaperMetadataByTitle(
   return mapCrossrefWork(match);
 }
 
-export async function resolvePaperMetadata(
+function googleBooksUrl(query: string): string {
+  const key = process.env.GOOGLE_BOOKS_API_KEY;
+  return `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=10${key ? `&key=${encodeURIComponent(key)}` : ""}`;
+}
+
+async function fetchGoogleBooksVolumes(
+  query: string,
+): Promise<GoogleBooksVolume[]> {
+  const response = await fetchWithTimeout(
+    googleBooksUrl(query),
+    "application/json",
+  );
+  if (!response.ok) throw new Error("Google Books lookup failed");
+  const payload = (await response.json()) as { items?: GoogleBooksVolume[] };
+  return payload.items ?? [];
+}
+
+async function fetchOpenLibraryBook(
+  isbn: string,
+): Promise<OpenLibraryBook | undefined> {
+  const response = await fetchWithTimeout(
+    `https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(isbn)}&format=json&jscmd=data`,
+    "application/json",
+  );
+  if (!response.ok) throw new Error("Open Library lookup failed");
+  const payload = (await response.json()) as Record<
+    string,
+    OpenLibraryBook | undefined
+  >;
+  return payload[`ISBN:${isbn}`];
+}
+
+/**
+ * Google Books first because it carries a description, a page count and a
+ * language; Open Library is the fallback for anything it has never indexed.
+ * A record from either keeps the ISBN that was searched for, since Google
+ * sometimes returns the edition without echoing the identifier back.
+ */
+export async function resolveBookMetadata(
   identifier: string,
 ): Promise<ResolvedPaperMetadata> {
+  const isbn = normalizeIsbn(identifier);
+  if (!isbn) {
+    const volumes = await fetchGoogleBooksVolumes(identifier);
+    const match = volumes.find((volume) =>
+      volume.volumeInfo?.title
+        ? titleMatches(identifier, volume.volumeInfo.title)
+        : false,
+    );
+    if (!match) throw new Error("No exact book title match");
+    return mapGoogleBooksVolume(match);
+  }
+
+  const withSearchedIsbn = (metadata: ResolvedPaperMetadata) => ({
+    ...metadata,
+    isbn: [...new Set([isbn, ...(metadata.isbn ?? [])])],
+  });
+
+  const volumes = await fetchGoogleBooksVolumes(`isbn:${isbn}`);
+  if (volumes[0]) return withSearchedIsbn(mapGoogleBooksVolume(volumes[0]));
+
+  const book = await fetchOpenLibraryBook(isbn);
+  if (!book) throw new Error("ISBN not found");
+  return withSearchedIsbn(mapOpenLibraryBook(book));
+}
+
+export async function resolvePaperMetadata(
+  identifier: string,
+  kind: PaperLookupKind = "academic",
+): Promise<ResolvedPaperMetadata> {
+  if (kind === "book") return resolveBookMetadata(identifier);
+
   const doi = normalizeDoi(identifier);
   if (doi) {
     const response = await fetchWithTimeout(
@@ -450,5 +662,7 @@ export async function resolvePaperMetadata(
     );
   }
 
-  throw new Error("Enter a DOI, arXiv identifier, or Semantic Scholar URL");
+  // Anything that is not an identifier is treated as a title, so the lookup
+  // box is usable for the common case of having the name and nothing else.
+  return resolvePaperMetadataByTitle(identifier);
 }

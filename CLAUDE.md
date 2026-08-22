@@ -27,15 +27,16 @@ Consequences of being single-user — these are hard rules for UI work:
 
 Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at root).
 
-- `apps/web/` (formerly `portfolio-2026/`) — Next.js admin dashboard + API (backend). Manages portfolio content, contacts, blog, projects, email, calendar, etc. Uses MongoDB, shadcn/ui, Tailwind.
+- `apps/web/` (formerly `portfolio-2026/`) — Next.js admin dashboard + API (backend), self-hosted on Forge. Manages portfolio content, contacts, blog, projects, email, calendar, etc. Uses MongoDB, shadcn/ui, Tailwind.
 - `apps/desktop/` (formerly `denizlg24-app/`) — Tauri + Next.js desktop app (client). Consumes the web app's API. Minimalist/editorial design.
-- `apps/api/` — Hono + Bun API for the self-hosted cloud. Runs on the Pi, not Vercel.
-- `apps/cloud/` — Next.js admin panel for the cloud (Vercel).
-- `apps/forge/` — Next.js Forge host and deployment dashboard (Vercel first;
-  deployable by Forge through its Dockerfile).
-- `apps/storage/` — Next.js file browser (Vercel).
+- `apps/api/` — Hono + Bun API for the self-hosted cloud. Runs on the Pi in
+  Docker under compose, not through Forge.
+- `apps/cloud/` — Next.js admin panel for the cloud (Forge).
+- `apps/forge/` — Next.js Forge host and deployment dashboard, deployed by
+  Forge through its own Dockerfile.
+- `apps/storage/` — Next.js file browser (Forge).
 - `apps/envoy/` — Next.js public site and Hono/Prisma API for the Envoy CLI
-  (Vercel). Uses project-scoped denizlg24 cloud S3 credentials; canonical wire
+  (Forge). Uses project-scoped denizlg24 cloud S3 credentials; canonical wire
   contracts live in `packages/schemas/src/envoy`.
 - `apps/envoy-cli/` — Rust `envy` CLI. This monorepo is the canonical source
   and release owner; `.github/workflows/release-envoy-cli.yml` publishes
@@ -48,7 +49,7 @@ Turborepo monorepo (bun workspaces, single root `bun.lock`, Biome lint/format at
   name are both extension-specific so a second extension can sit beside it.
 - `apps/terminal/` — compiled Bun web-terminal daemon. Runs on the Pi host under systemd, not in Docker.
 - `packages/cloud-core/` — Pi-side cloud logic: drizzle schema, storage/S3, projects, ops, sync, middleware.
-- `packages/cloud-ui/`, `packages/cloud-auth-client/` — shared client pieces for the two Vercel cloud apps.
+- `packages/cloud-ui/`, `packages/cloud-auth-client/` — shared client pieces for the two cloud apps.
 - `packages/typescript-config/` — shared tsconfig presets.
 - `docs/internal/` — plans, architecture notes and deployment runbooks. Gitignored: present on the owner's machine, not in a fresh clone.
 - `_archive/` — the original standalone repos with full git history (gitignored; read-only rollback material).
@@ -79,16 +80,24 @@ directory archived to the Pi's `BACKUP_DIR` as `decommission-*/deniz-cloud-repo.
 | Surface | Host |
 |---|---|
 | `api.denizlg24.com` | Pi, `apps/api` in Docker behind a Cloudflare tunnel. Serves `/api/*`, `/v2` (S3), `/healthz` |
-| `cloud.denizlg24.com` | Vercel, `apps/cloud` |
-| `forge.denizlg24.com` | Vercel initially; `apps/forge` can later run on the Forge host |
-| `storage.denizlg24.com` | Vercel, `apps/storage` |
+| `denizlg24.com` | Forge, `apps/web` — the public site, the `/admin` dashboard and the API both other apps consume |
+| `cloud.denizlg24.com` | Forge, `apps/cloud` |
+| `forge.denizlg24.com` | Forge, `apps/forge` — it hosts itself |
+| `storage.denizlg24.com` | Forge, `apps/storage` |
 | `search.denizlg24.com` | Pi, Meilisearch published on loopback for legacy consumers |
 | Postgres 5433 / Mongo 27018 / Redis 6380 | Pi, published publicly for dependent projects |
 
 Deploys: push to `main` → CI builds `ghcr.io/denizlg24/deniz-cloud-api` (arm64) →
 `docker compose -p deniz-cloud --env-file .env.pi -f docker-compose.pi.yml --profile tools up -d`
-from `/opt/deniz-cloud/infra/compose` on the Pi. Vercel deploys itself.
-Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
+from `/opt/deniz-cloud/infra/compose` on the Pi. Every Next.js app is built and
+run by Forge from its own Dockerfile; nothing in this repo deploys to Vercel any
+more. Reach the Pi with `tailscale ssh denizlg24@pi-cloud` (no password).
+
+Nothing that runs here sits behind a PaaS request limit — there is no 4.5 MB or
+100 MB body cap on an upload route, and no platform-imposed function timeout.
+What *is* finite is the host's memory, so a route that buffers a whole upload
+competes with everything else on the box. `maxDuration` on a route is a Next.js
+hint, not a platform ceiling.
 
 ### Things that will bite you
 
