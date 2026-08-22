@@ -329,11 +329,9 @@ export function PaperFormDialog({
 
   const uploadPdf = async (): Promise<PaperFile | undefined> => {
     if (!pdfFile) return undefined;
-    const data = new FormData();
-    data.append("file", pdfFile);
-    const result = await client.upload<{ pdf: PaperFile }>(
+    const result = await client.uploadFile<{ pdf: PaperFile }>(
       "papers/upload",
-      data,
+      pdfFile,
     );
     return result.pdf;
   };

@@ -8,6 +8,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export type StorageBucket = "image" | "file" | "spreadsheet" | "voice";
 
@@ -77,6 +78,9 @@ function getStorageConfig(): StorageConfig {
   };
 }
 
+/** Long enough for a slow 500MB push, short enough that a leaked URL rots. */
+const UPLOAD_URL_TTL_SECONDS = 60 * 60;
+
 let cachedClient: S3Client | null = null;
 
 function getClient(): S3Client {
@@ -87,6 +91,14 @@ function getClient(): S3Client {
     region: config.region,
     // deniz-cloud only implements path-style addressing (no virtual-host).
     forcePathStyle: true,
+    // deniz-cloud answers 501 to `aws-chunked` bodies. On the default
+    // (WHEN_SUPPORTED) the SDK wraps any *streaming* body in exactly that,
+    // sending `x-amz-content-sha256: STREAMING-UNSIGNED-PAYLOAD-TRAILER` and
+    // dropping Content-Length. WHEN_REQUIRED skips the trailer for operations
+    // that do not demand one, so a stream goes out as an ordinary PUT with
+    // `UNSIGNED-PAYLOAD` — which `assertPayloadHash` accepts — and a real
+    // Content-Length. A buffered body is unaffected either way.
+    requestChecksumCalculation: "WHEN_REQUIRED",
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
@@ -204,6 +216,77 @@ export function isPubliclyServableKey(key: string): boolean {
     normalized.startsWith(`${config.imagePrefix}/`) ||
     normalized.startsWith(`${config.filePrefix}/`)
   );
+}
+
+export interface StreamUploadMetadata {
+  filename: string;
+  mimeType: string;
+  /** Only used to reject oversized uploads early; the wire body is chunked. */
+  sizeBytes: number;
+}
+
+/**
+ * Uploads without ever holding the object in memory.
+ *
+ * Not through the SDK's `send()`: its NodeHttpHandler reaches for `node:http`,
+ * and Bun's shim for that buffers the whole request body before writing a byte.
+ * Measured on 512MB — Node grows RSS by 4MB, Bun by 1122MB — and Forge starts
+ * this app with `bun run start`, so the shim is the production path. `fetch`
+ * with a `ReadableStream` body streams on both runtimes (+8MB on the same
+ * measurement), so the SDK is used only to sign, and the transfer is a plain
+ * PUT against the presigned URL.
+ *
+ * The signature carries `UNSIGNED-PAYLOAD`, which is what makes this possible
+ * at all: deniz-cloud's `assertPayloadHash` accepts it without hashing, and it
+ * rejects the `aws-chunked` encoding the SDK would otherwise reach for. No
+ * Content-Length goes out — `validateContentLength` skips an absent header, and
+ * the store sizes the object from what it wrote.
+ */
+export async function uploadStreamToStorage(
+  body: ReadableStream<Uint8Array>,
+  metadata: StreamUploadMetadata,
+  bucket: StorageBucket,
+): Promise<StoredFile> {
+  await ensureBucket();
+
+  const key = buildObjectKey(bucket, metadata.filename || "upload");
+  const mimeType = metadata.mimeType || "application/octet-stream";
+  const signedUrl = await getSignedUrl(
+    getClient(),
+    new PutObjectCommand({
+      Bucket: getStorageConfig().bucket,
+      Key: key,
+      ContentType: mimeType,
+    }),
+    { expiresIn: UPLOAD_URL_TTL_SECONDS },
+  );
+
+  const response = await fetch(signedUrl, {
+    method: "PUT",
+    // Exactly the headers the presigner signed; an extra one breaks the
+    // signature and a missing one is treated as tampering.
+    headers: { "content-type": mimeType },
+    body,
+    // Required to send a stream rather than buffering it first.
+    duplex: "half",
+  } as RequestInit & { duplex: "half" });
+
+  if (!response.ok) {
+    throw new Error(
+      `Storage upload failed with HTTP ${response.status}: ${(
+        await response.text().catch(() => "")
+      ).slice(0, 300)}`,
+    );
+  }
+
+  return {
+    id: key,
+    filename: metadata.filename || key.split("/").pop() || key,
+    path: key,
+    mimeType,
+    sizeBytes: metadata.sizeBytes,
+    publicUrl: buildPublicUrl(key),
+  };
 }
 
 export async function uploadFileToStorage(

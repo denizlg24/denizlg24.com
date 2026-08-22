@@ -15,13 +15,13 @@
     "storage:migrate:r2": "bun --env-file=../../.env scripts/migrate-r2-to-s3.ts"
   },
   "dependencies": {
-    "@repo/schemas": "workspace:*",
-    "@repo/ui": "workspace:*",
-    "@aws-sdk/client-s3": "^3.1104.0",
-    "@aws-sdk/s3-request-presigner": "^3.1104.0",
+    "@aws-sdk/client-s3": "^3.1116.0",
+    "@aws-sdk/s3-request-presigner": "^3.1116.0",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "@prisma/client-runtime-utils": "7.9.1",
+    "@repo/schemas": "workspace:*",
+    "@repo/ui": "workspace:*",
     "dotenv": "^17.4.2",
     "hono": "^4.13.0",
     "jose": "^6.2.8",

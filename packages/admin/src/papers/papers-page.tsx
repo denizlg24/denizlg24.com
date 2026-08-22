@@ -282,11 +282,9 @@ export function PapersPage() {
     // after it.
     for (const file of pdfs) {
       try {
-        const data = new FormData();
-        data.append("file", file);
-        const uploaded = await client.upload<{ pdf: PaperFile }>(
+        const uploaded = await client.uploadFile<{ pdf: PaperFile }>(
           "papers/upload",
-          data,
+          file,
         );
         const result = await client.post<{ paper: IPaper }>("papers", {
           title: file.name.replace(/\.pdf$/i, ""),
