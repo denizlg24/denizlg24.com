@@ -215,18 +215,30 @@ export const paperMutationSchema = z.object({
 });
 export type PaperMutation = z.infer<typeof paperMutationSchema>;
 
+/**
+ * On an update `null` means "clear this field", which is why the mutation
+ * schema keeps it. On a create there is nothing to clear, so `null` and an
+ * absent key both mean "not set" — a form that renders an empty date input as
+ * `null` must not be a 400.
+ */
+const unsetOnCreate = <T extends z.ZodType>(schema: T) =>
+  schema
+    .nullish()
+    .transform((value) => value ?? undefined)
+    .optional();
+
 export const createPaperSchema = paperMutationSchema.extend({
   title: z.string().trim().min(1).max(1_000),
-  year: z.number().int().min(1000).max(3000).optional(),
-  publishedDate: z.iso.datetime().optional(),
-  citationCount: z.number().int().nonnegative().optional(),
-  pdf: paperFileSchema.optional(),
-  metadataFetchedAt: z.iso.datetime().optional(),
-  progress: paperProgressSchema.optional(),
-  dueAt: z.iso.datetime().optional(),
-  priority: kanbanPrioritySchema.optional(),
-  startedAt: z.iso.datetime().optional(),
-  completedAt: z.iso.datetime().optional(),
+  year: unsetOnCreate(z.number().int().min(1000).max(3000)),
+  publishedDate: unsetOnCreate(z.iso.datetime()),
+  citationCount: unsetOnCreate(z.number().int().nonnegative()),
+  pdf: unsetOnCreate(paperFileSchema),
+  metadataFetchedAt: unsetOnCreate(z.iso.datetime()),
+  progress: unsetOnCreate(paperProgressSchema),
+  dueAt: unsetOnCreate(z.iso.datetime()),
+  priority: unsetOnCreate(kanbanPrioritySchema),
+  startedAt: unsetOnCreate(z.iso.datetime()),
+  completedAt: unsetOnCreate(z.iso.datetime()),
 });
 export type CreatePaperInput = z.infer<typeof createPaperSchema>;
 
