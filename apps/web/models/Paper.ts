@@ -2,6 +2,7 @@ import type {
   KanbanPriority,
   PaperAuthor,
   PaperHighlightColor,
+  PaperMetadataSource,
   PaperReadingStatus,
   PaperType,
 } from "@repo/schemas";
@@ -69,12 +70,7 @@ export interface IPaper extends Document {
   tags: string[];
   noteIds: mongoose.Types.ObjectId[];
   highlights: IPaperHighlight[];
-  metadataSource:
-    | "manual"
-    | "crossref"
-    | "arxiv"
-    | "semantic_scholar"
-    | "openalex";
+  metadataSource: PaperMetadataSource;
   metadataFetchedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -152,6 +148,8 @@ const PaperSchema = new Schema<IPaper>(
         "book",
         "chapter",
         "report",
+        "notes",
+        "slides",
         "dataset",
         "other",
       ],
@@ -224,7 +222,15 @@ const PaperSchema = new Schema<IPaper>(
     highlights: { type: [HighlightSchema], default: [] },
     metadataSource: {
       type: String,
-      enum: ["manual", "crossref", "arxiv", "semantic_scholar", "openalex"],
+      enum: [
+        "manual",
+        "crossref",
+        "arxiv",
+        "semantic_scholar",
+        "openalex",
+        "google_books",
+        "open_library",
+      ],
       default: "manual",
     },
     metadataFetchedAt: { type: Date },

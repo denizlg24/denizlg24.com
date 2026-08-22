@@ -6,6 +6,7 @@ import type {
   PaperAuthor,
   PaperCourseRef,
   PaperFile,
+  PaperLookupKind,
   PaperMutation,
   PaperType,
   ResolvedPaperMetadata,
@@ -28,12 +29,29 @@ import {
   SelectValue,
 } from "@repo/ui/select";
 import { Switch } from "@repo/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { Textarea } from "@repo/ui/textarea";
-import { FileUp, Loader2, Search, X } from "lucide-react";
+import {
+  ChevronRight,
+  FileUp,
+  Library,
+  Loader2,
+  Search,
+  Sigma,
+  Upload,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
 import { fromDateInput, toDateInput } from "./reading";
+
+/**
+ * Which kind of thing is being added. It decides the lookup source and which
+ * bibliographic fields are worth showing — a lecture PDF has no venue, a book
+ * has no arXiv id.
+ */
+type FormMode = "paper" | "book" | "document";
 
 interface PaperFormDialogProps {
   open: boolean;
@@ -59,9 +77,60 @@ const PAPER_TYPES: PaperType[] = [
   "book",
   "chapter",
   "report",
+  "notes",
+  "slides",
   "dataset",
   "other",
 ];
+
+const MODE_TABS: Array<{
+  value: FormMode;
+  label: string;
+  icon: typeof Sigma;
+}> = [
+  { value: "paper", label: "Paper", icon: Sigma },
+  { value: "book", label: "Book", icon: Library },
+  { value: "document", label: "Document", icon: Upload },
+];
+
+const MODE_LOOKUP: Record<
+  FormMode,
+  { kind: PaperLookupKind; placeholder: string } | null
+> = {
+  paper: {
+    kind: "academic",
+    placeholder: "DOI, arXiv id, Semantic Scholar URL, or title",
+  },
+  book: { kind: "book", placeholder: "ISBN or title" },
+  document: null,
+};
+
+const MODE_DEFAULT_TYPE: Record<FormMode, PaperType> = {
+  paper: "article",
+  book: "book",
+  document: "notes",
+};
+
+const BOOKISH_TYPES: PaperType[] = ["book", "chapter"];
+const ACADEMIC_TYPES: PaperType[] = [
+  "article",
+  "conference",
+  "preprint",
+  "thesis",
+  "dataset",
+];
+
+/**
+ * Which tab an existing reading reopens on. Editing must land on the fields
+ * that were filled in, not on whichever tab happens to be first.
+ */
+function modeForPaper(paper: IPaper): FormMode {
+  if (BOOKISH_TYPES.includes(paper.type)) return "book";
+  if (ACADEMIC_TYPES.includes(paper.type)) return "paper";
+  if (paper.doi || paper.arxivId || paper.venue) return "paper";
+  if (paper.isbn.length > 0) return "book";
+  return "document";
+}
 
 function authorsToText(authors: PaperAuthor[]): string {
   return authors
@@ -75,6 +144,11 @@ function authorsToText(authors: PaperAuthor[]): string {
     .join("\n");
 }
 
+/**
+ * "Family, Given" splits; anything else is kept literal. An institutional
+ * author ("MIT OpenCourseWare") and a single lecturer's name both survive
+ * unmangled, which is what the lecture-notes case needs.
+ */
 function parseAuthors(value: string): PaperAuthor[] {
   return value
     .split("\n")
@@ -114,6 +188,7 @@ export function PaperFormDialog({
 }: PaperFormDialogProps) {
   const { client } = useAdmin();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<FormMode>("paper");
   const [identifier, setIdentifier] = useState("");
   const [title, setTitle] = useState("");
   const [authors, setAuthors] = useState("");
@@ -125,6 +200,7 @@ export function PaperFormDialog({
   const [volume, setVolume] = useState("");
   const [issue, setIssue] = useState("");
   const [pages, setPages] = useState("");
+  const [edition, setEdition] = useState("");
   const [doi, setDoi] = useState("");
   const [arxivId, setArxivId] = useState("");
   const [arxivCategory, setArxivCategory] = useState("");
@@ -144,6 +220,8 @@ export function PaperFormDialog({
   const [priority, setPriority] = useState<KanbanPriority>("none");
   const [citable, setCitable] = useState(true);
   const [citableTouched, setCitableTouched] = useState(false);
+  const [typeTouched, setTypeTouched] = useState(false);
+  const [showAllFields, setShowAllFields] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -158,17 +236,20 @@ export function PaperFormDialog({
 
   useEffect(() => {
     if (!open) return;
+    const nextMode = paper ? modeForPaper(paper) : "paper";
+    setMode(nextMode);
     setIdentifier("");
     setTitle(paper?.title ?? "");
     setAuthors(authorsToText(paper?.authors ?? []));
     setAbstract(paper?.abstract ?? "");
-    setType(paper?.type ?? "article");
+    setType(paper?.type ?? MODE_DEFAULT_TYPE[nextMode]);
     setYear(paper?.year ? String(paper.year) : "");
     setVenue(paper?.venue ?? "");
     setPublisher(paper?.publisher ?? "");
     setVolume(paper?.volume ?? "");
     setIssue(paper?.issue ?? "");
     setPages(paper?.pages ?? "");
+    setEdition(paper?.edition ?? "");
     setDoi(paper?.doi ?? "");
     setArxivId(paper?.arxivId ?? "");
     setArxivCategory(paper?.arxivCategory ?? "");
@@ -186,20 +267,33 @@ export function PaperFormDialog({
     setPriority(paper?.priority ?? "none");
     setCitable(paper?.citable ?? false);
     setCitableTouched(Boolean(paper));
+    setTypeTouched(Boolean(paper));
+    setShowAllFields(false);
   }, [open, paper]);
+
+  // Switching tabs on a fresh entry re-picks the default type; once the type
+  // has been chosen by hand or come back from a lookup, the tab stops
+  // overriding it.
+  const changeMode = (next: FormMode) => {
+    setMode(next);
+    setIdentifier("");
+    if (!typeTouched) setType(MODE_DEFAULT_TYPE[next]);
+  };
 
   const applyMetadata = (metadata: ResolvedPaperMetadata) => {
     setResolvedMetadata(metadata);
     setTitle(metadata.title);
     setAuthors(authorsToText(metadata.authors ?? []));
     setAbstract(metadata.abstract ?? "");
-    setType(metadata.type ?? "article");
+    setType(metadata.type ?? MODE_DEFAULT_TYPE[mode]);
+    setTypeTouched(true);
     setYear(metadata.year ? String(metadata.year) : "");
     setVenue(metadata.venue ?? "");
     setPublisher(metadata.publisher ?? "");
     setVolume(metadata.volume ?? "");
     setIssue(metadata.issue ?? "");
     setPages(metadata.pages ?? "");
+    setEdition(metadata.edition ?? "");
     setDoi(metadata.doi ?? "");
     setArxivId(metadata.arxivId ?? "");
     setArxivCategory(metadata.arxivCategory ?? "");
@@ -208,18 +302,21 @@ export function PaperFormDialog({
     setIssn(listToText(metadata.issn ?? []));
     setMetadataSource(metadata.metadataSource ?? "manual");
     setMetadataFetchedAt(metadata.metadataFetchedAt);
-    // Resolving against Crossref, arXiv or OpenAlex is exactly the evidence
-    // that makes something citable, so flip it unless it was set by hand.
+    // Resolving against Crossref, arXiv, OpenAlex or a book catalogue is
+    // exactly the evidence that makes something citable, so flip it unless it
+    // was set by hand.
     if (!citableTouched) setCitable(true);
   };
 
+  const lookup = MODE_LOOKUP[mode];
+
   const handleLookup = async () => {
-    if (!identifier.trim()) return;
+    if (!lookup || !identifier.trim()) return;
     setLookingUp(true);
     try {
       const result = await client.post<{ metadata: ResolvedPaperMetadata }>(
         "papers/resolve",
-        { identifier },
+        { identifier, kind: lookup.kind },
       );
       applyMetadata(result.metadata);
       toast.success("Metadata resolved");
@@ -262,6 +359,7 @@ export function PaperFormDialog({
         volume,
         issue,
         pages,
+        edition,
         doi,
         arxivId,
         arxivCategory,
@@ -295,6 +393,13 @@ export function PaperFormDialog({
     }
   };
 
+  const isBookish = BOOKISH_TYPES.includes(type);
+  const showBookFields = showAllFields || mode === "book" || isBookish;
+  const showAcademicFields =
+    showAllFields ||
+    (mode === "paper" && !isBookish) ||
+    Boolean(doi || arxivId);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
@@ -302,34 +407,69 @@ export function PaperFormDialog({
           <DialogTitle>{paper ? "Edit reading" : "Add reading"}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex gap-2 rounded-md border bg-muted/20 p-2">
-          <Input
-            value={identifier}
-            onChange={(event) => setIdentifier(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void handleLookup();
-            }}
-            placeholder="DOI, arXiv id, or Semantic Scholar URL"
-            className="h-8 font-mono text-xs"
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-8"
-            disabled={lookingUp || !identifier.trim()}
-            onClick={() => void handleLookup()}
-          >
-            {lookingUp ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Search className="size-3.5" />
-            )}
-            Resolve
-          </Button>
-        </div>
+        <Tabs
+          value={mode}
+          onValueChange={(value) => changeMode(value as FormMode)}
+        >
+          <TabsList variant="line" className="w-full justify-start">
+            {MODE_TABS.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value}>
+                <tab.icon className="size-3.5" />
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        {lookup && (
+          <div className="flex gap-2 rounded-md border bg-muted/20 p-2">
+            <Input
+              value={identifier}
+              onChange={(event) => setIdentifier(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void handleLookup();
+              }}
+              placeholder={lookup.placeholder}
+              className="h-8 font-mono text-xs"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8"
+              disabled={lookingUp || !identifier.trim()}
+              onClick={() => void handleLookup()}
+            >
+              {lookingUp ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Search className="size-3.5" />
+              )}
+              Resolve
+            </Button>
+          </div>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="PDF" className="sm:col-span-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              className="hidden"
+              onChange={(event) => setPdfFile(event.target.files?.[0] ?? null)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-start font-normal"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <FileUp className="size-3.5" />
+              {pdfFile?.name ?? paper?.pdf?.fileName ?? "Choose PDF"}
+            </Button>
+          </Field>
+
           <Field label="Title" className="sm:col-span-2">
             <Input
               value={title}
@@ -340,14 +480,17 @@ export function PaperFormDialog({
             <Textarea
               value={authors}
               onChange={(event) => setAuthors(event.target.value)}
-              className="min-h-20 font-mono text-xs"
-              placeholder="Family, Given — one per line"
+              className="min-h-16 font-mono text-xs"
+              placeholder={"Family, Given — or a name as written, one per line"}
             />
           </Field>
           <Field label="Type">
             <Select
               value={type}
-              onValueChange={(value) => setType(value as PaperType)}
+              onValueChange={(value) => {
+                setType(value as PaperType);
+                setTypeTouched(true);
+              }}
             >
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -370,117 +513,86 @@ export function PaperFormDialog({
               onChange={(event) => setYear(event.target.value)}
             />
           </Field>
-          <Field label="Venue">
-            <Input
-              value={venue}
-              onChange={(event) => setVenue(event.target.value)}
-            />
-          </Field>
-          <Field label="Publisher">
-            <Input
-              value={publisher}
-              onChange={(event) => setPublisher(event.target.value)}
-            />
-          </Field>
-          <Field label="Volume / issue">
-            <div className="grid grid-cols-2 gap-2">
+
+          {(showBookFields || showAcademicFields) && (
+            <Field label="Pages">
               <Input
-                value={volume}
-                onChange={(event) => setVolume(event.target.value)}
-                placeholder="volume"
+                value={pages}
+                onChange={(event) => setPages(event.target.value)}
               />
-              <Input
-                value={issue}
-                onChange={(event) => setIssue(event.target.value)}
-                placeholder="issue"
-              />
-            </div>
-          </Field>
-          <Field label="Pages">
-            <Input
-              value={pages}
-              onChange={(event) => setPages(event.target.value)}
-            />
-          </Field>
-          <Field label="DOI">
-            <Input
-              value={doi}
-              onChange={(event) => setDoi(event.target.value)}
-              className="font-mono text-xs"
-            />
-          </Field>
-          <Field label="arXiv">
-            <div className="grid grid-cols-[1fr_8rem] gap-2">
-              <Input
-                value={arxivId}
-                onChange={(event) => setArxivId(event.target.value)}
-                className="font-mono text-xs"
-              />
-              <Input
-                value={arxivCategory}
-                onChange={(event) => setArxivCategory(event.target.value)}
-                placeholder="cs.HC"
-                className="font-mono text-xs"
-              />
-            </div>
-          </Field>
-          <Field label="URL" className="sm:col-span-2">
-            <Input
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-            />
-          </Field>
-          <Field label="Citation key">
-            <Input
-              value={citationKey}
-              onChange={(event) => setCitationKey(event.target.value)}
-              placeholder="auto"
-              className="font-mono text-xs"
-            />
-          </Field>
-          <Field label="Tags">
-            <Input
-              value={tags}
-              onChange={(event) => setTags(event.target.value)}
-              placeholder="comma separated"
-            />
-          </Field>
-          <Field label="ISBN">
-            <Input
-              value={isbn}
-              onChange={(event) => setIsbn(event.target.value)}
-            />
-          </Field>
-          <Field label="ISSN">
-            <Input
-              value={issn}
-              onChange={(event) => setIssn(event.target.value)}
-            />
-          </Field>
-          <Field label="Abstract" className="sm:col-span-2">
-            <Textarea
-              value={abstract}
-              onChange={(event) => setAbstract(event.target.value)}
-              className="min-h-28"
-            />
-          </Field>
-          <Field label="PDF" className="sm:col-span-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/pdf,.pdf"
-              className="hidden"
-              onChange={(event) => setPdfFile(event.target.files?.[0] ?? null)}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <FileUp className="size-3.5" />
-              {pdfFile?.name ?? paper?.pdf?.fileName ?? "Choose PDF"}
-            </Button>
-          </Field>
+            </Field>
+          )}
+
+          {showBookFields && (
+            <>
+              <Field label="Publisher">
+                <Input
+                  value={publisher}
+                  onChange={(event) => setPublisher(event.target.value)}
+                />
+              </Field>
+              <Field label="Edition">
+                <Input
+                  value={edition}
+                  onChange={(event) => setEdition(event.target.value)}
+                />
+              </Field>
+              <Field label="ISBN">
+                <Input
+                  value={isbn}
+                  onChange={(event) => setIsbn(event.target.value)}
+                  className="font-mono text-xs"
+                />
+              </Field>
+            </>
+          )}
+
+          {showAcademicFields && (
+            <>
+              <Field label="Venue">
+                <Input
+                  value={venue}
+                  onChange={(event) => setVenue(event.target.value)}
+                />
+              </Field>
+              <Field label="Volume / issue">
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    value={volume}
+                    onChange={(event) => setVolume(event.target.value)}
+                    placeholder="volume"
+                  />
+                  <Input
+                    value={issue}
+                    onChange={(event) => setIssue(event.target.value)}
+                    placeholder="issue"
+                  />
+                </div>
+              </Field>
+              <Field label="DOI">
+                <Input
+                  value={doi}
+                  onChange={(event) => setDoi(event.target.value)}
+                  className="font-mono text-xs"
+                />
+              </Field>
+              <Field label="arXiv">
+                <div className="grid grid-cols-[1fr_8rem] gap-2">
+                  <Input
+                    value={arxivId}
+                    onChange={(event) => setArxivId(event.target.value)}
+                    className="font-mono text-xs"
+                  />
+                  <Input
+                    value={arxivCategory}
+                    onChange={(event) => setArxivCategory(event.target.value)}
+                    placeholder="cs.HC"
+                    className="font-mono text-xs"
+                  />
+                </div>
+              </Field>
+            </>
+          )}
 
           <Field label="Classes" className="sm:col-span-2">
             <Select
@@ -560,6 +672,14 @@ export function PaperFormDialog({
             </Select>
           </Field>
 
+          <Field label="Tags" className="sm:col-span-2">
+            <Input
+              value={tags}
+              onChange={(event) => setTags(event.target.value)}
+              placeholder="comma separated"
+            />
+          </Field>
+
           <Field label="Citable" className="sm:col-span-2">
             <div className="flex items-center gap-3">
               <Switch
@@ -574,6 +694,50 @@ export function PaperFormDialog({
               </span>
             </div>
           </Field>
+
+          {!showAllFields && (
+            <button
+              type="button"
+              onClick={() => setShowAllFields(true)}
+              className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground sm:col-span-2"
+            >
+              <ChevronRight className="size-3" />
+              All fields
+            </button>
+          )}
+
+          {showAllFields && (
+            <>
+              <Field label="URL" className="sm:col-span-2">
+                <Input
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                />
+              </Field>
+              <Field label="Citation key">
+                <Input
+                  value={citationKey}
+                  onChange={(event) => setCitationKey(event.target.value)}
+                  placeholder="auto"
+                  className="font-mono text-xs"
+                />
+              </Field>
+              <Field label="ISSN">
+                <Input
+                  value={issn}
+                  onChange={(event) => setIssn(event.target.value)}
+                  className="font-mono text-xs"
+                />
+              </Field>
+              <Field label="Abstract" className="sm:col-span-2">
+                <Textarea
+                  value={abstract}
+                  onChange={(event) => setAbstract(event.target.value)}
+                  className="min-h-28"
+                />
+              </Field>
+            </>
+          )}
         </div>
 
         <DialogFooter>

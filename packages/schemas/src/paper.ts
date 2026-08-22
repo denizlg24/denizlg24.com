@@ -9,10 +9,31 @@ export const paperTypeSchema = z.enum([
   "book",
   "chapter",
   "report",
+  "notes",
+  "slides",
   "dataset",
   "other",
 ]);
 export type PaperType = z.infer<typeof paperTypeSchema>;
+
+export const paperMetadataSourceSchema = z.enum([
+  "manual",
+  "crossref",
+  "arxiv",
+  "semantic_scholar",
+  "openalex",
+  "google_books",
+  "open_library",
+]);
+export type PaperMetadataSource = z.infer<typeof paperMetadataSourceSchema>;
+
+/**
+ * Which family of sources a lookup should reach for. A DOI and an ISBN are
+ * both plausible free text, so the tab the owner is on disambiguates rather
+ * than the resolver guessing.
+ */
+export const paperLookupKindSchema = z.enum(["academic", "book"]);
+export type PaperLookupKind = z.infer<typeof paperLookupKindSchema>;
 
 export const paperReadingStatusSchema = z.enum(["unread", "reading", "read"]);
 export type PaperReadingStatus = z.infer<typeof paperReadingStatusSchema>;
@@ -130,13 +151,7 @@ export const paperSchema = z.object({
   tags: z.array(z.string()),
   noteIds: z.array(z.string()),
   highlights: z.array(paperHighlightSchema),
-  metadataSource: z.enum([
-    "manual",
-    "crossref",
-    "arxiv",
-    "semantic_scholar",
-    "openalex",
-  ]),
+  metadataSource: paperMetadataSourceSchema,
   metadataFetchedAt: z.string().optional(),
   bibtex: z.string(),
   createdAt: z.string(),
@@ -192,9 +207,7 @@ export const paperMutationSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(100)).max(200).optional(),
   noteIds: z.array(z.string().trim().min(1).max(100)).max(1_000).optional(),
   highlights: z.array(paperHighlightSchema).max(10_000).optional(),
-  metadataSource: z
-    .enum(["manual", "crossref", "arxiv", "semantic_scholar", "openalex"])
-    .optional(),
+  metadataSource: paperMetadataSourceSchema.optional(),
   metadataFetchedAt: z.iso.datetime().nullable().optional(),
 });
 export type PaperMutation = z.infer<typeof paperMutationSchema>;
@@ -251,6 +264,7 @@ export type PaperCourseRef = z.infer<typeof paperCourseRefSchema>;
 
 export const resolvePaperMetadataSchema = z.object({
   identifier: z.string().trim().min(1).max(500),
+  kind: paperLookupKindSchema.default("academic"),
 });
 
 export const resolvedPaperMetadataSchema = createPaperSchema.pick({
@@ -265,6 +279,7 @@ export const resolvedPaperMetadataSchema = createPaperSchema.pick({
   volume: true,
   issue: true,
   pages: true,
+  edition: true,
   language: true,
   isbn: true,
   issn: true,

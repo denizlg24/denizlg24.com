@@ -8,6 +8,8 @@ import { requireAdmin } from "@/lib/require-admin";
 
 export const maxDuration = 20;
 
+const BAD_REQUEST = "Enter an identifier or a title to look up";
+
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
   if (authError) return authError;
@@ -15,28 +17,22 @@ export async function POST(request: NextRequest) {
   try {
     const parsed = resolvePaperMetadataSchema.safeParse(await request.json());
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Enter a DOI, arXiv identifier, or Semantic Scholar URL" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: BAD_REQUEST }, { status: 400 });
     }
 
     const metadata = resolvedPaperMetadataSchema.parse(
-      await resolvePaperMetadata(parsed.data.identifier),
+      await resolvePaperMetadata(parsed.data.identifier, parsed.data.kind),
     );
     return NextResponse.json({ metadata });
   } catch (error) {
     if (error instanceof SyntaxError) {
-      return NextResponse.json(
-        { error: "Enter a DOI, arXiv identifier, or Semantic Scholar URL" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: BAD_REQUEST }, { status: 400 });
     }
     const message =
       error instanceof Error ? error.message : "Metadata lookup failed";
-    const status = /Enter a DOI|Invalid/.test(message)
+    const status = /^Enter |^Invalid /.test(message)
       ? 400
-      : /not found/.test(message)
+      : /not found|No exact/.test(message)
         ? 404
         : 502;
     return NextResponse.json({ error: message }, { status });
