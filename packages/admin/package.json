@@ -40,7 +40,7 @@
     "html5-qrcode": "^2.3.8",
     "lightweight-charts": "^5.2.0",
     "lucide-react": "^1.29.0",
-    "pdfjs-dist": "5.4.296",
+    "pdfjs-dist": "6.2.108",
     "react-easy-crop": "^6.2.3",
     "react-force-graph-3d": "^1.29.1",
     "react-hook-form": "^7.84.0",
