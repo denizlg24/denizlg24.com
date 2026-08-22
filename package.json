@@ -30,11 +30,11 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.7",
+    "@biomejs/biome": "^2.5.9",
     "husky": "^9.1.7",
     "knip": "^6.32.0",
     "lint-staged": "^17.3.0",
-    "turbo": "^2.10.8",
+    "turbo": "^2.10.11",
     "typescript": "5.9.3"
   },
   "engines": {
