@@ -1,9 +1,6 @@
 "use client";
 
-import {
-  type MacrosVisionLabelResponse,
-  macrosVisionLabelResponseSchema,
-} from "@repo/schemas/macros";
+import { macrosVisionLabelResponseSchema } from "@repo/schemas/macros";
 import { Alert, AlertDescription, AlertTitle } from "@repo/ui/alert";
 import { Button } from "@repo/ui/button";
 import { Skeleton } from "@repo/ui/skeleton";
@@ -17,6 +14,7 @@ import {
   LoaderCircle,
   RotateCcw,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   type RefObject,
   useCallback,
@@ -53,7 +51,7 @@ import {
   type FoodSummary,
 } from "../../add/_components/food-detail-drawer";
 import { useLogPendingFoods } from "../../add/_components/use-log-pending-foods";
-import { CreateFoodDrawer } from "./create-food-drawer";
+import { writeCreateFoodDraft } from "../../foods/_lib/create-food-draft";
 
 const barcodeLookupResponseSchema = z.object({
   item: foodSearchItemSchema,
@@ -408,6 +406,7 @@ function ScanLogic({
 }: {
   calorieSummary: DailyCalorieSummary;
 }) {
+  const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const zxingControlsRef = useRef<IScannerControls | null>(null);
@@ -423,9 +422,6 @@ function ScanLogic({
   const [message, setMessage] = useState<string | null>(null);
   const [detectedBarcode, setDetectedBarcode] = useState<string | null>(null);
   const [selectedFood, setSelectedFood] = useState<FoodSummary | null>(null);
-  const [createFoodOpen, setCreateFoodOpen] = useState(false);
-  const [scannedLabel, setScannedLabel] =
-    useState<MacrosVisionLabelResponse | null>(null);
   const [labelFormat, setLabelFormat] = useState<"eu" | "us">("eu");
   const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([]);
   const [pendingSheetOpen, setPendingSheetOpen] = useState(false);
@@ -572,10 +568,16 @@ function ScanLogic({
       }
 
       labelAttemptsRef.current = 0;
-      setScannedLabel(result);
-      setScanState("found");
-      setMessage(null);
-      setCreateFoodOpen(true);
+      writeCreateFoodDraft({
+        barcode: detectedBarcode,
+        scannedLabel: result,
+        scannedLabelFormat: labelFormat,
+      });
+      router.push(
+        detectedBarcode
+          ? `/app/foods/new?barcode=${encodeURIComponent(detectedBarcode)}`
+          : "/app/foods/new",
+      );
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       labelAttemptsRef.current += 1;
@@ -593,10 +595,10 @@ function ScanLogic({
       }
       labelReadInFlightRef.current = false;
     }
-  }, [labelFormat]);
+  }, [detectedBarcode, labelFormat, router]);
 
   useEffect(() => {
-    if (scanState !== "label-aligning" || createFoodOpen) return;
+    if (scanState !== "label-aligning") return;
     const timer = window.setTimeout(
       () => {
         void readNutritionLabel();
@@ -604,7 +606,7 @@ function ScanLogic({
       labelAttemptsRef.current === 0 ? 1_400 : 2_200,
     );
     return () => window.clearTimeout(timer);
-  }, [createFoodOpen, readNutritionLabel, scanState]);
+  }, [readNutritionLabel, scanState]);
 
   useEffect(() => {
     document.documentElement.classList.add("macros-add-food-scroll-lock");
@@ -651,7 +653,6 @@ function ScanLogic({
       setScanState("starting");
       setMessage(null);
       setDetectedBarcode(null);
-      setScannedLabel(null);
       lastLookupRef.current = null;
 
       try {
@@ -775,9 +776,17 @@ function ScanLogic({
 
   const handleManualCreate = useCallback(() => {
     labelReadAbortRef.current?.abort();
-    setScannedLabel(null);
-    setCreateFoodOpen(true);
-  }, []);
+    writeCreateFoodDraft({
+      barcode: detectedBarcode,
+      scannedLabel: null,
+      scannedLabelFormat: labelFormat,
+    });
+    router.push(
+      detectedBarcode
+        ? `/app/foods/new?barcode=${encodeURIComponent(detectedBarcode)}`
+        : "/app/foods/new",
+    );
+  }, [detectedBarcode, labelFormat, router]);
 
   const pendingCalories = useMemo(
     () =>
@@ -883,23 +892,6 @@ function ScanLogic({
           handleRetry();
         }}
         onLog={handleStage}
-      />
-
-      <CreateFoodDrawer
-        open={createFoodOpen}
-        barcode={detectedBarcode}
-        scannedLabel={scannedLabel}
-        scannedLabelFormat={labelFormat}
-        onClose={() => {
-          setCreateFoodOpen(false);
-          setScannedLabel(null);
-          handleRetry();
-        }}
-        onCreated={(food) => {
-          setCreateFoodOpen(false);
-          setSelectedFood(food);
-          setScanState("found");
-        }}
       />
 
       <PendingFoodsSheet

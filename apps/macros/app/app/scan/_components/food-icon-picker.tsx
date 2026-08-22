@@ -160,6 +160,7 @@ export function FoodIconPicker({
         <div className="grid grid-cols-6 gap-x-2 gap-y-4 px-4 py-6">
           {visibleIcons.map((icon) => {
             const selected = icon.key === value;
+            const assetKey = icon.key === "other-001" ? "other-006" : icon.key;
             return (
               <button
                 key={icon.key}
@@ -174,7 +175,7 @@ export function FoodIconPicker({
                 )}
               >
                 <img
-                  src={`/food-icons/${icon.key}.png`}
+                  src={`/food-icons/${assetKey}.png`}
                   alt=""
                   aria-hidden="true"
                   width={128}

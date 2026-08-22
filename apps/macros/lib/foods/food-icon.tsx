@@ -76,9 +76,10 @@ export function FoodIcon({
   className?: string;
 }) {
   if (entryType === "food" && iconKey) {
+    const assetKey = iconKey === "other-001" ? "other-006" : iconKey;
     return (
       <img
-        src={`/food-icons/${encodeURIComponent(iconKey)}.png`}
+        src={`/food-icons/${encodeURIComponent(assetKey)}.png`}
         alt=""
         aria-hidden="true"
         className={className}

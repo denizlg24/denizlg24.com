@@ -78,7 +78,6 @@ import {
 } from "../../add/_components/food-detail-drawer";
 import { useLogPendingFoods } from "../../add/_components/use-log-pending-foods";
 import { putUserCreatedFood } from "../../add/_lib/food-search-cache";
-import { CreateFoodDrawer } from "../../scan/_components/create-food-drawer";
 
 const foodDetailResponseSchema = z.object({
   item: z.object({
@@ -532,7 +531,6 @@ function FoodsLogic({
   const [query, setQuery] = useState("");
   const [selectedFood, setSelectedFood] = useState<FoodSummary | null>(null);
   const [editingFood, setEditingFood] = useState<FoodSearchItem | null>(null);
-  const [createFoodOpen, setCreateFoodOpen] = useState(false);
   const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([]);
   const [pendingSheetOpen, setPendingSheetOpen] = useState(false);
   const [isLoadingFoods, setIsLoadingFoods] = useState(true);
@@ -645,8 +643,8 @@ function FoodsLogic({
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
-    setCreateFoodOpen(true);
-  }, []);
+    router.push("/app/foods/new");
+  }, [router]);
 
   const quickAddToPending = useCallback(
     (item: FoodSearchItem, servingsConsumed: number) => {
@@ -778,7 +776,6 @@ function FoodsLogic({
           </div>
           <Button
             type="button"
-            onPointerDown={openCreateFood}
             onClick={openCreateFood}
             className="size-11 shrink-0 rounded-full bg-foreground p-0 text-background hover:bg-foreground/90"
             aria-label="Create food"
@@ -885,18 +882,6 @@ function FoodsLogic({
           setFoods((current) =>
             current.map((food) => (food.id === previousId ? item : food)),
           );
-        }}
-      />
-
-      <CreateFoodDrawer
-        open={createFoodOpen}
-        barcode={null}
-        autoFocusName={false}
-        onClose={() => setCreateFoodOpen(false)}
-        onCreated={(food) => {
-          setCreateFoodOpen(false);
-          void loadFoods();
-          setSelectedFood(food);
         }}
       />
 
