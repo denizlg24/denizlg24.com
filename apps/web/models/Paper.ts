@@ -6,6 +6,7 @@ import type {
   PaperReadingStatus,
   PaperType,
 } from "@repo/schemas";
+import { MAX_PAPER_PDF_BYTES } from "@repo/schemas";
 import mongoose, { type Document, Schema } from "mongoose";
 
 export interface IPaperProgress {
@@ -119,7 +120,12 @@ const PaperFileSchema = new Schema<IPaperFile>(
       enum: ["application/pdf"],
       required: true,
     },
-    sizeBytes: { type: Number, required: true, min: 0, max: 50 * 1024 * 1024 },
+    sizeBytes: {
+      type: Number,
+      required: true,
+      min: 0,
+      max: MAX_PAPER_PDF_BYTES,
+    },
   },
   { _id: false },
 );

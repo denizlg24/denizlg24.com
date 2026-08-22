@@ -1,11 +1,10 @@
+import { MAX_PAPER_PDF_BYTES } from "@repo/schemas";
 import { type NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/require-admin";
 import { uploadFileToStorage } from "@/lib/storage-api";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
-
-const MAX_PDF_SIZE = 50 * 1024 * 1024;
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin(request);
@@ -17,9 +16,11 @@ export async function POST(request: NextRequest) {
     if (!(value instanceof File)) {
       return NextResponse.json({ error: "No PDF provided" }, { status: 400 });
     }
-    if (value.size === 0 || value.size > MAX_PDF_SIZE) {
+    if (value.size === 0 || value.size > MAX_PAPER_PDF_BYTES) {
       return NextResponse.json(
-        { error: "PDF must be between 1 byte and 50MB" },
+        {
+          error: `PDF must be between 1 byte and ${MAX_PAPER_PDF_BYTES / (1024 * 1024)}MB`,
+        },
         { status: 413 },
       );
     }

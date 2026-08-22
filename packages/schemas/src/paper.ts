@@ -93,16 +93,19 @@ export const paperProgressSchema = z
   .refine(withinDocument, beyondEnd);
 export type PaperProgress = z.infer<typeof paperProgressSchema>;
 
+/**
+ * Ceiling for a stored reading PDF. Scanned books and lecture-slide decks run
+ * to hundreds of megabytes, so this is the storage limit, not the transport
+ * one — see the upload route for what a single request can actually carry.
+ */
+export const MAX_PAPER_PDF_BYTES = 500 * 1024 * 1024;
+
 export const paperFileSchema = z.object({
   url: z.url(),
   storageKey: z.string().max(1_000).optional(),
   fileName: z.string().max(500),
   mimeType: z.literal("application/pdf"),
-  sizeBytes: z
-    .number()
-    .int()
-    .nonnegative()
-    .max(50 * 1024 * 1024),
+  sizeBytes: z.number().int().nonnegative().max(MAX_PAPER_PDF_BYTES),
 });
 export type PaperFile = z.infer<typeof paperFileSchema>;
 
