@@ -32,6 +32,7 @@ import {
 import { Skeleton } from "@repo/ui/skeleton";
 import {
   BookOpen,
+  CircleDashed,
   Download,
   FileText,
   GraduationCap,
@@ -39,7 +40,10 @@ import {
   Link2,
   Loader2,
   Plus,
+  Quote,
   Search,
+  Shapes,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -53,6 +57,8 @@ import {
   READING_STATUS_LABEL,
   readingPercent,
 } from "./reading";
+
+const READING_STATUSES: PaperReadingStatus[] = ["unread", "reading", "read"];
 
 export interface PapersResponse {
   papers: IPaper[];
@@ -93,7 +99,7 @@ export function PapersPage() {
       setCourses(result.courses ?? []);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to load papers",
+        error instanceof Error ? error.message : "Failed to load readings",
       );
     } finally {
       setLoading(false);
@@ -160,11 +166,28 @@ export function PapersPage() {
 
   const selectedPaper = papers.find((paper) => paper._id === selectedId);
 
+  const filtersActive =
+    Boolean(query) ||
+    status !== "all" ||
+    type !== "all" ||
+    pdfFilter !== "all" ||
+    courseFilter !== "all" ||
+    libraryFilter !== "all";
+
+  const clearFilters = () => {
+    setQuery("");
+    setStatus("all");
+    setType("all");
+    setPdfFilter("all");
+    setCourseFilter("all");
+    setLibraryFilter("all");
+  };
+
   const createPaper = async (input: PaperMutation & { title: string }) => {
     const result = await client.post<{ paper: IPaper }>("papers", input);
     setPapers((current) => [result.paper, ...current]);
     setSelectedId(result.paper._id);
-    toast.success("Paper added");
+    toast.success("Reading added");
   };
 
   const updatePaper = async (paperId: string, input: PaperMutation) => {
@@ -181,7 +204,7 @@ export function PapersPage() {
     if (!editing) return;
     await updatePaper(editing._id, input);
     setEditing(null);
-    toast.success("Paper updated");
+    toast.success("Reading updated");
   };
 
   const deletePaper = async () => {
@@ -193,7 +216,7 @@ export function PapersPage() {
       );
       if (selectedId === deleting._id) setSelectedId(null);
       setDeleting(null);
-      toast.success("Paper deleted");
+      toast.success("Reading deleted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Delete failed");
     }
@@ -360,7 +383,7 @@ export function PapersPage() {
         void importDroppedPdfs([...event.dataTransfer.files]);
       }}
     >
-      <div className="flex min-h-12 flex-wrap items-center gap-2 border-b px-4 py-2">
+      <div className="flex min-h-12 items-center gap-2 border-b px-3 py-2 sm:px-4">
         {slots?.sidebarTrigger}
         <BookOpen className="size-4 text-muted-foreground" />
         <h1 className="text-sm font-semibold">Reading</h1>
@@ -372,7 +395,7 @@ export function PapersPage() {
           )}
           <span>{highlightCount} highlights</span>
         </div>
-        <div className="min-w-44 flex-1" />
+        <div className="flex-1" />
         <Button
           variant="outline"
           size="sm"
@@ -390,52 +413,50 @@ export function PapersPage() {
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
-        <div className="relative min-w-52 flex-1">
+      <div className="border-b px-3 py-2 sm:px-4">
+        <div className="relative">
           <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search papers"
+            placeholder="Search title, author, tag"
             className="h-8 pl-8 text-xs"
           />
         </div>
-        <Select
-          value={status}
-          onValueChange={(value) => setStatus(value as StatusFilter)}
-        >
-          <SelectTrigger size="sm" className="w-32">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All status</SelectItem>
-            <SelectItem value="unread">Unread</SelectItem>
-            <SelectItem value="reading">Reading</SelectItem>
-            <SelectItem value="read">Read</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          value={pdfFilter}
-          onValueChange={(value) => setPdfFilter(value as PdfFilter)}
-        >
-          <SelectTrigger size="sm" className="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All PDFs</SelectItem>
-            <SelectItem value="with-pdf">With PDF</SelectItem>
-            <SelectItem value="missing-pdf">Missing PDF</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          value={type}
-          onValueChange={(value) => setType(value as TypeFilter)}
-        >
-          <SelectTrigger size="sm" className="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
+
+        {/* One scrolling row rather than a wrapping grid: five stacked
+            dropdowns took most of a phone screen before the first reading. */}
+        <div className="mt-2 flex gap-1.5 overflow-x-auto sm:flex-wrap">
+          <FilterSelect
+            value={status}
+            onValueChange={(value) => setStatus(value as StatusFilter)}
+            icon={CircleDashed}
+            className="w-30"
+          >
+            <SelectItem value="all">Any status</SelectItem>
+            {READING_STATUSES.map((value) => (
+              <SelectItem key={value} value={value}>
+                {READING_STATUS_LABEL[value]}
+              </SelectItem>
+            ))}
+          </FilterSelect>
+          <FilterSelect
+            value={pdfFilter}
+            onValueChange={(value) => setPdfFilter(value as PdfFilter)}
+            icon={FileText}
+            className="w-28"
+          >
+            <SelectItem value="all">Any file</SelectItem>
+            <SelectItem value="with-pdf">Has PDF</SelectItem>
+            <SelectItem value="missing-pdf">No PDF</SelectItem>
+          </FilterSelect>
+          <FilterSelect
+            value={type}
+            onValueChange={(value) => setType(value as TypeFilter)}
+            icon={Shapes}
+            className="w-30"
+          >
+            <SelectItem value="all">Any kind</SelectItem>
             {[...new Set(papers.map((paper) => paper.type))]
               .sort()
               .map((paperType) => (
@@ -443,18 +464,15 @@ export function PapersPage() {
                   {paperType}
                 </SelectItem>
               ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={courseFilter}
-          onValueChange={(value) => setCourseFilter(value as CourseFilter)}
-        >
-          <SelectTrigger size="sm" className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All classes</SelectItem>
-            <SelectItem value="none">No class</SelectItem>
+          </FilterSelect>
+          <FilterSelect
+            value={courseFilter}
+            onValueChange={(value) => setCourseFilter(value as CourseFilter)}
+            icon={GraduationCap}
+            className="w-36"
+          >
+            <SelectItem value="all">Any class</SelectItem>
+            <SelectItem value="none">Unlinked</SelectItem>
             {courses
               .filter((course) => course.status === "active")
               .map((course) => (
@@ -463,26 +481,34 @@ export function PapersPage() {
                   {course.name}
                 </SelectItem>
               ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={libraryFilter}
-          onValueChange={(value) => setLibraryFilter(value as LibraryFilter)}
-        >
-          <SelectTrigger size="sm" className="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
+          </FilterSelect>
+          <FilterSelect
+            value={libraryFilter}
+            onValueChange={(value) => setLibraryFilter(value as LibraryFilter)}
+            icon={Quote}
+            className="w-34"
+          >
             <SelectItem value="all">Everything</SelectItem>
-            <SelectItem value="citable">Bibliography</SelectItem>
-            <SelectItem value="reading-only">Readings only</SelectItem>
-          </SelectContent>
-        </Select>
+            <SelectItem value="citable">In bibliography</SelectItem>
+            <SelectItem value="reading-only">Reading only</SelectItem>
+          </FilterSelect>
+          {filtersActive && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 shrink-0 px-2 text-xs"
+              onClick={clearFilters}
+            >
+              <X className="size-3.5" />
+              Clear
+            </Button>
+          )}
+        </div>
       </div>
 
       {continueReading.length > 0 && courseFilter === "all" && (
         <div className="border-b">
-          <div className="px-4 pt-2.5 pb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="px-3 pt-2.5 pb-1 font-mono sm:px-4 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
             Continue reading
           </div>
           {continueReading.map((paper) => (
@@ -542,6 +568,32 @@ export function PapersPage() {
   );
 }
 
+function FilterSelect({
+  value,
+  onValueChange,
+  icon: Icon,
+  className,
+  children,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  icon: typeof FileText;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Select value={value} onValueChange={onValueChange}>
+      <SelectTrigger size="sm" className={`h-8 shrink-0 text-xs ${className}`}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+          <SelectValue />
+        </div>
+      </SelectTrigger>
+      <SelectContent position="popper">{children}</SelectContent>
+    </Select>
+  );
+}
+
 function ContinueRow({
   paper,
   onSelect,
@@ -555,7 +607,7 @@ function ContinueRow({
     <button
       type="button"
       onClick={onSelect}
-      className="group block w-full px-4 py-2 text-left transition-colors hover:bg-muted/30"
+      className="group block w-full px-3 py-2 text-left sm:px-4 transition-colors hover:bg-muted/30"
     >
       <div className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 truncate text-sm">{paper.title}</span>
@@ -606,7 +658,7 @@ function PaperRow({
     <button
       type="button"
       onClick={onSelect}
-      className="group grid w-full grid-cols-[minmax(0,1fr)_auto] gap-4 border-b border-border/60 px-4 py-3 text-left transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_9rem_8rem]"
+      className="group grid w-full grid-cols-[minmax(0,1fr)_auto] gap-4 border-b border-border/60 px-3 py-3 text-left transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_9rem_8rem] sm:px-4"
     >
       <div className="min-w-0">
         <div className="flex items-center gap-2">
@@ -743,10 +795,14 @@ export function PapersSkeleton() {
         <Skeleton className="h-7 w-24" />
         <Skeleton className="h-7 w-16" />
       </div>
-      <div className="flex gap-2 border-b px-4 py-2">
-        <Skeleton className="h-8 flex-1" />
-        <Skeleton className="h-8 w-32" />
-        <Skeleton className="h-8 w-36" />
+      <div className="border-b px-3 py-2 sm:px-4">
+        <Skeleton className="h-8 w-full" />
+        <div className="mt-2 flex gap-1.5">
+          <Skeleton className="h-8 w-30" />
+          <Skeleton className="h-8 w-28" />
+          <Skeleton className="h-8 w-30" />
+          <Skeleton className="hidden h-8 w-36 sm:block" />
+        </div>
       </div>
       <div className="flex flex-1 items-center justify-center">
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
