@@ -53,8 +53,10 @@ export const imageDataSchema = z.object({
 });
 export type IImageData = z.infer<typeof imageDataSchema>;
 
+/** A bare checklist: rows of a square box and a line of text. `title` is
+ *  optional because the common case is an untitled list sitting on the board. */
 export const todoListDataSchema = z.object({
-  title: z.string(),
+  title: z.string().optional(),
   items: z.array(
     z.object({ id: z.string(), text: z.string(), completed: z.boolean() }),
   ),

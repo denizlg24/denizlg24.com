@@ -21,6 +21,7 @@ import { peopleTools } from "./people";
 import { picronTools } from "./picron";
 import { projectsTools } from "./projects";
 import { resourceTools } from "./resources";
+import { runtimeTools } from "./runtime";
 import { sandboxTools } from "./sandbox";
 import { semanticTools } from "./semantic";
 import { spreadsheetTools } from "./spreadsheets";
@@ -87,6 +88,7 @@ const allTools: ToolDefinition[] = [
   ...sandboxTools,
 
   // System
+  ...runtimeTools,
   ...systemTools,
   ...authenticatorTools,
 ];

@@ -388,7 +388,16 @@ export const POST = async (req: NextRequest) => {
       clientToolResults,
       executionMode,
       maxIterations,
-      toolContext: { conversationId, memoryMode },
+      toolContext: {
+        conversationId,
+        memoryMode,
+        run: {
+          surface: responseStyle === "voice" ? "user-voice" : "user-chat",
+          unattended: false,
+          executionMode,
+          clientToolsAvailable: true,
+        },
+      },
       onPersist,
       requireTools: toolsEnabled,
       requireWebSearch: webSearchEnabled,

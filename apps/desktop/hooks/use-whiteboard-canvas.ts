@@ -144,7 +144,7 @@ export function useWhiteboardCanvas(
 
   const toWorld = useCallback(
     (e: React.PointerEvent | React.MouseEvent) => {
-      const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+      const rect = e.currentTarget.getBoundingClientRect();
       return screenToWorld(
         e.clientX - rect.left,
         e.clientY - rect.top,
@@ -235,12 +235,11 @@ export function useWhiteboardCanvas(
 
   const onPointerDown = useCallback(
     (
-      e: React.PointerEvent<SVGSVGElement>,
+      e: React.PointerEvent<HTMLDivElement>,
       tool: WhiteboardTool,
       settings: DrawSettings,
     ) => {
-      const svg = e.currentTarget;
-      svg.setPointerCapture(e.pointerId);
+      e.currentTarget.setPointerCapture(e.pointerId);
       const w = toWorld(e);
       lastWorld.current = w;
 
@@ -480,7 +479,7 @@ export function useWhiteboardCanvas(
   );
 
   const onPointerMove = useCallback(
-    (e: React.PointerEvent<SVGSVGElement>, _tool: WhiteboardTool) => {
+    (e: React.PointerEvent<HTMLDivElement>, _tool: WhiteboardTool) => {
       const w = toWorld(e);
       lastWorld.current = w;
 
@@ -639,7 +638,7 @@ export function useWhiteboardCanvas(
   );
 
   const onPointerUp = useCallback(
-    (_e: React.PointerEvent<SVGSVGElement>, _tool: WhiteboardTool) => {
+    (_e: React.PointerEvent<HTMLDivElement>, _tool: WhiteboardTool) => {
       if (pendingEditId.current) {
         const id = pendingEditId.current;
         pendingEditId.current = null;
@@ -724,10 +723,10 @@ export function useWhiteboardCanvas(
     [addElements, removeElements, commitTransform, beginEditText],
   );
 
-  const onWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
+  const onWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
     if (e.ctrlKey || e.metaKey) {
-      const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+      const rect = e.currentTarget.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
       const delta = -e.deltaY * 0.001;
@@ -876,11 +875,22 @@ export function useWhiteboardCanvas(
   );
 
   const updateComponentData = useCallback(
-    (elementId: string, newData: Record<string, unknown>) => {
+    (
+      elementId: string,
+      newData: Record<string, unknown>,
+      size?: { width?: number; height?: number },
+    ) => {
       history.setElements((prev) => {
         const el = prev.find((e) => e.id === elementId);
         if (!el) return prev;
-        const after = { ...el, data: newData };
+        // A component that reports a size derives it from its content, so the
+        // value is applied as given. Only the axis it reports is touched.
+        const after = {
+          ...el,
+          data: newData,
+          width: size?.width ?? el.width,
+          height: size?.height ?? el.height,
+        };
         pushAction({ type: "update", before: [el], after: [after] });
         return prev.map((e) => (e.id === elementId ? after : e));
       });

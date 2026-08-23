@@ -3,9 +3,11 @@ import { getTodayBoard, updateTodayBoard } from "@/lib/whiteboard";
 import type { ILeanWhiteboard } from "@/models/Whiteboard";
 import type { ToolDefinition } from "./types";
 import {
+  applyComponentItemOps,
   applyElementPatch,
   boardSummary,
   buildNewElements,
+  COMPONENT_ITEM_GUIDE,
   ELEMENT_DATA_GUIDE,
   maxZIndex,
   parseBackground,
@@ -149,6 +151,79 @@ export const todayBoardTools: ToolDefinition[] = [
         return { success: false, error: "Failed to save the Today board" };
       }
       return { success: true, element: summarizeElement(applied.element) };
+    },
+  },
+  {
+    schema: {
+      name: "update_today_board_component_items",
+      description: `Add, edit or remove the rows of a list component on the Today board (checklist rows, quick links). ${COMPONENT_ITEM_GUIDE} ${TODAY_BOARD_NOTE}`,
+      input_schema: {
+        type: "object",
+        properties: {
+          elementId: {
+            type: "string",
+            description:
+              "The component element id from get_today_board. Must be a todo-list or quick-links component.",
+          },
+          add: {
+            type: "array",
+            items: { type: "object" },
+            description:
+              "Rows to add: {text, completed?} for todo-list, {label, url} for quick-links. completed defaults to false. Ids are assigned automatically.",
+          },
+          insertAt: {
+            type: "number",
+            description:
+              "Index to insert the added rows at. Appends to the end when omitted.",
+            minimum: 0,
+          },
+          update: {
+            type: "array",
+            items: { type: "object" },
+            description:
+              "Row patches, each {id, ...fields}: {id, text?, completed?} for todo-list, {id, label?, url?} for quick-links.",
+          },
+          remove: {
+            type: "array",
+            items: { type: "string" },
+            description: "Row ids to delete.",
+          },
+        },
+        required: ["elementId"],
+      },
+    },
+    isWrite: true,
+    category: "today-board",
+    execute: async (input) => {
+      const found = await requireTodayBoard();
+      if (!found.ok) return { success: false, error: found.error };
+      const element = found.board.elements.find(
+        (el) => el.id === input.elementId,
+      );
+      if (!element) {
+        return {
+          success: false,
+          error: "Element not found. Use get_today_board for element ids.",
+        };
+      }
+      const { elementId: _el, ...ops } = input;
+      const applied = applyComponentItemOps(element, ops);
+      if (!applied.ok) return { success: false, error: applied.error };
+      const updated = await updateTodayBoard({
+        elements: found.board.elements.map((el) =>
+          el.id === element.id ? applied.element : el,
+        ),
+      });
+      if (!updated) {
+        return { success: false, error: "Failed to save the Today board" };
+      }
+      return {
+        success: true,
+        addedItemIds: applied.addedItemIds,
+        updatedItemIds: applied.updatedItemIds,
+        removedItemIds: applied.removedItemIds,
+        element: summarizeElement(applied.element),
+      };
     },
   },
   {

@@ -317,6 +317,17 @@ function TextEditor({
   );
 }
 
+/** Controls a press belongs to rather than to the board. Kept as one selector
+ *  so every template gets the behaviour without wiring it per component. */
+const INTERACTIVE_SELECTOR =
+  'button, input, textarea, select, a, label, [role="checkbox"], [role="button"], [role="slider"], [contenteditable="true"]';
+
+function isInteractiveTarget(target: EventTarget): boolean {
+  return (
+    target instanceof Element && target.closest(INTERACTIVE_SELECTOR) !== null
+  );
+}
+
 export interface WhiteboardCanvasProps {
   elements: IWhiteboardElement[];
   background?: IWhiteboardBackground;
@@ -328,11 +339,11 @@ export interface WhiteboardCanvasProps {
   textBox: TextBoxState | null;
   textDraft?: TextDraft | null;
   readOnly?: boolean;
-  onPointerDown: (e: React.PointerEvent<SVGSVGElement>) => void;
-  onPointerMove: (e: React.PointerEvent<SVGSVGElement>) => void;
-  onPointerUp: (e: React.PointerEvent<SVGSVGElement>) => void;
-  onWheel: (e: React.WheelEvent<SVGSVGElement>) => void;
-  onDoubleClick?: (e: React.MouseEvent<SVGSVGElement>) => void;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onWheel: (e: React.WheelEvent<HTMLDivElement>) => void;
+  onDoubleClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
   onTextCommit?: (text: string, width: number, height: number) => void;
   onTextCancel?: () => void;
   onStartResize?: (handle: ResizeHandle, shift: boolean) => void;
@@ -340,6 +351,7 @@ export interface WhiteboardCanvasProps {
   onComponentDataChange?: (
     elementId: string,
     data: Record<string, unknown>,
+    size?: { width?: number; height?: number },
   ) => void;
   onComponentDelete?: (elementId: string) => void;
 }
@@ -382,16 +394,19 @@ export function WhiteboardCanvas({
   const selCenter = selBounds ? centerOf(selBounds) : null;
 
   return (
-    <div className="relative w-full h-full">
-      <svg
-        className="w-full h-full touch-none"
-        style={{ display: "block" }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onWheel={onWheel}
-        onDoubleClick={onDoubleClick}
-      >
+    /* The gestures live on the container, not the <svg>, because the component
+       layer below is the svg's sibling — an event on a component would never
+       reach a handler bound to the svg, so components could only be made
+       interactive by blocking pointer events on them entirely. */
+    <div
+      className="relative w-full h-full touch-none"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onWheel={onWheel}
+      onDoubleClick={onDoubleClick}
+    >
+      <svg className="w-full h-full" style={{ display: "block" }}>
         <BoardBackground background={background} viewState={viewState} />
 
         <g
@@ -476,10 +491,25 @@ export function WhiteboardCanvas({
                   ? `rotate(${el.rotation}deg)`
                   : undefined,
                 transformOrigin: "center",
-                pointerEvents:
-                  !readOnly && isPointerTool && isSelected ? "auto" : "none",
+                pointerEvents: !readOnly && isPointerTool ? "auto" : "none",
               }}
-              onPointerDown={(e) => e.stopPropagation()}
+              /* Components stay hoverable whether or not they are selected, so
+                 a hover affordance does not cost a click first. Only a press on
+                 a real control is withheld from the canvas; a press anywhere
+                 else still pans, marquees and drags as if the component were
+                 not there. */
+              onPointerDown={(e) => {
+                if (isInteractiveTarget(e.target)) e.stopPropagation();
+              }}
+              /* Wheel and double-click keep the selected-only behaviour they
+                 had: scrolling a component's overflow and editing its content
+                 are things you do to a component you have already picked. */
+              onWheel={(e) => {
+                if (isSelected) e.stopPropagation();
+              }}
+              onDoubleClick={(e) => {
+                if (isSelected) e.stopPropagation();
+              }}
             >
               <div
                 style={{
@@ -492,7 +522,9 @@ export function WhiteboardCanvas({
                 <Template
                   id={el.id}
                   data={el.data}
-                  onDataChange={(d) => onComponentDataChange?.(el.id, d)}
+                  onDataChange={(d, size) =>
+                    onComponentDataChange?.(el.id, d, size)
+                  }
                   onDelete={() => onComponentDelete?.(el.id)}
                   width={w}
                   height={h}

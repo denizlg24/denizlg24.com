@@ -356,6 +356,12 @@ export async function processBackgroundAgentJob(job: IAgentMemoryJob) {
       toolContext: {
         conversationId: run.conversationId.toString(),
         memoryMode: conversation.memoryMode,
+        run: {
+          surface: "background-agent",
+          unattended: true,
+          executionMode: "yolo",
+          clientToolsAvailable: false,
+        },
       },
       onPersist: persist,
       requireTools: true,

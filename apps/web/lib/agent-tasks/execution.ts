@@ -17,6 +17,7 @@ import {
   isWriteTool,
 } from "@/lib/tools/registry";
 import { buildSystemPrompt } from "@/lib/tools/system-prompt";
+import type { AgentRunSurface } from "@/lib/tools/types";
 import type { IAgentMemoryJob } from "@/models/AgentMemoryJob";
 import { AgentTask, type IAgentTask } from "@/models/AgentTask";
 import { AgentTaskRun, type IAgentTaskToolCall } from "@/models/AgentTaskRun";
@@ -80,6 +81,18 @@ function extractRunState(messages: Anthropic.MessageParam[]) {
         : output.slice(0, 64_000),
     toolCalls: [...calls.values()],
   };
+}
+
+/**
+ * A saved task run by hand is a different situation from the same task firing
+ * on its cron — Deniz just asked for it — even though both execute unattended.
+ */
+function taskRunSurface(
+  task: IAgentTask,
+  trigger: "scheduled" | "manual",
+): AgentRunSurface {
+  if (trigger === "manual") return "manual-task-run";
+  return task.schedule ? "scheduled-task" : "one-off-task";
 }
 
 function taskContent(task: IAgentTask): Anthropic.ContentBlockParam[] {
@@ -228,7 +241,25 @@ export async function processAgentTaskJob(job: IAgentMemoryJob) {
       }),
       messages: [{ role: "user", content: taskContent(task) }],
       tools,
-      toolContext: { memoryMode: task.memoryMode },
+      toolContext: {
+        memoryMode: task.memoryMode,
+        run: {
+          surface: taskRunSurface(task, run.trigger),
+          unattended: true,
+          executionMode: "yolo",
+          clientToolsAvailable: false,
+          task: {
+            id: task._id.toString(),
+            runId: run._id.toString(),
+            name: task.name,
+            origin: task.origin,
+            ...(task.schedule
+              ? { cron: task.schedule.cron, timeZone: task.schedule.timeZone }
+              : {}),
+            ...(task.runAt ? { runAt: task.runAt.toISOString() } : {}),
+          },
+        },
+      },
       executionMode: "yolo",
       maxIterations: task.maxRounds,
       requireTools: true,

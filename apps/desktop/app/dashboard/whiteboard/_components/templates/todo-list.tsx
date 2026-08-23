@@ -1,10 +1,16 @@
 "use client";
 
-import { Button } from "@repo/ui/button";
 import { Checkbox } from "@repo/ui/checkbox";
-import { Input } from "@repo/ui/input";
-import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import {
+  TODO_ACTION_ROW_HEIGHT,
+  TODO_HEADER_HEIGHT,
+  TODO_ROW_HEIGHT,
+  TODO_TEXT_SIZE,
+  todoListHeight,
+  WHITEBOARD_FONT_FAMILIES,
+} from "@repo/whiteboard-render";
+import { Plus, Trash2, Type } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { TemplateProps } from ".";
 
 interface TodoItem {
@@ -13,142 +19,234 @@ interface TodoItem {
   completed: boolean;
 }
 
+const HAND = WHITEBOARD_FONT_FAMILIES.handwriting.css;
+
+function makeId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export const TodoListTemplate = ({
-  id,
   width,
   height,
   data,
   onDataChange,
-  onDelete,
 }: TemplateProps) => {
-  const title = (data.title as string) || "Todo List";
-  const items = (data.items as TodoItem[]) || [];
+  const title = typeof data.title === "string" ? data.title : "";
+  const items = Array.isArray(data.items) ? (data.items as TodoItem[]) : [];
 
-  const updateItems = (newItems: TodoItem[]) => {
-    onDataChange({ ...data, items: newItems });
+  const [hovered, setHovered] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingId) inputRef.current?.focus();
+  }, [editingId]);
+
+  const done = items.filter((i) => i.completed).length;
+  /* The header is in the flow, so it may only appear when there is a title to
+     show. Revealing it on hover would push every row down and overflow a box
+     sized to its rows. Adding a title is offered from the action row instead,
+     whose height is already reserved. */
+  const showHeader = title.length > 0 || editingTitle;
+
+  /* A checklist's height is entirely determined by its rows, so every write
+     reports the height the content now needs. Adding a row grows the box
+     instead of pushing the list into an overflow scroll, and dropping one
+     gives the space back. */
+  const write = (
+    next: Record<string, unknown>,
+    itemCount: number,
+    titled: boolean,
+  ) => onDataChange(next, { height: todoListHeight(itemCount, titled) });
+
+  const writeItems = (next: TodoItem[]) =>
+    write({ ...data, items: next }, next.length, showHeader);
+
+  /** Commits the open row. An empty row is dropped rather than left stranded,
+   *  which is what makes "add row, then click away" a no-op instead of debris. */
+  const commitEditing = (append: boolean) => {
+    const id = editingId;
+    if (!id) return;
+    const text = draft.trim();
+    setEditingId(null);
+    setDraft("");
+    if (!text) {
+      writeItems(items.filter((i) => i.id !== id));
+      return;
+    }
+    const next = items.map((i) => (i.id === id ? { ...i, text } : i));
+    if (!append) {
+      writeItems(next);
+      return;
+    }
+    const added: TodoItem = { id: makeId(), text: "", completed: false };
+    writeItems([...next, added]);
+    setEditingId(added.id);
   };
 
-  const [newTaskInput, setNewTaskInput] = useState("");
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [newTitleInput, setNewTitleInput] = useState(title);
+  const addRow = () => {
+    const added: TodoItem = { id: makeId(), text: "", completed: false };
+    writeItems([...items, added]);
+    setDraft("");
+    setEditingId(added.id);
+  };
+
+  const commitTitle = () => {
+    setEditingTitle(false);
+    const next = titleDraft.trim();
+    if (next !== title) {
+      write({ ...data, title: next }, items.length, next.length > 0);
+    }
+  };
 
   return (
     <div
-      className="border border-border bg-background shadow-sm rounded-lg flex flex-col gap-3"
-      style={{ width, height }}
+      className="flex flex-col overflow-hidden"
+      style={{ width, height, fontFamily: HAND }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      <div className="flex flex-col gap-0.5 w-full pt-3 px-3 pb-3 border-b bg-input/25 rounded-tl-lg rounded-tr-lg">
-        <div className="flex flex-row items-center justify-between">
+      {showHeader && (
+        <div
+          className="flex shrink-0 items-baseline justify-between gap-3"
+          style={{ height: TODO_HEADER_HEIGHT }}
+        >
           {editingTitle ? (
             <input
-              className="text-base font-semibold focus:outline-none bg-surface rounded"
-              value={newTitleInput}
-              onChange={(e) => setNewTitleInput(e.target.value)}
-              onBlur={() => {
-                onDataChange({ ...data, title: newTitleInput });
-                setEditingTitle(false);
-              }}
+              // biome-ignore lint/a11y/noAutofocus: focus follows the click that opened the field
+              autoFocus
+              className="min-w-0 grow bg-transparent text-[17px] outline-none"
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={commitTitle}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  onDataChange({ ...data, title: newTitleInput });
+                if (e.key === "Enter") commitTitle();
+                if (e.key === "Escape") {
+                  setTitleDraft(title);
                   setEditingTitle(false);
                 }
               }}
             />
           ) : (
-            <p
-              className="text-base font-semibold"
-              onClick={() => setEditingTitle(true)}
+            <button
+              type="button"
+              className="min-w-0 grow truncate text-left text-[17px] text-muted-foreground"
+              onClick={() => {
+                setTitleDraft(title);
+                setEditingTitle(true);
+              }}
             >
               {title}
-            </p>
+            </button>
           )}
-          <p className="text-accent text-sm">
-            {items.filter((item) => item.completed).length}/{items.length}
-          </p>
+          {items.length > 0 && (
+            <span className="shrink-0 text-[15px] tabular-nums text-muted-foreground">
+              {done}/{items.length}
+            </span>
+          )}
         </div>
-        <div className="w-full relative border bg-surface rounded-full h-3 overflow-hidden">
-          <div
-            className="absolute top-0 left-0 h-full bg-primary transition-all duration-300 ease-in-out"
-            style={{
-              width: `${(items.filter((item) => item.completed).length / items.length) * 100}%`,
-            }}
-          />
-        </div>
-      </div>
-      <div className="flex flex-col gap-1 overflow-y-auto w-full">
+      )}
+
+      <div className="flex min-h-0 grow flex-col overflow-y-auto">
         {items.map((item) => (
-          <label
+          <div
             key={item.id}
-            className="group flex flex-row justify-start items-center gap-2 hover:bg-surface/50 rounded px-2 py-1"
+            className="group/row flex shrink-0 items-center gap-4"
+            style={{ height: TODO_ROW_HEIGHT }}
           >
             <Checkbox
-              className="rounded-full shrink-0"
+              className="size-6 shrink-0 rounded-none border-2 border-foreground data-[state=checked]:border-foreground data-[state=checked]:bg-foreground data-[state=checked]:text-background [&_svg]:size-5"
               checked={item.completed}
-              onCheckedChange={(checked) => {
-                const newItems = items.map((i) =>
-                  i.id === item.id ? { ...i, completed: checked } : i,
-                );
-                updateItems(newItems as TodoItem[]);
-              }}
-            />
-            <span
-              className={
-                item.completed
-                  ? "line-through text-muted-foreground truncate grow"
-                  : "truncate grow"
+              onCheckedChange={(checked) =>
+                writeItems(
+                  items.map((i) =>
+                    i.id === item.id
+                      ? { ...i, completed: checked === true }
+                      : i,
+                  ),
+                )
               }
+            />
+            {editingId === item.id ? (
+              <input
+                ref={inputRef}
+                className="min-w-0 grow bg-transparent leading-tight outline-none"
+                style={{ fontSize: TODO_TEXT_SIZE }}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={() => commitEditing(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitEditing(true);
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    commitEditing(false);
+                  }
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                className={`min-w-0 grow truncate text-left leading-tight ${
+                  item.completed
+                    ? "text-muted-foreground line-through"
+                    : "text-foreground"
+                }`}
+                style={{ fontSize: TODO_TEXT_SIZE }}
+                onClick={() => {
+                  setDraft(item.text);
+                  setEditingId(item.id);
+                }}
+              >
+                {item.text}
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label="Delete row"
+              className="hidden size-6 shrink-0 items-center justify-center text-muted-foreground hover:text-destructive group-hover/row:flex"
+              onClick={() => writeItems(items.filter((i) => i.id !== item.id))}
             >
-              {item.text}
-            </span>
-            <Button
-              onClick={() => {
-                const newItems = items.filter((i) => i.id !== item.id);
-                updateItems(newItems as TodoItem[]);
-              }}
-              variant={"outline"}
-              size={"icon-xs"}
-              className="hidden group-hover:flex ml-auto shrink-0"
-            >
-              <Trash2 />
-            </Button>
-          </label>
+              <Trash2 className="size-4" />
+            </button>
+          </div>
         ))}
       </div>
-      <div className="mt-auto w-full flex flex-row items-center gap-2 p-3 bg-input/25 border-t rounded-bl-lg rounded-br-lg">
-        <Input
-          onChange={(e) => {
-            setNewTaskInput(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              const newItem: TodoItem = {
-                id: Date.now().toString(),
-                text: newTaskInput,
-                completed: false,
-              };
-              updateItems([...items, newItem]);
-              setNewTaskInput("");
-              e.currentTarget.blur();
-            }
-          }}
-          placeholder="Add a new task..."
-          value={newTaskInput}
-        />
-        <Button
-          size={"icon-sm"}
-          onClick={() => {
-            const newItem: TodoItem = {
-              id: Date.now().toString(),
-              text: newTaskInput,
-              completed: false,
-            };
-            updateItems([...items, newItem]);
-            setNewTaskInput("");
-          }}
+
+      <div
+        className={`flex shrink-0 items-center justify-between transition-opacity ${
+          hovered ? "opacity-100" : "opacity-0"
+        }`}
+        style={{ height: TODO_ACTION_ROW_HEIGHT }}
+      >
+        <button
+          type="button"
+          aria-label="Add row"
+          className="flex size-6 shrink-0 items-center justify-center border-2 border-dashed border-muted-foreground/60 text-muted-foreground/60 hover:border-foreground hover:text-foreground"
+          onClick={addRow}
         >
-          <Plus />
-        </Button>
+          <Plus className="size-4" />
+        </button>
+        {!showHeader && (
+          <button
+            type="button"
+            aria-label="Add title"
+            className="flex size-6 shrink-0 items-center justify-center text-muted-foreground/60 hover:text-foreground"
+            onClick={() => {
+              setTitleDraft("");
+              setEditingTitle(true);
+            }}
+          >
+            <Type className="size-4" />
+          </button>
+        )}
       </div>
     </div>
   );

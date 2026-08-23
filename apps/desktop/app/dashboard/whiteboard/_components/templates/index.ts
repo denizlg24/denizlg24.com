@@ -21,10 +21,17 @@ interface TemplateDefinition {
   component: ComponentType<TemplateProps>;
 }
 
+export interface ComponentSize {
+  width?: number;
+  height?: number;
+}
+
 export interface TemplateProps {
   id: string;
   data: Record<string, unknown>;
-  onDataChange: (data: Record<string, unknown>) => void;
+  /** A component that grows with its content passes the size it now needs.
+   *  It rides along with the data so one edit stays one undo step. */
+  onDataChange: (data: Record<string, unknown>, size?: ComponentSize) => void;
   onDelete: () => void;
   width: number;
   height: number;
@@ -32,11 +39,11 @@ export interface TemplateProps {
 
 export const templateRegistry: Record<string, TemplateDefinition> = {
   "todo-list": {
-    name: "Todo List",
+    name: "Checklist",
     icon: CheckSquare,
-    defaultSize: { width: 280, height: 320 },
+    defaultSize: { width: 420, height: 220 },
     defaultData: {
-      title: "Todo List",
+      title: "",
       items: [] as { id: string; text: string; completed: boolean }[],
     },
     component: TodoListTemplate,

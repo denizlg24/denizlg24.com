@@ -11,6 +11,7 @@ import {
   COMPONENT_DEFAULT_SIZES,
   elementBounds,
   TEXT_LINE_HEIGHT,
+  todoListHeight,
   wrapText,
 } from "@repo/whiteboard-render";
 import { z } from "zod";
@@ -28,7 +29,9 @@ export const ELEMENT_DATA_GUIDE = `Element formats (canvas coords: +x right, +y 
 - Shape: type "drawing", data {shapeType:"rectangle"|"square"|"circle"|"arrow"|"line", color:"#hex", thickness:number, fill?:"#hex"}; rectangle/square/circle need element width/height; arrow/line use data.x2/data.y2 as the endpoint relative to element x/y.
 - Text: type "drawing", data {text, color:"#hex", fontSize:number, fontWeight?:400|500|700, fontFamily?:"handwriting"|"sans"|"serif"|"mono", align?:"left"|"center"|"right"}; element width sets the wrap width (height auto-computed when omitted). Default font is handwriting (Excalifont).
 - Image: type "drawing", data {src:"https url"}, element width/height.
-- Component: type "component" with componentType and data — "todo-list" {title, items:[{text, completed}]}, "sticky-note" {content, colorIndex:0-5}, "quick-links" {title, links:[{label, url}]}, "markdown-note" {content}, "pdf-viewer" {pdfUrl?, fileName?}. Sizes default sensibly when width/height omitted.`;
+- Component: type "component" with componentType and data — "todo-list" {title?, items:[{text, completed}]}, "sticky-note" {content, colorIndex:0-5}, "quick-links" {title, links:[{label, url}]}, "markdown-note" {content}, "pdf-viewer" {pdfUrl?, fileName?}. Sizes default sensibly when width/height omitted.
+- A "todo-list" renders as a bare checklist — one 24px square box and a 20px line of text per row, 42px apart, no card around it. Omit the title for an untitled list. Height roughly 30 (only with a title) + 42 per row + 34 for the add-row affordance.
+- To change the rows of an existing todo-list or quick-links, prefer the component-items tool over patching the whole array through the element data.`;
 
 const newElementSchema = z.object({
   type: z.enum(["drawing", "component"]),
@@ -109,6 +112,13 @@ export function buildNewElements(
         element.width ??= defaults.width;
         element.height ??= defaults.height;
       }
+      if (element.componentType === "todo-list") {
+        element.height = todoListHeight(
+          Array.isArray(element.data.items) ? element.data.items.length : 0,
+          typeof element.data.title === "string" &&
+            element.data.title.length > 0,
+        );
+      }
     }
     const kind = whiteboardElementKind(element);
     if (kind === "text") {
@@ -161,6 +171,135 @@ export function applyElementPatch(
   const check = validateWhiteboardElement(updated);
   if (!check.ok) return { ok: false, error: check.error };
   return { ok: true, element: updated };
+}
+
+/** Components whose data carries an editable list, and the key it lives under. */
+const COMPONENT_ITEM_KEYS: Record<string, string> = {
+  "todo-list": "items",
+  "quick-links": "links",
+};
+
+export const COMPONENT_ITEM_GUIDE =
+  'Edit the rows of a list component in place instead of resending the whole array through element data: "todo-list" edits data.items ({text, completed}) and "quick-links" edits data.links ({label, url}). Item ids come from get_whiteboard/get_today_board; added rows get an id automatically. Operations apply in one write, in the order update, remove, add.';
+
+const componentItemOpsSchema = z.object({
+  add: z.array(z.record(z.string(), z.unknown())).optional(),
+  insertAt: z.number().int().nonnegative().optional(),
+  update: z.array(z.record(z.string(), z.unknown())).optional(),
+  remove: z.array(z.string()).optional(),
+});
+
+interface ComponentItem extends Record<string, unknown> {
+  id: string;
+}
+
+function isComponentItem(value: unknown): value is ComponentItem {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { id?: unknown }).id === "string"
+  );
+}
+
+export function applyComponentItemOps(
+  element: IWhiteboardElement,
+  ops: unknown,
+):
+  | {
+      ok: true;
+      element: IWhiteboardElement;
+      addedItemIds: string[];
+      updatedItemIds: string[];
+      removedItemIds: string[];
+    }
+  | { ok: false; error: string } {
+  const key = element.componentType
+    ? COMPONENT_ITEM_KEYS[element.componentType]
+    : undefined;
+  if (!key) {
+    return {
+      ok: false,
+      error: `Element ${element.id} is not a list component. Editable list components: ${Object.keys(COMPONENT_ITEM_KEYS).join(", ")}.`,
+    };
+  }
+  const parsed = componentItemOpsSchema.safeParse(ops);
+  if (!parsed.success) {
+    return { ok: false, error: z.prettifyError(parsed.error) };
+  }
+  const { add, insertAt, update, remove } = parsed.data;
+  if (!add?.length && !update?.length && !remove?.length) {
+    return { ok: false, error: "Nothing to do: pass add, update or remove." };
+  }
+
+  const existing = Array.isArray(element.data[key])
+    ? (element.data[key] as unknown[]).filter(isComponentItem)
+    : [];
+  let items: ComponentItem[] = existing.map((item) => ({ ...item }));
+
+  const updatedItemIds: string[] = [];
+  const missing: string[] = [];
+  for (const patch of update ?? []) {
+    const { id, ...fields } = patch;
+    if (typeof id !== "string") {
+      return { ok: false, error: "Each update entry needs the item's id." };
+    }
+    const index = items.findIndex((item) => item.id === id);
+    if (index === -1) {
+      missing.push(id);
+      continue;
+    }
+    items[index] = { ...items[index], ...fields, id };
+    updatedItemIds.push(id);
+  }
+
+  const removedItemIds: string[] = [];
+  for (const id of remove ?? []) {
+    if (!items.some((item) => item.id === id)) {
+      missing.push(id);
+      continue;
+    }
+    removedItemIds.push(id);
+  }
+  items = items.filter((item) => !removedItemIds.includes(item.id));
+
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      error: `No such item id on element ${element.id}: ${[...new Set(missing)].join(", ")}. Re-read the board for current item ids.`,
+    };
+  }
+
+  const added: ComponentItem[] = (add ?? []).map((item) => ({
+    ...(key === "items" ? { completed: false } : {}),
+    ...item,
+    id: randomUUID(),
+  }));
+  const at =
+    insertAt === undefined ? items.length : Math.min(insertAt, items.length);
+  items = [...items.slice(0, at), ...added, ...items.slice(at)];
+
+  const updated: IWhiteboardElement = {
+    ...element,
+    data: { ...element.data, [key]: items },
+  };
+  // A checklist's height is its row count. The editor keeps the box in step on
+  // every edit; a tool write has to do the same or the rendered board clips the
+  // rows the agent just added.
+  if (element.componentType === "todo-list") {
+    updated.height = todoListHeight(
+      items.length,
+      typeof updated.data.title === "string" && updated.data.title.length > 0,
+    );
+  }
+  const check = validateWhiteboardElement(updated);
+  if (!check.ok) return { ok: false, error: check.error };
+  return {
+    ok: true,
+    element: updated,
+    addedItemIds: added.map((item) => item.id),
+    updatedItemIds,
+    removedItemIds,
+  };
 }
 
 export function summarizeElement(element: IWhiteboardElement) {
@@ -467,6 +606,82 @@ export const whiteboardTools: ToolDefinition[] = [
       if (!updated)
         return { success: false, error: "Failed to save whiteboard" };
       return { success: true, element: summarizeElement(applied.element) };
+    },
+  },
+  {
+    schema: {
+      name: "update_whiteboard_component_items",
+      description: `Add, edit or remove the rows of a list component on a whiteboard (checklist rows, quick links). ${COMPONENT_ITEM_GUIDE}`,
+      input_schema: {
+        type: "object",
+        properties: {
+          whiteboardId: {
+            type: "string",
+            description: "The whiteboard _id from list_whiteboards.",
+          },
+          elementId: {
+            type: "string",
+            description:
+              "The component element id from get_whiteboard. Must be a todo-list or quick-links component.",
+          },
+          add: {
+            type: "array",
+            items: { type: "object" },
+            description:
+              "Rows to add: {text, completed?} for todo-list, {label, url} for quick-links. completed defaults to false. Ids are assigned automatically.",
+          },
+          insertAt: {
+            type: "number",
+            description:
+              "Index to insert the added rows at. Appends to the end when omitted.",
+            minimum: 0,
+          },
+          update: {
+            type: "array",
+            items: { type: "object" },
+            description:
+              "Row patches, each {id, ...fields}: {id, text?, completed?} for todo-list, {id, label?, url?} for quick-links.",
+          },
+          remove: {
+            type: "array",
+            items: { type: "string" },
+            description: "Row ids to delete.",
+          },
+        },
+        required: ["whiteboardId", "elementId"],
+      },
+    },
+    isWrite: true,
+    category: "whiteboard",
+    execute: async (input) => {
+      const found = await requireBoard(input.whiteboardId);
+      if (!found.ok) return { success: false, error: found.error };
+      const element = found.board.elements.find(
+        (el) => el.id === input.elementId,
+      );
+      if (!element) {
+        return {
+          success: false,
+          error: "Element not found. Use get_whiteboard for element ids.",
+        };
+      }
+      const { whiteboardId: _id, elementId: _el, ...ops } = input;
+      const applied = applyComponentItemOps(element, ops);
+      if (!applied.ok) return { success: false, error: applied.error };
+      const updated = await updateWhiteboard(found.board._id, {
+        elements: found.board.elements.map((el) =>
+          el.id === element.id ? applied.element : el,
+        ),
+      });
+      if (!updated)
+        return { success: false, error: "Failed to save whiteboard" };
+      return {
+        success: true,
+        addedItemIds: applied.addedItemIds,
+        updatedItemIds: applied.updatedItemIds,
+        removedItemIds: applied.removedItemIds,
+        element: summarizeElement(applied.element),
+      };
     },
   },
   {

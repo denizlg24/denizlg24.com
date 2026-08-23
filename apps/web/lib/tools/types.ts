@@ -1,4 +1,4 @@
-import type { AgentMemoryMode } from "@repo/schemas";
+import type { AgentMemoryMode, AgentTaskOrigin } from "@repo/schemas";
 
 export interface ToolParameter {
   type: string;
@@ -21,6 +21,40 @@ export interface ToolSchema {
   };
 }
 
+/**
+ * Which entry point drove the current turn. The distinction that matters is
+ * whether anyone is present: a chat turn can ask a question and wait, a cron
+ * firing cannot, and an agent-scheduled run had nobody in the loop at all.
+ */
+export type AgentRunSurface =
+  | "user-chat"
+  | "user-voice"
+  | "background-agent"
+  | "scheduled-task"
+  | "one-off-task"
+  | "manual-task-run";
+
+export interface AgentRunTaskContext {
+  id: string;
+  runId: string;
+  name: string;
+  /** Who queued the task. An agent-scheduled run had nobody in the loop. */
+  origin: AgentTaskOrigin;
+  cron?: string;
+  timeZone?: string;
+  runAt?: string;
+}
+
+export interface AgentRunContext {
+  surface: AgentRunSurface;
+  /** No one is waiting on this turn; nothing can be asked and then answered. */
+  unattended: boolean;
+  executionMode: "interactive" | "yolo";
+  /** Desktop-page tools only exist when a client is attached to the stream. */
+  clientToolsAvailable: boolean;
+  task?: AgentRunTaskContext;
+}
+
 /** Per-turn state a tool may need that is not part of the model's input. */
 export interface ToolExecutionContext {
   conversationId?: string;
@@ -29,6 +63,8 @@ export interface ToolExecutionContext {
    * honour it: an incognito turn records nothing, whatever the model asks for.
    */
   memoryMode?: AgentMemoryMode;
+  /** Where this turn is running. Absent only for callers that predate it. */
+  run?: AgentRunContext;
 }
 
 export interface ToolDefinition {

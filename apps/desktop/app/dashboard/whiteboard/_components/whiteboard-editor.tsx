@@ -546,7 +546,7 @@ export function WhiteboardEditor({
   );
 
   const wrappedPointerDown = useCallback(
-    (e: React.PointerEvent<SVGSVGElement>) => {
+    (e: React.PointerEvent<HTMLDivElement>) => {
       canvas.onPointerDown(e, selectedTool, drawSettings);
       if (selectedTool === "bucket") setSelectedTool("pointer");
     },
@@ -554,7 +554,7 @@ export function WhiteboardEditor({
   );
 
   const wrappedPointerUp = useCallback(
-    (e: React.PointerEvent<SVGSVGElement>) => {
+    (e: React.PointerEvent<HTMLDivElement>) => {
       canvas.onPointerUp(e, selectedTool);
       if (SHAPE_TOOLS.includes(selectedTool)) setSelectedTool("pointer");
     },
@@ -562,7 +562,7 @@ export function WhiteboardEditor({
   );
 
   const handleDoubleClick = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
+    (e: React.MouseEvent<HTMLDivElement>) => {
       const rect = e.currentTarget.getBoundingClientRect();
       const wx =
         (e.clientX - rect.left - canvas.viewState.x) / canvas.viewState.zoom;

@@ -23,6 +23,11 @@ import {
   STICKY_COLORS,
   TEXT_LINE_HEIGHT,
   TEXT_PADDING,
+  TODO_BOX_SIZE,
+  TODO_HEADER_HEIGHT,
+  TODO_ROW_HEIGHT,
+  TODO_TEXT_SIZE,
+  TODO_TEXT_X,
   WHITEBOARD_FONT_FAMILIES,
 } from "./constants";
 import { normalizeWhiteboardText } from "./text";
@@ -313,41 +318,83 @@ function componentFrameSvg(
   return `<clipPath id="${frame.clipId}"><rect x="${num(frame.x)}" y="${num(frame.y)}" width="${num(frame.w)}" height="${num(frame.h)}" rx="8"/></clipPath><rect x="${num(frame.x)}" y="${num(frame.y)}" width="${num(frame.w)}" height="${num(frame.h)}" rx="8" fill="${bg}" stroke="${border}"/>`;
 }
 
+function componentClipSvg(frame: ComponentFrame): string {
+  return `<clipPath id="${frame.clipId}"><rect x="${num(frame.x)}" y="${num(frame.y)}" width="${num(frame.w)}" height="${num(frame.h)}"/></clipPath>`;
+}
+
 function todoListSvg(frame: ComponentFrame, data: ITodoListData): string {
-  const pad = 14;
-  let body = componentFrameSvg(frame, UI.cardBg, UI.cardBorder);
-  let cursor = frame.y + pad;
-  let inner = textBlockSvg(data.title, {
-    x: frame.x + pad,
-    y: cursor,
-    width: frame.w - pad * 2,
-    fontSize: 13,
-    color: UI.text,
-    family: "sans",
-    weight: 600,
-    maxLines: 1,
-  });
-  cursor += 26;
-  for (const item of data.items) {
-    if (cursor + 18 > frame.y + frame.h - pad) break;
-    const boxY = cursor + 1;
-    inner += `<rect x="${num(frame.x + pad)}" y="${num(boxY)}" width="11" height="11" rx="3" fill="${item.completed ? UI.text : "none"}" stroke="${item.completed ? UI.text : UI.faint}"/>`;
-    if (item.completed) {
-      inner += `<path d="M ${num(frame.x + pad + 2.5)} ${num(boxY + 5.5)} l 2.5 2.5 l 4 -4.5" stroke="#ffffff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
-    }
-    inner += textBlockSvg(item.text, {
-      x: frame.x + pad + 19,
+  const title = data.title ?? "";
+  let inner = "";
+  let cursor = frame.y;
+
+  if (title) {
+    const counter = `${data.items.filter((item) => item.completed).length}/${data.items.length}`;
+    const counterWidth = 44;
+    inner += textBlockSvg(title, {
+      x: frame.x,
       y: cursor,
-      width: frame.w - pad * 2 - 19,
-      fontSize: 12,
-      color: item.completed ? UI.muted : UI.text,
-      family: "sans",
+      width: frame.w - counterWidth,
+      fontSize: 17,
+      color: UI.muted,
+      family: "handwriting",
       maxLines: 1,
     });
-    cursor += 21;
+    if (data.items.length > 0) {
+      inner += textBlockSvg(counter, {
+        x: frame.x + frame.w - counterWidth,
+        y: cursor,
+        width: counterWidth,
+        fontSize: 15,
+        color: UI.muted,
+        family: "handwriting",
+        align: "right",
+        maxLines: 1,
+      });
+    }
+    cursor += TODO_HEADER_HEIGHT;
   }
-  body += `<g clip-path="url(#${frame.clipId})">${inner}</g>`;
-  return body;
+
+  for (const item of data.items) {
+    if (cursor + TODO_ROW_HEIGHT > frame.y + frame.h) break;
+    const boxX = frame.x + 1;
+    const boxY = cursor + (TODO_ROW_HEIGHT - TODO_BOX_SIZE) / 2;
+    inner += `<rect x="${num(boxX)}" y="${num(boxY)}" width="${TODO_BOX_SIZE}" height="${TODO_BOX_SIZE}" fill="${item.completed ? UI.text : "none"}" stroke="${UI.text}" stroke-width="2"/>`;
+    if (item.completed) {
+      inner += `<path d="M ${num(boxX + 5.5)} ${num(boxY + 12.5)} l 4.5 4.5 l 8.5 -9.5" stroke="${UI.cardBg}" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+    }
+    const textWidth = frame.w - TODO_TEXT_X;
+    const textY =
+      cursor + (TODO_ROW_HEIGHT - TODO_TEXT_SIZE * TEXT_LINE_HEIGHT) / 2;
+    inner += textBlockSvg(item.text, {
+      x: frame.x + TODO_TEXT_X,
+      y: textY,
+      width: textWidth,
+      fontSize: TODO_TEXT_SIZE,
+      color: item.completed ? UI.muted : UI.text,
+      family: "handwriting",
+      maxLines: 1,
+    });
+    if (item.completed && item.text) {
+      // SVG text-decoration would track the glyphs exactly, but resvg draws it
+      // from the font's strikeout metrics and Excalifont carries none — the
+      // line silently disappears. The width heuristic lands within ~3% on
+      // prose, which is what a checklist row is.
+      const strike = Math.min(
+        textWidth,
+        heuristicMeasure(
+          item.text,
+          TODO_TEXT_SIZE,
+          "handwriting",
+          DEFAULT_FONT_WEIGHT,
+        ),
+      );
+      const strikeY = textY + TODO_TEXT_SIZE * 0.62;
+      inner += `<line x1="${num(frame.x + TODO_TEXT_X)}" y1="${num(strikeY)}" x2="${num(frame.x + TODO_TEXT_X + strike)}" y2="${num(strikeY)}" stroke="${UI.muted}" stroke-width="1.5"/>`;
+    }
+    cursor += TODO_ROW_HEIGHT;
+  }
+
+  return `${componentClipSvg(frame)}<g clip-path="url(#${frame.clipId})">${inner}</g>`;
 }
 
 function stickyNoteSvg(frame: ComponentFrame, data: IStickyNoteData): string {

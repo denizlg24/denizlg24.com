@@ -136,11 +136,32 @@ export const STICKY_COLORS: StickyColor[] = [
 export const ARROW_HEAD_MAX_LENGTH = 16;
 export const ARROW_HEAD_LENGTH_RATIO = 0.3;
 
+/**
+ * Checklist geometry, shared by the editor template, the SVG renderer and the
+ * agent tools so a row is the same height in all three. The action row is the
+ * hover strip at the bottom: it has no counterpart in the render, but it is
+ * part of the box the editor reserves, so the height must account for it.
+ */
+export const TODO_ROW_HEIGHT = 42;
+export const TODO_HEADER_HEIGHT = 30;
+export const TODO_ACTION_ROW_HEIGHT = 34;
+export const TODO_BOX_SIZE = 24;
+export const TODO_TEXT_SIZE = 20;
+export const TODO_TEXT_X = 40;
+
+export function todoListHeight(itemCount: number, hasTitle: boolean): number {
+  return (
+    (hasTitle ? TODO_HEADER_HEIGHT : 0) +
+    itemCount * TODO_ROW_HEIGHT +
+    TODO_ACTION_ROW_HEIGHT
+  );
+}
+
 export const COMPONENT_DEFAULT_SIZES: Record<
   string,
   { width: number; height: number }
 > = {
-  "todo-list": { width: 280, height: 320 },
+  "todo-list": { width: 420, height: 220 },
   "sticky-note": { width: 240, height: 240 },
   "quick-links": { width: 280, height: 320 },
   "markdown-note": { width: 360, height: 400 },

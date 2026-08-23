@@ -19,13 +19,13 @@ export function WhiteboardViewer({ whiteboard }: WhiteboardViewerProps) {
   const isPanning = useRef(false);
   const lastPointer = useRef({ x: 0, y: 0 });
 
-  const onPointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     isPanning.current = true;
     lastPointer.current = { x: e.clientX, y: e.clientY };
     e.currentTarget.setPointerCapture(e.pointerId);
   }, []);
 
-  const onPointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!isPanning.current) return;
     const dx = e.clientX - lastPointer.current.x;
     const dy = e.clientY - lastPointer.current.y;
@@ -41,7 +41,7 @@ export function WhiteboardViewer({ whiteboard }: WhiteboardViewerProps) {
     isPanning.current = false;
   }, []);
 
-  const onWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
+  const onWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
     if (e.ctrlKey || e.metaKey) {
       const rect = e.currentTarget.getBoundingClientRect();
