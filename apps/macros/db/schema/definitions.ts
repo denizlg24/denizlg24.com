@@ -707,6 +707,11 @@ export const foodLogEntries = pgTable(
       precision: 12,
       scale: 4,
     }).notNull(),
+    // What the owner actually typed. servingsConsumed is a multiplier, so
+    // "1.5 servings" and "150 g" of a 100 g serving are indistinguishable
+    // without recording the measure that was entered.
+    enteredQuantity: numeric("enteredQuantity", { precision: 12, scale: 4 }),
+    enteredUnit: text("enteredUnit"),
     notes: text("notes"),
     ...timestamps,
   },

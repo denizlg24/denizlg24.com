@@ -31,10 +31,23 @@ export const macrosMoveEntriesBodySchema = z.object({
 export const macrosBulkDeleteEntriesBodySchema = z.object({
   entryIds: z.array(z.uuid()).min(1).max(100),
 });
-export const macrosUpdateLogEntryBodySchema = z.object({
-  servingsConsumed: z.number().positive().max(9999),
+// The measure the owner typed, kept alongside the serving multiplier so the
+// log can say "150 g" rather than "1.5 servings" when grams were entered.
+export const macrosEnteredUnitSchema = z.enum(["g", "oz", "lb", "serving"]);
+
+export const macrosEnteredMeasureSchema = z.object({
+  enteredQuantity: z.number().positive().max(999999).optional(),
+  enteredUnit: macrosEnteredUnitSchema.optional(),
 });
 
+export const macrosUpdateLogEntryBodySchema = z
+  .object({
+    servingsConsumed: z.number().positive().max(9999),
+  })
+  .extend(macrosEnteredMeasureSchema.shape);
+
+export type MacrosEnteredUnit = z.infer<typeof macrosEnteredUnitSchema>;
+export type MacrosEnteredMeasure = z.infer<typeof macrosEnteredMeasureSchema>;
 export type MacrosFavoriteFoodBody = z.infer<
   typeof macrosFavoriteFoodBodySchema
 >;

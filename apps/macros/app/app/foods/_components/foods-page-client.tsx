@@ -52,6 +52,7 @@ import {
   type LogFoodInput,
   userCustomFoodsResponseSchema,
 } from "@/lib/foods/contracts";
+import { formatCalories, formatServingAmount } from "@/lib/foods/display";
 import { FoodIcon } from "@/lib/foods/food-icon";
 import type { NutrientKey } from "@/lib/foods/nutrients";
 import { nutrientDefinitionsInput } from "@/lib/foods/nutrients";
@@ -109,11 +110,6 @@ function fmtMacro(value: number | null | undefined) {
 function fmtServingInput(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "1";
   return Number(value.toFixed(2)).toString();
-}
-
-function parseServingInput(value: string) {
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
 function matchesFood(item: FoodSearchItem, query: string) {
@@ -179,8 +175,7 @@ function FoodRow({
   onDelete: (item: FoodSearchItem) => void;
   deleting: boolean;
 }) {
-  const [servings, setServings] = useState("1");
-  const servingsConsumed = parseServingInput(servings);
+  const servingsConsumed = 1;
   const displayName = item.brand ? `${item.name} By ${item.brand}` : item.name;
 
   return (
@@ -202,7 +197,7 @@ function FoodRow({
         </div>
         <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1 tabular-nums">
-            {fmtMacro((item.caloriesPerServing ?? 0) * servingsConsumed)}
+            {formatCalories((item.caloriesPerServing ?? 0) * servingsConsumed)}
             <Flame className="size-3" />
           </span>
           <span className="tabular-nums">
@@ -214,28 +209,12 @@ function FoodRow({
           <span className="tabular-nums">
             {fmtMacro((item.carbsPerServing ?? 0) * servingsConsumed)}C
           </span>
-          {item.servingLabel ? (
-            <>
-              <span>-</span>
-              <span className="truncate">
-                {servingsConsumed === 1
-                  ? item.servingLabel
-                  : `${fmtServingInput(servingsConsumed)} ${item.servingLabel}`}
-              </span>
-            </>
-          ) : null}
+          <span>-</span>
+          <span className="truncate">
+            {formatServingAmount(item.servingLabel, servingsConsumed)}
+          </span>
         </div>
       </button>
-      <input
-        type="number"
-        inputMode="decimal"
-        min="0.01"
-        step="0.1"
-        aria-label={`Servings for ${displayName}`}
-        value={servings}
-        onChange={(event) => setServings(event.target.value)}
-        className="h-8 w-14 shrink-0 rounded-full border border-border bg-muted px-2 text-center text-sm font-medium tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      />
       <button
         type="button"
         onClick={() => onQuickAdd(item, servingsConsumed)}

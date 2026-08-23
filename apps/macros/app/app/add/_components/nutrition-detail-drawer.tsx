@@ -16,7 +16,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { formatFoodQuantity } from "@/lib/foods/display";
+import { formatCalories, formatFoodQuantity } from "@/lib/foods/display";
 import {
   type NutrientKey,
   nutrientDefinitionsInput,
@@ -29,6 +29,8 @@ import {
 import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 
 export type NutritionUnit = "g" | "oz" | "lb" | "serving";
+
+export type EnteredMeasure = { quantity: number; unit: NutritionUnit };
 
 function fmtAmount(v: number) {
   if (v !== 0 && Math.abs(v) < 0.01) {
@@ -57,6 +59,21 @@ export function computeNutritionScale(
   if (unit === "oz") return (qty * 28.3495) / gramsPerServing;
   if (unit === "lb") return (qty * 453.592) / gramsPerServing;
   return qty / gramsPerServing;
+}
+
+export function quantityForScale(
+  scale: number,
+  unit: NutritionUnit,
+  servingQuantityGrams: number | null,
+  servingUnitQuantity = 1,
+): string {
+  if (!Number.isFinite(scale) || scale <= 0) return "1";
+  if (unit === "serving")
+    return formatFoodQuantity(scale * servingUnitQuantity);
+  const grams = scale * (servingQuantityGrams ?? 100);
+  if (unit === "oz") return formatFoodQuantity(grams / 28.3495);
+  if (unit === "lb") return formatFoodQuantity(grams / 453.592);
+  return formatFoodQuantity(grams);
 }
 
 function macroCaloriePct(
@@ -235,7 +252,10 @@ function NutrientRow({
       <div className="flex items-baseline justify-between">
         <span className="text-xs text-foreground">{label}</span>
         <span className="text-xs tabular-nums text-muted-foreground">
-          {fmtAmount(amount)} {unit}
+          {nutrientKey === "calories"
+            ? formatCalories(amount)
+            : fmtAmount(amount)}{" "}
+          {unit}
         </span>
       </div>
       {barContent}
@@ -250,6 +270,7 @@ function ServingEditor({
   availableUnits,
   onChange,
   onAdd,
+  actionLabel,
   isAdding,
   expanded,
   onExpandedChange,
@@ -260,6 +281,7 @@ function ServingEditor({
   availableUnits: NutritionUnit[];
   onChange: (qty: string, unit: NutritionUnit) => void;
   onAdd: () => void;
+  actionLabel: string;
   isAdding: boolean;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
@@ -360,7 +382,7 @@ function ServingEditor({
             disabled={isAdding}
             className="h-9 rounded-md bg-foreground px-4 text-xs font-semibold text-background disabled:opacity-50"
           >
-            {isAdding ? "Adding..." : "Add"}
+            {isAdding ? "Saving..." : actionLabel}
           </button>
         ) : null}
       </div>
@@ -421,7 +443,7 @@ function ServingEditor({
                     disabled={isAdding}
                     className="h-9 rounded-sm bg-foreground text-xs font-semibold text-background disabled:opacity-50"
                   >
-                    {isAdding ? "Adding..." : "Add"}
+                    {isAdding ? "Saving..." : actionLabel}
                   </button>
                 );
               }
@@ -479,9 +501,12 @@ export interface NutritionDetailDrawerProps {
   onClose: () => void;
   isFavorite?: boolean;
   onFavoriteChange?: () => void;
+  headerActions?: ReactNode;
+  actionLabel?: string;
   onAdd: (
     scale: number,
     scaledNutrients: Record<string, number>,
+    measure: EnteredMeasure,
   ) => Promise<void> | void;
 }
 
@@ -502,6 +527,8 @@ export function NutritionDetailDrawer({
   onClose,
   isFavorite = false,
   onFavoriteChange,
+  headerActions,
+  actionLabel = "Add",
   onAdd,
 }: NutritionDetailDrawerProps) {
   const computedAvailableUnits =
@@ -556,8 +583,12 @@ export function NutritionDetailDrawer({
   );
 
   const handleAdd = useCallback(async () => {
-    await onAdd(scale > 0 ? scale : 1, scaledNutrients);
-  }, [onAdd, scale, scaledNutrients]);
+    const quantity = parseFloat(qty);
+    await onAdd(scale > 0 ? scale : 1, scaledNutrients, {
+      quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+      unit,
+    });
+  }, [onAdd, qty, scale, scaledNutrients, unit]);
 
   const calories = scaledNutrients.calories ?? 0;
   const protein = scaledNutrients.protein ?? 0;
@@ -574,11 +605,7 @@ export function NutritionDetailDrawer({
   const carbsImpact = impactPct(carbs, calorieSummary.carbsTarget);
 
   return (
-    <Drawer
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      disablePreventScroll={false}
-    >
+    <Drawer open={open} onOpenChange={(next) => !next && onClose()}>
       <DrawerContent className="flex h-[calc(100dvh-4rem)]! max-h-none! flex-col rounded-none">
         <VisuallyHidden>
           <DrawerTitle>{displayName}</DrawerTitle>
@@ -599,21 +626,24 @@ export function NutritionDetailDrawer({
           <h2 className="truncate text-sm font-semibold text-foreground">
             {displayName}
           </h2>
-          {onFavoriteChange ? (
-            <button
-              type="button"
-              aria-label={isFavorite ? "Remove favorite" : "Add favorite"}
-              className="ml-auto flex size-8 items-center justify-center rounded-full"
-              onClick={onFavoriteChange}
-            >
-              <Star
-                className={cn(
-                  "size-4",
-                  isFavorite && "fill-current text-primary",
-                )}
-              />
-            </button>
-          ) : null}
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {onFavoriteChange ? (
+              <button
+                type="button"
+                aria-label={isFavorite ? "Remove favorite" : "Add favorite"}
+                className="flex size-8 items-center justify-center rounded-full"
+                onClick={onFavoriteChange}
+              >
+                <Star
+                  className={cn(
+                    "size-4",
+                    isFavorite && "fill-current text-primary",
+                  )}
+                />
+              </button>
+            ) : null}
+            {headerActions}
+          </div>
         </div>
 
         <div
@@ -624,7 +654,7 @@ export function NutritionDetailDrawer({
             <div className="flex items-end gap-4">
               <div className="flex flex-col items-center">
                 <span className="text-3xl font-bold tabular-nums text-foreground text-center mx-auto">
-                  {fmtAmount(calories)}
+                  {formatCalories(calories)}
                 </span>
                 <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                   <Flame className="size-3" />
@@ -732,6 +762,7 @@ export function NutritionDetailDrawer({
             availableUnits={computedAvailableUnits}
             onChange={handleQtyUnitChange}
             onAdd={handleAdd}
+            actionLabel={actionLabel}
             isAdding={isLogging}
             expanded={servingEditorExpanded}
             onExpandedChange={setServingEditorExpanded}

@@ -150,7 +150,16 @@ export function useLogPendingFoods({
               servingQuantity: 1,
               servingUnit: "serving",
               servingsConsumed: food.input.servingsConsumed,
+              enteredQuantity:
+                "enteredQuantity" in food.input
+                  ? (food.input.enteredQuantity ?? null)
+                  : null,
+              enteredUnit:
+                "enteredUnit" in food.input
+                  ? (food.input.enteredUnit ?? null)
+                  : null,
               notes: null,
+              nutrients: { ...food.macros },
               calories: food.macros.calories,
               protein: food.macros.protein,
               carbs: food.macros.carbs,

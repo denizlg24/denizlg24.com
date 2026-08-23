@@ -16,6 +16,11 @@ export function formatFoodQuantity(
   });
 }
 
+export function formatCalories(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  return Math.ceil(value).toString();
+}
+
 export function normalizeFoodUnit(unit: string): string {
   const normalized = unit.trim().toLowerCase().replace(/^\.+/, "");
   if (/^(?:0*g|grams?|gr)$/.test(normalized)) return "g";
@@ -40,6 +45,59 @@ export function getServingWeightGrams(
   if (unit === "oz") return servingQuantity * 28.3495;
   if (unit === "lb") return servingQuantity * 453.592;
   return null;
+}
+
+const MASS_UNITS = new Set(["g", "oz", "lb", "ml", "cl", "l", "kg"]);
+
+// Serving labels usually carry their own leading quantity ("1 slice", "100 g"),
+// so scaling one means replacing that number rather than prefixing another.
+export function formatServingAmount(
+  servingLabel: string | null | undefined,
+  servingsConsumed: number,
+): string {
+  const display = getServingDisplay(servingLabel ?? null, null, null);
+  const quantity = Number(display.initialQuantity) * servingsConsumed;
+  return `${formatFoodQuantity(quantity)} ${display.servingLabel ?? display.initialUnit}`;
+}
+
+export function formatMeasureAmount(quantity: number, unit: string): string {
+  return `${MASS_UNITS.has(unit) ? Math.round(quantity) : formatFoodQuantity(quantity)} ${unit}`;
+}
+
+// A weight the owner typed is reported back as that weight. Only when no
+// measure was recorded does the amount fall back to the food's own serving.
+export function formatLoggedAmount({
+  servingLabel,
+  servingQuantity,
+  servingUnit,
+  servingsConsumed,
+  enteredQuantity,
+  enteredUnit,
+}: {
+  servingLabel?: string | null;
+  servingQuantity: number;
+  servingUnit: string;
+  servingsConsumed: number;
+  enteredQuantity?: number | null;
+  enteredUnit?: string | null;
+}): string {
+  if (
+    enteredUnit != null &&
+    enteredQuantity != null &&
+    Number.isFinite(enteredQuantity) &&
+    enteredQuantity > 0
+  ) {
+    return enteredUnit === "serving"
+      ? formatServingAmount(servingLabel, servingsConsumed)
+      : formatMeasureAmount(enteredQuantity, enteredUnit);
+  }
+
+  const unit = normalizeFoodUnit(servingUnit) || "serving";
+  const total = servingQuantity * servingsConsumed;
+  if (!Number.isFinite(total) || total <= 0) {
+    return `${formatFoodQuantity(servingsConsumed)} ${unit}`;
+  }
+  return formatMeasureAmount(total, unit);
 }
 
 export function formatServingLabel(label: string): string {

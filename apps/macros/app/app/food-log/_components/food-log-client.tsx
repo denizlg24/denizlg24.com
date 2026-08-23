@@ -18,9 +18,14 @@ import { toast } from "sonner";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { foodLogQueryKeys } from "@/lib/app-cache/food-log-keys";
 import { queryKeys } from "@/lib/app-cache/query-keys";
-import type { FoodLogDayPayload } from "@/lib/queries/food-log-day";
+import type {
+  FoodLogDayPayload,
+  FoodLogEntry,
+} from "@/lib/queries/food-log-day";
 import type { WeekTotalsPayload } from "@/lib/queries/food-log-week-totals";
+import type { EnteredMeasure } from "../../add/_components/nutrition-detail-drawer";
 import { shiftIso, todayIso, weekDaysFor } from "../_lib/date-utils";
+import { EntryEditDrawer } from "./entry-edit-drawer";
 import { FoodLogHeader } from "./food-log-header";
 import { Timeline } from "./timeline";
 
@@ -77,6 +82,8 @@ export function FoodLogClient() {
   const deleteTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [selecting, setSelecting] = useState(false);
   const [selection, setSelection] = useState<Set<string>>(() => new Set());
+  const [editingEntry, setEditingEntry] = useState<FoodLogEntry | null>(null);
+  const [isSavingServing, setIsSavingServing] = useState(false);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: foodLogQueryKeys.day(selectedDate),
@@ -129,6 +136,7 @@ export function FoodLogClient() {
   useEffect(() => {
     setSelecting(false);
     setSelection(new Set());
+    setEditingEntry(null);
   }, [selectedDate]);
 
   useEffect(
@@ -205,14 +213,27 @@ export function FoodLogClient() {
     await refreshLog();
   }
 
-  async function updateServing(id: string, servings: number) {
-    const response = await fetch(`/api/food-log/entries/${id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ servingsConsumed: servings }),
-    });
-    if (!response.ok) return toast.error("Could not update serving");
-    await refreshLog();
+  async function updateServing(
+    id: string,
+    servings: number,
+    measure: EnteredMeasure,
+  ) {
+    setIsSavingServing(true);
+    try {
+      const response = await fetch(`/api/food-log/entries/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          servingsConsumed: servings,
+          enteredQuantity: measure.quantity,
+          enteredUnit: measure.unit,
+        }),
+      });
+      if (!response.ok) return toast.error("Could not update serving");
+      await refreshLog();
+    } finally {
+      setIsSavingServing(false);
+    }
   }
 
   async function applyBulkAction(action: "delete" | "move") {
@@ -344,8 +365,7 @@ export function FoodLogClient() {
               ),
             }}
             onDeleteEntry={scheduleDelete}
-            onDuplicateEntry={(id) => void duplicateEntry(id)}
-            onUpdateServing={(id, servings) => void updateServing(id, servings)}
+            onEditEntry={setEditingEntry}
             selection={selecting ? selection : undefined}
             onToggleSelection={
               selecting
@@ -361,6 +381,17 @@ export function FoodLogClient() {
           />
           <NotesPlaceholder />
           <MoreBlock selectedDate={selectedDate} />
+          <EntryEditDrawer
+            entry={editingEntry}
+            day={data}
+            isSaving={isSavingServing}
+            onClose={() => setEditingEntry(null)}
+            onSave={(id, servings, measure) =>
+              void updateServing(id, servings, measure)
+            }
+            onDuplicate={(id) => void duplicateEntry(id)}
+            onDelete={scheduleDelete}
+          />
         </>
       ) : null}
     </div>

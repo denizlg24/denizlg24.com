@@ -1,6 +1,7 @@
 "use client";
 
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import { macrosEnteredUnitSchema } from "@repo/schemas/macros";
 import { Button } from "@repo/ui/button";
 import { Input } from "@repo/ui/input";
 import {
@@ -52,7 +53,12 @@ import {
   logFoodBodySchema,
   logFoodResponseSchema,
 } from "@/lib/foods/contracts";
-import { formatFoodQuantity, formatServingLabel } from "@/lib/foods/display";
+import {
+  formatCalories,
+  formatFoodQuantity,
+  formatMeasureAmount,
+  formatServingAmount,
+} from "@/lib/foods/display";
 import { FoodIcon } from "@/lib/foods/food-icon";
 import {
   readPendingFoods,
@@ -79,6 +85,7 @@ import {
   updateCachedFoodItems,
 } from "../_lib/food-search-cache";
 import { FoodDetailDrawer, type FoodSummary } from "./food-detail-drawer";
+import type { EnteredMeasure } from "./nutrition-detail-drawer";
 
 interface FoodSearchState {
   query: string;
@@ -351,6 +358,14 @@ type SearchableItem = Pick<
   | "isUserFood"
 > & { iconKey?: string | null; favoriteServings?: number };
 
+function getDefaultMeasure(item: SearchableItem): EnteredMeasure | null {
+  if (!isHistoryItem(item)) return null;
+  const unit = macrosEnteredUnitSchema.safeParse(item.lastEnteredUnit);
+  const quantity = item.lastEnteredQuantity;
+  if (!unit.success || quantity == null || quantity <= 0) return null;
+  return { quantity, unit: unit.data };
+}
+
 function fmtMacro(value: number | null) {
   if (value == null) return "0";
   return Math.round(value).toString();
@@ -359,11 +374,6 @@ function fmtMacro(value: number | null) {
 function fmtServingInput(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "1";
   return formatFoodQuantity(value);
-}
-
-function parseServingInput(value: string) {
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
 function isHistoryItem(item: SearchableItem): item is FoodHistoryItem {
@@ -416,21 +426,23 @@ function FoodRow({
   query: string;
   highlightOnly?: boolean;
   onSelect: (item: SearchableItem) => void;
-  onQuickAdd: (item: SearchableItem, servingsConsumed: number) => void;
+  onQuickAdd: (
+    item: SearchableItem,
+    servingsConsumed: number,
+    measure: EnteredMeasure | null,
+  ) => void;
 }) {
-  const [servings, setServings] = useState(() =>
-    fmtServingInput(getDefaultServings(item)),
-  );
-  useEffect(() => {
-    setServings(fmtServingInput(getDefaultServings(item)));
-  }, [item]);
-
-  const servingsConsumed = parseServingInput(servings);
+  const servingsConsumed = getDefaultServings(item);
+  const measure = getDefaultMeasure(item);
   const displayName = item.brand ? `${item.name} By ${item.brand}` : item.name;
   const servingLabel =
     isHistoryItem(item) && item.lastServingLabel
       ? item.lastServingLabel
       : item.servingLabel;
+  const amountLabel =
+    measure && measure.unit !== "serving"
+      ? formatMeasureAmount(measure.quantity, measure.unit)
+      : formatServingAmount(servingLabel, servingsConsumed);
 
   return (
     <div className="flex w-full items-center gap-2 border-b border-border/50 px-4 py-3">
@@ -455,11 +467,7 @@ function FoodRow({
         </div>
         <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1 tabular-nums">
-            {fmtMacro(
-              item.caloriesPerServing == null
-                ? null
-                : item.caloriesPerServing * servingsConsumed,
-            )}
+            {formatCalories((item.caloriesPerServing ?? 0) * servingsConsumed)}
             <Flame className="size-3" />
           </span>
           <span className="tabular-nums">
@@ -486,32 +494,14 @@ function FoodRow({
             )}
             C
           </span>
-          {servingLabel ? (
-            <>
-              <span>•</span>
-              <span className="truncate">
-                {servingsConsumed === 1
-                  ? formatServingLabel(servingLabel)
-                  : `${fmtServingInput(servingsConsumed)} ${formatServingLabel(servingLabel)}`}
-              </span>
-            </>
-          ) : null}
+          <span>•</span>
+          <span className="truncate">{amountLabel}</span>
         </div>
       </button>
-      <input
-        type="number"
-        inputMode="decimal"
-        min="0.01"
-        step="0.1"
-        aria-label={`Servings for ${displayName}`}
-        value={servings}
-        onChange={(event) => setServings(event.target.value)}
-        className="h-8 w-14 shrink-0 rounded-full border border-border bg-muted px-2 text-center text-sm font-medium tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      />
       <button
         type="button"
-        onClick={() => onQuickAdd(item, servingsConsumed)}
-        aria-label={`Quick add ${displayName}`}
+        onClick={() => onQuickAdd(item, servingsConsumed, measure)}
+        aria-label={`Quick add ${amountLabel} of ${displayName}`}
         className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
       >
         <Plus className="size-4" />
@@ -535,7 +525,11 @@ function Section({
   highlightOnly?: boolean;
   cap?: number;
   onSelect: (item: SearchableItem) => void;
-  onQuickAdd: (item: SearchableItem, servingsConsumed: number) => void;
+  onQuickAdd: (
+    item: SearchableItem,
+    servingsConsumed: number,
+    measure: EnteredMeasure | null,
+  ) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   if (items.length === 0) return null;
@@ -1299,6 +1293,13 @@ export function AddFoodLogic({
     };
   }, []);
   const [selectedFood, setSelectedFood] = useState<FoodSummary | null>(null);
+  const selectFood = useCallback((item: SearchableItem) => {
+    setSelectedFood({
+      ...item,
+      defaultServings: getDefaultServings(item),
+      defaultMeasure: getDefaultMeasure(item),
+    });
+  }, []);
   const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([]);
   const [pendingSheetOpen, setPendingSheetOpen] = useState(false);
   const [extraConsumed, setExtraConsumed] = useState(0);
@@ -1437,7 +1438,11 @@ export function AddFoodLogic({
   );
 
   const quickAddToPending = useCallback(
-    (item: SearchableItem, servingsConsumed: number) => {
+    (
+      item: SearchableItem,
+      servingsConsumed: number,
+      measure: EnteredMeasure | null,
+    ) => {
       const clientMutationId = crypto.randomUUID();
       setPendingFoods((prev) => {
         const next = [
@@ -1449,6 +1454,8 @@ export function AddFoodLogic({
               clientMutationId,
               sourceItemId: item.id,
               servingsConsumed,
+              enteredQuantity: measure?.quantity,
+              enteredUnit: measure?.unit,
               eatenAt,
               logDate,
               mealType: inferMealType(selectedHour),
@@ -1524,7 +1531,10 @@ export function AddFoodLogic({
               servingQuantity: 1,
               servingUnit: "serving",
               servingsConsumed: input.servingsConsumed,
+              enteredQuantity: recipe ? null : (input.enteredQuantity ?? null),
+              enteredUnit: recipe ? null : (input.enteredUnit ?? null),
               notes: null,
+              nutrients: { ...food.macros },
               calories: food.macros.calories,
               protein: food.macros.protein,
               carbs: food.macros.carbs,
@@ -1710,7 +1720,7 @@ export function AddFoodLogic({
               items={fromHistory}
               query={trimmed}
               highlightOnly
-              onSelect={setSelectedFood}
+              onSelect={selectFood}
               onQuickAdd={quickAddToPending}
             />
             <Section
@@ -1718,7 +1728,7 @@ export function AddFoodLogic({
               items={yourFoods}
               query={trimmed}
               highlightOnly
-              onSelect={setSelectedFood}
+              onSelect={selectFood}
               onQuickAdd={quickAddToPending}
             />
             <Section
@@ -1726,7 +1736,7 @@ export function AddFoodLogic({
               items={common}
               query={trimmed}
               highlightOnly
-              onSelect={setSelectedFood}
+              onSelect={selectFood}
               onQuickAdd={quickAddToPending}
             />
             <Section
@@ -1734,7 +1744,7 @@ export function AddFoodLogic({
               items={branded}
               query={trimmed}
               highlightOnly
-              onSelect={setSelectedFood}
+              onSelect={selectFood}
               onQuickAdd={quickAddToPending}
             />
             {logic.isSearching ? <SearchLoadingSkeleton /> : null}
@@ -1754,7 +1764,7 @@ export function AddFoodLogic({
               title="Favorites"
               items={favoritesQuery.data ?? []}
               query=""
-              onSelect={setSelectedFood}
+              onSelect={selectFood}
               onQuickAdd={quickAddToPending}
             />
             <Section
@@ -1762,7 +1772,7 @@ export function AddFoodLogic({
               items={picks}
               query=""
               cap={5}
-              onSelect={setSelectedFood}
+              onSelect={selectFood}
               onQuickAdd={quickAddToPending}
             />
             <Section
@@ -1770,7 +1780,7 @@ export function AddFoodLogic({
               items={latest}
               query=""
               cap={20}
-              onSelect={setSelectedFood}
+              onSelect={selectFood}
               onQuickAdd={quickAddToPending}
             />
             {!logic.isLoadingHistory &&

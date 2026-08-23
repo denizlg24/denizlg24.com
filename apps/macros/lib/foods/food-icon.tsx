@@ -1,3 +1,4 @@
+import { cn } from "@repo/ui/utils";
 import {
   Apple,
   Banana,
@@ -64,6 +65,10 @@ const FOOD_ICONS: ReadonlyArray<readonly [RegExp, LucideIcon]> = [
   [/fruit|vegetable|vegan/i, Vegan],
 ];
 
+// The PNG assets only fill ~68% of their 128px box; lucide glyphs fill ~83%.
+// Scaling up cancels the baked-in margin so both render at the same optical size.
+const ICON_ASSET_TRIM = "scale-[1.3]";
+
 export function FoodIcon({
   name,
   iconKey,
@@ -82,7 +87,7 @@ export function FoodIcon({
         src={`/food-icons/${encodeURIComponent(assetKey)}.png`}
         alt=""
         aria-hidden="true"
-        className={className}
+        className={cn(ICON_ASSET_TRIM, className)}
         width={128}
         height={128}
         decoding="async"

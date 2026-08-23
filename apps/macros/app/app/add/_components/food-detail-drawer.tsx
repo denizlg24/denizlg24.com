@@ -6,12 +6,18 @@ import {
   externalFoodNutritionSchema,
   type LogFoodInput,
 } from "@/lib/foods/contracts";
-import { getServingDisplay, getServingWeightGrams } from "@/lib/foods/display";
+import {
+  formatFoodQuantity,
+  getServingDisplay,
+  getServingWeightGrams,
+} from "@/lib/foods/display";
 import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition";
 import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 import {
+  type EnteredMeasure,
   NutritionDetailDrawer,
   type NutritionUnit,
+  quantityForScale,
 } from "./nutrition-detail-drawer";
 
 export type FoodSummary = {
@@ -24,6 +30,8 @@ export type FoodSummary = {
   proteinPerServing: number | null | undefined;
   fatPerServing: number | null | undefined;
   carbsPerServing: number | null | undefined;
+  defaultServings?: number | null | undefined;
+  defaultMeasure?: EnteredMeasure | null | undefined;
 };
 
 export interface FoodDetailDrawerProps {
@@ -121,6 +129,20 @@ export function FoodDetailDrawer({
     servingUnit,
   );
 
+  const measure = displayFood.defaultMeasure;
+  const initialUnit: NutritionUnit =
+    measure?.unit ?? (servingDisplay.initialUnit as NutritionUnit);
+  const initialQuantity = measure
+    ? formatFoodQuantity(measure.quantity)
+    : displayFood.defaultServings != null && displayFood.defaultServings > 0
+      ? quantityForScale(
+          displayFood.defaultServings,
+          initialUnit,
+          servingQuantityGrams,
+          servingDisplay.servingUnitQuantity,
+        )
+      : servingDisplay.initialQuantity;
+
   const displayName = displayFood.brand
     ? `${displayFood.name} By ${displayFood.brand}`
     : displayFood.name;
@@ -145,8 +167,8 @@ export function FoodDetailDrawer({
       calorieSummary={calorieSummary}
       isLoadingNutrition={isLoadingNutrition}
       isLogging={isLogging}
-      initialQuantity={servingDisplay.initialQuantity}
-      initialUnit={servingDisplay.initialUnit as NutritionUnit}
+      initialQuantity={initialQuantity}
+      initialUnit={initialUnit}
       isFavorite={favorite !== null}
       onFavoriteChange={async () => {
         if (favorite) {
@@ -163,7 +185,7 @@ export function FoodDetailDrawer({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             sourceItemId: displayFood.id,
-            defaultServings: 1,
+            defaultServings: displayFood.defaultServings ?? 1,
             defaultMealType: mealType,
           }),
         });
@@ -173,11 +195,13 @@ export function FoodDetailDrawer({
         }
       }}
       onClose={onClose}
-      onAdd={async (scale, scaledNutrients) => {
+      onAdd={async (scale, scaledNutrients, measure) => {
         await onLog(
           {
             sourceItemId: displayFood.id,
             servingsConsumed: scale,
+            enteredQuantity: measure.quantity,
+            enteredUnit: measure.unit,
             eatenAt,
             logDate,
             mealType,

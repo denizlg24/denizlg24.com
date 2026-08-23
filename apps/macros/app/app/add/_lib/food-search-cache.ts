@@ -9,7 +9,9 @@ import {
 } from "@/lib/foods/contracts";
 
 const dbName = "macros-food-search";
-const dbVersion = 2;
+// v3 drops server-derived rows cached before food icons existed: those items
+// carry no iconKey, and nothing else would refetch them for up to 14 days.
+const dbVersion = 3;
 const queryStore = "queries";
 const itemStore = "items";
 const userCreatedFoodStore = "userCreatedFoods";
@@ -42,7 +44,7 @@ function openFoodCache() {
   return new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(dbName, dbVersion);
 
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const database = request.result;
 
       if (!database.objectStoreNames.contains(queryStore)) {
@@ -57,6 +59,14 @@ function openFoodCache() {
         database.createObjectStore(userCreatedFoodStore, {
           keyPath: "item.id",
         });
+      }
+
+      // Both stores go together: a query entry pointing at evicted item ids
+      // would render an empty result list until the network search lands.
+      if (event.oldVersion > 0 && event.oldVersion < 3 && request.transaction) {
+        request.transaction.objectStore(queryStore).clear();
+        request.transaction.objectStore(itemStore).clear();
+        request.transaction.objectStore(userCreatedFoodStore).clear();
       }
     };
 

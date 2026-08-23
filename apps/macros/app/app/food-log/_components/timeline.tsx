@@ -1,22 +1,13 @@
 "use client";
 
 import { Button } from "@repo/ui/button";
-import { NumericField } from "@repo/ui/numeric-field";
 import { SwipeRow } from "@repo/ui/swipe-row";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import {
-  Check,
-  Copy,
-  Flame,
-  Pencil,
-  Plus,
-  Trash2,
-  Utensils,
-} from "lucide-react";
+import { Flame, Pencil, Plus, Trash2, Utensils } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { formatFoodQuantity } from "@/lib/foods/display";
+import { useMemo } from "react";
+import { formatCalories, formatLoggedAmount } from "@/lib/foods/display";
 import { FoodIcon } from "@/lib/foods/food-icon";
 import type {
   FoodLogDayPayload,
@@ -26,8 +17,7 @@ import type {
 type Props = {
   data: FoodLogDayPayload;
   onDeleteEntry: (entryId: string) => void;
-  onDuplicateEntry: (entryId: string) => void;
-  onUpdateServing: (entryId: string, servings: number) => void;
+  onEditEntry: (entry: FoodLogEntry) => void;
   selection?: Set<string>;
   onToggleSelection?: (entryId: string) => void;
 };
@@ -62,8 +52,7 @@ function entryTimeLabel(e: FoodLogEntry, timezone: string): string {
 export function Timeline({
   data,
   onDeleteEntry,
-  onDuplicateEntry,
-  onUpdateServing,
+  onEditEntry,
   selection,
   onToggleSelection,
 }: Props) {
@@ -122,8 +111,7 @@ export function Timeline({
           date={data.date}
           timezone={data.timezone}
           onDeleteEntry={onDeleteEntry}
-          onDuplicateEntry={onDuplicateEntry}
-          onUpdateServing={onUpdateServing}
+          onEditEntry={onEditEntry}
           selection={selection}
           onToggleSelection={onToggleSelection}
         />
@@ -137,8 +125,7 @@ function HourRow({
   date,
   timezone,
   onDeleteEntry,
-  onDuplicateEntry,
-  onUpdateServing,
+  onEditEntry,
   selection,
   onToggleSelection,
 }: {
@@ -146,8 +133,7 @@ function HourRow({
   date: string;
   timezone: string;
   onDeleteEntry: (entryId: string) => void;
-  onDuplicateEntry: (entryId: string) => void;
-  onUpdateServing: (entryId: string, servings: number) => void;
+  onEditEntry: (entry: FoodLogEntry) => void;
   selection?: Set<string>;
   onToggleSelection?: (entryId: string) => void;
 }) {
@@ -166,19 +152,19 @@ function HourRow({
         </Link>
         <div className="ml-auto flex items-center gap-2.5 text-xs tabular-nums text-foreground">
           <MacroPill
-            value={bucket.totals.calories}
+            value={formatCalories(bucket.totals.calories)}
             suffix={<Flame className="size-3" />}
           />
           <MacroPill
-            value={bucket.totals.protein}
+            value={Math.round(bucket.totals.protein)}
             suffix={<span className="text-[10px] font-semibold">P</span>}
           />
           <MacroPill
-            value={bucket.totals.fat}
+            value={Math.round(bucket.totals.fat)}
             suffix={<span className="text-[10px] font-semibold">F</span>}
           />
           <MacroPill
-            value={bucket.totals.carbs}
+            value={Math.round(bucket.totals.carbs)}
             suffix={<span className="text-[10px] font-semibold">C</span>}
           />
         </div>
@@ -190,8 +176,7 @@ function HourRow({
           entry={e}
           timezone={timezone}
           onDelete={onDeleteEntry}
-          onDuplicate={onDuplicateEntry}
-          onUpdateServing={onUpdateServing}
+          onEdit={onEditEntry}
           selected={selection?.has(e.id) ?? false}
           onToggleSelection={onToggleSelection}
         />
@@ -204,12 +189,12 @@ function MacroPill({
   value,
   suffix,
 }: {
-  value: number;
+  value: string | number;
   suffix: React.ReactNode;
 }) {
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap">
-      <span>{Math.round(value)}</span>
+      <span>{value}</span>
       <span className="inline-flex size-5 items-center justify-center rounded-full bg-muted text-muted-foreground">
         {suffix}
       </span>
@@ -221,27 +206,19 @@ function EntryCard({
   entry,
   timezone,
   onDelete,
-  onDuplicate,
-  onUpdateServing,
+  onEdit,
   selected,
   onToggleSelection,
 }: {
   entry: FoodLogEntry;
   timezone: string;
   onDelete: (id: string) => void;
-  onDuplicate: (id: string) => void;
-  onUpdateServing: (id: string, servings: number) => void;
+  onEdit: (entry: FoodLogEntry) => void;
   selected: boolean;
   onToggleSelection?: (id: string) => void;
 }) {
-  const [servings, setServings] = useState(String(entry.servingsConsumed));
-  const [editing, setEditing] = useState(false);
   const time = entryTimeLabel(entry, timezone);
-  const grams =
-    entry.servingUnit.toLowerCase().includes("g") &&
-    !entry.servingUnit.toLowerCase().includes("kg")
-      ? `${Math.round(entry.servingQuantity * entry.servingsConsumed)} g`
-      : `${formatNumber(entry.servingsConsumed)} ${entry.servingLabel ?? entry.servingUnit}`;
+  const amount = formatLoggedAmount(entry);
 
   return (
     <div className="relative pb-2 pl-14 pr-1">
@@ -280,14 +257,14 @@ function EntryCard({
               </p>
               <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[13px] leading-tight tabular-nums text-muted-foreground">
                 <span className="inline-flex items-center font-medium">
-                  {Math.round(entry.calories)}
+                  {formatCalories(entry.calories)}
                   <Flame className="ml-0.5 size-3" />
                 </span>
                 <span>{Math.round(entry.protein)}P</span>
                 <span>{Math.round(entry.fat)}F</span>
                 <span>{Math.round(entry.carbs)}C</span>
                 <span aria-hidden="true">•</span>
-                <span>{grams}</span>
+                <span>{amount}</span>
               </p>
             </div>
             <Button
@@ -295,71 +272,14 @@ function EntryCard({
               variant="ghost"
               size="icon"
               aria-label={`Edit ${entry.foodName}`}
-              aria-expanded={editing}
-              onClick={() => setEditing((value) => !value)}
+              onClick={() => onEdit(entry)}
               className="size-10 shrink-0 rounded-full bg-muted text-foreground"
             >
               <Pencil className="size-4" />
             </Button>
           </div>
-
-          {editing ? (
-            <div className="mt-3 flex items-center gap-2 border-t border-border/70 pt-3">
-              <NumericField
-                aria-label={`Servings of ${entry.foodName}`}
-                className="h-11 min-w-0 flex-1 rounded-xl bg-muted px-3 text-center"
-                value={servings}
-                onValueChange={(value) => setServings(value)}
-              />
-              <Button
-                type="button"
-                size="icon"
-                aria-label="Save serving amount"
-                className="size-11 shrink-0 rounded-full"
-                onClick={() => {
-                  const next = Number(servings);
-                  if (
-                    Number.isFinite(next) &&
-                    next > 0 &&
-                    next !== entry.servingsConsumed
-                  ) {
-                    onUpdateServing(entry.id, next);
-                  } else {
-                    setServings(String(entry.servingsConsumed));
-                  }
-                  setEditing(false);
-                }}
-              >
-                <Check className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                size="icon"
-                aria-label="Duplicate entry"
-                onClick={() => onDuplicate(entry.id)}
-                className="size-11 shrink-0 rounded-full"
-              >
-                <Copy className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                size="icon"
-                aria-label="Delete entry"
-                onClick={() => onDelete(entry.id)}
-                className="size-11 shrink-0 rounded-full"
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            </div>
-          ) : null}
         </div>
       </SwipeRow>
     </div>
   );
-}
-
-function formatNumber(n: number): string {
-  return formatFoodQuantity(n);
 }

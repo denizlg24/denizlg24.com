@@ -1,5 +1,8 @@
+import {
+  type MacrosEnteredUnit,
+  macrosEnteredUnitSchema,
+} from "@repo/schemas/macros";
 import { and, asc, eq } from "drizzle-orm";
-
 import { db } from "@/db/connection";
 import {
   dailyNutritionSummaries,
@@ -25,7 +28,10 @@ export interface FoodLogEntry {
   servingQuantity: number;
   servingUnit: string;
   servingsConsumed: number;
+  enteredQuantity: number | null;
+  enteredUnit: MacrosEnteredUnit | null;
   notes: string | null;
+  nutrients: Record<string, number>;
   calories: number;
   protein: number;
   carbs: number;
@@ -52,6 +58,11 @@ export interface FoodLogDayPayload {
   entries: FoodLogEntry[];
   totals: FoodLogDayMacros;
   targets: FoodLogDayTargets;
+}
+
+function toEnteredUnit(value: string | null): MacrosEnteredUnit | null {
+  const parsed = macrosEnteredUnitSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 export function toIsoDate(date: Date, timezone: string): string {
@@ -85,6 +96,8 @@ export async function getFoodLogDay(
         servingQuantity: foodLogEntries.servingQuantity,
         servingUnit: foodLogEntries.servingUnit,
         servingsConsumed: foodLogEntries.servingsConsumed,
+        enteredQuantity: foodLogEntries.enteredQuantity,
+        enteredUnit: foodLogEntries.enteredUnit,
         notes: foodLogEntries.notes,
       })
       .from(foodLogEntries)
@@ -158,7 +171,11 @@ export async function getFoodLogDay(
       servingQuantity: Number(row.servingQuantity),
       servingUnit: row.servingUnit,
       servingsConsumed: Number(row.servingsConsumed),
+      enteredQuantity:
+        row.enteredQuantity == null ? null : Number(row.enteredQuantity),
+      enteredUnit: toEnteredUnit(row.enteredUnit),
       notes: row.notes,
+      nutrients: n,
       calories: n.calories ?? 0,
       protein: n.protein ?? 0,
       carbs: n.carbs ?? 0,

@@ -1,3 +1,4 @@
+import { macrosEnteredMeasureSchema } from "@repo/schemas/macros";
 import { z } from "zod";
 
 import { isNutrientKey } from "@/lib/foods/nutrients";
@@ -187,6 +188,8 @@ export const foodHistoryItemSchema = foodSearchItemSchema.extend({
   lastServingQuantity: z.number(),
   lastServingUnit: z.string(),
   lastServingLabel: z.string().nullable(),
+  lastEnteredQuantity: z.number().nullable(),
+  lastEnteredUnit: z.string().nullable(),
 });
 
 export const foodSearchResponseSchema = z.object({
@@ -233,15 +236,17 @@ export const userCustomFoodsResponseSchema = z.object({
   fetchedAt: z.string(),
 });
 
-export const logFoodBodySchema = z.object({
-  clientMutationId: z.uuid().optional(),
-  sourceItemId: z.uuid(),
-  servingsConsumed: z.number().positive().max(9999).default(1),
-  eatenAt: z.iso.datetime({ offset: true }).optional(),
-  logDate: z.iso.date().optional(),
-  mealType: mealTypeSchema.optional(),
-  notes: z.string().trim().max(500).optional(),
-});
+export const logFoodBodySchema = z
+  .object({
+    clientMutationId: z.uuid().optional(),
+    sourceItemId: z.uuid(),
+    servingsConsumed: z.number().positive().max(9999).default(1),
+    eatenAt: z.iso.datetime({ offset: true }).optional(),
+    logDate: z.iso.date().optional(),
+    mealType: mealTypeSchema.optional(),
+    notes: z.string().trim().max(500).optional(),
+  })
+  .extend(macrosEnteredMeasureSchema.shape);
 
 export const logFoodResponseSchema = z.object({
   entry: z.object({

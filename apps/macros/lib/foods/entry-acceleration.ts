@@ -167,6 +167,8 @@ export async function updateLogEntryServing(
       .update(foodLogEntries)
       .set({
         servingsConsumed: input.servingsConsumed.toFixed(4),
+        enteredQuantity: input.enteredQuantity?.toFixed(4) ?? null,
+        enteredUnit: input.enteredUnit ?? null,
         updatedAt: new Date(),
       })
       .where(

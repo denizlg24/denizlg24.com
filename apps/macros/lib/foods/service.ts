@@ -832,6 +832,8 @@ export async function getFoodHistory(
       servingQuantity: foodLogEntries.servingQuantity,
       servingUnit: foodLogEntries.servingUnit,
       servingsConsumed: foodLogEntries.servingsConsumed,
+      enteredQuantity: foodLogEntries.enteredQuantity,
+      enteredUnit: foodLogEntries.enteredUnit,
       logDate: foodLogEntries.logDate,
       eatenAt: foodLogEntries.eatenAt,
       mealType: foodLogEntries.mealType,
@@ -946,6 +948,9 @@ export async function getFoodHistory(
       lastServingQuantity: Number(row.servingQuantity),
       lastServingUnit: row.servingUnit,
       lastServingLabel: row.servingLabel,
+      lastEnteredQuantity:
+        row.enteredQuantity == null ? null : Number(row.enteredQuantity),
+      lastEnteredUnit: row.enteredUnit,
     };
   });
 }
@@ -1132,6 +1137,11 @@ export async function logExternalFood(
         ),
         servingUnit: resolvedFood.nutrition.servingUnit,
         servingsConsumed: toNumericString(input.servingsConsumed),
+        enteredQuantity:
+          input.enteredQuantity == null
+            ? null
+            : toNumericString(input.enteredQuantity),
+        enteredUnit: input.enteredUnit ?? null,
         notes: input.notes,
       })
       .onConflictDoNothing()
