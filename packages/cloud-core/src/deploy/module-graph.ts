@@ -453,7 +453,11 @@ function compilerOptionsOf(value: unknown): Record<string, unknown> | null {
  * `compilerOptions.paths` for a workspace, following `extends`.
  *
  * TypeScript does not merge `paths` across an extends chain — the nearest
- * config that declares it wins outright — so the walk stops at the first hit.
+ * config that declares it wins outright — so the first hit is the answer. The
+ * walk still runs to the end of the chain, because every config in it is a file
+ * the compiler reads: stopping at the alias would have left the shared
+ * `@repo/typescript-config` unrecorded in every workspace that declares its own
+ * `paths`, which is all of them.
  */
 async function loadTsconfigPaths(
   state: WalkState,
@@ -463,6 +467,7 @@ async function loadTsconfigPaths(
   if (cached !== undefined) return cached;
   state.tsconfigs.set(workspace.path, null);
 
+  let found: TsconfigPaths | null = null;
   let current: string | null = null;
   for (const name of ["tsconfig.json", "jsconfig.json"]) {
     const candidate = joinRelative(workspace.path, name);
@@ -478,6 +483,11 @@ async function loadTsconfigPaths(
     depth += 1
   ) {
     const raw: string | null = await state.fs.readFile(current);
+    // A `tsconfig` is a resolved reference like any other: editing the shared
+    // one changes what every workspace extending it compiles to. Nothing else
+    // records it — the walk only queues traversable source — so a change to
+    // `packages/typescript-config` would otherwise reach no target at all.
+    if (raw !== null) state.reached.add(current);
     const options = raw === null ? null : compilerOptionsOf(parseJsonc(raw));
     const directory = dirname(current);
 
@@ -506,11 +516,7 @@ async function loadTsconfigPaths(
               },
         );
       }
-      if (aliases.length > 0) {
-        const resolved = { base, aliases };
-        state.tsconfigs.set(workspace.path, resolved);
-        return resolved;
-      }
+      if (aliases.length > 0) found ??= { base, aliases };
     }
 
     const extendsField = (
@@ -543,7 +549,8 @@ async function loadTsconfigPaths(
       : null;
   }
 
-  return state.tsconfigs.get(workspace.path) ?? null;
+  state.tsconfigs.set(workspace.path, found);
+  return found;
 }
 
 async function firstExisting(
@@ -810,11 +817,19 @@ export function graphReaches(graph: ModuleGraph, changedFile: string): boolean {
     return true;
   }
   if (graph.files.includes(path)) return true;
+  if (isTraversable(path)) return false;
 
   // A file the walk never opened still decides the build when it is what the
-  // package manager, the compiler or the bundler reads: adding a dependency,
-  // repointing an export, changing a compiler target. Only source files the
-  // graph provably does not reach are safe to ignore; assets, styles and
-  // generated data in a dependency are left to rebuild.
-  return !isTraversable(path);
+  // package manager, the compiler or the bundler reads: a manifest, an asset, a
+  // stylesheet, generated data. What bounds that is where it sits. A directory
+  // the walk resolved files inside is somewhere this target demonstrably reads
+  // from, so anything beside them is left to rebuild; a directory it never
+  // entered — documentation, CI, infrastructure, a sibling application — is not
+  // made relevant by the file merely not being source, which is what made every
+  // target in the repository rebuild for a change to a README.
+  const directory = dirname(path);
+  return (
+    directory.length > 0 &&
+    graph.files.some((file) => pathIsInside(file, directory))
+  );
 }

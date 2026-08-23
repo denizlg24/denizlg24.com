@@ -32,7 +32,11 @@ export type ChangeReason =
   | "root-target"
   /** A file inside the target, or the Dockerfile it names. */
   | "own-files"
-  /** A file outside every declared workspace — lockfile, CI, root config. */
+  /**
+   * An input every build reads whichever target is being built: a lockfile, a
+   * root manifest, the toolchain's own configuration. In the fallback matcher,
+   * also any file outside every declared workspace.
+   */
   | "global-inputs"
   /** A `package.json` somewhere that could not be parsed. */
   | "workspace-graph-incomplete"
@@ -42,7 +46,7 @@ export type ChangeReason =
   | "dependency-unresolved"
   /** Every change landed in a workspace this target does not depend on. */
   | "unrelated-workspace"
-  /** Every change landed in a dependency, in files the target never imports. */
+  /** Nothing that changed is a file the resolved import graph says it reads. */
   | "unimported-files";
 
 export interface ChangeDecision {
@@ -56,6 +60,38 @@ export interface ChangeDecision {
 }
 
 const DECIDING_FILE_SAMPLE = 5;
+
+/**
+ * Repository-root files every build reads through the package manager or the
+ * toolchain, whichever target is being built.
+ *
+ * Deliberately not a list of paths that look important. Each of these changes
+ * what `bun install` resolves or what runs the build, which no import graph can
+ * observe — as opposed to documentation, CI workflows or infrastructure, which
+ * the graph can be asked about like anything else and answers "nothing reads
+ * this" for.
+ */
+const TOOLCHAIN_ROOT_INPUTS: ReadonlySet<string> = new Set([
+  "bun.lock",
+  "bun.lockb",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "package.json",
+  "turbo.json",
+  "tsconfig.json",
+  "tsconfig.base.json",
+  "nixpacks.toml",
+  ".npmrc",
+  ".dockerignore",
+  ".node-version",
+  ".nvmrc",
+  ".tool-versions",
+]);
+
+function isToolchainRootInput(path: string): boolean {
+  return !path.includes("/") && TOOLCHAIN_ROOT_INPUTS.has(path);
+}
 
 function build(reason: ChangeReason, files: string[]): ChangeDecision {
   return { deploy: true, reason, files: files.slice(0, DECIDING_FILE_SAMPLE) };
@@ -170,6 +206,26 @@ export class RepositoryChangeMatcher {
     );
     if (own.length > 0) return build("own-files", own);
 
+    const toolchain = this.#changedFiles.filter(isToolchainRootInput);
+    if (toolchain.length > 0) return build("global-inputs", toolchain);
+
+    // A resolved import graph is a better answer than any path rule, and for
+    // every changed file rather than only the ones a package-level test has
+    // already narrowed to a dependency. It knows what this target reads wherever
+    // that lives, so a change under `docs/`, `infra/` or a sibling application
+    // is decided by whether anything reaches it — and a source file that moves
+    // *into* one of those directories starts mattering on its own, with nothing
+    // to add to a list. Everything below is what runs when no graph exists.
+    const graph = target.moduleGraph;
+    if (graph?.complete && graph.rootDirectory === rootDirectory) {
+      const reached = this.#changedFiles.filter((path) =>
+        graphReaches(graph, path),
+      );
+      return reached.length > 0
+        ? build("dependency-imported", reached)
+        : skip("unimported-files");
+    }
+
     // Anything outside the workspace declaration may control every build:
     // lockfiles, root manifests, scripts and shared configuration all live
     // here. Deploying is safer than guessing which arbitrary root file matters.
@@ -204,16 +260,9 @@ export class RepositoryChangeMatcher {
     // landed". Which is not the same as reading the file that changed: several
     // applications enter `@repo/schemas` through different subpath exports and
     // share none of the modules behind them. Only the import graph resolved
-    // from a real checkout can tell those apart.
-    const graph = target.moduleGraph;
-    if (!graph || !graph.complete || graph.rootDirectory !== rootDirectory) {
-      return build("dependency-unresolved", inDependencies);
-    }
-
-    const imported = inDependencies.filter((path) => graphReaches(graph, path));
-    return imported.length > 0
-      ? build("dependency-imported", imported)
-      : skip("unimported-files");
+    // from a real checkout can tell those apart, and reaching here means there
+    // is none to consult.
+    return build("dependency-unresolved", inDependencies);
   }
 
   #dependencyClosure(root: string): Set<string> | null {

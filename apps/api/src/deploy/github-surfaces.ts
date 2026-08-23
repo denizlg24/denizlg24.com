@@ -62,10 +62,10 @@ function skipSummary(
   const root = target.rootDirectory ?? ".";
   return decision.reason === "unimported-files"
     ? [
-        `No file that \`${root}\` imports changed in this push.`,
+        `No file that \`${root}\` reads changed in this push.`,
         "",
-        "Every change landed in a package this project depends on, in modules it",
-        "does not reach — resolved from the import graph of the last build.",
+        "Resolved from the import graph of the last build: every change landed",
+        "in a module, package or directory this project never reaches.",
       ].join("\n")
     : `Nothing under \`${root}\`, or in any package it depends on, changed in this push.`;
 }

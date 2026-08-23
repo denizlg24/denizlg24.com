@@ -261,5 +261,85 @@ describe("RepositoryChangeMatcher", () => {
       });
       expect(decision.reason).toBe("global-inputs");
     });
+
+    // What made a change to a dev script, a workflow or a README rebuild every
+    // target in the repository: "outside every declared workspace" was read as
+    // "controls every build", and the graph that could say otherwise was only
+    // ever consulted for files already inside a dependency.
+    describe("files outside every declared workspace", () => {
+      it("skips documentation, CI and infrastructure", async () => {
+        for (const path of [
+          "README.md",
+          "CLAUDE.md",
+          ".env.example",
+          "docs/internal/plan.md",
+          ".github/workflows/ci.yml",
+          "infra/compose/docker-compose.pi.yml",
+          "scripts/dev-proxy.mjs",
+        ]) {
+          const decision = (await matcher(path)).decide({
+            ...WEB,
+            moduleGraph: graph,
+          });
+          expect([path, decision.reason]).toEqual([path, "unimported-files"]);
+        }
+      });
+
+      it("deploys for one the graph reaches", async () => {
+        const decision = (await matcher("infra/shared/config.ts")).decide({
+          ...WEB,
+          moduleGraph: {
+            ...graph,
+            files: [...graph.files, "infra/shared/config.ts"],
+          },
+        });
+        expect(decision.deploy).toBe(true);
+        expect(decision.reason).toBe("dependency-imported");
+      });
+
+      it("deploys for an asset beside one the graph reaches", async () => {
+        const decision = (await matcher("infra/shared/logo.svg")).decide({
+          ...WEB,
+          moduleGraph: {
+            ...graph,
+            files: [...graph.files, "infra/shared/config.ts"],
+          },
+        });
+        expect(decision.deploy).toBe(true);
+      });
+
+      it("still deploys for a toolchain input", async () => {
+        for (const path of ["package.json", "turbo.json", ".npmrc"]) {
+          const decision = (await matcher(path)).decide({
+            ...WEB,
+            moduleGraph: graph,
+          });
+          expect([path, decision.reason]).toEqual([path, "global-inputs"]);
+        }
+      });
+
+      it("does not read a workspace file as a root one", async () => {
+        const decision = (
+          await matcher("packages/unrelated/package.json")
+        ).decide({ ...WEB, moduleGraph: graph });
+        expect(decision.deploy).toBe(false);
+      });
+
+      it("fails open with no graph to consult", async () => {
+        const decision = (await matcher("docs/internal/plan.md")).decide(WEB);
+        expect(decision.deploy).toBe(true);
+        expect(decision.reason).toBe("global-inputs");
+      });
+    });
+
+    // A sibling application is decided the same way as anything else once the
+    // graph is authoritative, rather than by the workspace closure.
+    it("skips an asset in another application", async () => {
+      const decision = (await matcher("apps/api/public/logo.svg")).decide({
+        ...WEB,
+        moduleGraph: graph,
+      });
+      expect(decision.deploy).toBe(false);
+    });
   });
 });

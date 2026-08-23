@@ -121,6 +121,28 @@ describe("resolveModuleGraph", () => {
     expect(graph.files).not.toContain("packages/schemas/src/index.ts");
   });
 
+  // Editing the shared config changes what every workspace extending it
+  // compiles to, and nothing else records it: the walk only queues traversable
+  // source, so `packages/typescript-config` reached no target at all.
+  it("records a shared tsconfig the extends chain reads", async () => {
+    const graph = await graphFor("apps/api", {
+      ...REPO,
+      "packages/typescript-config/package.json": pkg({
+        name: "@repo/typescript-config",
+      }),
+      "packages/typescript-config/base.json": pkg({
+        compilerOptions: { target: "ES2022" },
+      }),
+      "apps/api/tsconfig.json": pkg({
+        extends: "@repo/typescript-config/base.json",
+        compilerOptions: { paths: { "@/*": ["./src/*"] } },
+      }),
+    });
+
+    expect(graph.files).toContain("packages/typescript-config/base.json");
+    expect(graph.files).not.toContain("apps/api/tsconfig.json");
+  });
+
   it("follows the root export for a target that imports the barrel", async () => {
     const graph = await graphFor("apps/web");
 
@@ -213,6 +235,13 @@ describe("graphReaches", () => {
 
   it("reaches everything in an opaque workspace", () => {
     expect(graphReaches(graph, "packages/ui/src/anything.tsx")).toBe(true);
+  });
+
+  it("does not reach a non-source file in a directory it never entered", () => {
+    expect(graphReaches(graph, "README.md")).toBe(false);
+    expect(graphReaches(graph, "docs/internal/plan.md")).toBe(false);
+    expect(graphReaches(graph, ".github/workflows/ci.yml")).toBe(false);
+    expect(graphReaches(graph, "apps/desktop/public/logo.svg")).toBe(false);
   });
 
   it("reaches a manifest or config it never opened", () => {
