@@ -16,6 +16,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Barcode,
   BookOpen,
+  Check,
   ChefHat,
   Flame,
   Plus,
@@ -432,6 +433,18 @@ function FoodRow({
     measure: EnteredMeasure | null,
   ) => void;
 }) {
+  const [justAdded, setJustAdded] = useState(false);
+  const justAddedTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (justAddedTimer.current != null) {
+        window.clearTimeout(justAddedTimer.current);
+      }
+    },
+    [],
+  );
+
   const servingsConsumed = getDefaultServings(item);
   const measure = getDefaultMeasure(item);
   const displayName = item.brand ? `${item.name} By ${item.brand}` : item.name;
@@ -500,11 +513,27 @@ function FoodRow({
       </button>
       <button
         type="button"
-        onClick={() => onQuickAdd(item, servingsConsumed, measure)}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          onQuickAdd(item, servingsConsumed, measure);
+          setJustAdded(true);
+          if (justAddedTimer.current != null) {
+            window.clearTimeout(justAddedTimer.current);
+          }
+          justAddedTimer.current = window.setTimeout(
+            () => setJustAdded(false),
+            1200,
+          );
+        }}
         aria-label={`Quick add ${amountLabel} of ${displayName}`}
-        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+        className={cn(
+          "flex size-8 shrink-0 items-center justify-center rounded-full transition-colors active:scale-95",
+          justAdded
+            ? "bg-foreground text-background"
+            : "bg-muted text-muted-foreground active:bg-muted/60",
+        )}
       >
-        <Plus className="size-4" />
+        {justAdded ? <Check className="size-4" /> : <Plus className="size-4" />}
       </button>
     </div>
   );
@@ -1443,6 +1472,7 @@ export function AddFoodLogic({
       servingsConsumed: number,
       measure: EnteredMeasure | null,
     ) => {
+      const searchWasFocused = document.activeElement === inputRef.current;
       const clientMutationId = crypto.randomUUID();
       setPendingFoods((prev) => {
         const next = [
@@ -1471,6 +1501,11 @@ export function AddFoodLogic({
         window.queueMicrotask(() => writePendingFoods(next));
         return next;
       });
+      navigator.vibrate?.(10);
+
+      if (searchWasFocused && document.activeElement !== inputRef.current) {
+        inputRef.current?.focus({ preventScroll: true });
+      }
     },
     [eatenAt, logDate, selectedHour],
   );
@@ -1804,12 +1839,29 @@ export function AddFoodLogic({
               value={draft}
               onChange={onChange}
               placeholder="Search for a food"
-              className="h-11 rounded-full bg-muted pl-9 pr-3 text-base"
+              className={cn(
+                "h-11 rounded-full bg-muted pl-9 text-base",
+                draft ? "pr-10" : "pr-3",
+              )}
               enterKeyHint="search"
               autoFocus={searchParams.get("focus") === "search"}
               autoComplete="off"
               inputMode="search"
             />
+            {draft ? (
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  setDraft("");
+                  inputRef.current?.focus({ preventScroll: true });
+                }}
+                aria-label="Clear search"
+                className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground active:bg-background/60"
+              >
+                <X className="size-4" />
+              </button>
+            ) : null}
           </div>
           <Button
             type="button"

@@ -297,6 +297,12 @@ function ServingEditor({
   const unitLabel = unit === "serving" ? (servingLabel ?? "serving") : unit;
   const amountLabel = qty.trim() || "0";
 
+  const [primed, setPrimed] = useState(expanded);
+
+  useEffect(() => {
+    if (expanded) setPrimed(true);
+  }, [expanded]);
+
   const commitQty = useCallback(
     (nextQty: string) => {
       onChange(nextQty, unit);
@@ -307,17 +313,24 @@ function ServingEditor({
   const pressKey = useCallback(
     (key: string) => {
       if (/^\d$/.test(key)) {
-        commitQty(qty === "0" ? key : `${qty}${key}`);
+        setPrimed(false);
+        commitQty(primed || qty === "0" ? key : `${qty}${key}`);
         return;
       }
 
-      if (key === "." && !qty.includes(".")) {
-        commitQty(qty ? `${qty}.` : "0.");
+      if (key === ".") {
+        setPrimed(false);
+        if (primed) {
+          commitQty("0.");
+        } else if (!qty.includes(".")) {
+          commitQty(qty ? `${qty}.` : "0.");
+        }
         return;
       }
 
       if (key === "backspace") {
-        commitQty(qty.length > 1 ? qty.slice(0, -1) : "0");
+        setPrimed(false);
+        commitQty(primed || qty.length <= 1 ? "0" : qty.slice(0, -1));
         return;
       }
 
@@ -325,7 +338,7 @@ function ServingEditor({
         onExpandedChange(false);
       }
     },
-    [commitQty, onExpandedChange, qty],
+    [commitQty, onExpandedChange, primed, qty],
   );
 
   const keypad = [
@@ -367,7 +380,14 @@ function ServingEditor({
           )}
         >
           <span className="flex min-w-0 items-center">
-            <span className="truncate">{amountLabel}</span>
+            <span
+              className={cn(
+                "truncate rounded-[2px]",
+                expanded && primed && "bg-accent px-0.5 text-accent-foreground",
+              )}
+            >
+              {amountLabel}
+            </span>
             <span className="macros-caret-blink ml-0.5 h-4 w-px bg-accent" />
           </span>
           <span className="ml-2 shrink-0 text-xs text-muted-foreground">
@@ -395,7 +415,10 @@ function ServingEditor({
                 key={preset}
                 type="button"
                 className="min-h-10 rounded-md bg-background text-xs font-semibold"
-                onClick={() => onChange(String(preset), unit)}
+                onClick={() => {
+                  setPrimed(false);
+                  onChange(String(preset), unit);
+                }}
               >
                 {preset}
               </button>
@@ -542,12 +565,16 @@ export function NutritionDetailDrawer({
 
   const [qty, setQty] = useState(initialQuantity);
   const [unit, setUnit] = useState<NutritionUnit>(computedInitialUnit);
-  const [servingEditorExpanded, setServingEditorExpanded] = useState(false);
+  const [servingEditorExpanded, setServingEditorExpanded] = useState(open);
 
   useEffect(() => {
     setQty(initialQuantity);
     setUnit(computedInitialUnit);
   }, [computedInitialUnit, initialQuantity]);
+
+  useEffect(() => {
+    setServingEditorExpanded(open);
+  }, [open]);
 
   const scale = useMemo(() => {
     const n = parseFloat(qty);
