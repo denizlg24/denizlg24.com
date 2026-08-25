@@ -35,7 +35,12 @@ export interface ITriageSettings {
   updatedAt: Date;
 }
 
-export const DEFAULT_COURSE_SENDER_DOMAINS = ["dtu.dk"];
+/**
+ * `edu-mail.dk` is the bulk mailer CampusNet sends through — the school's own
+ * name only appears in the local part (`campusnet.dtu.dk@edu-mail.dk`), so
+ * nothing about the address matches `dtu.dk` on its own.
+ */
+export const DEFAULT_COURSE_SENDER_DOMAINS = ["dtu.dk", "edu-mail.dk"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

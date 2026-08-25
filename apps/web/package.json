@@ -10,6 +10,7 @@
     "agent-memory:reclassify-contradictions": "bun --env-file=../../.env scripts/reclassify-agent-memory-contradictions.ts",
     "agent-memory:purge-triage": "bun --env-file=../../.env scripts/purge-ineligible-triage-memories.ts",
     "triage:backfill": "bun --env-file=../../.env scripts/backfill-triage.ts",
+    "triage:reset-account": "bun --env-file=../../.env scripts/reset-account-triage.ts",
     "triage:dataset": "bun --env-file=../../.env scripts/build-triage-dataset.ts",
     "markets:migrate-usd": "bun --env-file=../../.env scripts/migrate-portfolios-to-usd.ts",
     "finance:dedupe-ledger": "bun --env-file=../../.env scripts/dedupe-finance-ledger.ts",

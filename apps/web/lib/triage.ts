@@ -809,11 +809,20 @@ function containsPhrase(haystack: string, needle: string): boolean {
  * triage context value has to appear in the subject or the sender, because a
  * long thread quotes half the inbox and body matches on those turned ordinary
  * mail into coursework.
+ *
+ * `codeOnly` is the shape used for a sender the allowlist rejects: it drops the
+ * two weaker signals and narrows the code to the subject. A code in a subject
+ * stands on its own without knowing anything about the sender, which is what
+ * lets a course email arriving through a forwarder or a bulk mailer still be
+ * routed. A code in the *body* does not survive that loss of context — a bare
+ * five-digit token is an order or invoice number as often as a course — so it
+ * stays behind the allowlist along with names and context words.
  */
 export function matchCourseDeterministic(
   email: TriageEmailContext,
   targets: CourseTarget[],
   bodySnippet = "",
+  { codeOnly = false }: { codeOnly?: boolean } = {},
 ): CourseTarget | undefined {
   const subject = normalizeForMatch(email.subject);
   const subjectCompact = subject.replace(/\s+/g, "");
@@ -821,20 +830,36 @@ export function matchCourseDeterministic(
   const bodyText = normalizeForMatch(bodySnippet);
   const bodyCompact = bodyText.replace(/\s+/g, "");
 
+  const codes = targets.flatMap((target) => {
+    if (!target.code) return [];
+    const code = normalizeForMatch(target.code);
+    const compact = code.replace(/\s+/g, "");
+    return compact.length >= 3 ? [{ code, compact, target }] : [];
+  });
+
+  // A subject names the one course the email is about, so the first hit ends
+  // it.
+  for (const { code, compact, target } of codes) {
+    if (
+      containsPhrase(subject, code) ||
+      containsPhrase(subjectCompact, compact)
+    )
+      return target;
+  }
+  if (codeOnly) return undefined;
+
+  // A body can name several. A course-registration confirmation lists the whole
+  // semester, and picking whichever sorted first filed it under a course at
+  // random — so more than one match means the body identifies nothing, and the
+  // weaker signals below must not paper over that either.
+  const inBody = codes.filter(
+    ({ code, compact }) =>
+      containsPhrase(bodyText, code) || containsPhrase(bodyCompact, compact),
+  );
+  if (inBody.length > 1) return undefined;
+  if (inBody.length === 1) return inBody[0].target;
+
   for (const target of targets) {
-    if (target.code) {
-      const code = normalizeForMatch(target.code);
-      const codeCompact = code.replace(/\s+/g, "");
-      if (
-        codeCompact.length >= 3 &&
-        (containsPhrase(subject, code) ||
-          containsPhrase(subjectCompact, codeCompact) ||
-          containsPhrase(bodyText, code) ||
-          containsPhrase(bodyCompact, codeCompact))
-      ) {
-        return target;
-      }
-    }
     if (target.instructorName) {
       const instructor = normalizeForMatch(target.instructorName);
       if (
@@ -1203,6 +1228,7 @@ export async function deriveTriageArtifacts({
   settings,
   kanbanTargets,
   courseTargets: allCourseTargets,
+  limitExtraction = (task) => task(),
 }: {
   email: TriageEmailContext;
   body: FetchedEmailBody;
@@ -1210,17 +1236,21 @@ export async function deriveTriageArtifacts({
   settings: Pick<ITriageSettings, "fullModel" | "courseSenderDomains">;
   kanbanTargets: CompactKanbanTarget[];
   courseTargets: CourseTarget[];
+  /**
+   * Caps concurrent extraction calls. It wraps only the model calls, so a run
+   * that reaches here and finds nothing to extract never queues behind one.
+   */
+  limitExtraction?: <T>(task: () => Promise<T>) => Promise<T>;
 }): Promise<DerivedTriageArtifacts> {
   // Withholding the targets is what disables course routing, not a flag read
   // later: with an empty list the extraction tool carries no courseKey,
   // updatesDeadlineKey or assignmentType at all, so the model cannot name a
   // course however much the body sounds like one.
-  const courseTargets = isCourseEligibleSender(
+  const senderEligible = isCourseEligibleSender(
     email.from,
     normalizeCourseSenderDomains(settings.courseSenderDomains),
-  )
-    ? allCourseTargets
-    : [];
+  );
+  let courseTargets = senderEligible ? allCourseTargets : [];
   const classification = { ...initialClassification };
   let bodyForExtraction: FetchedEmailBody = {
     ...body,
@@ -1232,6 +1262,38 @@ export async function deriveTriageArtifacts({
     events: [],
   };
 
+  const bodySnippet = normalizeBodyForTriage(
+    body.text,
+    body.html,
+    "classification",
+  );
+  // The code match runs even for a sender the allowlist rejects. Course mail
+  // reaching a forwarded mailbox is sent by whatever bulk mailer the school
+  // uses, and the code in the subject identifies the course regardless of who
+  // relayed it. The allowlist still gates everything softer than that.
+  const deterministicCourse =
+    matchCourseDeterministic(email, courseTargets, bodySnippet) ??
+    (senderEligible
+      ? undefined
+      : matchCourseDeterministic(email, allCourseTargets, bodySnippet, {
+          codeOnly: true,
+        }));
+  if (deterministicCourse) {
+    // A code match names one course with certainty, so extraction gets that
+    // course's deadlines and events to work against even when the sender
+    // itself was never trusted.
+    if (courseTargets.length === 0) courseTargets = [deterministicCourse];
+    classification.needsTaskExtraction = true;
+    classification.needsEventExtraction = true;
+    result.matchedCourseId = deterministicCourse.courseId;
+    result.matchedCourseName = deterministicCourse.name;
+    bodyForExtraction = body;
+  }
+
+  // Below the deterministic match, not above it: a course announcement lands
+  // in `fyi` as often as in `action-needed`, and the classifier's confidence
+  // on school mail sits under the review threshold, so gating first meant a
+  // subject line naming the course was never even looked at.
   if (
     !classification.needsTaskExtraction &&
     !classification.needsEventExtraction
@@ -1243,27 +1305,16 @@ export async function deriveTriageArtifacts({
     };
   }
 
-  const deterministicCourse = matchCourseDeterministic(
-    email,
-    courseTargets,
-    normalizeBodyForTriage(body.text, body.html, "classification"),
-  );
-  if (deterministicCourse) {
-    classification.needsTaskExtraction = true;
-    classification.needsEventExtraction = true;
-    result.matchedCourseId = deterministicCourse.courseId;
-    result.matchedCourseName = deterministicCourse.name;
-    bodyForExtraction = body;
-  }
-
-  let extraction = await runExtraction(
-    settings.fullModel,
-    email,
-    bodyForExtraction,
-    classification,
-    kanbanTargets,
-    courseTargets,
-    deterministicCourse,
+  let extraction = await limitExtraction(() =>
+    runExtraction(
+      settings.fullModel,
+      email,
+      bodyForExtraction,
+      classification,
+      kanbanTargets,
+      courseTargets,
+      deterministicCourse,
+    ),
   );
   if (!extraction) {
     return {
@@ -1283,14 +1334,16 @@ export async function deriveTriageArtifacts({
       (course) => course.courseId === extraction?.matchedCourseId,
     );
     if (matchedCourseForAttachments && body.attachmentText.length > 0) {
-      const attachmentExtraction = await runExtraction(
-        settings.fullModel,
-        email,
-        body,
-        classification,
-        kanbanTargets,
-        courseTargets,
-        matchedCourseForAttachments,
+      const attachmentExtraction = await limitExtraction(() =>
+        runExtraction(
+          settings.fullModel,
+          email,
+          body,
+          classification,
+          kanbanTargets,
+          courseTargets,
+          matchedCourseForAttachments,
+        ),
       );
       if (attachmentExtraction) {
         extraction = attachmentExtraction;
@@ -1953,34 +2006,28 @@ export async function runTriage(
         needsEventExtraction:
           !reviewRequired && prediction.category === "scheduled",
       };
-      let artifacts: DerivedTriageArtifacts = {
-        result: { ...classification, tasks: [], events: [] },
-        attachmentTextSources: [],
-        extractionFailed: false,
-      };
-      if (
-        classification.needsTaskExtraction ||
-        classification.needsEventExtraction
-      ) {
-        const [kanbanTargets, courseTargets] = await Promise.all([
-          getKanbanTargetsCached(),
-          getCourseTargetsCached(),
-        ]);
-        artifacts = await limitExtraction(() =>
-          deriveTriageArtifacts({
-            email: emailContext,
-            body,
-            classification,
-            settings,
-            kanbanTargets,
-            courseTargets,
-          }),
-        );
-        if (artifacts.extractionFailed) {
-          stats.errors++;
-          reviewRequired = true;
-          reviewReason = "extraction-failed";
-        }
+      // Called for every email, not only the ones the classifier flagged: the
+      // deterministic course match lives inside and is the one signal allowed
+      // to overrule both the category and the confidence gate. It returns
+      // without spending a model call when nothing matches and no extraction
+      // was asked for.
+      const [kanbanTargets, courseTargets] = await Promise.all([
+        getKanbanTargetsCached(),
+        getCourseTargetsCached(),
+      ]);
+      const artifacts = await deriveTriageArtifacts({
+        email: emailContext,
+        body,
+        classification,
+        settings,
+        kanbanTargets,
+        courseTargets,
+        limitExtraction,
+      });
+      if (artifacts.extractionFailed) {
+        stats.errors++;
+        reviewRequired = true;
+        reviewReason = "extraction-failed";
       }
       const fullResult = artifacts.result;
       const attachmentTextSources = artifacts.attachmentTextSources;
