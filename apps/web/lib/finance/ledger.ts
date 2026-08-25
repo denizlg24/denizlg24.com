@@ -64,9 +64,16 @@ function bankFields(
       ? ("provider" as const)
       : ("synthetic" as const),
     providerTxnId,
-    syntheticKey: providerTxnId
-      ? undefined
-      : transactionSyntheticKey(accountId.toString(), transaction, occurrence),
+    // Always written, even alongside a provider id. Some banks mint an id whose
+    // tail is a per-run counter — the same booked purchase came back as
+    // ...0001 one night and ...0002 the next, and with the provider id as the
+    // only identity each run inserted it again. The content key is what
+    // recognises it across that.
+    syntheticKey: transactionSyntheticKey(
+      accountId.toString(),
+      transaction,
+      occurrence,
+    ),
     bookingDate: transaction.bookingDate,
     valueDate: transaction.valueDate,
     firstSeenAt: observedAt,
@@ -92,7 +99,11 @@ function bankContentChanged(
     existing.descriptor !== next.descriptor ||
     existing.normalizedDescriptor !== next.normalizedDescriptor ||
     existing.bookingDate !== next.bookingDate ||
-    existing.valueDate !== next.valueDate
+    existing.valueDate !== next.valueDate ||
+    // A row matched on its content key can arrive under a provider id it has
+    // never carried; storing the newest keeps the fast path working next run.
+    (next.providerTxnId !== undefined &&
+      existing.providerTxnId !== next.providerTxnId)
   );
 }
 
@@ -145,12 +156,7 @@ export async function ingestBankTransactions(input: {
       .map((row) => [row.syntheticKey as string, row]),
   );
   const pendingCandidates = existing
-    .filter(
-      (row) =>
-        row.state === "pending" &&
-        row.identityKind === "synthetic" &&
-        row.syntheticKey,
-    )
+    .filter((row) => row.state === "pending" && row.syntheticKey)
     .map((row) => ({
       id: row._id.toString(),
       amountMinor: row.amountMinor,
@@ -161,26 +167,29 @@ export async function ingestBankTransactions(input: {
     }));
   const seenIds = new Set<string>();
   const syntheticOccurrences = new Map<string, number>();
+  // A row already claimed this run is not a match — two genuinely identical
+  // transactions in one batch differ only by occurrence, and collapsing them
+  // would lose one.
+  const unclaimed = (candidate: (typeof existing)[number] | undefined) =>
+    candidate && !seenIds.has(candidate._id.toString()) ? candidate : undefined;
 
   for (const transaction of input.transactions) {
-    let occurrence = 0;
-    if (!resolveProviderTransactionId(transaction)) {
-      const baseKey = transactionSyntheticKey(
-        accountId.toString(),
-        transaction,
-      );
-      occurrence = syntheticOccurrences.get(baseKey) ?? 0;
-      syntheticOccurrences.set(baseKey, occurrence + 1);
-    }
+    const baseKey = transactionSyntheticKey(accountId.toString(), transaction);
+    const occurrence = syntheticOccurrences.get(baseKey) ?? 0;
+    syntheticOccurrences.set(baseKey, occurrence + 1);
     const next = bankFields(
       accountId,
       transaction,
       input.observedAt,
       occurrence,
     );
-    let row = next.providerTxnId
-      ? byProviderId.get(next.providerTxnId)
-      : bySyntheticKey.get(next.syntheticKey as string);
+    // Provider id first because it survives a descriptor or value-date
+    // revision; the content key is the fallback for an id that does not hold
+    // still.
+    let row =
+      unclaimed(
+        next.providerTxnId ? byProviderId.get(next.providerTxnId) : undefined,
+      ) ?? unclaimed(bySyntheticKey.get(next.syntheticKey));
 
     if (!row && next.providerTxnId && transaction.status === "booked") {
       const promotion = findPendingPromotion(transaction, pendingCandidates, {
@@ -219,8 +228,13 @@ export async function ingestBankTransactions(input: {
         merchantFingerprint: next.merchantFingerprint,
         bookingDate: next.bookingDate,
         valueDate: next.valueDate,
+        ...(next.providerTxnId !== undefined && {
+          identityKind: next.identityKind,
+          providerTxnId: next.providerTxnId,
+        }),
       });
       await row.save();
+      if (next.providerTxnId) byProviderId.set(next.providerTxnId, row);
     }
     seenIds.add(row._id.toString());
   }
