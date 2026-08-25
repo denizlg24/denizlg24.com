@@ -151,6 +151,12 @@ export const paperSchema = z.object({
   startedAt: z.string().optional(),
   completedAt: z.string().optional(),
   noteId: z.string().optional(),
+  /**
+   * Groups on the linked knowledge note, joined in by the routes that serve a
+   * reading. Absent means the join was not run, not that the note has none —
+   * `serializePaper` alone cannot see it.
+   */
+  noteGroupIds: z.array(z.string()).optional(),
   tags: z.array(z.string()),
   noteIds: z.array(z.string()),
   highlights: z.array(paperHighlightSchema),
@@ -208,6 +214,8 @@ export const paperMutationSchema = z.object({
   startedAt: z.iso.datetime().nullable().optional(),
   completedAt: z.iso.datetime().nullable().optional(),
   tags: z.array(z.string().trim().min(1).max(100)).max(200).optional(),
+  /** Written through to the linked note; never stored on the paper itself. */
+  noteGroupIds: z.array(z.string().trim().min(1).max(100)).max(200).optional(),
   noteIds: z.array(z.string().trim().min(1).max(100)).max(1_000).optional(),
   highlights: z.array(paperHighlightSchema).max(10_000).optional(),
   metadataSource: paperMetadataSourceSchema.optional(),

@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  INoteGroup,
   IPaper,
   PaperCourseRef,
   PaperHighlight,
@@ -35,6 +36,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  FolderTree,
   GraduationCap,
   Highlighter,
   Link2,
@@ -47,6 +49,8 @@ import {
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { buildPathLabelMap } from "../notes/group-tree";
+import { GroupTreeCombobox } from "../notes/group-tree-combobox";
 import { useAdmin } from "../provider";
 import {
   authorLine,
@@ -92,6 +96,8 @@ interface PaperDetailProps {
   paper: IPaper;
   notes: PaperNoteRef[];
   courses: PaperCourseRef[];
+  groups: INoteGroup[];
+  onCreateGroup?: (name: string) => Promise<INoteGroup | null>;
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -126,6 +132,8 @@ export function PaperDetail({
   paper,
   notes,
   courses,
+  groups,
+  onCreateGroup,
   onBack,
   onEdit,
   onDelete,
@@ -173,6 +181,13 @@ export function PaperDetail({
       ),
     [courses, paper.courseIds],
   );
+  // Groups live on the linked knowledge note, so this is the note's list, not
+  // a field of the paper.
+  const noteGroupIds = useMemo(
+    () => paper.noteGroupIds ?? [],
+    [paper.noteGroupIds],
+  );
+  const groupPathLabels = useMemo(() => buildPathLabelMap(groups), [groups]);
 
   // A page turn is cheap to make and expensive to send, so the write trails
   // the reader rather than blocking it.
@@ -617,6 +632,49 @@ export function PaperDetail({
                   </span>
                 ))}
                 {linkedCourses.length === 0 && (
+                  <p className="py-1 text-xs text-muted-foreground">—</p>
+                )}
+              </div>
+            </section>
+
+            <section className="border-b py-4">
+              <SectionLabel>Groups · {noteGroupIds.length}</SectionLabel>
+              <GroupTreeCombobox
+                groups={groups}
+                value={noteGroupIds}
+                onChange={(next) => void onPatch({ noteGroupIds: next })}
+                onCreateGroup={onCreateGroup}
+              />
+              <div className="mt-2 flex flex-wrap gap-1">
+                {noteGroupIds.map((groupId) => (
+                  <span
+                    key={groupId}
+                    className="inline-flex max-w-full items-center gap-1 border px-1.5 py-0.5 font-mono text-[10px]"
+                    title={groupPathLabels.get(groupId) ?? groupId}
+                  >
+                    <FolderTree className="size-2.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">
+                      {groupPathLabels.get(groupId) ?? groupId}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() =>
+                        void onPatch({
+                          noteGroupIds: noteGroupIds.filter(
+                            (id) => id !== groupId,
+                          ),
+                        })
+                      }
+                      aria-label={`Remove from ${
+                        groupPathLabels.get(groupId) ?? "group"
+                      }`}
+                    >
+                      <X className="size-2.5" />
+                    </button>
+                  </span>
+                ))}
+                {noteGroupIds.length === 0 && (
                   <p className="py-1 text-xs text-muted-foreground">—</p>
                 )}
               </div>

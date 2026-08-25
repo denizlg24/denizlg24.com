@@ -2,12 +2,17 @@ import { createPaperSchema, type PaperCourseRef } from "@repo/schemas";
 import mongoose from "mongoose";
 import { type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
+import { pruneGroupIds, serializeGroup } from "@/lib/note-route-utils";
 import { serializePaper } from "@/lib/paper-citations";
-import { createPaperWithLinkedNote } from "@/lib/paper-notes";
+import {
+  createPaperWithLinkedNote,
+  noteGroupIdsByPaper,
+} from "@/lib/paper-notes";
 import { isDuplicatePaperError } from "@/lib/paper-route-utils";
 import { requireAdmin } from "@/lib/require-admin";
 import { Course } from "@/models/Course";
 import { Note } from "@/models/Note";
+import { type ILeanNoteGroup, NoteGroup } from "@/models/NoteGroup";
 import { type ILeanPaper, Paper } from "@/models/Paper";
 
 type LeanCourseRef = Omit<PaperCourseRef, "_id"> & { _id: unknown };
@@ -26,7 +31,7 @@ export async function GET(request: NextRequest) {
 
   try {
     await connectDB();
-    const [papers, notes, courses] = await Promise.all([
+    const [papers, notes, courses, groups] = await Promise.all([
       Paper.find(filter).sort({ updatedAt: -1 }).lean<ILeanPaper[]>().exec(),
       Note.find()
         .select("_id title url")
@@ -38,13 +43,21 @@ export async function GET(request: NextRequest) {
         .sort({ name: 1 })
         .lean<LeanCourseRef[]>()
         .exec(),
+      NoteGroup.find().sort({ name: 1 }).lean<ILeanNoteGroup[]>().exec(),
     ]);
+    const noteGroupIds = await noteGroupIdsByPaper(
+      papers.map((paper) => paper._id),
+    );
     return NextResponse.json({
-      papers: papers.map(serializePaper),
+      papers: papers.map((paper) => ({
+        ...serializePaper(paper),
+        noteGroupIds: noteGroupIds.get(String(paper._id)) ?? [],
+      })),
       notes: notes.map((note) => ({ ...note, _id: String(note._id) })),
       courses: courses.map(
         (course): PaperCourseRef => ({ ...course, _id: String(course._id) }),
       ),
+      groups: groups.map(serializeGroup),
     });
   } catch (error) {
     console.error("Failed to load papers:", error);
@@ -69,8 +82,19 @@ export async function POST(request: NextRequest) {
     }
 
     await connectDB();
-    const { paper } = await createPaperWithLinkedNote(parsed.data);
-    return NextResponse.json({ paper: serializePaper(paper) }, { status: 201 });
+    const groupIds = await pruneGroupIds(parsed.data.noteGroupIds ?? []);
+    const { paper } = await createPaperWithLinkedNote(parsed.data, {
+      note: { groupIds },
+    });
+    return NextResponse.json(
+      {
+        paper: {
+          ...serializePaper(paper),
+          noteGroupIds: groupIds.map(String),
+        },
+      },
+      { status: 201 },
+    );
   } catch (error) {
     if (isDuplicatePaperError(error)) {
       return NextResponse.json(

@@ -2,8 +2,14 @@ import { paperMutationSchema } from "@repo/schemas";
 import mongoose from "mongoose";
 import { after, type NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
+import { pruneGroupIds } from "@/lib/note-route-utils";
 import { serializePaper } from "@/lib/paper-citations";
-import { deleteLinkedPaperNote, syncPaperNote } from "@/lib/paper-notes";
+import {
+  deleteLinkedPaperNote,
+  noteGroupIdsForPaper,
+  setPaperNoteGroups,
+  syncPaperNote,
+} from "@/lib/paper-notes";
 import {
   isDuplicatePaperError,
   preparePaperUpdate,
@@ -32,7 +38,12 @@ export async function GET(request: NextRequest, context: PaperRouteContext) {
     await connectDB();
     const paper = await Paper.findById(paperId).lean<ILeanPaper>().exec();
     return paper
-      ? NextResponse.json({ paper: serializePaper(paper) })
+      ? NextResponse.json({
+          paper: {
+            ...serializePaper(paper),
+            noteGroupIds: await noteGroupIdsForPaper(paper),
+          },
+        })
       : NextResponse.json({ error: "Not found" }, { status: 404 });
   } catch (error) {
     console.error("Failed to load paper:", error);
@@ -78,6 +89,12 @@ export async function PATCH(request: NextRequest, context: PaperRouteContext) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     await syncPaperNote(paper);
+    if (parsed.data.noteGroupIds !== undefined) {
+      await setPaperNoteGroups(
+        paper,
+        await pruneGroupIds(parsed.data.noteGroupIds),
+      );
+    }
 
     const previousKey = previous.pdf?.storageKey;
     const nextKey = paper.pdf?.storageKey;
@@ -88,7 +105,12 @@ export async function PATCH(request: NextRequest, context: PaperRouteContext) {
         ),
       );
     }
-    return NextResponse.json({ paper: serializePaper(paper) });
+    return NextResponse.json({
+      paper: {
+        ...serializePaper(paper),
+        noteGroupIds: await noteGroupIdsForPaper(paper),
+      },
+    });
   } catch (error) {
     if (isDuplicatePaperError(error)) {
       return NextResponse.json(

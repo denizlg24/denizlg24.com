@@ -193,6 +193,56 @@ export async function syncPaperNote(paper: ILeanPaper): Promise<void> {
   );
 }
 
+/**
+ * Groups sit on the linked note, not on the paper, so anything serving a
+ * reading has to join them back in. One query for the whole list rather than
+ * one per row.
+ */
+export async function noteGroupIdsByPaper(
+  paperIds: Types.ObjectId[],
+): Promise<Map<string, string[]>> {
+  if (paperIds.length === 0) return new Map();
+  const notes = await Note.find({ paperId: { $in: paperIds } })
+    .select("paperId groupIds")
+    .lean<Array<{ paperId: Types.ObjectId; groupIds?: Types.ObjectId[] }>>()
+    .exec();
+  return new Map(
+    notes.map((note) => [
+      String(note.paperId),
+      (note.groupIds ?? []).map(String),
+    ]),
+  );
+}
+
+export async function noteGroupIdsForPaper(
+  paper: ILeanPaper,
+): Promise<string[]> {
+  const groups = await noteGroupIdsByPaper([paper._id]);
+  return groups.get(String(paper._id)) ?? [];
+}
+
+/**
+ * The note is the only place a reading's groups live, so the paper routes
+ * write straight through to it. `ensurePaperNote` covers rows created before
+ * the link existed.
+ */
+export async function setPaperNoteGroups(
+  paper: ILeanPaper,
+  groupIds: Types.ObjectId[],
+): Promise<void> {
+  const note = await ensurePaperNote(paper);
+  await Note.updateOne(
+    { _id: note._id },
+    {
+      $set: {
+        groupIds,
+        manualGroupIds: groupIds,
+        semanticStatus: "stale",
+      },
+    },
+  );
+}
+
 export async function deleteLinkedPaperNote(paper: ILeanPaper): Promise<void> {
   const note = await Note.findOne({
     $or: [

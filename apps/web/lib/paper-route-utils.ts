@@ -89,7 +89,11 @@ function dedupeStrings(values: string[] | undefined): string[] | undefined {
     : undefined;
 }
 
-export async function prepareNewPaper(input: CreatePaperInput) {
+export async function prepareNewPaper({
+  // Lives on the linked note, so the caller writes it there instead.
+  noteGroupIds: _noteGroupIds,
+  ...input
+}: CreatePaperInput) {
   const doi = normalizeIdentifier(input.doi, "doi");
   const arxivId = normalizeIdentifier(input.arxivId, "arxiv");
   const noteIds = await prunePaperNoteIds(input.noteIds);

@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  INoteGroup,
   IPaper,
   PaperCourseRef,
   PaperFile,
@@ -64,6 +65,7 @@ export interface PapersResponse {
   papers: IPaper[];
   notes: PaperNoteRef[];
   courses: PaperCourseRef[];
+  groups: INoteGroup[];
 }
 
 type StatusFilter = "all" | PaperReadingStatus;
@@ -77,6 +79,7 @@ export function PapersPage() {
   const [papers, setPapers] = useState<IPaper[]>([]);
   const [notes, setNotes] = useState<PaperNoteRef[]>([]);
   const [courses, setCourses] = useState<PaperCourseRef[]>([]);
+  const [groups, setGroups] = useState<INoteGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
@@ -97,6 +100,7 @@ export function PapersPage() {
       setPapers(result.papers);
       setNotes(result.notes);
       setCourses(result.courses ?? []);
+      setGroups(result.groups ?? []);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to load readings",
@@ -199,6 +203,28 @@ export function PapersPage() {
       current.map((paper) => (paper._id === paperId ? result.paper : paper)),
     );
   };
+
+  const createGroup = useCallback(
+    async (name: string) => {
+      try {
+        const result = await client.post<{ group: INoteGroup }>("note-groups", {
+          name,
+        });
+        setGroups((current) =>
+          [...current, result.group].sort((left, right) =>
+            left.name.localeCompare(right.name),
+          ),
+        );
+        return result.group;
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to create group",
+        );
+        return null;
+      }
+    },
+    [client],
+  );
 
   const editPaper = async (input: PaperMutation & { title: string }) => {
     if (!editing) return;
@@ -320,6 +346,8 @@ export function PapersPage() {
           paper={selectedPaper}
           notes={notes}
           courses={courses}
+          groups={groups}
+          onCreateGroup={createGroup}
           onBack={() => setSelectedId(null)}
           onEdit={() => setEditing(selectedPaper)}
           onDelete={() => setDeleting(selectedPaper)}
