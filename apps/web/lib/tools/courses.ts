@@ -36,6 +36,8 @@ const ENTITY_FIELD_MAP: Record<string, CourseLinkField> = {
 
 const ENTITY_TYPES = Object.keys(ENTITY_FIELD_MAP);
 
+const EMAIL_TOOL_PAGE_SIZE = 20;
+
 const ASSIGNMENT_TYPES = [
   "assignment",
   "exam",
@@ -43,8 +45,10 @@ const ASSIGNMENT_TYPES = [
   "project",
   "lab",
   "reading",
-  "other",
 ];
+
+const ASSESSED_DESCRIPTION =
+  "True when this carries a mark toward the final grade. False for dated coursework with no mark — a required reading, a registration, a non-graded lab. Only assessed rows reach the gradebook and the grade average. Defaults to true.";
 
 const ASSIGNMENT_STATUSES = [
   "planned",
@@ -113,11 +117,23 @@ export const coursesTools: ToolDefinition[] = [
     schema: {
       name: "find_course_emails",
       description:
-        "List the triaged emails that have been matched to a course (e.g. messages from the instructor or about assignments). Returns subject, sender, date, category, and summary.",
+        "List the triaged emails that have been matched to a course (e.g. messages from the instructor or about assignments). Returns subject, sender, date, category, and summary, newest first, one page at a time.",
       input_schema: {
         type: "object",
         properties: {
           courseId: { type: "string", description: "Course ID" },
+          q: {
+            type: "string",
+            description: "Narrow to subject, sender, or summary (optional)",
+          },
+          category: {
+            type: "string",
+            description: "Narrow to one triage category (optional)",
+          },
+          page: {
+            type: "number",
+            description: "Zero-based page index (optional, default 0)",
+          },
         },
         required: ["courseId"],
       },
@@ -125,7 +141,14 @@ export const coursesTools: ToolDefinition[] = [
     isWrite: false,
     category: "courses",
     execute: async (input) => {
-      return await getCourseRelatedEmails(input.courseId as string);
+      // A course accrues mail all semester, so this is paged rather than
+      // returned whole: an unbounded list would blow the tool payload budget.
+      return await getCourseRelatedEmails(input.courseId as string, {
+        page: input.page as number | undefined,
+        pageSize: EMAIL_TOOL_PAGE_SIZE,
+        q: input.q as string | undefined,
+        category: input.category as string | undefined,
+      });
     },
   },
   {
@@ -431,6 +454,7 @@ export const coursesTools: ToolDefinition[] = [
             enum: ASSIGNMENT_TYPES,
             description: "Assignment type",
           },
+          assessed: { type: "boolean", description: ASSESSED_DESCRIPTION },
           status: {
             type: "string",
             enum: ASSIGNMENT_STATUSES,
@@ -511,6 +535,9 @@ export const coursesTools: ToolDefinition[] = [
         {
           title: input.title as string,
           type: input.type as CourseAssignmentType | undefined,
+          ...(typeof input.assessed === "boolean"
+            ? { assessed: input.assessed }
+            : {}),
           status:
             (input.status as CourseAssignmentStatus | undefined) ??
             (hasGrade ? "graded" : undefined),
@@ -559,6 +586,7 @@ export const coursesTools: ToolDefinition[] = [
             enum: ASSIGNMENT_TYPES,
             description: "New type (optional)",
           },
+          assessed: { type: "boolean", description: ASSESSED_DESCRIPTION },
           status: {
             type: "string",
             enum: ASSIGNMENT_STATUSES,
@@ -626,6 +654,7 @@ export const coursesTools: ToolDefinition[] = [
       for (const key of [
         "title",
         "type",
+        "assessed",
         "status",
         "dueAt",
         "submittedAt",

@@ -11,8 +11,16 @@ export type TriageCourseAssignmentType =
   | "quiz"
   | "project"
   | "lab"
-  | "reading"
-  | "other";
+  | "reading";
+
+/**
+ * Where an accepted course task lands. `assessment` is the only value that
+ * reaches the gradebook; `deadline` is dated coursework with no mark, and
+ * `task` is board work. Extraction defaults to `deadline` when it cannot tell,
+ * because a deadline promoted later costs one click while an assessment has
+ * already moved the course average by the time anyone notices.
+ */
+export type TriageCourseWorkKind = "assessment" | "deadline" | "task";
 
 export interface ITriageTaskSuggestion {
   _id: mongoose.Types.ObjectId;
@@ -28,7 +36,10 @@ export interface ITriageTaskSuggestion {
   courseId?: mongoose.Types.ObjectId;
   courseName?: string;
   updatesCourseDeadlineId?: mongoose.Types.ObjectId;
+  courseWorkKind?: TriageCourseWorkKind;
   assignmentType?: TriageCourseAssignmentType;
+  /** Share of the final grade, 0-100, when the source states it. */
+  gradeWeight?: number;
   routedToCourseBoard?: boolean;
   status: TriageSuggestionStatus;
   acceptedCardId?: mongoose.Types.ObjectId;
@@ -100,10 +111,15 @@ const TaskSuggestionSchema = new Schema<ITriageTaskSuggestion>({
   courseId: { type: Schema.Types.ObjectId, ref: "Course" },
   courseName: { type: String },
   updatesCourseDeadlineId: { type: Schema.Types.ObjectId },
+  courseWorkKind: {
+    type: String,
+    enum: ["assessment", "deadline", "task"],
+  },
   assignmentType: {
     type: String,
-    enum: ["assignment", "exam", "quiz", "project", "lab", "reading", "other"],
+    enum: ["assignment", "exam", "quiz", "project", "lab", "reading"],
   },
+  gradeWeight: { type: Number, min: 0, max: 100 },
   routedToCourseBoard: { type: Boolean },
   status: {
     type: String,
@@ -211,6 +227,10 @@ EmailTriageSchema.index({ reviewRequired: 1, userStatus: 1, triagedAt: -1 });
 // Covers the filter-tab badge aggregation, which groups on exactly these three
 // fields and so can run as an index scan instead of a collection scan.
 EmailTriageSchema.index({ userStatus: 1, reviewRequired: 1, category: 1 });
+// The course Mail tab pages on this exact shape: one course, newest first,
+// optionally narrowed to a category.
+EmailTriageSchema.index({ matchedCourseId: 1, triagedAt: -1 });
+EmailTriageSchema.index({ matchedCourseId: 1, category: 1, triagedAt: -1 });
 
 export const EmailTriageModel: mongoose.Model<IEmailTriage> =
   mongoose.models.EmailTriage ||

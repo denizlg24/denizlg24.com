@@ -8,7 +8,6 @@ import type {
 import { Button } from "@repo/ui/button";
 import { Separator } from "@repo/ui/separator";
 import { cn } from "@repo/ui/utils";
-import { AlertCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdmin } from "../provider";
 
@@ -23,6 +22,15 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",
     minute: "2-digit",
+  }).format(date);
+}
+
+function formatShortDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
   }).format(date);
 }
 
@@ -44,15 +52,23 @@ function toDateKey(date: Date) {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-function SectionHeading({ title, meta }: { title: string; meta?: string }) {
+export function SectionHeading({
+  title,
+  meta,
+}: {
+  title: string;
+  meta?: string;
+}) {
   return (
-    <div className="flex items-center gap-2">
-      <h2 className="text-xs font-semibold uppercase text-muted-foreground">
+    <div className="flex items-center gap-3">
+      <h2 className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </h2>
       <Separator className="flex-1" />
       {meta && (
-        <span className="text-[11px] text-muted-foreground">{meta}</span>
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+          {meta}
+        </span>
       )}
     </div>
   );
@@ -84,7 +100,7 @@ function CockpitStat({
   );
 }
 
-function CourseDot({ color }: { color?: string }) {
+export function CourseDot({ color }: { color?: string }) {
   return (
     <span
       className="size-2 shrink-0 rounded-full"
@@ -104,7 +120,7 @@ function DeadlineRow({
     <button
       type="button"
       onClick={() => onSelectCourse?.(deadline.courseId)}
-      className="flex w-full items-center gap-2 py-1 text-left transition-colors hover:text-foreground/70"
+      className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/40"
     >
       <CourseDot color={deadline.courseColor} />
       <span className="min-w-0 flex-1 truncate text-sm">{deadline.title}</span>
@@ -118,7 +134,7 @@ function DeadlineRow({
       </span>
       <span
         className={cn(
-          "shrink-0 text-xs tabular-nums",
+          "w-14 shrink-0 text-right text-xs tabular-nums",
           deadline.overdue ? "text-destructive" : "text-muted-foreground",
         )}
       >
@@ -128,14 +144,18 @@ function DeadlineRow({
   );
 }
 
-function StandingRow({
+/**
+ * One course, one line. This replaced a grid of cards that repeated the same
+ * average, overdue count and next deadline this row already carries.
+ */
+function RosterRow({
   standing,
   onSelectCourse,
 }: {
   standing: ISemesterCourseStanding;
   onSelectCourse?: (courseId: string) => void;
 }) {
-  const { projection } = standing;
+  const { projection, nextDeadline } = standing;
   const hasProjection =
     projection.worstCase !== null && projection.bestCase !== null;
 
@@ -143,26 +163,42 @@ function StandingRow({
     <button
       type="button"
       onClick={() => onSelectCourse?.(standing.courseId)}
-      className="w-full space-y-1.5 py-2 text-left"
+      className="-mx-2 w-[calc(100%+1rem)] space-y-1.5 border-b border-border/60 px-2 py-2.5 text-left transition-colors last:border-b-0 hover:bg-muted/40"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5">
         <CourseDot color={standing.color} />
+        {standing.code && (
+          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+            {standing.code}
+          </span>
+        )}
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
           {standing.name}
         </span>
-        {standing.overdue > 0 && (
-          <span className="flex shrink-0 items-center gap-1 text-xs text-destructive">
-            <AlertCircle className="size-3" />
-            {standing.overdue} overdue
+        {nextDeadline && (
+          <span className="hidden min-w-0 max-w-[16rem] shrink truncate text-[11px] text-muted-foreground sm:inline">
+            {nextDeadline.title}
           </span>
         )}
-        <span className="shrink-0 font-mono text-sm tabular-nums">
+        {standing.overdue > 0 ? (
+          <span className="shrink-0 text-[11px] tabular-nums text-destructive">
+            {standing.overdue} overdue
+          </span>
+        ) : (
+          nextDeadline && (
+            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+              {formatShortDate(nextDeadline.dueAt)}
+            </span>
+          )
+        )}
+        <span className="w-14 shrink-0 text-right font-mono text-sm tabular-nums">
           {formatPercent(standing.gradeAverage)}
         </span>
       </div>
+
       {hasProjection ? (
         <>
-          {/* Secured (worst case) in the course color; the lighter band up to
+          {/* Secured (worst case) in the course colour; the lighter band up to
               best case is the share of the final grade still in play. */}
           <div className="relative h-px w-full bg-border">
             <div
@@ -182,18 +218,16 @@ function StandingRow({
               secured {formatPercent(projection.worstCase)}
             </span>
             <span className="tabular-nums">
-              {formatPercent(projection.remainingWeight)} still open · best case{" "}
+              {formatPercent(projection.remainingWeight)} open · best{" "}
               {formatPercent(projection.bestCase)}
             </span>
           </div>
         </>
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          {standing.gradeAverage === null
-            ? "No grades yet"
-            : "Add grade weights to unlock projections"}
-          {standing.openAssignments > 0 &&
-            ` · ${standing.openAssignments} open`}
+          {standing.gradeAverage === null ? "No grades yet" : "No weights"}
+          {standing.openAssessments > 0 &&
+            ` · ${standing.openAssessments} open`}
         </p>
       )}
     </button>
@@ -202,8 +236,8 @@ function StandingRow({
 
 function CockpitSkeleton() {
   return (
-    <div className="space-y-4">
-      <div className="flex gap-8">
+    <div className="space-y-6">
+      <div className="flex gap-10">
         {Array.from({ length: 5 }).map((_, index) => (
           <div key={index} className="space-y-2">
             <div className="h-5 w-12 animate-pulse rounded bg-muted" />
@@ -211,9 +245,13 @@ function CockpitSkeleton() {
           </div>
         ))}
       </div>
-      <div className="space-y-2">
-        <div className="h-3 w-full animate-pulse rounded bg-muted" />
-        <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+      <div className="space-y-3">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div key={index} className="space-y-1.5">
+            <div className="h-3 w-full animate-pulse rounded bg-muted" />
+            <div className="h-px w-2/3 animate-pulse bg-muted" />
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -222,9 +260,12 @@ function CockpitSkeleton() {
 export function SemesterCockpit({
   onSelectCourse,
   reloadSignal,
+  onEmpty,
 }: {
   onSelectCourse?: (courseId: string) => void;
   reloadSignal?: number | string;
+  /** Reported up so the page can show its own empty state exactly once. */
+  onEmpty?: (empty: boolean) => void;
 }) {
   const { client } = useAdmin();
   const [overview, setOverview] = useState<ISemesterOverview | null>(null);
@@ -238,12 +279,13 @@ export function SemesterCockpit({
         "courses/overview",
       );
       setOverview(result.overview);
+      onEmpty?.(result.overview.stats.activeCourses === 0);
     } catch {
       setFailed(true);
     } finally {
       setLoading(false);
     }
-  }, [client]);
+  }, [client, onEmpty]);
 
   useEffect(() => {
     void fetchOverview();
@@ -258,6 +300,18 @@ export function SemesterCockpit({
     );
     return { todayKey: toDateKey(now), tomorrowKey: toDateKey(tomorrow) };
   }, []);
+
+  const semesters = useMemo(() => {
+    if (!overview) return [];
+    const groups = new Map<string, ISemesterCourseStanding[]>();
+    for (const standing of overview.courses) {
+      const key = standing.semester || "Unscheduled";
+      const list = groups.get(key) ?? [];
+      list.push(standing);
+      groups.set(key, list);
+    }
+    return [...groups.entries()];
+  }, [overview]);
 
   if (loading) return <CockpitSkeleton />;
 
@@ -282,7 +336,7 @@ export function SemesterCockpit({
 
   if (!overview || overview.stats.activeCourses === 0) return null;
 
-  const { stats, deadlines, week, courses } = overview;
+  const { stats, deadlines, week } = overview;
   const overdue = deadlines.filter((deadline) => deadline.overdue);
   const upcoming = deadlines.filter((deadline) => !deadline.overdue);
   const upcomingByDay = new Map<string, ISemesterDeadline[]>();
@@ -298,7 +352,7 @@ export function SemesterCockpit({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex flex-wrap gap-x-10 gap-y-4">
         <CockpitStat
           label="Semester avg"
@@ -310,7 +364,7 @@ export function SemesterCockpit({
           value={stats.overdue}
           alert={stats.overdue > 0}
         />
-        <CockpitStat label="Open work" value={stats.openAssignments} />
+        <CockpitStat label="Open work" value={stats.openAssessments} />
         <CockpitStat label="Classes this week" value={classesThisWeek} />
       </div>
 
@@ -361,52 +415,55 @@ export function SemesterCockpit({
         </section>
       )}
 
-      <div className="grid gap-x-10 gap-y-6 lg:grid-cols-2">
-        <section className="space-y-3">
-          <SectionHeading title="Deadline radar" meta="next 14 days" />
-          {deadlines.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nothing due in the next two weeks
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {overdue.length > 0 && (
-                <div>
-                  <p className="pb-1 text-[10px] font-semibold uppercase text-destructive">
-                    Overdue
-                  </p>
-                  {overdue.map((deadline) => (
-                    <DeadlineRow
-                      key={deadline._id}
-                      deadline={deadline}
-                      onSelectCourse={onSelectCourse}
-                    />
-                  ))}
-                </div>
-              )}
-              {[...upcomingByDay.entries()].map(([dateKey, items]) => (
-                <div key={dateKey}>
-                  <p className="pb-1 text-[10px] font-semibold uppercase text-muted-foreground">
-                    {formatDayHeading(dateKey, todayKey, tomorrowKey)}
-                  </p>
-                  {items.map((deadline) => (
-                    <DeadlineRow
-                      key={deadline._id}
-                      deadline={deadline}
-                      onSelectCourse={onSelectCourse}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+      <section className="space-y-3">
+        <SectionHeading title="Deadline radar" meta="next 14 days" />
+        {deadlines.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nothing due in the next two weeks
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {overdue.length > 0 && (
+              <div>
+                <p className="pb-1 text-[10px] font-semibold uppercase tracking-wide text-destructive">
+                  Overdue
+                </p>
+                {overdue.map((deadline) => (
+                  <DeadlineRow
+                    key={deadline._id}
+                    deadline={deadline}
+                    onSelectCourse={onSelectCourse}
+                  />
+                ))}
+              </div>
+            )}
+            {[...upcomingByDay.entries()].map(([dateKey, items]) => (
+              <div key={dateKey}>
+                <p className="pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {formatDayHeading(dateKey, todayKey, tomorrowKey)}
+                </p>
+                {items.map((deadline) => (
+                  <DeadlineRow
+                    key={deadline._id}
+                    deadline={deadline}
+                    onSelectCourse={onSelectCourse}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
-        <section className="space-y-3">
-          <SectionHeading title="Grade standings" meta="secured vs best case" />
-          <div className="space-y-1">
-            {courses.map((standing) => (
-              <StandingRow
+      {semesters.map(([semester, standings]) => (
+        <section key={semester} className="space-y-2">
+          <SectionHeading
+            title={semester}
+            meta={`${standings.length} ${standings.length === 1 ? "course" : "courses"}`}
+          />
+          <div>
+            {standings.map((standing) => (
+              <RosterRow
                 key={standing.courseId}
                 standing={standing}
                 onSelectCourse={onSelectCourse}
@@ -414,7 +471,7 @@ export function SemesterCockpit({
             ))}
           </div>
         </section>
-      </div>
+      ))}
     </div>
   );
 }

@@ -1,87 +1,18 @@
 "use client";
 
 import type {
-  CourseAssignmentStatus,
-  CourseAssignmentType,
   ICourseAssignment,
-  ICourseAssignmentFile,
-  ICourseAssignmentLink,
+  ICourseDeadline,
+  ICourseGradeProjection,
+  ICourseKanbanCardSummary,
+  ICourseReadingSummary,
 } from "@repo/schemas";
-import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
-import { Input } from "@repo/ui/input";
-import { Label } from "@repo/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@repo/ui/select";
-import { Separator } from "@repo/ui/separator";
-import { Textarea } from "@repo/ui/textarea";
 import { cn } from "@repo/ui/utils";
-import {
-  ExternalLink,
-  Loader2,
-  Paperclip,
-  Plus,
-  Save,
-  Trash2,
-  Upload,
-  X,
-} from "lucide-react";
-import type * as React from "react";
-import { useRef, useState } from "react";
-import { toast } from "sonner";
-import { useAdmin } from "../provider";
-
-const ASSIGNMENT_TYPES: { value: CourseAssignmentType; label: string }[] = [
-  { value: "assignment", label: "Assignment" },
-  { value: "exam", label: "Exam" },
-  { value: "quiz", label: "Quiz" },
-  { value: "project", label: "Project" },
-  { value: "lab", label: "Lab" },
-  { value: "reading", label: "Reading" },
-  { value: "other", label: "Other" },
-];
-
-const ASSIGNMENT_STATUSES: { value: CourseAssignmentStatus; label: string }[] =
-  [
-    { value: "planned", label: "Planned" },
-    { value: "in-progress", label: "In progress" },
-    { value: "submitted", label: "Submitted" },
-    { value: "graded", label: "Graded" },
-    { value: "archived", label: "Archived" },
-  ];
-
-type LinkDraft = Omit<ICourseAssignmentLink, "_id"> & { _id?: string };
-type FileDraft = Omit<ICourseAssignmentFile, "_id"> & { _id?: string };
-
-interface AssignmentPayload {
-  title?: string;
-  type?: CourseAssignmentType;
-  status?: CourseAssignmentStatus;
-  dueAt?: string;
-  submittedAt?: string;
-  notes?: string;
-  links?: LinkDraft[];
-  files?: FileDraft[];
-  grade?: {
-    score?: number;
-    maxScore?: number;
-    letter?: string;
-    weight?: number;
-    notes?: string;
-    gradedAt?: string;
-  };
-}
-
-function fromDateTimeInput(value: string) {
-  if (!value) return undefined;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
+import { Plus } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CourseReadingsPanel } from "./course-readings";
+import { CourseWorkSheet } from "./course-work-sheet";
 
 function formatDateTime(value?: string) {
   if (!value) return "";
@@ -93,39 +24,6 @@ function formatDateTime(value?: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-}
-
-function parseNumberInput(value: string) {
-  if (!value.trim()) return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function buildGradePayload({
-  score,
-  maxScore,
-  letter,
-  weight,
-  notes,
-}: {
-  score: string;
-  maxScore: string;
-  letter: string;
-  weight: string;
-  notes?: string;
-}) {
-  const payload = {
-    score: parseNumberInput(score),
-    maxScore: parseNumberInput(maxScore),
-    letter: letter.trim() || undefined,
-    weight: parseNumberInput(weight),
-    notes: notes?.trim() || undefined,
-    gradedAt:
-      score.trim() || letter.trim() ? new Date().toISOString() : undefined,
-  };
-  return Object.values(payload).some((value) => value !== undefined)
-    ? payload
-    : undefined;
 }
 
 function gradePercent(assignment: ICourseAssignment) {
@@ -144,673 +42,518 @@ function formatPercent(value: number | null | undefined) {
 
 function formatGrade(assignment: ICourseAssignment) {
   const grade = assignment.grade;
-  if (!grade) return "Ungraded";
-  const parts = [];
+  if (!grade) return "";
+  const parts: string[] = [];
   if (grade.score !== undefined && grade.maxScore !== undefined) {
     parts.push(`${grade.score}/${grade.maxScore}`);
   }
   if (grade.letter) parts.push(grade.letter);
   const percent = gradePercent(assignment);
   if (percent !== null) parts.push(formatPercent(percent));
-  return parts.join(" · ") || "Ungraded";
+  return parts.join(" · ");
 }
 
-function statusTone(
-  status: CourseAssignmentStatus,
-): "default" | "secondary" | "outline" {
-  if (status === "graded") return "default";
-  if (status === "submitted") return "secondary";
-  if (status === "archived") return "outline";
-  return "outline";
+const COMPLETED_STATUSES = new Set(["submitted", "graded", "archived"]);
+
+function isOverdue(assignment: ICourseAssignment) {
+  if (!assignment.dueAt) return false;
+  if (COMPLETED_STATUSES.has(assignment.status)) return false;
+  return new Date(assignment.dueAt).getTime() < Date.now();
 }
 
-function InlineEmpty({ label }: { label: string }) {
-  return (
-    <div className="rounded-md border border-dashed px-3 py-5 text-center text-sm text-muted-foreground">
-      {label}
-    </div>
-  );
-}
-
-function AssignmentComposer({
-  courseId,
-  onCancel,
-  onSaved,
-}: {
-  courseId: string;
-  onCancel: () => void;
-  onSaved: () => Promise<void>;
-}) {
-  const { client } = useAdmin();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState("");
-  const [type, setType] = useState<CourseAssignmentType>("assignment");
-  const [status, setStatus] = useState<CourseAssignmentStatus>("planned");
-  const [dueAt, setDueAt] = useState("");
-  const [notes, setNotes] = useState("");
-  const [links, setLinks] = useState<LinkDraft[]>([]);
-  const [files, setFiles] = useState<FileDraft[]>([]);
-  const [linkLabel, setLinkLabel] = useState("");
-  const [linkUrl, setLinkUrl] = useState("");
-  const [score, setScore] = useState("");
-  const [maxScore, setMaxScore] = useState("");
-  const [letter, setLetter] = useState("");
-  const [weight, setWeight] = useState("");
-  const [gradeNotes, setGradeNotes] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-
-  const addLink = () => {
-    const label = linkLabel.trim() || linkUrl.trim();
-    const url = linkUrl.trim();
-    if (!label || !url) return;
-    setLinks([...links, { label, url }]);
-    setLinkLabel("");
-    setLinkUrl("");
-  };
-
-  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const result = await client.upload<{
-        url: string;
-        id?: string;
-        name?: string;
-        mimeType?: string;
-        size?: number;
-      }>("upload/file", formData);
-      setFiles([
-        ...files,
-        {
-          _id: result.id ?? result.url,
-          name: result.name ?? file.name,
-          url: result.url,
-          mimeType: result.mimeType,
-          size: result.size,
-        },
-      ]);
-      toast.success("File uploaded");
-    } catch {
-      toast.error("Upload failed");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  const submit = async () => {
-    if (!title.trim()) return;
-    setSaving(true);
-    try {
-      const grade = buildGradePayload({
-        score,
-        maxScore,
-        letter,
-        weight,
-        notes: gradeNotes,
-      });
-      const payload: AssignmentPayload = {
-        title: title.trim(),
-        type,
-        status: grade && status === "planned" ? "graded" : status,
-        dueAt: fromDateTimeInput(dueAt),
-        notes: notes.trim() || undefined,
-        links,
-        files,
-        ...(grade ? { grade } : {}),
-      };
-      await client.post<{ assignment: ICourseAssignment }>(
-        `courses/${courseId}/assignments`,
-        payload,
-      );
-      toast.success("Assignment added");
-      await onSaved();
-      onCancel();
-    } catch {
-      toast.error("Failed to add assignment");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="rounded-md border bg-background p-3">
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_9rem_10rem]">
-        <Input
-          value={title}
-          placeholder="Assignment, exam, or quiz"
-          onChange={(event) => setTitle(event.target.value)}
-        />
-        <Select
-          value={type}
-          onValueChange={(value) => setType(value as CourseAssignmentType)}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ASSIGNMENT_TYPES.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={status}
-          onValueChange={(value) => setStatus(value as CourseAssignmentStatus)}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ASSIGNMENT_STATUSES.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-[13rem_1fr]">
-        <Input
-          type="datetime-local"
-          value={dueAt}
-          onChange={(event) => setDueAt(event.target.value)}
-        />
-        <Textarea
-          className="min-h-10"
-          value={notes}
-          placeholder="Notes"
-          onChange={(event) => setNotes(event.target.value)}
-        />
-      </div>
-
-      <Separator className="my-3" />
-
-      <div className="grid gap-3 lg:grid-cols-2">
-        <div className="space-y-2">
-          <Label className="text-xs">URLs</Label>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[0.7fr_1fr_auto]">
-            <Input
-              value={linkLabel}
-              placeholder="Label"
-              onChange={(event) => setLinkLabel(event.target.value)}
-            />
-            <Input
-              value={linkUrl}
-              placeholder="https://..."
-              onChange={(event) => setLinkUrl(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addLink();
-                }
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={addLink}
-              disabled={!linkUrl.trim()}
-            >
-              <Plus className="size-4" />
-            </Button>
-          </div>
-          {links.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {links.map((link, index) => (
-                <Badge key={`${link.url}-${index}`} variant="secondary">
-                  <span className="max-w-40 truncate">{link.label}</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setLinks(links.filter((_, current) => current !== index))
-                    }
-                  >
-                    <X className="size-3" />
-                  </button>
-                </Badge>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-xs">Files</Label>
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            onChange={handleUpload}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Upload className="size-3.5" />
-            )}
-            {uploading ? "Uploading" : "Upload file"}
-          </Button>
-          {files.length > 0 && (
-            <div className="space-y-1">
-              {files.map((file, index) => (
-                <div
-                  key={`${file.url}-${index}`}
-                  className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs"
-                >
-                  <Paperclip className="size-3.5 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFiles(files.filter((_, current) => current !== index))
-                    }
-                  >
-                    <X className="size-3 text-muted-foreground" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <Separator className="my-3" />
-
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-[6rem_6rem_5rem_5rem_1fr]">
-        <Input
-          type="number"
-          min="0"
-          step="0.01"
-          value={score}
-          placeholder="Score"
-          onChange={(event) => setScore(event.target.value)}
-        />
-        <Input
-          type="number"
-          min="0"
-          step="0.01"
-          value={maxScore}
-          placeholder="Max"
-          onChange={(event) => setMaxScore(event.target.value)}
-        />
-        <Input
-          value={letter}
-          placeholder="Letter"
-          onChange={(event) => setLetter(event.target.value)}
-        />
-        <Input
-          type="number"
-          min="0"
-          step="0.01"
-          value={weight}
-          placeholder="Weight"
-          onChange={(event) => setWeight(event.target.value)}
-        />
-        <Input
-          value={gradeNotes}
-          placeholder="Grade notes"
-          onChange={(event) => setGradeNotes(event.target.value)}
-        />
-      </div>
-
-      <div className="mt-3 flex justify-end gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onCancel}
-          disabled={saving}
-        >
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          onClick={submit}
-          disabled={!title.trim() || saving}
-        >
-          {saving && <Loader2 className="size-3.5 animate-spin" />}
-          Save
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function AssignmentRow({
-  courseId,
+/** One line. Everything editable lives behind the click, in the sheet. */
+function WorkRow({
   assignment,
-  onOpenExternal,
-  onSaved,
+  onSelect,
 }: {
-  courseId: string;
   assignment: ICourseAssignment;
-  onOpenExternal: (url: string) => void;
-  onSaved: () => Promise<void>;
+  onSelect: () => void;
 }) {
-  const { client } = useAdmin();
-  const [status, setStatus] = useState<CourseAssignmentStatus>(
-    assignment.status,
-  );
-  const [score, setScore] = useState(assignment.grade?.score?.toString() ?? "");
-  const [maxScore, setMaxScore] = useState(
-    assignment.grade?.maxScore?.toString() ?? "",
-  );
-  const [letter, setLetter] = useState(assignment.grade?.letter ?? "");
-  const [weight, setWeight] = useState(
-    assignment.grade?.weight?.toString() ?? "",
-  );
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const grade = buildGradePayload({ score, maxScore, letter, weight });
-      const payload: AssignmentPayload = {
-        status: grade && status === "planned" ? "graded" : status,
-        ...(grade ? { grade } : {}),
-      };
-      await client.patch<{ assignment: ICourseAssignment }>(
-        `courses/${courseId}/assignments/${assignment._id}`,
-        payload,
-      );
-      toast.success("Assignment updated");
-      await onSaved();
-    } catch {
-      toast.error("Failed to update assignment");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async () => {
-    setDeleting(true);
-    try {
-      await client.del<{ success: true }>(
-        `courses/${courseId}/assignments/${assignment._id}`,
-      );
-      toast.success("Assignment deleted");
-      await onSaved();
-    } catch {
-      toast.error("Failed to delete assignment");
-    } finally {
-      setDeleting(false);
-    }
-  };
+  const overdue = isOverdue(assignment);
+  const done = COMPLETED_STATUSES.has(assignment.status);
+  const grade = formatGrade(assignment);
 
   return (
-    <div className="rounded-md border p-3">
-      <div className="flex min-w-0 items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="min-w-0 truncate text-sm font-medium">
-              {assignment.title}
-            </h3>
-            <Badge variant="outline">{assignment.type}</Badge>
-            <Badge variant={statusTone(assignment.status)}>
-              {assignment.status}
-            </Badge>
-          </div>
-          <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
-            {assignment.dueAt && (
-              <span>Due {formatDateTime(assignment.dueAt)}</span>
-            )}
-            {assignment.submittedAt && (
-              <span>Submitted {formatDateTime(assignment.submittedAt)}</span>
-            )}
-            <span>{formatGrade(assignment)}</span>
-          </div>
-          {assignment.notes && (
-            <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted-foreground">
-              {assignment.notes}
-            </p>
-          )}
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-8 text-destructive"
-          onClick={remove}
-          disabled={deleting}
-        >
-          {deleting ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Trash2 className="size-4" />
-          )}
-        </Button>
-      </div>
-
-      {(assignment.links.length > 0 || assignment.files.length > 0) && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {assignment.links.map((link) => (
-            <Button
-              key={link._id}
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => onOpenExternal(link.url)}
-            >
-              <ExternalLink className="size-3.5" />
-              {link.label}
-            </Button>
-          ))}
-          {assignment.files.map((file) => (
-            <Button
-              key={file._id}
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => onOpenExternal(file.url)}
-            >
-              <Paperclip className="size-3.5" />
-              {file.name}
-            </Button>
-          ))}
-        </div>
+    <button
+      type="button"
+      onClick={onSelect}
+      className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 border-b border-border/60 px-2 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
+    >
+      <span
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          overdue
+            ? "bg-destructive"
+            : done
+              ? "bg-muted-foreground/30"
+              : "bg-accent",
+        )}
+      />
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate text-sm",
+          done && "text-muted-foreground",
+        )}
+      >
+        {assignment.title}
+      </span>
+      <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+        {assignment.type}
+      </span>
+      {!assignment.assessed && (
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+          no mark
+        </span>
       )}
+      <span
+        className={cn(
+          "w-28 shrink-0 text-right text-[11px] tabular-nums",
+          overdue ? "text-destructive" : "text-muted-foreground",
+        )}
+      >
+        {assignment.dueAt ? formatDateTime(assignment.dueAt) : "--"}
+      </span>
+      <span className="w-32 shrink-0 text-right font-mono text-[11px] tabular-nums">
+        {grade || (
+          <span className="text-muted-foreground">{assignment.status}</span>
+        )}
+      </span>
+    </button>
+  );
+}
 
-      <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-[9rem_5rem_5rem_5rem_5rem_auto]">
-        <Select
-          value={status}
-          onValueChange={(value) => setStatus(value as CourseAssignmentStatus)}
-        >
-          <SelectTrigger className="h-8">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ASSIGNMENT_STATUSES.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Input
-          className="h-8"
-          type="number"
-          min="0"
-          step="0.01"
-          value={score}
-          placeholder="Score"
-          onChange={(event) => setScore(event.target.value)}
-        />
-        <Input
-          className="h-8"
-          type="number"
-          min="0"
-          step="0.01"
-          value={maxScore}
-          placeholder="Max"
-          onChange={(event) => setMaxScore(event.target.value)}
-        />
-        <Input
-          className="h-8"
-          value={letter}
-          placeholder="Letter"
-          onChange={(event) => setLetter(event.target.value)}
-        />
-        <Input
-          className="h-8"
-          type="number"
-          min="0"
-          step="0.01"
-          value={weight}
-          placeholder="Weight"
-          onChange={(event) => setWeight(event.target.value)}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="size-8"
-          onClick={save}
-          disabled={saving}
-        >
-          {saving ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Save className="size-3.5" />
-          )}
-        </Button>
-      </div>
+function ReadOnlyRow({
+  title,
+  meta,
+  dueAt,
+  overdue,
+  completed,
+}: {
+  title: string;
+  meta?: string;
+  dueAt?: string;
+  overdue?: boolean;
+  completed?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 border-b border-border/60 py-2 last:border-b-0">
+      <span
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          overdue
+            ? "bg-destructive"
+            : completed
+              ? "bg-muted-foreground/30"
+              : "bg-accent",
+        )}
+      />
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate text-sm",
+          completed && "text-muted-foreground",
+        )}
+      >
+        {title}
+      </span>
+      {meta && (
+        <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+          {meta}
+        </span>
+      )}
+      <span
+        className={cn(
+          "w-28 shrink-0 text-right text-[11px] tabular-nums",
+          overdue ? "text-destructive" : "text-muted-foreground",
+        )}
+      >
+        {dueAt ? formatDateTime(dueAt) : "--"}
+      </span>
     </div>
   );
 }
 
-export function CourseAssignmentsPanel({
+type Lane = "all" | "assessments" | "deadlines" | "tasks" | "readings";
+
+/**
+ * The Work tab: every dated obligation this course carries, in one list.
+ *
+ * The lanes are the classification decision made visible. A row triage put in
+ * the wrong one is fixed by opening it and flipping the toggle, which is the
+ * whole reason extraction is allowed to default to the safer lane.
+ */
+export function CourseWorkPanel({
   courseId,
   assignments,
+  deadlines,
+  kanbanCards,
+  readings,
   onOpenExternal,
   onRefresh,
 }: {
   courseId: string;
   assignments: ICourseAssignment[];
+  deadlines: ICourseDeadline[];
+  kanbanCards: ICourseKanbanCardSummary[];
+  readings: ICourseReadingSummary[];
   onOpenExternal: (url: string) => void;
   onRefresh: () => Promise<void>;
 }) {
-  const [adding, setAdding] = useState(false);
-  const visibleAssignments = assignments.filter(
-    (assignment) => assignment.status !== "archived",
+  const [lane, setLane] = useState<Lane>("all");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editing, setEditing] = useState<ICourseAssignment | null>(null);
+
+  const active = useMemo(
+    () =>
+      assignments
+        .filter((assignment) => assignment.status !== "archived")
+        .sort((left, right) => {
+          if (!left.dueAt && !right.dueAt) return 0;
+          if (!left.dueAt) return 1;
+          if (!right.dueAt) return -1;
+          return (
+            new Date(left.dueAt).getTime() - new Date(right.dueAt).getTime()
+          );
+        }),
+    [assignments],
   );
 
+  const assessments = active.filter((assignment) => assignment.assessed);
+  const unassessed = active.filter((assignment) => !assignment.assessed);
+  const manualDeadlines = deadlines.filter(
+    (deadline) => deadline.source === "manual",
+  );
+  // A card mirrored by an assignment is already dropped upstream by
+  // `buildDeadlines`; undated cards never reach the radar at all.
+  const mirrored = new Set(
+    assignments
+      .map((assignment) => assignment.kanbanCardId)
+      .filter((cardId): cardId is string => Boolean(cardId)),
+  );
+  const tasks = kanbanCards.filter((card) => !mirrored.has(card._id));
+
+  const counts: Record<Lane, number> = {
+    all:
+      assessments.length +
+      unassessed.length +
+      manualDeadlines.length +
+      tasks.length +
+      readings.length,
+    assessments: assessments.length,
+    deadlines: unassessed.length + manualDeadlines.length,
+    tasks: tasks.length,
+    readings: readings.length,
+  };
+
+  const openSheet = (assignment: ICourseAssignment | null) => {
+    setEditing(assignment);
+    setSheetOpen(true);
+  };
+
+  const showAssessments = lane === "all" || lane === "assessments";
+  const showDeadlines = lane === "all" || lane === "deadlines";
+  const showTasks = lane === "all" || lane === "tasks";
+  const showReadings = lane === "all" || lane === "readings";
+
+  const laneTabs: { value: Lane; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "assessments", label: "Assessments" },
+    { value: "deadlines", label: "Deadlines" },
+    { value: "tasks", label: "Tasks" },
+    { value: "readings", label: "Readings" },
+  ];
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          {visibleAssignments.length} active record
-          {visibleAssignments.length === 1 ? "" : "s"}
-        </p>
+    <div className="space-y-5">
+      <div className="flex items-center gap-4 border-b">
+        <div className="flex min-w-0 flex-1 gap-4 overflow-x-auto">
+          {laneTabs.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setLane(tab.value)}
+              className={cn(
+                "shrink-0 border-b-2 pb-2 text-xs transition-colors",
+                lane === tab.value
+                  ? "border-foreground font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {tab.label}
+              <span className="ml-1.5 tabular-nums text-muted-foreground">
+                {counts[tab.value]}
+              </span>
+            </button>
+          ))}
+        </div>
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="sm"
-          onClick={() => setAdding(true)}
-          disabled={adding}
+          className="mb-1 h-7"
+          onClick={() => openSheet(null)}
         >
           <Plus className="size-3.5" />
           Add
         </Button>
       </div>
 
-      {adding && (
-        <AssignmentComposer
-          courseId={courseId}
-          onCancel={() => setAdding(false)}
-          onSaved={onRefresh}
-        />
+      {counts[lane] === 0 && lane !== "readings" ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">—</p>
+      ) : (
+        <div className="space-y-5">
+          {showAssessments && assessments.length > 0 && (
+            <section className="space-y-1">
+              {lane === "all" && (
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Assessments
+                </p>
+              )}
+              <div>
+                {assessments.map((assignment) => (
+                  <WorkRow
+                    key={assignment._id}
+                    assignment={assignment}
+                    onSelect={() => openSheet(assignment)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {showDeadlines && counts.deadlines > 0 && (
+            <section className="space-y-1">
+              {lane === "all" && (
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Deadlines
+                </p>
+              )}
+              <div>
+                {unassessed.map((assignment) => (
+                  <WorkRow
+                    key={assignment._id}
+                    assignment={assignment}
+                    onSelect={() => openSheet(assignment)}
+                  />
+                ))}
+                {manualDeadlines.map((deadline) => (
+                  <ReadOnlyRow
+                    key={deadline._id}
+                    title={deadline.title}
+                    meta="manual"
+                    dueAt={deadline.dueAt}
+                    overdue={deadline.overdue}
+                    completed={deadline.completed}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {showTasks && tasks.length > 0 && (
+            <section className="space-y-1">
+              {lane === "all" && (
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Tasks
+                </p>
+              )}
+              <div>
+                {tasks.map((card) => (
+                  <ReadOnlyRow
+                    key={card._id}
+                    title={card.title}
+                    meta={card.priority !== "none" ? card.priority : undefined}
+                    dueAt={card.dueDate}
+                    completed={card.completed}
+                    overdue={
+                      !card.completed &&
+                      Boolean(card.dueDate) &&
+                      new Date(card.dueDate ?? "").getTime() < Date.now()
+                    }
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {showReadings && (lane === "readings" || readings.length > 0) && (
+            <section className="space-y-2">
+              {lane === "all" && (
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Readings
+                </p>
+              )}
+              <CourseReadingsPanel
+                courseId={courseId}
+                readings={readings}
+                onRefresh={onRefresh}
+              />
+            </section>
+          )}
+        </div>
       )}
 
-      {visibleAssignments.length === 0 && !adding ? (
-        <InlineEmpty label="No assignments or exams yet" />
-      ) : (
-        visibleAssignments.map((assignment) => (
-          <AssignmentRow
-            key={assignment._id}
-            courseId={courseId}
-            assignment={assignment}
-            onOpenExternal={onOpenExternal}
-            onSaved={onRefresh}
-          />
-        ))
-      )}
+      <CourseWorkSheet
+        courseId={courseId}
+        assignment={editing}
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        onSaved={onRefresh}
+        onOpenExternal={onOpenExternal}
+      />
     </div>
   );
 }
 
+/**
+ * The Grades tab. Only assessed rows appear here — that is what the flag is
+ * for — and the contribution column is what a weight actually buys you.
+ */
 export function CourseGradebookPanel({
   assignments,
   gradeAverage,
+  projection,
 }: {
   assignments: ICourseAssignment[];
   gradeAverage: number | null;
+  projection?: ICourseGradeProjection;
 }) {
   const graded = assignments.filter(
-    (assignment) => assignment.grade && assignment.status !== "archived",
+    (assignment) =>
+      assignment.assessed &&
+      assignment.grade &&
+      assignment.status !== "archived",
+  );
+  const pending = assignments.filter(
+    (assignment) =>
+      assignment.assessed &&
+      !assignment.grade &&
+      assignment.status !== "archived",
   );
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-md border px-3 py-3">
-        <div className="font-mono text-2xl leading-none">
-          {formatPercent(gradeAverage)}
+    <div className="space-y-6">
+      <div className="flex flex-wrap gap-x-10 gap-y-4">
+        <div>
+          <div className="font-mono text-2xl leading-none tabular-nums">
+            {formatPercent(gradeAverage)}
+          </div>
+          <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+            Weighted avg
+          </div>
         </div>
-        <div className="mt-1 text-[10px] uppercase text-muted-foreground">
-          Weighted average
-        </div>
+        {projection && projection.worstCase !== null && (
+          <>
+            <div>
+              <div className="font-mono text-2xl leading-none tabular-nums">
+                {formatPercent(projection.worstCase)}
+              </div>
+              <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                Secured
+              </div>
+            </div>
+            <div>
+              <div className="font-mono text-2xl leading-none tabular-nums">
+                {formatPercent(projection.bestCase)}
+              </div>
+              <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                Best case
+              </div>
+            </div>
+            <div>
+              <div className="font-mono text-2xl leading-none tabular-nums">
+                {formatPercent(projection.remainingWeight)}
+              </div>
+              <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                Still open
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
-      {graded.length === 0 ? (
-        <InlineEmpty label="No grades recorded" />
+      {graded.length === 0 && pending.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">—</p>
       ) : (
-        <div className="space-y-2">
-          {graded.map((assignment) => {
-            const percent = gradePercent(assignment);
-            return (
-              <div key={assignment._id} className="rounded-md border px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                    {assignment.title}
-                  </span>
-                  <Badge variant="outline">{assignment.type}</Badge>
-                </div>
-                <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="font-mono text-foreground">
-                    {formatGrade(assignment)}
-                  </span>
-                  {assignment.grade?.weight !== undefined && (
-                    <span
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[32rem] text-sm">
+            <thead>
+              <tr className="border-b text-[10px] uppercase tracking-wide text-muted-foreground">
+                <th className="pb-2 text-left font-medium">Title</th>
+                <th className="pb-2 text-left font-medium">Type</th>
+                <th className="pb-2 text-right font-medium">Score</th>
+                <th className="pb-2 text-right font-medium">%</th>
+                <th className="pb-2 text-right font-medium">Weight</th>
+                <th className="pb-2 text-right font-medium">Contrib.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {graded.map((assignment) => {
+                const percent = gradePercent(assignment);
+                const weight = assignment.grade?.weight;
+                const contribution =
+                  percent !== null && weight !== undefined
+                    ? (percent * weight) / 100
+                    : null;
+                return (
+                  <tr
+                    key={assignment._id}
+                    className="border-b border-border/60"
+                  >
+                    <td className="max-w-0 truncate py-2 pr-3">
+                      {assignment.title}
+                    </td>
+                    <td className="py-2 pr-3 text-[11px] text-muted-foreground">
+                      {assignment.type}
+                    </td>
+                    <td className="py-2 pl-3 text-right font-mono text-[11px] tabular-nums">
+                      {assignment.grade?.score !== undefined &&
+                      assignment.grade?.maxScore !== undefined
+                        ? `${assignment.grade.score}/${assignment.grade.maxScore}`
+                        : (assignment.grade?.letter ?? "--")}
+                    </td>
+                    <td
                       className={cn(
-                        "ml-auto rounded-sm bg-muted px-1.5 py-0.5",
+                        "py-2 pl-3 text-right font-mono text-[11px] tabular-nums",
                         percent !== null && percent < 60 && "text-destructive",
                       )}
                     >
-                      {assignment.grade.weight}% weight
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+                      {formatPercent(percent)}
+                    </td>
+                    <td className="py-2 pl-3 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
+                      {weight !== undefined ? `${weight}%` : "--"}
+                    </td>
+                    <td className="py-2 pl-3 text-right font-mono text-[11px] tabular-nums">
+                      {contribution !== null
+                        ? `${contribution.toFixed(1)}`
+                        : "--"}
+                    </td>
+                  </tr>
+                );
+              })}
+              {pending.map((assignment) => (
+                <tr
+                  key={assignment._id}
+                  className="border-b border-border/60 text-muted-foreground"
+                >
+                  <td className="max-w-0 truncate py-2 pr-3">
+                    {assignment.title}
+                  </td>
+                  <td className="py-2 pr-3 text-[11px]">{assignment.type}</td>
+                  <td
+                    className="py-2 pl-3 text-right font-mono text-[11px]"
+                    colSpan={3}
+                  >
+                    {assignment.status}
+                  </td>
+                  <td className="py-2 pl-3 text-right font-mono text-[11px] tabular-nums">
+                    {assignment.grade?.weight !== undefined
+                      ? `${assignment.grade.weight}%`
+                      : "--"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

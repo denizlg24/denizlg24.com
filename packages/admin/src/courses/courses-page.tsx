@@ -4,7 +4,7 @@ import type {
   ICourse,
   ICourseDeadline,
   ICourseDetail,
-  ICourseListItem,
+  ICourseEmailSummary,
 } from "@repo/schemas";
 import { Badge } from "@repo/ui/badge";
 import { Button } from "@repo/ui/button";
@@ -19,49 +19,31 @@ import {
 import {
   Empty,
   EmptyContent,
-  EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
 } from "@repo/ui/empty";
 import { PageHeader } from "@repo/ui/page-header";
-import { Separator } from "@repo/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/tabs";
 import { cn } from "@repo/ui/utils";
 import {
-  AlertCircle,
   ArrowLeft,
-  Award,
-  BookOpen,
-  CalendarDays,
   CheckCircle2,
-  ClipboardList,
-  Clock,
   ExternalLink,
-  FileText,
   GraduationCap,
   Home,
-  Inbox,
-  Kanban,
   Link as LinkIcon,
-  MapPin,
   Pencil,
   Plus,
-  Radio,
-  ShieldCheck,
   Trash2,
-  UsersRound,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import type * as React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
-import {
-  CourseAssignmentsPanel,
-  CourseGradebookPanel,
-} from "./course-assignments";
-import { CourseReadingsPanel } from "./course-readings";
-import { SemesterCockpit } from "./semester-cockpit";
+import { CourseGradebookPanel, CourseWorkPanel } from "./course-assignments";
+import { CourseEmailReader, CourseMailPanel } from "./course-mail";
+import { CourseDot, SectionHeading, SemesterCockpit } from "./semester-cockpit";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -94,158 +76,117 @@ function courseDates(course: ICourse) {
   return start || end;
 }
 
-function deadlineTone(deadline: ICourseDeadline) {
-  if (deadline.completed) return "text-muted-foreground";
-  if (deadline.overdue) return "text-destructive";
-  return "text-foreground";
-}
-
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined) return "--";
   return `${value.toFixed(1)}%`;
 }
 
-function CourseSkeleton() {
-  const { slots } = useAdmin();
-
-  return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
-      <PageHeader
-        leading={slots?.sidebarTrigger}
-        icon={<GraduationCap className="size-4 text-muted-foreground" />}
-        title="Courses"
-      >
-        <Button size="sm" disabled>
-          <Plus />
-          Add Class
-        </Button>
-      </PageHeader>
-      <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-        {Array.from({ length: 6 }).map((_, index) => (
-          <div key={index} className="h-40 rounded-md border bg-card/70 p-4">
-            <div className="h-3 w-28 animate-pulse rounded bg-muted" />
-            <div className="mt-4 h-5 w-44 animate-pulse rounded bg-muted" />
-            <div className="mt-3 h-3 w-full animate-pulse rounded bg-muted" />
-            <div className="mt-2 h-3 w-2/3 animate-pulse rounded bg-muted" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Section({
-  title,
-  icon,
-  children,
-  className,
+function Stat({
+  label,
+  value,
+  alert,
 }: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
+  label: string;
+  value: number | string;
+  alert?: boolean;
 }) {
   return (
-    <section className={cn("rounded-md border bg-card/60", className)}>
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        {icon}
-        <h2 className="text-sm font-semibold">{title}</h2>
-      </div>
-      <div className="p-3">{children}</div>
-    </section>
-  );
-}
-
-function InlineEmpty({ label }: { label: string }) {
-  return (
-    <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-      {label}
-    </div>
-  );
-}
-
-function CourseCard({
-  item,
-  onSelect,
-}: {
-  item: ICourseListItem;
-  onSelect: () => void;
-}) {
-  const { course, stats, nextDeadline } = item;
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className="group flex flex-col rounded-md border bg-card text-left transition-colors hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
+    <div>
       <div
-        className="h-1 rounded-t-md"
-        style={{ backgroundColor: course.color ?? "var(--accent)" }}
-      />
-      <div className="flex flex-1 flex-col gap-4 p-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            {course.code && (
-              <Badge variant="outline" className="font-mono">
-                {course.code}
-              </Badge>
-            )}
-            {course.semester && (
-              <span className="truncate text-xs text-muted-foreground">
-                {course.semester}
-              </span>
-            )}
-          </div>
-          <h2 className="line-clamp-2 min-h-[2.75rem] text-base font-semibold leading-snug">
-            {course.name}
-          </h2>
-          {course.description && (
-            <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
-              {course.description}
-            </p>
-          )}
-        </div>
-
-        <div className="mt-auto grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
-          <span className="truncate rounded-md bg-muted/60 px-2 py-1">
-            {stats.timetableEntries} time
-          </span>
-          <span className="truncate rounded-md bg-muted/60 px-2 py-1">
-            {stats.dueCards + stats.openManualDeadlines + stats.openAssignments}{" "}
-            due
-          </span>
-          <span className="truncate rounded-md bg-muted/60 px-2 py-1">
-            {stats.assignments} work
-          </span>
-          <span className="truncate rounded-md bg-muted/60 px-2 py-1">
-            {formatPercent(stats.gradeAverage)}
-          </span>
-        </div>
-
-        {nextDeadline && (
-          <div className="flex items-center gap-2 border-t pt-3 text-xs">
-            <Clock className="size-3.5 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">
-              {nextDeadline.title}
-            </span>
-            <span className={cn("shrink-0", deadlineTone(nextDeadline))}>
-              {formatDateTime(nextDeadline.dueAt)}
-            </span>
-          </div>
+        className={cn(
+          "font-mono text-xl leading-none tabular-nums",
+          alert && "text-destructive",
         )}
+      >
+        {value}
       </div>
-    </button>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-md border px-3 py-2">
-      <div className="font-mono text-lg leading-none">{value}</div>
-      <div className="mt-1 text-[10px] uppercase text-muted-foreground">
+      <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
+    </div>
+  );
+}
+
+function ListRow({
+  title,
+  meta,
+  trailing,
+  trailingTone,
+  onClick,
+}: {
+  title: string;
+  meta?: string;
+  trailing?: string;
+  trailingTone?: "muted" | "destructive";
+  onClick?: () => void;
+}) {
+  const content = (
+    <>
+      <span className="min-w-0 flex-1 truncate text-sm">{title}</span>
+      {meta && (
+        <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+          {meta}
+        </span>
+      )}
+      {trailing && (
+        <span
+          className={cn(
+            "shrink-0 text-[11px] tabular-nums",
+            trailingTone === "destructive"
+              ? "text-destructive"
+              : "text-muted-foreground",
+          )}
+        >
+          {trailing}
+        </span>
+      )}
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 border-b border-border/60 px-2 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2.5 border-b border-border/60 py-2 last:border-b-0">
+      {content}
+    </div>
+  );
+}
+
+function EmptyLine() {
+  return <p className="py-4 text-sm text-muted-foreground">—</p>;
+}
+
+function DeadlineLine({ deadline }: { deadline: ICourseDeadline }) {
+  return (
+    <div className="flex items-center gap-2.5 border-b border-border/60 py-2 last:border-b-0">
+      <span
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          deadline.overdue ? "bg-destructive" : "bg-accent",
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate text-sm">{deadline.title}</span>
+      <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+        {deadline.sourceLabel ?? deadline.source}
+      </span>
+      <span
+        className={cn(
+          "shrink-0 text-[11px] tabular-nums",
+          deadline.overdue ? "text-destructive" : "text-muted-foreground",
+        )}
+      >
+        {formatDateTime(deadline.dueAt)}
+      </span>
     </div>
   );
 }
@@ -265,22 +206,22 @@ function CourseHome({
   onOpenExternal: (url: string) => void;
   onRefresh: () => Promise<void>;
 }) {
-  const { course, stats } = detail;
-  const activeDeadlines = detail.deadlines.filter(
+  const { course, stats, projection } = detail;
+  const openDeadlines = detail.deadlines.filter(
     (deadline) => !deadline.completed,
   );
   const dateRange = courseDates(course);
+  const hasProjection =
+    projection.worstCase !== null && projection.bestCase !== null;
+  const [openEmail, setOpenEmail] = useState<ICourseEmailSummary | null>(null);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
         <Button variant="ghost" size="icon" className="size-7" onClick={onBack}>
           <ArrowLeft className="size-4" />
         </Button>
-        <div
-          className="size-3 rounded-full"
-          style={{ backgroundColor: course.color ?? "var(--accent)" }}
-        />
+        <CourseDot color={course.color} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <h1 className="truncate text-sm font-semibold">{course.name}</h1>
@@ -305,11 +246,18 @@ function CourseHome({
             size="icon"
             className="size-8"
             onClick={() => onOpenExternal(course.homepageUrl ?? "")}
+            aria-label="Homepage"
           >
             <Home className="size-4" />
           </Button>
         )}
-        <Button variant="ghost" size="icon" className="size-8" onClick={onEdit}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          onClick={onEdit}
+          aria-label="Edit"
+        >
           <Pencil className="size-4" />
         </Button>
         <Button
@@ -317,446 +265,367 @@ function CourseHome({
           size="icon"
           className="size-8 text-destructive"
           onClick={onDelete}
+          aria-label="Delete"
         >
           <Trash2 className="size-4" />
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.8fr)]">
-          <div className="space-y-4">
-            <Section
-              title="Overview"
-              icon={<BookOpen className="size-4 text-muted-foreground" />}
-            >
-              <div className="space-y-4">
+      <Tabs
+        defaultValue="overview"
+        className="flex min-h-0 flex-1 flex-col gap-0"
+      >
+        <TabsList
+          variant="line"
+          className="shrink-0 justify-start overflow-x-auto px-4"
+        >
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="work">
+            Work
+            <span className="ml-1 tabular-nums text-muted-foreground">
+              {stats.openDeadlines}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="grades">
+            Grades
+            <span className="ml-1 tabular-nums text-muted-foreground">
+              {stats.gradedAssessments}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="mail">
+            Mail
+            <span className="ml-1 tabular-nums text-muted-foreground">
+              {stats.emails}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="linked">Linked</TabsTrigger>
+        </TabsList>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <TabsContent value="overview" className="space-y-8">
+            <div className="flex flex-wrap gap-x-10 gap-y-4">
+              <Stat label="Average" value={formatPercent(stats.gradeAverage)} />
+              <Stat label="Open work" value={stats.openAssessments} />
+              <Stat
+                label="Overdue"
+                value={stats.overdue}
+                alert={stats.overdue > 0}
+              />
+              <Stat label="Graded" value={stats.gradedAssessments} />
+              <Stat label="Readings" value={stats.openReadings} />
+            </div>
+
+            {hasProjection && (
+              <section className="space-y-2">
+                <SectionHeading title="Standing" meta="secured vs best case" />
+                <div className="relative h-px w-full bg-border">
+                  <div
+                    className="absolute inset-y-0 left-0 h-px bg-muted-foreground/40"
+                    style={{
+                      width: `${Math.min(100, projection.bestCase ?? 0)}%`,
+                    }}
+                  />
+                  <div
+                    className="absolute -top-px left-0 h-[3px]"
+                    style={{
+                      width: `${Math.min(100, projection.worstCase ?? 0)}%`,
+                      backgroundColor: course.color ?? "var(--accent)",
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                  <span className="tabular-nums">
+                    secured {formatPercent(projection.worstCase)}
+                  </span>
+                  <span className="tabular-nums">
+                    {formatPercent(projection.remainingWeight)} open · best{" "}
+                    {formatPercent(projection.bestCase)}
+                  </span>
+                </div>
+              </section>
+            )}
+
+            <section className="space-y-2">
+              <SectionHeading
+                title="Next up"
+                meta={`${openDeadlines.length} open`}
+              />
+              {openDeadlines.length === 0 ? (
+                <EmptyLine />
+              ) : (
+                <div>
+                  {openDeadlines.slice(0, 6).map((deadline) => (
+                    <DeadlineLine key={deadline._id} deadline={deadline} />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {detail.timetableEntries.length > 0 && (
+              <section className="space-y-2">
+                <SectionHeading title="Schedule" />
+                <div>
+                  {detail.timetableEntries.map((entry) => (
+                    <ListRow
+                      key={entry._id}
+                      title={entry.title}
+                      meta={entry.place}
+                      trailing={`${DAY_NAMES[entry.dayOfWeek] ?? ""} ${entry.startTime}-${entry.endTime}`}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {(course.description ||
+              course.location ||
+              course.homepageUrl ||
+              course.links.length > 0 ||
+              course.customFields.length > 0) && (
+              <section className="space-y-3">
+                <SectionHeading title="About" />
                 {course.description && (
                   <p className="text-sm leading-relaxed text-muted-foreground">
                     {course.description}
                   </p>
                 )}
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
-                  <Stat label="Schedule" value={stats.timetableEntries} />
-                  <Stat label="Events" value={stats.calendarEvents} />
-                  <Stat label="Cards" value={stats.kanbanCards} />
-                  <Stat label="Work" value={stats.assignments} />
-                  <Stat label="Graded" value={stats.gradedAssignments} />
-                  <Stat label="Overdue" value={stats.overdueDeadlines} />
-                </div>
-                {(course.location ||
-                  course.homepageUrl ||
-                  course.links.length > 0) && (
-                  <div className="flex flex-wrap gap-2">
-                    {course.location && (
-                      <Badge variant="secondary">
-                        <MapPin className="size-3" />
-                        {course.location}
-                      </Badge>
-                    )}
-                    {course.homepageUrl && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onOpenExternal(course.homepageUrl ?? "")}
-                      >
-                        <ExternalLink className="size-3.5" />
-                        Homepage
-                      </Button>
-                    )}
-                    {course.links.map((link) => (
-                      <Button
-                        key={link._id}
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onOpenExternal(link.url)}
-                      >
-                        <LinkIcon className="size-3.5" />
-                        {link.label}
-                      </Button>
-                    ))}
-                  </div>
-                )}
                 {course.customFields.length > 0 && (
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <dl className="grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
                     {course.customFields.map((field) => (
                       <div
                         key={field._id}
-                        className="min-w-0 rounded-md border px-3 py-2"
+                        className="flex items-baseline gap-3 border-b border-border/60 py-1.5"
                       >
-                        <div className="text-[10px] uppercase text-muted-foreground">
+                        <dt className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
                           {field.label}
-                        </div>
-                        <div className="truncate text-sm">{field.value}</div>
+                        </dt>
+                        <dd className="min-w-0 flex-1 truncate text-right text-sm">
+                          {field.value}
+                        </dd>
                       </div>
+                    ))}
+                  </dl>
+                )}
+                {(course.location ||
+                  course.homepageUrl ||
+                  course.links.length > 0) && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                    {course.location && (
+                      <span className="text-muted-foreground">
+                        {course.location}
+                      </span>
+                    )}
+                    {course.homepageUrl && (
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 hover:underline"
+                        onClick={() => onOpenExternal(course.homepageUrl ?? "")}
+                      >
+                        <ExternalLink className="size-3" />
+                        Homepage
+                      </button>
+                    )}
+                    {course.links.map((link) => (
+                      <button
+                        key={link._id}
+                        type="button"
+                        className="flex items-center gap-1.5 hover:underline"
+                        onClick={() => onOpenExternal(link.url)}
+                      >
+                        <LinkIcon className="size-3" />
+                        {link.label}
+                      </button>
                     ))}
                   </div>
                 )}
-              </div>
-            </Section>
+              </section>
+            )}
+          </TabsContent>
 
-            <Section
-              title="Deadlines"
-              icon={<AlertCircle className="size-4 text-muted-foreground" />}
-            >
-              {activeDeadlines.length === 0 ? (
-                <InlineEmpty label="No open deadlines" />
-              ) : (
-                <div className="space-y-2">
-                  {activeDeadlines.map((deadline) => (
-                    <div
-                      key={deadline._id}
-                      className="flex items-start gap-3 rounded-md border px-3 py-2"
-                    >
-                      <div
-                        className={cn(
-                          "mt-1 size-2 rounded-full",
-                          deadline.overdue ? "bg-destructive" : "bg-accent",
-                        )}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-sm font-medium">
-                            {deadline.title}
-                          </span>
-                          <Badge variant="outline">{deadline.source}</Badge>
-                          {deadline.priority &&
-                            deadline.priority !== "none" && (
-                              <Badge variant="secondary">
-                                {deadline.priority}
-                              </Badge>
-                            )}
-                        </div>
-                        {(deadline.sourceLabel || deadline.notes) && (
-                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                            {[deadline.sourceLabel, deadline.notes]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </p>
-                        )}
-                      </div>
-                      <span
-                        className={cn(
-                          "shrink-0 text-right text-xs",
-                          deadlineTone(deadline),
-                        )}
-                      >
-                        {formatDateTime(deadline.dueAt)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Section>
+          <TabsContent value="work">
+            <CourseWorkPanel
+              courseId={course._id}
+              assignments={detail.assignments}
+              deadlines={detail.deadlines}
+              kanbanCards={detail.kanbanCards}
+              readings={detail.readings}
+              onOpenExternal={onOpenExternal}
+              onRefresh={onRefresh}
+            />
+          </TabsContent>
 
-            <Section
-              title="Assignments"
-              icon={<ClipboardList className="size-4 text-muted-foreground" />}
-            >
-              <CourseAssignmentsPanel
-                courseId={course._id}
-                assignments={detail.assignments}
-                onOpenExternal={onOpenExternal}
-                onRefresh={onRefresh}
+          <TabsContent value="grades">
+            <CourseGradebookPanel
+              assignments={detail.assignments}
+              gradeAverage={stats.gradeAverage}
+              projection={projection}
+            />
+          </TabsContent>
+
+          <TabsContent value="mail">
+            <CourseMailPanel
+              courseId={course._id}
+              onOpenEmail={setOpenEmail}
+              onRefresh={onRefresh}
+            />
+          </TabsContent>
+
+          <TabsContent value="linked" className="space-y-8">
+            <section className="space-y-2">
+              <SectionHeading
+                title="Calendar"
+                meta={String(detail.calendarEvents.length)}
               />
-            </Section>
-
-            <Section
-              title="Readings"
-              icon={<BookOpen className="size-4 text-muted-foreground" />}
-            >
-              <CourseReadingsPanel
-                courseId={course._id}
-                readings={detail.readings}
-                onRefresh={onRefresh}
-              />
-            </Section>
-
-            <Section
-              title="Timetable"
-              icon={<Clock className="size-4 text-muted-foreground" />}
-            >
-              {detail.timetableEntries.length === 0 ? (
-                <InlineEmpty label="No timetable entries" />
-              ) : (
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  {detail.timetableEntries.map((entry) => (
-                    <div
-                      key={entry._id}
-                      className="min-w-0 rounded-md border px-3 py-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          variant={entry.isActive ? "default" : "secondary"}
-                        >
-                          {DAY_NAMES[entry.dayOfWeek] ?? "Day"}
-                        </Badge>
-                        <span className="text-sm font-medium">
-                          {entry.startTime} - {entry.endTime}
-                        </span>
-                      </div>
-                      <div className="mt-2 truncate text-sm">{entry.title}</div>
-                      {entry.place && (
-                        <div className="mt-1 truncate text-xs text-muted-foreground">
-                          {entry.place}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Section>
-          </div>
-
-          <div className="space-y-4">
-            <Section
-              title="Gradebook"
-              icon={<Award className="size-4 text-muted-foreground" />}
-            >
-              <CourseGradebookPanel
-                assignments={detail.assignments}
-                gradeAverage={stats.gradeAverage}
-              />
-            </Section>
-
-            <Section
-              title="Triage Context"
-              icon={<ShieldCheck className="size-4 text-muted-foreground" />}
-            >
-              {course.triageContext.length === 0 ? (
-                <InlineEmpty label="No triage context" />
-              ) : (
-                <div className="space-y-2">
-                  {course.triageContext.map((field) => (
-                    <div
-                      key={field._id}
-                      className="rounded-md border px-3 py-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                          {field.label}
-                        </span>
-                        <Badge
-                          variant={
-                            field.includeInTriage ? "secondary" : "outline"
-                          }
-                        >
-                          {field.includeInTriage ? "triage" : "private"}
-                        </Badge>
-                      </div>
-                      <div className="mt-1 truncate text-xs text-muted-foreground">
-                        {field.value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Section>
-
-            <Section
-              title="Related Emails"
-              icon={<Inbox className="size-4 text-muted-foreground" />}
-            >
-              {detail.emails.length === 0 ? (
-                <InlineEmpty label="No emails matched to this course yet" />
-              ) : (
-                <div className="space-y-2">
-                  {detail.emails.map((email) => (
-                    <div
-                      key={email._id}
-                      className="rounded-md border px-3 py-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                          {email.subject}
-                        </span>
-                        <Badge variant="secondary">{email.category}</Badge>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="min-w-0 flex-1 truncate">
-                          {email.from}
-                        </span>
-                        <span className="shrink-0">
-                          {formatDateTime(email.date)}
-                        </span>
-                      </div>
-                      {email.summary && (
-                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                          {email.summary}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Section>
-
-            <Section
-              title="Calendar"
-              icon={<CalendarDays className="size-4 text-muted-foreground" />}
-            >
               {detail.calendarEvents.length === 0 ? (
-                <InlineEmpty label="No linked events" />
+                <EmptyLine />
               ) : (
-                <div className="space-y-2">
+                <div>
                   {detail.calendarEvents.map((event) => (
-                    <div
+                    <ListRow
                       key={event._id}
-                      className="rounded-md border px-3 py-2 text-sm"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate font-medium">
-                          {event.title}
-                        </span>
-                        <Badge variant="secondary">{event.kind}</Badge>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>
-                          {event.isAllDay
-                            ? event.calendarDate
-                            : formatDateTime(event.date)}
-                        </span>
-                        {event.place && (
-                          <span className="truncate">· {event.place}</span>
-                        )}
-                      </div>
-                    </div>
+                      title={event.title}
+                      meta={event.place ?? event.kind}
+                      trailing={
+                        event.isAllDay
+                          ? event.calendarDate
+                          : formatDateTime(event.date)
+                      }
+                    />
                   ))}
                 </div>
               )}
-            </Section>
+            </section>
 
-            <Section
-              title="Kanban"
-              icon={<Kanban className="size-4 text-muted-foreground" />}
-            >
+            <section className="space-y-2">
+              <SectionHeading
+                title="Boards"
+                meta={String(detail.kanbanBoards.length)}
+              />
               {detail.kanbanBoards.length === 0 ? (
-                <InlineEmpty label="No linked boards" />
+                <EmptyLine />
               ) : (
-                <div className="space-y-2">
+                <div>
                   {detail.kanbanBoards.map((board) => (
-                    <div
+                    <ListRow
                       key={board._id}
-                      className="rounded-md border px-3 py-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="size-2 rounded-full"
-                          style={{
-                            backgroundColor: board.color ?? "var(--accent)",
-                          }}
-                        />
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                          {board.title}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex gap-2 text-xs text-muted-foreground">
-                        <span>{board.cardCount} cards</span>
-                        <span>{board.dueCardCount} due</span>
-                      </div>
-                    </div>
+                      title={board.title}
+                      trailing={`${board.cardCount} cards · ${board.dueCardCount} due`}
+                    />
                   ))}
                 </div>
               )}
-            </Section>
+            </section>
 
-            <Section
-              title="Notes"
-              icon={<FileText className="size-4 text-muted-foreground" />}
-            >
+            <section className="space-y-2">
+              <SectionHeading
+                title="Notes"
+                meta={String(detail.notes.length)}
+              />
               {detail.notes.length === 0 ? (
-                <InlineEmpty label="No linked notes" />
+                <EmptyLine />
               ) : (
-                <div className="space-y-2">
+                <div>
                   {detail.notes.map((note) => (
-                    <button
+                    <ListRow
                       key={note._id}
-                      type="button"
-                      className="w-full rounded-md border px-3 py-2 text-left hover:bg-muted/50"
-                      onClick={() => note.url && onOpenExternal(note.url)}
-                    >
-                      <div className="truncate text-sm font-medium">
-                        {note.title}
-                      </div>
-                      {note.tags.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {note.tags.slice(0, 4).map((tag) => (
-                            <Badge key={tag} variant="secondary">
-                              {tag}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </button>
+                      title={note.title}
+                      meta={note.tags.slice(0, 3).join(" · ") || undefined}
+                      onClick={
+                        note.url
+                          ? () => onOpenExternal(note.url ?? "")
+                          : undefined
+                      }
+                    />
                   ))}
                 </div>
               )}
-            </Section>
+            </section>
 
-            <Section
-              title="People"
-              icon={<UsersRound className="size-4 text-muted-foreground" />}
-            >
+            <section className="space-y-2">
+              <SectionHeading
+                title="People"
+                meta={String(detail.people.length)}
+              />
               {detail.people.length === 0 ? (
-                <InlineEmpty label="No linked people" />
+                <EmptyLine />
               ) : (
-                <div className="space-y-2">
+                <div>
                   {detail.people.map((person) => (
-                    <div
+                    <ListRow
                       key={person._id}
-                      className="rounded-md border px-3 py-2"
-                    >
-                      <div className="truncate text-sm font-medium">
-                        {person.name}
-                      </div>
-                      <div className="mt-1 truncate text-xs text-muted-foreground">
-                        {[person.email, person.phone, person.website]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </div>
-                    </div>
+                      title={person.name}
+                      trailing={person.email ?? person.phone}
+                    />
                   ))}
                 </div>
               )}
-            </Section>
+            </section>
 
-            <Section
-              title="Resources"
-              icon={<Radio className="size-4 text-muted-foreground" />}
-            >
+            <section className="space-y-2">
+              <SectionHeading
+                title="Resources"
+                meta={String(detail.resources.length)}
+              />
               {detail.resources.length === 0 ? (
-                <InlineEmpty label="No linked resources" />
+                <EmptyLine />
               ) : (
-                <div className="space-y-2">
+                <div>
                   {detail.resources.map((resource) => (
                     <button
                       key={resource._id}
                       type="button"
-                      className="w-full rounded-md border px-3 py-2 text-left hover:bg-muted/50"
                       onClick={() => onOpenExternal(resource.url)}
+                      className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 border-b border-border/60 px-2 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                          {resource.name}
-                        </span>
-                        {resource.isActive ? (
-                          <CheckCircle2 className="size-3.5 text-accent" />
-                        ) : (
-                          <AlertCircle className="size-3.5 text-muted-foreground" />
-                        )}
-                      </div>
-                      <div className="mt-1 truncate text-xs text-muted-foreground">
-                        {resource.type} · {resource.url}
-                      </div>
+                      {resource.isActive ? (
+                        <CheckCircle2 className="size-3 shrink-0 text-accent" />
+                      ) : (
+                        <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/40" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-sm">
+                        {resource.name}
+                      </span>
+                      <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+                        {resource.type}
+                      </span>
                     </button>
                   ))}
                 </div>
               )}
-            </Section>
-          </div>
+            </section>
+
+            <section className="space-y-2">
+              <SectionHeading
+                title="Triage context"
+                meta={String(course.triageContext.length)}
+              />
+              {course.triageContext.length === 0 ? (
+                <EmptyLine />
+              ) : (
+                <div>
+                  {course.triageContext.map((field) => (
+                    <ListRow
+                      key={field._id}
+                      title={field.label}
+                      meta={field.value}
+                      trailing={field.includeInTriage ? "triage" : "private"}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          </TabsContent>
         </div>
-      </div>
+      </Tabs>
+
+      {openEmail && (
+        <div className="absolute inset-0 z-20">
+          <CourseEmailReader
+            email={openEmail}
+            onBack={() => setOpenEmail(null)}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -778,18 +647,16 @@ export function CoursesPage({
   const router = useRouter();
   const basePath = normalizeBasePath(routeBasePath);
 
-  const [courses, setCourses] = useState<ICourseListItem[]>([]);
   const [detail, setDetail] = useState<ICourseDetail | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
-  const [initialLoading, setInitialLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ICourse | null>(null);
   const [isMutating, setIsMutating] = useState(false);
-
-  const fetchCourses = useCallback(async () => {
-    const result = await client.get<{ courses: ICourseListItem[] }>("courses");
-    setCourses(result.courses ?? []);
-  }, [client]);
+  // The roster and the cockpit are one fetch now, so emptiness is reported up
+  // rather than derived from a second list request.
+  const [isEmpty, setIsEmpty] = useState(false);
+  const [reloadSignal, setReloadSignal] = useState(0);
+  const [listLoading, setListLoading] = useState(true);
 
   const fetchDetail = useCallback(
     async (courseId: string) => {
@@ -810,20 +677,6 @@ export function CoursesPage({
   );
 
   useEffect(() => {
-    let active = true;
-    fetchCourses()
-      .catch(() => {
-        if (active) toast.error("Failed to load courses");
-      })
-      .finally(() => {
-        if (active) setInitialLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [fetchCourses]);
-
-  useEffect(() => {
     if (!selectedCourseId) {
       setDetail(null);
       return;
@@ -831,16 +684,10 @@ export function CoursesPage({
     void fetchDetail(selectedCourseId);
   }, [selectedCourseId, fetchDetail]);
 
-  const groupedCourses = useMemo(() => {
-    const groups = new Map<string, ICourseListItem[]>();
-    for (const item of courses) {
-      const key = item.course.semester || "Unscheduled";
-      const list = groups.get(key) ?? [];
-      list.push(item);
-      groups.set(key, list);
-    }
-    return [...groups.entries()];
-  }, [courses]);
+  const handleEmpty = useCallback((empty: boolean) => {
+    setIsEmpty(empty);
+    setListLoading(false);
+  }, []);
 
   const openCreate = () => {
     router.push(`${basePath}/new`);
@@ -863,7 +710,7 @@ export function CoursesPage({
       setDeleteTarget(null);
       setSelectedCourseId(null);
       setDetail(null);
-      await fetchCourses();
+      setReloadSignal((signal) => signal + 1);
       toast.success("Course deleted");
     } catch {
       toast.error("Failed to delete course");
@@ -871,10 +718,6 @@ export function CoursesPage({
       setIsMutating(false);
     }
   };
-
-  if (initialLoading) {
-    return <CourseSkeleton />;
-  }
 
   if (selectedCourseId) {
     if (detailLoading || !detail) {
@@ -891,9 +734,21 @@ export function CoursesPage({
             </Button>
             <div className="h-4 w-48 animate-pulse rounded bg-muted" />
           </div>
-          <div className="grid gap-4 p-4 xl:grid-cols-[1.45fr_0.8fr]">
-            <div className="h-80 animate-pulse rounded-md border bg-muted/30" />
-            <div className="h-80 animate-pulse rounded-md border bg-muted/30" />
+          <div className="space-y-6 p-4">
+            <div className="flex gap-10">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div key={index} className="space-y-2">
+                  <div className="h-5 w-12 animate-pulse rounded bg-muted" />
+                  <div className="h-2 w-16 animate-pulse rounded bg-muted" />
+                </div>
+              ))}
+            </div>
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div
+                key={index}
+                className="h-3 w-full animate-pulse rounded bg-muted"
+              />
+            ))}
           </div>
         </div>
       );
@@ -933,14 +788,13 @@ export function CoursesPage({
       </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {courses.length === 0 ? (
+        {isEmpty && !listLoading ? (
           <Empty className="h-full border">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <GraduationCap />
               </EmptyMedia>
               <EmptyTitle>No courses</EmptyTitle>
-              <EmptyDescription>No class home screens yet</EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
               <Button size="sm" onClick={openCreate}>
@@ -950,31 +804,11 @@ export function CoursesPage({
             </EmptyContent>
           </Empty>
         ) : (
-          <div className="space-y-6">
-            <SemesterCockpit
-              onSelectCourse={setSelectedCourseId}
-              reloadSignal={courses.length}
-            />
-            {groupedCourses.map(([semester, items]) => (
-              <section key={semester} className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-xs font-semibold uppercase text-muted-foreground">
-                    {semester}
-                  </h2>
-                  <Separator className="flex-1" />
-                </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {items.map((item) => (
-                    <CourseCard
-                      key={item.course._id}
-                      item={item}
-                      onSelect={() => setSelectedCourseId(item.course._id)}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
+          <SemesterCockpit
+            onSelectCourse={setSelectedCourseId}
+            reloadSignal={reloadSignal}
+            onEmpty={handleEmpty}
+          />
         )}
       </div>
 

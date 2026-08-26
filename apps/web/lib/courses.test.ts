@@ -17,6 +17,7 @@ function makeAssignment(
     courseId: "course-1",
     title: `Assignment ${counter}`,
     type: "assignment",
+    assessed: true,
     status: "graded",
     links: [],
     files: [],
@@ -86,6 +87,38 @@ describe("computeGradeProjection", () => {
     expect(projection.remainingWeight).toBe(0);
     expect(projection.worstCase).toBeCloseTo(100);
     expect(projection.bestCase).toBeCloseTo(100);
+  });
+});
+
+describe("assessed rows only", () => {
+  test("an unassessed row is ignored by the average and the projection", () => {
+    const assessedOnly = computeGradeProjection([
+      makeAssignment({ grade: { score: 80, maxScore: 100, weight: 30 } }),
+    ]);
+    const withReading = computeGradeProjection([
+      makeAssignment({ grade: { score: 80, maxScore: 100, weight: 30 } }),
+      // A required reading triage used to file as coursework: dated, scored 0
+      // because nothing was ever marked, and averaged in all the same.
+      makeAssignment({
+        assessed: false,
+        type: "reading",
+        grade: { score: 0, maxScore: 100, weight: 50 },
+      }),
+    ]);
+    expect(withReading).toEqual(assessedOnly);
+  });
+
+  test("promoting a row to assessed brings it into the average", () => {
+    const projection = computeGradeProjection([
+      makeAssignment({ grade: { score: 80, maxScore: 100, weight: 30 } }),
+      makeAssignment({
+        assessed: true,
+        type: "lab",
+        grade: { score: 40, maxScore: 100, weight: 30 },
+      }),
+    ]);
+    expect(projection.currentAverage).toBeCloseTo(60);
+    expect(projection.gradedWeight).toBeCloseTo(60);
   });
 });
 

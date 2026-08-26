@@ -47,7 +47,6 @@ export const courseAssignmentTypeSchema = z.enum([
   "project",
   "lab",
   "reading",
-  "other",
 ]);
 export type CourseAssignmentType = z.infer<typeof courseAssignmentTypeSchema>;
 
@@ -95,6 +94,14 @@ export const courseAssignmentSchema = z.object({
   courseId: z.string(),
   title: z.string(),
   type: courseAssignmentTypeSchema,
+  /**
+   * Whether this row carries a mark toward the final grade. It is deliberately
+   * separate from `type`: an ungraded practice lab and a lab worth 15% are the
+   * same type and belong in different lanes. Only `assessed` rows reach the
+   * gradebook and the grade average; the rest are plain dated coursework and
+   * live on the deadline radar alone.
+   */
+  assessed: z.boolean(),
   status: courseAssignmentStatusSchema,
   dueAt: z.string().optional(),
   submittedAt: z.string().optional(),
@@ -150,11 +157,14 @@ export const courseStatsSchema = z.object({
   notes: z.number(),
   people: z.number(),
   resources: z.number(),
-  openManualDeadlines: z.number(),
-  overdueDeadlines: z.number(),
-  assignments: z.number(),
-  openAssignments: z.number(),
-  gradedAssignments: z.number(),
+  emails: z.number(),
+  /** The whole deadline radar: manual, unassessed coursework, cards, readings. */
+  deadlines: z.number(),
+  openDeadlines: z.number(),
+  overdue: z.number(),
+  assessments: z.number(),
+  openAssessments: z.number(),
+  gradedAssessments: z.number(),
   gradeAverage: z.number().nullable(),
   readings: z.number(),
   openReadings: z.number(),
@@ -298,6 +308,8 @@ export const courseEmailSummarySchema = z.object({
   _id: z.string(),
   triageId: z.string(),
   emailId: z.string(),
+  /** Carried so the row sheet can fetch the body without a second lookup. */
+  accountId: z.string(),
   subject: z.string(),
   from: z.string(),
   date: z.string(),
@@ -305,6 +317,51 @@ export const courseEmailSummarySchema = z.object({
   summary: z.string().optional(),
 });
 export type ICourseEmailSummary = z.infer<typeof courseEmailSummarySchema>;
+
+/**
+ * Related mail is paged rather than embedded in the course detail: a course
+ * accrues triaged mail all semester, and the detail payload used to carry 50
+ * summaries with prose on every open.
+ */
+export const courseEmailPageSchema = z.object({
+  emails: z.array(courseEmailSummarySchema),
+  total: z.number(),
+});
+export type ICourseEmailPage = z.infer<typeof courseEmailPageSchema>;
+
+/**
+ * Triage matched the course, so triage can be wrong about it. A relink moves
+ * the rows to another course or drops the match entirely; `courseId: null` is
+ * the unlink. Rows are only moved off the course they are currently on, so a
+ * stale table cannot pull another course's mail across.
+ */
+export const courseEmailRelinkSchema = z.object({
+  triageIds: z.array(z.string()).min(1),
+  courseId: z.string().nullable(),
+});
+export type ICourseEmailRelink = z.infer<typeof courseEmailRelinkSchema>;
+
+export const courseEmailRelinkResultSchema = z.object({
+  moved: z.number(),
+  courseId: z.string().nullable(),
+  courseName: z.string().nullable(),
+});
+export type ICourseEmailRelinkResult = z.infer<
+  typeof courseEmailRelinkResultSchema
+>;
+
+// All percentages are 0-100. Weight fields refer to grade weights (share of
+// the final grade); projections are only computed from weighted grades.
+export const courseGradeProjectionSchema = z.object({
+  currentAverage: z.number().nullable(),
+  gradedWeight: z.number().nullable(),
+  remainingWeight: z.number().nullable(),
+  bestCase: z.number().nullable(),
+  worstCase: z.number().nullable(),
+});
+export type ICourseGradeProjection = z.infer<
+  typeof courseGradeProjectionSchema
+>;
 
 export const courseDetailSchema = z.object({
   course: courseSchema,
@@ -319,7 +376,7 @@ export const courseDetailSchema = z.object({
   people: z.array(coursePersonSummarySchema),
   resources: z.array(courseResourceSummarySchema),
   readings: z.array(courseReadingSummarySchema),
-  emails: z.array(courseEmailSummarySchema),
+  projection: courseGradeProjectionSchema,
 });
 export type ICourseDetail = z.infer<typeof courseDetailSchema>;
 
@@ -341,19 +398,6 @@ export const courseOptionsSchema = z.object({
 });
 export type ICourseOptions = z.infer<typeof courseOptionsSchema>;
 
-// All percentages are 0-100. Weight fields refer to grade weights (share of
-// the final grade); projections are only computed from weighted grades.
-export const courseGradeProjectionSchema = z.object({
-  currentAverage: z.number().nullable(),
-  gradedWeight: z.number().nullable(),
-  remainingWeight: z.number().nullable(),
-  bestCase: z.number().nullable(),
-  worstCase: z.number().nullable(),
-});
-export type ICourseGradeProjection = z.infer<
-  typeof courseGradeProjectionSchema
->;
-
 export const semesterDeadlineSchema = courseDeadlineSchema.extend({
   courseId: z.string(),
   courseName: z.string(),
@@ -370,7 +414,7 @@ export const semesterCourseStandingSchema = z.object({
   color: z.string().optional(),
   gradeAverage: z.number().nullable(),
   projection: courseGradeProjectionSchema,
-  openAssignments: z.number(),
+  openAssessments: z.number(),
   dueNext7Days: z.number(),
   overdue: z.number(),
   nextDeadline: semesterDeadlineSchema.optional(),
@@ -403,10 +447,10 @@ export type ISemesterScheduleDay = z.infer<typeof semesterScheduleDaySchema>;
 
 export const semesterOverviewStatsSchema = z.object({
   activeCourses: z.number(),
-  openAssignments: z.number(),
+  openAssessments: z.number(),
   dueNext7Days: z.number(),
   overdue: z.number(),
-  gradedAssignments: z.number(),
+  gradedAssessments: z.number(),
   semesterAverage: z.number().nullable(),
 });
 export type ISemesterOverviewStats = z.infer<

@@ -6,8 +6,7 @@ export type CourseAssignmentType =
   | "quiz"
   | "project"
   | "lab"
-  | "reading"
-  | "other";
+  | "reading";
 
 export type CourseAssignmentStatus =
   | "planned"
@@ -43,6 +42,13 @@ export interface ICourseAssignment extends Document {
   courseId: mongoose.Types.ObjectId;
   title: string;
   type: CourseAssignmentType;
+  /**
+   * Whether this row carries a mark toward the final grade. Separate from
+   * `type` on purpose: an ungraded practice lab and a lab worth 15% share a
+   * type and belong in different lanes. Only assessed rows reach the gradebook
+   * and the grade average.
+   */
+  assessed: boolean;
   status: CourseAssignmentStatus;
   dueAt?: Date;
   submittedAt?: Date;
@@ -95,18 +101,11 @@ const CourseAssignmentSchema = new Schema<ICourseAssignment>(
     title: { type: String, required: true, trim: true, index: true },
     type: {
       type: String,
-      enum: [
-        "assignment",
-        "exam",
-        "quiz",
-        "project",
-        "lab",
-        "reading",
-        "other",
-      ],
+      enum: ["assignment", "exam", "quiz", "project", "lab", "reading"],
       default: "assignment",
       index: true,
     },
+    assessed: { type: Boolean, default: true, index: true },
     status: {
       type: String,
       enum: ["planned", "in-progress", "submitted", "graded", "archived"],
@@ -126,6 +125,7 @@ const CourseAssignmentSchema = new Schema<ICourseAssignment>(
 
 CourseAssignmentSchema.index({ courseId: 1, dueAt: 1 });
 CourseAssignmentSchema.index({ courseId: 1, status: 1 });
+CourseAssignmentSchema.index({ courseId: 1, assessed: 1 });
 
 export const CourseAssignment: mongoose.Model<ICourseAssignment> =
   (mongoose.models.CourseAssignment as

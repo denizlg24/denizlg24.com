@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type {
   CourseAssignmentType,
+  ICourseEmailRelinkResult,
   TriageAcceptanceResponse,
 } from "@repo/schemas";
 import mongoose from "mongoose";
@@ -14,6 +15,7 @@ import {
   addCourseLink,
   type CourseMatchCandidate,
   createCourseAssignment,
+  getCourseById,
   getCoursesForMatching,
   updateCourseAssignment,
   updateCourseDeadline,
@@ -28,6 +30,7 @@ import { EmailModel } from "@/models/Email";
 import {
   EmailTriageModel,
   type TriageCategory,
+  type TriageCourseWorkKind,
   type TriagePriority,
 } from "@/models/EmailTriage";
 import { KanbanBoard } from "@/models/KanbanBoard";
@@ -55,7 +58,12 @@ const ASSIGNMENT_TYPES: CourseAssignmentType[] = [
   "project",
   "lab",
   "reading",
-  "other",
+];
+
+const COURSE_WORK_KINDS: TriageCourseWorkKind[] = [
+  "assessment",
+  "deadline",
+  "task",
 ];
 
 type TriageBodyMode = "classification" | "extraction";
@@ -82,7 +90,9 @@ export interface ExtractionResult {
     courseId?: string;
     courseName?: string;
     updatesCourseDeadlineId?: string;
+    courseWorkKind?: TriageCourseWorkKind;
     assignmentType?: CourseAssignmentType;
+    gradeWeight?: number;
     routedToCourseBoard?: boolean;
   }[];
   events: {
@@ -239,6 +249,70 @@ function isCourseAssignmentType(value: unknown): value is CourseAssignmentType {
   return (
     typeof value === "string" && ASSIGNMENT_TYPES.some((type) => type === value)
   );
+}
+
+/**
+ * Resolves the kind/type pair from one model-emitted task.
+ *
+ * An older run stored `assignmentType` alone, and the model still sometimes
+ * emits it without a kind. Reading a bare type as `assessment` would reinstate
+ * exactly the bug this replaced, so a type on its own only ever means
+ * `deadline` — except for an exam or a quiz, which cannot be anything but
+ * graded. `gradeWeight` is itself evidence of a mark, so it promotes.
+ */
+export function inferCourseWorkKind(task: {
+  courseWorkKind?: unknown;
+  assignmentType?: unknown;
+  gradeWeight?: unknown;
+}): TriageCourseWorkKind | undefined {
+  if (isCourseWorkKind(task.courseWorkKind)) return task.courseWorkKind;
+
+  const assignmentType = isCourseAssignmentType(task.assignmentType)
+    ? task.assignmentType
+    : undefined;
+  const gradeWeight = coerceGradeWeight(task.gradeWeight);
+  if (!assignmentType && gradeWeight === undefined) return undefined;
+
+  return assignmentType === "exam" ||
+    assignmentType === "quiz" ||
+    gradeWeight !== undefined
+    ? "assessment"
+    : "deadline";
+}
+
+function resolveCourseWork(task: Record<string, unknown>): {
+  courseWorkKind?: TriageCourseWorkKind;
+  assignmentType?: CourseAssignmentType;
+  gradeWeight?: number;
+} {
+  const kind = inferCourseWorkKind(task);
+  if (!kind) return {};
+
+  const assignmentType = isCourseAssignmentType(task.assignmentType)
+    ? task.assignmentType
+    : undefined;
+  const gradeWeight = coerceGradeWeight(task.gradeWeight);
+
+  return {
+    courseWorkKind: kind,
+    ...(assignmentType ? { assignmentType } : {}),
+    ...(kind === "assessment" && gradeWeight !== undefined
+      ? { gradeWeight }
+      : {}),
+  };
+}
+
+function isCourseWorkKind(value: unknown): value is TriageCourseWorkKind {
+  return (
+    typeof value === "string" &&
+    COURSE_WORK_KINDS.some((kind) => kind === value)
+  );
+}
+
+function coerceGradeWeight(value: unknown): number | undefined {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 100) return undefined;
+  return parsed;
 }
 
 function getStringOverride(
@@ -888,7 +962,7 @@ export function matchCourseDeterministic(
 }
 
 export function findCourseBoardTarget(
-  course: CourseTarget,
+  course: Pick<CourseTarget, "boardIds">,
   kanbanTargets: CompactKanbanTarget[],
 ): CompactKanbanTarget | undefined {
   const boardIds = new Set(course.boardIds);
@@ -943,11 +1017,26 @@ function buildExtractionTool(
   }
 
   if (courseTargets.length > 0) {
+    // Two fields, not one. The old single `assignmentType` conflated "is
+    // coursework" with "is graded", so a required reading or a registration
+    // deadline became a permanently ungraded gradebook row that still moved
+    // the course average and the open-work count.
+    taskProperties.courseWorkKind = {
+      type: "string",
+      enum: COURSE_WORK_KINDS,
+      description:
+        "Where this course task belongs. Use 'assessment' ONLY when the source indicates it produces a mark counting toward the course grade — it states points, a percentage, a weight, a grade, or is plainly an exam, quiz, or graded submission. Use 'deadline' when it is dated and must be done but carries no mark, such as a registration, a form, a required reading, or a non-graded lab. Use 'task' when it is work with no fixed date. When torn between 'assessment' and 'deadline', choose 'deadline'. Omit entirely for tasks that are not course work.",
+    };
     taskProperties.assignmentType = {
       type: "string",
       enum: ASSIGNMENT_TYPES,
       description:
-        "Set only when this course task is coursework or assessment that belongs in the course assignment/gradebook record, such as homework, an exam, quiz, project, lab, reading, or grade notice. Omit for ordinary follow-up tasks.",
+        "What kind of work this is. Only meaningful when courseWorkKind is 'assessment'.",
+    };
+    taskProperties.gradeWeight = {
+      type: "number",
+      description:
+        "Share of the final course grade as a number from 0 to 100, set only when the source states it (e.g. 'the midterm is worth 30%'). Never estimate it.",
     };
   }
 
@@ -1153,9 +1242,7 @@ export async function runExtraction(
         dueDate: parseDate(task.dueDate),
         dueHasTime:
           typeof task.dueHasTime === "boolean" ? task.dueHasTime : undefined,
-        ...(isCourseAssignmentType(task.assignmentType)
-          ? { assignmentType: task.assignmentType }
-          : {}),
+        ...resolveCourseWork(task),
         ...kanbanTarget,
         ...(courseId ? { courseId, courseName } : {}),
         ...(deadlineUpdate
@@ -1384,14 +1471,21 @@ export async function deriveTriageArtifacts({
 }
 
 /**
- * Accepts one coursework task into both places it belongs: the gradebook
- * record that carries its type and grade, and a card on the board where work
- * actually moves. The assignment stores the card id, and `buildDeadlines`
- * reads that to drop the card, so the pair is one row on the deadline radar
- * rather than two.
+ * Accepts one course task into the places its lane calls for.
  *
- * The card is best-effort. A gradebook entry with no card is a smaller loss
- * than refusing an assignment the owner just accepted.
+ * An **assessment** lands in both: the course record that carries its type and
+ * grade, and a card on the board where work actually moves. The assignment
+ * stores the card id, and `buildDeadlines` reads that to drop the card, so the
+ * pair is one row on the deadline radar rather than two.
+ *
+ * A **deadline** lands in the course record alone. It already reaches the radar
+ * through `buildDeadlines`, and mirroring it onto a board was giving dated
+ * admin — a registration, a form — a card nobody moves.
+ *
+ * A **task** never reaches here; it takes the ordinary kanban path.
+ *
+ * The card is best-effort. A course record with no card is a smaller loss than
+ * refusing work the owner just accepted.
  */
 async function acceptCourseAssignmentTask(
   courseId: string,
@@ -1401,21 +1495,27 @@ async function acceptCourseAssignmentTask(
     priority?: TriagePriority;
     dueAt?: string;
     dueHasTime?: boolean;
-    assignmentType: CourseAssignmentType;
+    assessed: boolean;
+    assignmentType?: CourseAssignmentType;
+    gradeWeight?: number;
     kanbanBoardId?: string;
     kanbanColumnId?: string;
   },
 ): Promise<{ assignmentId: string; cardId?: string } | null> {
   const assignment = await createCourseAssignment(courseId, {
     title: task.title,
-    type: task.assignmentType,
+    type: task.assignmentType ?? "assignment",
+    assessed: task.assessed,
     status: task.dueAt ? "planned" : "in-progress",
     dueAt: task.dueAt,
     notes: task.description,
+    ...(task.assessed && task.gradeWeight !== undefined
+      ? { grade: { weight: task.gradeWeight } }
+      : {}),
   });
   if (!assignment) return null;
 
-  if (!task.kanbanBoardId || !task.kanbanColumnId) {
+  if (!task.assessed || !task.kanbanBoardId || !task.kanbanColumnId) {
     return { assignmentId: assignment._id };
   }
 
@@ -1483,7 +1583,13 @@ export async function autoAccept(
       continue;
     }
 
-    if (task.assignmentType && task.courseId) {
+    // `task` is the only kind that skips the course record entirely — it falls
+    // through to the ordinary kanban path below.
+    if (
+      task.courseId &&
+      (task.courseWorkKind === "assessment" ||
+        task.courseWorkKind === "deadline")
+    ) {
       try {
         const accepted = await acceptCourseAssignmentTask(task.courseId, {
           title: task.title,
@@ -1491,7 +1597,9 @@ export async function autoAccept(
           priority: task.priority,
           dueAt: task.dueDate ? task.dueDate.toISOString() : undefined,
           dueHasTime: task.dueHasTime,
+          assessed: task.courseWorkKind === "assessment",
           assignmentType: task.assignmentType,
+          gradeWeight: task.gradeWeight,
           kanbanBoardId: task.kanbanBoardId,
           kanbanColumnId: task.kanbanColumnId,
         });
@@ -1739,7 +1847,9 @@ export async function recomputeTriageDerivation(
             courseId: task.courseId,
             courseName: task.courseName,
             updatesCourseDeadlineId: task.updatesCourseDeadlineId,
+            courseWorkKind: task.courseWorkKind,
             assignmentType: task.assignmentType,
+            gradeWeight: task.gradeWeight,
             routedToCourseBoard: task.routedToCourseBoard,
             status: "pending",
           })),
@@ -2061,7 +2171,9 @@ export async function runTriage(
           courseId: task.courseId,
           courseName: task.courseName,
           updatesCourseDeadlineId: task.updatesCourseDeadlineId,
+          courseWorkKind: task.courseWorkKind,
           assignmentType: task.assignmentType,
+          gradeWeight: task.gradeWeight,
           routedToCourseBoard: task.routedToCourseBoard,
           status: "pending",
         })),
@@ -2279,7 +2391,15 @@ async function applyAcceptance(
 
     const priorityOverride = coercePriorityOverride(overrides);
 
-    if (task.assignmentType && task.courseId) {
+    // Suggestions stored before `courseWorkKind` existed carry only an
+    // `assignmentType`. Reading it through the same rule keeps a pending row
+    // from silently losing its course record and landing on a board instead.
+    const storedKind = inferCourseWorkKind(task);
+
+    if (
+      task.courseId &&
+      (storedKind === "assessment" || storedKind === "deadline")
+    ) {
       const accepted = await acceptCourseAssignmentTask(
         task.courseId.toString(),
         {
@@ -2291,7 +2411,9 @@ async function applyAcceptance(
             getStringOverride(overrides, "dueDate") ??
             (task.dueDate ? task.dueDate.toISOString() : undefined),
           dueHasTime: task.dueHasTime,
+          assessed: storedKind === "assessment",
           assignmentType: task.assignmentType,
+          gradeWeight: task.gradeWeight,
           kanbanBoardId:
             getStringOverride(overrides, "boardId") ??
             task.kanbanBoardId?.toString(),
@@ -2446,4 +2568,123 @@ export async function dismissSuggestion(
   );
 
   return { ok: result.modifiedCount > 0 };
+}
+
+/**
+ * Moves triaged mail off one course, either onto another or onto nothing.
+ *
+ * The match is a model verdict, so it is wrong often enough to need an undo,
+ * and undoing only `matchedCourseId` leaves the row half-moved: a pending task
+ * suggestion still carries the old course, the old course's board and — when
+ * extraction thought it was updating known coursework — the old course's
+ * deadline id. Accepting one after the move would file work under the course
+ * the mail no longer belongs to.
+ *
+ * Accepted and dismissed suggestions are left alone. An accepted one has
+ * already produced an assignment or a card; repointing the suggestion would
+ * not move the artifact, only lie about where it went.
+ *
+ * A pending task that loses its board is not stranded — `acceptSuggestion`
+ * falls back to a board and reports which one it picked.
+ */
+export async function relinkCourseEmails({
+  fromCourseId,
+  triageIds,
+  toCourseId,
+}: {
+  fromCourseId: string;
+  triageIds: string[];
+  toCourseId: string | null;
+}): Promise<ICourseEmailRelinkResult | null> {
+  await connectDB();
+
+  const target = toCourseId ? await getCourseById(toCourseId) : null;
+  if (toCourseId && !target) return null;
+  const nothingMoved = {
+    moved: 0,
+    courseId: target?._id ?? null,
+    courseName: target?.name ?? null,
+  };
+
+  const ids = triageIds
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+  if (ids.length === 0 || !mongoose.Types.ObjectId.isValid(fromCourseId)) {
+    return nothingMoved;
+  }
+  const fromId = new mongoose.Types.ObjectId(fromCourseId);
+
+  const boardTarget = target
+    ? findCourseBoardTarget(
+        { boardIds: target.kanbanBoardIds },
+        await getKanbanTargets(),
+      )
+    : undefined;
+
+  const set: Record<string, unknown> = {};
+  const unset: Record<string, ""> = {};
+
+  if (target) {
+    const toId = new mongoose.Types.ObjectId(target._id);
+    set.matchedCourseId = toId;
+    set.matchedCourseName = target.name;
+    set["suggestedTasks.$[task].courseId"] = toId;
+    set["suggestedTasks.$[task].courseName"] = target.name;
+    set["suggestedEvents.$[event].courseId"] = toId;
+    set["suggestedEvents.$[event].courseName"] = target.name;
+  } else {
+    unset.matchedCourseId = "";
+    unset.matchedCourseName = "";
+    unset["suggestedTasks.$[task].courseId"] = "";
+    unset["suggestedTasks.$[task].courseName"] = "";
+    unset["suggestedEvents.$[event].courseId"] = "";
+    unset["suggestedEvents.$[event].courseName"] = "";
+  }
+
+  // Both point into the course being left: a deadline id belongs to its course,
+  // and a calendar event id was resolved against it.
+  unset["suggestedTasks.$[task].updatesCourseDeadlineId"] = "";
+  unset["suggestedEvents.$[event].updatesCalendarEventId"] = "";
+
+  if (boardTarget) {
+    set["suggestedTasks.$[task].kanbanBoardId"] = new mongoose.Types.ObjectId(
+      boardTarget.boardId,
+    );
+    set["suggestedTasks.$[task].kanbanBoardTitle"] = boardTarget.boardTitle;
+    set["suggestedTasks.$[task].kanbanColumnId"] = new mongoose.Types.ObjectId(
+      boardTarget.columnId,
+    );
+    set["suggestedTasks.$[task].kanbanColumnTitle"] = boardTarget.columnTitle;
+    set["suggestedTasks.$[task].routedToCourseBoard"] = true;
+  } else {
+    for (const field of [
+      "kanbanBoardId",
+      "kanbanBoardTitle",
+      "kanbanColumnId",
+      "kanbanColumnTitle",
+      "routedToCourseBoard",
+    ]) {
+      unset[`suggestedTasks.$[task].${field}`] = "";
+    }
+  }
+
+  const update: Record<string, unknown> = { $unset: unset };
+  if (Object.keys(set).length > 0) update.$set = set;
+
+  const result = await EmailTriageModel.updateMany(
+    { _id: { $in: ids }, matchedCourseId: fromId },
+    update,
+    {
+      arrayFilters: [
+        { "task.status": "pending", "task.courseId": fromId },
+        { "event.status": "pending", "event.courseId": fromId },
+      ],
+    },
+  );
+
+  return {
+    moved: result.modifiedCount,
+    courseId: target?._id ?? null,
+    courseName: target?.name ?? null,
+  };
 }

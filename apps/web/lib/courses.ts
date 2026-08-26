@@ -7,6 +7,7 @@ import type {
   ICourseCalendarSummary,
   ICourseDeadline,
   ICourseDetail,
+  ICourseEmailPage,
   ICourseEmailSummary,
   ICourseGradeProjection,
   ICourseKanbanBoardSummary,
@@ -72,7 +73,6 @@ const ASSIGNMENT_TYPES = [
   "project",
   "lab",
   "reading",
-  "other",
 ] as const satisfies readonly CourseAssignmentType[];
 
 const ASSIGNMENT_STATUSES = [
@@ -309,6 +309,28 @@ function coerceAssignmentType(value: unknown): CourseAssignmentType {
     : "assignment";
 }
 
+/**
+ * Rows written before the `assessed` flag existed carry no value. The fallback
+ * mirrors the backfill migration exactly, so a store that has not been migrated
+ * yet reads identically to one that has.
+ */
+function coerceAssessed(assignment: RawRecord): boolean {
+  if (typeof assignment.assessed === "boolean") return assignment.assessed;
+  const grade =
+    assignment.grade && typeof assignment.grade === "object"
+      ? (assignment.grade as RawRecord)
+      : undefined;
+  if (
+    grade &&
+    (parseNumber(grade.score) !== undefined ||
+      parseNumber(grade.weight) !== undefined)
+  ) {
+    return true;
+  }
+  const type = typeof assignment.type === "string" ? assignment.type : "";
+  return type !== "reading" && type !== "other";
+}
+
 function coerceAssignmentStatus(value: unknown): CourseAssignmentStatus {
   return typeof value === "string" &&
     (ASSIGNMENT_STATUSES as readonly string[]).includes(value)
@@ -386,6 +408,7 @@ function serializeCourseAssignment(
     courseId: toId(assignment.courseId),
     title: cleanStringOrEmpty(assignment.title),
     type: coerceAssignmentType(assignment.type),
+    assessed: coerceAssessed(assignment),
     status: coerceAssignmentStatus(assignment.status),
     dueAt: toIsoString(assignment.dueAt),
     submittedAt: toIsoString(assignment.submittedAt),
@@ -440,35 +463,51 @@ function normalizeAssignmentGrade(value: unknown) {
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
+/**
+ * Splits a mutation into `$set` and `$unset`.
+ *
+ * A field cannot be cleared through `$set` alone: mongoose strips undefined
+ * values, so sending `grade: undefined` left the old grade in place. That was
+ * invisible while grades were only ever added; with a lane toggle that moves a
+ * row out of the gradebook, a grade that will not clear is a wrong average.
+ */
 function normalizeAssignmentMutation(data: CourseAssignmentMutationInput) {
-  const update: Record<string, unknown> = {};
+  const set: Record<string, unknown> = {};
+  const unset: Record<string, ""> = {};
 
-  if ("title" in data) update.title = cleanStringOrEmpty(data.title);
-  if ("type" in data) update.type = coerceAssignmentType(data.type);
-  if ("status" in data) update.status = coerceAssignmentStatus(data.status);
+  if ("title" in data) set.title = cleanStringOrEmpty(data.title);
+  if ("type" in data) set.type = coerceAssignmentType(data.type);
+  if ("assessed" in data) set.assessed = Boolean(data.assessed);
+  if ("status" in data) set.status = coerceAssignmentStatus(data.status);
 
   if ("dueAt" in data) {
     const dueAt = parseDate(data.dueAt);
-    if (dueAt !== undefined) update.dueAt = dueAt;
+    if (dueAt === null || data.dueAt === undefined) unset.dueAt = "";
+    else if (dueAt !== undefined) set.dueAt = dueAt;
   }
 
   if ("submittedAt" in data) {
     const submittedAt = parseDate(data.submittedAt);
-    if (submittedAt !== undefined) update.submittedAt = submittedAt;
+    if (submittedAt === null) unset.submittedAt = "";
+    else if (submittedAt !== undefined) set.submittedAt = submittedAt;
   }
 
-  if ("notes" in data) update.notes = cleanString(data.notes) ?? "";
+  if ("notes" in data) set.notes = cleanString(data.notes) ?? "";
   if ("kanbanCardId" in data) {
     const cardId = cleanString(data.kanbanCardId);
     if (cardId && mongoose.Types.ObjectId.isValid(cardId)) {
-      update.kanbanCardId = new mongoose.Types.ObjectId(cardId);
+      set.kanbanCardId = new mongoose.Types.ObjectId(cardId);
     }
   }
-  if ("links" in data) update.links = normalizeAssignmentLinks(data.links);
-  if ("files" in data) update.files = normalizeAssignmentFiles(data.files);
-  if ("grade" in data) update.grade = normalizeAssignmentGrade(data.grade);
+  if ("links" in data) set.links = normalizeAssignmentLinks(data.links);
+  if ("files" in data) set.files = normalizeAssignmentFiles(data.files);
+  if ("grade" in data) {
+    const grade = normalizeAssignmentGrade(data.grade);
+    if (grade) set.grade = grade;
+    else unset.grade = "";
+  }
 
-  return update;
+  return { set, unset };
 }
 
 export function normalizeCourseMutation(data: CourseMutationInput) {
@@ -730,9 +769,13 @@ function getAssignmentGradePercent(
   return (score / maxScore) * 100;
 }
 
+// Only assessed rows carry a mark toward the final grade. Unassessed
+// coursework is dated work with no score, and averaging it in was what let a
+// reading or a registration deadline move the course average.
 function calculateGradeAverage(assignments: CourseAssignmentWire[]) {
   const graded: { percent: number; weight?: number }[] = [];
   for (const assignment of assignments) {
+    if (!assignment.assessed) continue;
     const percent = getAssignmentGradePercent(assignment);
     if (percent !== undefined) {
       graded.push({ percent, weight: assignment.grade?.weight });
@@ -767,7 +810,13 @@ function buildStats(
   deadlines: ICourseDeadline[],
   assignments: CourseAssignmentWire[],
   readings: ICourseReadingSummary[] = [],
+  emails = 0,
 ): ICourseStats {
+  const active = assignments.filter(
+    (assignment) => assignment.status !== "archived",
+  );
+  const assessments = active.filter((assignment) => assignment.assessed);
+
   return {
     timetableEntries: course.timetableEntryIds.length,
     calendarEvents: course.calendarEventIds.length,
@@ -777,19 +826,15 @@ function buildStats(
     notes: course.noteIds.length,
     people: course.personIds.length,
     resources: course.resourceIds.length,
-    openManualDeadlines: course.manualDeadlines.filter(
-      (deadline) => !deadline.completed,
+    emails,
+    deadlines: deadlines.length,
+    openDeadlines: deadlines.filter((deadline) => !deadline.completed).length,
+    overdue: deadlines.filter((deadline) => deadline.overdue).length,
+    assessments: assessments.length,
+    openAssessments: assessments.filter(
+      (assignment) => !COMPLETED_ASSIGNMENT_STATUSES.has(assignment.status),
     ).length,
-    overdueDeadlines: deadlines.filter((deadline) => deadline.overdue).length,
-    assignments: assignments.filter(
-      (assignment) => assignment.status !== "archived",
-    ).length,
-    openAssignments: assignments.filter(
-      (assignment) =>
-        assignment.status !== "archived" &&
-        !COMPLETED_ASSIGNMENT_STATUSES.has(assignment.status),
-    ).length,
-    gradedAssignments: assignments.filter(
+    gradedAssessments: assessments.filter(
       (assignment) => assignment.grade?.score !== undefined,
     ).length,
     gradeAverage: calculateGradeAverage(assignments),
@@ -979,11 +1024,13 @@ export async function getCourses(): Promise<ICourseListItem[]> {
   const linkedBoardIds = [
     ...new Set(courses.flatMap((course) => course.kanbanBoardIds)),
   ];
-  const [kanbanCards, assignments, readingsByCourse] = await Promise.all([
-    getCourseKanbanCards(linkedBoardIds),
-    getCourseAssignments(courses.map((course) => course._id)),
-    getCourseReadings(courses.map((course) => course._id)),
-  ]);
+  const [kanbanCards, assignments, readingsByCourse, emailCounts] =
+    await Promise.all([
+      getCourseKanbanCards(linkedBoardIds),
+      getCourseAssignments(courses.map((course) => course._id)),
+      getCourseReadings(courses.map((course) => course._id)),
+      countTriagedEmailsByCourse(courses.map((course) => course._id)),
+    ]);
   const cardsByBoard = new Map<string, ICourseKanbanCardSummary[]>();
   const assignmentsByCourse = new Map<string, CourseAssignmentWire[]>();
 
@@ -1020,6 +1067,7 @@ export async function getCourses(): Promise<ICourseListItem[]> {
         deadlines,
         courseAssignments,
         courseReadings,
+        emailCounts.get(course._id) ?? 0,
       ),
       nextDeadline: deadlines.find((deadline) => !deadline.completed),
     };
@@ -1101,11 +1149,18 @@ export async function getCourseDetail(
     assignments,
     readings,
   );
-  const emails = await getCourseRelatedEmails(id);
+  const emails = await countCourseRelatedEmails(id);
 
   return {
     course,
-    stats: buildStats(course, kanbanCards, deadlines, assignments, readings),
+    stats: buildStats(
+      course,
+      kanbanCards,
+      deadlines,
+      assignments,
+      readings,
+      emails,
+    ),
     deadlines,
     timetableEntries,
     calendarEvents,
@@ -1116,7 +1171,7 @@ export async function getCourseDetail(
     people,
     resources,
     readings,
-    emails,
+    projection: computeGradeProjection(assignments),
   };
 }
 
@@ -1185,14 +1240,14 @@ export async function createCourseAssignment(
   const courseExists = await Course.exists({ _id: courseId });
   if (!courseExists) return null;
 
-  const payload = normalizeAssignmentMutation({
+  const { set } = normalizeAssignmentMutation({
     ...data,
     title,
     status: data.status ?? "planned",
     type: data.type ?? "assignment",
   });
   const assignment = await CourseAssignment.create({
-    ...payload,
+    ...set,
     courseId: new mongoose.Types.ObjectId(courseId),
   });
   return serializeCourseAssignment(
@@ -1210,10 +1265,13 @@ export async function updateCourseAssignment(
   if ("title" in data && !cleanString(data.title)) return null;
 
   await connectDB();
-  const update = normalizeAssignmentMutation(data);
+  const { set, unset } = normalizeAssignmentMutation(data);
   const assignment = await CourseAssignment.findOneAndUpdate(
     { _id: assignmentId, courseId },
-    update,
+    {
+      ...(Object.keys(set).length > 0 ? { $set: set } : {}),
+      ...(Object.keys(unset).length > 0 ? { $unset: unset } : {}),
+    },
     { returnDocument: "after", runValidators: true },
   ).lean<RawRecord>();
   return assignment ? serializeCourseAssignment(assignment) : null;
@@ -1478,16 +1536,115 @@ function formatEmailFrom(value: unknown): string {
     .join(", ");
 }
 
+async function countTriagedEmailsByCourse(
+  courseIds: string[],
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  const ids = courseIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
+  if (ids.length === 0) return counts;
+
+  const rows = await EmailTriageModel.aggregate<{
+    _id: mongoose.Types.ObjectId;
+    count: number;
+  }>([
+    {
+      $match: {
+        matchedCourseId: {
+          $in: ids.map((id) => new mongoose.Types.ObjectId(id)),
+        },
+      },
+    },
+    { $group: { _id: "$matchedCourseId", count: { $sum: 1 } } },
+  ]);
+  for (const row of rows) counts.set(toId(row._id), row.count);
+  return counts;
+}
+
+export async function countCourseRelatedEmails(
+  courseId: string,
+): Promise<number> {
+  if (!mongoose.Types.ObjectId.isValid(courseId)) return 0;
+  await connectDB();
+  return EmailTriageModel.countDocuments({ matchedCourseId: courseId });
+}
+
+export interface CourseEmailQuery {
+  page?: number;
+  pageSize?: number;
+  category?: string;
+  q?: string;
+}
+
+const EMAIL_PAGE_SIZE_MAX = 100;
+
+/**
+ * Related mail is paged, not embedded in the course detail. A course accrues
+ * triaged mail all semester; the previous shape capped at 50 with nothing on
+ * screen saying so, and shipped every summary on every course open.
+ *
+ * Search runs over the triage summary here and over subject/sender after the
+ * email join, because subject and sender live on a different collection than
+ * the `matchedCourseId` filter. That is why a text query pulls the matching
+ * triage ids first and pages the joined rows, rather than paging in Mongo.
+ */
 export async function getCourseRelatedEmails(
   courseId: string,
-): Promise<ICourseEmailSummary[]> {
-  if (!mongoose.Types.ObjectId.isValid(courseId)) return [];
+  query: CourseEmailQuery = {},
+): Promise<ICourseEmailPage> {
+  if (!mongoose.Types.ObjectId.isValid(courseId)) {
+    return { emails: [], total: 0 };
+  }
   await connectDB();
 
-  const triages = await EmailTriageModel.find({ matchedCourseId: courseId })
+  const pageSize = Math.min(
+    EMAIL_PAGE_SIZE_MAX,
+    Math.max(1, Math.floor(query.pageSize ?? 25)),
+  );
+  const page = Math.max(0, Math.floor(query.page ?? 0));
+
+  const filter: Record<string, unknown> = { matchedCourseId: courseId };
+  const category = cleanString(query.category);
+  if (category && (TRIAGE_CATEGORIES as readonly string[]).includes(category)) {
+    filter.category = category;
+  }
+
+  const search = cleanString(query.q);
+  if (!search) {
+    const [total, triages] = await Promise.all([
+      EmailTriageModel.countDocuments(filter),
+      EmailTriageModel.find(filter)
+        .sort({ triagedAt: -1 })
+        .skip(page * pageSize)
+        .limit(pageSize)
+        .lean<RawRecord[]>(),
+    ]);
+    return { emails: await joinTriageEmails(triages), total };
+  }
+
+  // A search has to see subject and sender, so the whole matching set is
+  // joined and filtered in memory. The `matchedCourseId` filter keeps that
+  // set to one course's mail, which is the only reason this is affordable.
+  const triages = await EmailTriageModel.find(filter)
     .sort({ triagedAt: -1 })
-    .limit(50)
     .lean<RawRecord[]>();
+  const joined = await joinTriageEmails(triages);
+  const needle = search.toLowerCase();
+  const matched = joined.filter(
+    (email) =>
+      email.subject.toLowerCase().includes(needle) ||
+      email.from.toLowerCase().includes(needle) ||
+      (email.summary?.toLowerCase().includes(needle) ?? false),
+  );
+
+  return {
+    emails: matched.slice(page * pageSize, page * pageSize + pageSize),
+    total: matched.length,
+  };
+}
+
+async function joinTriageEmails(
+  triages: RawRecord[],
+): Promise<ICourseEmailSummary[]> {
   if (triages.length === 0) return [];
 
   const emailIds = [...new Set(triages.map((triage) => toId(triage.emailId)))];
@@ -1497,11 +1654,13 @@ export async function getCourseRelatedEmails(
   const emailsById = new Map(emails.map((email) => [toId(email._id), email]));
 
   return triages.map((triage) => {
-    const email = emailsById.get(toId(triage.emailId));
+    const emailId = toId(triage.emailId);
+    const email = emailsById.get(emailId);
     return {
       _id: toId(triage._id),
       triageId: toId(triage._id),
-      emailId: toId(triage.emailId),
+      emailId,
+      accountId: toId(triage.accountId),
       subject: cleanString(email?.subject) ?? "(no subject)",
       from: formatEmailFrom(email?.from) || "Unknown sender",
       date:
@@ -1578,7 +1737,7 @@ export function computeGradeProjection(
   assignments: CourseAssignmentWire[],
 ): ICourseGradeProjection {
   const active = assignments.filter(
-    (assignment) => assignment.status !== "archived",
+    (assignment) => assignment.assessed && assignment.status !== "archived",
   );
   const currentAverage = calculateGradeAverage(active);
 
@@ -1715,8 +1874,8 @@ export async function getSemesterOverview(): Promise<ISemesterOverview> {
 
   const standings: ISemesterCourseStanding[] = [];
   const radar: ISemesterDeadline[] = [];
-  let openAssignments = 0;
-  let gradedAssignments = 0;
+  let openAssessments = 0;
+  let gradedAssessments = 0;
 
   for (const course of courses) {
     const courseCards = course.kanbanBoardIds.flatMap(
@@ -1746,14 +1905,14 @@ export async function getSemesterOverview(): Promise<ISemesterOverview> {
     }
 
     const projection = computeGradeProjection(courseAssignments);
-    const activeAssignments = courseAssignments.filter(
-      (assignment) => assignment.status !== "archived",
+    const activeAssessments = courseAssignments.filter(
+      (assignment) => assignment.assessed && assignment.status !== "archived",
     );
-    const courseOpenAssignments = activeAssignments.filter(
+    const courseOpenAssessments = activeAssessments.filter(
       (assignment) => !COMPLETED_ASSIGNMENT_STATUSES.has(assignment.status),
     ).length;
-    openAssignments += courseOpenAssignments;
-    gradedAssignments += activeAssignments.filter(
+    openAssessments += courseOpenAssessments;
+    gradedAssessments += activeAssessments.filter(
       (assignment) => assignment.grade?.score !== undefined,
     ).length;
 
@@ -1765,7 +1924,7 @@ export async function getSemesterOverview(): Promise<ISemesterOverview> {
       color: course.color,
       gradeAverage: projection.currentAverage,
       projection,
-      openAssignments: courseOpenAssignments,
+      openAssessments: courseOpenAssessments,
       dueNext7Days: open.filter((deadline) => {
         const dueTime = new Date(deadline.dueAt).getTime();
         return dueTime >= now && dueTime <= in7Days;
@@ -1833,13 +1992,13 @@ export async function getSemesterOverview(): Promise<ISemesterOverview> {
     generatedAt: new Date().toISOString(),
     stats: {
       activeCourses: courses.length,
-      openAssignments,
+      openAssessments,
       dueNext7Days: standings.reduce(
         (sum, standing) => sum + standing.dueNext7Days,
         0,
       ),
       overdue: standings.reduce((sum, standing) => sum + standing.overdue, 0),
-      gradedAssignments,
+      gradedAssessments,
       semesterAverage,
     },
     courses: standings,
