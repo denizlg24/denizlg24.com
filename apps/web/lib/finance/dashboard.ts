@@ -25,6 +25,7 @@ import {
 } from "@/models/Finance";
 import {
   computeFinanceForecast,
+  computeRecurringCommitment,
   deduplicateLinkedLedger,
   detectRecurringFinanceCandidates,
 } from "./core";
@@ -178,7 +179,15 @@ export function serializeFinanceCategory(
   };
 }
 
-function displayBalances(balances: IFinanceBalance[], accountIds: string[]) {
+/**
+ * The one balance per account worth showing, in provider-preference order.
+ * Exported because the budgeting surfaces need the same aggregate without
+ * paying for the whole dashboard payload to get it.
+ */
+export function selectDisplayBalances(
+  balances: IFinanceBalance[],
+  accountIds: string[],
+) {
   return accountIds.flatMap((accountId) => {
     const accountBalances = balances.filter(
       (balance) => balance.accountId.toString() === accountId,
@@ -270,7 +279,7 @@ export async function getFinanceDashboard(
     (candidate) =>
       !recurringRuleFingerprints.has(candidate.merchantFingerprint),
   );
-  const selectedBalances = displayBalances(
+  const selectedBalances = selectDisplayBalances(
     balances,
     accounts.map((account) => account._id.toString()),
   );
@@ -354,6 +363,12 @@ export async function getFinanceDashboard(
     },
     ledger,
     recurringRules: rules.map(serializeFinanceRecurringRule),
+    recurringCommitment: computeRecurringCommitment({
+      rules,
+      baseCurrency,
+      convert: (amountMinor, currency) =>
+        convertMinorToBase(amountMinor, currency, baseCurrency, fxSnapshots),
+    }),
     recurringCandidates,
     categories: categories.map(serializeFinanceCategory),
     settings: serializeFinanceSettings(settings),

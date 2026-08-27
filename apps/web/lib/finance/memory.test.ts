@@ -8,6 +8,12 @@ const dashboard: FinanceDashboardResponse = {
   categories: [],
   settings: { baseCurrency: "EUR", fxSource: "frankfurter" },
   aggregateBalances: [{ amountMinor: 120_000, currency: "EUR" }],
+  recurringCommitment: {
+    currency: "EUR",
+    expenseMinor: 0,
+    incomeMinor: 0,
+    unconvertedByCurrency: [],
+  },
   monthly: {
     amountMinor: 120_000,
     spendMinor: 48_000,

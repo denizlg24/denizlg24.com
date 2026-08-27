@@ -4,8 +4,11 @@ import type {
   FinanceLedgerEntry,
   FinanceProviderAccount,
   FinanceProviderTransaction,
+  FinanceRecurrence,
   FinanceRecurringCandidate,
+  FinanceRecurringCommitment,
 } from "@repo/schemas";
+import { monthlyOccurrenceRate as occurrenceRate } from "@repo/utils";
 
 // The recurrence engine is shared with the admin UI so the rule editor previews
 // upcoming dates against the same code that materializes projected entries.
@@ -402,6 +405,59 @@ export function computeFinanceForecast(input: {
     p25Minor: project(p75Rate),
     p50Minor: project(p50Rate),
     p75Minor: project(p25Rate),
+  };
+}
+
+/**
+ * Recurring rules rolled up to one monthly figure per direction.
+ *
+ * A rule carries its own currency, so summing `amountMinor` across rules is
+ * only meaningful once each has been converted — adding a 100 DKK rule to a
+ * euro total as though it were 100 EUR is the defect this exists to prevent.
+ * `convert` returning undefined means no rate applies, and that rule is
+ * reported under its own currency rather than folded in at par.
+ */
+export function computeRecurringCommitment(input: {
+  rules: Array<{
+    status: "active" | "paused";
+    direction: "expense" | "income";
+    currency: string;
+    amountMinor: number;
+    recurrence: unknown;
+  }>;
+  baseCurrency: string;
+  convert: (amountMinor: number, currency: string) => number | undefined;
+}): FinanceRecurringCommitment {
+  let expenseMinor = 0;
+  let incomeMinor = 0;
+  const unconverted = new Map<string, number>();
+  for (const rule of input.rules) {
+    if (rule.status !== "active") continue;
+    const monthly = Math.round(
+      rule.amountMinor * occurrenceRate(rule.recurrence as FinanceRecurrence),
+    );
+    const converted = input.convert(monthly, rule.currency);
+    if (converted === undefined) {
+      const key = `${rule.currency}:${rule.direction}`;
+      unconverted.set(key, (unconverted.get(key) ?? 0) + monthly);
+      continue;
+    }
+    if (rule.direction === "income") incomeMinor += converted;
+    else expenseMinor += converted;
+  }
+  return {
+    currency: input.baseCurrency,
+    expenseMinor: Math.round(expenseMinor),
+    incomeMinor: Math.round(incomeMinor),
+    unconvertedByCurrency: [...unconverted].map(([key, amountMinor]) => {
+      const [currency, direction] = key.split(":");
+      return {
+        currency: currency ?? input.baseCurrency,
+        amountMinor,
+        direction:
+          direction === "income" ? ("income" as const) : ("expense" as const),
+      };
+    }),
   };
 }
 

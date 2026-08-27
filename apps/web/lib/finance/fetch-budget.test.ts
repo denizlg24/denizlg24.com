@@ -5,7 +5,7 @@ import {
   nextFinanceBudgetWindow,
   nextFinanceSyncTime,
   requestedFinanceReservation,
-} from "./budget";
+} from "./fetch-budget";
 
 describe("finance budget planning", () => {
   test("reserves both balance and transaction calls before starting", () => {

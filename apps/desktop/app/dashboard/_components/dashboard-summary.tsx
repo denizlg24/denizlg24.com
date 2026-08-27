@@ -1,12 +1,15 @@
 "use client";
 
 import { Skeleton } from "@repo/ui/skeleton";
-import { format } from "date-fns";
+import { format, formatDistanceToNowStrict } from "date-fns";
 import { Brain, MapPin } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { z } from "zod";
 import { useUserSettings } from "@/context/user-context";
 import { denizApi } from "@/lib/api-wrapper";
 import {
+  type FinanceBudgetAlert,
+  financeBudgetAlertSchema,
   type IDashboardStats,
   type ISemesterDeadline,
   type ISemesterOverview,
@@ -14,6 +17,16 @@ import {
   type UpcomingKanbanResult,
   upcomingKanbanResultSchema,
 } from "@/lib/data-types";
+
+const budgetAlertsSchema = z.object({
+  alerts: z.array(financeBudgetAlertSchema),
+});
+
+const ALERT_TONE: Record<FinanceBudgetAlert["severity"], string> = {
+  info: "bg-muted-foreground/50",
+  warning: "bg-yellow-500",
+  critical: "bg-destructive",
+};
 
 function formatDueLabel(card: UpcomingCard) {
   if (card.overdue) return "overdue";
@@ -130,16 +143,32 @@ function ScheduleTasksSwitcher({
   agendaItems,
   upcoming,
   semester,
+  alerts,
 }: {
   agendaItems: AgendaDisplayItem[];
   upcoming: UpcomingKanbanResult | null;
   semester: ISemesterOverview | null;
+  alerts: FinanceBudgetAlert[];
 }) {
   const hasSchedule = agendaItems.length > 0;
   const hasTasks = upcoming !== null && upcoming.stats.total > 0;
   const hasSemester = semester !== null && semester.stats.activeCourses > 0;
-  const [tab, setTab] = useState<"schedule" | "tasks" | "semester">(
-    hasSchedule ? "schedule" : hasTasks ? "tasks" : "semester",
+  const hasAlerts = alerts.length > 0;
+  const critical = alerts.filter(
+    (alert) => alert.severity === "critical",
+  ).length;
+  // A critical money alert outranks the day's agenda for the pane that opens:
+  // the schedule is a reminder, an exceeded budget is a decision.
+  const [tab, setTab] = useState<"schedule" | "tasks" | "semester" | "alerts">(
+    critical > 0
+      ? "alerts"
+      : hasSchedule
+        ? "schedule"
+        : hasTasks
+          ? "tasks"
+          : hasAlerts
+            ? "alerts"
+            : "semester",
   );
 
   useEffect(() => {
@@ -147,16 +176,17 @@ function ScheduleTasksSwitcher({
       schedule: hasSchedule,
       tasks: hasTasks,
       semester: hasSemester,
+      alerts: hasAlerts,
     };
     if (!available[tab]) {
-      const fallback = (["schedule", "tasks", "semester"] as const).find(
-        (key) => available[key],
-      );
+      const fallback = (
+        ["schedule", "tasks", "semester", "alerts"] as const
+      ).find((key) => available[key]);
       if (fallback) setTab(fallback);
     }
-  }, [hasSchedule, hasTasks, hasSemester, tab]);
+  }, [hasSchedule, hasTasks, hasSemester, hasAlerts, tab]);
 
-  if (!hasSchedule && !hasTasks && !hasSemester) return null;
+  if (!hasSchedule && !hasTasks && !hasSemester && !hasAlerts) return null;
 
   return (
     <div className="w-full max-w-md">
@@ -221,6 +251,27 @@ function ScheduleTasksSwitcher({
               }`}
             >
               {semester.stats.overdue + semester.stats.dueNext7Days}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("alerts")}
+          disabled={!hasAlerts}
+          className={`pb-1 border-b transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+            tab === "alerts"
+              ? "border-foreground text-accent-strong"
+              : "border-transparent text-muted-foreground hover:text-accent-strong"
+          }`}
+        >
+          Alerts
+          {hasAlerts && (
+            <span
+              className={`ml-1.5 normal-case tracking-normal ${
+                critical > 0 ? "text-destructive" : "text-muted-foreground"
+              }`}
+            >
+              {alerts.length}
             </span>
           )}
         </button>
@@ -363,6 +414,45 @@ function ScheduleTasksSwitcher({
           )}
         </div>
       )}
+
+      {tab === "alerts" && hasAlerts && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+            {critical > 0 && (
+              <span className="text-destructive">{critical} critical</span>
+            )}
+            <span>{alerts.length} open</span>
+          </div>
+
+          <div className="flex flex-col">
+            {alerts.slice(0, 5).map((alert) => (
+              <div key={alert.id} className="flex items-start gap-3 py-1">
+                <span
+                  className={`mt-1.5 size-1.5 shrink-0 rounded-full ${
+                    ALERT_TONE[alert.severity]
+                  }`}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-accent-strong">
+                    {alert.title}
+                  </p>
+                  <p className="truncate text-[10px] text-muted-foreground">
+                    {alert.detail}
+                  </p>
+                </div>
+                <span className="shrink-0 pt-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+                  {formatDistanceToNowStrict(new Date(alert.firstSeenAt))}
+                </span>
+              </div>
+            ))}
+            {alerts.length > 5 && (
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                +{alerts.length - 5} more
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -403,6 +493,7 @@ export function DashboardSummary() {
   const [stats, setStats] = useState<IDashboardStats | null>(null);
   const [upcoming, setUpcoming] = useState<UpcomingKanbanResult | null>(null);
   const [semester, setSemester] = useState<ISemesterOverview | null>(null);
+  const [alerts, setAlerts] = useState<FinanceBudgetAlert[]>([]);
   const [loading, setLoading] = useState(true);
 
   const API = useMemo(() => {
@@ -433,6 +524,13 @@ export function DashboardSummary() {
       endpoint: "courses/overview",
     }).then((result) => {
       if (!("code" in result)) setSemester(result.overview);
+    });
+
+    void API.GET({
+      endpoint: "finance/budget/alerts?status=open",
+      schema: budgetAlertsSchema,
+    }).then((result) => {
+      if (!("code" in result)) setAlerts(result.alerts);
     });
   }, [API]);
 
@@ -490,6 +588,7 @@ export function DashboardSummary() {
         agendaItems={agendaItems}
         upcoming={upcoming}
         semester={semester}
+        alerts={alerts}
       />
 
       <div className="flex flex-col items-center gap-4">

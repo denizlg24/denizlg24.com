@@ -354,6 +354,28 @@ export const financeForecastSchema = z.object({
 });
 export type FinanceForecast = z.infer<typeof financeForecastSchema>;
 
+/**
+ * Recurring rules rolled up to a monthly figure in the base currency.
+ *
+ * Converted server-side, where the dated FX snapshots are. Rules whose
+ * currency has no rate are reported separately rather than folded in at par —
+ * adding 100 DKK to a euro total as if it were 100 EUR is the exact bug this
+ * shape exists to make impossible.
+ */
+export const financeRecurringCommitmentSchema = z.object({
+  currency: financeCurrencySchema,
+  expenseMinor: z.number().int().nonnegative(),
+  incomeMinor: z.number().int().nonnegative(),
+  unconvertedByCurrency: z.array(
+    financeMoneySchema.extend({
+      direction: z.enum(["expense", "income"]),
+    }),
+  ),
+});
+export type FinanceRecurringCommitment = z.infer<
+  typeof financeRecurringCommitmentSchema
+>;
+
 export const financeDashboardResponseSchema = z.object({
   accounts: z.array(financeAccountSchema),
   balances: z.array(financeBalanceSchema),
@@ -365,6 +387,7 @@ export const financeDashboardResponseSchema = z.object({
   }),
   ledger: z.array(financeLedgerEntrySchema),
   recurringRules: z.array(financeRecurringRuleSchema),
+  recurringCommitment: financeRecurringCommitmentSchema,
   recurringCandidates: z.array(financeRecurringCandidateSchema),
   matchReviews: z.array(financeMatchReviewSchema),
   categories: z.array(financeCategorySchema),
@@ -515,3 +538,347 @@ export const financeNarrativeResponseSchema = z.object({
 export type FinanceNarrativeResponse = z.infer<
   typeof financeNarrativeResponseSchema
 >;
+
+// ---------------------------------------------------------------------------
+// Budgeting
+//
+// An envelope is a spending plan for a set of categories over a repeating
+// period. Two kinds share the shape because they share almost all the machinery
+// — the period grid, the category match, the ledger scan:
+//
+//   capped   `limitMinor` is what may be spent per period.
+//   sinking  `limitMinor` is a total to accumulate by `targetDate`, and the
+//            per-period contribution is derived from what is left and how many
+//            periods remain. Setting money aside is not observable from a bank
+//            feed, so contributions are recorded explicitly; spend in the
+//            envelope's categories draws the balance back down.
+//
+// Categories are matched by *name*, exactly as ledger rows store them, so an
+// envelope survives the category catalog being renamed the same way a merchant
+// rule does. A category may belong to at most one active envelope — overlapping
+// envelopes would double-count the same transaction into two plans.
+// ---------------------------------------------------------------------------
+
+export const financeEnvelopeKindSchema = z.enum(["capped", "sinking"]);
+export type FinanceEnvelopeKind = z.infer<typeof financeEnvelopeKindSchema>;
+
+export const financeEnvelopePeriodSchema = z.enum([
+  "weekly",
+  "monthly",
+  "quarterly",
+  "yearly",
+]);
+export type FinanceEnvelopePeriod = z.infer<typeof financeEnvelopePeriodSchema>;
+
+/**
+ * What happens to an unspent (or overspent) balance at the period boundary.
+ * `surplus` carries only what was left over; `both` also carries an overspend,
+ * which is true envelope accounting and means one bad month eats into the next.
+ */
+export const financeEnvelopeRolloverSchema = z.enum([
+  "none",
+  "surplus",
+  "both",
+]);
+export type FinanceEnvelopeRollover = z.infer<
+  typeof financeEnvelopeRolloverSchema
+>;
+
+export const financeEnvelopeContributionSchema = z.object({
+  id: z.string().min(1),
+  date: isoDateSchema,
+  /** Negative withdraws from the fund without it being a tracked expense. */
+  amountMinor: z.number().int(),
+  note: z.string().trim().max(500).optional(),
+  createdAt: isoDateTimeSchema,
+});
+export type FinanceEnvelopeContribution = z.infer<
+  typeof financeEnvelopeContributionSchema
+>;
+
+export const financeEnvelopeSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  kind: financeEnvelopeKindSchema,
+  /** Category names this envelope covers. Empty is legal for a sinking fund
+   *  funded purely by contributions with no matching spend. */
+  categories: z.array(z.string().min(1)),
+  /** Also count rows with no category at all. At most one envelope may. */
+  includeUncategorized: z.boolean(),
+  /** Narrows the envelope to one account; absent means every account. */
+  accountId: z.string().min(1).optional(),
+  currency: financeCurrencySchema,
+  /** Per-period cap for `capped`, total target for `sinking`. */
+  limitMinor: z.number().int().nonnegative(),
+  period: financeEnvelopePeriodSchema,
+  /** Day the monthly/quarterly/yearly grid starts on, for payday alignment.
+   *  Capped at 28 so every month has one. Ignored for `weekly`. */
+  periodStartDay: z.number().int().min(1).max(28),
+  rollover: financeEnvelopeRolloverSchema,
+  /** No period before this counts, and it floors the rollover walk-back. */
+  startDate: isoDateSchema,
+  /** When a sinking fund has to be full. */
+  targetDate: isoDateSchema.optional(),
+  contributions: z.array(financeEnvelopeContributionSchema),
+  status: z.enum(["active", "archived"]),
+  sortOrder: z.number().int(),
+  notes: z.string().max(2_000).optional(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type FinanceEnvelope = z.infer<typeof financeEnvelopeSchema>;
+
+export const financeEnvelopeInputSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  kind: financeEnvelopeKindSchema.default("capped"),
+  categories: z.array(z.string().trim().min(1).max(60)).max(40).default([]),
+  includeUncategorized: z.boolean().default(false),
+  accountId: z.string().min(1).optional(),
+  // No currency: an envelope is always in the base currency, because its spend
+  // is measured from base-converted ledger rows.
+  limitMinor: z.number().int().nonnegative(),
+  period: financeEnvelopePeriodSchema.default("monthly"),
+  periodStartDay: z.number().int().min(1).max(28).default(1),
+  rollover: financeEnvelopeRolloverSchema.default("none"),
+  startDate: isoDateSchema.optional(),
+  targetDate: isoDateSchema.optional(),
+  status: z.enum(["active", "archived"]).default("active"),
+  sortOrder: z.number().int().optional(),
+  notes: z.string().trim().max(2_000).optional(),
+});
+export type FinanceEnvelopeInput = z.infer<typeof financeEnvelopeInputSchema>;
+/** What a caller sends: the schema fills in kind, period, rollover and status,
+ *  so requiring them of the client would be requiring it to restate defaults. */
+export type FinanceEnvelopeInputPayload = z.input<
+  typeof financeEnvelopeInputSchema
+>;
+
+export const financeEnvelopeUpdateSchema = financeEnvelopeInputSchema
+  .partial()
+  .extend({ notes: z.string().trim().max(2_000).nullable().optional() });
+export type FinanceEnvelopeUpdate = z.infer<typeof financeEnvelopeUpdateSchema>;
+export type FinanceEnvelopeUpdatePayload = z.input<
+  typeof financeEnvelopeUpdateSchema
+>;
+
+export const financeEnvelopeContributionInputSchema = z.object({
+  amountMinor: z
+    .number()
+    .int()
+    .refine((value) => value !== 0, {
+      message: "Expected a non-zero amount",
+    }),
+  date: isoDateSchema.optional(),
+  note: z.string().trim().max(500).optional(),
+});
+export type FinanceEnvelopeContributionInput = z.infer<
+  typeof financeEnvelopeContributionInputSchema
+>;
+
+/**
+ * One envelope resolved against the ledger for one period. Every figure is in
+ * the envelope's currency and already converted, so nothing downstream needs
+ * the FX table.
+ */
+export const financeEnvelopeStatusSchema = z.object({
+  envelopeId: z.string().min(1),
+  name: z.string().min(1),
+  kind: financeEnvelopeKindSchema,
+  currency: financeCurrencySchema,
+  period: financeEnvelopePeriodSchema,
+  periodStart: isoDateSchema,
+  periodEnd: isoDateSchema,
+  limitMinor: z.number().int().nonnegative(),
+  /** Carried in from earlier periods; zero unless `rollover` allows it. */
+  carryInMinor: z.number().int(),
+  /** Net of refunds: a returned purchase did not cost anything. */
+  spentMinor: z.number().int(),
+  refundedMinor: z.number().int().nonnegative(),
+  /** Already-known future spend in this period, from projected entries. */
+  committedMinor: z.number().int().nonnegative(),
+  /** limit + carryIn − spent − committed. Negative means overspent. */
+  availableMinor: z.number().int(),
+  /** Spend + commitments + the current run rate over the days that remain. */
+  projectedMinor: z.number().int().nonnegative(),
+  /** How far through the period we are, 0–1. */
+  elapsedFraction: z.number().min(0).max(1),
+  /** spent ÷ what a flat burn would have spent by now. Null before any time
+   *  has elapsed, when the ratio is undefined rather than infinite. */
+  paceRatio: z.number().nullable(),
+  entryCount: z.number().int().nonnegative(),
+  // Sinking only.
+  savedMinor: z.number().int().optional(),
+  contributedMinor: z.number().int().optional(),
+  requiredPerPeriodMinor: z.number().int().nonnegative().optional(),
+  periodsRemaining: z.number().int().nonnegative().optional(),
+  onTrack: z.boolean().optional(),
+});
+export type FinanceEnvelopeStatus = z.infer<typeof financeEnvelopeStatusSchema>;
+
+export const financeUnbudgetedCategorySchema = z.object({
+  category: z.string().nullable(),
+  spentMinor: z.number().int().nonnegative(),
+  entryCount: z.number().int().nonnegative(),
+});
+export type FinanceUnbudgetedCategory = z.infer<
+  typeof financeUnbudgetedCategorySchema
+>;
+
+export const financeBudgetAlertKindSchema = z.enum([
+  "envelope_exceeded",
+  "envelope_projected_overspend",
+  "envelope_pace",
+  "unbudgeted_spend",
+  "sinking_underfunded",
+  "runway_low",
+  "income_missed",
+  "subscription_increase",
+]);
+export type FinanceBudgetAlertKind = z.infer<
+  typeof financeBudgetAlertKindSchema
+>;
+
+export const financeBudgetAlertSeveritySchema = z.enum([
+  "info",
+  "warning",
+  "critical",
+]);
+export type FinanceBudgetAlertSeverity = z.infer<
+  typeof financeBudgetAlertSeveritySchema
+>;
+
+export const financeBudgetAlertSchema = z.object({
+  id: z.string().min(1),
+  /** Stable identity across evaluations, so re-running does not duplicate. */
+  key: z.string().min(1),
+  kind: financeBudgetAlertKindSchema,
+  severity: financeBudgetAlertSeveritySchema,
+  title: z.string().min(1),
+  detail: z.string(),
+  envelopeId: z.string().min(1).optional(),
+  category: z.string().min(1).optional(),
+  currency: financeCurrencySchema,
+  periodStart: isoDateSchema.optional(),
+  periodEnd: isoDateSchema.optional(),
+  /** Raw figures behind the text, so a client can render its own phrasing. */
+  metrics: z.record(z.string(), z.number()),
+  status: z.enum(["open", "acknowledged", "resolved"]),
+  firstSeenAt: isoDateTimeSchema,
+  lastSeenAt: isoDateTimeSchema,
+  acknowledgedAt: isoDateTimeSchema.optional(),
+  resolvedAt: isoDateTimeSchema.optional(),
+});
+export type FinanceBudgetAlert = z.infer<typeof financeBudgetAlertSchema>;
+
+export const financeBudgetAlertDecisionSchema = z.object({
+  action: z.enum(["acknowledge", "reopen", "resolve"]),
+});
+export type FinanceBudgetAlertDecision = z.infer<
+  typeof financeBudgetAlertDecisionSchema
+>;
+
+/**
+ * The mechanical half of a suggestion. `advice` carries no action at all —
+ * some things worth saying cannot be applied by pressing a button, and
+ * inventing a fake action for them would make "apply" mean two things.
+ */
+export const financeBudgetSuggestionActionSchema = z.discriminatedUnion(
+  "kind",
+  [
+    z.object({
+      kind: z.literal("set_limit"),
+      envelopeId: z.string().min(1),
+      limitMinor: z.number().int().nonnegative(),
+    }),
+    z.object({
+      kind: z.literal("create_envelope"),
+      name: z.string().trim().min(1).max(80),
+      categories: z.array(z.string().trim().min(1).max(60)).max(40),
+      limitMinor: z.number().int().nonnegative(),
+      period: financeEnvelopePeriodSchema,
+      envelopeKind: financeEnvelopeKindSchema,
+      rollover: financeEnvelopeRolloverSchema,
+      targetDate: isoDateSchema.optional(),
+    }),
+    z.object({
+      kind: z.literal("reallocate"),
+      fromEnvelopeId: z.string().min(1),
+      toEnvelopeId: z.string().min(1),
+      amountMinor: z.number().int().positive(),
+    }),
+    z.object({
+      kind: z.literal("adjust_contribution"),
+      envelopeId: z.string().min(1),
+      amountMinor: z.number().int(),
+    }),
+    z.object({ kind: z.literal("advice") }),
+  ],
+);
+export type FinanceBudgetSuggestionAction = z.infer<
+  typeof financeBudgetSuggestionActionSchema
+>;
+
+export const financeBudgetSuggestionSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  rationale: z.string(),
+  /** Signed effect on monthly headroom, positive meaning money freed up. */
+  impactMinor: z.number().int().optional(),
+  currency: financeCurrencySchema,
+  action: financeBudgetSuggestionActionSchema,
+  status: z.enum(["open", "applied", "dismissed"]),
+  generatedAt: isoDateTimeSchema,
+  resolvedAt: isoDateTimeSchema.optional(),
+});
+export type FinanceBudgetSuggestion = z.infer<
+  typeof financeBudgetSuggestionSchema
+>;
+
+export const financeBudgetSuggestionDecisionSchema = z.object({
+  action: z.enum(["apply", "dismiss"]),
+});
+export type FinanceBudgetSuggestionDecision = z.infer<
+  typeof financeBudgetSuggestionDecisionSchema
+>;
+
+export const financeBudgetTotalsSchema = z.object({
+  currency: financeCurrencySchema,
+  /** Sum of capped limits plus this period's required sinking contributions. */
+  plannedMinor: z.number().int().nonnegative(),
+  spentMinor: z.number().int(),
+  committedMinor: z.number().int().nonnegative(),
+  availableMinor: z.number().int(),
+  projectedMinor: z.number().int().nonnegative(),
+  /** Spend this period that no envelope covers. */
+  unbudgetedMinor: z.number().int().nonnegative(),
+  incomeMinor: z.number().int().nonnegative(),
+});
+export type FinanceBudgetTotals = z.infer<typeof financeBudgetTotalsSchema>;
+
+export const financeBudgetOverviewSchema = z.object({
+  asOfDate: isoDateSchema,
+  currency: financeCurrencySchema,
+  envelopes: z.array(financeEnvelopeSchema),
+  statuses: z.array(financeEnvelopeStatusSchema),
+  unbudgeted: z.array(financeUnbudgetedCategorySchema),
+  totals: financeBudgetTotalsSchema,
+  alerts: z.array(financeBudgetAlertSchema),
+  suggestions: z.array(financeBudgetSuggestionSchema),
+  /** Rows no FX rate could convert. Left out of every total above rather than
+   *  folded in at par, which would silently understate spend. */
+  unconvertedByCurrency: z.array(financeMoneySchema),
+});
+export type FinanceBudgetOverview = z.infer<typeof financeBudgetOverviewSchema>;
+
+/** A starter plan derived from history alone — no model involved. */
+export const financeEnvelopeDraftSchema = z.object({
+  name: z.string().min(1),
+  categories: z.array(z.string().min(1)),
+  currency: financeCurrencySchema,
+  /** Median period spend, which resists the one-off that a mean would bake in. */
+  medianMinor: z.number().int().nonnegative(),
+  suggestedLimitMinor: z.number().int().nonnegative(),
+  period: financeEnvelopePeriodSchema,
+  periodsObserved: z.number().int().nonnegative(),
+});
+export type FinanceEnvelopeDraft = z.infer<typeof financeEnvelopeDraftSchema>;

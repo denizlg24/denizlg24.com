@@ -10,6 +10,7 @@ import { coursesTools } from "./courses";
 import { cvTools } from "./cv";
 import { emailTools } from "./email";
 import { financeTools } from "./finance";
+import { financeBudgetTools } from "./finance-budget";
 import { journalTools } from "./journal";
 import { kanbanTools } from "./kanban";
 import { latexTools } from "./latex";
@@ -64,6 +65,7 @@ const allTools: ToolDefinition[] = [
 
   // Finance
   ...financeTools,
+  ...financeBudgetTools,
 
   // People
   ...peopleTools,

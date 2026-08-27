@@ -56,6 +56,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAdmin } from "../provider";
+import { BudgetTab } from "./finance-budget-tab";
 import {
   BalanceChart,
   CashflowChart,
@@ -94,7 +95,6 @@ import {
   type GroupTotal,
   merchantTotals,
   money,
-  monthlyCommitment,
   monthToDateSpend,
   nextDueByRule,
   RANGE_DAYS,
@@ -187,6 +187,9 @@ export function FinancePage({
   // Held by id, not by value: linking or editing reloads the dashboard, and a
   // captured entry object would keep rendering its pre-save state.
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  // The budget tab owns its own fetch and reports its open-alert count back so
+  // the tab strip can badge it without loading the whole payload twice.
+  const [budgetAlerts, setBudgetAlerts] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -344,6 +347,17 @@ export function FinancePage({
                   </Badge>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="budget">
+                Budget
+                {budgetAlerts > 0 && (
+                  <Badge
+                    variant="secondary"
+                    className="ml-1.5 h-4 px-1 text-[9px]"
+                  >
+                    {budgetAlerts}
+                  </Badge>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="forecast">Forecast</TabsTrigger>
             </TabsList>
             <TabsContent value="ledger">
@@ -376,6 +390,14 @@ export function FinancePage({
             </TabsContent>
             <TabsContent value="reviews">
               <ReviewTab data={data} onReload={load} />
+            </TabsContent>
+            <TabsContent value="budget">
+              <BudgetTab
+                accounts={data.accounts}
+                categories={data.categories}
+                onLedgerChanged={load}
+                onAlertCount={setBudgetAlerts}
+              />
             </TabsContent>
             <TabsContent value="forecast">
               <ForecastTab data={data} />
@@ -816,11 +838,10 @@ function RecurringTab({
   const { client } = useAdmin();
   const [pendingRuleId, setPendingRuleId] = useState<string | null>(null);
   const today = todayKey();
-  const currency = data.monthly.currency;
-  const commitment = useMemo(
-    () => monthlyCommitment(data.recurringRules),
-    [data.recurringRules],
-  );
+  // Converted server-side against dated FX snapshots. Summing rule amounts
+  // here instead would add a 100 DKK rule to a euro total as if it were €100.
+  const commitment = data.recurringCommitment;
+  const currency = commitment.currency;
   const nextDue = useMemo(
     () => nextDueByRule(data.ledger, today),
     [data.ledger, today],
@@ -852,6 +873,17 @@ function RecurringTab({
             }
           />
         </div>
+        {commitment.unconvertedByCurrency.length > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            Excluded, no rate:{" "}
+            {commitment.unconvertedByCurrency
+              .map(
+                (row) =>
+                  `${money(row.amountMinor, row.currency)} ${row.direction}`,
+              )
+              .join(", ")}
+          </p>
+        )}
         <SectionHead label="Rules">
           <Button size="xs" variant="ghost" onClick={onNew}>
             <Plus className="size-3" />

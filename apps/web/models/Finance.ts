@@ -544,6 +544,181 @@ const financeLinkStateSchema = new Schema<IFinanceLinkState>(
 
 financeLinkStateSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+export interface IFinanceEnvelopeContribution {
+  _id: mongoose.Types.ObjectId;
+  date: string;
+  amountMinor: number;
+  note?: string;
+  createdAt: Date;
+}
+
+const financeEnvelopeContributionSchema =
+  new Schema<IFinanceEnvelopeContribution>(
+    {
+      date: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
+      amountMinor: { ...safeInteger },
+      note: { type: String },
+      createdAt: { type: Date, default: () => new Date() },
+    },
+    { _id: true },
+  );
+
+export interface IFinanceEnvelope extends Document {
+  name: string;
+  kind: "capped" | "sinking";
+  categories: string[];
+  includeUncategorized: boolean;
+  accountId?: mongoose.Types.ObjectId;
+  currency: string;
+  limitMinor: number;
+  period: "weekly" | "monthly" | "quarterly" | "yearly";
+  periodStartDay: number;
+  rollover: "none" | "surplus" | "both";
+  startDate: string;
+  targetDate?: string;
+  contributions: mongoose.Types.DocumentArray<IFinanceEnvelopeContribution>;
+  status: "active" | "archived";
+  sortOrder: number;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const financeEnvelopeSchema = new Schema<IFinanceEnvelope>(
+  {
+    name: { type: String, required: true },
+    kind: { type: String, enum: ["capped", "sinking"], required: true },
+    // Category *names*, matching how a ledger row stores its category, so a
+    // catalog rename cascades to envelopes through the same path.
+    categories: { type: [String], default: [] },
+    includeUncategorized: { type: Boolean, default: false },
+    accountId: { type: Schema.Types.ObjectId, ref: "FinanceAccount" },
+    currency: { type: String, required: true, match: /^[A-Z]{3}$/ },
+    limitMinor: { ...safeInteger, min: 0 },
+    period: {
+      type: String,
+      enum: ["weekly", "monthly", "quarterly", "yearly"],
+      required: true,
+    },
+    periodStartDay: { type: Number, min: 1, max: 28, default: 1 },
+    rollover: {
+      type: String,
+      enum: ["none", "surplus", "both"],
+      default: "none",
+    },
+    startDate: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
+    targetDate: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ },
+    contributions: { type: [financeEnvelopeContributionSchema], default: [] },
+    status: {
+      type: String,
+      enum: ["active", "archived"],
+      default: "active",
+    },
+    sortOrder: { type: Number, default: 0 },
+    notes: { type: String },
+  },
+  { collection: "finance_envelopes", timestamps: true },
+);
+
+financeEnvelopeSchema.index({ status: 1, sortOrder: 1, name: 1 });
+// The uniqueness that matters is one active envelope per category, but a
+// category lives in an array and Mongo cannot express "unique across array
+// members of active docs" — `assertEnvelopeCategoriesFree` enforces it.
+financeEnvelopeSchema.index({ categories: 1, status: 1 });
+
+export interface IFinanceBudgetAlert extends Document {
+  key: string;
+  kind: string;
+  severity: "info" | "warning" | "critical";
+  title: string;
+  detail: string;
+  envelopeId?: mongoose.Types.ObjectId;
+  category?: string;
+  currency: string;
+  periodStart?: string;
+  periodEnd?: string;
+  metrics: Record<string, number>;
+  status: "open" | "acknowledged" | "resolved";
+  /** Severity when it was acknowledged, so an escalation can reopen it. */
+  acknowledgedSeverity?: "info" | "warning" | "critical";
+  firstSeenAt: Date;
+  lastSeenAt: Date;
+  acknowledgedAt?: Date;
+  resolvedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const financeBudgetAlertSchema = new Schema<IFinanceBudgetAlert>(
+  {
+    key: { type: String, required: true, unique: true },
+    kind: { type: String, required: true },
+    severity: {
+      type: String,
+      enum: ["info", "warning", "critical"],
+      required: true,
+    },
+    title: { type: String, required: true },
+    detail: { type: String, default: "" },
+    envelopeId: { type: Schema.Types.ObjectId, ref: "FinanceEnvelope" },
+    category: { type: String },
+    currency: { type: String, required: true, match: /^[A-Z]{3}$/ },
+    periodStart: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ },
+    periodEnd: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ },
+    metrics: { type: Schema.Types.Mixed, default: {} },
+    status: {
+      type: String,
+      enum: ["open", "acknowledged", "resolved"],
+      default: "open",
+    },
+    acknowledgedSeverity: {
+      type: String,
+      enum: ["info", "warning", "critical"],
+    },
+    firstSeenAt: { type: Date, required: true },
+    lastSeenAt: { type: Date, required: true },
+    acknowledgedAt: { type: Date },
+    resolvedAt: { type: Date },
+  },
+  { collection: "finance_budget_alerts", timestamps: true },
+);
+
+financeBudgetAlertSchema.index({ status: 1, severity: 1, lastSeenAt: -1 });
+financeBudgetAlertSchema.index({ envelopeId: 1, status: 1 });
+
+export interface IFinanceBudgetSuggestion extends Document {
+  title: string;
+  rationale: string;
+  impactMinor?: number;
+  currency: string;
+  action: Record<string, unknown>;
+  status: "open" | "applied" | "dismissed";
+  generatedAt: Date;
+  resolvedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const financeBudgetSuggestionSchema = new Schema<IFinanceBudgetSuggestion>(
+  {
+    title: { type: String, required: true },
+    rationale: { type: String, default: "" },
+    impactMinor: { type: Number, validate: Number.isSafeInteger },
+    currency: { type: String, required: true, match: /^[A-Z]{3}$/ },
+    action: { type: Schema.Types.Mixed, required: true },
+    status: {
+      type: String,
+      enum: ["open", "applied", "dismissed"],
+      default: "open",
+    },
+    generatedAt: { type: Date, required: true },
+    resolvedAt: { type: Date },
+  },
+  { collection: "finance_budget_suggestions", timestamps: true },
+);
+
+financeBudgetSuggestionSchema.index({ status: 1, generatedAt: -1 });
+
 function existingModel<T>(name: string): mongoose.Model<T> | undefined {
   return mongoose.models[name] as mongoose.Model<T> | undefined;
 }
@@ -593,3 +768,18 @@ export const FinanceCategory =
 export const FinanceSettings =
   existingModel<IFinanceSettings>("FinanceSettings") ||
   mongoose.model<IFinanceSettings>("FinanceSettings", financeSettingsSchema);
+export const FinanceEnvelope =
+  existingModel<IFinanceEnvelope>("FinanceEnvelope") ||
+  mongoose.model<IFinanceEnvelope>("FinanceEnvelope", financeEnvelopeSchema);
+export const FinanceBudgetAlert =
+  existingModel<IFinanceBudgetAlert>("FinanceBudgetAlert") ||
+  mongoose.model<IFinanceBudgetAlert>(
+    "FinanceBudgetAlert",
+    financeBudgetAlertSchema,
+  );
+export const FinanceBudgetSuggestion =
+  existingModel<IFinanceBudgetSuggestion>("FinanceBudgetSuggestion") ||
+  mongoose.model<IFinanceBudgetSuggestion>(
+    "FinanceBudgetSuggestion",
+    financeBudgetSuggestionSchema,
+  );

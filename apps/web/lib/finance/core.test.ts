@@ -7,6 +7,7 @@ import type {
 import {
   availableFinanceCalls,
   computeFinanceForecast,
+  computeRecurringCommitment,
   deduplicateLinkedLedger,
   detectRecurringFinanceCandidates,
   detectTransferPairs,
@@ -405,5 +406,96 @@ describe("recurring detection", () => {
       },
     ]);
     expect(detectRecurringFinanceCandidates(rows.slice(0, 2))).toEqual([]);
+  });
+});
+
+describe("recurring commitment", () => {
+  // A DKK rule was being added straight into the euro total: 100.00 DKK became
+  // 10 000 minor units read as EUR, so "Monthly out" reported €100 of spend
+  // that did not exist.
+  const rules = [
+    {
+      status: "active" as const,
+      direction: "expense" as const,
+      currency: "EUR",
+      amountMinor: 20_000,
+      recurrence: { cadence: "monthly", interval: 1, dayOfMonth: 1 },
+    },
+    {
+      status: "active" as const,
+      direction: "expense" as const,
+      currency: "DKK",
+      amountMinor: 10_000,
+      recurrence: { cadence: "monthly", interval: 1, dayOfMonth: 1 },
+    },
+  ];
+
+  // 100 DKK ≈ 13.40 EUR.
+  const convert = (amountMinor: number, currency: string) =>
+    currency === "EUR" ? amountMinor : Math.round(amountMinor * 0.134);
+
+  test("converts each rule before adding it to the total", () => {
+    const commitment = computeRecurringCommitment({
+      rules,
+      baseCurrency: "EUR",
+      convert,
+    });
+    expect(commitment.expenseMinor).toBe(21_340);
+    expect(commitment.unconvertedByCurrency).toEqual([]);
+  });
+
+  test("a rule with no rate is reported, never folded in at par", () => {
+    const commitment = computeRecurringCommitment({
+      rules,
+      baseCurrency: "EUR",
+      convert: (amountMinor, currency) =>
+        currency === "EUR" ? amountMinor : undefined,
+    });
+    expect(commitment.expenseMinor).toBe(20_000);
+    expect(commitment.unconvertedByCurrency).toEqual([
+      { currency: "DKK", amountMinor: 10_000, direction: "expense" },
+    ]);
+  });
+
+  test("a paused rule is not a commitment", () => {
+    const commitment = computeRecurringCommitment({
+      rules: [{ ...rules[0]!, status: "paused" }],
+      baseCurrency: "EUR",
+      convert,
+    });
+    expect(commitment.expenseMinor).toBe(0);
+  });
+
+  test("income and expense stay on their own sides", () => {
+    const commitment = computeRecurringCommitment({
+      rules: [
+        { ...rules[0]!, direction: "income", amountMinor: 300_000 },
+        rules[1]!,
+      ],
+      baseCurrency: "EUR",
+      convert,
+    });
+    expect(commitment.incomeMinor).toBe(300_000);
+    expect(commitment.expenseMinor).toBe(1_340);
+  });
+
+  test("cadence is annualised before the monthly figure", () => {
+    const commitment = computeRecurringCommitment({
+      rules: [
+        {
+          ...rules[0]!,
+          amountMinor: 120_000,
+          recurrence: {
+            cadence: "yearly",
+            interval: 1,
+            month: 3,
+            dayOfMonth: 1,
+          },
+        },
+      ],
+      baseCurrency: "EUR",
+      convert,
+    });
+    expect(commitment.expenseMinor).toBe(10_000);
   });
 });

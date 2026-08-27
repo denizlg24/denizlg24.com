@@ -1,11 +1,12 @@
 import type mongoose from "mongoose";
 import { connectDB } from "@/lib/mongodb";
 import { FinanceAccount, FinanceBalance } from "@/models/Finance";
+import { evaluateFinanceBudgetAlerts } from "./budget-alerts";
 import {
   type FinanceSyncMode,
   reserveFinanceBudget,
   updateFinanceNextSync,
-} from "./budget";
+} from "./fetch-budget";
 import { refreshFinanceFxRates } from "./fx";
 import {
   ingestBankTransactions,
@@ -261,11 +262,28 @@ export async function runFinanceCron(now = new Date()) {
     }
   }
   await observeFinanceMemorySafely(now);
+  // Last, so it evaluates against whatever this run actually landed. A failure
+  // here must not fail the cron: the syncs already succeeded, and the next run
+  // re-derives the same alerts from the same ledger.
+  let budgetAlerts:
+    | Awaited<ReturnType<typeof evaluateFinanceBudgetAlerts>>
+    | undefined;
+  try {
+    budgetAlerts = await evaluateFinanceBudgetAlerts(now);
+  } catch (error) {
+    console.error("[finance] Budget alert evaluation failed", error);
+  }
   return {
     planned: accounts.length,
     attempted: results.length,
     fxUpdated,
     results,
+    budgetAlerts: budgetAlerts && {
+      opened: budgetAlerts.opened,
+      updated: budgetAlerts.updated,
+      reopened: budgetAlerts.reopened,
+      resolved: budgetAlerts.resolved,
+    },
   };
 }
 

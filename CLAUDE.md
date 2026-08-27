@@ -366,6 +366,85 @@ unconditionally, then the highest-priority matching branch rule, then a preview.
   derives it from the branch, so deploying the `staging` branch by hand lands in
   staging. The `kind` field on the input is accepted and ignored.
 
+### Finance budgeting (envelopes, alerts, coach)
+
+- `GET /finance/budget` → the whole tab: envelope definitions, per-envelope
+  status, unbudgeted spend, monthly totals, open alerts, open suggestions
+- `GET|POST /finance/envelopes`, `PATCH|DELETE /finance/envelopes/{id}`
+- `POST /finance/envelopes/{id}/contributions`, `DELETE .../{contributionId}`
+- `GET|POST /finance/budget/alerts` (list | re-evaluate now),
+  `PATCH /finance/budget/alerts/{id}` → acknowledge | reopen | resolve
+- `GET|POST /finance/budget/suggestions` (list | regenerate),
+  `PATCH /finance/budget/suggestions/{id}` → apply | dismiss. **422, not 400**,
+  when a well-formed apply is refused by the state of the budget
+- `GET /finance/budget/drafts` → starter limits from history, no model involved
+
+Things worth knowing before touching this:
+
+- **`lib/finance/fetch-budget.ts` is the provider call budget, not money.** It
+  was `budget.ts` until budgeting arrived and the collision became a trap.
+  Money budgeting is `envelope-math.ts` (pure arithmetic), `envelopes.ts`
+  (persistence), `budget-overview.ts` (snapshot), `budget-alerts.ts`,
+  `budget-coach.ts`, and `budget.ts` assembles the response.
+- **A category belongs to at most one active envelope.** Otherwise the same
+  transaction is charged to two plans and both read as under control while the
+  money was spent once. `assertEnvelopeCategoriesFree` enforces it, including
+  the single claim on uncategorized rows; Mongo cannot express it as an index.
+- **Envelope spend is net of refunds.** A returned purchase did not cost
+  anything, and counting the charge without the credit poisons the limit a
+  little more every month.
+- **Rollover is recomputed from the ledger, never stored.** A bank row landing
+  late, or a recategorization, changes what an earlier period actually spent —
+  a stored balance would keep asserting the old answer forever. The walk-back
+  is floored at the envelope's `startDate` and capped at 24 periods.
+- **`surplus` absorbs an overspend, `both` carries it.** That is the whole
+  difference, and it is why `none` is the default: one bad month under `both`
+  shrinks every month after it until someone intervenes.
+- **A sinking fund's contributions are recorded, not observed.** Setting money
+  aside is not a bank transaction, so nothing can infer it. Spend in the fund's
+  categories draws it back down, which is what makes buying the thing you saved
+  for show up correctly.
+- **Totals are stated per calendar month, envelopes on their own cadence.**
+  Adding a weekly limit to a yearly one is meaningless, so `plannedMinor` is
+  the monthly equivalent of every limit plus this month's required sinking
+  contributions — which is what makes it comparable to `incomeMinor`.
+- **Alerts are derived and idempotent.** Each carries a `key` stable for
+  (kind, envelope, period); re-running updates instead of duplicating, and
+  anything not re-derived is resolved. So an open alert is currently true.
+  Acknowledging records the severity at the time, so a worsening condition
+  reopens it — acknowledging "projected to overspend" must not silence
+  "actually overspent".
+- **Two detectors read `ledger.allRows`, not `ledger.rows`.**
+  `deduplicateLinkedLedger` drops `missed` rows and the projection half of a
+  projection↔bank match, which is right for spend and fatal for the two alerts
+  that are *about* the projection — income that never landed, and a fixed
+  subscription now charging more than its rule says. Both silently found
+  nothing until they were moved.
+- **The coach model never sees the ledger and never does arithmetic.** It gets
+  precomputed envelope status, per-category medians and open alerts, in major
+  units, and every amount it proposes must be one it was given. A suggestion
+  naming an envelope or category that does not exist is dropped rather than
+  rendered as a button that fails when pressed.
+- **Every suggestion is applicable or explicitly `advice`.** There is no third
+  kind where "apply" quietly does nothing. `reallocate` converts the amount
+  between the two envelopes' cadences so the annual sum is preserved.
+- **Nothing may sum `amountMinor` across rows of different currencies.** A
+  recurring rule, an envelope limit and a ledger row each carry their own, and
+  a DKK rule was being added straight into the euro "Monthly out" as though
+  100 DKK were €100. Totals are converted server-side where the dated FX
+  snapshots are, and anything with no applicable rate is reported under its own
+  currency rather than folded in at par — `computeRecurringCommitment` and
+  `loadBudgetLedger` both return an `unconvertedByCurrency` for exactly that.
+- **An envelope is always in the base currency.** Its spend is measured from
+  base-converted ledger rows, so a limit in any other unit compares two
+  different things. The input schema has no currency field, the sheet shows the
+  base rather than offering a choice, and `rebaseEnvelope` converts any older
+  row left behind by a change to the base setting.
+- **The alert pass runs at the end of `runFinanceCron` and cannot fail it.**
+  The syncs already succeeded by then, and the next run re-derives the same
+  alerts from the same ledger. As with markets, nothing in this repo drives
+  that cron.
+
 ### Markets orders and margin
 - `GET /markets/portfolios/{id}/orders` → `{ orders: Order[] }`; repeatable `?status=` narrows to the live book
 - `POST /markets/portfolios/{id}/orders` → `OrderInput` → `{ orders }` (the entry plus any bracket legs). **422, not 400**, when the order is well-formed but refused — no buying power, no position to reduce, shorting off

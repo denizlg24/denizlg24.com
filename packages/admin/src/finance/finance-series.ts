@@ -1,9 +1,5 @@
-import type {
-  FinanceForecast,
-  FinanceLedgerEntry,
-  FinanceRecurringRule,
-} from "@repo/schemas";
-import { formatMoney, minorToMajor, monthlyOccurrenceRate } from "@repo/utils";
+import type { FinanceForecast, FinanceLedgerEntry } from "@repo/schemas";
+import { formatMoney, minorToMajor } from "@repo/utils";
 
 const DAY_MS = 86_400_000;
 
@@ -284,25 +280,6 @@ export function nextDueByRule(ledger: FinanceLedgerEntry[], today: string) {
     }
   }
   return due;
-}
-
-function monthlyEquivalent(rule: FinanceRecurringRule) {
-  return rule.amountMinor * monthlyOccurrenceRate(rule.recurrence);
-}
-
-export function monthlyCommitment(rules: FinanceRecurringRule[]) {
-  let expenseMinor = 0;
-  let incomeMinor = 0;
-  for (const rule of rules) {
-    if (rule.status !== "active") continue;
-    const monthly = monthlyEquivalent(rule);
-    if (rule.direction === "income") incomeMinor += monthly;
-    else expenseMinor += monthly;
-  }
-  return {
-    expenseMinor: Math.round(expenseMinor),
-    incomeMinor: Math.round(incomeMinor),
-  };
 }
 
 export type WaterfallStep = {
