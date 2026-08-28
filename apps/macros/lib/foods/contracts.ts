@@ -9,15 +9,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * The nutrition API returns null for a nutrient the source never measured,
+ * which is a different fact from a measured zero. Those keys are left out of
+ * the record entirely so nothing downstream can mistake "unknown" for 0 -
+ * Number(null) is 0, so the null check has to stay explicit.
+ */
 function collectNutrients(record: Record<string, unknown>) {
   const nutrients: Record<string, number> = {};
 
   for (const [key, value] of Object.entries(record)) {
+    if (value === null || value === undefined) {
+      continue;
+    }
+
     if (
       isNutrientKey(key) &&
       (typeof value === "number" || typeof value === "string")
     ) {
-      nutrients[key] = Number(value);
+      const amount = Number(value);
+      if (Number.isFinite(amount)) {
+        nutrients[key] = amount;
+      }
     }
   }
 
@@ -52,10 +65,15 @@ export const externalFoodSummarySchema = z.object({
 const passthroughNutritionSchema = z
   .object({
     itemId: z.uuid(),
+    // Amounts are per 100 g/ml for every source. The serving the product
+    // itself declares comes back separately in packageServing*.
     servingLabel: z.string().min(1),
     servingQnty: numericValueSchema.optional(),
     servingQuantity: numericValueSchema.optional(),
     servingUnit: z.string().min(1),
+    packageServingLabel: z.string().nullable().optional(),
+    packageServingQnty: numericValueSchema.nullable().optional(),
+    packageServingUnit: z.string().nullable().optional(),
     createdAt: z.string().optional(),
     updatedAt: z.string().optional(),
   })
