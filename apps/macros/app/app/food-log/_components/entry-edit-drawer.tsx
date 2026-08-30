@@ -1,7 +1,8 @@
 "use client";
 
+import { Textarea } from "@repo/ui/textarea";
 import { Copy, Trash2 } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type EnteredMeasure,
   NutritionDetailDrawer,
@@ -13,6 +14,7 @@ import {
   getServingDisplay,
   getServingWeightGrams,
 } from "@/lib/foods/display";
+import { FoodIcon } from "@/lib/foods/food-icon";
 import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 import type {
   FoodLogDayPayload,
@@ -45,13 +47,23 @@ export function EntryEditDrawer({
   day: FoodLogDayPayload;
   isSaving: boolean;
   onClose: () => void;
-  onSave: (entryId: string, servings: number, measure: EnteredMeasure) => void;
+  onSave: (
+    entryId: string,
+    servings: number,
+    measure: EnteredMeasure,
+    notes: string,
+  ) => void;
   onDuplicate: (entryId: string) => void;
   onDelete: (entryId: string) => void;
 }) {
   const lastEntry = useRef<FoodLogEntry | null>(null);
   if (entry !== null) lastEntry.current = entry;
   const displayEntry = lastEntry.current;
+  const [notes, setNotes] = useState(displayEntry?.notes ?? "");
+
+  useEffect(() => {
+    if (entry) setNotes(entry.notes ?? "");
+  }, [entry]);
 
   const perServingNutrients = useMemo(() => {
     if (!displayEntry) return null;
@@ -67,6 +79,10 @@ export function EntryEditDrawer({
 
   if (!displayEntry) return null;
 
+  // A quick add has no food behind it, so grams would be measured against a
+  // serving that does not exist. It scales by whole entries only.
+  const isQuickAdd = displayEntry.entryType === "quick_add";
+
   const servingDisplay = getServingDisplay(
     displayEntry.servingLabel,
     displayEntry.servingQuantity,
@@ -76,8 +92,9 @@ export function EntryEditDrawer({
     displayEntry.servingQuantity,
     displayEntry.servingUnit,
   );
-  const initialUnit: NutritionUnit =
-    displayEntry.enteredUnit ?? servingDisplay.initialUnit;
+  const initialUnit: NutritionUnit = isQuickAdd
+    ? "serving"
+    : (displayEntry.enteredUnit ?? servingDisplay.initialUnit);
   const initialQuantity =
     displayEntry.enteredQuantity != null && displayEntry.enteredQuantity > 0
       ? formatFoodQuantity(displayEntry.enteredQuantity)
@@ -97,7 +114,15 @@ export function EntryEditDrawer({
       key={displayEntry.id}
       open={entry !== null}
       displayName={displayName}
-      servingLabel={servingDisplay.servingLabel}
+      icon={
+        <FoodIcon
+          name={displayEntry.foodName}
+          iconKey={displayEntry.iconKey}
+          entryType={displayEntry.entryType}
+          className="size-6 object-contain"
+        />
+      }
+      servingLabel={isQuickAdd ? "entry" : servingDisplay.servingLabel}
       servingQuantityGrams={servingQuantityGrams}
       servingUnitQuantity={servingDisplay.servingUnitQuantity}
       perServingNutrients={perServingNutrients}
@@ -112,7 +137,21 @@ export function EntryEditDrawer({
       isLogging={isSaving}
       initialQuantity={initialQuantity}
       initialUnit={initialUnit}
+      availableUnits={isQuickAdd ? ["serving"] : undefined}
       actionLabel="Save"
+      extraContent={
+        <section className="px-4 pt-4">
+          <h3 className="mb-1 text-xs font-semibold">Note</h3>
+          <Textarea
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            rows={2}
+            maxLength={500}
+            autoComplete="off"
+            className="rounded-xl"
+          />
+        </section>
+      }
       headerActions={
         <>
           <button
@@ -142,7 +181,7 @@ export function EntryEditDrawer({
       onClose={onClose}
       onAdd={(scale, _nutrients, measure) => {
         if (scale > 0) {
-          onSave(displayEntry.id, scale, measure);
+          onSave(displayEntry.id, scale, measure, notes.trim());
         }
         onClose();
       }}

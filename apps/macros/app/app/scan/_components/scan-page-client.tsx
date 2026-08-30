@@ -23,6 +23,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 import { z } from "zod";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { useDailyCalorieSummary } from "@/lib/app-cache/api";
@@ -43,14 +44,12 @@ import {
   inferMealType,
   NavTabs,
   type PendingFood,
-  PendingFoodsSheet,
   useEntryDate,
 } from "../../add/_components/add-food-shared";
 import {
   FoodDetailDrawer,
   type FoodSummary,
 } from "../../add/_components/food-detail-drawer";
-import { useLogPendingFoods } from "../../add/_components/use-log-pending-foods";
 import { writeCreateFoodDraft } from "../../foods/_lib/create-food-draft";
 
 const barcodeLookupResponseSchema = z.object({
@@ -424,8 +423,6 @@ function ScanLogic({
   const [selectedFood, setSelectedFood] = useState<FoodSummary | null>(null);
   const [labelFormat, setLabelFormat] = useState<"eu" | "us">("eu");
   const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([]);
-  const [pendingSheetOpen, setPendingSheetOpen] = useState(false);
-  const [extraConsumed, setExtraConsumed] = useState(0);
   const {
     selectedDate,
     selectedHour,
@@ -818,26 +815,11 @@ function ScanLogic({
     [selectedFood],
   );
 
-  const removePending = useCallback((uid: string) => {
-    setPendingFoods((prev) => {
-      const next = prev.filter((food) => food.uid !== uid);
-      window.queueMicrotask(() => writePendingFoods(next));
-      return next;
-    });
-  }, []);
-
-  const { isCommitting, logAllPending } = useLogPendingFoods({
-    pendingFoods,
-    setPendingFoods,
-    setPendingSheetOpen,
-    setExtraConsumed,
-    today: calorieSummary.today,
-  });
-
   const handleStage = useCallback(
     async (input: LogFoodInput, macros: OptimisticDailyMacros) => {
       await addToPending(input, macros);
-      setPendingSheetOpen(true);
+      navigator.vibrate?.(10);
+      toast.success("Added to plate");
     },
     [addToPending],
   );
@@ -854,13 +836,10 @@ function ScanLogic({
           todayDate={todayDate}
           onDateChange={setSelectedDate}
           onHourChange={setSelectedHour}
-          calorieSummary={{
-            ...calorieSummary,
-            consumed: calorieSummary.consumed + extraConsumed,
-          }}
+          calorieSummary={calorieSummary}
           pendingCount={pendingFoods.length}
           pendingCalories={pendingCalories}
-          onViewPending={() => setPendingSheetOpen(true)}
+          onViewPending={() => router.push("/app/plate")}
         />
         <NavTabs />
       </div>
@@ -892,15 +871,6 @@ function ScanLogic({
           handleRetry();
         }}
         onLog={handleStage}
-      />
-
-      <PendingFoodsSheet
-        open={pendingSheetOpen}
-        onClose={() => setPendingSheetOpen(false)}
-        pendingFoods={pendingFoods}
-        onRemove={removePending}
-        onCommit={logAllPending}
-        isLogging={isCommitting}
       />
     </div>
   );

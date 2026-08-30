@@ -6,6 +6,7 @@ import {
   type NutrientKey,
   nutrientDefinitionsInput,
 } from "@/lib/foods/nutrients";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 import type { RecipeIngredientDetail } from "@/lib/recipes/contracts";
 
 const SKIP_KEYS = new Set<NutrientKey>([
@@ -47,19 +48,34 @@ export function MacroQuad({
 }) {
   return (
     <div className="grid grid-cols-4 gap-2 rounded-xl bg-muted/40 p-3 text-center">
-      <MacroTile label="kcal" value={calories} />
-      <MacroTile label="P" value={protein} />
-      <MacroTile label="F" value={fat} />
-      <MacroTile label="C" value={carbs} />
+      <MacroTile label="kcal" value={calories} color={MACRO_COLORS.calories} />
+      <MacroTile label="P" value={protein} color={MACRO_COLORS.protein} />
+      <MacroTile label="F" value={fat} color={MACRO_COLORS.fat} />
+      <MacroTile label="C" value={carbs} color={MACRO_COLORS.carbs} />
     </div>
   );
 }
 
-function MacroTile({ label, value }: { label: string; value: number }) {
+function MacroTile({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: string;
+}) {
   return (
     <div>
       <p className="text-lg font-semibold tabular-nums">{Math.round(value)}</p>
-      <p className="text-[10px] font-medium text-muted-foreground">{label}</p>
+      <p className="flex items-center justify-center gap-1 text-[10px] font-medium text-muted-foreground">
+        <span
+          aria-hidden="true"
+          className="size-1.5 rounded-full"
+          style={{ backgroundColor: color }}
+        />
+        {label}
+      </p>
     </div>
   );
 }

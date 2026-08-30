@@ -43,6 +43,8 @@ export const macrosEnteredMeasureSchema = z.object({
 export const macrosUpdateLogEntryBodySchema = z
   .object({
     servingsConsumed: z.number().positive().max(9999),
+    // Absent leaves the stored note alone; an empty string clears it.
+    notes: z.string().trim().max(500).optional(),
   })
   .extend(macrosEnteredMeasureSchema.shape);
 

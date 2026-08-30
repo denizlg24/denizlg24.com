@@ -26,6 +26,12 @@ import {
   NUTRIENT_UPPER_LIMITS,
   WHO_DAILY_VALUES,
 } from "@/lib/foods/who-guidelines";
+import {
+  MACRO_COLORS,
+  NUTRIENT_DEFAULT_COLOR,
+  NUTRIENT_GROUP_COLORS,
+  NUTRIENT_OVERFLOW_COLOR,
+} from "@/lib/macro-colors";
 import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 
 export type NutritionUnit = "g" | "oz" | "lb" | "serving";
@@ -104,18 +110,16 @@ function getTargetForKey(
 }
 
 const SECTION_COLORS: Record<string, string> = {
-  "Carb Breakdown": "#6a9e6a",
-  "Fat Breakdown": "#b89a3c",
-  Vitamins: "#8060b4",
-  Minerals: "#b46890",
-  "Protein & Amino Acids": "#b85c50",
-  Other: "#5878b4",
+  "Carb Breakdown": MACRO_COLORS.carbs,
+  "Fat Breakdown": MACRO_COLORS.fat,
+  Vitamins: NUTRIENT_GROUP_COLORS.vitamins,
+  Minerals: NUTRIENT_GROUP_COLORS.minerals,
+  "Protein & Amino Acids": MACRO_COLORS.protein,
+  Other: NUTRIENT_GROUP_COLORS.other,
 };
 
-const DEFAULT_SECTION_COLOR = "#888899";
-
 function getSectionColor(title: string): string {
-  return SECTION_COLORS[title] ?? DEFAULT_SECTION_COLOR;
+  return SECTION_COLORS[title] ?? NUTRIENT_DEFAULT_COLOR;
 }
 
 function MacroBadge({ pct, color }: { pct: number; color: string }) {
@@ -217,7 +221,7 @@ function NutrientRow({
           className="h-full rounded-none transition-all"
           style={{
             width: `${fillPct}%`,
-            backgroundColor: overflow ? "#c4834a" : color,
+            backgroundColor: overflow ? NUTRIENT_OVERFLOW_COLOR : color,
           }}
         />
       </div>
@@ -505,6 +509,7 @@ function ServingEditor({
 export interface NutritionDetailDrawerProps {
   open: boolean;
   displayName: string;
+  icon?: ReactNode;
   servingLabel: string | null;
   servingQuantityGrams: number | null;
   servingUnitQuantity?: number;
@@ -525,6 +530,8 @@ export interface NutritionDetailDrawerProps {
   isFavorite?: boolean;
   onFavoriteChange?: () => void;
   headerActions?: ReactNode;
+  /** Rendered at the end of the scroll area, above the serving editor. */
+  extraContent?: ReactNode;
   actionLabel?: string;
   onAdd: (
     scale: number,
@@ -536,6 +543,7 @@ export interface NutritionDetailDrawerProps {
 export function NutritionDetailDrawer({
   open,
   displayName,
+  icon,
   servingLabel,
   servingQuantityGrams,
   servingUnitQuantity = 1,
@@ -551,6 +559,7 @@ export function NutritionDetailDrawer({
   isFavorite = false,
   onFavoriteChange,
   headerActions,
+  extraContent,
   actionLabel = "Add",
   onAdd,
 }: NutritionDetailDrawerProps) {
@@ -650,6 +659,11 @@ export function NutritionDetailDrawer({
           >
             <ArrowLeft className="size-4" />
           </button>
+          {icon ? (
+            <span className="flex size-7 shrink-0 items-center justify-center text-muted-foreground">
+              {icon}
+            </span>
+          ) : null}
           <h2 className="truncate text-sm font-semibold text-foreground">
             {displayName}
           </h2>
@@ -690,7 +704,7 @@ export function NutritionDetailDrawer({
               </div>
               <div className="flex flex-1 items-end justify-around pb-0.5">
                 <div className="flex flex-col items-center gap-1">
-                  <MacroBadge pct={proteinPct} color="#b85c50" />
+                  <MacroBadge pct={proteinPct} color={MACRO_COLORS.protein} />
                   <span className="text-base font-semibold tabular-nums">
                     {fmtAmount(protein)}
                   </span>
@@ -699,14 +713,14 @@ export function NutritionDetailDrawer({
                   </span>
                 </div>
                 <div className="flex flex-col items-center gap-1">
-                  <MacroBadge pct={fatPct} color="#b89a3c" />
+                  <MacroBadge pct={fatPct} color={MACRO_COLORS.fat} />
                   <span className="text-base font-semibold tabular-nums">
                     {fmtAmount(fat)}
                   </span>
                   <span className="text-[10px] text-muted-foreground">Fat</span>
                 </div>
                 <div className="flex flex-col items-center gap-1">
-                  <MacroBadge pct={carbsPct} color="#6a9e6a" />
+                  <MacroBadge pct={carbsPct} color={MACRO_COLORS.carbs} />
                   <span className="text-base font-semibold tabular-nums">
                     {fmtAmount(carbs)}
                   </span>
@@ -723,14 +737,26 @@ export function NutritionDetailDrawer({
               Impact on Targets
             </p>
             <div className="flex justify-around">
-              <ImpactRing pct={calImpact} stroke="#5878b4" label="Calories" />
+              <ImpactRing
+                pct={calImpact}
+                stroke={MACRO_COLORS.calories}
+                label="Calories"
+              />
               <ImpactRing
                 pct={proteinImpact}
-                stroke="#b85c50"
+                stroke={MACRO_COLORS.protein}
                 label="Protein"
               />
-              <ImpactRing pct={fatImpact} stroke="#b89a3c" label="Fat" />
-              <ImpactRing pct={carbsImpact} stroke="#6a9e6a" label="Carbs" />
+              <ImpactRing
+                pct={fatImpact}
+                stroke={MACRO_COLORS.fat}
+                label="Fat"
+              />
+              <ImpactRing
+                pct={carbsImpact}
+                stroke={MACRO_COLORS.carbs}
+                label="Carbs"
+              />
             </div>
           </div>
 
@@ -773,6 +799,8 @@ export function NutritionDetailDrawer({
               </section>
             );
           })}
+
+          {extraContent}
 
           <div className="h-6" />
         </div>

@@ -1,6 +1,7 @@
 export {
   dailyNutritionSummaries,
   dailyNutritionSummaryRelations,
+  foodLogDayNotes,
   foodLogEntries,
   foodLogEntryNutrientRelations,
   foodLogEntryNutrients,

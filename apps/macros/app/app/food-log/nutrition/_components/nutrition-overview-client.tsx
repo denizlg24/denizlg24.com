@@ -10,18 +10,17 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { foodLogQueryKeys } from "@/lib/app-cache/food-log-keys";
-import { MACRO_COLORS } from "@/lib/macro-colors";
+import {
+  MACRO_COLORS,
+  NUTRIENT_OVERFLOW_COLOR,
+  NUTRIENT_GROUP_COLORS as SECTION_FALLBACK_COLORS,
+} from "@/lib/macro-colors";
 import type {
   NutritionOverviewPayload,
   OverviewRange,
 } from "@/lib/queries/nutrition-overview";
 
 const PLANNED_MACRO_KEYS = new Set(["calories", "protein", "carbs", "fat"]);
-const SECTION_FALLBACK_COLORS = {
-  vitamins: "#8060b4",
-  minerals: "#b46890",
-  other: "#5878b4",
-} as const;
 
 const RANGE_TABS: { value: OverviewRange; label: string }[] = [
   { value: "1w", label: "1 Week" },
@@ -341,7 +340,7 @@ function NutrientRow({
           className="h-full transition-all"
           style={{
             width: `${fillPct}%`,
-            backgroundColor: overflow ? "#c4834a" : fallbackColor,
+            backgroundColor: overflow ? NUTRIENT_OVERFLOW_COLOR : fallbackColor,
           }}
         />
       </div>

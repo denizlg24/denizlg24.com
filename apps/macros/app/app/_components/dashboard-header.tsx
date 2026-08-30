@@ -25,12 +25,14 @@ import {
   Search,
   Shapes,
   X,
+  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useWeightOverview } from "@/lib/app-cache/api";
 import { dateToIso } from "@/lib/weights/date-utils";
+import { QuickAddDrawerForm } from "./quick-add-drawer-form";
 import { WeighInDrawerForm } from "./weigh-in-drawer-form";
 
 type NavLinkProps = {
@@ -132,9 +134,9 @@ export function DashboardHeader() {
   const pathname = usePathname();
   const { data } = useWeightOverview();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerMode, setDrawerMode] = useState<"shortcuts" | "weight">(
-    "shortcuts",
-  );
+  const [drawerMode, setDrawerMode] = useState<
+    "shortcuts" | "weight" | "quick-add"
+  >("shortcuts");
   const today = data?.today ?? dateToIso(new Date());
   const todayEntry = useMemo(
     () => data?.entries.find((entry) => entry.logDate === today) ?? null,
@@ -187,6 +189,8 @@ export function DashboardHeader() {
                 onClose={closeDrawer}
                 showHandle={false}
               />
+            ) : drawerMode === "quick-add" ? (
+              <QuickAddDrawerForm logDate={today} onClose={closeDrawer} />
             ) : (
               <>
                 <DrawerHeader className="grid grid-cols-[auto_1fr_auto] items-center border-b border-border/70 px-5 pb-4 text-center">
@@ -210,7 +214,7 @@ export function DashboardHeader() {
                   <span className="size-9" aria-hidden="true" />
                 </DrawerHeader>
 
-                <div className="grid grid-cols-3 gap-3 px-8 py-5">
+                <div className="grid grid-cols-4 gap-3 px-6 py-5">
                   <ShortcutAction
                     icon={Scale}
                     label="Weight"
@@ -225,6 +229,11 @@ export function DashboardHeader() {
                     href="/app/scan"
                     icon={Barcode}
                     label="Barcode"
+                  />
+                  <ShortcutAction
+                    icon={Zap}
+                    label="Quick Add"
+                    onClick={() => setDrawerMode("quick-add")}
                   />
                 </div>
 

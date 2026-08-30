@@ -266,6 +266,39 @@ export const logFoodBodySchema = z
   })
   .extend(macrosEnteredMeasureSchema.shape);
 
+/**
+ * A quick add is calories the owner typed with no food behind it, so it links
+ * to no snapshot and its macros are stored verbatim rather than scaled.
+ */
+export const logQuickAddBodySchema = z.object({
+  clientMutationId: z.uuid().optional(),
+  name: z.string().trim().min(1).max(240).default("Quick add"),
+  calories: z.number().nonnegative().max(30_000),
+  protein: z.number().nonnegative().max(5_000).optional(),
+  carbs: z.number().nonnegative().max(5_000).optional(),
+  fat: z.number().nonnegative().max(5_000).optional(),
+  eatenAt: z.iso.datetime({ offset: true }).optional(),
+  logDate: z.iso.date().optional(),
+  mealType: mealTypeSchema.optional(),
+  notes: z.string().trim().max(500).optional(),
+});
+
+export const logQuickAddResponseSchema = z.object({
+  entry: z.object({
+    entryId: z.uuid(),
+    clientMutationId: z.uuid().optional(),
+    logDate: z.iso.date(),
+    eatenAt: z.string(),
+    mealType: mealTypeSchema,
+  }),
+  totals: z.object({
+    calories: z.number(),
+    protein: z.number(),
+    carbs: z.number(),
+    fat: z.number(),
+  }),
+});
+
 export const logFoodResponseSchema = z.object({
   entry: z.object({
     entryId: z.uuid(),
@@ -310,3 +343,4 @@ export type ExternalFoodNutrition = z.infer<typeof externalFoodNutritionSchema>;
 export type CreateFoodInput = z.infer<typeof createFoodBodySchema>;
 export type UpdateFoodInput = z.infer<typeof updateFoodBodySchema>;
 export type LogFoodInput = z.infer<typeof logFoodBodySchema>;
+export type LogQuickAddInput = z.infer<typeof logQuickAddBodySchema>;

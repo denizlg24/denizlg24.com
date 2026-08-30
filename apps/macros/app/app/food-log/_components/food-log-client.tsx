@@ -1,12 +1,24 @@
 "use client";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import { Skeleton } from "@repo/ui/skeleton";
+import { Textarea } from "@repo/ui/textarea";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookmarkPlus,
   ChevronRight,
   ListChecks,
+  Pencil,
   Plus,
   RotateCcw,
   SlidersHorizontal,
@@ -25,6 +37,11 @@ import type {
 import type { WeekTotalsPayload } from "@/lib/queries/food-log-week-totals";
 import type { EnteredMeasure } from "../../add/_components/nutrition-detail-drawer";
 import { shiftIso, todayIso, weekDaysFor } from "../_lib/date-utils";
+import {
+  type MealType,
+  MoveEntriesDrawer,
+  SaveTemplateDrawer,
+} from "./bulk-actions-drawers";
 import { EntryEditDrawer } from "./entry-edit-drawer";
 import { FoodLogHeader } from "./food-log-header";
 import { Timeline } from "./timeline";
@@ -84,6 +101,9 @@ export function FoodLogClient() {
   const [selection, setSelection] = useState<Set<string>>(() => new Set());
   const [editingEntry, setEditingEntry] = useState<FoodLogEntry | null>(null);
   const [isSavingServing, setIsSavingServing] = useState(false);
+  const [moveDrawerOpen, setMoveDrawerOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isApplyingBulk, setIsApplyingBulk] = useState(false);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: foodLogQueryKeys.day(selectedDate),
@@ -217,6 +237,7 @@ export function FoodLogClient() {
     id: string,
     servings: number,
     measure: EnteredMeasure,
+    notes: string,
   ) {
     setIsSavingServing(true);
     try {
@@ -227,6 +248,7 @@ export function FoodLogClient() {
           servingsConsumed: servings,
           enteredQuantity: measure.quantity,
           enteredUnit: measure.unit,
+          notes,
         }),
       });
       if (!response.ok) return toast.error("Could not update serving");
@@ -236,41 +258,33 @@ export function FoodLogClient() {
     }
   }
 
-  async function applyBulkAction(action: "delete" | "move") {
-    const entryIds = [...selection];
-    if (!entryIds.length) return;
-    let method = "DELETE";
-    let body: Record<string, unknown> = { entryIds };
-    if (action === "delete") {
-      if (!window.confirm(`Delete ${entryIds.length} selected entries?`))
+  async function postBulkAction(
+    method: "DELETE" | "PATCH",
+    body: Record<string, unknown>,
+  ) {
+    setIsApplyingBulk(true);
+    try {
+      const response = await fetch("/api/food-log/entries/actions", {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        toast.error(
+          method === "DELETE"
+            ? "Could not delete entries"
+            : "Could not move entries",
+        );
         return;
-    } else {
-      const mealType = window.prompt(
-        "Move to meal: breakfast, lunch, dinner, or snack",
-      );
-      if (
-        !mealType ||
-        !["breakfast", "lunch", "dinner", "snack"].includes(mealType)
-      )
-        return toast.error("Choose a valid meal");
-      const logDate = window.prompt(
-        "Move to date (YYYY-MM-DD), or leave blank for the same day",
-        selectedDate,
-      );
-      if (logDate && !isValidIsoDate(logDate))
-        return toast.error("Use YYYY-MM-DD");
-      method = "PATCH";
-      body = { entryIds, mealType, ...(logDate ? { logDate } : {}) };
+      }
+      setSelection(new Set());
+      setSelecting(false);
+      setMoveDrawerOpen(false);
+      setDeleteDialogOpen(false);
+      await refreshLog();
+    } finally {
+      setIsApplyingBulk(false);
     }
-    const response = await fetch("/api/food-log/entries/actions", {
-      method,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) return toast.error(`Could not ${action} entries`);
-    setSelection(new Set());
-    setSelecting(false);
-    await refreshLog();
   }
 
   return (
@@ -322,7 +336,7 @@ export function FoodLogClient() {
                 size="sm"
                 variant="outline"
                 disabled={!selection.size}
-                onClick={() => void applyBulkAction("move")}
+                onClick={() => setMoveDrawerOpen(true)}
               >
                 Move
               </Button>
@@ -330,7 +344,7 @@ export function FoodLogClient() {
                 size="sm"
                 variant="destructive"
                 disabled={!selection.size}
-                onClick={() => void applyBulkAction("delete")}
+                onClick={() => setDeleteDialogOpen(true)}
               >
                 Delete
               </Button>
@@ -379,21 +393,74 @@ export function FoodLogClient() {
                 : undefined
             }
           />
-          <NotesPlaceholder />
+          <DayNote
+            selectedDate={selectedDate}
+            note={data.note}
+            onSaved={refreshLog}
+          />
           <MoreBlock selectedDate={selectedDate} />
           <EntryEditDrawer
             entry={editingEntry}
             day={data}
             isSaving={isSavingServing}
             onClose={() => setEditingEntry(null)}
-            onSave={(id, servings, measure) =>
-              void updateServing(id, servings, measure)
+            onSave={(id, servings, measure, notes) =>
+              void updateServing(id, servings, measure, notes)
             }
             onDuplicate={(id) => void duplicateEntry(id)}
             onDelete={scheduleDelete}
           />
         </>
       ) : null}
+
+      <MoveEntriesDrawer
+        open={moveDrawerOpen}
+        count={selection.size}
+        selectedDate={selectedDate}
+        isSaving={isApplyingBulk}
+        onClose={() => setMoveDrawerOpen(false)}
+        onMove={(mealType: MealType, logDate: string) =>
+          void postBulkAction("PATCH", {
+            entryIds: [...selection],
+            mealType,
+            logDate,
+          })
+        }
+      />
+
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !isApplyingBulk) setDeleteDialogOpen(false);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selection.size}{" "}
+              {selection.size === 1 ? "entry" : "entries"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="sr-only">
+              Removes the selected entries from this day.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isApplyingBulk}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isApplyingBulk || selection.size === 0}
+              onClick={(event) => {
+                event.preventDefault();
+                void postBulkAction("DELETE", { entryIds: [...selection] });
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -408,6 +475,8 @@ function EntryAccelerators({
   onChanged: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
+  const [templateDrawerOpen, setTemplateDrawerOpen] = useState(false);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const templates = useQuery({
     queryKey: ["meal-templates"],
     queryFn: async () => {
@@ -474,25 +543,35 @@ function EntryAccelerators({
             variant="ghost"
             size="sm"
             className="shrink-0"
-            onClick={() => {
-              const name = window.prompt("Template name");
-              if (!name?.trim()) return;
-              void post("/api/meal-templates", { name, entryIds }).then(
-                async () => {
-                  await queryClient.invalidateQueries({
-                    queryKey: ["meal-templates"],
-                  });
-                  toast.success("Meal template saved");
-                },
-                () => toast.error("Could not save template"),
-              );
-            }}
+            onClick={() => setTemplateDrawerOpen(true)}
           >
             <BookmarkPlus />
             Save day
           </Button>
         ) : null}
       </div>
+
+      <SaveTemplateDrawer
+        open={templateDrawerOpen}
+        count={entryIds.length}
+        isSaving={isSavingTemplate}
+        onClose={() => setTemplateDrawerOpen(false)}
+        onSave={(name) => {
+          setIsSavingTemplate(true);
+          void post("/api/meal-templates", { name, entryIds })
+            .then(
+              async () => {
+                await queryClient.invalidateQueries({
+                  queryKey: ["meal-templates"],
+                });
+                setTemplateDrawerOpen(false);
+                toast.success("Meal template saved");
+              },
+              () => toast.error("Could not save template"),
+            )
+            .finally(() => setIsSavingTemplate(false));
+        }}
+      />
     </section>
   );
 }
@@ -510,26 +589,103 @@ function DayLoading() {
   );
 }
 
-function NotesPlaceholder() {
+function DayNote({
+  selectedDate,
+  note,
+  onSaved,
+}: {
+  selectedDate: string;
+  note: string | null;
+  onSaved: () => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(note ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setDraft(note ?? "");
+    setEditing(false);
+  }, [note]);
+
+  async function save() {
+    setIsSaving(true);
+    try {
+      const response = await fetch("/api/food-log/day-note", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ logDate: selectedDate, note: draft }),
+      });
+      if (!response.ok) {
+        toast.error("Could not save note");
+        return;
+      }
+      setEditing(false);
+      await onSaved();
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <section className="px-4 pt-2 pb-6">
-      <div className="flex items-center justify-between mb-2">
+      <div className="mb-2 flex items-center justify-between">
         <h2 className="text-2xl font-semibold tracking-tight">Notes</h2>
-        <Button
+        {editing ? null : (
+          <Button
+            type="button"
+            variant="default"
+            size="icon"
+            className="rounded-full"
+            aria-label={note ? "Edit note" : "Add note"}
+            onClick={() => setEditing(true)}
+          >
+            {note ? <Pencil className="size-4" /> : <Plus className="size-4" />}
+          </Button>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="space-y-2">
+          <Textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={4}
+            maxLength={2000}
+            autoComplete="off"
+            className="rounded-xl"
+          />
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 rounded-full"
+              disabled={isSaving}
+              onClick={() => {
+                setDraft(note ?? "");
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="flex-1 rounded-full"
+              disabled={isSaving}
+              onClick={() => void save()}
+            >
+              {isSaving ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button
           type="button"
-          variant="default"
-          size="icon"
-          className="rounded-full"
-          aria-label="Add note"
-          disabled
-          aria-disabled="true"
+          onClick={() => setEditing(true)}
+          className="w-full rounded-xl bg-muted/40 px-4 py-5 text-left text-sm whitespace-pre-wrap"
         >
-          <Plus className="size-4" />
-        </Button>
-      </div>
-      <div className="rounded-xl bg-muted/40 px-4 py-5 text-sm text-muted-foreground">
-        No notes to display
-      </div>
+          {note ?? <span className="text-muted-foreground">—</span>}
+        </button>
+      )}
     </section>
   );
 }

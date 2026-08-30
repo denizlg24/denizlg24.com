@@ -6,6 +6,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db/connection";
 import {
   dailyNutritionSummaries,
+  foodLogDayNotes,
   foodLogEntries,
   foodLogEntryNutrients,
   foods,
@@ -58,6 +59,7 @@ export interface FoodLogDayPayload {
   entries: FoodLogEntry[];
   totals: FoodLogDayMacros;
   targets: FoodLogDayTargets;
+  note: string | null;
 }
 
 function toEnteredUnit(value: string | null): MacrosEnteredUnit | null {
@@ -79,7 +81,7 @@ export async function getFoodLogDay(
   });
   const timezone = profile?.timezone ?? "UTC";
 
-  const [entryRows, nutrientRows, summary, plan] = await Promise.all([
+  const [entryRows, nutrientRows, summary, plan, dayNote] = await Promise.all([
     db
       .select({
         id: foodLogEntries.id,
@@ -145,6 +147,13 @@ export async function getFoodLogDay(
         fatTarget: true,
       },
     }),
+    db.query.foodLogDayNotes.findFirst({
+      where: and(
+        eq(foodLogDayNotes.userId, userId),
+        eq(foodLogDayNotes.logDate, date),
+      ),
+      columns: { note: true },
+    }),
   ]);
 
   const nutrientByEntry = new Map<string, Record<string, number>>();
@@ -207,5 +216,12 @@ export async function getFoodLogDay(
     fat: plan?.fatTarget != null ? Number(plan.fatTarget) : null,
   };
 
-  return { date, timezone, entries, totals, targets };
+  return {
+    date,
+    timezone,
+    entries,
+    totals,
+    targets,
+    note: dayNote?.note ?? null,
+  };
 }

@@ -11,6 +11,7 @@ import {
   getServingDisplay,
   getServingWeightGrams,
 } from "@/lib/foods/display";
+import { FoodIcon } from "@/lib/foods/food-icon";
 import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition";
 import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 import {
@@ -159,6 +160,13 @@ export function FoodDetailDrawer({
       key={displayFood.id}
       open={food !== null}
       displayName={displayName}
+      icon={
+        <FoodIcon
+          name={displayFood.name}
+          iconKey={displayFood.iconKey}
+          className="size-6 object-contain"
+        />
+      }
       servingLabel={servingDisplay.servingLabel}
       servingQuantityGrams={servingQuantityGrams}
       servingUnitQuantity={servingDisplay.servingUnitQuantity}

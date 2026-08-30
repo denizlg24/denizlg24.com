@@ -13,6 +13,7 @@ import {
   Barcode,
   BookOpen,
   ChefHat,
+  Flame,
   Search,
   Trash2,
   Utensils,
@@ -30,6 +31,13 @@ import {
 } from "react";
 import { z } from "zod";
 import { type LogFoodInput, logFoodBodySchema } from "@/lib/foods/contracts";
+import {
+  formatCalories,
+  formatMeasureAmount,
+  formatServingAmount,
+} from "@/lib/foods/display";
+import { FoodIcon } from "@/lib/foods/food-icon";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition";
 import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 import {
@@ -188,6 +196,68 @@ export function saveFailedPendingFoods(foods: PendingFood[]) {
   }
 }
 
+/** Drains the retry queue so a second mount cannot re-stage the same rows. */
+export function takeFailedPendingFoods(): PendingFood[] {
+  const foods = readFailedPendingFoods();
+  if (foods.length === 0) return foods;
+
+  try {
+    window.sessionStorage.removeItem(FAILED_PENDING_FOODS_KEY);
+  } catch {}
+
+  return foods;
+}
+
+export function dedupePendingFoods(foods: PendingFood[]) {
+  const seen = new Set<string>();
+  const deduped: PendingFood[] = [];
+
+  for (const food of foods) {
+    if (seen.has(food.uid)) continue;
+    seen.add(food.uid);
+    deduped.push(food);
+  }
+
+  return deduped;
+}
+
+export function pendingDisplayName(food: PendingFood) {
+  return food.food.brand
+    ? `${food.food.name} By ${food.food.brand}`
+    : food.food.name;
+}
+
+/** Mirrors the food log's amount rule: a typed measure wins over the serving. */
+export function formatPendingAmount(food: PendingFood) {
+  const input = food.input;
+  if ("enteredUnit" in input) {
+    const { enteredQuantity, enteredUnit } = input;
+    if (
+      enteredUnit != null &&
+      enteredUnit !== "serving" &&
+      enteredQuantity != null &&
+      Number.isFinite(enteredQuantity) &&
+      enteredQuantity > 0
+    ) {
+      return formatMeasureAmount(enteredQuantity, enteredUnit);
+    }
+  }
+
+  return formatServingAmount(food.food.servingLabel, input.servingsConsumed);
+}
+
+export function sumPendingMacros(foods: PendingFood[]) {
+  return foods.reduce(
+    (acc, food) => ({
+      calories: acc.calories + food.macros.calories,
+      protein: acc.protein + food.macros.protein,
+      fat: acc.fat + food.macros.fat,
+      carbs: acc.carbs + food.macros.carbs,
+    }),
+    { calories: 0, protein: 0, fat: 0, carbs: 0 },
+  );
+}
+
 const NAV_TABS = [
   { href: "/app/scan", label: "Scan", Icon: Barcode },
   { href: "/app/add", label: "Search", Icon: Search },
@@ -258,7 +328,7 @@ function CaloriePill({
             height={rh}
             rx={rx}
             fill="none"
-            stroke="#3b82f6"
+            stroke={MACRO_COLORS.calories}
             strokeWidth={SW}
             strokeDasharray={`${fillLength} ${perimeter}`}
             strokeDashoffset={-startOffset}
@@ -273,7 +343,8 @@ function CaloriePill({
             height={rh}
             rx={rx}
             fill="none"
-            stroke="#93c5fd"
+            stroke={MACRO_COLORS.calories}
+            strokeOpacity={0.45}
             strokeWidth={SW}
             strokeDasharray={`${pendingFillLength} ${perimeter}`}
             strokeDashoffset={-(startOffset + fillLength)}
@@ -294,7 +365,7 @@ const DRUM_ITEM_H = 44;
 const DRUM_VISIBLE = 5;
 const DRUM_PADDING = Math.floor(DRUM_VISIBLE / 2);
 
-function DrumColumn({
+export function DrumColumn({
   count,
   selectedIndex,
   onSelect,
@@ -531,19 +602,141 @@ export function NavTabs() {
   );
 }
 
-function foodColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) {
-    h = ((h << 5) - h + name.charCodeAt(i)) & 0x7fffffff;
-  }
-  return `hsl(${h % 360}, 55%, 40%)`;
+export function PendingMacroTotals({
+  totals,
+  targets,
+}: {
+  totals: { calories: number; protein: number; fat: number; carbs: number };
+  targets?: {
+    calories: number | null;
+    protein: number | null;
+    fat: number | null;
+    carbs: number | null;
+  };
+}) {
+  const rows = [
+    {
+      key: "calories" as const,
+      label: "kcal",
+      value: totals.calories,
+      target: targets?.calories ?? null,
+      color: MACRO_COLORS.calories,
+    },
+    {
+      key: "protein" as const,
+      label: "P",
+      value: totals.protein,
+      target: targets?.protein ?? null,
+      color: MACRO_COLORS.protein,
+    },
+    {
+      key: "fat" as const,
+      label: "F",
+      value: totals.fat,
+      target: targets?.fat ?? null,
+      color: MACRO_COLORS.fat,
+    },
+    {
+      key: "carbs" as const,
+      label: "C",
+      value: totals.carbs,
+      target: targets?.carbs ?? null,
+      color: MACRO_COLORS.carbs,
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-4 gap-3">
+      {rows.map(({ key, label, value, target, color }) => {
+        const pct =
+          target != null && target > 0
+            ? Math.min(100, (value / target) * 100)
+            : 0;
+        return (
+          <div key={key} className="flex min-w-0 flex-col gap-1.5">
+            <p className="text-lg font-semibold tabular-nums leading-none">
+              {Math.round(value)}
+            </p>
+            <div className="h-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full transition-[width] duration-300"
+                style={{ width: `${pct}%`, backgroundColor: color }}
+              />
+            </div>
+            <p className="text-[10px] font-medium tabular-nums text-muted-foreground">
+              {label}
+              {target != null && target > 0 ? ` of ${Math.round(target)}` : ""}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
-function foodInitials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return "?";
-  if (words.length === 1) return name.slice(0, 2).toUpperCase();
-  return (words[0]![0]! + words[1]![0]!).toUpperCase();
+export function PendingFoodRow({
+  food,
+  onRemove,
+  onEdit,
+}: {
+  food: PendingFood;
+  onRemove: (uid: string) => void;
+  onEdit?: (food: PendingFood) => void;
+}) {
+  const displayName = pendingDisplayName(food);
+  const amount = formatPendingAmount(food);
+
+  const body = (
+    <>
+      <div className="text-sm font-medium leading-tight truncate">
+        {displayName}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs leading-tight tabular-nums text-muted-foreground">
+        <span className="inline-flex items-center font-medium">
+          {formatCalories(food.macros.calories)}
+          <Flame className="ml-0.5 size-3" />
+        </span>
+        <span>{Math.round(food.macros.protein)}P</span>
+        <span>{Math.round(food.macros.fat)}F</span>
+        <span>{Math.round(food.macros.carbs)}C</span>
+        <span aria-hidden="true">•</span>
+        <span className="truncate">{amount}</span>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="flex items-center gap-3 border-b border-border/50 px-4 py-3">
+      <span className="flex size-9 shrink-0 items-center justify-center text-muted-foreground">
+        <FoodIcon
+          name={food.food.name}
+          iconKey={food.food.iconKey}
+          entryType={food.entryType ?? "food"}
+          className="size-7 object-contain"
+        />
+      </span>
+      {onEdit ? (
+        <button
+          type="button"
+          onClick={() => onEdit(food)}
+          aria-label={`Edit ${displayName}`}
+          className="min-w-0 flex-1 text-left"
+        >
+          {body}
+        </button>
+      ) : (
+        <div className="min-w-0 flex-1">{body}</div>
+      )}
+      <button
+        type="button"
+        onClick={() => onRemove(food.uid)}
+        aria-label={`Remove ${displayName}`}
+        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-destructive"
+      >
+        <Trash2 className="size-4" />
+      </button>
+    </div>
+  );
 }
 
 export function PendingFoodsSheet({
@@ -561,10 +754,7 @@ export function PendingFoodsSheet({
   onCommit: () => void;
   isLogging: boolean;
 }) {
-  const totalCalories = pendingFoods.reduce(
-    (s, f) => s + getPendingCalories(f),
-    0,
-  );
+  const totals = sumPendingMacros(pendingFoods);
 
   return (
     <Drawer open={open} onOpenChange={(o) => !o && onClose()}>
@@ -575,57 +765,19 @@ export function PendingFoodsSheet({
             Review and commit your staged food entries.
           </DrawerDescription>
         </VisuallyHidden>
-        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+        <div className="flex items-center justify-between px-4 pt-4 pb-3">
           <p className="text-sm font-semibold text-foreground">
             {pendingFoods.length} food{pendingFoods.length !== 1 ? "s" : ""}{" "}
             staged
           </p>
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {Math.round(totalCalories)} kcal total
-          </span>
         </div>
-        <div className="max-h-[55dvh] overflow-y-auto">
-          {pendingFoods.map((pf) => {
-            const initials = foodInitials(pf.food.name);
-            const color = foodColor(pf.food.name);
-            const displayName = pf.food.brand
-              ? `${pf.food.name} By ${pf.food.brand}`
-              : pf.food.name;
-            return (
-              <div
-                key={pf.uid}
-                className="flex items-center gap-3 border-b border-border/50 px-4 py-3"
-              >
-                <div
-                  className="flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-foreground"
-                  style={{ backgroundColor: color }}
-                >
-                  {initials}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {displayName}
-                  </p>
-                  <p className="text-xs text-muted-foreground tabular-nums">
-                    {Math.round(getPendingCalories(pf))} kcal
-                    {" · "}
-                    {pf.input.servingsConsumed.toFixed(
-                      pf.input.servingsConsumed % 1 === 0 ? 0 : 1,
-                    )}{" "}
-                    serving
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onRemove(pf.uid)}
-                  aria-label="Remove"
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
-            );
-          })}
+        <div className="px-4 pb-3">
+          <PendingMacroTotals totals={totals} />
+        </div>
+        <div className="max-h-[55dvh] overflow-y-auto overscroll-contain border-t border-border/50">
+          {pendingFoods.map((food) => (
+            <PendingFoodRow key={food.uid} food={food} onRemove={onRemove} />
+          ))}
         </div>
         <div className="px-3 pt-3 pb-safe-end">
           <button

@@ -799,6 +799,20 @@ export const dailyNutritionSummaries = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.logDate] })],
 );
 
+/** One free-text note per logged day, the way MacroFactor's log carries one. */
+export const foodLogDayNotes = pgTable(
+  "food_log_day_notes",
+  {
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    logDate: date("logDate").notNull(),
+    note: text("note").notNull(),
+    ...timestamps,
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.logDate] })],
+);
+
 export const userDayRolloverStates = pgTable("user_day_rollover_states", {
   userId: text("userId")
     .primaryKey()
@@ -1508,6 +1522,7 @@ export const schema = {
   foodLogEntries,
   foodLogEntryNutrients,
   dailyNutritionSummaries,
+  foodLogDayNotes,
   userDayRolloverStates,
   weightGoals,
   weighIns,

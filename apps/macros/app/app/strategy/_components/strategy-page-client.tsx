@@ -22,6 +22,7 @@ import {
 } from "@/components/onboarding/wizard";
 import { queryKeys } from "@/lib/app-cache/query-keys";
 import type { ActiveGoal, GoalHistoryEntry } from "@/lib/goals/contracts";
+import { MACRO_COLORS } from "@/lib/macro-colors";
 import type { PlanDetail } from "@/lib/plans/contracts";
 
 interface StrategyResponse {
@@ -350,10 +351,10 @@ function buildInitial(
 // ===== Subcomponents =====
 
 const COLORS = {
-  calories: "#5878b4",
-  protein: "#e0826c",
-  fat: "#f1c453",
-  carbs: "#7fbe7f",
+  calories: MACRO_COLORS.calories,
+  protein: MACRO_COLORS.protein,
+  fat: MACRO_COLORS.fat,
+  carbs: MACRO_COLORS.carbs,
 } as const;
 
 function ProgramCard({

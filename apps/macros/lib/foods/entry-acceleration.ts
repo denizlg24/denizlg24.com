@@ -169,6 +169,7 @@ export async function updateLogEntryServing(
         servingsConsumed: input.servingsConsumed.toFixed(4),
         enteredQuantity: input.enteredQuantity?.toFixed(4) ?? null,
         enteredUnit: input.enteredUnit ?? null,
+        ...(input.notes === undefined ? {} : { notes: input.notes || null }),
         updatedAt: new Date(),
       })
       .where(

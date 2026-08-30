@@ -12,7 +12,7 @@ import {
 import { Label } from "@repo/ui/label";
 import { Skeleton } from "@repo/ui/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Flame, LoaderCircle, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, LoaderCircle, Save } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -23,30 +23,29 @@ import {
   subscribeToPendingFoods,
   writePendingFoods,
 } from "@/lib/foods/pending-foods";
+import type { OptimisticDailyMacros } from "@/lib/optimistic-nutrition";
+import type { DailyCalorieSummary } from "@/lib/queries/calorie-summary";
 import { createRecipeResponseSchema } from "@/lib/recipes/contracts";
 import {
   dateFromIsoDate,
-  formatHourLabel,
-  getHourInTimezone,
-  getPendingCalories,
   HeaderChips,
   inferMealType,
+  isoDateFromDate,
   NavTabs,
   type PendingFood,
+  PendingFoodRow,
+  PendingMacroTotals,
+  sumPendingMacros,
+  useEntryDate,
 } from "../../add/_components/add-food-shared";
+import type { EnteredMeasure } from "../../add/_components/nutrition-detail-drawer";
 import { useLogPendingFoods } from "../../add/_components/use-log-pending-foods";
 import {
   IngredientListPanel,
   MacroQuad,
   StatRow,
 } from "../../recipes/_components/recipe-drawer-pieces";
-
-function toIsoDate(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
-    2,
-    "0",
-  )}-${String(date.getDate()).padStart(2, "0")}`;
-}
+import { PlateEditDrawer } from "./plate-edit-drawer";
 
 async function readJsonResponse(response: Response) {
   if (!response.ok) {
@@ -56,8 +55,21 @@ async function readJsonResponse(response: Response) {
 }
 
 export function PlatePageClient() {
-  const queryClient = useQueryClient();
   const { data } = useDailyCalorieSummary();
+
+  if (!data) {
+    return <PlateLoading />;
+  }
+
+  return <PlateLogic calorieSummary={data} />;
+}
+
+function PlateLogic({
+  calorieSummary,
+}: {
+  calorieSummary: DailyCalorieSummary;
+}) {
+  const queryClient = useQueryClient();
   const [pendingFoods, setPendingFoods] = useState<PendingFood[]>([]);
   const [extraConsumed, setExtraConsumed] = useState(0);
   const [, setPendingSheetOpen] = useState(false);
@@ -66,21 +78,20 @@ export function PlatePageClient() {
   const [recipeWeight, setRecipeWeight] = useState("");
   const [recipeServings, setRecipeServings] = useState("");
   const [isSavingRecipe, setIsSavingRecipe] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
-  const [selectedHour, setSelectedHour] = useState(() => new Date().getHours());
+  const [editingFood, setEditingFood] = useState<PendingFood | null>(null);
+  const {
+    selectedDate,
+    selectedHour,
+    pickDate: setSelectedDate,
+    setSelectedHour,
+  } = useEntryDate(calorieSummary.today, calorieSummary.timezone);
 
   useEffect(() => {
     setPendingFoods(readPendingFoods());
     return subscribeToPendingFoods(setPendingFoods);
   }, []);
 
-  useEffect(() => {
-    if (!data) return;
-    setSelectedDate(dateFromIsoDate(data.today));
-    setSelectedHour(getHourInTimezone(new Date(), data.timezone));
-  }, [data?.today, data?.timezone]);
-
-  const logDate = useMemo(() => toIsoDate(selectedDate), [selectedDate]);
+  const logDate = useMemo(() => isoDateFromDate(selectedDate), [selectedDate]);
   const eatenAt = useMemo(() => {
     const d = new Date(selectedDate);
     const now = new Date();
@@ -106,27 +117,56 @@ export function PlatePageClient() {
     [eatenAt, logDate, pendingFoods, selectedHour],
   );
 
-  const totals = pendingFoods.reduce(
-    (acc, food) => ({
-      calories: acc.calories + food.macros.calories,
-      protein: acc.protein + food.macros.protein,
-      fat: acc.fat + food.macros.fat,
-      carbs: acc.carbs + food.macros.carbs,
-    }),
-    { calories: 0, protein: 0, fat: 0, carbs: 0 },
-  );
+  const totals = sumPendingMacros(pendingFoods);
+
+  // The plate re-dates every row on commit, so it only lands on today's pill
+  // when the picker is still on today.
+  const pendingCaloriesToday =
+    logDate === calorieSummary.today ? totals.calories : 0;
 
   const { isCommitting, logAllPending } = useLogPendingFoods({
     pendingFoods: foodsForLog,
     setPendingFoods,
     setPendingSheetOpen,
     setExtraConsumed,
-    today: data?.today ?? logDate,
+    today: calorieSummary.today,
   });
 
   function removePending(uid: string) {
     setPendingFoods((current) => {
       const next = current.filter((food) => food.uid !== uid);
+      window.queueMicrotask(() => writePendingFoods(next));
+      return next;
+    });
+  }
+
+  function updatePending(
+    uid: string,
+    servingsConsumed: number,
+    measure: EnteredMeasure,
+    macros: OptimisticDailyMacros,
+  ) {
+    setPendingFoods((current) => {
+      const next = current.map((food): PendingFood => {
+        if (food.uid !== uid) return food;
+        if ("enteredUnit" in food.input) {
+          return {
+            ...food,
+            input: {
+              ...food.input,
+              servingsConsumed,
+              enteredQuantity: measure.quantity,
+              enteredUnit: measure.unit,
+            },
+            macros,
+          };
+        }
+        return {
+          ...food,
+          input: { ...food.input, servingsConsumed },
+          macros,
+        };
+      });
       window.queueMicrotask(() => writePendingFoods(next));
       return next;
     });
@@ -199,93 +239,59 @@ export function PlatePageClient() {
     }
   }
 
-  if (!data) {
-    return <PlateLoading />;
-  }
-
   return (
     <div className="macros-fixed-inset-x fixed top-0 z-50 flex h-dvh flex-col overflow-hidden bg-background">
       <div className="flex-none bg-background">
         <HeaderChips
           selectedDate={selectedDate}
           selectedHour={selectedHour}
-          todayDate={dateFromIsoDate(data.today)}
+          todayDate={dateFromIsoDate(calorieSummary.today)}
           onDateChange={setSelectedDate}
           onHourChange={setSelectedHour}
           calorieSummary={{
-            ...data,
-            consumed: data.consumed + extraConsumed,
+            ...calorieSummary,
+            consumed: calorieSummary.consumed + extraConsumed,
           }}
-          pendingCount={pendingFoods.length}
-          pendingCalories={0}
+          pendingCount={0}
+          pendingCalories={pendingCaloriesToday}
           onViewPending={() => undefined}
         />
         <NavTabs />
       </div>
 
-      <div className="flex flex-none items-center gap-3 border-b border-border px-4 py-3">
+      <div className="flex flex-none items-center gap-2 border-b border-border px-3 py-3">
         <Button asChild type="button" variant="ghost" size="icon">
           <Link href="/app/add" aria-label="Back to search">
             <ArrowLeft className="size-5" />
           </Link>
         </Button>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-base font-semibold">Plate</h1>
-          <p className="text-xs text-muted-foreground">
-            {formatHourLabel(selectedHour)} on {logDate}
-          </p>
-        </div>
+        <h1 className="text-sm font-semibold">Plate</h1>
+        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+          {pendingFoods.length}
+        </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">
-        <div className="mb-4 grid grid-cols-4 gap-2 rounded-xl bg-muted/40 p-3 text-center">
-          <Macro label="kcal" value={totals.calories} />
-          <Macro label="P" value={totals.protein} />
-          <Macro label="F" value={totals.fat} />
-          <Macro label="C" value={totals.carbs} />
-        </div>
+      <div className="flex-none border-b border-border px-4 py-3">
+        <PendingMacroTotals
+          totals={totals}
+          targets={{
+            calories: calorieSummary.target,
+            protein: calorieSummary.proteinTarget,
+            fat: calorieSummary.fatTarget,
+            carbs: calorieSummary.carbsTarget,
+          }}
+        />
+      </div>
 
-        {pendingFoods.length === 0 ? (
-          <div className="px-6 py-14 text-center">
-            <p className="text-sm font-medium">Your plate is empty</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Add foods from search or the library.
-            </p>
-          </div>
-        ) : (
-          pendingFoods.map((food) => (
-            <div
-              key={food.uid}
-              className="flex items-center gap-3 border-b border-border/50 py-3"
-            >
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                <Flame className="size-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">
-                  {food.food.brand
-                    ? `${food.food.name} By ${food.food.brand}`
-                    : food.food.name}
-                </p>
-                <p className="text-xs tabular-nums text-muted-foreground">
-                  {Math.round(getPendingCalories(food))} kcal -{" "}
-                  {food.input.servingsConsumed.toFixed(
-                    food.input.servingsConsumed % 1 === 0 ? 0 : 1,
-                  )}{" "}
-                  serving
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => removePending(food.uid)}
-                aria-label="Remove from plate"
-                className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="size-4" />
-              </button>
-            </div>
-          ))
-        )}
+      <div className="flex-1 overflow-y-auto overscroll-contain">
+        {pendingFoods.map((food) => (
+          <PendingFoodRow
+            key={food.uid}
+            food={food}
+            onRemove={removePending}
+            onEdit={setEditingFood}
+          />
+        ))}
       </div>
 
       <div className="flex flex-none gap-2 border-t border-border bg-background px-3 pt-3 pb-safe-end">
@@ -308,6 +314,14 @@ export function PlatePageClient() {
           {isCommitting ? "Logging..." : "Log Plate"}
         </Button>
       </div>
+
+      <PlateEditDrawer
+        food={editingFood}
+        calorieSummary={calorieSummary}
+        onClose={() => setEditingFood(null)}
+        onSave={updatePending}
+        onRemove={removePending}
+      />
 
       <CreateRecipeDrawer
         open={recipeDialogOpen}
@@ -503,26 +517,55 @@ function CreateRecipeDrawer({
   );
 }
 
-function Macro({ label, value }: { label: string; value: number }) {
-  return (
-    <div>
-      <p className="text-lg font-semibold tabular-nums">{Math.round(value)}</p>
-      <p className="text-[10px] font-medium text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
 function PlateLoading() {
   return (
-    <div className="flex h-dvh flex-col bg-background">
-      <div className="px-3 pt-3 pb-2">
-        <Skeleton className="h-9 w-full rounded-full" />
+    <div className="macros-fixed-inset-x fixed top-0 z-50 flex h-dvh flex-col overflow-hidden bg-background">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 pt-3 pb-2">
+        <div className="flex items-center gap-2">
+          <Skeleton className="size-9 shrink-0 rounded-full" />
+          <Skeleton className="h-9 w-20 rounded-full" />
+        </div>
+        <Skeleton className="h-9.5 w-24.5 rounded-full" />
+        <span />
       </div>
-      <div className="px-4 py-4">
-        <Skeleton className="mb-4 h-20 rounded-xl" />
-        {[1, 2, 3].map((item) => (
-          <Skeleton key={item} className="mb-3 h-14 rounded-xl" />
+      <div className="flex items-stretch border-b border-border">
+        {[1, 2, 3, 4].map((tab) => (
+          <div key={tab} className="flex flex-1 justify-center py-3">
+            <Skeleton className="h-5 w-16" />
+          </div>
         ))}
+      </div>
+      <div className="flex items-center gap-2 border-b border-border px-3 py-3">
+        <Skeleton className="size-9 rounded-md" />
+        <Skeleton className="h-4 w-12" />
+      </div>
+      <div className="grid grid-cols-4 gap-3 border-b border-border px-4 py-3">
+        {[1, 2, 3, 4].map((macro) => (
+          <div key={macro} className="flex flex-col gap-1.5">
+            <Skeleton className="h-5 w-10" />
+            <Skeleton className="h-1 w-full rounded-full" />
+            <Skeleton className="h-2.5 w-12" />
+          </div>
+        ))}
+      </div>
+      <div className="flex-1">
+        {[1, 2, 3].map((row) => (
+          <div
+            key={row}
+            className="flex items-center gap-3 border-b border-border/50 px-4 py-3"
+          >
+            <Skeleton className="size-9 shrink-0 rounded-md" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <Skeleton className="h-3.5 w-3/5" />
+              <Skeleton className="h-3 w-2/5" />
+            </div>
+            <Skeleton className="size-8 shrink-0 rounded-full" />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2 border-t border-border px-3 pt-3 pb-safe-end">
+        <Skeleton className="h-11 flex-1 rounded-full" />
+        <Skeleton className="h-11 flex-1 rounded-full" />
       </div>
     </div>
   );

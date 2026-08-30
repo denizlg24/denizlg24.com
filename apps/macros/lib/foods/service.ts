@@ -30,6 +30,7 @@ import type {
   FoodSearchItem,
   LogFoodInput,
   LogFoodResult,
+  LogQuickAddInput,
   UpdateFoodInput,
 } from "@/lib/foods/contracts";
 import { externalFoodNutritionSchema } from "@/lib/foods/contracts";
@@ -1186,6 +1187,86 @@ export async function logExternalFood(
     clientMutationId: input.clientMutationId,
     foodId: resolvedFood.foodId,
     snapshotId: resolvedFood.snapshotId,
+    logDate,
+    eatenAt: eatenAt.toISOString(),
+    mealType,
+    totals: logged.totals,
+  };
+}
+
+/**
+ * Quick adds carry no food, snapshot or serving, so the four macros the owner
+ * typed are written straight onto the entry's nutrient rows.
+ */
+export async function logQuickAdd(userId: string, input: LogQuickAddInput) {
+  const timezone = await getUserTimezone(userId);
+  const eatenAt = input.eatenAt ? new Date(input.eatenAt) : new Date();
+  const logDate = input.logDate ?? toIsoDate(eatenAt, timezone);
+  const mealType =
+    input.mealType ?? inferMealType(getHourInTimezone(eatenAt, timezone));
+
+  const macros: Partial<Record<NutrientKey, number>> = {
+    calories: input.calories,
+    protein: input.protein ?? 0,
+    carbs: input.carbs ?? 0,
+    fat: input.fat ?? 0,
+  };
+
+  const logged = await db.transaction(async (tx) => {
+    const [entry] = await tx
+      .insert(foodLogEntries)
+      .values({
+        userId,
+        clientMutationId: input.clientMutationId,
+        logDate,
+        timezoneAtLog: timezone,
+        eatenAt,
+        mealType,
+        entryType: "quick_add",
+        foodName: input.name,
+        servingLabel: null,
+        servingQuantity: toNumericString(1),
+        servingUnit: "entry",
+        servingsConsumed: toNumericString(1),
+        notes: input.notes,
+      })
+      .onConflictDoNothing()
+      .returning({ id: foodLogEntries.id });
+
+    if (!entry) {
+      const existing = input.clientMutationId
+        ? await tx.query.foodLogEntries.findFirst({
+            where: and(
+              eq(foodLogEntries.userId, userId),
+              eq(foodLogEntries.clientMutationId, input.clientMutationId),
+            ),
+            columns: { id: true },
+          })
+        : null;
+      if (!existing) throw new Error("Failed to create quick add entry");
+      return {
+        entryId: existing.id,
+        totals: await refreshDailyNutritionSummary(tx, userId, logDate),
+      };
+    }
+
+    await tx.insert(foodLogEntryNutrients).values(
+      Object.entries(macros).map(([nutrientKey, amount]) => ({
+        entryId: entry.id,
+        nutrientKey: nutrientKey as NutrientKey,
+        amount: toNumericString(amount),
+      })),
+    );
+
+    return {
+      entryId: entry.id,
+      totals: await refreshDailyNutritionSummary(tx, userId, logDate),
+    };
+  });
+
+  return {
+    entryId: logged.entryId,
+    clientMutationId: input.clientMutationId,
     logDate,
     eatenAt: eatenAt.toISOString(),
     mealType,
