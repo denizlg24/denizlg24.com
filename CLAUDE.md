@@ -101,6 +101,22 @@ hint, not a platform ceiling.
 
 ### Things that will bite you
 
+- **A Forge build runs `next build` under Bun; CI runs it under Node.** `bun run`
+  hands a `#!/usr/bin/env node` bin to node when node is on PATH, and the runner
+  has one — the `oven/bun:*-alpine` build stages do not, and the nixpacks targets
+  pass `--bun` outright. So a green CI build says nothing about whether the same
+  commit deploys. Bun below **1.4.0** segfaults on every Next 16.3 build here
+  (oven-sh/bun#36866: next-swc's threads release a napi threadsafe function after
+  the page-data worker that created it is gone). It can crash *after* the build
+  finishes — a full route table and `exit 139` is this, not a broken app.
+- **`bunx` is not covered by the Bun version pin unless it is placed too.**
+  `injectBunVersion` copies `bun` into `/usr/local/forge-bin`; `bunx` in
+  `oven/bun` is an absolute symlink to a path the nixpacks image lacks, so it
+  cannot be copied and is symlinked instead. Every Turborepo target here opens
+  its build command with `bunx`, so without that link the build silently runs
+  nix's Bun 1.3.0 while the log says the pinned version was copied in. Read the
+  version off the crash report or `bun --version` in the build, never off that
+  log line.
 - **The healthcheck does not mean ready.** `createRuntimeApp()` is built lazily on
   the first `/api/*` request and `/healthz` sits outside `/api/*`. A container can
   report healthy having seeded no tasks, reconciled no Redis ACLs and started no

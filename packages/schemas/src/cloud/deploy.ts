@@ -112,12 +112,26 @@ export type DeployNodeVersion = z.infer<typeof deployNodeVersionSchema>;
  * because nixpacks hardcodes one nixpkgs commit for Bun and nothing surfaced
  * it.
  */
-export const DEPLOY_BUN_VERSIONS = ["1.2.23", "1.3.0", "1.3.14"] as const;
+export const DEPLOY_BUN_VERSIONS = [
+  "1.2.23",
+  "1.3.0",
+  "1.3.14",
+  "1.4.0",
+] as const;
 export const deployBunVersionSchema = z.enum(DEPLOY_BUN_VERSIONS);
 export type DeployBunVersion = z.infer<typeof deployBunVersionSchema>;
 
-/** What a Bun target gets when it has not pinned one. */
-export const DEFAULT_BUN_VERSION: DeployBunVersion = "1.3.14";
+/**
+ * What a Bun target gets when it has not pinned one.
+ *
+ * 1.4.0 rather than 1.3.14 because every Next.js target on this host builds
+ * with `next build`, and Next 16.3 collects page data in worker threads that
+ * next-swc's own threads outlive. Releasing a napi threadsafe function after
+ * the worker that created it is gone walks freed memory, and Bun segfaults —
+ * oven-sh/bun#36866, fixed after 1.3.14 was cut. Anything below 1.4.0 fails
+ * every Next 16.3 build here, whether or not the build itself had finished.
+ */
+export const DEFAULT_BUN_VERSION: DeployBunVersion = "1.4.0";
 
 /**
  * The Node a Bun target gets anyway.

@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.14-alpine AS dependencies
+FROM oven/bun:1.4.0-alpine AS dependencies
 WORKDIR /workspace
 
 COPY --parents package.json bun.lock apps/*/package.json packages/*/package.json ./

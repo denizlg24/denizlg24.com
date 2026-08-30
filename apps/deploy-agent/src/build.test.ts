@@ -198,6 +198,23 @@ describe("injectBunVersion", () => {
     );
   });
 
+  it("places bunx too, which a Turborepo build command opens with", () => {
+    const injected = injectBunVersion(dockerfile, "1.3.14").split("\n");
+    const link = injected.findIndex((line) =>
+      line.startsWith("RUN ln -sf /usr/local/forge-bin/bun "),
+    );
+    const build = injected.findIndex((line) => line.includes("bun run build"));
+
+    // A symlink, not a second COPY: `bunx` in `oven/bun` points at an absolute
+    // path this image does not have, so copying it lands dangling and every
+    // `bunx …` command silently falls back to nixpacks' Bun.
+    expect(injected.some((line) => line.includes("/usr/local/bin/bunx"))).toBe(
+      false,
+    );
+    expect(link).toBeGreaterThan(0);
+    expect(link).toBeLessThan(build);
+  });
+
   it("still places it when there is nothing but a start command", () => {
     const startOnly = [
       "FROM ghcr.io/railwayapp/nixpacks:ubuntu-1745885067",

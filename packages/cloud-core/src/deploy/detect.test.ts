@@ -328,7 +328,7 @@ describe("detectBuildConfig", () => {
     expect(bun.runtime).toBe("bun");
     // Not null: unset hands the choice back to nixpacks, which has no Bun
     // version knob and resolves 1.3.0 from a hardcoded nixpkgs commit.
-    expect(bun.runtimeVersion).toBe("1.3.14");
+    expect(bun.runtimeVersion).toBe("1.4.0");
     expect(node.runtime).toBe("node");
     expect(node.runtimeVersion).toBe("22");
   });
@@ -344,7 +344,7 @@ describe("detectBuildConfig", () => {
       }),
     );
 
-    expect(detected.runtimeVersion).toBe("1.3.14");
+    expect(detected.runtimeVersion).toBe("1.4.0");
   });
 
   it("reports unknown for a directory it cannot read", async () => {
@@ -463,7 +463,7 @@ describe("resolveBuildConfig", () => {
     });
 
     expect(resolved.runtimeVersion).toEqual({
-      value: "1.3.14",
+      value: "1.4.0",
       source: "preset",
     });
   });

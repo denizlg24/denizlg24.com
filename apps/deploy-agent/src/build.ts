@@ -149,6 +149,13 @@ const BUN_OVERRIDE_DIR = "/usr/local/forge-bin";
  * directory is jumped by the profile in every step that would use it. That last
  * line is the one hook that lands ahead of nix, which is why nixpacks itself
  * reaches `/app/node_modules/.bin` through `NIXPACKS_PATH` rather than PATH.
+ *
+ * `bunx` is placed too, and copying it is not an option: in `oven/bun` it is an
+ * absolute symlink to `/usr/local/bin/bun`, a path this image does not have, so
+ * a `COPY` of it lands dangling. Without it a build command that opens with
+ * `bunx` — which is how every Turborepo target here invokes turbo — resolves
+ * nix's `bunx`, which execs nix's Bun, and the whole override is bypassed while
+ * the log still claims the pinned version was copied in.
  */
 export function injectBunVersion(dockerfile: string, version: string): string {
   const lines = dockerfile.split("\n");
@@ -171,6 +178,7 @@ export function injectBunVersion(dockerfile: string, version: string): string {
   return [
     ...lines.slice(0, insertAt),
     `COPY --from=oven/bun:${version} /usr/local/bin/bun ${BUN_OVERRIDE_DIR}/bun`,
+    `RUN ln -sf ${BUN_OVERRIDE_DIR}/bun ${BUN_OVERRIDE_DIR}/bunx`,
     `ENV NIXPACKS_PATH=${BUN_OVERRIDE_DIR}:$NIXPACKS_PATH`,
     ...lines.slice(insertAt),
   ].join("\n");
