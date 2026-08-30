@@ -7,9 +7,9 @@ dependencies = [
   "fastapi==0.140.8",
   "numpy==2.4.2",
   "onnxruntime==1.27.0",
-  "pillow==12.1.1",
+  "pillow==12.3.0",
   "pydantic==2.12.5",
-  "python-multipart==0.0.22",
+  "python-multipart==0.0.31",
   "rapidocr==3.9.2",
   "uvicorn[standard]==0.41.0",
 ]
@@ -17,7 +17,7 @@ dependencies = [
 [dependency-groups]
 dev = [
   "httpx==0.28.1",
-  "pytest==9.0.2",
+  "pytest==9.0.3",
   "pytest-cov==7.0.0",
   "ruff==0.15.2",
 ]

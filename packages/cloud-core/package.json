@@ -30,16 +30,16 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/bun": "^1.3.14",
+    "@types/bun": "^1.4.0",
     "drizzle-kit": "^0.31.10",
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "@repo/schemas": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.0",
+    "hono": "^4.13.4",
     "meilisearch": "^0.60.0",
-    "mongodb": "^7.5.0",
+    "mongodb": "^7.6.0",
     "postgres": "^3.4.9"
   }
 }

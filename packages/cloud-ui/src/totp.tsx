@@ -58,7 +58,7 @@ export function TotpEnrollment({
         password,
       });
       if (!active) return;
-      if (enableError || !data) {
+      if (enableError || !data || data.method !== "totp") {
         onFailedRef.current(enableError?.message ?? "TOTP enrollment failed");
         return;
       }
