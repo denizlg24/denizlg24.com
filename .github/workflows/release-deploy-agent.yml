@@ -89,6 +89,7 @@ jobs:
     env:
       FORGE_HOST: ${{ vars.FORGE_TAILNET_HOST }}
       DEPLOY_MODE: ${{ inputs.mode || 'deploy' }}
+      DR_FENCING_ENABLED: ${{ vars.DR_FORGE_FENCING_ENABLED }}
     steps:
       - name: Check out service assets
         uses: actions/checkout@v7
@@ -111,6 +112,7 @@ jobs:
         run: |
           test -n "$FORGE_HOST"
           [[ "$FORGE_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ -z "$DR_FENCING_ENABLED" || "$DR_FENCING_ENABLED" == true ]]
 
       - name: Resolve the host on the tailnet
         run: |
@@ -124,12 +126,17 @@ jobs:
           echo "FORGE_ADDR=$FORGE_ADDR" >> "$GITHUB_ENV"
 
       - name: Fence the Forge backup snapshot
+        if: env.DR_FENCING_ENABLED == 'true'
         run: |
           lock_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-forge-agent"
           [[ "$lock_token" =~ ^[0-9]+-[0-9]+-forge-agent$ ]]
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${FORGE_ADDR}" \
             "set -e; lease=\$(dig @1.1.1.1 +short TXT _active-site-forge.denizlg24.com | tr -d '\"' | head -1); test \"\$lease\" = home; lock=/var/lib/deniz-dr/locks/forge.lock; mkdir \"\$lock\"; printf '%s\\n' '$lock_token' > \"\$lock/owner\""
           echo "DR_DEPLOY_LOCK_TOKEN=$lock_token" >> "$GITHUB_ENV"
+
+      - name: Record deferred DR fencing
+        if: env.DR_FENCING_ENABLED != 'true'
+        run: echo '::notice::Forge DR fencing is deferred until DR_FORGE_FENCING_ENABLED is set to true.'
 
       - name: Install current disaster-recovery tooling
         run: |

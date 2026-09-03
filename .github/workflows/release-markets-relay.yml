@@ -141,6 +141,7 @@ jobs:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
       PI_HOST: ${{ vars.PI_TAILNET_HOST }}
       DEPLOY_MODE: ${{ inputs.mode || 'deploy' }}
+      DR_FENCING_ENABLED: ${{ vars.DR_PI_FENCING_ENABLED }}
     steps:
       - name: Check out deployment assets
         uses: actions/checkout@v7
@@ -160,6 +161,7 @@ jobs:
           test -n "$IMAGE_TAG"
           [[ "$PI_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
           [[ "$IMAGE_TAG" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "$DR_FENCING_ENABLED" || "$DR_FENCING_ENABLED" == true ]]
 
       - name: Resolve the Pi on the tailnet
         run: |
@@ -173,12 +175,17 @@ jobs:
           echo "PI_ADDR=$PI_ADDR" >> "$GITHUB_ENV"
 
       - name: Fence the Pi backup snapshot
+        if: env.DR_FENCING_ENABLED == 'true'
         run: |
           lock_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-markets"
           [[ "$lock_token" =~ ^[0-9]+-[0-9]+-markets$ ]]
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             "set -e; lease=\$(dig @1.1.1.1 +short TXT _active-site-pi.denizlg24.com | tr -d '\"' | head -1); test \"\$lease\" = home; lock=/var/lib/deniz-dr/locks/pi-cloud.lock; mkdir \"\$lock\"; printf '%s\\n' '$lock_token' > \"\$lock/owner\""
           echo "DR_DEPLOY_LOCK_TOKEN=$lock_token" >> "$GITHUB_ENV"
+
+      - name: Record deferred DR fencing
+        if: env.DR_FENCING_ENABLED != 'true'
+        run: echo '::notice::Pi DR fencing is deferred until DR_PI_FENCING_ENABLED is set to true.'
 
       - name: Copy the compose file
         run: |

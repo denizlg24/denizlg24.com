@@ -14,6 +14,15 @@ This directory implements the reviewed Pi Cloud + Forge disaster-recovery contra
 7. Confirm OpenTofu created the five public monitors, eight independent heartbeats, escalation policy, monitor/heartbeat groups, and maintenance windows. Configure the GitHub weekly incident secrets, trigger the workflow once, and acknowledge the labelled incident.
 8. Print `break-glass-card.md`; keep one copy offline with the credential-location inventory, never credential values.
 
+The release workflows deliberately leave coordinated backup fencing disabled
+during this bootstrap sequence. After `install-host` has created the lock roots,
+OpenTofu has created both `home` active-site TXT leases, and `dig` is installed
+on both hosts, enable enforcement with
+`gh variable set DR_PI_FENCING_ENABLED --body true` and
+`gh variable set DR_FORGE_FENCING_ENABLED --body true`. Rerun each release
+workflow in validate mode before the next production deploy. An unset variable
+is bootstrap mode; any value other than the exact string `true` is rejected.
+
 ## Routine proof
 
 - Host backups run every six hours. A Pi success now means each PostgreSQL database was dumped from an exported repeatable-read snapshot, global role/database state stayed unchanged, and PostgreSQL, MongoDB, and Redis artifacts were restored into network-isolated containers created from the exact live image IDs before publication. Redis evidence includes absolute expirations. The filesystem transaction covers both namespace branches and the separate authoritative project S3 object tree; every archive is limited to the exact manifest path set with before/after inventories. Partial uploads and generated ZIP archives remain disposable. The Linux CI contract also restores a synthetic three-tree snapshot with ACLs, xattrs, sparse extents, ownership, modes, mtimes, counts, and full hashes. A success heartbeat additionally means restic backup/prune/check, signed READY publication, and group-readable immutable repository state all completed. Failure calls the same Better Stack heartbeat's `/fail` endpoint immediately; `backup_failure_urls` is also emitted by OpenTofu for explicit host configuration.

@@ -68,7 +68,6 @@ jobs:
       - name: Boot and health-check metadata artifact
         env:
           STORAGE_METADATA_SOCKET: /tmp/cloud-storage-metadata.sock
-          STORAGE_METADATA_SOCKET_GID: "1000"
           STORAGE_METADATA_TOKEN: ci-only-metadata-token
           STORAGE_NAMESPACE_ROOT: /tmp/cloud-storage-namespace
           STORAGE_NAMESPACE_WITNESS_PATH_HOST: /tmp/cloud-storage-namespace/.witness
@@ -76,14 +75,18 @@ jobs:
         run: |
           mkdir -p /tmp/cloud-storage-namespace
           echo ci-mounted > /tmp/cloud-storage-namespace/.witness
-          "dist/${{ matrix.arch }}/cloud-storage-metadata" >metadata.log 2>&1 &
+          # Production starts this root-owned socket broker as root. Exercise
+          # that same ownership path instead of asking an unprivileged runner
+          # to chown the socket to uid 0.
+          sudo --preserve-env=STORAGE_METADATA_SOCKET,STORAGE_METADATA_TOKEN,STORAGE_NAMESPACE_ROOT,STORAGE_NAMESPACE_WITNESS_PATH_HOST,STORAGE_NAMESPACE_WITNESS_VALUE \
+            env STORAGE_METADATA_SOCKET_GID="$(id -g)" \
+            "dist/${{ matrix.arch }}/cloud-storage-metadata" &
           metadata_pid=$!
           trap 'kill "$metadata_pid" 2>/dev/null || true' EXIT
           for _ in {1..30}; do
             curl --fail --silent --unix-socket /tmp/cloud-storage-metadata.sock http://localhost/healthz >/dev/null && exit 0
             sleep 1
           done
-          cat metadata.log >&2
           exit 1
       - uses: actions/upload-artifact@v4
         with:
@@ -100,6 +103,7 @@ jobs:
     timeout-minutes: 15
     env:
       PI_HOST: ${{ vars.PI_HOST }}
+      DR_FENCING_ENABLED: ${{ vars.DR_PI_FENCING_ENABLED }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -117,17 +121,24 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
-      - name: Resolve Pi and acquire coordinated host lock
+      - name: Resolve Pi
         run: |
           test -n "$PI_HOST"
           [[ "$PI_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ -z "$DR_FENCING_ENABLED" || "$DR_FENCING_ENABLED" == true ]]
           PI_ADDR="$(tailscale ip -4 "$PI_HOST")"
           [[ "$PI_ADDR" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "PI_ADDR=$PI_ADDR" >> "$GITHUB_ENV"
+      - name: Acquire coordinated host lock
+        if: env.DR_FENCING_ENABLED == 'true'
+        run: |
           lock_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-cloud-binaries"
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "denizlg24@${PI_ADDR}" \
             "set -e; lease=\$(dig @1.1.1.1 +short TXT _active-site-pi.denizlg24.com | tr -d '\"' | head -1); test \"\$lease\" = home; lock=/var/lib/deniz-dr/locks/pi-cloud.lock; mkdir \"\$lock\"; printf '%s\\n' '$lock_token' > \"\$lock/owner\""
           echo "DR_DEPLOY_LOCK_TOKEN=$lock_token" >> "$GITHUB_ENV"
+      - name: Record deferred DR fencing
+        if: env.DR_FENCING_ENABLED != 'true'
+        run: echo '::notice::Pi DR fencing is deferred until DR_PI_FENCING_ENABLED is set to true.'
       - name: Install and verify architecture bundle
         run: |
           chmod 0755 dist/{amd64,arm64}/cloud-terminal dist/{amd64,arm64}/cloud-storage-metadata

@@ -24,7 +24,14 @@ dr_require_commands() {
 dr_require_private_file() {
   local path="$1" mode
   [[ -f "$path" && ! -L "$path" ]] || dr_die "required private file is missing or unsafe: ${path}"
-  mode="$(stat -f '%Lp' "$path" 2>/dev/null || stat -c '%a' "$path")"
+  # GNU stat accepts -f, but it means "file-system status" rather than the
+  # BSD/macOS format flag. Probe the GNU form first so its diagnostic output
+  # cannot be mistaken for a permission mode on Linux.
+  if mode="$(stat -c '%a' "$path" 2>/dev/null)"; then
+    :
+  else
+    mode="$(stat -f '%Lp' "$path")"
+  fi
   [[ "$mode" == 600 || "$mode" == 400 ]] || dr_die "private file must have mode 0600 or 0400: ${path} (is ${mode})"
 }
 
